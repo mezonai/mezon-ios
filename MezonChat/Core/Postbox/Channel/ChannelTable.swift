@@ -116,7 +116,7 @@ final class ChannelTable: Table {
 
     func updateMembers(_ members: [ChannelMemberRecord], channelId: Int64) {
         var record = currentMeta(channelId: channelId)
-        record.members = members
+        record.members = ChannelMemberRecord.deduplicatedByUserId(members)
         setChannelMeta(record)
     }
 

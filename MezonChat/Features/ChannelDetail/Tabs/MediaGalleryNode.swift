@@ -160,7 +160,12 @@ final class MediaGalleryNode: ASDisplayNode {
     }
 
     private static func isVideo(_ att: Mezon_Api_ChannelAttachment) -> Bool {
-        att.filetype.lowercased().hasPrefix("video/")
+        let filetype = att.filetype.lowercased()
+        if filetype.hasPrefix("video/") { return true }
+        let filenameExtension = (att.filename as NSString).pathExtension.lowercased()
+        let urlExtension = URL(string: att.url)?.pathExtension.lowercased() ?? ""
+        return ["mp4", "mov", "m4v", "webm"].contains(filenameExtension)
+            || ["mp4", "mov", "m4v", "webm"].contains(urlExtension)
     }
 
     private func gridItemSide(collectionWidth: CGFloat) -> CGFloat {
@@ -168,12 +173,6 @@ final class MediaGalleryNode: ASDisplayNode {
         let spacing = flowLayout.minimumInteritemSpacing
         let inner = max(0, collectionWidth - spacing * (columns - 1))
         return max(1, floor(inner / columns))
-    }
-
-    private func fullScreenProxyPixels() -> Int {
-        let longest = max(UIScreen.main.bounds.width, UIScreen.main.bounds.height)
-        let px = Int((longest * UIScreen.main.scale).rounded(.up))
-        return max(512, min(px, 2048))
     }
 
     override func layout() {
@@ -188,33 +187,46 @@ final class MediaGalleryNode: ASDisplayNode {
         }
     }
 
-    private func presentGallery(startingAt index: Int) {
+    private func presentGallery(startingAt index: Int, previewImage: UIImage? = nil) {
         guard index >= 0, index < attachments.count else { return }
-        let fullPx = fullScreenProxyPixels()
-        let items: [GalleryItemInfo] = attachments.map { att in
+        let items: [GalleryItemInfo] = attachments.enumerated().map { (itemIndex, att) in
             let isVideo = Self.isVideo(att)
-            let url: String
-            var placeholderURL: String? = nil
-            if isVideo {
-                url = att.url
-            } else {
-                url = ImgproxyURL.attachmentURL(
-                    from: att.url, width: fullPx, height: fullPx, resizeType: "fit")
-                placeholderURL = ImgproxyURL.attachmentURL(
-                    from: att.url, width: 150, height: 150, resizeType: "fit")
-            }
+            let imageThumbURL = ImgproxyURL.attachmentURL(
+                from: att.url, width: 150, height: 150, resizeType: "fit")
+            let preview = itemIndex == index
+                ? (previewImage
+                    ?? ImageCache.shared.memoryImage(forKey: imageThumbURL)
+                    ?? GalleryItemInfo.fitCachedPreviewMemory(sourceURL: att.url, placeholderProxySize: 150))
+                : nil
             let ts: Date? =
                 att.createTimeSeconds > 0
                 ? Date(timeIntervalSince1970: TimeInterval(att.createTimeSeconds)) : nil
-            return GalleryItemInfo(
-                url: url,
+            if isVideo {
+                let videoPreview = itemIndex == index
+                    ? (previewImage
+                        ?? ImageCache.shared.memoryImage(forKey: imageThumbURL)
+                        ?? GalleryItemInfo.fitCachedPreviewMemory(
+                            sourceURL: att.url, placeholderProxySize: 150))
+                    : nil
+                return GalleryItemInfo(
+                    url: att.url,
+                    sourceURL: att.url,
+                    image: videoPreview,
+                    placeholderURL: nil,
+                    senderName: "",
+                    senderAvatarURL: nil,
+                    timestamp: ts,
+                    isVideo: true
+                )
+            }
+            return GalleryItemInfo.imageItem(
                 sourceURL: att.url,
-                image: nil,
-                placeholderURL: placeholderURL,
+                image: preview,
+                pixelSize: GalleryItemInfo.pixelSize(width: Int(att.width), height: Int(att.height)),
+                placeholderProxySize: 150,
                 senderName: "",
                 senderAvatarURL: nil,
-                timestamp: ts,
-                isVideo: isVideo
+                timestamp: ts
             )
         }
         let gallery = GalleryController(items: items, initialIndex: index)
@@ -320,11 +332,15 @@ extension MediaGalleryNode: ASCollectionDataSource, ASCollectionDelegate {
             from: attachment.url, width: 150, height: 150, resizeType: "fit")
         let index = indexPath.item
         return { [weak self] in
-            let cell = MediaThumbCellNode(
+            var cell: MediaThumbCellNode!
+            cell = MediaThumbCellNode(
                 rawSourceURL: attachment.url,
                 imageThumbnailURL: imageThumbURL,
                 isVideo: isVideo,
-                onTap: { self?.presentGallery(startingAt: index) }
+                onTap: { [weak self, weak cell] in
+                    let preview = ImageCache.shared.memoryImage(forKey: imageThumbURL) ?? cell?.displayImage
+                    self?.presentGallery(startingAt: index, previewImage: preview)
+                }
             )
             return cell
         }
@@ -380,6 +396,20 @@ private final class MediaThumbCellNode: ASCellNode {
 
     @objc private func handleTap() {
         onTap()
+    }
+
+    var currentImage: UIImage? {
+        displayImage
+    }
+
+    var displayImage: UIImage? {
+        if let image = imageNode.image {
+            return image
+        }
+        guard let contents = imageNode.layer.contents else { return nil }
+        let typeID = CFGetTypeID(contents as CFTypeRef)
+        guard typeID == CGImage.typeID else { return nil }
+        return UIImage(cgImage: contents as! CGImage)
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {

@@ -108,6 +108,9 @@ final class ThreadListViewController: ViewController {
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleChannelDescriptionDidUpdate(_:)),
             name: .mezonChannelDescriptionDidUpdate, object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleUserChannelAddedFromSocket(_:)),
+            name: .mezonUserChannelAddedFromSocket, object: nil)
 
         applyCachedThreadsIfAny()
         rebuildSections()
@@ -117,6 +120,11 @@ final class ThreadListViewController: ViewController {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        refreshThreadsFromLocalCaches()
     }
 
     @objc private func handleThemeChange() {
@@ -148,13 +156,29 @@ final class ThreadListViewController: ViewController {
             return
         }
 
-        let existing = allThreads.first(where: { $0.channelID == channelId })
-        if updated.parentID == 0, let existing {
-            updated.parentID = existing.parentID
-        }
-        guard updated.parentID == parentChannelId || existing != nil else { return }
+        applyLocalThreadChannelUpdate(updated)
+    }
 
-        allThreads = Self.filterPrivateThreads(Self.mergeThreads([updated], withFallback: allThreads))
+    @objc private func handleUserChannelAddedFromSocket(_ notification: Notification) {
+        guard let updatedClanId = Self.int64UserInfo(notification.userInfo?["clanId"]),
+              updatedClanId == clanId,
+              let updated = notification.userInfo?["channel"] as? Mezon_Api_ChannelDescription,
+              updated.channelID != 0 else {
+            return
+        }
+        applyLocalThreadChannelUpdate(updated)
+    }
+
+    private func applyLocalThreadChannelUpdate(_ updated: Mezon_Api_ChannelDescription) {
+        let channelId = updated.channelID
+        let existing = allThreads.first(where: { $0.channelID == channelId })
+        var thread = updated
+        if thread.parentID == 0, let existing {
+            thread.parentID = existing.parentID
+        }
+        guard thread.parentID == parentChannelId || existing != nil else { return }
+
+        allThreads = Self.filterPrivateThreads(Self.mergeThreads([thread], withFallback: allThreads))
         if !searchText.isEmpty {
             searchResults = Self.sortedByLastActivity(
                 allThreads.filter {
@@ -164,6 +188,12 @@ final class ThreadListViewController: ViewController {
         }
         cachedClanMembersList = nil
         persistThreadsCache()
+        rebuildSections()
+        tableView.reloadData()
+    }
+
+    private func refreshThreadsFromLocalCaches() {
+        applyCachedThreadsIfAny()
         rebuildSections()
         tableView.reloadData()
     }

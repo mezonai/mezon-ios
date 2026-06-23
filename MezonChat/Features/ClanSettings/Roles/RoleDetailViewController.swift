@@ -577,7 +577,11 @@ final class RoleDetailViewController: BaseViewController {
         deleteButton.isHidden = isEveryone || !canEdit
 
         let dirty = !isNotChanged()
+        let hasValidName = !currentTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let canSave = dirty && hasValidName
         saveButton.isHidden = !dirty
+        saveButton.isEnabled = canSave
+        saveButton.alpha = canSave ? 1.0 : 0.4
     }
 
     private func isNotChanged() -> Bool {
@@ -604,6 +608,7 @@ final class RoleDetailViewController: BaseViewController {
 
     @objc private func saveTapped() {
         guard !isNotChanged() else { return }
+        guard !currentTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let titleChanged = currentTitle != originalTitle
         let colorChanged = currentColor != originalColor
         let titleValue = titleChanged ? currentTitle : nil

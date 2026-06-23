@@ -38,6 +38,13 @@ final class ImageCache {
         return URLSession(configuration: config)
     }()
 
+    private let imageSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.httpMaximumConnectionsPerHost = 8
+        config.timeoutIntervalForRequest = 30
+        return URLSession(configuration: config)
+    }()
+
     private var inflightCallbacks: [String: [(UIImage?) -> Void]] = [:]
     private let inflightLock = NSLock()
 
@@ -177,18 +184,37 @@ final class ImageCache {
             return nil
         }
 
+        inflightLock.lock()
+        if inflightCallbacks[urlString] != nil {
+            inflightCallbacks[urlString]?.append(completion)
+            inflightLock.unlock()
+            return nil
+        }
+        inflightCallbacks[urlString] = [completion]
+        inflightLock.unlock()
+
+        let fetchAndDeliver: (UIImage?) -> Void = { [weak self] image in
+            guard let self else { return }
+            self.inflightLock.lock()
+            let callbacks = self.inflightCallbacks.removeValue(forKey: urlString) ?? []
+            self.inflightLock.unlock()
+            DispatchQueue.main.async {
+                for cb in callbacks { cb(image) }
+            }
+        }
+
         if hasDiskCache(forKey: urlString) {
             imageFromDisk(forKey: urlString) { [weak self] diskImage in
                 if let diskImage {
-                    completion(diskImage)
+                    fetchAndDeliver(diskImage)
                 } else {
-                    self?.downloadImage(url: url, key: urlString, completion: completion)
+                    _ = self?.downloadImage(url: url, key: urlString, completion: fetchAndDeliver)
                 }
             }
             return nil
         }
 
-        return downloadImage(url: url, key: urlString, completion: completion)
+        return downloadImage(url: url, key: urlString, completion: fetchAndDeliver)
     }
 
     private static let maxImageDownloadRetries = 2
@@ -224,12 +250,15 @@ final class ImageCache {
         attempt: Int,
         completion: @escaping (UIImage?) -> Void
     ) -> URLSessionDataTask {
-        let task = URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+        let task = imageSession.dataTask(with: url) { [weak self] data, response, error in
             guard let self else {
                 DispatchQueue.main.async { completion(nil) }
                 return
             }
-            if Self.isCancellation(error) { return }
+            if Self.isCancellation(error) {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
 
             if Self.responseStatusAcceptable(response),
                let data,
@@ -492,7 +521,7 @@ private func emptyDrawingTransform() -> (TransformImageArguments) -> DrawingCont
 
 func remoteImageSignal(url: String, resizeMode: ImageResizeMode = .fit) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
     return Signal { subscriber in
-        guard let imageURL = URL(string: url), !url.isEmpty else {
+        guard !url.isEmpty else {
             subscriber.putNext(emptyDrawingTransform())
             subscriber.putCompletion()
             return EmptyDisposable
@@ -506,44 +535,21 @@ func remoteImageSignal(url: String, resizeMode: ImageResizeMode = .fit) -> Signa
         }
 
         let cancelled = Atomic<Bool>(value: false)
-        var dataTask: URLSessionDataTask?
 
-        cache.imageFromDisk(forKey: url) { diskImage in
+        func deliver(_ image: UIImage?) {
             guard !cancelled.with({ $0 }) else { return }
-            if let diskImage {
-                subscriber.putNext(makeTransform(for: diskImage, resizeMode: resizeMode))
-                subscriber.putCompletion()
-                return
+            if let image {
+                subscriber.putNext(makeTransform(for: image, resizeMode: resizeMode))
+            } else {
+                subscriber.putNext(emptyDrawingTransform())
             }
-            let task = URLSession.shared.dataTask(with: imageURL) { data, _, error in
-                guard !cancelled.with({ $0 }) else { return }
-                if let error {
-                    SentryLogger.captureMediaError(error, extras: [
-                        "where": "remoteImageSignal",
-                        "url": url,
-                    ])
-                }
-                guard let data else {
-                    subscriber.putNext(emptyDrawingTransform())
-                    subscriber.putCompletion()
-                    return
-                }
-                let image = UIImage.decompressedImage(from: data)
-                if let image {
-                    cache.setImage(image, data: data, forKey: url)
-                    subscriber.putNext(makeTransform(for: image, resizeMode: resizeMode))
-                } else {
-                    subscriber.putNext(emptyDrawingTransform())
-                }
-                subscriber.putCompletion()
-            }
-            dataTask = task
-            task.resume()
+            subscriber.putCompletion()
         }
+
+        cache.loadImage(urlString: url, completion: deliver)
 
         return ActionDisposable {
             let _ = cancelled.modify { _ in true }
-            dataTask?.cancel()
         }
     }
 }
@@ -551,7 +557,6 @@ func remoteImageSignal(url: String, resizeMode: ImageResizeMode = .fit) -> Signa
 func remoteAttachmentImageSignal(proxyURL: String, originalURL: String, resizeMode: ImageResizeMode = .fit) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
     Signal { subscriber in
         let cancelled = Atomic<Bool>(value: false)
-        var dataTask: URLSessionDataTask?
 
         func finishEmpty() {
             guard !cancelled.with({ $0 }) else { return }
@@ -565,30 +570,6 @@ func remoteAttachmentImageSignal(proxyURL: String, originalURL: String, resizeMo
             subscriber.putCompletion()
         }
 
-        func loadFromNetwork(_ urlString: String, onFailure: @escaping () -> Void) {
-            guard let imageURL = URL(string: urlString), !urlString.isEmpty else {
-                onFailure()
-                return
-            }
-            let task = URLSession.shared.dataTask(with: imageURL) { data, _, error in
-                guard !cancelled.with({ $0 }) else { return }
-                if let error {
-                    SentryLogger.captureMediaError(error, extras: [
-                        "where": "remoteAttachmentImageSignal",
-                        "url": urlString,
-                    ])
-                }
-                guard let data, let image = UIImage.decompressedImage(from: data) else {
-                    onFailure()
-                    return
-                }
-                ImageCache.shared.setImage(image, data: data, forKey: urlString)
-                emitImage(image)
-            }
-            dataTask = task
-            task.resume()
-        }
-
         func tryUrl(_ urlString: String, thenFallback: @escaping () -> Void) {
             guard !urlString.isEmpty else {
                 thenFallback()
@@ -599,13 +580,13 @@ func remoteAttachmentImageSignal(proxyURL: String, originalURL: String, resizeMo
                 emitImage(cached)
                 return
             }
-            cache.imageFromDisk(forKey: urlString) { diskImage in
+            cache.loadImage(urlString: urlString) { image in
                 guard !cancelled.with({ $0 }) else { return }
-                if let diskImage {
-                    emitImage(diskImage)
-                    return
+                if let image {
+                    emitImage(image)
+                } else {
+                    thenFallback()
                 }
-                loadFromNetwork(urlString, onFailure: thenFallback)
             }
         }
 
@@ -627,7 +608,6 @@ func remoteAttachmentImageSignal(proxyURL: String, originalURL: String, resizeMo
 
         return ActionDisposable {
             let _ = cancelled.modify { _ in true }
-            dataTask?.cancel()
         }
     }
 }
@@ -765,10 +745,6 @@ func prefetchImages(urls: [String]) {
             cache.imageFromDisk(forKey: url) { _ in }
             continue
         }
-        guard let imageURL = URL(string: url) else { continue }
-        URLSession.shared.dataTask(with: imageURL) { data, _, _ in
-            guard let data, let image = UIImage.decompressedImage(from: data) else { return }
-            cache.setImage(image, data: data, forKey: url)
-        }.resume()
+        cache.loadImage(urlString: url) { _ in }
     }
 }

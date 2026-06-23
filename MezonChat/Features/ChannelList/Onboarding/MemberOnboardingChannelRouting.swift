@@ -3,6 +3,7 @@ import Foundation
 struct MemberOnboardingChannelNavigation {
     let openChat: (Mezon_Api_ChannelDescription) -> Void
     let presentVoice: (Mezon_Api_ChannelDescription) -> Void
+    let presentStream: (Mezon_Api_ChannelDescription) -> Void
 }
 
 enum MemberOnboardingChannelRouting {
@@ -30,6 +31,8 @@ enum MemberOnboardingChannelRouting {
         let navigate: (Mezon_Api_ChannelDescription) -> Void = { channel in
             if channel.type == MezonConstants.ChannelType.mezonVoice.rawValue {
                 navigation.presentVoice(channel)
+            } else if channel.type == MezonConstants.ChannelType.streaming.rawValue {
+                navigation.presentStream(channel)
             } else {
                 navigation.openChat(channel)
             }

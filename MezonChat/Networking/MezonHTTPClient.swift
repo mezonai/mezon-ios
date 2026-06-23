@@ -6,7 +6,7 @@ import Network
 final class MezonHTTPClient {
 
     static let shared = MezonHTTPClient()
-    var bearerUnauthorizedRecovery: (() async throws -> String?)?
+    var bearerUnauthorizedRecovery: ((_ failedToken: String, _ statusCode: Int) async throws -> String?)?
 
     private let urlSession: URLSession
     private let uploadURLSession: URLSession
@@ -59,6 +59,14 @@ final class MezonHTTPClient {
         } else {
             return try await legacyData(for: request)
         }
+    }
+
+    private static func bearerToken(from authorizationHeader: String?) -> String? {
+        guard let authorizationHeader else { return nil }
+        let prefix = "Bearer "
+        guard authorizationHeader.hasPrefix(prefix) else { return nil }
+        let token = String(authorizationHeader.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        return token.isEmpty ? nil : token
     }
 
     private func legacyData(for request: URLRequest) async throws -> (Data, URLResponse) {
@@ -384,12 +392,23 @@ final class MezonHTTPClient {
         var req = Mezon_Api_SessionRefreshRequest()
         req.token = refreshToken
         req.vars = ["m": "true"]
-        let apiSession: Mezon_Api_Session = try await postProto(
-            path: "/mezon.api.Mezon/SessionRefresh",
-            message: req,
-            auth: .serverKey
-        )
-        return MezonSession.fromProto(apiSession)
+        let started = Date()
+        SessionRefreshDebugLog.log("http.sessionRefresh start refresh=\(SessionRefreshDebugLog.token(refreshToken))")
+        do {
+            let apiSession: Mezon_Api_Session = try await postProto(
+                path: "/mezon.api.Mezon/SessionRefresh",
+                message: req,
+                auth: .serverKey
+            )
+            let session = MezonSession.fromProto(apiSession)
+            let ms = Int(Date().timeIntervalSince(started) * 1000)
+            SessionRefreshDebugLog.log("http.sessionRefresh success elapsedMs=\(ms) session=\(SessionRefreshDebugLog.session(session))")
+            return session
+        } catch {
+            let ms = Int(Date().timeIntervalSince(started) * 1000)
+            SessionRefreshDebugLog.log("http.sessionRefresh fail elapsedMs=\(ms) error=\(SessionRefreshDebugLog.error(error))")
+            throw error
+        }
     }
 
     func sessionLogout(session: MezonSession, deviceId: String = "", platform: String = "") async throws {
@@ -2325,21 +2344,54 @@ final class MezonHTTPClient {
         }
 
         if allowBearerRetry,
-            http.statusCode == 401 || http.statusCode == 403,
-            case .bearer = auth,
-            let recovery = bearerUnauthorizedRecovery,
-           let newToken = try await recovery() {
-            return try await postProtoHTTP(
-                path: path,
-                message: message,
-                auth: .bearer(newToken),
-                allowBearerRetry: false
-            )
+           isBearerAuthenticationFailure(httpStatusCode: http.statusCode, data: data),
+           case .bearer(let failedToken) = auth,
+           let recovery = bearerUnauthorizedRecovery {
+            SessionRefreshDebugLog.log("http.postProto bearer-recovery start path=\(path) status=\(http.statusCode) failed=\(SessionRefreshDebugLog.token(failedToken))")
+            let newToken = try await recovery(failedToken, http.statusCode)
+            if let newToken,
+               !newToken.isEmpty,
+               newToken != failedToken {
+                SessionRefreshDebugLog.log("http.postProto bearer-recovery retry path=\(path) new=\(SessionRefreshDebugLog.token(newToken))")
+                return try await postProtoHTTP(
+                    path: path,
+                    message: message,
+                    auth: .bearer(newToken),
+                    allowBearerRetry: false
+                )
+            }
+            SessionRefreshDebugLog.log("http.postProto bearer-recovery stop path=\(path) returned=\(SessionRefreshDebugLog.token(newToken))")
         }
 
         let msg = apiFailureMessage(httpStatusCode: http.statusCode, data: data)
         MezonRPCLog.response("HTTP \(path) FAIL status=\(http.statusCode) elapsedMs=\(ms) msg='\(msg)'")
         throw MezonError.httpError(statusCode: http.statusCode, message: msg)
+    }
+
+    private func isBearerAuthenticationFailure(httpStatusCode: Int, data: Data) -> Bool {
+        if httpStatusCode == 401 {
+            return true
+        }
+        guard httpStatusCode == 403 else {
+            return false
+        }
+        if let apiError = try? JSONDecoder().decode(APIError.self, from: data) {
+            if apiError.code == 10 {
+                return true
+            }
+            let text = apiError.message?.lowercased() ?? ""
+            return text.contains("authenticate")
+                || text.contains("unauthorized")
+                || text.contains("token")
+                || text.contains("jwt")
+        }
+        if let text = String(data: data, encoding: .utf8)?.lowercased(), !text.isEmpty {
+            return text.contains("authenticate")
+                || text.contains("unauthorized")
+                || text.contains("token")
+                || text.contains("jwt")
+        }
+        return true
     }
 
     private func apiFailureMessage(httpStatusCode: Int, data: Data) -> String {
@@ -2382,17 +2434,24 @@ final class MezonHTTPClient {
         }
 
         if allowBearerRetry,
-            http.statusCode == 401 || http.statusCode == 403,
-            case .bearer = auth,
-            let recovery = bearerUnauthorizedRecovery,
-           let newToken = try await recovery() {
-            try await postProtoIgnoringBody(
-                path: path,
-                message: message,
-                auth: .bearer(newToken),
-                allowBearerRetry: false
-            )
-            return
+           isBearerAuthenticationFailure(httpStatusCode: http.statusCode, data: data),
+           case .bearer(let failedToken) = auth,
+           let recovery = bearerUnauthorizedRecovery {
+            SessionRefreshDebugLog.log("http.postProtoIgnoringBody bearer-recovery start path=\(path) status=\(http.statusCode) failed=\(SessionRefreshDebugLog.token(failedToken))")
+            let newToken = try await recovery(failedToken, http.statusCode)
+            if let newToken,
+               !newToken.isEmpty,
+               newToken != failedToken {
+                SessionRefreshDebugLog.log("http.postProtoIgnoringBody bearer-recovery retry path=\(path) new=\(SessionRefreshDebugLog.token(newToken))")
+                try await postProtoIgnoringBody(
+                    path: path,
+                    message: message,
+                    auth: .bearer(newToken),
+                    allowBearerRetry: false
+                )
+                return
+            }
+            SessionRefreshDebugLog.log("http.postProtoIgnoringBody bearer-recovery stop path=\(path) returned=\(SessionRefreshDebugLog.token(newToken))")
         }
 
         let msg = apiFailureMessage(httpStatusCode: http.statusCode, data: data)
@@ -2450,13 +2509,20 @@ final class MezonHTTPClient {
         }
 
         if allowBearerRetry,
-            http.statusCode == 401 || http.statusCode == 403,
-            request.value(forHTTPHeaderField: "Authorization")?.hasPrefix("Bearer ") == true,
-            let recovery = bearerUnauthorizedRecovery,
-           let newToken = try await recovery() {
-            var retry = request
-            retry.setValue("Bearer \(newToken)", forHTTPHeaderField: "Authorization")
-            return try await execute(retry, allowBearerRetry: false)
+           isBearerAuthenticationFailure(httpStatusCode: http.statusCode, data: data),
+           let failedToken = Self.bearerToken(from: request.value(forHTTPHeaderField: "Authorization")),
+           let recovery = bearerUnauthorizedRecovery {
+            SessionRefreshDebugLog.log("http.json bearer-recovery start url=\(request.url?.path ?? "") status=\(http.statusCode) failed=\(SessionRefreshDebugLog.token(failedToken))")
+            let newToken = try await recovery(failedToken, http.statusCode)
+            if let newToken,
+               !newToken.isEmpty,
+               newToken != failedToken {
+                SessionRefreshDebugLog.log("http.json bearer-recovery retry url=\(request.url?.path ?? "") new=\(SessionRefreshDebugLog.token(newToken))")
+                var retry = request
+                retry.setValue("Bearer \(newToken)", forHTTPHeaderField: "Authorization")
+                return try await execute(retry, allowBearerRetry: false)
+            }
+            SessionRefreshDebugLog.log("http.json bearer-recovery stop url=\(request.url?.path ?? "") returned=\(SessionRefreshDebugLog.token(newToken))")
         }
 
         let msg = (try? JSONDecoder().decode(APIError.self, from: data))?.message

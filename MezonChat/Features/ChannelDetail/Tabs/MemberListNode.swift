@@ -30,12 +30,22 @@ final class MemberListNode: ASDisplayNode {
         }
     }
 
+    private struct ChannelMemberPresentation {
+        let displayName: String
+        let clanNick: String
+        let clanAvatar: String
+        let username: String
+        let avatarUrl: String
+        let avatarUrls: [String]
+    }
+
     private var onlineMembers: MemberData = .channel([])
     private var offlineMembers: MemberData = .channel([])
     private var roles: [Int64: String] = [:]
     private var ownerId: String?
     private let disposables = DisposableSet()
     private var didStartMemberLoading = false
+    private var didRequestClanMemberRefreshForAvatars = false
 
     init(
         context: AccountContext, clanId: Int64, channelId: Int64,
@@ -85,6 +95,8 @@ final class MemberListNode: ASDisplayNode {
         guard !didStartMemberLoading else { return }
         didStartMemberLoading = true
         loadClanData()
+        observeClanMemberUpdates()
+        refreshClanMembersForAvatarsIfNeeded()
         observeMembers()
         fetchMembersIfNeeded()
     }
@@ -95,6 +107,114 @@ final class MemberListNode: ASDisplayNode {
         if !record.username.isEmpty { return record.username }
         if let fb = dmMemberLabelByUserId[record.userId], !fb.isEmpty { return fb }
         return ""
+    }
+
+    private func resolvedChannelMemberPresentation(_ member: ChannelMemberRecord) -> ChannelMemberPresentation {
+        let uid = String(member.userId)
+        let cached = context.account.postbox.read { tx -> (profile: ProfileRecord?, clanMember: ClanMemberRecord?) in
+            let profile = tx.getProfile(userId: uid)
+            let clanMember: ClanMemberRecord?
+            if self.clanId > 0 {
+                clanMember = tx.getClanMembers(clanId: self.clanId).first { $0.userId == member.userId }
+            } else {
+                clanMember = nil
+            }
+            return (profile, clanMember)
+        }
+
+        let clanNick = memberListFirstNonEmpty(member.clanNick, cached.clanMember?.clanNick)
+        let username = memberListFirstNonEmpty(
+            member.username,
+            cached.clanMember?.username,
+            cached.profile?.username
+        )
+        let displayName = memberListFirstNonEmpty(
+            clanNick,
+            member.displayName,
+            cached.clanMember?.displayName,
+            cached.profile?.displayName,
+            username,
+            dmMemberLabelByUserId[member.userId]
+        )
+        let clanAvatar: String
+        if clanId > 0 {
+            clanAvatar = memberListFirstNonEmpty(cached.clanMember?.clanAvatar, member.clanAvatar)
+        } else {
+            clanAvatar = memberListFirstNonEmpty(member.clanAvatar)
+        }
+        let avatarUrls = memberListUniqueNonEmpty([
+            clanAvatar,
+            cached.profile?.avatarUrl,
+            cached.clanMember?.userAvatarURL,
+        ])
+        let avatarUrl = avatarUrls.first ?? ""
+
+        return ChannelMemberPresentation(
+            displayName: displayName,
+            clanNick: clanNick,
+            clanAvatar: clanAvatar,
+            username: username,
+            avatarUrl: avatarUrl,
+            avatarUrls: avatarUrls
+        )
+    }
+
+    private func resolvedClanMemberPresentation(_ member: ClanMemberRecord) -> ChannelMemberPresentation {
+        let profile = context.account.postbox.read { tx in
+            tx.getProfile(userId: String(member.userId))
+        }
+
+        let clanNick = memberListFirstNonEmpty(member.clanNick)
+        let username = memberListFirstNonEmpty(member.username, profile?.username)
+        let displayName = memberListFirstNonEmpty(
+            clanNick,
+            member.displayName,
+            profile?.displayName,
+            username
+        )
+        let clanAvatar = memberListFirstNonEmpty(member.clanAvatar)
+        let avatarUrls = memberListUniqueNonEmpty([
+            clanAvatar,
+            member.userAvatarURL,
+            profile?.avatarUrl,
+        ])
+        let avatarUrl = avatarUrls.first ?? ""
+
+        return ChannelMemberPresentation(
+            displayName: displayName,
+            clanNick: clanNick,
+            clanAvatar: clanAvatar,
+            username: username,
+            avatarUrl: avatarUrl,
+            avatarUrls: avatarUrls
+        )
+    }
+
+    private func observeClanMemberUpdates() {
+        guard clanId > 0 else { return }
+        disposables.add(
+            (context.engine.clanData.clanUsersUpdated.signal() |> deliverOnMainQueue).start(next: { [weak self] updatedClanId in
+                guard let self, updatedClanId == self.clanId else { return }
+                self.tableNode.reloadData()
+            })
+        )
+    }
+
+    private func refreshClanMembersForAvatarsIfNeeded(userIds: [Int64] = []) {
+        guard clanId > 0, !didRequestClanMemberRefreshForAvatars else { return }
+        let needsRefresh = context.account.postbox.read { tx in
+            let clanMemberIds = Set(tx.getClanMembers(clanId: self.clanId).map(\.userId))
+            if clanMemberIds.isEmpty { return true }
+            guard !userIds.isEmpty else { return false }
+            return userIds.contains { !clanMemberIds.contains($0) }
+        }
+        guard needsRefresh else { return }
+        didRequestClanMemberRefreshForAvatars = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
+            self.context.engine.clanData.forceRefreshClanUsers(clanId: self.clanId, token: token)
+        }
     }
 
     private func loadClanData() {
@@ -130,6 +250,7 @@ final class MemberListNode: ASDisplayNode {
                         channelId: channelId, limit: 500, token: token
                     )
                     applyGroupMemberList(res)
+                    refreshClanMembersForAvatarsIfNeeded(userIds: res.userIds)
                 } catch {
                     do {
                         let res = try await context.account.network.listChannelUsers(
@@ -137,6 +258,7 @@ final class MemberListNode: ASDisplayNode {
                             channelType: channelType, token: token
                         )
                         applyChannelUserList(res.channelUsers)
+                        refreshClanMembersForAvatarsIfNeeded(userIds: res.channelUsers.map(\.userID))
                     } catch {}
                 }
                 return
@@ -153,6 +275,7 @@ final class MemberListNode: ASDisplayNode {
                     return
                 }
                 applyChannelUserList(res.channelUsers)
+                refreshClanMembersForAvatarsIfNeeded(userIds: res.channelUsers.map(\.userID))
             } catch {
                 if useClanListWhenChannelUsersEmpty {
                     try? await applyClanMembersFallback(token: token)
@@ -291,17 +414,18 @@ final class MemberListNode: ASDisplayNode {
         disposables.add(
             (signal |> deliverOnMainQueue).start(next: { [weak self] members in
                 guard let self else { return }
+                let uniqueMembers = ChannelMemberRecord.deduplicatedByUserId(members)
                 if isDMOrGroup {
-                    let sorted = members.sorted {
+                    let sorted = uniqueMembers.sorted {
                         self.getName(member: .channel($0)) < self.getName(member: .channel($1))
                     }
                     self.onlineMembers = .channel(sorted)
                     self.offlineMembers = .channel([])
                 } else {
-                    let online = members.filter { $0.isOnline }.sorted {
+                    let online = uniqueMembers.filter { $0.isOnline }.sorted {
                         self.getName(member: .channel($0)) < self.getName(member: .channel($1))
                     }
-                    let offline = members.filter { !$0.isOnline }.sorted {
+                    let offline = uniqueMembers.filter { !$0.isOnline }.sorted {
                         self.getName(member: .channel($0)) < self.getName(member: .channel($1))
                     }
                     self.onlineMembers = .channel(online)
@@ -345,6 +469,26 @@ fileprivate func memberListResolvedAvatarURL(_ raw: String) -> String {
     let base = MezonConfig.baseImgURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     if t.hasPrefix("/") { return "\(base)\(t)" }
     return "\(base)/\(t)"
+}
+
+fileprivate func memberListFirstNonEmpty(_ values: String?...) -> String {
+    for value in values {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmed.isEmpty { return trimmed }
+    }
+    return ""
+}
+
+fileprivate func memberListUniqueNonEmpty(_ values: [String?]) -> [String] {
+    var result: [String] = []
+    var seen = Set<String>()
+    for value in values {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty, !seen.contains(trimmed) else { continue }
+        seen.insert(trimmed)
+        result.append(trimmed)
+    }
+    return result
 }
 
 fileprivate func memberListAvatarInitial(from name: String) -> String {
@@ -397,18 +541,13 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                 let member = members[indexPath.row]
                 let color = getRoleColor(roleIds: member.roleIds)
                 let isOwner = String(member.userId) == ownerId
-                let profile = context.account.postbox.read { tx in
-                    tx.getProfile(userId: String(member.userId))
-                }
-                let profileAvatar = profile?.avatarUrl ?? ""
-                let resolvedUsername = !member.username.isEmpty ? member.username : (profile?.username ?? "")
                 return {
-                    let initialName = self.resolvedChannelMemberListName(member)
-                    let resolvedAvatar = !member.clanAvatar.isEmpty ? member.clanAvatar : profileAvatar
+                    let presentation = self.resolvedChannelMemberPresentation(member)
                     return MemberCellNode(
-                        context: context, userId: member.userId, displayName: initialName,
-                        avatarUrl: resolvedAvatar, clanNick: member.clanNick,
-                        clanAvatar: member.clanAvatar, username: resolvedUsername,
+                        context: context, userId: member.userId, displayName: presentation.displayName,
+                        avatarUrl: presentation.avatarUrl, clanNick: presentation.clanNick,
+                        clanAvatar: presentation.clanAvatar, username: presentation.username,
+                        avatarUrls: presentation.avatarUrls,
                         roleColor: color, isOwner: isOwner)
                 }
             case .clan(let members):
@@ -416,15 +555,12 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                 let color = getRoleColor(roleIds: member.roleIds)
                 let isOwner = String(member.userId) == ownerId
                 return {
-                    let initialName =
-                        !member.clanNick.isEmpty
-                        ? member.clanNick
-                        : !member.displayName.isEmpty ? member.displayName : member.username
-                    let rowAvatar = member.resolvedAvatarURL(fallbackProfileAvatar: nil) ?? ""
+                    let presentation = self.resolvedClanMemberPresentation(member)
                     return MemberCellNode(
-                        context: context, userId: member.userId, displayName: initialName,
-                        avatarUrl: rowAvatar, clanNick: member.clanNick,
-                        clanAvatar: member.clanAvatar, username: member.username,
+                        context: context, userId: member.userId, displayName: presentation.displayName,
+                        avatarUrl: presentation.avatarUrl, clanNick: presentation.clanNick,
+                        clanAvatar: presentation.clanAvatar, username: presentation.username,
+                        avatarUrls: presentation.avatarUrls,
                         roleColor: color, isOwner: isOwner)
                 }
             }
@@ -433,33 +569,25 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
             case .channel(let members):
                 let member = members[indexPath.row]
                 let isOwner = String(member.userId) == ownerId
-                let profile = context.account.postbox.read { tx in
-                    tx.getProfile(userId: String(member.userId))
-                }
-                let profileAvatar = profile?.avatarUrl ?? ""
-                let resolvedUsername = !member.username.isEmpty ? member.username : (profile?.username ?? "")
                 return {
-                    let initialName = self.resolvedChannelMemberListName(member)
-                    let resolvedAvatar = !member.clanAvatar.isEmpty ? member.clanAvatar : profileAvatar
+                    let presentation = self.resolvedChannelMemberPresentation(member)
                     return MemberCellNode(
-                        context: context, userId: member.userId, displayName: initialName,
-                        avatarUrl: resolvedAvatar, clanNick: member.clanNick,
-                        clanAvatar: member.clanAvatar, username: resolvedUsername,
+                        context: context, userId: member.userId, displayName: presentation.displayName,
+                        avatarUrl: presentation.avatarUrl, clanNick: presentation.clanNick,
+                        clanAvatar: presentation.clanAvatar, username: presentation.username,
+                        avatarUrls: presentation.avatarUrls,
                         roleColor: nil, isOwner: isOwner)
                 }
             case .clan(let members):
                 let member = members[indexPath.row]
                 let isOwner = String(member.userId) == ownerId
                 return {
-                    let initialName =
-                        !member.clanNick.isEmpty
-                        ? member.clanNick
-                        : !member.displayName.isEmpty ? member.displayName : member.username
-                    let rowAvatar = member.resolvedAvatarURL(fallbackProfileAvatar: nil) ?? ""
+                    let presentation = self.resolvedClanMemberPresentation(member)
                     return MemberCellNode(
-                        context: context, userId: member.userId, displayName: initialName,
-                        avatarUrl: rowAvatar, clanNick: member.clanNick,
-                        clanAvatar: member.clanAvatar, username: member.username,
+                        context: context, userId: member.userId, displayName: presentation.displayName,
+                        avatarUrl: presentation.avatarUrl, clanNick: presentation.clanNick,
+                        clanAvatar: presentation.clanAvatar, username: presentation.username,
+                        avatarUrls: presentation.avatarUrls,
                         roleColor: nil, isOwner: isOwner)
                 }
             }
@@ -488,31 +616,19 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
             switch onlineMembers {
             case .channel(let members):
                 guard indexPath.row < members.count else { return }
-                var u = Self.apiUser(from: members[indexPath.row])
-                if u.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    u.avatarURL = context.account.postbox.read { tx in
-                        tx.getProfile(userId: String(u.id))?.avatarUrl
-                    } ?? ""
-                }
-                user = u
+                user = apiUser(from: members[indexPath.row])
             case .clan(let members):
                 guard indexPath.row < members.count else { return }
-                user = Self.apiUser(from: members[indexPath.row])
+                user = apiUser(from: members[indexPath.row])
             }
         case 2:
             switch offlineMembers {
             case .channel(let members):
                 guard indexPath.row < members.count else { return }
-                var u = Self.apiUser(from: members[indexPath.row])
-                if u.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    u.avatarURL = context.account.postbox.read { tx in
-                        tx.getProfile(userId: String(u.id))?.avatarUrl
-                    } ?? ""
-                }
-                user = u
+                user = apiUser(from: members[indexPath.row])
             case .clan(let members):
                 guard indexPath.row < members.count else { return }
-                user = Self.apiUser(from: members[indexPath.row])
+                user = apiUser(from: members[indexPath.row])
             }
         default:
             user = nil
@@ -636,6 +752,7 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                     )
                     guard !response.userIds.isEmpty else { continue }
                     self.applyGroupMemberList(response)
+                    self.refreshClanMembersForAvatarsIfNeeded(userIds: response.userIds)
                     if let expectedMemberCount {
                         if Set(response.userIds).count >= expectedMemberCount { return }
                     } else {
@@ -676,40 +793,26 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
         return (ids, max(ids.count, 1))
     }
 
-    private static func apiUser(from member: ChannelMemberRecord) -> Mezon_Api_User {
+    private func apiUser(from member: ChannelMemberRecord) -> Mezon_Api_User {
+        let presentation = resolvedChannelMemberPresentation(member)
         var u = Mezon_Api_User()
         u.id = member.userId
-        u.username = member.username
-        u.displayName = displayName(for: member)
-        if !member.clanAvatar.isEmpty {
-            u.avatarURL = member.clanAvatar
-        }
+        u.username = presentation.username
+        u.displayName = presentation.displayName
+        u.avatarURL = presentation.avatarUrl
         u.online = member.isOnline
         return u
     }
 
-    private static func apiUser(from member: ClanMemberRecord) -> Mezon_Api_User {
+    private func apiUser(from member: ClanMemberRecord) -> Mezon_Api_User {
+        let presentation = resolvedClanMemberPresentation(member)
         var u = Mezon_Api_User()
         u.id = member.userId
-        u.username = member.username
-        u.displayName = displayName(for: member)
-        if let url = member.resolvedAvatarURL(fallbackProfileAvatar: nil) {
-            u.avatarURL = url
-        }
+        u.username = presentation.username
+        u.displayName = presentation.displayName
+        u.avatarURL = presentation.avatarUrl
         u.online = member.isOnline
         return u
-    }
-
-    private static func displayName(for member: ChannelMemberRecord) -> String {
-        if !member.clanNick.isEmpty { return member.clanNick }
-        if !member.displayName.isEmpty { return member.displayName }
-        return member.username
-    }
-
-    private static func displayName(for member: ClanMemberRecord) -> String {
-        if !member.clanNick.isEmpty { return member.clanNick }
-        if !member.displayName.isEmpty { return member.displayName }
-        return member.username
     }
 
     func tableNode(_ tableNode: ASTableNode, nodeForHeaderInSection section: Int) -> ASCellNode? {
@@ -832,11 +935,14 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
     private let userId: Int64
     private let initialDisplayName: String
     private let initialAvatarUrl: String
+    private let initialAvatarUrls: [String]
     private let clanNick: String
     private let clanAvatar: String
     private let username: String
 
     private var avatarUrlLoadKey: String = ""
+    private var avatarURLCandidates: [URL] = []
+    private var avatarURLCandidateIndex: Int = 0
 
     private let textAvatarNode = TextAvatarNode(username: "", size: 40.sf, fontSize: 16.sf)
     private let avatarNode = ASNetworkImageNode()
@@ -851,12 +957,14 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
     init(
         context: AccountContext, userId: Int64, displayName: String, avatarUrl: String,
         clanNick: String, clanAvatar: String, username: String,
+        avatarUrls: [String] = [],
         roleColor: UIColor? = nil, isOwner: Bool = false
     ) {
         self.context = context
         self.userId = userId
         self.initialDisplayName = displayName
         self.initialAvatarUrl = avatarUrl
+        self.initialAvatarUrls = avatarUrls
         self.clanNick = clanNick
         self.clanAvatar = clanAvatar
         self.username = username
@@ -953,26 +1061,14 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         nameNode.style.flexShrink = 1.0
         nameNode.style.flexGrow = 1.0
 
-        let rawAvatar: String = {
-            if !clanAvatar.isEmpty { return clanAvatar }
-            if let a = avatarUrl, !a.isEmpty { return a }
-            return initialAvatarUrl
-        }()
-        let absolute = memberListResolvedAvatarURL(rawAvatar)
-
-        if !absolute.isEmpty,
-            let url = URL(string: ImgproxyURL.create(from: absolute, width: 100, height: 100))
-        {
-            avatarUrlLoadKey = url.absoluteString
-            avatarNode.url = url
-            avatarNode.alpha = 1.0
-            textAvatarNode.showSkeleton()
-        } else {
-            avatarUrlLoadKey = ""
-            avatarNode.url = nil
-            avatarNode.alpha = 0.0
-            textAvatarNode.configure(username: username, fontSize: 16.sf)
+        var rawAvatarValues: [String?] = [clanAvatar, avatarUrl, initialAvatarUrl]
+        rawAvatarValues.append(contentsOf: initialAvatarUrls.map { Optional($0) })
+        avatarURLCandidates = memberListUniqueNonEmpty(rawAvatarValues).compactMap { raw in
+            let absolute = memberListResolvedAvatarURL(raw)
+            guard !absolute.isEmpty else { return nil }
+            return URL(string: ImgproxyURL.create(from: absolute, width: 100, height: 100))
         }
+        loadAvatarCandidate(at: 0)
 
         if isOnline {
             statusNode.backgroundColor = UIColor(hexString: "#00d4aa")
@@ -991,18 +1087,44 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
     }
 
 
-    private func revertAvatarToInitialsIfKeyMatches(_ key: String) {
-        guard !key.isEmpty, key == avatarUrlLoadKey else { return }
+    private func loadAvatarCandidate(at index: Int) {
+        guard index < avatarURLCandidates.count else {
+            showAvatarInitials(clearCandidates: false)
+            return
+        }
+        let url = avatarURLCandidates[index]
+        avatarURLCandidateIndex = index
+        avatarUrlLoadKey = url.absoluteString
+        avatarNode.url = url
+        avatarNode.alpha = 1.0
+        textAvatarNode.showSkeleton()
+    }
+
+    private func showAvatarInitials(clearCandidates: Bool = true) {
+        if clearCandidates {
+            avatarURLCandidates = []
+            avatarURLCandidateIndex = 0
+        }
         avatarUrlLoadKey = ""
         avatarNode.url = nil
         avatarNode.alpha = 0.0
         textAvatarNode.configure(username: username, fontSize: 16.sf)
     }
 
+    private func loadNextAvatarCandidateIfKeyMatches(_ key: String) {
+        guard !key.isEmpty, key == avatarUrlLoadKey else { return }
+        let nextIndex = avatarURLCandidateIndex + 1
+        if nextIndex < avatarURLCandidates.count {
+            loadAvatarCandidate(at: nextIndex)
+        } else {
+            showAvatarInitials()
+        }
+    }
+
     @objc func imageNode(_ imageNode: ASNetworkImageNode, didLoad image: UIImage) {
         guard imageNode === self.avatarNode else { return }
         if image.size.width < 0.5 || image.size.height < 0.5, let u = imageNode.url {
-            revertAvatarToInitialsIfKeyMatches(u.absoluteString)
+            loadNextAvatarCandidateIfKeyMatches(u.absoluteString)
         } else {
             textAvatarNode.showImageMode()
         }
@@ -1010,7 +1132,7 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
 
     @objc func imageNode(_ imageNode: ASNetworkImageNode, didFailWithError error: Error) {
         guard imageNode === self.avatarNode, let u = imageNode.url else { return }
-        revertAvatarToInitialsIfKeyMatches(u.absoluteString)
+        loadNextAvatarCandidateIfKeyMatches(u.absoluteString)
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {

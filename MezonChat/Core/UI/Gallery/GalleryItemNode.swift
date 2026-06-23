@@ -3,9 +3,12 @@ import UIKit
 import AsyncDisplayKit
 
 public struct GalleryItemInfo {
+    public static let detailProxySize = 700
+
     public let url: String
     public let sourceURL: String?
     public let image: UIImage?
+    public let pixelSize: CGSize?
     public let placeholderURL: String?
     public let senderName: String
     public let senderAvatarURL: String?
@@ -17,15 +20,127 @@ public struct GalleryItemInfo {
         return url
     }
 
-    public init(url: String, sourceURL: String? = nil, image: UIImage? = nil, placeholderURL: String? = nil, senderName: String = "", senderAvatarURL: String? = nil, timestamp: Date? = nil, isVideo: Bool = false) {
+    public init(
+        url: String,
+        sourceURL: String? = nil,
+        image: UIImage? = nil,
+        pixelSize: CGSize? = nil,
+        placeholderURL: String? = nil,
+        senderName: String = "",
+        senderAvatarURL: String? = nil,
+        timestamp: Date? = nil,
+        isVideo: Bool = false
+    ) {
         self.url = url
         self.sourceURL = sourceURL
         self.image = image
+        self.pixelSize = pixelSize
         self.placeholderURL = placeholderURL
         self.senderName = senderName
         self.senderAvatarURL = senderAvatarURL
         self.timestamp = timestamp
         self.isVideo = isVideo
+    }
+
+    public static func pixelSize(width: Int?, height: Int?) -> CGSize? {
+        guard let width, let height, width > 0, height > 0 else { return nil }
+        return CGSize(width: CGFloat(width), height: CGFloat(height))
+    }
+
+    public static func pixelSize(width: Int32, height: Int32) -> CGSize? {
+        guard width > 0, height > 0 else { return nil }
+        return CGSize(width: CGFloat(width), height: CGFloat(height))
+    }
+
+    public static func imageItem(
+        sourceURL: String,
+        image: UIImage? = nil,
+        pixelSize: CGSize? = nil,
+        placeholderProxySize: Int = 400,
+        senderName: String = "",
+        senderAvatarURL: String? = nil,
+        timestamp: Date? = nil
+    ) -> GalleryItemInfo {
+        let proxyURL = ImgproxyURL.attachmentURL(
+            from: sourceURL,
+            width: detailProxySize,
+            height: detailProxySize,
+            resizeType: "fit"
+        )
+        let placeholderURL = ImgproxyURL.attachmentURL(
+            from: sourceURL,
+            width: placeholderProxySize,
+            height: placeholderProxySize,
+            resizeType: "fit"
+        )
+        let cachedPreview = fitCachedPreviewMemory(
+            sourceURL: sourceURL,
+            placeholderProxySize: placeholderProxySize
+        )
+        return GalleryItemInfo(
+            url: proxyURL,
+            sourceURL: sourceURL,
+            image: image ?? cachedPreview,
+            pixelSize: pixelSize,
+            placeholderURL: placeholderURL,
+            senderName: senderName,
+            senderAvatarURL: senderAvatarURL,
+            timestamp: timestamp,
+            isVideo: false
+        )
+    }
+
+    public static func fitCachedPreview(
+        sourceURL: String,
+        placeholderProxySize: Int = 400
+    ) -> UIImage? {
+        for key in previewCacheKeys(sourceURL: sourceURL, placeholderProxySize: placeholderProxySize) {
+            if let image = ImageCache.shared.memoryImage(forKey: key) {
+                return image
+            }
+            if let image = ImageCache.shared.image(forKey: key) {
+                return image
+            }
+        }
+        return nil
+    }
+
+    public static func fitCachedPreviewMemory(
+        sourceURL: String,
+        placeholderProxySize: Int = 400
+    ) -> UIImage? {
+        for key in previewCacheKeys(sourceURL: sourceURL, placeholderProxySize: placeholderProxySize) {
+            if let image = ImageCache.shared.memoryImage(forKey: key) {
+                return image
+            }
+        }
+        return nil
+    }
+
+    public static func previewCacheKeys(
+        sourceURL: String,
+        placeholderProxySize: Int = 400
+    ) -> [String] {
+        [
+            ImgproxyURL.attachmentURL(
+                from: sourceURL,
+                width: placeholderProxySize,
+                height: placeholderProxySize,
+                resizeType: "fit"
+            ),
+            ImgproxyURL.attachmentURL(
+                from: sourceURL,
+                width: 150,
+                height: 150,
+                resizeType: "fit"
+            ),
+            ImgproxyURL.attachmentURL(
+                from: sourceURL,
+                width: detailProxySize,
+                height: detailProxySize,
+                resizeType: "fit"
+            ),
+        ]
     }
 }
 

@@ -124,10 +124,16 @@ final class SetupMembersViewController: BaseViewController {
         titleLabel.font = .systemFont(ofSize: 16.sf, weight: .bold)
         titleLabel.textColor = .mezonTextPrimary
         titleLabel.textAlignment = .center
+        titleLabel.numberOfLines = 1
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         subtitleLabel.font = .systemFont(ofSize: 12.sf, weight: .regular)
         subtitleLabel.textColor = UIColor.theme.textDisabled
         subtitleLabel.textAlignment = .center
+        subtitleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        backButton.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         [backButton, titleLabel, subtitleLabel].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
@@ -147,9 +153,13 @@ final class SetupMembersViewController: BaseViewController {
 
             titleLabel.centerXAnchor.constraint(equalTo: headerView.centerXAnchor),
             titleLabel.topAnchor.constraint(equalTo: headerView.topAnchor, constant: 6.sh),
+            titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: backButton.trailingAnchor, constant: 8.sw),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: headerView.trailingAnchor, constant: -16.sw),
 
             subtitleLabel.centerXAnchor.constraint(equalTo: headerView.centerXAnchor),
-            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2.sh)
+            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2.sh),
+            subtitleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: backButton.trailingAnchor, constant: 8.sw),
+            subtitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: headerView.trailingAnchor, constant: -16.sw)
         ])
     }
 

@@ -861,8 +861,13 @@ final class ChatViewController: ViewController {
             onMessageNeedsRelayout: nil,
             onEmbedButtonClicked: nil
         )
-        interaction.onMediaTapped = { [weak self] index, media, display in
-            self?.presentMessageMediaGallery(index: index, media: media, display: display)
+        interaction.onMediaTapped = { [weak self] index, media, display, previewImage in
+            self?.presentMessageMediaGallery(
+                index: index,
+                media: media,
+                display: display,
+                previewImage: previewImage
+            )
         }
         interaction.onMediaRetryTapped = { [weak self] index, display in
             guard let self else { return }
@@ -3724,6 +3729,9 @@ final class ChatViewController: ViewController {
                 },
                 presentVoice: { [weak self] target in
                     self?.presentJoinVoiceSheet(for: target)
+                },
+                presentStream: { [weak self] target in
+                    self?.presentJoinStreamSheet(for: target)
                 }
             )
         )
@@ -5005,6 +5013,126 @@ final class ChatViewController: ViewController {
         CATransaction.commit()
     }
 
+    private func presentJoinStreamSheet(for channel: Mezon_Api_ChannelDescription) {
+        view.endEditing(true)
+        let title = channel.channelLabel.isEmpty
+            ? NSLocalizedString("streamingRoom.defaultName", tableName: nil, bundle: .main, value: "Stream", comment: "")
+            : channel.channelLabel
+        let clanForMembers = channel.clanID != 0 ? channel.clanID : clanId
+        var streamUserIds: [String] = []
+        if let list = context.engine.clanData.getStreamUsers(clanId: clanForMembers) {
+            for vu in list.voiceChannelUsers where vu.channelID == channel.channelID {
+                for uid in vu.userIds where !uid.isEmpty && Int64(uid) != nil && !streamUserIds.contains(uid) {
+                    streamUserIds.append(uid)
+                }
+            }
+        }
+        let resolvedMembers = streamUserIds.compactMap {
+            resolveVoiceMemberForJoinVoice(userId: $0, clanIdForMembers: clanForMembers)
+        }
+        let targetClan = channel.clanID != 0 ? channel.clanID : clanId
+        let sheet = JoinVoiceChannelSheetViewController(
+            channelTitle: title,
+            chatUnreadCount: Int(channel.countMessUnread),
+            members: resolvedMembers,
+            kind: .streaming,
+            onChat: { [weak self] in
+                guard let self, let nav = self.navigationController else { return }
+                self.alignContextWithVoiceChannelClan(for: channel)
+                let parentName = self.parentChannelNameForVoice(channel: channel)
+                let chatVC = ChatViewController(
+                    clanId: targetClan,
+                    channel: channel,
+                    context: self.context,
+                    parentName: parentName
+                )
+                nav.pushViewController(chatVC, animated: true)
+            },
+            onJoinVoice: { [weak self] in
+                guard let self else { return }
+                self.pushStreamingRoomFromChat(channel: channel)
+            },
+            onInvite: {}
+        )
+        sheet.modalPresentationStyle = .pageSheet
+        if #available(iOS 15.0, *) {
+            sheet.sheetPresentationController?.prefersGrabberVisible = false
+            if #available(iOS 16.0, *) {
+                let bottomInset = view.window?.safeAreaInsets.bottom ?? 34
+                let targetHeight = JoinVoiceChannelSheetViewController.preferredSheetHeight(
+                    safeAreaBottomInset: bottomInset, hasMembers: !resolvedMembers.isEmpty)
+                let detentId = JoinVoiceChannelSheetViewController.contentSizedDetentIdentifier
+                let contentDetent = UISheetPresentationController.Detent.custom(identifier: detentId) { ctx in
+                    min(targetHeight, ctx.maximumDetentValue)
+                }
+                sheet.sheetPresentationController?.detents = [contentDetent]
+                sheet.sheetPresentationController?.selectedDetentIdentifier = detentId
+            } else {
+                sheet.sheetPresentationController?.detents = [.medium(), .large()]
+            }
+        }
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(JoinVoiceChannelSheetViewController.sheetTransitionDuration)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        present(sheet, animated: true)
+        CATransaction.commit()
+    }
+
+    private func pushStreamingRoomFromChat(channel: Mezon_Api_ChannelDescription) {
+        alignContextWithVoiceChannelClan(for: channel)
+        guard let nav = navigationController else { return }
+
+        let pip = StreamingPiPOverlay.shared
+        if pip.isActive {
+            if pip.channel?.channelID == channel.channelID {
+                pip.restoreFullScreen(animated: true)
+                return
+            } else {
+                pip.dismiss(disconnectSession: true)
+            }
+        }
+
+        if let existing = nav.viewControllers.last(where: {
+            ($0 as? StreamingRoomViewController)?.streamChannelId == channel.channelID
+        }) {
+            if nav.topViewController !== existing {
+                nav.popToViewController(existing, animated: false)
+            }
+            return
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getToken(),
+                  let userId = self.context.currentUser?.id,
+                  let username = self.context.currentUser?.username else { return }
+
+            await StreamingWebRTCSession.shared.join(
+                clanId: channel.clanID != 0 ? channel.clanID : self.clanId,
+                channelId: channel.channelID,
+                streamId: channel.channelID,
+                userId: userId,
+                username: username,
+                token: token
+            )
+
+            if let uid = Int64(userId) {
+                self.context.engine.clanData.applyStreamJoined(
+                    clanId: channel.clanID != 0 ? channel.clanID : self.clanId,
+                    channelId: channel.channelID,
+                    userId: uid
+                )
+            }
+
+            let vc = StreamingRoomViewController(
+                context: self.context,
+                channel: channel,
+                parentChannelName: self.parentChannelNameForVoice(channel: channel)
+            )
+            nav.pushViewController(vc, animated: true)
+        }
+    }
+
 
     private func handleEmbedButtonClicked(button: ParsedEmbedButton, messageId: String, display: ChatMessageDisplay) {
         
@@ -5701,9 +5829,19 @@ final class ChatViewController: ViewController {
         sheet.animateIn()
     }
 
-    private func presentMessageMediaGallery(index: Int, media: [ParsedAttachment], display: ChatMessageDisplay) {
-        let galleryItems = media.map {
-            makeMessageGalleryItem(attachment: $0, display: display)
+    private func presentMessageMediaGallery(
+        index: Int,
+        media: [ParsedAttachment],
+        display: ChatMessageDisplay,
+        previewImage: UIImage?
+    ) {
+        let galleryItems = media.enumerated().map { (itemIndex, attachment) in
+            let preview = itemIndex == index ? previewImage : nil
+            return makeMessageGalleryItem(
+                attachment: attachment,
+                display: display,
+                previewImage: preview
+            )
         }
         guard !galleryItems.isEmpty else { return }
         let initialIndex = max(0, min(index, galleryItems.count - 1))
@@ -5718,24 +5856,32 @@ final class ChatViewController: ViewController {
         present(gallery, animated: true)
     }
 
-    private func makeMessageGalleryItem(attachment: ParsedAttachment, display: ChatMessageDisplay) -> GalleryItemInfo {
-        let placeholderURL: String? = attachment.isVideo
-            ? nil
-            : ImgproxyURL.attachmentURL(
-                from: attachment.url,
-                width: 400,
-                height: 400,
-                resizeType: "fit"
+    private func makeMessageGalleryItem(
+        attachment: ParsedAttachment,
+        display: ChatMessageDisplay,
+        previewImage: UIImage? = nil
+    ) -> GalleryItemInfo {
+        if attachment.isVideo {
+            return GalleryItemInfo(
+                url: attachment.url,
+                sourceURL: attachment.url,
+                image: previewImage ?? attachment.localImage,
+                placeholderURL: nil,
+                senderName: display.senderDisplayName,
+                senderAvatarURL: display.avatarURL,
+                timestamp: display.message.createdAt,
+                isVideo: true
             )
-        return GalleryItemInfo(
-            url: attachment.url,
+        }
+        return GalleryItemInfo.imageItem(
             sourceURL: attachment.url,
-            image: attachment.localImage,
-            placeholderURL: placeholderURL,
+            image: GalleryItemInfo.fitCachedPreviewMemory(sourceURL: attachment.url)
+                ?? previewImage
+                ?? attachment.localImage,
+            pixelSize: GalleryItemInfo.pixelSize(width: attachment.width, height: attachment.height),
             senderName: display.senderDisplayName,
             senderAvatarURL: display.avatarURL,
-            timestamp: display.message.createdAt,
-            isVideo: attachment.isVideo
+            timestamp: display.message.createdAt
         )
     }
 
@@ -5765,7 +5911,6 @@ final class ChatViewController: ViewController {
             after: selectedTimestamp
         )
 
-        let fullPx = galleryFullScreenProxyPixels()
         let visualItems = (newer + olderAndCurrent)
             .filter { Self.isVisualChannelAttachment($0) }
             .sorted { $0.createTimeSeconds > $1.createTimeSeconds }
@@ -5776,7 +5921,7 @@ final class ChatViewController: ViewController {
                 }) else { return }
                 result.append(attachment)
             }
-            .map { makeChannelGalleryItem(attachment: $0, fullProxyPixels: fullPx) }
+            .map { makeChannelGalleryItem(attachment: $0) }
         return Array(visualItems.reversed())
     }
 
@@ -5802,40 +5947,31 @@ final class ChatViewController: ViewController {
         }
     }
 
-    private func makeChannelGalleryItem(attachment: Mezon_Api_ChannelAttachment, fullProxyPixels: Int) -> GalleryItemInfo {
+    private func makeChannelGalleryItem(attachment: Mezon_Api_ChannelAttachment) -> GalleryItemInfo {
         let isVideo = Self.isVideoChannelAttachment(attachment)
-        let url: String
-        let placeholderURL: String?
-        if isVideo {
-            url = attachment.url
-            placeholderURL = nil
-        } else {
-            url = ImgproxyURL.attachmentURL(
-                from: attachment.url,
-                width: fullProxyPixels,
-                height: fullProxyPixels,
-                resizeType: "fit"
-            )
-            placeholderURL = ImgproxyURL.attachmentURL(
-                from: attachment.url,
-                width: 100,
-                height: 100,
-                resizeType: "fit"
-            )
-        }
         let uploader = resolvedUploaderInfo(uploaderId: attachment.uploader)
         let timestamp = attachment.createTimeSeconds > 0
             ? Date(timeIntervalSince1970: TimeInterval(attachment.createTimeSeconds))
             : nil
-        return GalleryItemInfo(
-            url: url,
+        if isVideo {
+            return GalleryItemInfo(
+                url: attachment.url,
+                sourceURL: attachment.url,
+                image: nil,
+                placeholderURL: nil,
+                senderName: uploader.name,
+                senderAvatarURL: uploader.avatarURL,
+                timestamp: timestamp,
+                isVideo: true
+            )
+        }
+        return GalleryItemInfo.imageItem(
             sourceURL: attachment.url,
-            image: nil,
-            placeholderURL: placeholderURL,
+            pixelSize: GalleryItemInfo.pixelSize(width: attachment.width, height: attachment.height),
+            placeholderProxySize: 150,
             senderName: uploader.name,
             senderAvatarURL: uploader.avatarURL,
-            timestamp: timestamp,
-            isVideo: isVideo
+            timestamp: timestamp
         )
     }
 
@@ -5860,12 +5996,6 @@ final class ChatViewController: ViewController {
         let urlExtension = URL(string: attachment.url)?.pathExtension.lowercased() ?? ""
         return ["mp4", "mov", "m4v", "webm"].contains(filenameExtension)
             || ["mp4", "mov", "m4v", "webm"].contains(urlExtension)
-    }
-
-    private func galleryFullScreenProxyPixels() -> Int {
-        let longest = max(UIScreen.main.bounds.width, UIScreen.main.bounds.height)
-        let pixels = Int((longest * UIScreen.main.scale).rounded(.up))
-        return max(512, min(pixels, 2048))
     }
 
     private func resolvedUploaderInfo(uploaderId: Int64) -> (name: String, avatarURL: String?) {

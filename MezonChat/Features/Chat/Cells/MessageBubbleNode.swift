@@ -1116,27 +1116,33 @@ final class MessageBubbleNode: ASDisplayNode {
             return
         }
         if let onMediaTapped = interaction.onMediaTapped {
-            onMediaTapped(index, media, display)
+            let previewImage = mediaContentNode?.displayImage(at: index)
+            onMediaTapped(index, media, display, previewImage)
             return
         }
-        let galleryItems: [GalleryItemInfo] = media.enumerated().map { (_, att) in
-            let placeholderURL: String? = att.isVideo
-                ? nil
-                : ImgproxyURL.attachmentURL(
-                    from: att.url,
-                    width: 400,
-                    height: 400,
-                    resizeType: "fit"
+        let galleryItems: [GalleryItemInfo] = media.enumerated().map { (itemIndex, att) in
+            let preview = itemIndex == index ? mediaContentNode?.displayImage(at: index) : nil
+            if att.isVideo {
+                return GalleryItemInfo(
+                    url: att.url,
+                    sourceURL: att.url,
+                    image: preview ?? (itemIndex == index ? att.localImage : nil),
+                    placeholderURL: nil,
+                    senderName: display.senderDisplayName,
+                    senderAvatarURL: display.avatarURL,
+                    timestamp: display.message.createdAt,
+                    isVideo: true
                 )
-            return GalleryItemInfo(
-                url: att.url,
+            }
+            return GalleryItemInfo.imageItem(
                 sourceURL: att.url,
-                image: nil,
-                placeholderURL: placeholderURL,
+                image: GalleryItemInfo.fitCachedPreviewMemory(sourceURL: att.url)
+                    ?? preview
+                    ?? (itemIndex == index ? att.localImage : nil),
+                pixelSize: GalleryItemInfo.pixelSize(width: att.width, height: att.height),
                 senderName: display.senderDisplayName,
                 senderAvatarURL: display.avatarURL,
-                timestamp: display.message.createdAt,
-                isVideo: att.isVideo
+                timestamp: display.message.createdAt
             )
         }
         let gallery = GalleryController(items: galleryItems, initialIndex: index)
@@ -1150,20 +1156,13 @@ final class MessageBubbleNode: ASDisplayNode {
     }
 
     private func handleEmbedImageTap(url: String) {
-        let placeholderURL = ImgproxyURL.attachmentURL(
-            from: url,
-            width: EmbedItemNode.embedImageProxyDimension,
-            height: EmbedItemNode.embedImageProxyDimension
-        )
         let galleryItems: [GalleryItemInfo] = [
-            GalleryItemInfo(
-                url: url,
-                image: nil,
-                placeholderURL: placeholderURL,
+            GalleryItemInfo.imageItem(
+                sourceURL: url,
+                placeholderProxySize: EmbedItemNode.embedImageProxyDimension,
                 senderName: display.senderDisplayName,
                 senderAvatarURL: display.avatarURL,
-                timestamp: display.message.createdAt,
-                isVideo: false
+                timestamp: display.message.createdAt
             ),
         ]
         let gallery = GalleryController(items: galleryItems, initialIndex: 0)

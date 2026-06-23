@@ -434,6 +434,8 @@ final class SendMessageInputViewController: UIViewController {
     }
     private let clanId: Int64
     var topicId: Int64 = 0
+    private var locallyReactivatedThreadIds = Set<Int64>()
+    private var locallyJoinedThreadIds = Set<Int64>()
     private var disposables = DisposableSet()
     private var mentionDisposables = DisposableSet()
 
@@ -3647,6 +3649,19 @@ final class SendMessageInputViewController: UIViewController {
         return result
     }
 
+    private func hasPotentialThreadMemberAdds(
+        mentionList: [Mezon_Api_MessageMention],
+        editTargetSenderId: Int64?
+    ) -> Bool {
+        if let editTargetSenderId, editTargetSenderId != 0 {
+            return true
+        }
+        return mentionList.contains { mention in
+            mention.roleID != 0
+                || (mention.userID != 0 && mention.userID != Self.mentionHereUserId)
+        }
+    }
+
     private func addUsersFromParentMentionsToThreadIfNeeded(
         mentionList: [Mezon_Api_MessageMention],
         editTargetSenderId: Int64?,
@@ -3656,12 +3671,34 @@ final class SendMessageInputViewController: UIViewController {
               channel.type == MezonConstants.ChannelType.thread.rawValue,
               channel.parentID != 0
         else { return }
+        guard hasPotentialThreadMemberAdds(
+            mentionList: mentionList,
+            editTargetSenderId: editTargetSenderId
+        ) else { return }
         let parentId = channel.parentID
         let threadId = channel.channelID
-        let threadType = channel.type != 0 ? channel.type : MezonConstants.ChannelType.thread.rawValue
+        let hasRoleMentions = mentionList.contains { $0.roleID != 0 }
+        var candidates: Set<Int64>
+        if hasRoleMentions {
+            let roleList = try await roleListForMentionExpansion(token: token)
+            candidates = candidateUserIdsForThreadAdds(from: mentionList, roleList: roleList)
+        } else {
+            candidates = Set(mentionList.compactMap { mention in
+                let userId = mention.userID
+                return userId != 0 && userId != Self.mentionHereUserId ? userId : nil
+            })
+        }
+        if let editTargetSenderId, editTargetSenderId != 0 {
+            candidates.insert(editTargetSenderId)
+        }
+        let currentUid = Int64(context.currentUser?.id ?? "") ?? 0
+        candidates = Set(candidates.filter {
+            $0 != 0 && $0 != Self.mentionHereUserId && $0 != currentUid
+        })
+        guard !candidates.isEmpty else { return }
+
         async let parentIds = memberUserIdsForChannel(channelId: parentId, token: token)
         async let threadIds = memberUserIdsForChannel(channelId: threadId, token: token)
-        let roleList = try await roleListForMentionExpansion(token: token)
         var (parentSet, childSet) = try await (parentIds, threadIds)
         if parentSet.isEmpty {
             parentSet = try await clanUserListForMentionFallback(token: token).clanUsers.reduce(into: Set<Int64>()) { acc, cu in
@@ -3669,31 +3706,57 @@ final class SendMessageInputViewController: UIViewController {
                 if id != 0 { acc.insert(id) }
             }
         }
-        var candidates = candidateUserIdsForThreadAdds(from: mentionList, roleList: roleList)
-        if let editTargetSenderId, editTargetSenderId != 0 {
-            candidates.insert(editTargetSenderId)
-        }
-        let currentUid = Int64(context.currentUser?.id ?? "") ?? 0
         let toAdd = Set(candidates.filter { uid in
-            uid != 0
-                && uid != Self.mentionHereUserId
-                && uid != currentUid
-                && parentSet.contains(uid)
-                && !childSet.contains(uid)
+            parentSet.contains(uid) && !childSet.contains(uid)
         })
         guard !toAdd.isEmpty else { return }
         try await context.account.network.addChannelUsers(
             channelId: threadId, userIds: Array(toAdd), token: token)
-        try await refreshThreadMembersAfterAdd(channelId: threadId, threadType: threadType, token: token)
+        mergeThreadMemberCache(channelId: threadId, userIds: Array(toAdd))
     }
 
-    private func refreshThreadMembersAfterAdd(channelId: Int64, threadType: Int32, token: String) async throws {
-        let refresh = try await context.account.network.listChannelUsers(
-            clanId: clanId, channelId: channelId, channelType: threadType, token: token)
-        let merged = ChannelMemberRecord.mergingProfilesFromChannelUsers(
-            refresh.channelUsers, postbox: context.account.postbox)
+    private func mergeThreadMemberCache(channelId: Int64, userIds: [Int64]) {
+        let sanitized = Array(Set(userIds.filter { $0 != 0 && $0 != Self.mentionHereUserId }))
+        guard channelId != 0, !sanitized.isEmpty else { return }
+        let currentUser = context.currentUser
+        let currentClanId = clanId
         context.account.postbox.write { tx in
-            tx.updateChannelMembers(merged, channelId: channelId)
+            var members = tx.getChannelMeta(channelId: channelId)?.members ?? []
+            var knownUserIds = Set(members.map(\.userId))
+            var didAppendMember = false
+            for userId in sanitized where !knownUserIds.contains(userId) {
+                let userIdString = String(userId)
+                let profile = tx.getProfile(userId: userIdString)
+                let isCurrentUser = currentUser?.id == userIdString
+                let username = profile?.username
+                    ?? (isCurrentUser ? currentUser?.username : nil)
+                    ?? ""
+                let displayName = profile?.displayName
+                    ?? (isCurrentUser ? currentUser?.displayName : nil)
+                    ?? ""
+                let avatar = profile?.avatarUrl
+                    ?? (isCurrentUser ? currentUser?.avatarURL?.absoluteString : nil)
+                    ?? ""
+                members.append(ChannelMemberRecord(
+                    id: userId,
+                    userId: userId,
+                    roleIds: [],
+                    threadId: channelId,
+                    clanNick: displayName,
+                    clanAvatar: avatar,
+                    clanId: currentClanId,
+                    isBanned: false,
+                    expiredBanTime: 0,
+                    isOnline: profile?.isOnline ?? false,
+                    displayName: displayName,
+                    username: username
+                ))
+                knownUserIds.insert(userId)
+                didAppendMember = true
+            }
+            if didAppendMember {
+                tx.updateChannelMembers(members, channelId: channelId)
+            }
         }
     }
 
@@ -3706,25 +3769,48 @@ final class SendMessageInputViewController: UIViewController {
             || (ch.channelPrivate != 0 && ch.active == threadActivePrivateJoinedStatus)
     }
 
+    private func shouldJoinThreadBeforeSend(threadId: Int64, currentUid: Int64) -> Bool {
+        guard threadId != 0, currentUid != 0 else { return false }
+        if Self.isJoinedThread(channel) || locallyJoinedThreadIds.contains(threadId) {
+            return false
+        }
+
+        let cachedMembers = context.account.postbox.read { tx in
+            (tx.getChannelMeta(channelId: threadId)?.members ?? []).filter { !$0.isBanned }
+        }
+        if cachedMembers.isEmpty {
+            return true
+        }
+        return !cachedMembers.contains(where: { $0.userId == currentUid })
+    }
+
     private func applyLocalThreadJoinedState() {
         guard channel.channelID != 0 else { return }
         var ch = channel
         ch.active = Self.threadJoinedActiveStatus
+        if ch.parentID != 0 {
+            let parentId = ch.parentID
+            if ch.categoryID == 0,
+               let (_, parent) = context.account.postbox.getChannelDescription(channelId: parentId),
+               parent.categoryID != 0 {
+                ch.categoryID = parent.categoryID
+                if ch.categoryName.isEmpty, !parent.categoryName.isEmpty {
+                    ch.categoryName = parent.categoryName
+                }
+            }
+        }
         channel = ch
-        context.engine.clanData.applyLocallyCreatedChannel(ch)
+        context.engine.clanData.applyLocallyCreatedChannel(ch, skipChannelListFetch: true)
     }
 
     private func activateThreadBeforeSendIfNeeded(token: String) async throws {
         guard clanId != 0, isThreadChannelForSendPrep else { return }
 
         let threadId = channel.channelID
-        let threadType = channel.type != 0
-            ? channel.type
-            : MezonConstants.ChannelType.thread.rawValue
         let currentUid = Int64(context.currentUser?.id ?? "") ?? 0
         guard currentUid != 0 else { return }
 
-        let needsJoin = !Self.isJoinedThread(channel)
+        let needsJoin = shouldJoinThreadBeforeSend(threadId: threadId, currentUid: currentUid)
 
         let now = Int(Date().timeIntervalSince1970)
         var lastTs: UInt32 = 0
@@ -3732,17 +3818,19 @@ final class SendMessageInputViewController: UIViewController {
             lastTs = channel.lastSentMessage.timestampSeconds
         }
         let isArchived = lastTs > 0 && now - Int(lastTs) > Self.threadArchiveDurationSeconds
-        let needsReactivate = isArchived || channel.active == 0
+        let needsReactivate = isArchived && !locallyReactivatedThreadIds.contains(threadId)
 
         if needsReactivate {
             try await context.account.network.activeArchivedThread(
                 clanId: clanId, channelId: threadId, token: token)
+            locallyReactivatedThreadIds.insert(threadId)
         }
 
         if needsJoin {
             try await context.account.network.addChannelUsers(
                 channelId: threadId, userIds: [currentUid], token: token)
-            try await refreshThreadMembersAfterAdd(channelId: threadId, threadType: threadType, token: token)
+            locallyJoinedThreadIds.insert(threadId)
+            mergeThreadMemberCache(channelId: threadId, userIds: [currentUid])
         }
 
         if needsReactivate || needsJoin {
