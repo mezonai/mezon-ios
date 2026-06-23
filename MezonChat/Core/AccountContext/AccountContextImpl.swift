@@ -386,14 +386,10 @@ final class AccountContextImpl: AccountContext {
             guard let authToken = await self.getToken() else { return }
             let voipToken = CallKitManager.shared.voipToken ?? ""
             let fcmToken: String
-            if let cached = Messaging.messaging().fcmToken, !cached.isEmpty {
-                fcmToken = cached
+            if let apnsData = Messaging.messaging().apnsToken {
+                fcmToken = apnsData.map { String(format: "%02.2hhx", $0) }.joined()
             } else {
-                do {
-                    fcmToken = try await Messaging.messaging().token()
-                } catch {
-                    return
-                }
+                return
             }
             guard !fcmToken.isEmpty else { return }
             let key = "\(fcmToken)|\(voipToken)|\(deviceId)|\(authToken)"
