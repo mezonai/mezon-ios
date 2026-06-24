@@ -35,9 +35,6 @@ final class HomeViewController: BaseViewController {
         bindClanJoinCreate()
         bindDiscoverEmptyOverlay()
         applyInitialClanSelection()
-        DispatchQueue.main.async { [weak self] in
-            self?.applyInitialClanSelection()
-        }
 
         self.scrollToTopWithTabBar = { [weak self] in
             guard let self else { return }

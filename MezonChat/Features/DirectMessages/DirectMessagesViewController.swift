@@ -175,10 +175,12 @@ final class DirectMessagesViewController: ViewController {
 
     @objc private func handleSocketReconnectForDMBadges(_ notification: Notification) {
         guard let connected = notification.userInfo?["isConnected"] as? Bool, connected else { return }
-        lastFetchDirectMessagesAt = nil
-        fetchDirectMessages()
-        Task { @MainActor in
-            await self.applyDmListChannelBadgeCount()
+        if directMessages.isEmpty {
+            fetchDirectMessages()
+        } else {
+            Task { @MainActor in
+                await self.applyDmListChannelBadgeCount()
+            }
         }
     }
 

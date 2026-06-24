@@ -773,11 +773,13 @@ final class MessageBubbleNode: ASDisplayNode {
 
         let newMediaAttachments = newDisplay.attachments.filter(\.isMedia)
         let oldMediaAttachments = oldDisplay.attachments.filter(\.isMedia)
-        let mediaChanged = !ParsedAttachment.attachmentsStructurallyEqual(oldMediaAttachments, newMediaAttachments)
-        if mediaChanged {
-            if let mcn = mediaContentNode {
-                mcn.configure(media: newMediaAttachments)
-            }
+        let mediaContentChanged = !Self.mediaAttachmentsContentEqual(oldMediaAttachments, newMediaAttachments)
+        let mediaUploadStateChanged = !Self.mediaAttachmentsUploadStateEqual(oldMediaAttachments, newMediaAttachments)
+        if mediaContentChanged {
+            mediaContentNode?.configure(media: newMediaAttachments)
+        } else if mediaUploadStateChanged {
+            mediaContentNode?.updateUploadOverlays(media: newMediaAttachments)
+            mediaContentNode?.setNeedsLayout()
         }
 
         let fileFilter: (ParsedAttachment) -> Bool = {
@@ -844,7 +846,7 @@ final class MessageBubbleNode: ASDisplayNode {
 
         let needsRelayout = nameChanged || timeChanged || textChanged || callLogChanged
             || editedChanged
-            || mediaChanged
+            || mediaContentChanged
             || filesChanged
             || mentionHighlightChanged
             || senderChanged
@@ -866,6 +868,30 @@ final class MessageBubbleNode: ASDisplayNode {
         if !isCombine && avatarChanged {
             loadAvatar()
         }
+    }
+
+    private static func mediaAttachmentsContentEqual(_ lhs: [ParsedAttachment], _ rhs: [ParsedAttachment]) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        for (l, r) in zip(lhs, rhs) {
+            if l.width != r.width || l.height != r.height || l.durationSeconds != r.durationSeconds
+                || l.filetype != r.filetype || l.isPresignPending != r.isPresignPending {
+                return false
+            }
+            if (l.localImage != nil) != (r.localImage != nil) {
+                return false
+            }
+            if l.localImage != nil && r.localImage != nil {
+                continue
+            }
+            if l.url != r.url || l.filename != r.filename || l.thumbnail != r.thumbnail {
+                return false
+            }
+        }
+        return true
+    }
+
+    private static func mediaAttachmentsUploadStateEqual(_ lhs: [ParsedAttachment], _ rhs: [ParsedAttachment]) -> Bool {
+        ParsedAttachment.attachmentsUploadStateEqual(lhs, rhs)
     }
 
     private static func shouldShowTextContent(for display: ChatMessageDisplay) -> Bool {

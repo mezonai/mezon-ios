@@ -392,23 +392,12 @@ final class MezonHTTPClient {
         var req = Mezon_Api_SessionRefreshRequest()
         req.token = refreshToken
         req.vars = ["m": "true"]
-        let started = Date()
-        SessionRefreshDebugLog.log("http.sessionRefresh start refresh=\(SessionRefreshDebugLog.token(refreshToken))")
-        do {
-            let apiSession: Mezon_Api_Session = try await postProto(
-                path: "/mezon.api.Mezon/SessionRefresh",
-                message: req,
-                auth: .serverKey
-            )
-            let session = MezonSession.fromProto(apiSession)
-            let ms = Int(Date().timeIntervalSince(started) * 1000)
-            SessionRefreshDebugLog.log("http.sessionRefresh success elapsedMs=\(ms) session=\(SessionRefreshDebugLog.session(session))")
-            return session
-        } catch {
-            let ms = Int(Date().timeIntervalSince(started) * 1000)
-            SessionRefreshDebugLog.log("http.sessionRefresh fail elapsedMs=\(ms) error=\(SessionRefreshDebugLog.error(error))")
-            throw error
-        }
+        let apiSession: Mezon_Api_Session = try await postProto(
+            path: "/mezon.api.Mezon/SessionRefresh",
+            message: req,
+            auth: .serverKey
+        )
+        return MezonSession.fromProto(apiSession)
     }
 
     func sessionLogout(session: MezonSession, deviceId: String = "", platform: String = "") async throws {
@@ -540,6 +529,15 @@ final class MezonHTTPClient {
     }
 
     func listChannelDescs(clanId: Int64, token: String) async throws -> [Mezon_Api_ChannelDescription] {
+        if clanId == 0 {
+            return try await performListChannelDescs(clanId: clanId, token: token)
+        }
+        return try await MezonSocketRequestCoalescer.shared.coalesceChannelDescs(clanId: clanId) {
+            try await self.performListChannelDescs(clanId: clanId, token: token)
+        }
+    }
+
+    private func performListChannelDescs(clanId: Int64, token: String) async throws -> [Mezon_Api_ChannelDescription] {
         var req = Mezon_Api_ListChannelDescsRequest()
         req.clanID      = clanId
         req.limit       = 500
@@ -728,6 +726,12 @@ final class MezonHTTPClient {
     }
 
     func listChannelBadgeCount(clanId: Int64, token: String) async throws -> Mezon_Api_ListChannelBadgeCountResponse {
+        try await MezonSocketRequestCoalescer.shared.coalesceChannelBadgeCount(clanId: clanId) {
+            try await self.performListChannelBadgeCount(clanId: clanId, token: token)
+        }
+    }
+
+    private func performListChannelBadgeCount(clanId: Int64, token: String) async throws -> Mezon_Api_ListChannelBadgeCountResponse {
         var req = Mezon_Api_ListChannelBadgeCountRequest()
         req.clanID = clanId
         let primary: Mezon_Api_ListChannelBadgeCountResponse = try await postProto(
@@ -1475,6 +1479,15 @@ final class MezonHTTPClient {
     }
 
     func listChannelVoiceUsers(clanId: Int64, token: String) async throws -> Mezon_Api_VoiceChannelUserList {
+        guard clanId != 0 else {
+            return try await performListChannelVoiceUsers(clanId: clanId, token: token)
+        }
+        return try await MezonSocketRequestCoalescer.shared.coalesceChannelVoiceUsers(clanId: clanId) {
+            try await self.performListChannelVoiceUsers(clanId: clanId, token: token)
+        }
+    }
+
+    private func performListChannelVoiceUsers(clanId: Int64, token: String) async throws -> Mezon_Api_VoiceChannelUserList {
         var req = Mezon_Api_ListChannelUsersRequest()
         req.clanID = clanId
         req.channelID = 0
@@ -2182,6 +2195,34 @@ final class MezonHTTPClient {
             timeoutNanoseconds: Self.socketFallbackGraceWaitNanoseconds)
     }
 
+    private func isTransientHTTPFailure(_ error: Error) -> Bool {
+        if case MezonError.httpError(let statusCode, _) = error {
+            switch statusCode {
+            case 408, 429, 500, 502, 503, 504:
+                return true
+            default:
+                return false
+            }
+        }
+        var e: Error? = error
+        for _ in 0..<4 {
+            guard let err = e else { break }
+            let ns = err as NSError
+            if ns.domain == NSURLErrorDomain {
+                switch ns.code {
+                case NSURLErrorTimedOut, NSURLErrorNetworkConnectionLost, NSURLErrorNotConnectedToInternet,
+                    NSURLErrorCannotConnectToHost, NSURLErrorDataNotAllowed, NSURLErrorCannotFindHost,
+                    NSURLErrorDNSLookupFailed:
+                    return true
+                default:
+                    break
+                }
+            }
+            e = ns.userInfo[NSUnderlyingErrorKey] as? Error
+        }
+        return false
+    }
+
     func postProto<Request: SwiftProtobuf.Message, Response: SwiftProtobuf.Message>(
         path: String,
         message: Request,
@@ -2204,7 +2245,7 @@ final class MezonHTTPClient {
                 return response
             } catch {
                 MezonRPCLog.response("route api='\(apiName)' HTTP-FIRST fail error=\(error.localizedDescription) → SOCKET fallback")
-                if singleTransportOnly {
+                if singleTransportOnly, !isTransientHTTPFailure(error) {
                     throw error
                 }
                 if let response: Response = try await sendOverSocketIfPossible(path: path, message: message) {
@@ -2347,12 +2388,10 @@ final class MezonHTTPClient {
            isBearerAuthenticationFailure(httpStatusCode: http.statusCode, data: data),
            case .bearer(let failedToken) = auth,
            let recovery = bearerUnauthorizedRecovery {
-            SessionRefreshDebugLog.log("http.postProto bearer-recovery start path=\(path) status=\(http.statusCode) failed=\(SessionRefreshDebugLog.token(failedToken))")
             let newToken = try await recovery(failedToken, http.statusCode)
             if let newToken,
                !newToken.isEmpty,
                newToken != failedToken {
-                SessionRefreshDebugLog.log("http.postProto bearer-recovery retry path=\(path) new=\(SessionRefreshDebugLog.token(newToken))")
                 return try await postProtoHTTP(
                     path: path,
                     message: message,
@@ -2360,7 +2399,6 @@ final class MezonHTTPClient {
                     allowBearerRetry: false
                 )
             }
-            SessionRefreshDebugLog.log("http.postProto bearer-recovery stop path=\(path) returned=\(SessionRefreshDebugLog.token(newToken))")
         }
 
         let msg = apiFailureMessage(httpStatusCode: http.statusCode, data: data)
@@ -2437,12 +2475,10 @@ final class MezonHTTPClient {
            isBearerAuthenticationFailure(httpStatusCode: http.statusCode, data: data),
            case .bearer(let failedToken) = auth,
            let recovery = bearerUnauthorizedRecovery {
-            SessionRefreshDebugLog.log("http.postProtoIgnoringBody bearer-recovery start path=\(path) status=\(http.statusCode) failed=\(SessionRefreshDebugLog.token(failedToken))")
             let newToken = try await recovery(failedToken, http.statusCode)
             if let newToken,
                !newToken.isEmpty,
                newToken != failedToken {
-                SessionRefreshDebugLog.log("http.postProtoIgnoringBody bearer-recovery retry path=\(path) new=\(SessionRefreshDebugLog.token(newToken))")
                 try await postProtoIgnoringBody(
                     path: path,
                     message: message,
@@ -2451,7 +2487,6 @@ final class MezonHTTPClient {
                 )
                 return
             }
-            SessionRefreshDebugLog.log("http.postProtoIgnoringBody bearer-recovery stop path=\(path) returned=\(SessionRefreshDebugLog.token(newToken))")
         }
 
         let msg = apiFailureMessage(httpStatusCode: http.statusCode, data: data)
@@ -2512,17 +2547,14 @@ final class MezonHTTPClient {
            isBearerAuthenticationFailure(httpStatusCode: http.statusCode, data: data),
            let failedToken = Self.bearerToken(from: request.value(forHTTPHeaderField: "Authorization")),
            let recovery = bearerUnauthorizedRecovery {
-            SessionRefreshDebugLog.log("http.json bearer-recovery start url=\(request.url?.path ?? "") status=\(http.statusCode) failed=\(SessionRefreshDebugLog.token(failedToken))")
             let newToken = try await recovery(failedToken, http.statusCode)
             if let newToken,
                !newToken.isEmpty,
                newToken != failedToken {
-                SessionRefreshDebugLog.log("http.json bearer-recovery retry url=\(request.url?.path ?? "") new=\(SessionRefreshDebugLog.token(newToken))")
                 var retry = request
                 retry.setValue("Bearer \(newToken)", forHTTPHeaderField: "Authorization")
                 return try await execute(retry, allowBearerRetry: false)
             }
-            SessionRefreshDebugLog.log("http.json bearer-recovery stop url=\(request.url?.path ?? "") returned=\(SessionRefreshDebugLog.token(newToken))")
         }
 
         let msg = (try? JSONDecoder().decode(APIError.self, from: data))?.message
@@ -2769,6 +2801,71 @@ final class MezonHTTPClient {
 private struct EmptyBody: Encodable {}
 struct EmptyResponse: Decodable {}
 struct APIError: Decodable { let message: String?; let code: Int? }
+
+private actor MezonSocketRequestCoalescer {
+    static let shared = MezonSocketRequestCoalescer()
+
+    private var channelDescsByClanId: [Int64: Task<[Mezon_Api_ChannelDescription], Error>] = [:]
+    private var channelVoiceUsersByClanId: [Int64: Task<Mezon_Api_VoiceChannelUserList, Error>] = [:]
+    private var channelBadgeCountByClanId: [Int64: Task<Mezon_Api_ListChannelBadgeCountResponse, Error>] = [:]
+
+    func coalesceChannelDescs(
+        clanId: Int64,
+        operation: @escaping @Sendable () async throws -> [Mezon_Api_ChannelDescription]
+    ) async throws -> [Mezon_Api_ChannelDescription] {
+        if let existing = channelDescsByClanId[clanId] {
+            return try await existing.value
+        }
+        let task = Task { try await operation() }
+        channelDescsByClanId[clanId] = task
+        do {
+            let value = try await task.value
+            channelDescsByClanId[clanId] = nil
+            return value
+        } catch {
+            channelDescsByClanId[clanId] = nil
+            throw error
+        }
+    }
+
+    func coalesceChannelVoiceUsers(
+        clanId: Int64,
+        operation: @escaping @Sendable () async throws -> Mezon_Api_VoiceChannelUserList
+    ) async throws -> Mezon_Api_VoiceChannelUserList {
+        if let existing = channelVoiceUsersByClanId[clanId] {
+            return try await existing.value
+        }
+        let task = Task { try await operation() }
+        channelVoiceUsersByClanId[clanId] = task
+        do {
+            let value = try await task.value
+            channelVoiceUsersByClanId[clanId] = nil
+            return value
+        } catch {
+            channelVoiceUsersByClanId[clanId] = nil
+            throw error
+        }
+    }
+
+    func coalesceChannelBadgeCount(
+        clanId: Int64,
+        operation: @escaping @Sendable () async throws -> Mezon_Api_ListChannelBadgeCountResponse
+    ) async throws -> Mezon_Api_ListChannelBadgeCountResponse {
+        if let existing = channelBadgeCountByClanId[clanId] {
+            return try await existing.value
+        }
+        let task = Task { try await operation() }
+        channelBadgeCountByClanId[clanId] = task
+        do {
+            let value = try await task.value
+            channelBadgeCountByClanId[clanId] = nil
+            return value
+        } catch {
+            channelBadgeCountByClanId[clanId] = nil
+            throw error
+        }
+    }
+}
 
 enum MezonError: LocalizedError {
     case invalidResponse

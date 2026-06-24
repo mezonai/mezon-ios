@@ -309,10 +309,18 @@ private final class ToastView: UIView {
         iconBg.addSubview(iconView)
 
         let titleLabel = UILabel()
-        titleLabel.text = titleText ?? config.defaultTitle
+        let resolvedTitle: String? = {
+            if let titleText {
+                let trimmed = titleText.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }
+            return config.defaultTitle
+        }()
+        titleLabel.text = resolvedTitle
         titleLabel.font = .systemFont(ofSize: 15.sf, weight: .bold)
         titleLabel.textColor = type == .notification ? UIColor.theme.textStrong : .init(white: 0.1, alpha: 1)
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.isHidden = resolvedTitle == nil
 
         let messageLabel = UILabel()
         messageLabel.text = messageText
@@ -331,11 +339,15 @@ private final class ToastView: UIView {
         contentView.addSubview(iconBg)
         contentView.addSubview(closeBtn)
 
-        let textStack = UIStackView(arrangedSubviews: [titleLabel, messageLabel])
+        let textStack = UIStackView()
         textStack.axis = .vertical
         textStack.spacing = 4.sh
         textStack.alignment = .leading
         textStack.translatesAutoresizingMaskIntoConstraints = false
+        if resolvedTitle != nil {
+            textStack.addArrangedSubview(titleLabel)
+        }
+        textStack.addArrangedSubview(messageLabel)
         contentView.addSubview(textStack)
 
         NSLayoutConstraint.activate([

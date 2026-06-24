@@ -108,8 +108,8 @@ final class ClanListViewController: ViewController {
             self, selector: #selector(handleAccountCurrentUserDidChange),
             name: .mezonAccountCurrentUserDidChange, object: nil)
         clanListBoundAccountUserId = context.currentUser?.id
+        applyUnreadDMsFromCache()
         loadClans()
-        fetchUnreadDMs()
     }
 
     @objc private func handleAccountCurrentUserDidChange() {
@@ -179,7 +179,9 @@ final class ClanListViewController: ViewController {
                 self.loadClans()
             }
         }
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if self.loadClansTask != nil { return }
             await self.refreshClanSidebarBadgesFromSocket()
             self.fetchUnreadDMs()
         }
@@ -197,12 +199,12 @@ final class ClanListViewController: ViewController {
         }
         if !force, let last = lastRefreshClanSidebarBadgesAt,
            Date().timeIntervalSince(last) < refreshClanSidebarBadgesCooldown { return }
+        lastRefreshClanSidebarBadgesAt = Date()
         let startEpoch = context.sessionEpoch
         let task = Task<Void, Never> { @MainActor [weak self] in
             guard let self else { return }
             defer {
                 self.refreshClanSidebarBadgesTask = nil
-                self.lastRefreshClanSidebarBadgesAt = Date()
             }
             guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
             guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
@@ -419,7 +421,12 @@ final class ClanListViewController: ViewController {
         needsReloadPipe.putNext(())
         refreshDiscoverEmptyOverlayFlag()
     }
-    private func setSelectedClanId(_ v: Int64?) { selectedClanId = v; selectedClanIdPipe.putNext(v); needsReloadPipe.putNext(()) }
+    private func setSelectedClanId(_ v: Int64?) {
+        guard selectedClanId != v else { return }
+        selectedClanId = v
+        selectedClanIdPipe.putNext(v)
+        needsReloadPipe.putNext(())
+    }
     private func setIsLoading(_ v: Bool) {
         isLoading = v
         isLoadingPipe.putNext(v)
@@ -489,9 +496,8 @@ final class ClanListViewController: ViewController {
                     self.fetchClanData(clanId: first.clanID)
                 }
                 self.clansLoadedPromise.set(true)
-                Task { @MainActor in
-                    await self.refreshClanSidebarBadgesFromSocket(force: true)
-                }
+                await self.refreshClanSidebarBadgesFromSocket()
+                self.fetchUnreadDMs()
             } catch {
                 guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
                 if self.clans.isEmpty {
@@ -573,12 +579,12 @@ final class ClanListViewController: ViewController {
             applyUnreadDMsFromCache()
             return
         }
+        lastFetchUnreadDMsAt = Date()
         let startEpoch = context.sessionEpoch
         let task = Task<Void, Never> { @MainActor [weak self] in
             guard let self else { return }
             defer {
                 self.fetchUnreadDMsTask = nil
-                self.lastFetchUnreadDMsAt = Date()
             }
             self.applyUnreadDMsFromCache()
             guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else {
@@ -623,11 +629,21 @@ final class ClanListViewController: ViewController {
         return result
     }
 
+    private var inflightFetchClanDataClanId: Int64?
+
     private func fetchClanData(clanId: Int64) {
+        guard clanId != 0 else { return }
+        if inflightFetchClanDataClanId == clanId { return }
+        inflightFetchClanDataClanId = clanId
         Task { @MainActor [weak self] in
             guard let self else { return }
+            defer {
+                if self.inflightFetchClanDataClanId == clanId {
+                    self.inflightFetchClanDataClanId = nil
+                }
+            }
             guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
-            self.context.engine.clanData.fetchAllClanData(clanId: clanId, token: token)
+            await self.context.engine.clanData.fetchAllClanDataIfNeeded(clanId: clanId, token: token)
         }
     }
 

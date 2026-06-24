@@ -1279,10 +1279,17 @@ public class Window1 {
         self.overlayPresentationContext.addGlobalPortalHostView(sourceView: sourceView)
     }
 
-    public func presentNative(_ controller: UIViewController) {
+    public var canPresentNative: Bool {
+        hostView.nativeController?() != nil
+    }
+
+    @discardableResult
+    public func presentNative(_ controller: UIViewController) -> Bool {
         if let nativeController = self.hostView.nativeController?() {
             nativeController.present(controller, animated: true, completion: nil)
+            return true
         }
+        return false
     }
 
     private func panGestureBegan(location: CGPoint) {

@@ -221,7 +221,13 @@ final class ChatMessageItemNode: ListViewItemNode, UIGestureRecognizerDelegate {
 
             let attachmentsChanged: Bool = {
                 guard let existing = existingBubble, isSameLogicalMessage else { return false }
-                return !ParsedAttachment.attachmentsStructurallyEqual(
+                return ParsedAttachment.attachmentsRequireBubbleRebuild(
+                    existing.display.attachments, item.display.attachments)
+            }()
+
+            let uploadPresentationChanged: Bool = {
+                guard let existing = existingBubble, isSameLogicalMessage else { return false }
+                return !ParsedAttachment.attachmentsUploadStateEqual(
                     existing.display.attachments, item.display.attachments)
             }()
 
@@ -240,7 +246,7 @@ final class ChatMessageItemNode: ListViewItemNode, UIGestureRecognizerDelegate {
                         && existing.display.parsedContent.ogpPreviews == item.display.parsedContent.ogpPreviews
                         && existing.display.messageCode == item.display.messageCode
                         && existing.display.topicData == item.display.topicData
-                    if bodyUnchanged {
+                    if bodyUnchanged && !uploadPresentationChanged {
                         existing.updateReactions(newDisplay: item.display)
                         bubble = existing
                     } else {

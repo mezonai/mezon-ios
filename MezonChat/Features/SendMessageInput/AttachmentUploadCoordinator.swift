@@ -208,6 +208,7 @@ final class AttachmentUploadCoordinator {
                     width: att.width != 0 ? Int(att.width) : Int(item.image.size.width),
                     height: att.height != 0 ? Int(att.height) : Int(item.image.size.height),
                     durationSeconds: att.duration != 0 ? Int(att.duration) : nil,
+                    thumbnail: att.thumbnail,
                     localImage: item.image,
                     isUploading: false,
                     uploadFailed: false
@@ -219,7 +220,10 @@ final class AttachmentUploadCoordinator {
                     filetype: item.reservedAttachment?.filetype ?? "image/jpeg",
                     width: Int(item.image.size.width),
                     height: Int(item.image.size.height),
-                    durationSeconds: nil,
+                    durationSeconds: item.reservedAttachment.flatMap { att in
+                        att.duration != 0 ? Int(att.duration) : nil
+                    },
+                    thumbnail: item.reservedAttachment?.thumbnail ?? "",
                     localImage: item.image,
                     isUploading: true,
                     uploadFailed: false,
@@ -458,8 +462,7 @@ final class AttachmentUploadCoordinator {
                 mentionEveryone: false,
                 avatar: p.avatar,
                 topicId: p.topicId,
-                token: token,
-                preferHTTPFirst: true
+                token: token
             )
             session.serverMessageId = ack.messageID
             if ack.messageID != 0 {
@@ -739,8 +742,7 @@ final class AttachmentUploadCoordinator {
                     mentions: mentionsForPresignSync(session, context: context),
                     hideEditted: true,
                     topicId: p.topicId != 0 ? p.topicId : nil,
-                    token: activeToken,
-                    preferHTTPFirst: true
+                    token: activeToken
                 )
                 writeMessageContent(session, context: context, contentData: localContentData)
                 session.lastSyncedPresignCount = keysSnapshot.count
@@ -801,8 +803,7 @@ final class AttachmentUploadCoordinator {
                 of: "[^a-zA-Z0-9._-]", with: "_", options: .regularExpression)
             do {
                 let uploadInfo = try await context.account.network.uploadAttachmentFile(
-                    filename: sanitized, filetype: file.filetype, size: size, token: token,
-                    preferHTTPFirst: true)
+                    filename: sanitized, filetype: file.filetype, size: size, token: token)
                 let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
                 let presignKey = PresignFinishContent.presignKey(from: cdnURL)
                 var att = Mezon_Api_MessageAttachment()
@@ -881,7 +882,7 @@ final class AttachmentUploadCoordinator {
                 guard let size = await Self.fileSize(of: fileURL) else { return false }
                 let uploadInfo = try await context.account.network.uploadAttachmentFile(
                     filename: sanitized, filetype: filetype, size: size,
-                    width: width, height: height, token: token, preferHTTPFirst: true)
+                    width: width, height: height, token: token)
                 let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
                 att.url = cdnURL
                 att.size = Int32(size)
@@ -904,7 +905,7 @@ final class AttachmentUploadCoordinator {
                     filename: sanitized, isGif: isGif) else { return false }
                 let uploadInfo = try await context.account.network.uploadAttachmentFile(
                     filename: payload.filename, filetype: payload.filetype, size: payload.data.count,
-                    width: width, height: height, token: token, preferHTTPFirst: true)
+                    width: width, height: height, token: token)
                 let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
                 att.filename = payload.filename
                 att.filetype = payload.filetype
@@ -948,7 +949,7 @@ final class AttachmentUploadCoordinator {
         do {
             let uploadInfo = try await context.account.network.uploadAttachmentFile(
                 filename: thumbFilename, filetype: "image/jpeg", size: thumbData.count,
-                width: width, height: height, token: token, preferHTTPFirst: true)
+                width: width, height: height, token: token)
             let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
             let pending = PendingMinIOUpload(
                 minioURL: uploadInfo.url,

@@ -279,6 +279,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         rootController?.flushPendingIncomingPeerCallIfNeeded()
         checkPendingSharedContent()
         refreshVoiceChannelMembersOnForeground()
+        if !VoIPMinimalCallBootstrap.isMinimalChromeActive {
+            AppUpdateGate.scheduleVersionCheckOnForegroundIfNeeded(mainWindow: mainWindow)
+        }
     }
 
     private func refreshVoiceChannelMembersOnForeground() {

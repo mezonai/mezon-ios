@@ -570,17 +570,45 @@ final class SearchViewController: ViewController {
     private func prefetchMemberAvatarURLs(_ users: [Mezon_Api_User]) {
         for user in users.prefix(56) {
             guard let raw = resolvedMemberAvatarURL(for: user) else { continue }
-            let s = ImgproxyURL.create(from: raw, width: 120, height: 120)
-            guard let url = URL(string: s) else { continue }
+            let absolute = ImgproxyURL.absoluteResourceURL(from: raw)
+            guard !absolute.isEmpty else { continue }
+            let proxied = ImgproxyURL.avatarProxyURL(from: absolute, width: 120, height: 120)
+            guard let url = URL(string: proxied) else { continue }
             URLSession.shared.dataTask(with: url).resume()
         }
     }
 
+    private func resolvedMemberAvatarURLs(for user: Mezon_Api_User) -> [String] {
+        var values: [String] = []
+        if let clanAvatar = clanAvatars[user.id]?.trimmingCharacters(in: .whitespacesAndNewlines),
+            !clanAvatar.isEmpty
+        {
+            values.append(clanAvatar)
+        }
+        let userAvatar = user.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !userAvatar.isEmpty {
+            values.append(userAvatar)
+        }
+        context.account.postbox.read { tx in
+            if let profileAvatar = tx.getProfile(userId: String(user.id))?.avatarUrl?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                !profileAvatar.isEmpty
+            {
+                values.append(profileAvatar)
+            }
+            if let clanMember = tx.getClanMembers(clanId: clanId).first(where: { $0.userId == user.id }) {
+                let memberAvatar = clanMember.userAvatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !memberAvatar.isEmpty {
+                    values.append(memberAvatar)
+                }
+            }
+        }
+        var seen = Set<String>()
+        return values.filter { seen.insert($0).inserted }
+    }
+
     private func resolvedMemberAvatarURL(for user: Mezon_Api_User) -> String? {
-        let clanAvatar = clanAvatars[user.id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !clanAvatar.isEmpty { return clanAvatar }
-        let profileAvatar = user.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        return profileAvatar.isEmpty ? nil : profileAvatar
+        resolvedMemberAvatarURLs(for: user).first
     }
 
     private func scoreMember(_ user: Mezon_Api_User, query: String) -> Int {
@@ -1308,11 +1336,11 @@ extension SearchViewController: ASTableDataSource, ASTableDelegate {
             }
             let user = filteredMembers[row]
             let nick = clanNicks[user.id]
-            let clanAvatar = clanAvatars[user.id]
+            let avatarURLs = self.resolvedMemberAvatarURLs(for: user)
             let count = filteredMembers.count
             let isFirst = row == 0
             let isLast = row == count - 1
-            return { MemberSearchCellNode(user: user, clanNick: nick, clanAvatar: clanAvatar, isFirst: isFirst, isLast: isLast) }
+            return { MemberSearchCellNode(user: user, clanNick: nick, avatarURLs: avatarURLs, isFirst: isFirst, isLast: isLast) }
 
         case .channels:
             if filteredChannels.isEmpty {
@@ -1836,7 +1864,7 @@ final class MemberSearchCellNode: ASCellNode, ASNetworkImageNodeDelegate {
     init(
         user: Mezon_Api_User,
         clanNick: String? = nil,
-        clanAvatar: String? = nil,
+        avatarURLs: [String] = [],
         isFirst: Bool = false,
         isLast: Bool = false
     ) {
@@ -1914,12 +1942,14 @@ final class MemberSearchCellNode: ASCellNode, ASNetworkImageNodeDelegate {
             ]
         )
 
-        let rawAvatarValues: [String?] = [clanAvatar, user.avatarURL]
         var seen = Set<String>()
-        avatarURLCandidates = rawAvatarValues.compactMap { raw in
-            let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        avatarURLCandidates = avatarURLs.compactMap { raw in
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty, seen.insert(trimmed).inserted else { return nil }
-            return URL(string: ImgproxyURL.create(from: trimmed, width: 120, height: 120))
+            let absolute = ImgproxyURL.absoluteResourceURL(from: trimmed)
+            guard !absolute.isEmpty else { return nil }
+            let proxied = ImgproxyURL.avatarProxyURL(from: absolute, width: 120, height: 120)
+            return URL(string: proxied)
         }
         loadAvatarCandidate(at: 0)
 

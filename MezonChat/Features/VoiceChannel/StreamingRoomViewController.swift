@@ -6,11 +6,16 @@ final class StreamingRoomViewController: ViewController {
     let streamChannelId: Int64
 
     private let context: AccountContext
-    private let channel: Mezon_Api_ChannelDescription
+    private var channel: Mezon_Api_ChannelDescription
     private let parentChannelName: String?
     private let existingPiPOverlay: StreamingPiPOverlay?
     private var isMinimizingToPiP = false
     private var presenceObserver: NSObjectProtocol?
+    private var channelDescriptionObserver: NSObjectProtocol?
+    private var cachedAvatarURL: String?
+    private var backgroundLoadToken = 0
+    private var isLoadingBackground = false
+    private var didFetchRemoteChannel = false
 
     private let videoView = PeerCallVideoRenderView()
     private let backgroundImageView = UIImageView()
@@ -19,12 +24,20 @@ final class StreamingRoomViewController: ViewController {
     private let statusLabel = UILabel()
     private let membersContainer = UIView()
     private let membersOverflowLabel = UILabel()
+    private let headerBar = UIView()
+    private let bottomChrome = UIView()
     private let headerRow = UIStackView()
     private let footerRow = UIStackView()
     private let minimizeButton = UIButton(type: .custom)
     private let titleLabel = UILabel()
     private let chatButton = UIButton(type: .custom)
     private let leaveButton = UIButton(type: .custom)
+    private var bottomChromeBottomConstraint: NSLayoutConstraint?
+    private var membersBottomConstraint: NSLayoutConstraint?
+
+    private static let streamBannerSize: CGFloat = 240
+    private static let bottomChromeHeight: CGFloat = 50
+    private static let membersBottomOffset: CGFloat = 88
 
     private static let memberAvatarSize: CGFloat = 40
     private static let memberOverlap: CGFloat = 10
@@ -47,9 +60,19 @@ final class StreamingRoomViewController: ViewController {
 
     required init(coder aDecoder: NSCoder) { fatalError() }
 
+    override func loadDisplayNode() {
+        let node = ASDisplayNode()
+        node.backgroundColor = UIColor.theme.primary
+        self.displayNode = node
+        self.displayNodeDidLoad()
+    }
+
     deinit {
         if let presenceObserver {
             NotificationCenter.default.removeObserver(presenceObserver)
+        }
+        if let channelDescriptionObserver {
+            NotificationCenter.default.removeObserver(channelDescriptionObserver)
         }
     }
 
@@ -106,12 +129,16 @@ final class StreamingRoomViewController: ViewController {
         titleLabel.text = channel.channelLabel
         titleLabel.numberOfLines = 2
 
+        headerBar.translatesAutoresizingMaskIntoConstraints = false
+        bottomChrome.translatesAutoresizingMaskIntoConstraints = false
+
         headerRow.axis = .horizontal
         headerRow.alignment = .center
         headerRow.spacing = 12
         headerRow.translatesAutoresizingMaskIntoConstraints = false
         headerRow.addArrangedSubview(minimizeButton)
         headerRow.addArrangedSubview(titleLabel)
+        headerBar.addSubview(headerRow)
 
         styleCircleButton(chatButton, systemImage: "bubble.left.and.bubble.right.fill", pointSize: 18)
         chatButton.addTarget(self, action: #selector(chatTapped), for: .touchUpInside)
@@ -130,16 +157,17 @@ final class StreamingRoomViewController: ViewController {
         footerRow.translatesAutoresizingMaskIntoConstraints = false
         footerRow.addArrangedSubview(chatButton)
         footerRow.addArrangedSubview(leaveButton)
+        bottomChrome.addSubview(footerRow)
 
+        view.addSubview(videoView)
         view.addSubview(backgroundImageView)
         view.addSubview(streamBannerView)
-        view.addSubview(videoView)
         view.addSubview(placeholderView)
         view.addSubview(statusLabel)
         view.addSubview(membersContainer)
         view.addSubview(membersOverflowLabel)
-        view.addSubview(headerRow)
-        view.addSubview(footerRow)
+        view.addSubview(headerBar)
+        view.addSubview(bottomChrome)
 
         NSLayoutConstraint.activate([
             minimizeButton.widthAnchor.constraint(equalToConstant: 44),
@@ -149,45 +177,66 @@ final class StreamingRoomViewController: ViewController {
             leaveButton.widthAnchor.constraint(equalToConstant: 50),
             leaveButton.heightAnchor.constraint(equalToConstant: 50),
 
-            headerRow.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
-            headerRow.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            headerRow.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-
-            videoView.topAnchor.constraint(equalTo: headerRow.bottomAnchor, constant: 12),
+            videoView.topAnchor.constraint(equalTo: view.topAnchor),
             videoView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             videoView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            videoView.bottomAnchor.constraint(equalTo: membersContainer.topAnchor, constant: -16),
+            videoView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
-            backgroundImageView.topAnchor.constraint(equalTo: videoView.topAnchor),
-            backgroundImageView.leadingAnchor.constraint(equalTo: videoView.leadingAnchor),
-            backgroundImageView.trailingAnchor.constraint(equalTo: videoView.trailingAnchor),
-            backgroundImageView.bottomAnchor.constraint(equalTo: videoView.bottomAnchor),
+            backgroundImageView.topAnchor.constraint(equalTo: view.topAnchor),
+            backgroundImageView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            backgroundImageView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            backgroundImageView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
-            streamBannerView.topAnchor.constraint(equalTo: videoView.topAnchor),
-            streamBannerView.leadingAnchor.constraint(equalTo: videoView.leadingAnchor),
-            streamBannerView.trailingAnchor.constraint(equalTo: videoView.trailingAnchor),
-            streamBannerView.bottomAnchor.constraint(equalTo: videoView.bottomAnchor),
+            streamBannerView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            streamBannerView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            streamBannerView.widthAnchor.constraint(equalToConstant: Self.streamBannerSize),
+            streamBannerView.heightAnchor.constraint(equalToConstant: Self.streamBannerSize),
 
-            placeholderView.centerXAnchor.constraint(equalTo: videoView.centerXAnchor),
-            placeholderView.centerYAnchor.constraint(equalTo: videoView.centerYAnchor),
-            placeholderView.widthAnchor.constraint(equalToConstant: 96),
-            placeholderView.heightAnchor.constraint(equalToConstant: 96),
+            placeholderView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            placeholderView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            placeholderView.widthAnchor.constraint(equalToConstant: Self.streamBannerSize),
+            placeholderView.heightAnchor.constraint(equalToConstant: Self.streamBannerSize),
 
             statusLabel.topAnchor.constraint(equalTo: placeholderView.bottomAnchor, constant: 12),
             statusLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
             statusLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
 
+            headerBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            headerBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            headerBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            headerBar.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
+
+            headerRow.topAnchor.constraint(equalTo: headerBar.topAnchor),
+            headerRow.leadingAnchor.constraint(equalTo: headerBar.leadingAnchor, constant: 12),
+            headerRow.trailingAnchor.constraint(equalTo: headerBar.trailingAnchor, constant: -12),
+            headerRow.bottomAnchor.constraint(equalTo: headerBar.bottomAnchor),
+
+            bottomChrome.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomChrome.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bottomChrome.heightAnchor.constraint(equalToConstant: Self.bottomChromeHeight),
+
+            footerRow.topAnchor.constraint(equalTo: bottomChrome.topAnchor),
+            footerRow.leadingAnchor.constraint(equalTo: bottomChrome.leadingAnchor, constant: 24),
+            footerRow.trailingAnchor.constraint(equalTo: bottomChrome.trailingAnchor, constant: -24),
+            footerRow.bottomAnchor.constraint(equalTo: bottomChrome.bottomAnchor),
+
             membersContainer.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            membersContainer.bottomAnchor.constraint(equalTo: footerRow.topAnchor, constant: -20),
             membersContainer.heightAnchor.constraint(equalToConstant: Self.memberAvatarSize + 4),
 
             membersOverflowLabel.leadingAnchor.constraint(equalTo: membersContainer.trailingAnchor, constant: 8),
             membersOverflowLabel.centerYAnchor.constraint(equalTo: membersContainer.centerYAnchor),
-
-            footerRow.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
-            footerRow.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
-            footerRow.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -20),
         ])
+
+        bottomChromeBottomConstraint = bottomChrome.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -24)
+        bottomChromeBottomConstraint?.isActive = true
+
+        membersBottomConstraint = membersContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -Self.membersBottomOffset)
+        membersBottomConstraint?.isActive = true
+
+        view.bringSubviewToFront(headerBar)
+        view.bringSubviewToFront(membersContainer)
+        view.bringSubviewToFront(membersOverflowLabel)
+        view.bringSubviewToFront(bottomChrome)
 
         bindSession()
         loadStreamBackgroundIfNeeded()
@@ -205,9 +254,37 @@ final class StreamingRoomViewController: ViewController {
             self.refreshMembersRow()
         }
 
+        channelDescriptionObserver = NotificationCenter.default.addObserver(
+            forName: .mezonChannelDescriptionDidUpdate,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            let updatedChannelId = (notification.userInfo?["channelId"] as? NSNumber)?.int64Value ?? 0
+            guard updatedChannelId == self.channel.channelID else { return }
+            let updatedClanId = (notification.userInfo?["clanId"] as? NSNumber)?.int64Value ?? 0
+            if updatedClanId != 0, updatedClanId != self.resolvedClanId { return }
+            if let updated = self.context.account.postbox.resolvedChannelDescription(
+                clanId: self.resolvedClanId,
+                channelId: updatedChannelId
+            ) {
+                self.channel = updated
+                self.cachedAvatarURL = nil
+            }
+            self.loadStreamBackgroundIfNeeded()
+            self.refreshPlaybackUI()
+        }
+
         if let pip = existingPiPOverlay {
             pip.prepareForFullScreenRestore()
         }
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        let bottomInset = view.window?.safeAreaInsets.bottom ?? view.safeAreaInsets.bottom
+        bottomChromeBottomConstraint?.constant = -(bottomInset + 24)
+        membersBottomConstraint?.constant = -(bottomInset + Self.membersBottomOffset)
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -238,14 +315,16 @@ final class StreamingRoomViewController: ViewController {
         let session = StreamingWebRTCSession.shared
         let hasVideo = session.isRemoteVideoStream
         let isActive = session.isStreaming
+        let avatarURL = resolvedStreamChannelAvatarURL()
+        let showBackground = isActive && !hasVideo && (backgroundImageView.image != nil || !avatarURL.isEmpty)
 
         videoView.isHidden = !hasVideo
-        backgroundImageView.isHidden = hasVideo || !isActive
-        streamBannerView.isHidden = hasVideo || !isActive || hasStreamChannelAvatar
-        placeholderView.isHidden = isActive || hasVideo
+        backgroundImageView.isHidden = !showBackground
+        streamBannerView.isHidden = true
+        placeholderView.isHidden = true
         statusLabel.isHidden = isActive || hasVideo
 
-        if isActive && !hasVideo {
+        if !hasVideo && backgroundImageView.image == nil && !isLoadingBackground {
             loadStreamBackgroundIfNeeded()
         }
 
@@ -259,20 +338,50 @@ final class StreamingRoomViewController: ViewController {
         }
     }
 
-    private var hasStreamChannelAvatar: Bool {
-        !channel.channelAvatar.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    private func resolvedStreamChannelAvatarURL() -> String {
+        if let cachedAvatarURL { return cachedAvatarURL }
+        let resolved = StreamingChannelBackground.resolveAvatarURL(channel: channel, context: context)
+        cachedAvatarURL = resolved
+        return resolved
+    }
+
+    private func fetchRemoteChannelAvatarIfNeeded() {
+        guard !didFetchRemoteChannel else { return }
+        guard resolvedStreamChannelAvatarURL().isEmpty else { return }
+        didFetchRemoteChannel = true
+        let clanId = resolvedClanId
+        let channelId = channel.channelID
+        Task { @MainActor [weak self] in
+            guard let self, clanId != 0, let token = await self.context.getToken() else { return }
+            do {
+                let channels = try await self.context.engine.channels.listChannelDescs(clanId: clanId, token: token)
+                guard let found = channels.first(where: { $0.channelID == channelId }) else { return }
+                self.channel = found
+                self.cachedAvatarURL = nil
+                self.loadStreamBackgroundIfNeeded()
+                self.refreshPlaybackUI()
+            } catch {}
+        }
     }
 
     private func loadStreamBackgroundIfNeeded() {
-        guard hasStreamChannelAvatar else {
-            backgroundImageView.image = nil
+        let raw = resolvedStreamChannelAvatarURL()
+        guard !raw.isEmpty else {
+            fetchRemoteChannelAvatarIfNeeded()
             return
         }
-        let raw = channel.channelAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
-        let width = max(Int(view.bounds.width * UIScreen.main.scale), 720)
-        let proxy = ImgproxyURL.create(from: raw, width: width, height: width)
-        ImageCache.shared.loadAvatar(urlString: proxy) { [weak self] image in
-            self?.backgroundImageView.image = image
+        guard !isLoadingBackground else { return }
+        isLoadingBackground = true
+        backgroundLoadToken += 1
+        let token = backgroundLoadToken
+        let scale = UIScreen.main.scale
+        let width = max(Int(view.bounds.width * scale), 720)
+        let height = max(Int(view.bounds.height * scale), 720)
+        StreamingChannelBackground.loadImage(raw: raw, width: width, height: height) { [weak self] image in
+            guard let self, token == self.backgroundLoadToken else { return }
+            self.isLoadingBackground = false
+            self.backgroundImageView.image = image
+            self.refreshPlaybackUI()
         }
     }
 
