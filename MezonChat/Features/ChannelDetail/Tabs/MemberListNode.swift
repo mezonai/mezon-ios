@@ -47,6 +47,8 @@ final class MemberListNode: ASDisplayNode {
     private var didStartMemberLoading = false
     private var didRequestClanMemberRefreshForAvatars = false
 
+    private var prefersProfileAvatar: Bool { clanId == 0 }
+
     init(
         context: AccountContext, clanId: Int64, channelId: Int64,
         channelDescription: Mezon_Api_ChannelDescription
@@ -142,17 +144,24 @@ final class MemberListNode: ASDisplayNode {
         } else {
             clanAvatar = memberListFirstNonEmpty(member.clanAvatar)
         }
-        let avatarUrls = memberListUniqueNonEmpty([
-            clanAvatar,
-            cached.profile?.avatarUrl,
-            cached.clanMember?.userAvatarURL,
-        ])
+        let avatarUrls: [String]
+        if prefersProfileAvatar {
+            avatarUrls = memberListUniqueNonEmpty([
+                cached.profile?.avatarUrl,
+            ])
+        } else {
+            avatarUrls = memberListUniqueNonEmpty([
+                clanAvatar,
+                cached.profile?.avatarUrl,
+                cached.clanMember?.userAvatarURL,
+            ])
+        }
         let avatarUrl = avatarUrls.first ?? ""
 
         return ChannelMemberPresentation(
             displayName: displayName,
             clanNick: clanNick,
-            clanAvatar: clanAvatar,
+            clanAvatar: prefersProfileAvatar ? "" : clanAvatar,
             username: username,
             avatarUrl: avatarUrl,
             avatarUrls: avatarUrls
@@ -361,12 +370,27 @@ final class MemberListNode: ASDisplayNode {
         let nick = u.clanNick.trimmingCharacters(in: .whitespacesAndNewlines)
 
         let avatarUrl: String?
-        if !trimmedAvatar.isEmpty {
+        if prefersProfileAvatar {
+            if let a = existing?.avatarUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
+                !a.isEmpty
+            {
+                avatarUrl = a
+            } else if !trimmedAvatar.isEmpty {
+                avatarUrl = trimmedAvatar
+            } else {
+                avatarUrl = nil
+            }
+        } else if !trimmedAvatar.isEmpty {
             avatarUrl = trimmedAvatar
         } else if let a = existing?.avatarUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
             !a.isEmpty
         {
             avatarUrl = a
+        } else if clanId > 0,
+            let clanMember = tx.getClanMembers(clanId: clanId).first(where: { $0.userId == u.userID })
+        {
+            let userAvatar = clanMember.userAvatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            avatarUrl = userAvatar.isEmpty ? nil : userAvatar
         } else {
             avatarUrl = nil
         }
@@ -461,16 +485,6 @@ final class MemberListNode: ASDisplayNode {
     }
 }
 
-fileprivate func memberListResolvedAvatarURL(_ raw: String) -> String {
-    let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !t.isEmpty else { return "" }
-    if let u = URL(string: t), u.scheme != nil { return t }
-    if t.hasPrefix("//") { return "https:\(t)" }
-    let base = MezonConfig.baseImgURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-    if t.hasPrefix("/") { return "\(base)\(t)" }
-    return "\(base)/\(t)"
-}
-
 fileprivate func memberListFirstNonEmpty(_ values: String?...) -> String {
     for value in values {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -548,6 +562,7 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                         avatarUrl: presentation.avatarUrl, clanNick: presentation.clanNick,
                         clanAvatar: presentation.clanAvatar, username: presentation.username,
                         avatarUrls: presentation.avatarUrls,
+                        prefersProfileAvatar: self.prefersProfileAvatar,
                         roleColor: color, isOwner: isOwner)
                 }
             case .clan(let members):
@@ -561,6 +576,7 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                         avatarUrl: presentation.avatarUrl, clanNick: presentation.clanNick,
                         clanAvatar: presentation.clanAvatar, username: presentation.username,
                         avatarUrls: presentation.avatarUrls,
+                        prefersProfileAvatar: self.prefersProfileAvatar,
                         roleColor: color, isOwner: isOwner)
                 }
             }
@@ -576,6 +592,7 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                         avatarUrl: presentation.avatarUrl, clanNick: presentation.clanNick,
                         clanAvatar: presentation.clanAvatar, username: presentation.username,
                         avatarUrls: presentation.avatarUrls,
+                        prefersProfileAvatar: self.prefersProfileAvatar,
                         roleColor: nil, isOwner: isOwner)
                 }
             case .clan(let members):
@@ -588,6 +605,7 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                         avatarUrl: presentation.avatarUrl, clanNick: presentation.clanNick,
                         clanAvatar: presentation.clanAvatar, username: presentation.username,
                         avatarUrls: presentation.avatarUrls,
+                        prefersProfileAvatar: self.prefersProfileAvatar,
                         roleColor: nil, isOwner: isOwner)
                 }
             }
@@ -950,6 +968,7 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
     private let crownNode = ASTextNode2()
     private let statusNode = ASDisplayNode()
     private let separatorNode = ASDisplayNode()
+    private let prefersProfileAvatar: Bool
     private let roleColor: UIColor?
     private let isOwner: Bool
     private let disposables = DisposableSet()
@@ -958,6 +977,7 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         context: AccountContext, userId: Int64, displayName: String, avatarUrl: String,
         clanNick: String, clanAvatar: String, username: String,
         avatarUrls: [String] = [],
+        prefersProfileAvatar: Bool = false,
         roleColor: UIColor? = nil, isOwner: Bool = false
     ) {
         self.context = context
@@ -968,6 +988,7 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         self.clanNick = clanNick
         self.clanAvatar = clanAvatar
         self.username = username
+        self.prefersProfileAvatar = prefersProfileAvatar
         self.roleColor = roleColor
         self.isOwner = isOwner
         super.init()
@@ -1061,12 +1082,18 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         nameNode.style.flexShrink = 1.0
         nameNode.style.flexGrow = 1.0
 
-        var rawAvatarValues: [String?] = [clanAvatar, avatarUrl, initialAvatarUrl]
+        var rawAvatarValues: [String?]
+        if prefersProfileAvatar {
+            rawAvatarValues = [avatarUrl, initialAvatarUrl]
+        } else {
+            rawAvatarValues = [clanAvatar, avatarUrl, initialAvatarUrl]
+        }
         rawAvatarValues.append(contentsOf: initialAvatarUrls.map { Optional($0) })
         avatarURLCandidates = memberListUniqueNonEmpty(rawAvatarValues).compactMap { raw in
-            let absolute = memberListResolvedAvatarURL(raw)
+            let absolute = ImgproxyURL.absoluteResourceURL(from: raw)
             guard !absolute.isEmpty else { return nil }
-            return URL(string: ImgproxyURL.create(from: absolute, width: 100, height: 100))
+            let proxied = ImgproxyURL.avatarProxyURL(from: absolute, width: 100, height: 100)
+            return URL(string: proxied)
         }
         loadAvatarCandidate(at: 0)
 

@@ -203,11 +203,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         let loadingPlaceholderToggled = loadingPHNow != loadingPHWas
         let structureChanged = loadingPlaceholderToggled
             || prevCats.count != newCats.count
-            || zip(prevCats, newCats).contains(where: {
-                $0.id != $1.id || $0.isCollapsed != $1.isCollapsed || $0.name != $1.name
-                    || $0.channels.count != $1.channels.count
-                    || ($0.favoriteFlatChannels?.count ?? 0) != ($1.favoriteFlatChannels?.count ?? 0)
-            })
+            || !categoriesChannelStructureEqual(prevCats, newCats)
 
         isClanSwitching = wasClanSwitching && newState.isLoading
 
@@ -225,7 +221,16 @@ final class ChannelListContainerNode: ASDisplayNode {
                 clanSwitchTableRefreshDone = true
                 deferOnboardingTableUpdates = false
             } else if structureChanged {
-                applyBatchStructureUpdate(prev: prevState, new: newState)
+                let prevChannelIds = Set(prevCats.flatMap { channelIdsInCategory($0) })
+                let newChannelIds = Set(newCats.flatMap { channelIdsInCategory($0) })
+                let channelMembershipChanged = !prevChannelIds.isEmpty
+                    && !newChannelIds.isEmpty
+                    && prevChannelIds != newChannelIds
+                if channelMembershipChanged {
+                    safeReloadData(preserving: captureScrollAnchor(prev: prevState))
+                } else {
+                    applyBatchStructureUpdate(prev: prevState, new: newState)
+                }
             } else if !newCats.isEmpty {
                 applyRowDiff(prev: prevState, new: newState)
             }
@@ -237,7 +242,16 @@ final class ChannelListContainerNode: ASDisplayNode {
             safeReloadData()
         } else if structureChanged {
             cachedHeaders = [:]
-            applyBatchStructureUpdate(prev: prevState, new: newState)
+            let prevChannelIds = Set(prevCats.flatMap { channelIdsInCategory($0) })
+            let newChannelIds = Set(newCats.flatMap { channelIdsInCategory($0) })
+            let channelMembershipChanged = !prevChannelIds.isEmpty
+                && !newChannelIds.isEmpty
+                && prevChannelIds != newChannelIds
+            if channelMembershipChanged {
+                safeReloadData(preserving: captureScrollAnchor(prev: prevState))
+            } else {
+                applyBatchStructureUpdate(prev: prevState, new: newState)
+            }
         } else if !newCats.isEmpty {
             applyRowDiff(prev: prevState, new: newState)
         }

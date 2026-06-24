@@ -208,6 +208,7 @@ final class AttachmentUploadCoordinator {
                     width: att.width != 0 ? Int(att.width) : Int(item.image.size.width),
                     height: att.height != 0 ? Int(att.height) : Int(item.image.size.height),
                     durationSeconds: att.duration != 0 ? Int(att.duration) : nil,
+                    thumbnail: att.thumbnail,
                     localImage: item.image,
                     isUploading: false,
                     uploadFailed: false
@@ -219,7 +220,10 @@ final class AttachmentUploadCoordinator {
                     filetype: item.reservedAttachment?.filetype ?? "image/jpeg",
                     width: Int(item.image.size.width),
                     height: Int(item.image.size.height),
-                    durationSeconds: nil,
+                    durationSeconds: item.reservedAttachment.flatMap { att in
+                        att.duration != 0 ? Int(att.duration) : nil
+                    },
+                    thumbnail: item.reservedAttachment?.thumbnail ?? "",
                     localImage: item.image,
                     isUploading: true,
                     uploadFailed: false,

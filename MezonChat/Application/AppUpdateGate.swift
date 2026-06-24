@@ -3,9 +3,19 @@ import UIKit
 @MainActor
 enum AppUpdateGate {
     private static let appStoreID = "6502750046"
+    private static let defaultCountryCode = "vn"
     private static let checkDelay: TimeInterval = 2
+    private static let foregroundRecheckInterval: TimeInterval = 30 * 60
     private static var didScheduleCheck = false
     private static var didPresentUpdateSheet = false
+    private static var lastCheckTime: Date?
+
+    private static let lookupSession: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        config.urlCache = nil
+        return URLSession(configuration: config)
+    }()
 
     static func scheduleVersionCheckIfNeeded(mainWindow: Window1?) {
         guard !didScheduleCheck else { return }
@@ -15,9 +25,18 @@ enum AppUpdateGate {
         }
     }
 
+    static func scheduleVersionCheckOnForegroundIfNeeded(mainWindow: Window1?) {
+        guard !didPresentUpdateSheet else { return }
+        if let lastCheckTime, Date().timeIntervalSince(lastCheckTime) < foregroundRecheckInterval {
+            return
+        }
+        Task { await performCheck(mainWindow: mainWindow) }
+    }
+
     private static func performCheck(mainWindow: Window1?) async {
         guard !didPresentUpdateSheet else { return }
         guard let mainWindow else { return }
+        lastCheckTime = Date()
         let localVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
         guard let (remoteVersion, storeURL) = await fetchAppStoreVersion() else {
             return
@@ -25,25 +44,40 @@ enum AppUpdateGate {
         guard remoteVersion.compare(localVersion, options: .numeric) == .orderedDescending else {
             return
         }
-        didPresentUpdateSheet = true
         let content = AppUpdateRequiredSheetViewController(storeURL: storeURL, remoteVersion: remoteVersion)
         let nav = UINavigationController(rootViewController: content)
         nav.setNavigationBarHidden(true, animated: false)
         nav.modalPresentationStyle = .pageSheet
         nav.isModalInPresentation = true
-        mainWindow.presentNative(nav)
+        guard mainWindow.canPresentNative else { return }
+        guard mainWindow.presentNative(nav) else { return }
+        didPresentUpdateSheet = true
     }
 
     private static func fetchAppStoreVersion() async -> (String, URL)? {
         await fetchLookupDefault()
     }
 
+    private static func lookupCountryCode() -> String {
+        if #available(iOS 16, *) {
+            return Locale.current.region?.identifier.lowercased() ?? defaultCountryCode
+        }
+        return Locale.current.regionCode?.lowercased() ?? defaultCountryCode
+    }
+
     private static func fetchLookupDefault() async -> (String, URL)? {
         var components = URLComponents(string: "https://itunes.apple.com/lookup")!
-        components.queryItems = [URLQueryItem(name: "id", value: appStoreID)]
+        let country = lookupCountryCode()
+        components.queryItems = [
+            URLQueryItem(name: "id", value: appStoreID),
+            URLQueryItem(name: "country", value: country),
+            URLQueryItem(name: "t", value: String(Int(Date().timeIntervalSince1970))),
+        ]
         guard let url = components.url else { return nil }
+        var request = URLRequest(url: url)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
+            let (data, response) = try await lookupSession.data(for: request)
             guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
                 return nil
             }
@@ -81,6 +115,11 @@ private final class AppUpdateRequiredSheetViewController: UIViewController {
     private let remoteVersion: String
     private var contentStack: UIStackView?
     private var lastAppliedDetentHeight: CGFloat = 0
+    private let titleLabel = UILabel()
+    private let descLabel = UILabel()
+    private let versionLabel = UILabel()
+    private let updateButton = UIButton(type: .system)
+    private let iconView = UIImageView()
     private static let contentTopPadding: CGFloat = 32
     private static let contentBottomPadding: CGFloat = 24
 
@@ -92,49 +131,43 @@ private final class AppUpdateRequiredSheetViewController: UIViewController {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .mezonSecondaryBackground
 
         let iconContainer = UIView()
         iconContainer.backgroundColor = UIColor(hex: 0xF3E8FF)
         iconContainer.layer.cornerRadius = 40
         iconContainer.translatesAutoresizingMaskIntoConstraints = false
 
-        let iconView = UIImageView(image: UIImage(systemName: "arrow.down.circle.fill"))
-        iconView.tintColor = ThemeManager.shared.attributes.loginButtonBg
+        iconView.image = UIImage(systemName: "arrow.down.circle.fill")
         iconView.contentMode = .scaleAspectFit
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconContainer.addSubview(iconView)
 
-        let titleLabel = UILabel()
         titleLabel.text = L(L10n.UpdateGate.outOfDateVersion)
         titleLabel.font = .systemFont(ofSize: 20, weight: .bold)
-        titleLabel.textColor = .mezonTextStrong
         titleLabel.textAlignment = .center
         titleLabel.numberOfLines = 0
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        let descLabel = UILabel()
         descLabel.text = L(L10n.UpdateGate.updateExperience)
         descLabel.font = .systemFont(ofSize: 16)
-        descLabel.textColor = .mezonTextSecondary
         descLabel.textAlignment = .center
         descLabel.numberOfLines = 0
         descLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        let versionLabel = UILabel()
         versionLabel.text = L(L10n.UpdateGate.versionInfo) + " " + remoteVersion
         versionLabel.font = .systemFont(ofSize: 12, weight: .medium)
-        versionLabel.textColor = .mezonTextSecondary
         versionLabel.textAlignment = .center
         versionLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        let updateButton = UIButton(type: .system)
         updateButton.setTitle(L(L10n.UpdateGate.updateNow), for: .normal)
         updateButton.setTitleColor(.white, for: .normal)
         updateButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
-        updateButton.backgroundColor = ThemeManager.shared.attributes.loginButtonBg
         updateButton.layer.cornerRadius = 25
         updateButton.translatesAutoresizingMaskIntoConstraints = false
         updateButton.addTarget(self, action: #selector(didTapUpdate), for: .touchUpInside)
@@ -179,6 +212,23 @@ private final class AppUpdateRequiredSheetViewController: UIViewController {
             sp.prefersGrabberVisible = true
             sp.preferredCornerRadius = 16
         }
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applyTheme),
+            name: ThemeManager.didChangeNotification,
+            object: nil
+        )
+        applyTheme()
+    }
+
+    @objc private func applyTheme() {
+        view.backgroundColor = .mezonSecondaryBackground
+        titleLabel.textColor = .mezonTextStrong
+        descLabel.textColor = .mezonTextMuted
+        versionLabel.textColor = .mezonTextMuted
+        iconView.tintColor = ThemeManager.shared.attributes.loginButtonBg
+        updateButton.backgroundColor = ThemeManager.shared.attributes.loginButtonBg
     }
 
     override func viewDidLayoutSubviews() {

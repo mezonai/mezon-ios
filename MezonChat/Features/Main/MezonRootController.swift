@@ -621,6 +621,8 @@ final class MezonRootController: NavigationController {
             guard let token = await self.context.getToken() else { return }
             do {
                 let channels = try await self.context.account.network.listChannelDescs(clanId: clanId, token: token)
+                NSLog("[ChannelList] MezonRoot listChannelDescs clanId=%lld count=%d", clanId, channels.count)
+                print("[ChannelList] MezonRoot listChannelDescs clanId=\(clanId) count=\(channels.count) ids=\(channels.map { "\($0.channelID):\($0.channelLabel)" }.joined(separator: ", "))")
                 guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
                 if channels.isEmpty {
                     if let homeVC = self.homeController, homeVC.channelListVC.clanId == clanId {

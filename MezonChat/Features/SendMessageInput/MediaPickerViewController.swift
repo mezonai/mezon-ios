@@ -697,7 +697,7 @@ final class MediaPickerViewController: UIViewController {
             }
         } else {
             guard selectedAssets.count < selectionLimit else {
-                Toast.info("You can select up to \(selectionLimit) item\(selectionLimit == 1 ? "" : "s").")
+                Toast.info("You can select up to \(selectionLimit) item\(selectionLimit == 1 ? "" : "s").", title: "")
                 return
             }
             selectedAssets.append(asset)

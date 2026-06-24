@@ -145,16 +145,25 @@ extension MezonEngine {
         }
 
         func fetchAllClanData(clanId: Int64, token: String) {
+            Task { @MainActor in
+                await self.fetchAllClanDataIfNeeded(clanId: clanId, token: token)
+            }
+        }
+
+        func fetchAllClanDataIfNeeded(clanId: Int64, token: String) async {
             guard clanId != 0 else { return }
-            if let existing = inflightFetchAllByClanId[clanId], !existing.isCancelled { return }
+            if let existing = inflightFetchAllByClanId[clanId] {
+                await existing.value
+                return
+            }
             if let last = lastFetchAllAtByClanId[clanId], Date().timeIntervalSince(last) < fetchAllCooldownInterval {
                 return
             }
+            lastFetchAllAtByClanId[clanId] = Date()
             let task = Task { @MainActor [weak self] in
                 guard let self else { return }
                 defer {
                     self.inflightFetchAllByClanId[clanId] = nil
-                    self.lastFetchAllAtByClanId[clanId] = Date()
                 }
 
                 async let usersResult = self.fetchClanUsers(clanId: clanId, token: token)
@@ -173,6 +182,7 @@ extension MezonEngine {
                 )
             }
             inflightFetchAllByClanId[clanId] = task
+            await task.value
         }
 
         private func fetchClanUsers(clanId: Int64, token: String) async {

@@ -48,48 +48,63 @@ private final class MediaSkeletonNode: ASDisplayNode {
 }
 
 private final class MediaUploadingOverlayNode: ASDisplayNode {
-    private let spinnerHost = ASDisplayNode()
-    private let percentLabel = ASTextNode2()
-    private let barNode: UploadProgressBarNode
+    private let spinnerHost: ASDisplayNode?
+    private let percentLabel: ASTextNode2?
+    private let barNode: UploadProgressBarNode?
+    private let gridCompactMode: Bool
 
-    init(progress: Double) {
-        barNode = UploadProgressBarNode(
-            progress: progress,
-            width: 0,
-            height: 3,
-            trackColor: UIColor.white.withAlphaComponent(0.3),
-            fillColor: .white)
+    init(progress: Double, gridCompact: Bool = false) {
+        gridCompactMode = gridCompact
+        if gridCompact {
+            spinnerHost = nil
+            percentLabel = nil
+            barNode = nil
+        } else {
+            let bar = UploadProgressBarNode(
+                progress: progress,
+                width: 0,
+                height: 3,
+                trackColor: UIColor.white.withAlphaComponent(0.3),
+                fillColor: .white)
+            barNode = bar
+            let spinner = ASDisplayNode()
+            spinner.setViewBlock {
+                let container = UIView()
+                container.backgroundColor = .clear
+                let indicator = UIActivityIndicatorView(style: .medium)
+                indicator.color = .white
+                indicator.translatesAutoresizingMaskIntoConstraints = false
+                container.addSubview(indicator)
+                NSLayoutConstraint.activate([
+                    indicator.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+                    indicator.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+                ])
+                indicator.startAnimating()
+                return container
+            }
+            spinnerHost = spinner
+            let label = ASTextNode2()
+            label.maximumNumberOfLines = 1
+            label.truncationMode = .byTruncatingTail
+            percentLabel = label
+        }
         super.init()
         isLayerBacked = false
-        backgroundColor = UIColor.black.withAlphaComponent(0.4)
+        backgroundColor = UIColor.black.withAlphaComponent(gridCompact ? 0.35 : 0.4)
         clipsToBounds = true
         isUserInteractionEnabled = false
-        spinnerHost.setViewBlock {
-            let container = UIView()
-            container.backgroundColor = .clear
-            let indicator = UIActivityIndicatorView(style: .medium)
-            indicator.color = .white
-            indicator.translatesAutoresizingMaskIntoConstraints = false
-            container.addSubview(indicator)
-            NSLayoutConstraint.activate([
-                indicator.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-                indicator.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            ])
-            indicator.startAnimating()
-            return container
+        if !gridCompact {
+            updatePercentText(progress)
+            if let spinnerHost { addSubnode(spinnerHost) }
+            if let percentLabel { addSubnode(percentLabel) }
+            if let barNode { addSubnode(barNode) }
         }
-        percentLabel.maximumNumberOfLines = 1
-        percentLabel.truncationMode = .byTruncatingTail
-        updatePercentText(progress)
-        addSubnode(spinnerHost)
-        addSubnode(percentLabel)
-        addSubnode(barNode)
     }
 
     private func updatePercentText(_ progress: Double) {
         let para = NSMutableParagraphStyle()
         para.alignment = .center
-        percentLabel.attributedText = NSAttributedString(
+        percentLabel?.attributedText = NSAttributedString(
             string: "\(Int(min(max(progress, 0), 1) * 100))%",
             attributes: [
                 .font: UIFont.systemFont(ofSize: 11, weight: .semibold),
@@ -99,13 +114,18 @@ private final class MediaUploadingOverlayNode: ASDisplayNode {
     }
 
     func setProgress(_ value: Double) {
+        guard !gridCompactMode else { return }
         updatePercentText(value)
-        barNode.updateProgress(value)
+        barNode?.updateProgress(value)
         setNeedsLayout()
     }
 
     override func layout() {
         super.layout()
+        guard !gridCompactMode else {
+            cornerRadius = min(8.swh, min(bounds.width, bounds.height) * 0.12)
+            return
+        }
         let w = bounds.width
         let h = bounds.height
         cornerRadius = min(8.swh, min(w, h) * 0.12)
@@ -120,7 +140,7 @@ private final class MediaUploadingOverlayNode: ASDisplayNode {
         let stackHeight = spinnerSide + spacing + labelHeight + (barHeight > 0 ? spacing + barHeight : 0)
         var y = max(0, (h - stackHeight) * 0.5)
 
-        spinnerHost.frame = CGRect(
+        spinnerHost?.frame = CGRect(
             x: (w - spinnerSide) * 0.5,
             y: y,
             width: spinnerSide,
@@ -128,9 +148,9 @@ private final class MediaUploadingOverlayNode: ASDisplayNode {
         y += spinnerSide + spacing
 
         let labelMaxWidth = max(0, min(w - horizontalPad * 2, 56))
-        let measuredLabel = percentLabel.measure(CGSize(width: labelMaxWidth, height: labelHeight))
-        let labelWidth = min(labelMaxWidth, max(measuredLabel.width, 1))
-        percentLabel.frame = CGRect(
+        let measuredLabel = percentLabel?.measure(CGSize(width: labelMaxWidth, height: labelHeight))
+        let labelWidth = min(labelMaxWidth, max(measuredLabel?.width ?? 0, 1))
+        percentLabel?.frame = CGRect(
             x: (w - labelWidth) * 0.5,
             y: y,
             width: labelWidth,
@@ -140,13 +160,13 @@ private final class MediaUploadingOverlayNode: ASDisplayNode {
         if barHeight > 0 {
             y += spacing
             let barWidth = max(0, min(w - horizontalPad * 2, 72))
-            barNode.frame = CGRect(
+            barNode?.frame = CGRect(
                 x: (w - barWidth) * 0.5,
                 y: y,
                 width: barWidth,
                 height: barHeight)
         } else {
-            barNode.frame = .zero
+            barNode?.frame = .zero
         }
     }
 }
@@ -186,6 +206,8 @@ final class MessageMediaContentNode: ASDisplayNode {
     var onImageTapped: ((Int) -> Void)?
 
     private static let gridSpacing: CGFloat = 2.0
+    private static let gridDisplayMaxPixelSize: CGFloat = 480
+    private static let gridDisplayThumbnailCache = NSCache<NSString, UIImage>()
 
     private var cachedImageFrames: [CGRect] = []
     private var cachedPositions: [MediaMosaicItemPosition] = []
@@ -198,6 +220,14 @@ final class MessageMediaContentNode: ASDisplayNode {
     private var remoteLoadInFlightByIndex: Set<Int> = []
     private var remoteLoadRetryCountByIndex: [Int: Int] = [:]
     private var uploadingOverlayByProgressKey: [String: MediaUploadingOverlayNode] = [:]
+    private var slotOverlayKindByIndex: [Int: MediaSlotOverlayKind] = [:]
+
+    private enum MediaSlotOverlayKind: Equatable {
+        case none
+        case play
+        case uploading(String)
+        case failed
+    }
 
     private static let maxRemoteLoadRetries = 3
 
@@ -364,6 +394,7 @@ final class MessageMediaContentNode: ASDisplayNode {
         remoteLoadInFlightByIndex.removeAll()
         remoteLoadRetryCountByIndex.removeAll()
         uploadingOverlayByProgressKey.removeAll()
+        slotOverlayKindByIndex.removeAll()
         cachedImageFrames = []
         cachedPositions = []
 
@@ -402,58 +433,25 @@ final class MessageMediaContentNode: ASDisplayNode {
             wireImageLoadCallbacks(index: 0, node: node, skeleton: skeleton, placeholder: placeholder)
             imageNodes.append(node)
             addSubnode(node)
-            loadImage(at: 0, into: node, media: att, isMultiple: false, measuredPtSize: nil)
-
-            if media[0].isVideo, !media[0].isPresignPending, !media[0].isUploading {
-                let overlay = makePlayOverlayNode()
-                videoOverlayNodes.append(overlay)
-                addSubnode(overlay)
-            }
-            if media[0].isUploading {
-                let overlay = addUploadingOverlay(for: media[0])
-                videoOverlayNodes.append(overlay)
-                addSubnode(overlay)
-            }
-            if media[0].uploadFailed {
-                let overlay = makeFailedOverlay()
-                videoOverlayNodes.append(overlay)
-                addSubnode(overlay)
-            }
+            loadImage(at: 0, into: node, media: att, isMultiple: false)
+            setSlotOverlay(at: 0, for: att)
         } else {
             isSticker = false
             isSingleImage = false
             isMultiple = true
-            let items = media
-            for (i, att) in items.enumerated() {
+            for (i, att) in media.enumerated() {
                 let placeholder = makeMediaPlaceholderNode(for: att)
                 placeholderNodes.append(placeholder)
                 addSubnode(placeholder)
                 let skeleton = addSkeletonNode(at: i, cornerRadius: 0, for: att)
                 let node = TransformImageNode()
                 node.isUserInteractionEnabled = false
-                node.contentAnimations = [.firstUpdate]
+                node.contentAnimations = att.isUploading ? [] : [.firstUpdate]
                 wireImageLoadCallbacks(index: i, node: node, skeleton: skeleton, placeholder: placeholder)
                 imageNodes.append(node)
                 addSubnode(node)
-                loadImage(at: i, into: node, media: att, isMultiple: true, measuredPtSize: nil)
-
-                if att.isVideo, !att.isPresignPending, !att.isUploading {
-                    let overlay = makePlayOverlayNode()
-                    videoOverlayNodes.append(overlay)
-                    addSubnode(overlay)
-                } else if att.isUploading {
-                    let overlay = addUploadingOverlay(for: att)
-                    videoOverlayNodes.append(overlay)
-                    addSubnode(overlay)
-                } else if att.uploadFailed {
-                    let overlay = makeFailedOverlay()
-                    videoOverlayNodes.append(overlay)
-                    addSubnode(overlay)
-                } else {
-                    let placeholder = ASDisplayNode()
-                    placeholder.isHidden = true
-                    videoOverlayNodes.append(placeholder)
-                }
+                loadImage(at: i, into: node, media: att, isMultiple: true)
+                setSlotOverlay(at: i, for: att)
             }
         }
 
@@ -518,32 +516,12 @@ final class MessageMediaContentNode: ASDisplayNode {
 
         if isMultiple {
             let spacing = Self.gridSpacing
-            let gridAttachments = attachments
-            let items = imageNodes
-
             let (frames, positions) = dynamicGridLayout(
-                attachments: gridAttachments,
+                attachments: attachments,
                 maxWidth: maxWidth,
                 maxHeight: maxH,
                 spacing: spacing
             )
-
-            for (i, node) in items.enumerated() {
-                guard i < frames.count else { break }
-                let frame = frames[i]
-                let args = TransformImageArguments(
-                    corners: ImageCorners(radius: 0),
-                    imageSize: frame.size,
-                    boundingSize: frame.size,
-                    intrinsicInsets: .zero
-                )
-                let layout = node.asyncLayout()
-                let apply = layout(args)
-                apply()
-                if i < gridAttachments.count {
-                    ensureRemoteImageLoaded(at: i, media: gridAttachments[i], isMultiple: true)
-                }
-            }
 
             cachedImageFrames = frames
             cachedPositions = positions
@@ -569,10 +547,21 @@ final class MessageMediaContentNode: ASDisplayNode {
 
         for (i, node) in imageNodes.enumerated() {
             guard i < cachedImageFrames.count else { break }
-            node.frame = cachedImageFrames[i]
-            skeletonNodesByIndex[i]?.frame = cachedImageFrames[i]
+            let frame = cachedImageFrames[i]
+            node.frame = frame
+            let cornerRadius: CGFloat = isSingleImage ? 8.swh : 0
+            let args = TransformImageArguments(
+                corners: ImageCorners(radius: cornerRadius),
+                imageSize: frame.size,
+                boundingSize: frame.size,
+                intrinsicInsets: .zero
+            )
+            if node.currentArguments != args {
+                node.setArguments(args)
+            }
+            skeletonNodesByIndex[i]?.frame = frame
             if i < placeholderNodes.count {
-                placeholderNodes[i].frame = cachedImageFrames[i]
+                placeholderNodes[i].frame = frame
             }
         }
 
@@ -580,26 +569,32 @@ final class MessageMediaContentNode: ASDisplayNode {
         if isSingleImage {
             if let overlay = videoOverlayNodes.first, !overlay.isHidden {
                 let imgFrame = cachedImageFrames.first ?? bounds
-                if attachments.first?.isVideo == true {
+                switch slotOverlayKindByIndex[0] {
+                case .play:
                     let sz: CGFloat = 48
                     overlay.frame = CGRect(
                         x: imgFrame.midX - sz / 2,
                         y: imgFrame.midY - sz / 2,
                         width: sz, height: sz
                     )
-                } else if attachments.first?.isUploading == true || attachments.first?.uploadFailed == true {
+                case .uploading, .failed:
                     overlay.frame = imgFrame
+                default:
+                    break
                 }
             }
         } else if isMultiple {
             for (i, overlay) in videoOverlayNodes.enumerated() {
                 guard i < cachedImageFrames.count, !overlay.isHidden else { continue }
                 let imgFrame = cachedImageFrames[i]
-                if i < attachments.count, attachments[i].isVideo {
+                switch slotOverlayKindByIndex[i] {
+                case .play:
                     let sz: CGFloat = 48
                     overlay.frame = CGRect(x: imgFrame.midX - sz / 2, y: imgFrame.midY - sz / 2, width: sz, height: sz)
-                } else if i < attachments.count, attachments[i].isUploading || attachments[i].uploadFailed {
+                case .uploading, .failed:
                     overlay.frame = imgFrame
+                default:
+                    break
                 }
             }
         }
@@ -709,14 +704,15 @@ final class MessageMediaContentNode: ASDisplayNode {
         if lastRemoteProxyURLByIndex[index] == proxyURL {
             if node.image != nil { return }
             if remoteLoadInFlightByIndex.contains(index) { return }
+        } else {
+            lastRemoteProxyURLByIndex[index] = proxyURL
+            node.reset()
+            if let skeleton = skeletonNodesByIndex[index], skeleton.supernode == nil {
+                insertSubnode(skeleton, belowSubnode: node)
+            }
+            skeletonNodesByIndex[index]?.isHidden = false
         }
-        lastRemoteProxyURLByIndex[index] = proxyURL
         remoteLoadInFlightByIndex.insert(index)
-        node.reset()
-        if let skeleton = skeletonNodesByIndex[index], skeleton.supernode == nil {
-            insertSubnode(skeleton, belowSubnode: node)
-        }
-        skeletonNodesByIndex[index]?.isHidden = false
         let hasMem = ImageCache.shared.memoryImage(forKey: proxyURL) != nil
             || ImageCache.shared.memoryImage(forKey: sourceURL) != nil
         node.setSignal(
@@ -725,7 +721,7 @@ final class MessageMediaContentNode: ASDisplayNode {
         )
     }
 
-    private func loadImage(at index: Int, into node: TransformImageNode, media: ParsedAttachment, isMultiple: Bool, measuredPtSize: CGSize?) {
+    private func loadImage(at index: Int, into node: TransformImageNode, media: ParsedAttachment, isMultiple: Bool) {
         if media.isPresignPending {
             return
         }
@@ -733,10 +729,20 @@ final class MessageMediaContentNode: ASDisplayNode {
             return
         }
         if let localImage = media.localImage {
-            node.setSignal(staticImageSignal(image: localImage), attemptSynchronously: true)
+            if isMultiple {
+                let cacheKey = media.uploadProgressKey.isEmpty
+                    ? "grid-\(index)"
+                    : media.uploadProgressKey
+                node.setSignal(
+                    Self.localGridImageSignal(image: localImage, cacheKey: cacheKey),
+                    attemptSynchronously: false
+                )
+            } else {
+                node.setSignal(staticImageSignal(image: localImage), attemptSynchronously: true)
+            }
         } else if media.isVideo && media.thumbnail.isEmpty {
             node.setSignal(videoThumbnailSignal(url: media.url, resizeMode: .fill), attemptSynchronously: false)
-        } else if measuredPtSize != nil {
+        } else if !media.url.isEmpty || (media.isVideo && !media.thumbnail.isEmpty) {
             ensureRemoteImageLoaded(at: index, media: media, isMultiple: isMultiple)
         }
     }
@@ -793,8 +799,68 @@ final class MessageMediaContentNode: ASDisplayNode {
         return true
     }
 
-    private func addUploadingOverlay(for attachment: ParsedAttachment) -> MediaUploadingOverlayNode {
-        let overlay = MediaUploadingOverlayNode(progress: attachment.uploadProgress)
+    func updateUploadOverlays(media: [ParsedAttachment]) {
+        guard media.count == attachments.count else {
+            configure(media: media)
+            return
+        }
+        attachments = media
+        isUploading = media.contains { $0.isUploading }
+        for (i, att) in media.enumerated() {
+            setSlotOverlay(at: i, for: att)
+        }
+        setNeedsLayout()
+    }
+
+    private func slotOverlayKind(for att: ParsedAttachment) -> MediaSlotOverlayKind {
+        if att.isUploading { return .uploading(att.uploadProgressKey) }
+        if att.uploadFailed { return .failed }
+        if att.isVideo && !att.isPresignPending { return .play }
+        return .none
+    }
+
+    private func makeOverlayNode(for att: ParsedAttachment) -> ASDisplayNode {
+        switch slotOverlayKind(for: att) {
+        case .uploading:
+            return addUploadingOverlay(for: att)
+        case .failed:
+            return makeFailedOverlay()
+        case .play:
+            return makePlayOverlayNode()
+        case .none:
+            let node = ASDisplayNode()
+            node.isHidden = true
+            return node
+        }
+    }
+
+    private func setSlotOverlay(at index: Int, for att: ParsedAttachment) {
+        let kind = slotOverlayKind(for: att)
+        if slotOverlayKindByIndex[index] == kind, index < videoOverlayNodes.count {
+            videoOverlayNodes[index].isHidden = kind == .none
+            return
+        }
+        if index < videoOverlayNodes.count {
+            let old = videoOverlayNodes[index]
+            if let priorKind = slotOverlayKindByIndex[index],
+               case .uploading(let key) = priorKind, !key.isEmpty {
+                uploadingOverlayByProgressKey.removeValue(forKey: key)
+            }
+            old.removeFromSupernode()
+        }
+        let overlay = makeOverlayNode(for: att)
+        if index < videoOverlayNodes.count {
+            videoOverlayNodes[index] = overlay
+        } else {
+            videoOverlayNodes.append(overlay)
+        }
+        slotOverlayKindByIndex[index] = kind
+        addSubnode(overlay)
+        overlay.isHidden = kind == .none
+    }
+
+    private func addUploadingOverlay(for attachment: ParsedAttachment, gridCompact: Bool = false) -> MediaUploadingOverlayNode {
+        let overlay = MediaUploadingOverlayNode(progress: attachment.uploadProgress, gridCompact: gridCompact)
         let key = attachment.uploadProgressKey
         if !key.isEmpty {
             uploadingOverlayByProgressKey[key] = overlay
@@ -863,6 +929,60 @@ final class MessageMediaContentNode: ASDisplayNode {
 
     private static func shouldShowStaticPlaceholder(for media: ParsedAttachment) -> Bool {
         media.isPresignPending || media.uploadFailed
+    }
+
+    private static func gridDisplayThumbnail(from image: UIImage, cacheKey: String) -> UIImage {
+        let normalizedKey = "\(cacheKey)|\(Int(image.size.width))x\(Int(image.size.height))" as NSString
+        if let cached = gridDisplayThumbnailCache.object(forKey: normalizedKey) {
+            return cached
+        }
+        let maxPixelSize = gridDisplayMaxPixelSize
+        let maxDim = max(image.size.width, image.size.height)
+        let thumb: UIImage
+        if maxDim <= maxPixelSize {
+            thumb = image
+        } else {
+            let scale = maxPixelSize / maxDim
+            let newSize = CGSize(
+                width: max(1, floor(image.size.width * scale)),
+                height: max(1, floor(image.size.height * scale))
+            )
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            format.opaque = true
+            let renderer = UIGraphicsImageRenderer(size: newSize, format: format)
+            thumb = renderer.image { _ in
+                image.draw(in: CGRect(origin: .zero, size: newSize))
+            }
+        }
+        gridDisplayThumbnailCache.setObject(thumb, forKey: normalizedKey)
+        return thumb
+    }
+
+    private static func localGridImageSignal(
+        image: UIImage,
+        cacheKey: String
+    ) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
+        return Signal { subscriber in
+            let cancelled = Atomic<Bool>(value: false)
+            let disposable = MetaDisposable()
+            Queue.concurrentDefaultQueue().async {
+                guard !cancelled.with({ $0 }) else { return }
+                let thumb = gridDisplayThumbnail(from: image, cacheKey: cacheKey)
+                guard !cancelled.with({ $0 }) else { return }
+                disposable.set(
+                    staticImageSignal(image: thumb, resizeMode: .fill).start(next: { value in
+                        subscriber.putNext(value)
+                    }, completed: {
+                        subscriber.putCompletion()
+                    })
+                )
+            }
+            return ActionDisposable {
+                let _ = cancelled.modify { _ in true }
+                disposable.dispose()
+            }
+        }
     }
 
     @discardableResult

@@ -529,6 +529,15 @@ final class MezonHTTPClient {
     }
 
     func listChannelDescs(clanId: Int64, token: String) async throws -> [Mezon_Api_ChannelDescription] {
+        if clanId == 0 {
+            return try await performListChannelDescs(clanId: clanId, token: token)
+        }
+        return try await MezonSocketRequestCoalescer.shared.coalesceChannelDescs(clanId: clanId) {
+            try await self.performListChannelDescs(clanId: clanId, token: token)
+        }
+    }
+
+    private func performListChannelDescs(clanId: Int64, token: String) async throws -> [Mezon_Api_ChannelDescription] {
         var req = Mezon_Api_ListChannelDescsRequest()
         req.clanID      = clanId
         req.limit       = 500
@@ -717,6 +726,12 @@ final class MezonHTTPClient {
     }
 
     func listChannelBadgeCount(clanId: Int64, token: String) async throws -> Mezon_Api_ListChannelBadgeCountResponse {
+        try await MezonSocketRequestCoalescer.shared.coalesceChannelBadgeCount(clanId: clanId) {
+            try await self.performListChannelBadgeCount(clanId: clanId, token: token)
+        }
+    }
+
+    private func performListChannelBadgeCount(clanId: Int64, token: String) async throws -> Mezon_Api_ListChannelBadgeCountResponse {
         var req = Mezon_Api_ListChannelBadgeCountRequest()
         req.clanID = clanId
         let primary: Mezon_Api_ListChannelBadgeCountResponse = try await postProto(
@@ -1464,6 +1479,15 @@ final class MezonHTTPClient {
     }
 
     func listChannelVoiceUsers(clanId: Int64, token: String) async throws -> Mezon_Api_VoiceChannelUserList {
+        guard clanId != 0 else {
+            return try await performListChannelVoiceUsers(clanId: clanId, token: token)
+        }
+        return try await MezonSocketRequestCoalescer.shared.coalesceChannelVoiceUsers(clanId: clanId) {
+            try await self.performListChannelVoiceUsers(clanId: clanId, token: token)
+        }
+    }
+
+    private func performListChannelVoiceUsers(clanId: Int64, token: String) async throws -> Mezon_Api_VoiceChannelUserList {
         var req = Mezon_Api_ListChannelUsersRequest()
         req.clanID = clanId
         req.channelID = 0
@@ -2777,6 +2801,71 @@ final class MezonHTTPClient {
 private struct EmptyBody: Encodable {}
 struct EmptyResponse: Decodable {}
 struct APIError: Decodable { let message: String?; let code: Int? }
+
+private actor MezonSocketRequestCoalescer {
+    static let shared = MezonSocketRequestCoalescer()
+
+    private var channelDescsByClanId: [Int64: Task<[Mezon_Api_ChannelDescription], Error>] = [:]
+    private var channelVoiceUsersByClanId: [Int64: Task<Mezon_Api_VoiceChannelUserList, Error>] = [:]
+    private var channelBadgeCountByClanId: [Int64: Task<Mezon_Api_ListChannelBadgeCountResponse, Error>] = [:]
+
+    func coalesceChannelDescs(
+        clanId: Int64,
+        operation: @escaping @Sendable () async throws -> [Mezon_Api_ChannelDescription]
+    ) async throws -> [Mezon_Api_ChannelDescription] {
+        if let existing = channelDescsByClanId[clanId] {
+            return try await existing.value
+        }
+        let task = Task { try await operation() }
+        channelDescsByClanId[clanId] = task
+        do {
+            let value = try await task.value
+            channelDescsByClanId[clanId] = nil
+            return value
+        } catch {
+            channelDescsByClanId[clanId] = nil
+            throw error
+        }
+    }
+
+    func coalesceChannelVoiceUsers(
+        clanId: Int64,
+        operation: @escaping @Sendable () async throws -> Mezon_Api_VoiceChannelUserList
+    ) async throws -> Mezon_Api_VoiceChannelUserList {
+        if let existing = channelVoiceUsersByClanId[clanId] {
+            return try await existing.value
+        }
+        let task = Task { try await operation() }
+        channelVoiceUsersByClanId[clanId] = task
+        do {
+            let value = try await task.value
+            channelVoiceUsersByClanId[clanId] = nil
+            return value
+        } catch {
+            channelVoiceUsersByClanId[clanId] = nil
+            throw error
+        }
+    }
+
+    func coalesceChannelBadgeCount(
+        clanId: Int64,
+        operation: @escaping @Sendable () async throws -> Mezon_Api_ListChannelBadgeCountResponse
+    ) async throws -> Mezon_Api_ListChannelBadgeCountResponse {
+        if let existing = channelBadgeCountByClanId[clanId] {
+            return try await existing.value
+        }
+        let task = Task { try await operation() }
+        channelBadgeCountByClanId[clanId] = task
+        do {
+            let value = try await task.value
+            channelBadgeCountByClanId[clanId] = nil
+            return value
+        } catch {
+            channelBadgeCountByClanId[clanId] = nil
+            throw error
+        }
+    }
+}
 
 enum MezonError: LocalizedError {
     case invalidResponse

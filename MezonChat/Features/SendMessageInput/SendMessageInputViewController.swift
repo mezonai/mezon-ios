@@ -524,7 +524,7 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func notifyAttachmentLimitReached() {
-        Toast.info("You can attach up to \(Self.maxAttachmentsPerMessage) items per message.")
+        Toast.info("You can attach up to \(Self.maxAttachmentsPerMessage) items per message.", title: "")
     }
 
     private var allMentionMembers: [MentionMember] = []

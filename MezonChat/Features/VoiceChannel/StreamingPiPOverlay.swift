@@ -25,6 +25,10 @@ final class StreamingPiPOverlay: NSObject {
     private let badgeLabel = UILabel()
     private var isDragging = false
     private var themeChangeObserver: NSObjectProtocol?
+    private var cachedAvatarURL: String?
+    private var backgroundLoadToken = 0
+    private var isLoadingBackground = false
+    private var didFetchRemoteChannel = false
 
     private override init() {
         super.init()
@@ -154,6 +158,11 @@ final class StreamingPiPOverlay: NSObject {
         self.context = context
         self.channel = channel
         self.parentChannelName = parentChannelName
+        cachedAvatarURL = nil
+        backgroundLoadToken = 0
+        isLoadingBackground = false
+        didFetchRemoteChannel = false
+        backgroundImageView.image = nil
 
         badgeLabel.text = channel.channelLabel
 
@@ -208,6 +217,11 @@ final class StreamingPiPOverlay: NSObject {
         context = nil
         channel = nil
         parentChannelName = nil
+        cachedAvatarURL = nil
+        backgroundLoadToken = 0
+        isLoadingBackground = false
+        didFetchRemoteChannel = false
+        backgroundImageView.image = nil
         if disconnectSession {
             StreamingWebRTCSession.shared.disconnect()
         }
@@ -245,34 +259,65 @@ final class StreamingPiPOverlay: NSObject {
         let session = StreamingWebRTCSession.shared
         let hasVideo = session.isRemoteVideoStream
         let isActive = session.isStreaming
+        let avatarURL = resolvedStreamChannelAvatarURL()
+        let showBackground = isActive && !hasVideo && (backgroundImageView.image != nil || !avatarURL.isEmpty)
 
         videoView.isHidden = !hasVideo
-        backgroundImageView.isHidden = hasVideo || !isActive
-        streamBannerView.isHidden = hasVideo || !isActive || hasStreamChannelAvatar
-        placeholderView.isHidden = isActive || hasVideo
+        backgroundImageView.isHidden = !showBackground
+        streamBannerView.isHidden = true
+        placeholderView.isHidden = true
 
         if hasVideo {
             videoView.attach(track: session.remoteVideoTrack)
-        } else if isActive {
+        } else if backgroundImageView.image == nil && !isLoadingBackground {
             loadStreamBackgroundIfNeeded()
         }
     }
 
-    private var hasStreamChannelAvatar: Bool {
-        guard let channel else { return false }
-        return !channel.channelAvatar.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    private func resolvedStreamChannelAvatarURL() -> String {
+        guard let channel, let context else { return "" }
+        if let cachedAvatarURL { return cachedAvatarURL }
+        let resolved = StreamingChannelBackground.resolveAvatarURL(channel: channel, context: context)
+        cachedAvatarURL = resolved
+        return resolved
+    }
+
+    private func fetchRemoteChannelAvatarIfNeeded() {
+        guard !didFetchRemoteChannel else { return }
+        guard let channel, let context else { return }
+        guard resolvedStreamChannelAvatarURL().isEmpty else { return }
+        didFetchRemoteChannel = true
+        let clanId = channel.clanID != 0 ? channel.clanID : context.currentClanId
+        let channelId = channel.channelID
+        Task { @MainActor [weak self] in
+            guard let self, clanId != 0, let token = await context.getToken() else { return }
+            do {
+                let channels = try await context.engine.channels.listChannelDescs(clanId: clanId, token: token)
+                guard let found = channels.first(where: { $0.channelID == channelId }) else { return }
+                self.channel = found
+                self.cachedAvatarURL = nil
+                self.loadStreamBackgroundIfNeeded()
+                self.refreshContent()
+            } catch {}
+        }
     }
 
     private func loadStreamBackgroundIfNeeded() {
-        guard let channel, hasStreamChannelAvatar else {
-            backgroundImageView.image = nil
+        let raw = resolvedStreamChannelAvatarURL()
+        guard !raw.isEmpty else {
+            fetchRemoteChannelAvatarIfNeeded()
             return
         }
-        let raw = channel.channelAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
-        let px = Int(Self.pipWidth * UIScreen.main.scale)
-        let proxy = ImgproxyURL.create(from: raw, width: max(px, 300), height: max(px, 300))
-        ImageCache.shared.loadAvatar(urlString: proxy) { [weak self] image in
-            self?.backgroundImageView.image = image
+        guard !isLoadingBackground else { return }
+        isLoadingBackground = true
+        backgroundLoadToken += 1
+        let token = backgroundLoadToken
+        let px = max(Int(Self.pipWidth * UIScreen.main.scale), 300)
+        StreamingChannelBackground.loadImage(raw: raw, width: px, height: px) { [weak self] image in
+            guard let self, token == self.backgroundLoadToken else { return }
+            self.isLoadingBackground = false
+            self.backgroundImageView.image = image
+            self.refreshContent()
         }
     }
 

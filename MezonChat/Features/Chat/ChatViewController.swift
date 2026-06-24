@@ -83,6 +83,36 @@ struct ParsedAttachment: Equatable {
         return true
     }
 
+    static func attachmentsRequireBubbleRebuild(_ lhs: [ParsedAttachment], _ rhs: [ParsedAttachment]) -> Bool {
+        guard lhs.count == rhs.count else { return true }
+        for (l, r) in zip(lhs, rhs) {
+            if l.width != r.width || l.height != r.height || l.durationSeconds != r.durationSeconds
+                || l.filetype != r.filetype || l.isPresignPending != r.isPresignPending {
+                return true
+            }
+            if (l.localImage != nil) != (r.localImage != nil) {
+                return true
+            }
+            if l.localImage != nil && r.localImage != nil {
+                continue
+            }
+            if l.url != r.url || l.filename != r.filename || l.thumbnail != r.thumbnail {
+                return true
+            }
+        }
+        return false
+    }
+
+    static func attachmentsUploadStateEqual(_ lhs: [ParsedAttachment], _ rhs: [ParsedAttachment]) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        for (l, r) in zip(lhs, rhs) {
+            if l.isUploading != r.isUploading || l.uploadFailed != r.uploadFailed {
+                return false
+            }
+        }
+        return true
+    }
+
     private static let maxPendingCacheEntries = 50
     private static let pendingCacheLock = NSLock()
 
@@ -618,15 +648,23 @@ final class ChatViewController: ViewController {
                 guard let idInt = Int64(info.channelId) else { return }
                 let channels = self.context.engine.clanData.getAllChannelsByUser()?.channeldesc ?? []
                 let ch0 = channels.first(where: { $0.channelID == idInt && (resolvedClan == 0 || $0.clanID == resolvedClan || $0.clanID == 0) })
-                if var ch = ch0, ch.type == MezonConstants.ChannelType.mezonVoice.rawValue {
-                    if ch.clanID == 0, resolvedClan != 0 {
-                        ch.clanID = resolvedClan
-                    }
-                    self.view.endEditing(true)
-                    self.presentJoinVoiceSheet(for: ch)
-                    return
+            if var ch = ch0, ch.type == MezonConstants.ChannelType.mezonVoice.rawValue {
+                if ch.clanID == 0, resolvedClan != 0 {
+                    ch.clanID = resolvedClan
                 }
-                AppDelegate.navigateToChannel(channelId: info.channelId, clanId: "\(resolvedClan)")
+                self.view.endEditing(true)
+                self.presentJoinVoiceSheet(for: ch)
+                return
+            }
+            if var ch = ch0, ch.type == MezonConstants.ChannelType.streaming.rawValue {
+                if ch.clanID == 0, resolvedClan != 0 {
+                    ch.clanID = resolvedClan
+                }
+                self.view.endEditing(true)
+                self.presentJoinStreamSheet(for: ch)
+                return
+            }
+            AppDelegate.navigateToChannel(channelId: info.channelId, clanId: "\(resolvedClan)")
             },
             hashtagChannelIsAccessible: { [weak self] channelId, clanIdOpt in
                 guard let self else { return false }
