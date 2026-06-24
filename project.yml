@@ -97,10 +97,6 @@ targets:
             echo "error: Secrets.swift not found. Create it with prod values (see Secrets enum)."
             exit 1
           fi
-          if [ ! -f "${SRCROOT}/MezonChat/GoogleService-Info.plist" ]; then
-            echo "error: GoogleService-Info.plist not found. Download from Firebase Console."
-            exit 1
-          fi
         shell: /bin/sh
         basedOnDependencyAnalysis: false
     postBuildScripts:

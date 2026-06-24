@@ -1,7 +1,6 @@
 import Foundation
 import UIKit
 import UserNotifications
-import FirebaseMessaging
 import SwiftProtobuf
 
 @MainActor
@@ -276,7 +275,7 @@ final class AccountContextImpl: AccountContext {
                 applySession(freshSession, user: currentUser, connectSocket: true, fetchAccount: false)
                 scheduleHeavyAccountBootstrapAfterYield(token: freshSession.token)
             }
-            self.registerFCMTokenIfNeeded()
+            self.registerAPNSTokenIfNeeded()
         }
     }
 
@@ -292,7 +291,7 @@ final class AccountContextImpl: AccountContext {
         markSessionReady()
         rolePermissions.start()
         scheduleHeavyAccountBootstrapAfterYield(token: session.token)
-        registerFCMTokenIfNeeded()
+        registerAPNSTokenIfNeeded()
     }
 
     func logout() {
@@ -306,9 +305,8 @@ final class AccountContextImpl: AccountContext {
         didNotifySessionExpired = false
         lastRecoveryIssuedToken = nil
         lastRecoveryIssuedRefreshToken = nil
-        fcmRegistrationTask?.cancel()
-        fcmRegistrationTask = nil
-        lastRegisteredFcmKey = nil
+        apnsRegistrationTask?.cancel()
+        apnsRegistrationTask = nil
         if VoIPAnswerAccountBridge.context === self {
             VoIPAnswerAccountBridge.context = nil
         }
@@ -356,40 +354,27 @@ final class AccountContextImpl: AccountContext {
         hasCompletedInitialSetup = false
     }
 
-    private var fcmRegistrationTask: Task<Void, Never>?
-    private var lastRegisteredFcmKey: String?
+    private var apnsRegistrationTask: Task<Void, Never>?
 
-    func registerFCMDeviceTokenIfNeededExternally() {
-        registerFCMTokenIfNeeded()
+    func registerAPNSDeviceTokenIfNeededExternally() {
+        registerAPNSTokenIfNeeded()
     }
 
-    private func registerFCMTokenIfNeeded() {
+    private func registerAPNSTokenIfNeeded() {
         guard !VoIPMinimalCallBootstrap.isMinimalChromeActive else { return }
-        if let existing = fcmRegistrationTask, !existing.isCancelled { return }
+        if let existing = apnsRegistrationTask, !existing.isCancelled { return }
         let deviceId = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
-        fcmRegistrationTask = Task { @MainActor [weak self] in
+        apnsRegistrationTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.fcmRegistrationTask = nil }
+            defer { self.apnsRegistrationTask = nil }
             guard let authToken = await self.getToken() else { return }
             let voipToken = CallKitManager.shared.voipToken ?? ""
-            let fcmToken: String
-            if let cached = Messaging.messaging().fcmToken, !cached.isEmpty {
-                fcmToken = cached
-            } else {
-                do {
-                    fcmToken = try await Messaging.messaging().token()
-                } catch {
-                    return
-                }
-            }
-            guard !fcmToken.isEmpty else { return }
-            let key = "\(fcmToken)|\(voipToken)|\(deviceId)|\(authToken)"
-            if key == self.lastRegisteredFcmKey { return }
+            guard let apnsTokenData = APNSTokenStore.currentToken, !apnsTokenData.isEmpty else { return }
+            let apnsToken = apnsTokenData.map { String(format: "%02.2hhx", $0) }.joined()
             do {
                 _ = try await self.account.network.registFcmDeviceToken(
-                    fcmToken: fcmToken, deviceId: deviceId, platform: "ios", voipToken: voipToken, authToken: authToken
+                    fcmToken: apnsToken, deviceId: deviceId, platform: "ios", voipToken: voipToken, authToken: authToken
                 )
-                self.lastRegisteredFcmKey = key
             } catch {
             }
         }
@@ -604,7 +589,7 @@ final class AccountContextImpl: AccountContext {
                     self.setLoggedIn(!s.created)
                 }
                 if !VoIPMinimalCallBootstrap.isMinimalChromeActive {
-                    self.registerFCMTokenIfNeeded()
+                    self.registerAPNSTokenIfNeeded()
                 }
                 self.markSessionReady()
             },

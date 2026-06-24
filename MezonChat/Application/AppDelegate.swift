@@ -1,6 +1,4 @@
 import UIKit
-import FirebaseCore
-import FirebaseMessaging
 import UserNotifications
 
 @main
@@ -36,9 +34,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         }
 
         DispatchQueue.main.async {
-            FirebaseApp.configure()
             UNUserNotificationCenter.current().delegate = self
-            Messaging.messaging().delegate = self
         }
 
         NotificationCenter.default.addObserver(
@@ -69,14 +65,18 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
     }
 
     @objc private func handleVoIPTokenDidUpdate() {
-        registerFcmDeviceWithBackendIfPossible()
+        registerDeviceWithBackendIfPossible()
     }
 
-    private func registerFcmDeviceWithBackendIfPossible() {
+    private func registerDeviceWithBackendIfPossible() {
         Task { @MainActor in
             guard !VoIPMinimalCallBootstrap.isMinimalChromeActive else { return }
-            guard let context = self.accountContext else { return }
-            context.registerFCMDeviceTokenIfNeededExternally()
+            let context = self.accountContext
+                ?? (UIApplication.shared.connectedScenes.first?.delegate as? AppDelegate)?.accountContext
+            guard let context else {
+                return
+            }
+            context.registerAPNSDeviceTokenIfNeededExternally()
         }
     }
 
@@ -145,7 +145,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
             self.accountContext = context
         }
         if !VoIPMinimalCallBootstrap.isMinimalChromeActive {
-            registerFcmDeviceWithBackendIfPossible()
+            registerDeviceWithBackendIfPossible()
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
@@ -210,7 +210,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
                 self.rootController = rootController
                 mainWindow.viewController = rootController
                 requestNotificationPermission()
-                registerFcmDeviceWithBackendIfPossible()
+                registerDeviceWithBackendIfPossible()
             }
         } else {
             VoIPAnswerAccountBridge.context = nil
@@ -265,10 +265,15 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
 
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-        Messaging.messaging().apnsToken = deviceToken
+        APNSTokenStore.currentToken = deviceToken
+        registerDeviceWithBackendIfPossible()
     }
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+    }
+
+    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any], fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        completionHandler(.newData)
     }
 
     @objc private func handleWillEnterForeground() {
@@ -593,9 +598,6 @@ extension Notification.Name {
     static let mezonAlignChannelListAfterSearchJump = Notification.Name("MezonAlignChannelListAfterSearchJump")
 }
 
-extension AppDelegate: MessagingDelegate {
-    func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
-        guard fcmToken != nil else { return }
-        registerFcmDeviceWithBackendIfPossible()
-    }
+enum APNSTokenStore {
+    static var currentToken: Data?
 }
