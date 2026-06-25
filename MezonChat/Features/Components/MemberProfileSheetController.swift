@@ -227,6 +227,7 @@ final class MemberProfileSheetController: ViewController {
     private let onSendMessage: ((Mezon_Api_ChannelDescription) -> Void)?
     private let onStartCall: ((Mezon_Api_ChannelDescription) -> Void)?
     private let onTransferFunds: ((TransferQRPayload) -> Void)?
+    private let isWebhook: Bool
 
     private var sheetNode: MemberProfileSheetNode { displayNode as! MemberProfileSheetNode }
 
@@ -252,6 +253,7 @@ final class MemberProfileSheetController: ViewController {
         self.onSendMessage = onSendMessage
         self.onStartCall = onStartCall
         self.onTransferFunds = onTransferFunds
+        self.isWebhook = user.username.isEmpty
         super.init(navigationBarPresentationData: nil)
         self.statusBar.statusBarStyle = .Hide
         self.blocksBackgroundWhenInOverlay = true
@@ -264,11 +266,12 @@ final class MemberProfileSheetController: ViewController {
             user: user,
             isCurrentUser: isCurrentUser,
             roles: resolveProfileRoles(),
-            showCallAction: onStartCall != nil && !isCurrentUser,
-            showAddFriendAction: voiceChannelActions == nil && shouldShowAddFriendAction(),
-            voiceChannelActions: voiceChannelActions,
-            showRemoveFromGroup: groupAction != nil && !isCurrentUser,
-            showTransferAction: onTransferFunds != nil && !isCurrentUser && user.id != 0,
+            showCallAction: onStartCall != nil && !isCurrentUser && user.id != 0 && !isWebhook,
+            showAddFriendAction: voiceChannelActions == nil && shouldShowAddFriendAction() && !isWebhook,
+            voiceChannelActions: user.id != 0 && !isWebhook ? voiceChannelActions : nil,
+            showRemoveFromGroup: groupAction != nil && !isCurrentUser && user.id != 0 && !isWebhook,
+            showTransferAction: onTransferFunds != nil && !isCurrentUser && user.id != 0 && !isWebhook,
+            isWebhook: isWebhook,
             onSendMessageTapped: { [weak self] in
                 self?.handleSendMessage()
             },
@@ -650,6 +653,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
     private let showTransferAction: Bool
     private let voiceChannelActions: MemberProfileVoiceChannelActions?
     private let showRemoveFromGroup: Bool
+    private let isWebhook: Bool
 
     private var containerHeight: CGFloat = 0
     private var contentHeight: CGFloat = 0
@@ -683,6 +687,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
         voiceChannelActions: MemberProfileVoiceChannelActions?,
         showRemoveFromGroup: Bool,
         showTransferAction: Bool,
+        isWebhook: Bool = false,
         onSendMessageTapped: @escaping () -> Void,
         onStartCallTapped: @escaping () -> Void,
         onAddFriendTapped: @escaping () -> Void,
@@ -710,6 +715,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
         self.onVoiceKickTap = onVoiceKickTap
         self.onRemoveFromGroupTap = onRemoveFromGroupTap
         self.onRemoveRoleTapped = onRemoveRoleTapped
+        self.isWebhook = isWebhook
         super.init()
 
         let t = UIColor.theme
@@ -1202,7 +1208,12 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
         let actionW = screenW - pad * 2 - infoCardPad * 2
         callBtn.isHidden = !showCallAction
         addFriendBtn.isHidden = !showAddFriendAction
-        var visibleActionButtons: [ProfileActionButton] = [messageBtn]
+        var visibleActionButtons: [ProfileActionButton] = []
+        if user.id != 0 && !isWebhook {
+            visibleActionButtons.append(messageBtn)
+        } else {
+            messageBtn.isHidden = true
+        }
         if showCallAction {
             visibleActionButtons.append(callBtn)
         }
@@ -1210,7 +1221,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
             visibleActionButtons.append(addFriendBtn)
         }
         let actionSpacing: CGFloat = visibleActionButtons.count > 1 ? 16.sw : 0
-        let buttonCount = CGFloat(visibleActionButtons.count)
+        let buttonCount = CGFloat(max(1, visibleActionButtons.count))
         let totalSpacing = actionSpacing * CGFloat(max(0, visibleActionButtons.count - 1))
         let maxFixedButtonWidth: CGFloat = 96
         let availableButtonWidth = floor((actionW - totalSpacing) / buttonCount)
@@ -1264,12 +1275,17 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
             infoY += userSize.height
         }
 
-        infoY += 12
-        actionRow.frame = CGRect(x: infoCardPad, y: infoY, width: actionW, height: btnH)
-        for (index, button) in visibleActionButtons.enumerated() {
-            button.frame = CGRect(x: actionStartX + CGFloat(index) * (btnW + actionSpacing), y: 0, width: btnW, height: btnH)
+        if visibleActionButtons.isEmpty {
+            actionRow.isHidden = true
+        } else {
+            actionRow.isHidden = false
+            infoY += 12
+            actionRow.frame = CGRect(x: infoCardPad, y: infoY, width: actionW, height: btnH)
+            for (index, button) in visibleActionButtons.enumerated() {
+                button.frame = CGRect(x: actionStartX + CGFloat(index) * (btnW + actionSpacing), y: 0, width: btnW, height: btnH)
+            }
+            infoY += btnH
         }
-        infoY += btnH
 
         if showRemoveFromGroup {
             infoY += 12.sh
