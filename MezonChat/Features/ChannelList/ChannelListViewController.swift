@@ -58,6 +58,15 @@ func categoriesChannelStructureEqual(_ lhs: [ChannelCategory], _ rhs: [ChannelCa
     }
 }
 
+func categoriesChannelTreeEqual(_ lhs: [ChannelCategory], _ rhs: [ChannelCategory]) -> Bool {
+    guard lhs.count == rhs.count else { return false }
+    return zip(lhs, rhs).allSatisfy { l, r in
+        l.id == r.id
+            && l.isCollapsed == r.isCollapsed
+            && channelIdsInCategory(l) == channelIdsInCategory(r)
+    }
+}
+
 private func filterCategoriesToKnownChannels(
     _ cats: [ChannelCategory],
     channels: [Mezon_Api_ChannelDescription]
@@ -933,6 +942,8 @@ final class ChannelListViewController: ViewController {
 
     private var voicePresenceReloadScheduled = false
     private let voicePresenceCoalesceInterval: TimeInterval = 0.4
+    private var channelListStateEmitCoalesceScheduled = false
+    private var categoryDescsRefreshScheduled = false
 
     private let channelsLoadedPromise = ValuePromise<Bool>(false, ignoreRepeated: true)
     var channelsLoadedSignal: Signal<Bool, NoError> { channelsLoadedPromise.get() }
@@ -1403,7 +1414,7 @@ final class ChannelListViewController: ViewController {
     }
 
     @MainActor
-    private func applyChannelBadgeCounts(clanId: Int64, force: Bool = false) async {
+    private func applyChannelBadgeCounts(clanId: Int64, force: Bool = false, emitReload: Bool = true) async {
         guard clanId != 0 else { return }
         guard clanId == self.clanId else { return }
         let updated = await fetchMergedChannelsWithBadgeCounts(base: allChannels, clanId: clanId, force: force)
@@ -1432,7 +1443,9 @@ final class ChannelListViewController: ViewController {
             favoriteIds: channelListFavoriteIds,
             categories: categories
         )
-        needsReloadPipe.putNext(())
+        if emitReload {
+            needsReloadPipe.putNext(())
+        }
         postClanSidebarUnreadDerivedFromCurrentChannels()
     }
 
@@ -1482,7 +1495,6 @@ final class ChannelListViewController: ViewController {
         if previousClanId != clanId {
             fetchDisposable.set(nil)
             inflightChannelFetchClanId = 0
-            suppressStaleCachedChannelListDisplay = false
             badgeCountEmptyRetryCountByClanId.removeValue(forKey: previousClanId)
             channelListDebugLog("configure clan switch \(previousClanId) -> \(clanId), cleared inflight fetch")
         }
@@ -2628,21 +2640,19 @@ final class ChannelListViewController: ViewController {
         }
         channelListDebugLog("applyNetwork done source=\(source) displayedIds=[\(displayedIds)]")
 
-        suppressStaleCachedChannelListDisplay = false
         needsAuthoritativeNetworkReconcile = false
         channelListNode.endRefreshing()
         isLoadingPipe.putNext(false)
-        needsReloadPipe.putNext(())
         postClanSidebarUnreadDerivedFromCurrentChannels()
         refreshOnboardingState()
         clearInflightChannelFetchIfMatches(clanId: clanId)
 
         Task { @MainActor [weak self] in
-            await self?.applyChannelBadgeCounts(clanId: clanId, force: true)
+            guard let self else { return }
+            await self.applyChannelBadgeCounts(clanId: clanId, force: true, emitReload: false)
+            self.needsReloadPipe.putNext(())
         }
     }
-
-    private var categoryDescsRefreshScheduled = false
 
     private func scheduleCategoryDescsRefreshIfNeeded() {
         guard clanId != 0, NetworkMonitor.shared.isConnected else { return }
@@ -2859,7 +2869,6 @@ final class ChannelListViewController: ViewController {
 
     private var inflightChannelFetchClanId: Int64 = 0
     private var needsAuthoritativeNetworkReconcile = false
-    private var suppressStaleCachedChannelListDisplay = false
     private var lastChannelFetchAtByClanId: [Int64: Date] = [:]
     private let channelFetchCooldown: TimeInterval = 5.0
     private var emptyChannelRetryCountByClanId: [Int64: Int] = [:]
@@ -2949,7 +2958,6 @@ final class ChannelListViewController: ViewController {
                         + "api=[\(channelListDebugChannelSummary(channels))]"
                     )
                     if channels.isEmpty && hadCachedChannels {
-                        self.suppressStaleCachedChannelListDisplay = false
                         channelListDebugLog(
                             "fetch success EMPTY api but had cache — keeping cache clanId=\(clanId) "
                             + "cacheIds=[\(channelListDebugChannelSummary(self.allChannels))]"
@@ -3017,7 +3025,6 @@ final class ChannelListViewController: ViewController {
                     return
                 case .failure(let msg):
                     channelListDebugLog("fetch failure clanId=\(clanId) error=\(msg)")
-                    self.suppressStaleCachedChannelListDisplay = false
                     self.errorMessage = msg
                     self.errorMessagePipe.putNext(msg)
                     self.channelListNode.setChannelAppsLoadingIndicator(false)
@@ -3422,24 +3429,34 @@ final class ChannelListViewController: ViewController {
         select(channel: streamChannel)
         guard let nav = enclosingNavigationController else { return }
 
+        let clanId = streamChannel.clanID != 0 ? streamChannel.clanID : self.clanId
         let pip = StreamingPiPOverlay.shared
-        if pip.isActive {
-            if pip.channel?.channelID == streamChannel.channelID {
-                pip.restoreFullScreen(animated: true)
-                return
-            } else {
-                pip.dismiss(disconnectSession: true)
-            }
+        if pip.isActive, pip.channel?.channelID == streamChannel.channelID {
+            pip.restoreFullScreen(animated: true)
+            return
         }
 
         if let existing = nav.viewControllers.last(where: {
             ($0 as? StreamingRoomViewController)?.streamChannelId == streamChannel.channelID
         }) {
+            StreamingRoomViewController.prepareJoiningStream(
+                targetChannelId: streamChannel.channelID,
+                clanId: clanId,
+                context: context,
+                navigationController: nav
+            )
             if nav.topViewController !== existing {
                 nav.popToViewController(existing, animated: false)
             }
             return
         }
+
+        StreamingRoomViewController.prepareJoiningStream(
+            targetChannelId: streamChannel.channelID,
+            clanId: clanId,
+            context: context,
+            navigationController: nav
+        )
 
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -3563,12 +3580,11 @@ final class ChannelListViewController: ViewController {
                 }
             }
         }
-        let hideCachedCategories = suppressStaleCachedChannelListDisplay
         return ChannelListState(
-            categories: hideCachedCategories ? [] : displayedCategories,
+            categories: displayedCategories,
             allChannels: allChannels,
             selectedChannelId: selectedChannelId,
-            isLoading: isLoading || hideCachedCategories,
+            isLoading: isLoading,
             errorMessage: errorMessage,
             voiceUsersByChannel: voiceMap
         )
@@ -3611,16 +3627,26 @@ final class ChannelListViewController: ViewController {
     func stateSignal() -> Signal<ChannelListState, NoError> {
         Signal { [weak self] subscriber in
             guard let self else { return EmptyDisposable }
-            var lastEmitted = self.currentState
-            subscriber.putNext(lastEmitted)
+            final class StateHolder {
+                var value: ChannelListState
+                init(_ value: ChannelListState) { self.value = value }
+            }
+            let lastEmitted = StateHolder(self.currentState)
+            subscriber.putNext(lastEmitted.value)
             return (self.needsReloadPipe.signal()
-                |> map { [weak self] _ in self?.currentState ?? .empty }
                 |> deliverOnMainQueue
-            ).start(next: { newState in
-
-                guard newState != lastEmitted else { return }
-                lastEmitted = newState
-                subscriber.putNext(newState)
+            ).start(next: { [weak self] _ in
+                guard let self else { return }
+                guard !self.channelListStateEmitCoalesceScheduled else { return }
+                self.channelListStateEmitCoalesceScheduled = true
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.channelListStateEmitCoalesceScheduled = false
+                    let newState = self.currentState
+                    guard newState != lastEmitted.value else { return }
+                    lastEmitted.value = newState
+                    subscriber.putNext(newState)
+                }
             })
         }
     }
@@ -3933,7 +3959,6 @@ final class ChannelListViewController: ViewController {
         )
         allChannels = cachedChannels
         needsAuthoritativeNetworkReconcile = true
-        suppressStaleCachedChannelListDisplay = NetworkMonitor.shared.isConnected
         channelListDebugLog(
             "cache applied clanId=\(clanId) count=\(cachedChannels.count) "
             + "ids=[\(channelListDebugChannelSummary(cachedChannels))]"

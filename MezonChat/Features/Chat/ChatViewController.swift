@@ -1154,14 +1154,13 @@ final class ChatViewController: ViewController {
         let shouldIgnoreNotificationKeyboardInset =
             shouldReconcileKeyboardAfterNotificationNavigation
             && layoutInputH > bottomInset + 1
-            && !isKeyboardVisible
-            && trackedKeyboardHeight <= 0.5
+            && !composerHasKeyboardFocus
         let rawInputH: CGFloat
         if shouldIgnoreNotificationKeyboardInset {
             rawInputH = 0
         } else if layoutInputH > 1 {
             rawInputH = layoutInputH
-        } else if (isKeyboardVisible || composerHasKeyboardFocus), trackedKeyboardHeight > 0.5 {
+        } else if composerHasKeyboardFocus, isKeyboardVisible, trackedKeyboardHeight > 0.5 {
             rawInputH = trackedKeyboardHeight
         } else {
             rawInputH = layoutInputH
@@ -1169,9 +1168,9 @@ final class ChatViewController: ViewController {
         let rawKeyboardOffset = max(rawInputH - bottomInset, 0)
         var keyboardOffset = rawKeyboardOffset
 
-        if !isKeyboardVisible && keyboardOffset > 0 {
-            let hasFirstResponder = sendInputViewController.view.findFirstResponder() != nil
-            if !hasFirstResponder {
+        if keyboardOffset > 0 {
+            let hasComposerFirstResponder = sendInputViewController.view.findFirstResponder() != nil
+            if !hasComposerFirstResponder {
                 keyboardOffset = 0
             }
         }
@@ -1180,10 +1179,15 @@ final class ChatViewController: ViewController {
            emojiPicker.collapsedHeight == 0,
            advancePanelCollapsedHeight == 0,
            keyboardOffset < 0.5 {
-            keyboardOffset = max(
-                keyboardOffset,
-                sendInputViewController.keyboardOverlayHeightEstimate
-            )
+            let hasComposerFirstResponder = sendInputViewController.view.findFirstResponder() != nil
+            if hasComposerFirstResponder || isKeyboardVisible || rawKeyboardOffset > 0.5 {
+                keyboardOffset = max(
+                    keyboardOffset,
+                    sendInputViewController.keyboardOverlayHeightEstimate
+                )
+            } else {
+                suppressScrollToBottomForNextKeyboardInset = false
+            }
         }
 
         if emojiPicker.isEmojiPanelSearchConsumingKeyboard {
@@ -1328,6 +1332,10 @@ final class ChatViewController: ViewController {
         collapseNotificationNavigationComposerOverlays()
 
         let wasTextInputFocused = sendInputViewController.isTextInputFocused
+        if !wasTextInputFocused {
+            isKeyboardVisible = false
+            trackedKeyboardHeight = 0
+        }
         if !isKeyboardVisible && trackedKeyboardHeight <= 0.5 {
             currentKeyboardOffset = 0
             suppressScrollToBottomForNextKeyboardInset = false
@@ -1354,6 +1362,10 @@ final class ChatViewController: ViewController {
 
     private func finishNotificationKeyboardReconcile(wasTextInputFocused: Bool, attempt: Int) {
         guard shouldReconcileKeyboardAfterNotificationNavigation, isViewLoaded else { return }
+        if !wasTextInputFocused {
+            isKeyboardVisible = false
+            trackedKeyboardHeight = 0
+        }
         if !isKeyboardVisible && trackedKeyboardHeight <= 0.5 {
             currentKeyboardOffset = 0
             suppressScrollToBottomForNextKeyboardInset = false
@@ -3837,6 +3849,7 @@ final class ChatViewController: ViewController {
     }
 
     @objc private func keyboardWillShow(_ notification: Notification) {
+        guard sendInputViewController.view.findFirstResponder() != nil else { return }
         isKeyboardVisible = true
         if let frame = (notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue {
             trackedKeyboardHeight = frame.height
@@ -5120,24 +5133,34 @@ final class ChatViewController: ViewController {
         alignContextWithVoiceChannelClan(for: channel)
         guard let nav = navigationController else { return }
 
+        let clanId = channel.clanID != 0 ? channel.clanID : self.clanId
         let pip = StreamingPiPOverlay.shared
-        if pip.isActive {
-            if pip.channel?.channelID == channel.channelID {
-                pip.restoreFullScreen(animated: true)
-                return
-            } else {
-                pip.dismiss(disconnectSession: true)
-            }
+        if pip.isActive, pip.channel?.channelID == channel.channelID {
+            pip.restoreFullScreen(animated: true)
+            return
         }
 
         if let existing = nav.viewControllers.last(where: {
             ($0 as? StreamingRoomViewController)?.streamChannelId == channel.channelID
         }) {
+            StreamingRoomViewController.prepareJoiningStream(
+                targetChannelId: channel.channelID,
+                clanId: clanId,
+                context: context,
+                navigationController: nav
+            )
             if nav.topViewController !== existing {
                 nav.popToViewController(existing, animated: false)
             }
             return
         }
+
+        StreamingRoomViewController.prepareJoiningStream(
+            targetChannelId: channel.channelID,
+            clanId: clanId,
+            context: context,
+            navigationController: nav
+        )
 
         Task { @MainActor [weak self] in
             guard let self else { return }

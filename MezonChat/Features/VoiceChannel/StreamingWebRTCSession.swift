@@ -192,6 +192,14 @@ final class StreamingWebRTCSession: NSObject {
         isStreaming = false
         remoteAudioTrack = nil
         setRemoteVideoTrack(nil)
+        pendingClanId = 0
+        pendingChannelId = 0
+        pendingStreamId = 0
+        pendingUserId = ""
+    }
+
+    func leave() {
+        disconnect()
     }
 
     private static func ensureSSL() {
