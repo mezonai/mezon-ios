@@ -1131,24 +1131,34 @@ final class SearchViewController: ViewController {
         context.currentClanId = effectiveClanId(for: channel)
         guard let nav = navigationController else { return }
 
+        let clanId = effectiveClanId(for: channel)
         let pip = StreamingPiPOverlay.shared
-        if pip.isActive {
-            if pip.channel?.channelID == channel.channelID {
-                pip.restoreFullScreen(animated: true)
-                return
-            } else {
-                pip.dismiss(disconnectSession: true)
-            }
+        if pip.isActive, pip.channel?.channelID == channel.channelID {
+            pip.restoreFullScreen(animated: true)
+            return
         }
 
         if let existing = nav.viewControllers.last(where: {
             ($0 as? StreamingRoomViewController)?.streamChannelId == channel.channelID
         }) {
+            StreamingRoomViewController.prepareJoiningStream(
+                targetChannelId: channel.channelID,
+                clanId: clanId,
+                context: context,
+                navigationController: nav
+            )
             if nav.topViewController !== existing {
                 nav.popToViewController(existing, animated: false)
             }
             return
         }
+
+        StreamingRoomViewController.prepareJoiningStream(
+            targetChannelId: channel.channelID,
+            clanId: clanId,
+            context: context,
+            navigationController: nav
+        )
 
         Task { @MainActor [weak self] in
             guard let self else { return }

@@ -499,7 +499,7 @@ final class FriendListItemNode: ASCellNode, ASNetworkImageNodeDelegate {
 
     private let cardNode: ASDisplayNode
     private let avatarNode: ASNetworkImageNode
-    private let avatarPlaceholderNode: ASTextNode
+    private let textAvatarNode: TextAvatarNode
     private let onlineIndicatorNode: ASImageNode
     private let displayNameNode: ASTextNode
     private let callButtonNode: ASButtonNode
@@ -514,7 +514,7 @@ final class FriendListItemNode: ASCellNode, ASNetworkImageNodeDelegate {
         
         self.cardNode = ASDisplayNode()
         self.avatarNode = ASNetworkImageNode()
-        self.avatarPlaceholderNode = ASTextNode()
+        self.textAvatarNode = TextAvatarNode(username: "", size: 44.swh, fontSize: 18.sf)
         self.onlineIndicatorNode = ASImageNode()
         self.displayNameNode = ASTextNode()
         self.callButtonNode = ASButtonNode()
@@ -557,36 +557,27 @@ final class FriendListItemNode: ASCellNode, ASNetworkImageNodeDelegate {
         avatarNode.clipsToBounds = true
         avatarNode.contentMode = .scaleAspectFill
         avatarNode.shouldRenderProgressImages = false
+        avatarNode.defaultImage = nil
         avatarNode.delegate = self
 
         let name = user.displayName.isEmpty ? user.username : user.displayName
-        let initialChar = user.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? ""
-            : String(user.username.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1)).uppercased()
-        avatarPlaceholderNode.attributedText = NSAttributedString(
-            string: initialChar,
-            attributes: [
-                .font: UIFont.systemFont(ofSize: 18.sf, weight: .semibold),
-                .foregroundColor: UIColor.white
-            ]
-        )
+        let avatarSeed = user.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? name
+            : user.username
 
         let avatarRaw = user.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
         if !avatarRaw.isEmpty {
-            let proxied = ImgproxyURL.create(from: avatarRaw, width: 120, height: 120)
+            let proxied = ImgproxyURL.avatarProxyURL(from: avatarRaw, width: 100, height: 100)
             if let url = URL(string: proxied) {
                 avatarNode.url = url
-                avatarPlaceholderNode.isHidden = true
-                avatarNode.backgroundColor = .clear
+                textAvatarNode.showSkeleton()
             } else {
                 avatarNode.url = nil
-                avatarPlaceholderNode.isHidden = false
-                avatarNode.backgroundColor = UIColor.avatarColor(for: user.username)
+                textAvatarNode.configure(username: avatarSeed, fontSize: 18.sf)
             }
         } else {
             avatarNode.url = nil
-            avatarPlaceholderNode.isHidden = false
-            avatarNode.backgroundColor = UIColor.avatarColor(for: user.username)
+            textAvatarNode.configure(username: avatarSeed, fontSize: 18.sf)
         }
 
         let dotSize: CGFloat = 14.swh
@@ -640,12 +631,8 @@ final class FriendListItemNode: ASCellNode, ASNetworkImageNodeDelegate {
         avatarNode.style.flexShrink = 0
 
         let avatarOverlay = ASOverlayLayoutSpec(
-            child: avatarNode,
-            overlay: ASCenterLayoutSpec(
-                centeringOptions: .XY,
-                sizingOptions: .minimumXY,
-                child: avatarPlaceholderNode
-            )
+            child: textAvatarNode,
+            overlay: avatarNode
         )
         avatarOverlay.style.flexShrink = 0
 
@@ -713,13 +700,23 @@ final class FriendListItemNode: ASCellNode, ASNetworkImageNodeDelegate {
 
     @objc func imageNode(_ imageNode: ASNetworkImageNode, didFailWithError error: Error) {
         guard imageNode === avatarNode else { return }
-        avatarPlaceholderNode.isHidden = false
+        let user = friend.user
+        let avatarSeed = user.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? (user.displayName.isEmpty ? user.username : user.displayName)
+            : user.username
+        textAvatarNode.configure(username: avatarSeed, fontSize: 18.sf)
     }
 
     @objc func imageNode(_ imageNode: ASNetworkImageNode, didLoad image: UIImage) {
         guard imageNode === avatarNode else { return }
         if image.size.width < 0.5 || image.size.height < 0.5 {
-            avatarPlaceholderNode.isHidden = false
+            let user = friend.user
+            let avatarSeed = user.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? (user.displayName.isEmpty ? user.username : user.displayName)
+                : user.username
+            textAvatarNode.configure(username: avatarSeed, fontSize: 18.sf)
+        } else {
+            textAvatarNode.showImageMode()
         }
     }
 }

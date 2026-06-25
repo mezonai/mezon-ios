@@ -664,6 +664,7 @@ extension MezonEngine {
         ) {
             guard clanId != 0, channelId != 0, userId != 0 else { return }
             var list = resolvedStreamUsersList(clanId: clanId) ?? Mezon_Api_StreamingChannelUserList()
+            list.streamingChannelUsers.removeAll { $0.userID == userId && $0.channelID != channelId }
             list.streamingChannelUsers.removeAll { $0.channelID == channelId && $0.userID == userId }
             var user = Mezon_Api_StreamingChannelUser()
             user.id = entryId

@@ -201,9 +201,9 @@ final class ChannelListContainerNode: ASDisplayNode {
         let loadingPHNow = newState.isLoading && newState.categories.isEmpty
         let loadingPHWas = prevState.isLoading && prevState.categories.isEmpty
         let loadingPlaceholderToggled = loadingPHNow != loadingPHWas
-        let structureChanged = loadingPlaceholderToggled
+        let treeStructureChanged = loadingPlaceholderToggled
             || prevCats.count != newCats.count
-            || !categoriesChannelStructureEqual(prevCats, newCats)
+            || !categoriesChannelTreeEqual(prevCats, newCats)
 
         isClanSwitching = wasClanSwitching && newState.isLoading
 
@@ -220,38 +220,19 @@ final class ChannelListContainerNode: ASDisplayNode {
                 }
                 clanSwitchTableRefreshDone = true
                 deferOnboardingTableUpdates = false
-            } else if structureChanged {
-                let prevChannelIds = Set(prevCats.flatMap { channelIdsInCategory($0) })
-                let newChannelIds = Set(newCats.flatMap { channelIdsInCategory($0) })
-                let channelMembershipChanged = !prevChannelIds.isEmpty
-                    && !newChannelIds.isEmpty
-                    && prevChannelIds != newChannelIds
-                if channelMembershipChanged {
-                    safeReloadData(preserving: captureScrollAnchor(prev: prevState))
-                } else {
-                    applyBatchStructureUpdate(prev: prevState, new: newState)
-                }
+            } else if treeStructureChanged {
+                applyBatchStructureUpdate(prev: prevState, new: newState)
             } else if !newCats.isEmpty {
                 applyRowDiff(prev: prevState, new: newState)
             }
             reconcileChannelAppsTableIfNeeded()
-        } else if !nodeIsVisible && structureChanged {
+        } else if !nodeIsVisible && treeStructureChanged {
             cachedHeaders = [:]
             pendingVisibleReconcile = true
             pendingVisibleReconcileShouldResetScroll = false
             safeReloadData()
-        } else if structureChanged {
-            cachedHeaders = [:]
-            let prevChannelIds = Set(prevCats.flatMap { channelIdsInCategory($0) })
-            let newChannelIds = Set(newCats.flatMap { channelIdsInCategory($0) })
-            let channelMembershipChanged = !prevChannelIds.isEmpty
-                && !newChannelIds.isEmpty
-                && prevChannelIds != newChannelIds
-            if channelMembershipChanged {
-                safeReloadData(preserving: captureScrollAnchor(prev: prevState))
-            } else {
-                applyBatchStructureUpdate(prev: prevState, new: newState)
-            }
+        } else if treeStructureChanged {
+            applyBatchStructureUpdate(prev: prevState, new: newState)
         } else if !newCats.isEmpty {
             applyRowDiff(prev: prevState, new: newState)
         }
@@ -290,25 +271,11 @@ final class ChannelListContainerNode: ASDisplayNode {
         newState: ChannelListState,
         wasClanSwitching: Bool
     ) {
+        guard wasClanSwitching else { return }
         guard !newState.isLoading else { return }
         guard let selectedId = newState.selectedChannelId, selectedId != 0 else { return }
         guard firstCategoryIndexContainingListChannel(selectedId) != nil else { return }
-        let selectionChanged = prevState.selectedChannelId != newState.selectedChannelId
-        let loadingJustFinished = prevState.isLoading && !newState.isLoading
-        let selectedIsVoiceChannel = newState.allChannels.contains {
-            $0.channelID == selectedId && Self.voiceChannelTypes.contains($0.type)
-        }
-        let prevSelectedVoiceEmpty = (prevState.voiceUsersByChannel[selectedId] ?? []).isEmpty
-        let newSelectedVoiceActive = !(newState.voiceUsersByChannel[selectedId] ?? []).isEmpty
-        let selectedVoiceBecameActive = prevSelectedVoiceEmpty && newSelectedVoiceActive
-        if loadingJustFinished && skipNextLoadingFinishedReveal {
-            skipNextLoadingFinishedReveal = false
-            if !(wasClanSwitching || selectionChanged || (selectedIsVoiceChannel && selectedVoiceBecameActive)) {
-                return
-            }
-        }
-        guard wasClanSwitching || selectionChanged || loadingJustFinished || (selectedIsVoiceChannel && selectedVoiceBecameActive) else { return }
-        scrollToChannel(channelId: selectedId, animated: !wasClanSwitching)
+        scrollToChannel(channelId: selectedId, animated: false)
     }
 
     func suppressNextLoadingFinishedReveal() {
@@ -326,9 +293,13 @@ final class ChannelListContainerNode: ASDisplayNode {
         CATransaction.commit()
         committedSectionCount = totalSections
         if let scrollAnchor {
-            restoreScrollAnchor(scrollAnchor)
+            restoreScrollPositionAfterUpdate(anchor: scrollAnchor)
         } else if preserveContentOffset {
-            restoreContentOffset(previousOffset)
+            if isPinnedNearListTop() {
+                pinListToTopIfNeeded()
+            } else {
+                restoreContentOffset(previousOffset)
+            }
         }
     }
 
@@ -351,9 +322,85 @@ final class ChannelListContainerNode: ASDisplayNode {
         updateStickyHeaderPosition()
     }
 
+    private func categorySectionOffset(for prev: ChannelListState) -> Int {
+        guard !(prev.isLoading && prev.categories.isEmpty) else {
+            return leadingTableSectionsCount
+        }
+        let fromCommitted = committedSectionCount - prev.categories.count
+        return fromCommitted >= 0 ? fromCommitted : leadingTableSectionsCount
+    }
+
+    private func applyCategorySectionCountDelta(prev: ChannelListState, new: ChannelListState) -> Bool {
+        let sectionOffset = categorySectionOffset(for: prev)
+        let prevIds = prev.categories.map(\.id)
+        let newIds = new.categories.map(\.id)
+        guard prevIds != newIds else { return false }
+
+        let scrollAnchor = isPinnedNearListTop() ? nil : captureScrollAnchor(prev: prev)
+
+        if newIds.count == prevIds.count + 1 {
+            for insertAt in 0..<newIds.count {
+                var trial = newIds
+                trial.remove(at: insertAt)
+                guard trial == prevIds else { continue }
+                let section = insertAt + sectionOffset
+                guard section <= tableNode.numberOfSections else {
+                    safeReloadData(preserving: scrollAnchor)
+                    return true
+                }
+                var adjustedPrev = prev
+                var adjustedCategories = prev.categories
+                adjustedCategories.insert(new.categories[insertAt], at: insertAt)
+                adjustedPrev.categories = adjustedCategories
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                UIView.performWithoutAnimation {
+                    self.tableNode.insertSections(IndexSet(integer: section), with: .none)
+                    self.tableNode.reloadSections(IndexSet(integer: section), with: .none)
+                    self.tableNode.waitUntilAllUpdatesAreProcessed()
+                }
+                CATransaction.commit()
+                committedSectionCount = tableNode.numberOfSections
+                applyBatchStructureUpdate(prev: adjustedPrev, new: new)
+                restoreScrollPositionAfterUpdate(anchor: scrollAnchor)
+                return true
+            }
+        }
+
+        if prevIds.count == newIds.count + 1 {
+            for deleteAt in 0..<prevIds.count {
+                var trial = prevIds
+                trial.remove(at: deleteAt)
+                guard trial == newIds else { continue }
+                let section = deleteAt + sectionOffset
+                guard section < tableNode.numberOfSections else {
+                    safeReloadData(preserving: scrollAnchor)
+                    return true
+                }
+                var adjustedPrev = prev
+                var adjustedCategories = prev.categories
+                adjustedCategories.remove(at: deleteAt)
+                adjustedPrev.categories = adjustedCategories
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                UIView.performWithoutAnimation {
+                    self.tableNode.deleteSections(IndexSet(integer: section), with: .none)
+                    self.tableNode.waitUntilAllUpdatesAreProcessed()
+                }
+                CATransaction.commit()
+                committedSectionCount = tableNode.numberOfSections
+                applyBatchStructureUpdate(prev: adjustedPrev, new: new)
+                restoreScrollPositionAfterUpdate(anchor: scrollAnchor)
+                return true
+            }
+        }
+
+        return false
+    }
+
     private func applyBatchStructureUpdate(prev: ChannelListState, new: ChannelListState) {
         let expectedAfter = totalSections
-        let fallbackScrollAnchor = captureScrollAnchor(prev: prev)
+        let fallbackScrollAnchor = isPinnedNearListTop() ? nil : captureScrollAnchor(prev: prev)
 
         guard committedSectionCount == tableNode.numberOfSections else {
             safeReloadData(preserving: fallbackScrollAnchor)
@@ -369,6 +416,10 @@ final class ChannelListContainerNode: ASDisplayNode {
             && zip(prev.categories, new.categories).allSatisfy({ $0.id == $1.id })
 
         guard canPatch else {
+            if applyCategorySectionCountDelta(prev: prev, new: new) {
+                committedSectionCount = expectedAfter
+                return
+            }
             safeReloadData(preserving: fallbackScrollAnchor)
             return
         }
@@ -464,20 +515,25 @@ final class ChannelListContainerNode: ASDisplayNode {
                 return $0.row < $1.row
             }
 
-            let scrollAnchor = captureScrollAnchor(prev: prev)
+            let scrollAnchor = isPinnedNearListTop() ? nil : captureScrollAnchor(prev: prev)
 
-            tableNode.performBatch(animated: false) {
-                if !sortedDeletes.isEmpty {
-                    self.tableNode.deleteRows(at: sortedDeletes, with: rowAnim)
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            UIView.performWithoutAnimation {
+                self.tableNode.performBatch(animated: false) {
+                    if !sortedDeletes.isEmpty {
+                        self.tableNode.deleteRows(at: sortedDeletes, with: rowAnim)
+                    }
+                    if !sortedInserts.isEmpty {
+                        self.tableNode.insertRows(at: sortedInserts, with: rowAnim)
+                    }
+                    if !sectionsToReload.isEmpty {
+                        self.tableNode.reloadSections(sectionsToReload, with: rowAnim)
+                    }
                 }
-                if !sortedInserts.isEmpty {
-                    self.tableNode.insertRows(at: sortedInserts, with: rowAnim)
-                }
-                if !sectionsToReload.isEmpty {
-                    self.tableNode.reloadSections(sectionsToReload, with: rowAnim)
-                }
+                self.tableNode.waitUntilAllUpdatesAreProcessed()
             }
-            tableNode.waitUntilAllUpdatesAreProcessed()
+            CATransaction.commit()
 
             if !selectionReloadPaths.isEmpty {
                 let validSel = selectionReloadPaths.filter { ip in
@@ -501,11 +557,30 @@ final class ChannelListContainerNode: ASDisplayNode {
                 }
             }
 
-            if let scrollAnchor {
-                restoreScrollAnchor(scrollAnchor)
-            }
+            restoreScrollPositionAfterUpdate(anchor: scrollAnchor)
         }
         committedSectionCount = expectedAfter
+    }
+
+    private var listTopContentOffsetY: CGFloat {
+        -tableNode.view.adjustedContentInset.top
+    }
+
+    private func isPinnedNearListTop(threshold: CGFloat = 12) -> Bool {
+        abs(tableNode.view.contentOffset.y - listTopContentOffsetY) <= threshold
+    }
+
+    private func pinListToTopIfNeeded() {
+        guard isPinnedNearListTop() else { return }
+        restoreContentOffset(CGPoint(x: tableNode.view.contentOffset.x, y: listTopContentOffsetY))
+    }
+
+    private func restoreScrollPositionAfterUpdate(anchor: ScrollAnchor?) {
+        if isPinnedNearListTop() {
+            pinListToTopIfNeeded()
+        } else if let anchor {
+            restoreScrollAnchor(anchor)
+        }
     }
 
     private struct ScrollAnchor {
@@ -835,7 +910,7 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     private func applyRowDiff(prev: ChannelListState, new: ChannelListState) {
         guard committedSectionCount == tableNode.numberOfSections else {
-            safeReloadData(preserving: captureScrollAnchor(prev: prev))
+            safeReloadData(preserving: isPinnedNearListTop() ? nil : captureScrollAnchor(prev: prev))
             return
         }
 
@@ -845,7 +920,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         for s in 0..<new.categories.count {
             let section = s + sectionOffset
             guard section < tableNode.numberOfSections else {
-                safeReloadData(preserving: captureScrollAnchor(prev: prev))
+                safeReloadData(preserving: isPinnedNearListTop() ? nil : captureScrollAnchor(prev: prev))
                 return
             }
             let committedRows = tableNode.numberOfRows(inSection: section)

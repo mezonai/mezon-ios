@@ -209,6 +209,8 @@ final class StreamingPiPOverlay: NSObject {
 
     func dismiss(disconnectSession: Bool = true) {
         UIApplication.shared.isIdleTimerDisabled = false
+        let ctx = context
+        let ch = channel
         unbindSession()
         videoView.attach(track: nil)
         pipView.removeFromSuperview()
@@ -223,7 +225,12 @@ final class StreamingPiPOverlay: NSObject {
         didFetchRemoteChannel = false
         backgroundImageView.image = nil
         if disconnectSession {
-            StreamingWebRTCSession.shared.disconnect()
+            if let ctx, let ch,
+               let userIdStr = ctx.currentUser?.id, let userId = Int64(userIdStr) {
+                let clanId = ch.clanID != 0 ? ch.clanID : ctx.currentClanId
+                ctx.engine.clanData.applyStreamLeaved(clanId: clanId, channelId: ch.channelID, userId: userId)
+            }
+            StreamingWebRTCSession.shared.leave()
         }
     }
 

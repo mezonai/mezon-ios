@@ -1301,7 +1301,10 @@ enum L10n {
         static let statusMissed              = "peerCall.statusMissed"
         static let statusNoAnswer            = "peerCall.statusNoAnswer"
         static let statusCouldNotConnect     = "peerCall.statusCouldNotConnect"
+        static let statusUnlockForMicrophone = "peerCall.statusUnlockForMicrophone"
         static let errorMicrophoneDenied     = "peerCall.errorMicrophoneDenied"
+        static let micPermissionTitle        = "peerCall.micPermissionTitle"
+        static let micPermissionBody         = "peerCall.micPermissionBody"
         static let errorCameraDenied         = "peerCall.errorCameraDenied"
         static let errorCouldNotStartCall    = "peerCall.errorCouldNotStartCall"
         static let errorCouldNotAnswerCall   = "peerCall.errorCouldNotAnswerCall"
@@ -2494,7 +2497,10 @@ extension L10n {
         "peerCall.statusMissed":            "Missed call",
         "peerCall.statusNoAnswer":          "No answer",
         "peerCall.statusCouldNotConnect":   "Could not connect",
+        "peerCall.statusUnlockForMicrophone": "Unlock your phone to allow microphone access",
         "peerCall.errorMicrophoneDenied":   "Microphone access denied",
+        "peerCall.micPermissionTitle":      "Microphone",
+        "peerCall.micPermissionBody":       "Allow microphone access in Settings to join this call.",
         "peerCall.errorCameraDenied":       "Camera access denied",
         "peerCall.errorCouldNotStartCall":  "Could not start call",
         "peerCall.errorCouldNotAnswerCall": "Could not answer call",
@@ -3702,7 +3708,10 @@ extension L10n {
         "peerCall.statusMissed":            "Cuộc gọi nhỡ",
         "peerCall.statusNoAnswer":          "Không có người nghe",
         "peerCall.statusCouldNotConnect":   "Không kết nối được",
+        "peerCall.statusUnlockForMicrophone": "Mở khóa điện thoại để cấp quyền micro",
         "peerCall.errorMicrophoneDenied":   "Quyền truy cập micro bị từ chối",
+        "peerCall.micPermissionTitle":      "Micro",
+        "peerCall.micPermissionBody":       "Cho phép truy cập micro trong Cài đặt để tham gia cuộc gọi.",
         "peerCall.errorCameraDenied":       "Quyền truy cập camera bị từ chối",
         "peerCall.errorCouldNotStartCall":  "Không thể bắt đầu cuộc gọi",
         "peerCall.errorCouldNotAnswerCall": "Không thể trả lời cuộc gọi",

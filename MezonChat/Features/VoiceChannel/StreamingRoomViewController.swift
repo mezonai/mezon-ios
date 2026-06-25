@@ -550,14 +550,106 @@ final class StreamingRoomViewController: ViewController {
     }
 
     @objc private func leaveTapped() {
-        if let userId = context.currentUser?.id, let uid = Int64(userId) {
-            context.engine.clanData.applyStreamLeaved(
-                clanId: resolvedClanId,
-                channelId: channel.channelID,
-                userId: uid
-            )
+        Self.endStream(
+            context: context,
+            clanId: resolvedClanId,
+            channelId: channel.channelID,
+            navigationController: navigationController
+        )
+    }
+
+    @MainActor
+    static func endStream(
+        context: AccountContext,
+        clanId: Int64,
+        channelId: Int64,
+        navigationController: UINavigationController?
+    ) {
+        if let userIdStr = context.currentUser?.id, let userId = Int64(userIdStr) {
+            context.engine.clanData.applyStreamLeaved(clanId: clanId, channelId: channelId, userId: userId)
         }
-        StreamingPiPOverlay.shared.dismiss(disconnectSession: true)
-        navigationController?.popViewController(animated: true)
+        StreamingWebRTCSession.shared.onStreamingStateChanged = nil
+        StreamingWebRTCSession.shared.onRemoteVideoTrackChanged = nil
+        StreamingWebRTCSession.shared.leave()
+        if StreamingPiPOverlay.shared.isActive {
+            StreamingPiPOverlay.shared.dismiss(disconnectSession: false)
+        }
+        guard let nav = navigationController ?? findNavigationControllerForStreamExit() else { return }
+        if nav.topViewController is StreamingRoomViewController {
+            nav.popViewController(animated: true)
+            return
+        }
+        let filtered = nav.viewControllers.filter { vc in
+            guard let streamVC = vc as? StreamingRoomViewController else { return true }
+            return streamVC.streamChannelId != channelId
+        }
+        if filtered.count != nav.viewControllers.count {
+            nav.setViewControllers(filtered, animated: true)
+        }
+    }
+
+    @MainActor
+    private static func findNavigationControllerForStreamExit() -> UINavigationController? {
+        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else { return nil }
+        for window in scene.windows where !window.isHidden {
+            if let nav = findNavigationController(in: window.rootViewController) {
+                return nav
+            }
+        }
+        return nil
+    }
+
+    @MainActor
+    private static func findNavigationController(in viewController: UIViewController?) -> UINavigationController? {
+        guard let viewController else { return nil }
+        if let nav = viewController as? UINavigationController { return nav }
+        for child in viewController.children {
+            if let nav = findNavigationController(in: child) { return nav }
+        }
+        if let presented = viewController.presentedViewController {
+            if let nav = findNavigationController(in: presented) { return nav }
+        }
+        return nil
+    }
+
+    @MainActor
+    static func prepareJoiningStream(
+        targetChannelId: Int64,
+        clanId: Int64,
+        context: AccountContext,
+        navigationController: UINavigationController
+    ) {
+        guard let userIdStr = context.currentUser?.id, let userId = Int64(userIdStr) else { return }
+
+        var channelsToLeave = Set<Int64>()
+        if let activeId = StreamingWebRTCSession.shared.activeStreamChannelId, activeId != targetChannelId {
+            channelsToLeave.insert(activeId)
+        }
+        let pip = StreamingPiPOverlay.shared
+        if let pipChannelId = pip.channel?.channelID, pipChannelId != targetChannelId {
+            channelsToLeave.insert(pipChannelId)
+        }
+        for vc in navigationController.viewControllers {
+            guard let streamVC = vc as? StreamingRoomViewController, streamVC.streamChannelId != targetChannelId else { continue }
+            channelsToLeave.insert(streamVC.streamChannelId)
+        }
+        for channelId in channelsToLeave {
+            context.engine.clanData.applyStreamLeaved(clanId: clanId, channelId: channelId, userId: userId)
+        }
+
+        if pip.isActive, pip.channel?.channelID != targetChannelId {
+            pip.dismiss(disconnectSession: true)
+        } else if StreamingWebRTCSession.shared.activeStreamChannelId != nil,
+                  StreamingWebRTCSession.shared.activeStreamChannelId != targetChannelId {
+            StreamingWebRTCSession.shared.disconnect()
+        }
+
+        let filtered = navigationController.viewControllers.filter { vc in
+            guard let streamVC = vc as? StreamingRoomViewController else { return true }
+            return streamVC.streamChannelId == targetChannelId
+        }
+        if filtered.count != navigationController.viewControllers.count {
+            navigationController.setViewControllers(filtered, animated: false)
+        }
     }
 }
