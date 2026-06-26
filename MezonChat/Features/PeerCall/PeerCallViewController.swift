@@ -551,7 +551,8 @@ final class PeerCallViewController: ViewController {
         remoteMutedBanner.backgroundColor = theme.secondaryWeight.withAlphaComponent(0.85)
         remoteMutedIcon.tintColor = theme.iconPrimary
         remoteMutedLabel.textColor = theme.text
-        networkBanner.backgroundColor = theme.secondaryWeight.withAlphaComponent(0.85)
+        let bannerShowingConnecting = (networkBanner.text?.trimmingCharacters(in: .whitespacesAndNewlines) == PeerCallLocalizedStrings.statusConnecting)
+        networkBanner.backgroundColor = bannerShowingConnecting ? .clear : theme.secondaryWeight.withAlphaComponent(0.85)
         networkBanner.textColor = theme.text
         for ring in ringViews {
             ring.layer.borderColor = theme.border.cgColor
@@ -986,6 +987,8 @@ final class PeerCallViewController: ViewController {
             if let text, !text.isEmpty {
                 self.networkBanner.text = "  \(text)  "
                 self.networkBanner.isHidden = false
+                let isConnecting = text.trimmingCharacters(in: .whitespacesAndNewlines) == PeerCallLocalizedStrings.statusConnecting
+                self.networkBanner.backgroundColor = isConnecting ? .clear : UIColor.theme.secondaryWeight.withAlphaComponent(0.85)
             } else {
                 self.networkBanner.isHidden = true
             }

@@ -330,7 +330,15 @@ final class ChannelListContainerNode: ASDisplayNode {
         return fromCommitted >= 0 ? fromCommitted : leadingTableSectionsCount
     }
 
+    private func channelListLoadingPlaceholderVisible(for state: ChannelListState) -> Bool {
+        state.isLoading && state.categories.isEmpty
+    }
+
     private func applyCategorySectionCountDelta(prev: ChannelListState, new: ChannelListState) -> Bool {
+        if channelListLoadingPlaceholderVisible(for: prev)
+            || channelListLoadingPlaceholderVisible(for: new) {
+            return false
+        }
         let sectionOffset = categorySectionOffset(for: prev)
         let prevIds = prev.categories.map(\.id)
         let newIds = new.categories.map(\.id)
@@ -343,6 +351,20 @@ final class ChannelListContainerNode: ASDisplayNode {
                 var trial = newIds
                 trial.remove(at: insertAt)
                 guard trial == prevIds else { continue }
+                var survivingRowsConsistent = true
+                for prevIdx in 0..<prevIds.count {
+                    let committedSection = prevIdx + sectionOffset
+                    guard committedSection < tableNode.numberOfSections else { survivingRowsConsistent = false; break }
+                    let mappedNewIdx = prevIdx < insertAt ? prevIdx : prevIdx + 1
+                    if tableNode.numberOfRows(inSection: committedSection) != computeRows(for: new, categoryIndex: mappedNewIdx).count {
+                        survivingRowsConsistent = false
+                        break
+                    }
+                }
+                guard survivingRowsConsistent else {
+                    safeReloadData(preserving: scrollAnchor)
+                    return true
+                }
                 let section = insertAt + sectionOffset
                 guard section <= tableNode.numberOfSections else {
                     safeReloadData(preserving: scrollAnchor)
@@ -372,6 +394,20 @@ final class ChannelListContainerNode: ASDisplayNode {
                 var trial = prevIds
                 trial.remove(at: deleteAt)
                 guard trial == newIds else { continue }
+                var survivingRowsConsistent = true
+                for prevIdx in 0..<prevIds.count where prevIdx != deleteAt {
+                    let committedSection = prevIdx + sectionOffset
+                    guard committedSection < tableNode.numberOfSections else { survivingRowsConsistent = false; break }
+                    let mappedNewIdx = prevIdx < deleteAt ? prevIdx : prevIdx - 1
+                    if tableNode.numberOfRows(inSection: committedSection) != computeRows(for: new, categoryIndex: mappedNewIdx).count {
+                        survivingRowsConsistent = false
+                        break
+                    }
+                }
+                guard survivingRowsConsistent else {
+                    safeReloadData(preserving: scrollAnchor)
+                    return true
+                }
                 let section = deleteAt + sectionOffset
                 guard section < tableNode.numberOfSections else {
                     safeReloadData(preserving: scrollAnchor)
@@ -402,6 +438,12 @@ final class ChannelListContainerNode: ASDisplayNode {
         let expectedAfter = totalSections
         let fallbackScrollAnchor = isPinnedNearListTop() ? nil : captureScrollAnchor(prev: prev)
 
+        if channelListLoadingPlaceholderVisible(for: prev)
+            != channelListLoadingPlaceholderVisible(for: new) {
+            safeReloadData(preserving: fallbackScrollAnchor)
+            return
+        }
+
         guard committedSectionCount == tableNode.numberOfSections else {
             safeReloadData(preserving: fallbackScrollAnchor)
             return
@@ -428,20 +470,29 @@ final class ChannelListContainerNode: ASDisplayNode {
         var rowsToInsert: [IndexPath] = []
         var rowsToDelete: [IndexPath] = []
         var rowsToReload: [IndexPath] = []
+        var newRowCountBySection: [Int: Int] = [:]
 
         for i in 0..<newCatSections {
             let pc = prev.categories[i]
             let nc = new.categories[i]
             let section = i + sectionOffset
 
+            let oldRows = computeRows(for: prev, categoryIndex: i)
+
+            if isNodeLoaded,
+               section < tableNode.numberOfSections,
+               tableNode.numberOfRows(inSection: section) != oldRows.count {
+                sectionsToReload.insert(section)
+                continue
+            }
 
             if pc.isCollapsed != nc.isCollapsed || pc.name != nc.name {
                 sectionsToReload.insert(section)
                 continue
             }
 
-            let oldRows = computeRows(for: prev, categoryIndex: i)
             let newRows = rowsForSection(i)
+            newRowCountBySection[section] = newRows.count
 
             let oldKeys = oldRows.map { Self.rowDiffKey($0) }
             let newKeys = newRows.map { Self.rowDiffKey($0) }
@@ -492,6 +543,23 @@ final class ChannelListContainerNode: ASDisplayNode {
                 ) {
                     rowsToReload.append(IndexPath(row: newR, section: section))
                 }
+            }
+        }
+
+        var insertsBySection: [Int: Int] = [:]
+        var deletesBySection: [Int: Int] = [:]
+        for ip in rowsToInsert { insertsBySection[ip.section, default: 0] += 1 }
+        for ip in rowsToDelete { deletesBySection[ip.section, default: 0] += 1 }
+        for section in Set(insertsBySection.keys).union(deletesBySection.keys) {
+            guard !sectionsToReload.contains(section) else { continue }
+            guard isNodeLoaded, section < tableNode.numberOfSections else {
+                sectionsToReload.insert(section)
+                continue
+            }
+            let committed = tableNode.numberOfRows(inSection: section)
+            let expected = committed + (insertsBySection[section] ?? 0) - (deletesBySection[section] ?? 0)
+            if expected != (newRowCountBySection[section] ?? committed) {
+                sectionsToReload.insert(section)
             }
         }
 
@@ -1228,7 +1296,7 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private var channelListLoadingPlaceholderVisible: Bool {
-        state.isLoading && state.categories.isEmpty
+        channelListLoadingPlaceholderVisible(for: state)
     }
 
     private var loadingPlaceholderTableSection: Int {
@@ -1351,6 +1419,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         isClanSwitching = true
         deferOnboardingTableUpdates = true
         clanSwitchTableRefreshDone = false
+        resolvedVoiceMemberSnapshot = [:]
         memberCount = 0
         onboardingState = .hidden
         memberOnboardingState = .hidden
@@ -1841,6 +1910,19 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private var voiceMemberReloadScheduled = false
+    private var resolvedVoiceMemberSnapshot: [String: [VoiceMemberDisplay]] = [:]
+
+    private func resolvedVoiceDisplays(for row: ChannelListRow) -> [VoiceMemberDisplay] {
+        guard let resolver = voiceMemberResolver else { return [] }
+        switch row {
+        case .voiceMemberExpanded(_, let uid):
+            return [resolver(uid)].compactMap { $0 }
+        case .voiceMembersCollapsed(_, let uids):
+            return uids.prefix(6).compactMap { resolver($0) }
+        default:
+            return []
+        }
+    }
 
     func reloadVoiceMemberRows() {
         guard !voiceMemberReloadScheduled else { return }
@@ -1865,6 +1947,10 @@ final class ChannelListContainerNode: ASDisplayNode {
             let rows = rowsForSection(catIdx)
             guard tableNode.numberOfRows(inSection: section) == rows.count else { continue }
             for (r, row) in rows.enumerated() where Self.isVoiceMemberRow(row) {
+                let key = Self.rowDiffKey(row)
+                let displays = resolvedVoiceDisplays(for: row)
+                if resolvedVoiceMemberSnapshot[key] == displays { continue }
+                resolvedVoiceMemberSnapshot[key] = displays
                 paths.append(IndexPath(row: r, section: section))
             }
         }

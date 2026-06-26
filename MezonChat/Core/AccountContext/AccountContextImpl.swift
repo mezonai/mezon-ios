@@ -36,8 +36,6 @@ final class AccountContextImpl: AccountContext {
     private var sessionReadyContinuations: [CheckedContinuation<Void, Never>] = []
     private var activeRefreshTask: Task<Bool, Never>?
     private var activeBearerRecoveryTask: Task<String?, Never>?
-    private var lastRecoveryIssuedToken: String?
-    private var lastRecoveryIssuedRefreshToken: String?
     private var didNotifySessionExpired = false
     private var heavyAccountBootstrapTask: Task<Void, Never>?
     func waitForSessionReady() async {
@@ -48,6 +46,16 @@ final class AccountContextImpl: AccountContext {
             } else {
                 sessionReadyContinuations.append(continuation)
             }
+        }
+    }
+
+    private func waitForSessionReadyBounded(maxWaitNanos: UInt64) async {
+        guard !isSessionReady else { return }
+        let step: UInt64 = 100_000_000
+        var waited: UInt64 = 0
+        while !isSessionReady, waited < maxWaitNanos {
+            try? await Task.sleep(nanoseconds: step)
+            waited += step
         }
     }
 
@@ -156,6 +164,12 @@ final class AccountContextImpl: AccountContext {
         if let inflight = activeRefreshTask {
             _ = await inflight.value
         }
+        await SessionRefreshManager.shared.awaitInflightRefresh()
+
+        if !isSessionReady {
+            await waitForSessionReadyBounded(maxWaitNanos: 2_500_000_000)
+        }
+
         let fromMemory = session
         let fromDisk = SessionStore.load()
         for cand in [fromMemory, fromDisk].compactMap({ $0 }) {
@@ -256,8 +270,6 @@ final class AccountContextImpl: AccountContext {
         sessionEpoch &+= 1
         let startEpoch = sessionEpoch
         didNotifySessionExpired = false
-        lastRecoveryIssuedToken = nil
-        lastRecoveryIssuedRefreshToken = nil
         VoIPAnswerAccountBridge.context = self
         applySession(session, user: user, connectSocket: false)
         setLoggedIn(true)
@@ -282,8 +294,6 @@ final class AccountContextImpl: AccountContext {
 
     func replaceCurrentSession(user: User, session: MezonSession) {
         didNotifySessionExpired = false
-        lastRecoveryIssuedToken = nil
-        lastRecoveryIssuedRefreshToken = nil
         VoIPAnswerAccountBridge.context = self
         applySession(session, user: user, connectSocket: !session.created, fetchAccount: false)
         setLoggedIn(true)
@@ -304,8 +314,6 @@ final class AccountContextImpl: AccountContext {
         activeBearerRecoveryTask?.cancel()
         activeBearerRecoveryTask = nil
         didNotifySessionExpired = false
-        lastRecoveryIssuedToken = nil
-        lastRecoveryIssuedRefreshToken = nil
         fcmRegistrationTask?.cancel()
         fcmRegistrationTask = nil
         lastRegisteredFcmKey = nil
@@ -425,14 +433,6 @@ final class AccountContextImpl: AccountContext {
             return session.token
         }
 
-        if let session,
-           !session.isExpired,
-           failedToken == lastRecoveryIssuedToken,
-           session.refreshToken == lastRecoveryIssuedRefreshToken {
-            notifySessionExpiredAndStopRecovery()
-            return nil
-        }
-
         if let inflight = activeBearerRecoveryTask {
             return await inflight.value
         }
@@ -454,11 +454,8 @@ final class AccountContextImpl: AccountContext {
                 guard let refreshed = self.session,
                       !refreshed.token.isEmpty,
                       refreshed.token != failedToken else {
-                    self.notifySessionExpiredAndStopRecovery()
                     return nil
                 }
-                self.lastRecoveryIssuedToken = refreshed.token
-                self.lastRecoveryIssuedRefreshToken = refreshed.refreshToken
                 return refreshed.token
             } catch let error as MezonError {
                 if case .httpError(let code, _) = error, code == 401 || code == 403 {

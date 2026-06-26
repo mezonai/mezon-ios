@@ -117,7 +117,6 @@ private final class MediaUploadingOverlayNode: ASDisplayNode {
         guard !gridCompactMode else { return }
         updatePercentText(value)
         barNode?.updateProgress(value)
-        setNeedsLayout()
     }
 
     override func layout() {
@@ -147,9 +146,7 @@ private final class MediaUploadingOverlayNode: ASDisplayNode {
             height: spinnerSide)
         y += spinnerSide + spacing
 
-        let labelMaxWidth = max(0, min(w - horizontalPad * 2, 56))
-        let measuredLabel = percentLabel?.measure(CGSize(width: labelMaxWidth, height: labelHeight))
-        let labelWidth = min(labelMaxWidth, max(measuredLabel?.width ?? 0, 1))
+        let labelWidth = max(0, min(w - horizontalPad * 2, 56))
         percentLabel?.frame = CGRect(
             x: (w - labelWidth) * 0.5,
             y: y,
@@ -212,6 +209,7 @@ final class MessageMediaContentNode: ASDisplayNode {
     private var cachedImageFrames: [CGRect] = []
     private var cachedPositions: [MediaMosaicItemPosition] = []
     private var cachedTotalSize: CGSize = .zero
+    private var lastMeasureSignature: String?
     private var isSingleImage = false
     private var isSticker = false
     private var isAnimatedStandaloneImage = false
@@ -397,6 +395,7 @@ final class MessageMediaContentNode: ASDisplayNode {
         slotOverlayKindByIndex.removeAll()
         cachedImageFrames = []
         cachedPositions = []
+        lastMeasureSignature = nil
 
         isUploading = media.contains { $0.isUploading }
 
@@ -461,6 +460,12 @@ final class MessageMediaContentNode: ASDisplayNode {
     }
 
     func measureSize(maxWidth: CGFloat) -> CGSize {
+        let signature = measureGeometrySignature(maxWidth: maxWidth)
+        if signature == lastMeasureSignature, cachedTotalSize != .zero {
+            return cachedTotalSize
+        }
+        lastMeasureSignature = signature
+
         let maxH = UIScreen.main.bounds.height * 0.5
         cachedImageFrames = []
 
@@ -535,6 +540,12 @@ final class MessageMediaContentNode: ASDisplayNode {
 
         cachedTotalSize = .zero
         return .zero
+    }
+
+    private func measureGeometrySignature(maxWidth: CGFloat) -> String {
+        let flags = "\(isSticker ? 1 : 0)\(isAnimatedStandaloneImage ? 1 : 0)\(isSingleImage ? 1 : 0)\(isMultiple ? 1 : 0)"
+        let dims = attachments.map { "\($0.width ?? -1)x\($0.height ?? -1)" }.joined(separator: ",")
+        return "\(Int(maxWidth))|\(flags)|\(dims)"
     }
 
     override func layout() {

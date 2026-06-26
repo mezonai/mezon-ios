@@ -617,7 +617,7 @@ final class ClanListViewController: ViewController {
 
 
     private static func mergeUnreadDmStrip(serverUnread: [Mezon_Api_ChannelDescription], previousStrip: [Mezon_Api_ChannelDescription]) -> [Mezon_Api_ChannelDescription] {
-        let prevCount = Dictionary(uniqueKeysWithValues: previousStrip.map { ($0.channelID, $0.countMessUnread) })
+        let prevCount = Dictionary(previousStrip.map { ($0.channelID, $0.countMessUnread) }, uniquingKeysWith: { _, new in new })
         guard !prevCount.isEmpty else { return serverUnread }
         var result = serverUnread
         for i in result.indices {
@@ -629,20 +629,18 @@ final class ClanListViewController: ViewController {
         return result
     }
 
-    private var inflightFetchClanDataClanId: Int64?
+    private var fetchClanDataDebounceTask: Task<Void, Never>?
+    private let fetchClanDataDebounceNanos: UInt64 = 350_000_000
 
     private func fetchClanData(clanId: Int64) {
         guard clanId != 0 else { return }
-        if inflightFetchClanDataClanId == clanId { return }
-        inflightFetchClanDataClanId = clanId
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer {
-                if self.inflightFetchClanDataClanId == clanId {
-                    self.inflightFetchClanDataClanId = nil
-                }
-            }
+        context.engine.clanData.cancelFetchAllClanData(exceptClanId: clanId)
+        fetchClanDataDebounceTask?.cancel()
+        fetchClanDataDebounceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: self?.fetchClanDataDebounceNanos ?? 0)
+            guard !Task.isCancelled, let self, self.context.currentClanId == clanId else { return }
             guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
+            guard self.context.currentClanId == clanId else { return }
             await self.context.engine.clanData.fetchAllClanDataIfNeeded(clanId: clanId, token: token)
         }
     }
