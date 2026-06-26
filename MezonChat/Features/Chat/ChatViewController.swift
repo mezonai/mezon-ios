@@ -86,17 +86,7 @@ struct ParsedAttachment: Equatable {
     static func attachmentsRequireBubbleRebuild(_ lhs: [ParsedAttachment], _ rhs: [ParsedAttachment]) -> Bool {
         guard lhs.count == rhs.count else { return true }
         for (l, r) in zip(lhs, rhs) {
-            if l.width != r.width || l.height != r.height || l.durationSeconds != r.durationSeconds
-                || l.filetype != r.filetype || l.isPresignPending != r.isPresignPending {
-                return true
-            }
-            if (l.localImage != nil) != (r.localImage != nil) {
-                return true
-            }
-            if l.localImage != nil && r.localImage != nil {
-                continue
-            }
-            if l.url != r.url || l.filename != r.filename || l.thumbnail != r.thumbnail {
+            if l.width != r.width || l.height != r.height || l.durationSeconds != r.durationSeconds {
                 return true
             }
         }
@@ -518,6 +508,8 @@ final class ChatViewController: ViewController {
     private var hasPerformedInitialUnreadScroll = false
     private var pendingSendingFeedbackBeganAtByMessageId: [String: Date] = [:]
     private var sendingFeedbackRefreshWorkItem: DispatchWorkItem?
+    private var pendingUploadRefreshMessageIds = Set<String>()
+    private var uploadRefreshFlushScheduled = false
 
     private struct RemoteTyperState {
         var displayName: String
@@ -1436,7 +1428,18 @@ final class ChatViewController: ViewController {
 
     @objc private func handleAttachmentUploadSlotStateChanged(_ notification: Notification) {
         guard let messageId = notification.userInfo?["messageId"] as? String, !messageId.isEmpty else { return }
-        refreshUploadingMessageDisplay(messageId: messageId)
+        pendingUploadRefreshMessageIds.insert(messageId)
+        guard !uploadRefreshFlushScheduled else { return }
+        uploadRefreshFlushScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.uploadRefreshFlushScheduled = false
+            let ids = self.pendingUploadRefreshMessageIds
+            self.pendingUploadRefreshMessageIds.removeAll()
+            for id in ids {
+                self.refreshUploadingMessageDisplay(messageId: id)
+            }
+        }
     }
 
     private func refreshUploadingMessageDisplay(messageId: String) {
@@ -5222,7 +5225,6 @@ final class ChatViewController: ViewController {
                     token: token
                 )
             } catch {
-                print("messageButtonClick failed for msgId=\(realMessageId): \(error)")
             }
         }
         

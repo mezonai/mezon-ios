@@ -71,7 +71,7 @@ private func filterCategoriesToKnownChannels(
     _ cats: [ChannelCategory],
     channels: [Mezon_Api_ChannelDescription]
 ) -> [ChannelCategory] {
-    let byId = Dictionary(uniqueKeysWithValues: channels.map { ($0.channelID, $0) })
+    let byId = Dictionary(channels.map { ($0.channelID, $0) }, uniquingKeysWith: { _, new in new })
     return cats.compactMap { cat in
         if cat.id == ChannelCategory.favoritesCategoryId {
             guard let fav = cat.favoriteFlatChannels else { return nil }
@@ -311,7 +311,7 @@ private func enrichCategoryNames(
 }
 
 private func overlayCategoryNames(preferred: [ChannelCategory], onto target: [ChannelCategory]) -> [ChannelCategory] {
-    let byId = Dictionary(uniqueKeysWithValues: preferred.map { ($0.id, $0) })
+    let byId = Dictionary(preferred.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
     return target.map { cat in
         guard cat.id != ChannelCategory.favoritesCategoryId else { return cat }
         if !cat.name.isEmpty { return cat }
@@ -390,7 +390,7 @@ private func repairChannelsFromSnapshotPlacement(
 ) -> [Mezon_Api_ChannelDescription] {
     let placement = categoryPlacementFromSnapshot(snapshot)
     guard !placement.isEmpty else { return channels }
-    let descNames = Dictionary(uniqueKeysWithValues: categoryDescs.map { ($0.categoryID, $0.categoryName) })
+    let descNames = Dictionary(categoryDescs.map { ($0.categoryID, $0.categoryName) }, uniquingKeysWith: { _, new in new })
     return channels.map { ch in
         guard ch.categoryID == 0, let place = placement[ch.channelID], place.categoryId != 0 else { return ch }
         var repaired = ch
@@ -410,7 +410,7 @@ private func repairChannelsMissingCategoryIds(
     categoryDescs: [Mezon_Api_CategoryDesc]
 ) -> [Mezon_Api_ChannelDescription] {
     guard !categoryDescs.isEmpty else { return channels }
-    let descNames = Dictionary(uniqueKeysWithValues: categoryDescs.map { ($0.categoryID, $0.categoryName) })
+    let descNames = Dictionary(categoryDescs.map { ($0.categoryID, $0.categoryName) }, uniquingKeysWith: { _, new in new })
     var parentCategoryById: [Int64: Int64] = [:]
     for ch in channels where ch.parentID == 0 {
         if ch.categoryID != 0 {
@@ -512,7 +512,7 @@ private func reorderChannels(
     preferredOrder: [Int64]
 ) -> [Mezon_Api_ChannelDescription] {
     guard !preferredOrder.isEmpty else { return channels }
-    let byId = Dictionary(uniqueKeysWithValues: channels.map { ($0.channelID, $0) })
+    let byId = Dictionary(channels.map { ($0.channelID, $0) }, uniquingKeysWith: { _, new in new })
     var used = Set<Int64>()
     var result: [Mezon_Api_ChannelDescription] = []
     for id in preferredOrder {
@@ -587,7 +587,7 @@ private func buildFavoriteFlatChannels(
     preferredOrder: [Int64]? = nil
 ) -> [Mezon_Api_ChannelDescription] {
     guard !favoriteChannelIds.isEmpty else { return [] }
-    let byId = Dictionary(uniqueKeysWithValues: channels.map { ($0.channelID, $0) })
+    let byId = Dictionary(channels.map { ($0.channelID, $0) }, uniquingKeysWith: { _, new in new })
     var result: [Mezon_Api_ChannelDescription] = []
     var seen = Set<Int64>()
     if let preferredOrder {
@@ -828,7 +828,7 @@ final class ChannelListViewController: ViewController {
         cached: [Mezon_Api_ChannelDescription]
     ) -> [Mezon_Api_ChannelDescription] {
         guard !cached.isEmpty else { return channels }
-        let byId = Dictionary(uniqueKeysWithValues: cached.map { ($0.channelID, $0) })
+        let byId = Dictionary(cached.map { ($0.channelID, $0) }, uniquingKeysWith: { _, new in new })
         return channels.map { ch in
             guard let prev = byId[ch.channelID] else { return ch }
             var merged = ch
@@ -942,6 +942,7 @@ final class ChannelListViewController: ViewController {
 
     private var voicePresenceReloadScheduled = false
     private let voicePresenceCoalesceInterval: TimeInterval = 0.4
+    private var clanUsersReloadScheduled = false
     private var channelListStateEmitCoalesceScheduled = false
     private var categoryDescsRefreshScheduled = false
 
@@ -1116,8 +1117,7 @@ final class ChannelListViewController: ViewController {
         clanUsersDisposable.set(
             (context.engine.clanData.clanUsersUpdated.signal() |> deliverOnMainQueue).start(next: { [weak self] updatedClanId in
                 guard let self, self.clanId != 0, updatedClanId == self.clanId else { return }
-                self.needsReloadPipe.putNext(())
-                self.channelListNode.reloadVoiceMemberRows()
+                self.scheduleCoalescedClanUsersReload()
             })
         )
     }
@@ -1275,6 +1275,18 @@ final class ChannelListViewController: ViewController {
         }
     }
 
+    private func scheduleCoalescedClanUsersReload() {
+        guard !clanUsersReloadScheduled else { return }
+        clanUsersReloadScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + voicePresenceCoalesceInterval) { [weak self] in
+            guard let self else { return }
+            self.clanUsersReloadScheduled = false
+            guard self.clanId != 0 else { return }
+            self.needsReloadPipe.putNext(())
+            self.channelListNode.reloadVoiceMemberRows()
+        }
+    }
+
     @objc private func handleNetworkStatusChanged(_ notification: Notification) {
         let connected = (notification.userInfo?["isConnected"] as? Bool) ?? NetworkMonitor.shared.isConnected
         guard connected, clanId != 0 else { return }
@@ -1318,7 +1330,7 @@ final class ChannelListViewController: ViewController {
 
     private func channelListRowsVisuallyEqual(_ a: [Mezon_Api_ChannelDescription], _ b: [Mezon_Api_ChannelDescription]) -> Bool {
         guard a.count == b.count else { return false }
-        let byId = Dictionary(uniqueKeysWithValues: b.map { ($0.channelID, $0) })
+        let byId = Dictionary(b.map { ($0.channelID, $0) }, uniquingKeysWith: { _, new in new })
         for ch in a {
             guard let o = byId[ch.channelID] else { return false }
             if ch.countMessUnread != o.countMessUnread { return false }
@@ -1509,18 +1521,11 @@ final class ChannelListViewController: ViewController {
         }
         lastOnboardingState = .hidden
         lastMemberOnboardingState = .hidden
-        if previousClanId != 0 {
-            MemberOnboardingProgress.clearClanData(clanId: previousClanId)
-        }
         self.clanId = clanId
         self.clanName = clanName
         channelListNode.configure(clanName: clanName, clanId: clanId, logoURL: logoURL, bannerURL: bannerURL, memberCount: memberCount, isCommunity: isCommunity)
         lastHeaderConfiguration = headerConfiguration
-        if !hasCachedChannels {
-            channelListNode.clearChannelApps()
-        } else if clanId != 0 {
-            restoreCachedChannelApps(clanId: clanId)
-        }
+        refreshMemberOnboardingState()
         load(clanId: clanId, clanName: clanName)
     }
 
@@ -2664,21 +2669,29 @@ final class ChannelListViewController: ViewController {
         let clanId = self.clanId
         Task { @MainActor [weak self] in
             defer { self?.categoryDescsRefreshScheduled = false }
-            guard let self, self.clanId == clanId else { return }
-            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
-            let descs = await Self.listCategoryDescsOrEmpty(
-                network: MezonHTTPClient.shared, clanId: clanId, token: token
-            )
-            guard self.clanId == clanId, !descs.isEmpty else { return }
-            self.channelListCategoryDescs = descs
-            let cats = self.applyCategoriesAfterFetch(
-                mergedChannels: self.allChannels,
-                categoryDescs: descs,
-                favoriteIds: self.channelListFavoriteIds
-            )
-            self.categories = cats
-            self.categoriesPipe.putNext(cats)
-            self.needsReloadPipe.putNext(())
+            for attempt in 0..<4 {
+                guard let self, self.clanId == clanId else { return }
+                guard self.categories.contains(where: {
+                    $0.id != ChannelCategory.favoritesCategoryId && $0.name.isEmpty
+                }) else { return }
+                guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
+                let descs = await Self.listCategoryDescsOrEmpty(
+                    network: MezonHTTPClient.shared, clanId: clanId, token: token
+                )
+                if self.clanId == clanId, !descs.isEmpty {
+                    self.channelListCategoryDescs = descs
+                    let cats = self.applyCategoriesAfterFetch(
+                        mergedChannels: self.allChannels,
+                        categoryDescs: descs,
+                        favoriteIds: self.channelListFavoriteIds
+                    )
+                    self.categories = cats
+                    self.categoriesPipe.putNext(cats)
+                    self.needsReloadPipe.putNext(())
+                    return
+                }
+                try? await Task.sleep(nanoseconds: UInt64(attempt + 1) * 1_000_000_000)
+            }
         }
     }
 
@@ -2813,10 +2826,11 @@ final class ChannelListViewController: ViewController {
         } else {
             fetchChannelAppsInBackground()
         }
-        isLoading = false
         if pendingCache == nil && clanId != 0 && NetworkMonitor.shared.isConnected {
-            scheduleDeferredSkeletonRevealIfStillEmpty()
+            isLoading = true
+            cancelDeferredSkeletonReveal()
         } else {
+            isLoading = false
             cancelDeferredSkeletonReveal()
         }
         needsReloadPipe.putNext(())
@@ -3189,22 +3203,21 @@ final class ChannelListViewController: ViewController {
 
         let name: String
         let username: String
-        if let m = member {
+        if let m = member, !(m.clanNick.isEmpty && m.displayName.isEmpty && m.username.isEmpty) {
             if !m.clanNick.isEmpty {
                 name = m.clanNick
             } else if !m.displayName.isEmpty {
                 name = m.displayName
-            } else if !m.username.isEmpty {
-                name = m.username
             } else {
-                return nil
+                name = m.username
             }
             username = m.username
-        } else if let profile {
+        } else if let profile, !((profile.displayName ?? "").isEmpty && profile.username.isEmpty) {
             name = (profile.displayName?.isEmpty == false ? profile.displayName : nil) ?? profile.username
             username = profile.username
         } else {
-            return nil
+            name = ""
+            username = ""
         }
 
         let avatar: String?
@@ -4008,7 +4021,7 @@ final class ChannelListViewController: ViewController {
         }
         let order = decodeChannelList(data).map(\.channelID)
         guard !order.isEmpty else { return channels }
-        let byId = Dictionary(uniqueKeysWithValues: channels.map { ($0.channelID, $0) })
+        let byId = Dictionary(channels.map { ($0.channelID, $0) }, uniquingKeysWith: { _, new in new })
         var result: [Mezon_Api_ChannelDescription] = []
         var used = Set<Int64>()
         for id in order {
@@ -4266,11 +4279,13 @@ final class ChannelListViewController: ViewController {
             key: PreferencesKeys.channelList(clanId: clanId),
             value: encodeChannelList(channels)
         )
+        persistFavoriteChannelIds(favoriteIds, clanId: clanId)
+
+        guard !categoryDescs.isEmpty else { return }
         context.account.postbox.setPreferenceDataSync(
             key: PreferencesKeys.channelListMeta(clanId: clanId),
             value: ChannelListMetaCodec.encode(categoryDescs: categoryDescs, favoriteIds: favoriteIds)
         )
-        persistFavoriteChannelIds(favoriteIds, clanId: clanId)
         context.account.postbox.setPreferenceDataSync(
             key: PreferencesKeys.channelListCategories(clanId: clanId),
             value: encodeCategoriesSnapshot(categories)
@@ -4470,7 +4485,7 @@ final class ChannelListViewController: ViewController {
         _ cats: [ChannelCategory],
         authoritative: [Mezon_Api_ChannelDescription]
     ) -> [ChannelCategory] {
-        let byId = Dictionary(uniqueKeysWithValues: authoritative.map { ($0.channelID, $0) })
+        let byId = Dictionary(authoritative.map { ($0.channelID, $0) }, uniquingKeysWith: { _, new in new })
         let allowed = Set(byId.keys)
         func mergeOne(_ ch: Mezon_Api_ChannelDescription) -> Mezon_Api_ChannelDescription? {
             guard let auth = byId[ch.channelID] else { return nil }

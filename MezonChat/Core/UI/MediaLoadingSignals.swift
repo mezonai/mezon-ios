@@ -16,9 +16,9 @@ final class ImageCache {
 
     private let memoryCache: NSCache<NSString, UIImage> = {
         let c = NSCache<NSString, UIImage>()
-        c.countLimit = 150
+        c.countLimit = 300
         let physical = ProcessInfo.processInfo.physicalMemory
-        c.totalCostLimit = Int(min(physical / 10, 120 * 1024 * 1024))
+        c.totalCostLimit = Int(min(physical / 8, 180 * 1024 * 1024))
         return c
     }()
 

@@ -24,6 +24,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         MezonEnvironment.current = .prod
         SentryLogger.start()
         CallKitManager.shared.configure()
+        DispatchQueue.main.async {
+            PeerWebRTCCallSession.prewarmWebRTCInfrastructure()
+        }
         NotificationCenter.default.addObserver(self, selector: #selector(handleVoIPTokenDidUpdate), name: .mezonVoIPTokenDidUpdate, object: nil)
         NotificationCenter.default.addObserver(
             forName: UIApplication.protectedDataDidBecomeAvailableNotification,

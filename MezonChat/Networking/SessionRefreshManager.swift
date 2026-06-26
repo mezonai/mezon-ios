@@ -11,6 +11,8 @@ final class SessionRefreshManager {
     private var lastRefreshToken: String = ""
     private var failCount: Int = 0
     private var activeTask: Task<MezonSession, Error>?
+    private var lastSuccessfulRefresh: (at: Date, session: MezonSession)?
+    private let minSuccessfulRefreshInterval: TimeInterval = 2.0
 
     private init() {}
 
@@ -32,9 +34,19 @@ final class SessionRefreshManager {
         return false
     }
 
+    func awaitInflightRefresh() async {
+        guard let active = activeTask else { return }
+        _ = try? await active.value
+    }
+
     func refresh(session: MezonSession) async throws -> MezonSession {
         if let active = activeTask {
             return try await active.value
+        }
+        if let recent = lastSuccessfulRefresh,
+           Date().timeIntervalSince(recent.at) < minSuccessfulRefreshInterval,
+           !recent.session.isExpired {
+            return recent.session
         }
         let task = Task<MezonSession, Error> { [weak self] in
             guard let self else { throw SessionError.notInitialized }
@@ -76,6 +88,7 @@ final class SessionRefreshManager {
         let merged = SessionStore.applyIdTokenFallback(newSession.mergedPreservingIdToken(from: session))
         lastRefreshToken = merged.refreshToken
         failCount = 0
+        lastSuccessfulRefresh = (Date(), merged)
         return merged
     }
 
@@ -154,6 +167,7 @@ final class SessionRefreshManager {
         lastRefreshToken = ""
         failCount = 0
         activeTask = nil
+        lastSuccessfulRefresh = nil
     }
 }
 

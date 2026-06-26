@@ -9,7 +9,7 @@ final class ChannelOnboardingBannerCellNode: ASCellNode {
     private static let cardCornerRadius: CGFloat = 16.swh
 
     private let cardNode = ASDisplayNode()
-    private let iconWrapNode = ASDisplayNode()
+    private let iconWrapNode = ASImageNode()
     private var gradientLayer: CAGradientLayer?
     private let iconNode = ASImageNode()
     private let titleNode = ASTextNode()
@@ -25,14 +25,20 @@ final class ChannelOnboardingBannerCellNode: ASCellNode {
         cardNode.cornerRadius = Self.cardCornerRadius
         cardNode.clipsToBounds = true
 
-        iconWrapNode.backgroundColor = UIColor(red: 0.35, green: 0.40, blue: 0.98, alpha: 1)
-        iconWrapNode.cornerRadius = Self.isPad ? 14 : 15.swh
-        iconWrapNode.style.preferredSize = Self.isPad
+        let wrapSize: CGSize = Self.isPad
             ? CGSize(width: 28, height: 28)
             : CGSize(width: 30.swh, height: 30.swh)
+        iconWrapNode.image = Self.circleImage(
+            size: wrapSize,
+            color: UIColor(red: 0.35, green: 0.40, blue: 0.98, alpha: 1)
+        )
+        iconWrapNode.contentMode = .scaleAspectFit
+        iconWrapNode.displaysAsynchronously = false
+        iconWrapNode.style.preferredSize = wrapSize
 
         iconNode.image = Self.bannerIcon()
         iconNode.contentMode = .scaleAspectFit
+        iconNode.displaysAsynchronously = false
         iconNode.style.preferredSize = Self.isPad
             ? CGSize(width: 16, height: 16)
             : CGSize(width: 18.swh, height: 18.swh)
@@ -148,6 +154,14 @@ final class ChannelOnboardingBannerCellNode: ASCellNode {
             theme.primaryGradient.cgColor,
         ]
         return gradient
+    }
+
+    private static func circleImage(size: CGSize, color: UIColor) -> UIImage {
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { _ in
+            color.setFill()
+            UIBezierPath(ovalIn: CGRect(origin: .zero, size: size)).fill()
+        }
     }
 
     private static func bannerIcon() -> UIImage? {

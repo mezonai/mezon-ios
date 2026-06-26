@@ -99,6 +99,33 @@ final class MezonSocket: NSObject {
     private var apiResponseStreams: [UInt32: Data] = [:]
     private let defaultApiRequestTimeoutNanos: UInt64 = 10_000_000_000
 
+    private var consecutiveApiTimeouts = 0
+    private let apiDegradeThreshold = 2
+    private let apiDegradeCooldown: TimeInterval = 12
+    private var apiDegradedUntil: Date?
+
+    var isApiTransportDegraded: Bool {
+        guard let until = apiDegradedUntil else { return false }
+        if Date() >= until {
+            apiDegradedUntil = nil
+            consecutiveApiTimeouts = 0
+            return false
+        }
+        return true
+    }
+
+    func noteApiRequestSucceeded() {
+        consecutiveApiTimeouts = 0
+        apiDegradedUntil = nil
+    }
+
+    func noteApiRequestTimedOut() {
+        consecutiveApiTimeouts += 1
+        if consecutiveApiTimeouts >= apiDegradeThreshold {
+            apiDegradedUntil = Date().addingTimeInterval(apiDegradeCooldown)
+        }
+    }
+
     private let heartbeatIntervalSeconds: TimeInterval = 15
     private var heartbeatTask: Task<Void, Never>?
 
@@ -826,6 +853,7 @@ extension MezonSocket: URLSessionWebSocketDelegate {
         Task { @MainActor in
             guard let currentTask = self.webSocketTask, currentTask === webSocketTask else { return }
             self.isConnected = true
+            self.noteApiRequestSucceeded()
             self.scheduleStableReconnectReset(for: currentTask)
             self.eventPipe.putNext(.connected)
             NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": true])

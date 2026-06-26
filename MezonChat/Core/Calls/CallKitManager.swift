@@ -999,6 +999,7 @@ extension CallKitManager: CXProviderDelegate {
         let payload = info
         persistVoipQuitSnapshotFromIncomingPayload(payload)
         invalidateStoredVoIPPayloadOnly()
+        preconfigureAudioSessionForIncomingAnswer()
         action.fulfill(withDateConnected: Date())
         Task { @MainActor in
             var bgId = UIBackgroundTaskIdentifier.invalid
@@ -1068,6 +1069,18 @@ extension CallKitManager: CXProviderDelegate {
             WebRTCCallManager.shared.abandonIncomingPresentation()
             Self.clearStoredIncomingPayload()
         }
+    }
+
+    private func preconfigureAudioSessionForIncomingAnswer() {
+        let rtc = LKRTCAudioSession.sharedInstance()
+        rtc.useManualAudio = true
+        rtc.lockForConfiguration()
+        defer { rtc.unlockForConfiguration() }
+        let cfg = LKRTCAudioSessionConfiguration.webRTC()
+        cfg.category = AVAudioSession.Category.playAndRecord.rawValue
+        cfg.mode = AVAudioSession.Mode.voiceChat.rawValue
+        cfg.categoryOptions = [.allowBluetoothHFP, .allowBluetoothA2DP]
+        try? rtc.setConfiguration(cfg)
     }
 
     func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {

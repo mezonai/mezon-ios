@@ -121,12 +121,19 @@ final class PeerWebRTCCallSession: NSObject {
     private var remoteMicEnabled = true
     private var remoteCameraEnabledFromSignaling = true
 
-    private static var sslStarted = false
-
-    private static func makePeerConnectionFactory() -> LKRTCPeerConnectionFactory {
+    nonisolated private static let sharedPeerConnectionFactory: LKRTCPeerConnectionFactory = {
+        LKRTCInitializeSSL()
         let enc = LKRTCDefaultVideoEncoderFactory()
         let dec = LKRTCDefaultVideoDecoderFactory()
         return LKRTCPeerConnectionFactory(encoderFactory: enc, decoderFactory: dec)
+    }()
+
+    nonisolated static func prewarmWebRTCInfrastructure() {
+        _ = sharedPeerConnectionFactory
+    }
+
+    private static func makePeerConnectionFactory() -> LKRTCPeerConnectionFactory {
+        return sharedPeerConnectionFactory
     }
 
     private func applyPeerConnectionConfigCommon(_ config: LKRTCConfiguration) {
@@ -291,7 +298,6 @@ final class PeerWebRTCCallSession: NSObject {
                 return
             }
             do {
-                try configureAudioSession()
                 try ensureCallStillActive()
                 try await startOutgoingPeerConnection()
                 try ensureCallStillActive()
@@ -446,8 +452,6 @@ final class PeerWebRTCCallSession: NSObject {
     }
 
     private func performPreWarmBuild(offerCompressed: String) async throws {
-        try ensureCallStillActive()
-        Self.ensureSSL()
         try ensureCallStillActive()
         let factory = Self.makePeerConnectionFactory()
         peerFactory = factory
@@ -927,12 +931,6 @@ final class PeerWebRTCCallSession: NSObject {
         onLocalVideoTrack?(nil)
     }
 
-    private static func ensureSSL() {
-        guard !sslStarted else { return }
-        LKRTCInitializeSSL()
-        sslStarted = true
-    }
-
     private static func requestMicPermission() async -> Bool {
         await withCheckedContinuation { cont in
             AVAudioSession.sharedInstance().requestRecordPermission { ok in
@@ -1189,18 +1187,64 @@ final class PeerWebRTCCallSession: NSObject {
         else {
             throw PeerWebRTCCallSessionError.captureFailed
         }
-        let formatsObj = LKRTCCameraVideoCapturer.supportedFormats(for: device)
-        let formats = formatsObj as [AVCaptureDevice.Format]
-        let filtered = formats.filter { CMVideoFormatDescriptionGetDimensions($0.formatDescription).width <= 960 }
-        guard let picked = filtered.last ?? formats.last else {
+        let formats = LKRTCCameraVideoCapturer.supportedFormats(for: device) as [AVCaptureDevice.Format]
+        guard let picked = Self.selectCaptureFormat(
+            from: formats,
+            maxWidth: 960,
+            preferredPixelFormat: capturer.preferredOutputPixelFormat()
+        ) else {
             throw PeerWebRTCCallSessionError.captureFailed
         }
-        capturer.startCapture(with: device, format: picked, fps: 30)
+        let fps = Self.selectCaptureFps(for: picked, desired: 30)
+        capturer.startCapture(with: device, format: picked, fps: fps) { error in
+            if let error {
+                print("[DMCall] startCameraCapture failed: \(error)")
+            }
+        }
+    }
+
+    private static func selectCaptureFormat(
+        from formats: [AVCaptureDevice.Format],
+        maxWidth: Int32,
+        preferredPixelFormat: FourCharCode
+    ) -> AVCaptureDevice.Format? {
+        guard !formats.isEmpty else { return nil }
+        var best: AVCaptureDevice.Format?
+        var bestWidth: Int32 = -1
+        for format in formats {
+            let dim = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+            guard dim.width <= maxWidth else { continue }
+            let pixelFormat = CMFormatDescriptionGetMediaSubType(format.formatDescription)
+            if dim.width > bestWidth {
+                best = format
+                bestWidth = dim.width
+            } else if dim.width == bestWidth,
+                      pixelFormat == preferredPixelFormat,
+                      let current = best,
+                      CMFormatDescriptionGetMediaSubType(current.formatDescription) != preferredPixelFormat {
+                best = format
+            }
+        }
+        return best ?? formats.last
+    }
+
+    private static func selectCaptureFps(for format: AVCaptureDevice.Format, desired: Double) -> Int {
+        var maxRate: Double = 0
+        var minRate = Double.greatestFiniteMagnitude
+        for range in format.videoSupportedFrameRateRanges {
+            maxRate = max(maxRate, range.maxFrameRate)
+            minRate = min(minRate, range.minFrameRate)
+        }
+        guard maxRate > 0 else { return Int(desired) }
+        var fps = min(desired, maxRate)
+        if minRate != .greatestFiniteMagnitude {
+            fps = max(fps, minRate)
+        }
+        return max(1, Int(fps.rounded()))
     }
 
     private func startOutgoingPeerConnection() async throws {
         try ensureCallStillActive()
-        Self.ensureSSL()
         let factory = Self.makePeerConnectionFactory()
         peerFactory = factory
 
@@ -1303,7 +1347,6 @@ final class PeerWebRTCCallSession: NSObject {
             throw PeerWebRTCCallSessionError.missingSDP
         }
 
-        Self.ensureSSL()
         let factory = Self.makePeerConnectionFactory()
         peerFactory = factory
 
@@ -1654,7 +1697,7 @@ final class PeerWebRTCCallSession: NSObject {
     }
 
     private func tryPresentFullyConnectedCallUI() {
-        guard iceConnectedOrCompletedForUI, peerConnectionReportedConnectedForUI else { return }
+        guard iceConnectedOrCompletedForUI || peerConnectionReportedConnectedForUI else { return }
         guard !didPostConnectedStatusToUI else { return }
         if beganAudioFlowVerification { return }
         beganAudioFlowVerification = true

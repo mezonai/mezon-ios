@@ -447,10 +447,11 @@ private final class ClanCell: UICollectionViewCell {
         indicatorBar.backgroundColor = accentColor
         indicatorBar.isHidden = !isSelected
 
-        if !clan.logo.isEmpty, let url = URL(string: clan.logo) {
+        let resolvedLogoURL = ImgproxyURL.absoluteResourceURL(from: clan.logo)
+        if !resolvedLogoURL.isEmpty {
             avatarImageView.isHidden = false
             loadExpectingClan(
-                clanId: expectClanId, generation: generation, clanName: clanName, url: url)
+                clanId: expectClanId, generation: generation, clanName: clanName, sourceURL: resolvedLogoURL)
         } else {
             textAvatarView.configure(username: clanName, fontSize: 14.sf)
             avatarImageView.isHidden = true
@@ -468,10 +469,10 @@ private final class ClanCell: UICollectionViewCell {
         }
     }
 
-    private func loadExpectingClan(clanId: Int64, generation: Int, clanName: String, url: URL) {
+    private func loadExpectingClan(clanId: Int64, generation: Int, clanName: String, sourceURL: String) {
         imageTask?.cancel()
         imageTask = nil
-        let urlString = ImgproxyURL.create(from: url.absoluteString, width: 150, height: 150)
+        let urlString = ImgproxyURL.create(from: sourceURL, width: 150, height: 150)
         if let cached = ImageCache.shared.cachedImage(forURL: urlString) {
             guard boundClanId == clanId, avatarGeneration == generation else { return }
             avatarImageView.image = cached
@@ -481,7 +482,7 @@ private final class ClanCell: UICollectionViewCell {
             return
         }
         avatarImageView.image = nil
-        textAvatarView.showSkeleton()
+        textAvatarView.configure(username: clanName, fontSize: 14.sf)
         imageTask = ImageCache.shared.loadImage(urlString: urlString) { [weak self] image in
             guard let self else { return }
             guard self.boundClanId == clanId, self.avatarGeneration == generation else { return }
@@ -749,11 +750,12 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
             let groupAvatar = dm.channelAvatar
             avatarURL = (!groupAvatar.isEmpty && !groupAvatar.contains("avatar-group.png")) ? groupAvatar : ""
         }
+        let resolvedAvatarURL = ImgproxyURL.absoluteResourceURL(from: avatarURL)
 
-        if !avatarURL.isEmpty {
+        if !resolvedAvatarURL.isEmpty {
             groupIconView.isHidden = true
             avatarContainer.backgroundColor = .clear
-            let proxyURL = ImgproxyURL.create(from: avatarURL, width: 150, height: 150)
+            let proxyURL = ImgproxyURL.create(from: resolvedAvatarURL, width: 150, height: 150)
             avatarImageView.isHidden = false
             initialsLabel.isHidden = true
             imageTask?.cancel()

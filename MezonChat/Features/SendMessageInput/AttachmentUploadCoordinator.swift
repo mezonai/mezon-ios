@@ -1082,7 +1082,7 @@ final class AttachmentUploadCoordinator {
                 }
             }
             if let cache = pending.cacheImage {
-                ImageCache.shared.setImage(cache.image, data: cache.data, forKey: cache.cdnURL)
+                ImageCache.shared.persistData(cache.data, forKey: cache.cdnURL)
             }
             if !progressKey.isEmpty {
                 AttachmentUploadProgressStore.shared.clear(forKey: progressKey)

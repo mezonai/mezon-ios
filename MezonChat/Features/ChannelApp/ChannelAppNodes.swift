@@ -26,8 +26,9 @@ final class ChannelAppCellNode: ASCellNode {
         logoNode.clipsToBounds = true
         logoNode.contentMode = .scaleAspectFit
 
-        if !app.appLogo.isEmpty {
-            let proxyURL = ImgproxyURL.create(from: app.appLogo, width: 150, height: 150)
+        let resolvedAppLogoURL = ImgproxyURL.absoluteResourceURL(from: app.appLogo)
+        if !resolvedAppLogoURL.isEmpty {
+            let proxyURL = ImgproxyURL.create(from: resolvedAppLogoURL, width: 150, height: 150)
             if let cached = ImageCache.shared.cachedImage(forURL: proxyURL) {
                 logoNode.image = cached
             } else {
@@ -220,8 +221,9 @@ final class ChannelAppIconNode: ASControlNode {
         nameNode.maximumNumberOfLines = 1
         nameNode.truncationMode = .byTruncatingTail
 
-        if !app.appLogo.isEmpty {
-            let proxyURL = ImgproxyURL.create(from: app.appLogo, width: 150, height: 150)
+        let resolvedAppLogoURL = ImgproxyURL.absoluteResourceURL(from: app.appLogo)
+        if !resolvedAppLogoURL.isEmpty {
+            let proxyURL = ImgproxyURL.create(from: resolvedAppLogoURL, width: 150, height: 150)
             if let cached = ImageCache.shared.cachedImage(forURL: proxyURL) {
                 logoImageNode.image = cached
             } else {

@@ -144,6 +144,14 @@ extension MezonEngine {
             attemptedMemberRefreshUserIdsByClanId.removeAll()
         }
 
+        func cancelFetchAllClanData(exceptClanId: Int64) {
+            for (cid, task) in inflightFetchAllByClanId where cid != exceptClanId {
+                task.cancel()
+                inflightFetchAllByClanId[cid] = nil
+                lastFetchAllAtByClanId[cid] = nil
+            }
+        }
+
         func fetchAllClanData(clanId: Int64, token: String) {
             Task { @MainActor in
                 await self.fetchAllClanDataIfNeeded(clanId: clanId, token: token)

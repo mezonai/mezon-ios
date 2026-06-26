@@ -2183,6 +2183,7 @@ final class MezonHTTPClient {
         "UpdateChannelMessage",
     ]
     private static let socketFallbackGraceWaitNanoseconds: UInt64 = 2_000_000_000
+    private static let socketFallbackApiTimeoutNanoseconds: UInt64 = 4_000_000_000
 
     private func protoApiName(from path: String) -> String {
         let prefix = "/mezon.api.Mezon/"
@@ -2317,6 +2318,11 @@ final class MezonHTTPClient {
             return nil
         }
 
+        if await MezonSocket.shared.isApiTransportDegraded {
+            MezonRPCLog.response("route api='\(apiName)' SOCKET degraded → HTTP fallback")
+            return nil
+        }
+
         let body: Data
         do {
             body = try message.serializedData()
@@ -2326,8 +2332,13 @@ final class MezonHTTPClient {
 
         let started = Date()
         do {
-            let respBytes = try await MezonSocket.shared.sendApiRequest(apiName: apiName, body: body)
+            let respBytes = try await MezonSocket.shared.sendApiRequest(
+                apiName: apiName,
+                body: body,
+                timeoutNanoseconds: Self.socketFallbackApiTimeoutNanoseconds
+            )
             let ms = Int(Date().timeIntervalSince(started) * 1000)
+            await MezonSocket.shared.noteApiRequestSucceeded()
             MezonRPCLog.response("route api='\(apiName)' SOCKET ok respBytes=\(respBytes.count) elapsedMs=\(ms)")
             if Response.self == SwiftProtobuf.Google_Protobuf_Empty.self {
                 return SwiftProtobuf.Google_Protobuf_Empty() as? Response
@@ -2340,6 +2351,9 @@ final class MezonHTTPClient {
             }
         } catch {
             let ms = Int(Date().timeIntervalSince(started) * 1000)
+            if ms >= 3000 {
+                await MezonSocket.shared.noteApiRequestTimedOut()
+            }
             MezonRPCLog.response("route api='\(apiName)' SOCKET fail elapsedMs=\(ms) error=\(error.localizedDescription) → HTTP fallback")
             return nil
         }
@@ -2429,7 +2443,7 @@ final class MezonHTTPClient {
                 || text.contains("token")
                 || text.contains("jwt")
         }
-        return true
+        return false
     }
 
     private func apiFailureMessage(httpStatusCode: Int, data: Data) -> String {

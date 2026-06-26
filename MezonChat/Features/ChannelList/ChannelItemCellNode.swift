@@ -216,7 +216,7 @@ final class ChannelItemCellNode: ASCellNode {
     }
 }
 
-struct VoiceMemberDisplay {
+struct VoiceMemberDisplay: Equatable {
     let name: String
     let username: String
     let avatarURL: String?
