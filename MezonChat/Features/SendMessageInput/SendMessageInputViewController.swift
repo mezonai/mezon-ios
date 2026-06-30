@@ -1106,6 +1106,12 @@ final class SendMessageInputViewController: UIViewController {
         return context.engine.friendsData.blockedUserIds().contains(peerId)
     }
 
+    private var isSelfDM: Bool {
+        guard channelStreamMode == MezonConstants.ChannelStreamMode.dm.rawValue else { return false }
+        let currentUserId = Int64(context.currentUser?.id ?? "") ?? 0
+        return channel.userIds.first == currentUserId
+    }
+
     private func refreshSendPermissionAvailability() {
         let exempt = isChannelStreamExemptFromSendPermissionGate
         let chId = channel.channelID
@@ -1113,7 +1119,9 @@ final class SendMessageInputViewController: UIViewController {
             context.rolePermissions.ensureChannelPermissions(clanId: clanId, channelId: chId)
         }
         let blocked: Bool
-        if isDirectMessageWithBlockedPeer {
+        if isSelfDM {
+            blocked = false
+        } else if isDirectMessageWithBlockedPeer {
             blocked = true
         } else if exempt || clanId == 0 || chId == 0 {
             blocked = false
