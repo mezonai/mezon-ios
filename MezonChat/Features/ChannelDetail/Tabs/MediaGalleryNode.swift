@@ -189,10 +189,11 @@ final class MediaGalleryNode: ASDisplayNode {
 
     private func presentGallery(startingAt index: Int, previewImage: UIImage? = nil) {
         guard index >= 0, index < attachments.count else { return }
+        let proxySide = Int(flowLayout.itemSize.width * UIScreen.main.scale)
         let items: [GalleryItemInfo] = attachments.enumerated().map { (itemIndex, att) in
             let isVideo = Self.isVideo(att)
             let imageThumbURL = ImgproxyURL.attachmentURL(
-                from: att.url, width: 150, height: 150, resizeType: "fit")
+                from: att.url, width: proxySide, height: proxySide, resizeType: "fill")
             let preview = itemIndex == index
                 ? (previewImage
                     ?? ImageCache.shared.memoryImage(forKey: imageThumbURL)
@@ -326,10 +327,11 @@ extension MediaGalleryNode: ASCollectionDataSource, ASCollectionDelegate {
     func collectionNode(_ collectionNode: ASCollectionNode, nodeBlockForItemAt indexPath: IndexPath)
         -> ASCellNodeBlock
     {
-               let attachment = attachments[indexPath.item]
+        let attachment = attachments[indexPath.item]
         let isVideo = Self.isVideo(attachment)
+        let proxySide = Int(flowLayout.itemSize.width * UIScreen.main.scale)
         let imageThumbURL = ImgproxyURL.attachmentURL(
-            from: attachment.url, width: 150, height: 150, resizeType: "fit")
+            from: attachment.url, width: proxySide, height: proxySide, resizeType: "fill")
         let index = indexPath.item
         return { [weak self] in
             var cell: MediaThumbCellNode!

@@ -402,10 +402,10 @@ final class EmojisPanel: UIView {
 
     private func displayTitle(for key: String) -> String {
         switch key {
-        case EmojiCategoryOrdering.recent: return "Recent"
-        case EmojiCategoryOrdering.forSale: return "For sale"
-        case EmojiCategoryOrdering.frequently: return "Frequently"
-        default: return key
+        case EmojiCategoryOrdering.recent: return "RECENT"
+        case EmojiCategoryOrdering.forSale: return "FOR SALE"
+        case EmojiCategoryOrdering.frequently: return "FREQUENTLY"
+        default: return key.uppercased()
         }
     }
 
