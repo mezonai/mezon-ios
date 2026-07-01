@@ -428,7 +428,9 @@ final class MessageBubbleNode: ASDisplayNode {
             mcn.isUserInteractionEnabled = true
             mcn.configure(media: mediaAttachments)
             mcn.onImageTapped = { [weak self] index in
-                self?.handleImageTap(index: index, media: mediaAttachments, interaction: interaction)
+                guard let self else { return }
+                let currentMedia = self.display.attachments.filter(\.isMedia)
+                self.handleImageTap(index: index, media: currentMedia, interaction: self.interaction)
             }
             mediaContentNode = mcn
             addSubnode(mcn)

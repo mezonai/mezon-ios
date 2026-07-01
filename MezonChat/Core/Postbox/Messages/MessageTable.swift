@@ -4,9 +4,16 @@ final class MessageTable: Table {
 
     private static let topicMessageCode: Int32 = 9
 
+    private struct TopicMetaValue {
+        var rpl: Int
+        var lsnt: Int64
+        var authoritative: Bool
+    }
+
     private var cache: [String: [MessageRecord]] = [:]
     private var pendingWrites:  Set<String> = []
     private var pendingDeletes: Set<String> = []
+    private var topicMeta: [Int64: TopicMetaValue] = [:]
 
     override func createTable() {
         db.rawExecute("""
@@ -331,7 +338,8 @@ final class MessageTable: Table {
     }
 
     func addMessages(_ messages: [MessageRecord]) {
-        for msg in messages {
+        for incoming in messages {
+            let msg = enrichTopicMeta(incoming)
             var current = cache[msg.channelId] ?? []
 
             if !msg.id.hasPrefix("pending-") {
@@ -850,22 +858,71 @@ final class MessageTable: Table {
         return channelId
     }
 
-    func updateTopicReplyCount(parentChannelId: String, topicId: Int64, delta: Int) -> String? {
-        guard topicId != 0, delta != 0 else { return nil }
+    func updateTopicReplyCount(parentChannelId: String, topicId: Int64, delta: Int) -> [String] {
+        guard topicId != 0, delta != 0 else { return [] }
+        let existing = topicMeta[topicId]
+        let baseRpl = existing?.rpl
+            ?? currentTopicReplyCount(topicId: topicId, preferredChannelId: parentChannelId)
+            ?? 0
+        let baseLsnt = existing?.lsnt ?? 0
+        topicMeta[topicId] = TopicMetaValue(
+            rpl: max(0, baseRpl + delta),
+            lsnt: baseLsnt,
+            authoritative: existing?.authoritative ?? false
+        )
+        return applyTopicMeta(topicId: topicId, preferredChannelId: parentChannelId)
+    }
 
-        if var records = cache[parentChannelId],
-           let index = records.firstIndex(where: { Self.topicId(in: $0.content) == topicId }) {
-            let updated = Self.withAdjustedTopicReplyCount(records[index], delta: delta)
-            records[index] = updated
-            cache[parentChannelId] = records
-            pendingWrites.insert(parentChannelId)
-            return parentChannelId
+    func setTopicReplyCount(topicId: Int64, replyCount: Int, lastSentTimestamp: Int64) -> [String] {
+        guard topicId != 0 else { return [] }
+        let lsnt = lastSentTimestamp != 0 ? lastSentTimestamp : (topicMeta[topicId]?.lsnt ?? 0)
+        topicMeta[topicId] = TopicMetaValue(rpl: max(0, replyCount), lsnt: lsnt, authoritative: true)
+        return applyTopicMeta(topicId: topicId, preferredChannelId: nil)
+    }
+
+    private func applyTopicMeta(topicId: Int64, preferredChannelId: String?) -> [String] {
+        guard let meta = topicMeta[topicId] else { return [] }
+        var changedChannels: [String] = []
+
+        for channelId in Array(cache.keys) {
+            guard let records = cache[channelId],
+                  let index = records.firstIndex(where: {
+                      !$0.isDeleted && Self.topicId(in: $0.content) == topicId
+                  }) else { continue }
+            var updated = records
+            updated[index] = Self.withTopicMeta(records[index], replyCount: meta.rpl, lastSentTimestamp: meta.lsnt)
+            cache[channelId] = updated
+            pendingWrites.insert(channelId)
+            changedChannels.append(channelId)
         }
 
-        guard let existing = findStoredTopicParentMessage(channelId: parentChannelId, topicId: topicId) else { return nil }
-        let updated = Self.withAdjustedTopicReplyCount(existing, delta: delta)
-        updateStoredMessageContent(updated)
-        return parentChannelId
+        if changedChannels.isEmpty, let parentChannelId = preferredChannelId,
+           let existing = findStoredTopicParentMessage(channelId: parentChannelId, topicId: topicId) {
+            let updated = Self.withTopicMeta(existing, replyCount: meta.rpl, lastSentTimestamp: meta.lsnt)
+            updateStoredMessageContent(updated)
+            changedChannels.append(parentChannelId)
+        }
+        return changedChannels
+    }
+
+    private func currentTopicReplyCount(topicId: Int64, preferredChannelId: String) -> Int? {
+        let orderedChannels = [preferredChannelId] + cache.keys.filter { $0 != preferredChannelId }
+        for channelId in orderedChannels {
+            if let records = cache[channelId],
+               let record = records.first(where: { Self.topicId(in: $0.content) == topicId }) {
+                return Self.intValue(Self.jsonContent(from: record.content)["rpl"]) ?? 0
+            }
+        }
+        if let existing = findStoredTopicParentMessage(channelId: preferredChannelId, topicId: topicId) {
+            return Self.intValue(Self.jsonContent(from: existing.content)["rpl"]) ?? 0
+        }
+        return nil
+    }
+
+    private func enrichTopicMeta(_ record: MessageRecord) -> MessageRecord {
+        guard let tp = Self.topicId(in: record.content),
+              let meta = topicMeta[tp], meta.authoritative else { return record }
+        return Self.withTopicMeta(record, replyCount: meta.rpl, lastSentTimestamp: meta.lsnt)
     }
 
     func markMessageFailed(id: String) {
@@ -976,10 +1033,12 @@ final class MessageTable: Table {
         )
     }
 
-    private static func withAdjustedTopicReplyCount(_ record: MessageRecord, delta: Int) -> MessageRecord {
+    private static func withTopicMeta(_ record: MessageRecord, replyCount: Int, lastSentTimestamp: Int64) -> MessageRecord {
         var json = jsonContent(from: record.content)
-        let current = intValue(json["rpl"]) ?? 0
-        json["rpl"] = max(0, current + delta)
+        json["rpl"] = max(0, replyCount)
+        if lastSentTimestamp != 0 {
+            json["lsnt"] = lastSentTimestamp
+        }
         return replacingTopicContent(
             record,
             content: data(from: json, fallback: record.content)

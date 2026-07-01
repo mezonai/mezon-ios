@@ -63,6 +63,7 @@ enum SocketEvent {
     case canvasEvent(Mezon_Realtime_ChannelCanvas)
     case webhookEvent(Mezon_Api_Webhook)
     case sdTopicEvent(Mezon_Realtime_SdTopicEvent)
+    case topicInMessage(Mezon_Realtime_TopicInMessageEvent)
 
     case disconnected
     case reconnected
@@ -720,6 +721,8 @@ final class MezonSocket: NSObject {
             eventPipe.putNext(.webhookEvent(m))
         case .sdTopicEvent(let m):
             eventPipe.putNext(.sdTopicEvent(m))
+        case .topicInMessageEvent(let m):
+            eventPipe.putNext(.topicInMessage(m))
         case .ping:
             var pong = Mezon_Realtime_Envelope()
             pong.pong = Mezon_Realtime_Pong()

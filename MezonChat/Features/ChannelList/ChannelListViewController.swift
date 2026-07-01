@@ -199,40 +199,36 @@ private func normalizedCategoryDescs(
     _ categoryDescs: [Mezon_Api_CategoryDesc],
     channels: [Mezon_Api_ChannelDescription]
 ) -> [Mezon_Api_CategoryDesc] {
-    let base: [Mezon_Api_CategoryDesc] = {
-        guard !categoryDescs.isEmpty else { return inferredCategoryDescs(from: channels) }
-        var result = categoryDescs
-        let knownIds = Set(categoryDescs.map(\.categoryID))
-        for inferred in inferredCategoryDescs(from: channels) where !knownIds.contains(inferred.categoryID) {
-            result.append(inferred)
-        }
-        return result
-    }()
-    return base.sorted {
-        if $0.categoryOrder != $1.categoryOrder { return $0.categoryOrder < $1.categoryOrder }
-        return $0.categoryID < $1.categoryID
+    guard !categoryDescs.isEmpty else { return inferredCategoryDescs(from: channels) }
+    var result = categoryDescs
+    let knownIds = Set(categoryDescs.map(\.categoryID))
+    for inferred in inferredCategoryDescs(from: channels) where !knownIds.contains(inferred.categoryID) {
+        result.append(inferred)
     }
+    return result
 }
 
 
 private func sortChannelsForCategory(_ channels: [Mezon_Api_ChannelDescription], categoryId: Int64) -> [Mezon_Api_ChannelDescription] {
     var sortedChannels: [Mezon_Api_ChannelDescription] = []
-    
-    let parents = channels.filter { $0.parentID == 0 && $0.categoryID == categoryId }
+
+    let parents = channels
+        .filter { $0.parentID == 0 && $0.categoryID == categoryId }
+        .sorted { String($0.channelID) < String($1.channelID) }
     let threads = channels.filter { $0.parentID != 0 }
-    
+
     var threadsByParent: [Int64: [Mezon_Api_ChannelDescription]] = [:]
     for thread in threads {
         threadsByParent[thread.parentID, default: []].append(thread)
     }
-    
+
     for parent in parents {
         sortedChannels.append(parent)
         if let childThreads = threadsByParent[parent.channelID] {
             sortedChannels.append(contentsOf: childThreads)
         }
     }
-    
+
     return sortedChannels
 }
 
@@ -1109,6 +1105,7 @@ final class ChannelListViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleJoinedClanForChannelBadges(_:)), name: Notification.Name("MezonJoinedClanChatForBadges"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleVoicePresenceChanged(_:)), name: .mezonVoicePresenceChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleNetworkStatusChanged(_:)), name: NetworkMonitor.statusDidChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleWillEnterForegroundForChannelBadges), name: UIApplication.willEnterForegroundNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleUserChannelAddedFromSocket(_:)), name: .mezonUserChannelAddedFromSocket, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelDescriptionDidUpdate(_:)), name: .mezonChannelDescriptionDidUpdate, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelDeletedLocally(_:)), name: .mezonChannelDeletedLocally, object: nil)
@@ -1311,6 +1308,20 @@ final class ChannelListViewController: ViewController {
         refreshChannelListAfterConnectivityRestored()
     }
 
+    @objc private func handleWillEnterForegroundForChannelBadges() {
+        guard clanId != 0 else { return }
+        if allChannels.isEmpty {
+            if NetworkMonitor.shared.isConnected {
+                scheduleChannelListNetworkFetch(allowEmptyChannelAppsOverwrite: false)
+            }
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard let self, self.clanId != 0 else { return }
+            await self.applyChannelBadgeCounts(clanId: self.clanId)
+        }
+    }
+
     private func refreshChannelListAfterConnectivityRestored() {
         guard clanId != 0 else { return }
         if allChannels.isEmpty {
@@ -1350,7 +1361,7 @@ final class ChannelListViewController: ViewController {
         return true
     }
 
-    private var inflightBadgeCountTask: [Int64: Task<[Mezon_Api_ChannelDescription], Never>] = [:]
+    private var inflightBadgeCountTask: [Int64: Task<[Mezon_Api_ChannelDescription]?, Never>] = [:]
     private var lastBadgeCountFetchAtByClanId: [Int64: Date] = [:]
     private var badgeCountEmptyRetryCountByClanId: [Int64: Int] = [:]
     private let badgeCountFetchCooldown: TimeInterval = 5.0
@@ -1369,13 +1380,7 @@ final class ChannelListViewController: ViewController {
             let rows = await inflight.value
             guard isCurrentSessionAlive else { return base }
             guard clanId == self.clanId else { return base }
-            guard !rows.isEmpty else {
-                scheduleBadgeCountRetryIfNeeded(clanId: clanId)
-                return preservePendingMentionUnread(in: base, clanId: clanId)
-            }
-            var merged = base
-            ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &merged, badgeRows: rows)
-            return preservePendingMentionUnread(in: merged, clanId: clanId)
+            return mergeBadgeFetchResult(rows, base: base, clanId: clanId)
         }
 
         if !force,
@@ -1388,11 +1393,11 @@ final class ChannelListViewController: ViewController {
         guard clanId == self.clanId else { return base }
         guard let token else { return preservePendingMentionUnread(in: base, clanId: clanId) }
 
-        let task: Task<[Mezon_Api_ChannelDescription], Never> = Task.detached(priority: .utility) {
+        let task: Task<[Mezon_Api_ChannelDescription]?, Never> = Task.detached(priority: .utility) {
             do {
                 return try await MezonHTTPClient.shared.listChannelBadgeCount(clanId: clanId, token: token).channeldesc
             } catch {
-                return []
+                return nil
             }
         }
         inflightBadgeCountTask[clanId] = task
@@ -1401,12 +1406,24 @@ final class ChannelListViewController: ViewController {
 
         guard isCurrentSessionAlive else { return base }
         guard clanId == self.clanId else { return base }
-        guard !rows.isEmpty else {
+        return mergeBadgeFetchResult(rows, base: base, clanId: clanId)
+    }
+
+    @MainActor
+    private func mergeBadgeFetchResult(
+        _ rows: [Mezon_Api_ChannelDescription]?,
+        base: [Mezon_Api_ChannelDescription],
+        clanId: Int64
+    ) -> [Mezon_Api_ChannelDescription] {
+        guard let rows else {
             scheduleBadgeCountRetryIfNeeded(clanId: clanId)
             return preservePendingMentionUnread(in: base, clanId: clanId)
         }
         lastBadgeCountFetchAtByClanId[clanId] = Date()
         badgeCountEmptyRetryCountByClanId[clanId] = 0
+        guard !rows.isEmpty else {
+            return preservePendingMentionUnread(in: base, clanId: clanId)
+        }
         var merged = base
         ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &merged, badgeRows: rows)
         return preservePendingMentionUnread(in: merged, clanId: clanId)
@@ -2688,6 +2705,13 @@ final class ChannelListViewController: ViewController {
                     self.categories = cats
                     self.categoriesPipe.putNext(cats)
                     self.needsReloadPipe.putNext(())
+                    self.persistFullChannelListCache(
+                        clanId: clanId,
+                        channels: self.allChannels,
+                        categoryDescs: descs,
+                        favoriteIds: self.channelListFavoriteIds,
+                        categories: cats
+                    )
                     return
                 }
                 try? await Task.sleep(nanoseconds: UInt64(attempt + 1) * 1_000_000_000)
@@ -2826,7 +2850,8 @@ final class ChannelListViewController: ViewController {
         } else {
             fetchChannelAppsInBackground()
         }
-        if pendingCache == nil && clanId != 0 && NetworkMonitor.shared.isConnected {
+        let willFetchFromNetwork = clanId != 0 && NetworkMonitor.shared.isConnected
+        if willFetchFromNetwork && (pendingCache == nil || categoriesContainOrphanUnnamedBucket()) {
             isLoading = true
             cancelDeferredSkeletonReveal()
         } else {
@@ -2953,7 +2978,9 @@ final class ChannelListViewController: ViewController {
 
         let allowEmptyApps = allowEmptyChannelAppsOverwrite
         let hadCachedChannels = !self.allChannels.isEmpty
+        var didDeliverFetchResult = false
         fetchDisposable.set(signal.start(next: { [weak self] result in
+                didDeliverFetchResult = true
                 guard let self else { return }
                 guard self.isCurrentSessionAlive else {
                     self.clearInflightChannelFetchIfMatches(clanId: clanId)
@@ -2981,7 +3008,11 @@ final class ChannelListViewController: ViewController {
                             let resolvedFavoriteIds = self.resolvedFavoriteIdsForFetch(favoriteIds)
                             self.channelListCategoryDescs = resolvedCategoryDescs
                             self.channelListFavoriteIds = resolvedFavoriteIds
-                            self.applyCategoriesForCurrentChannels(channels: self.allChannels, clanId: clanId)
+                            self.categories = self.applyCategoriesAfterFetch(
+                                mergedChannels: self.allChannels,
+                                categoryDescs: resolvedCategoryDescs,
+                                favoriteIds: resolvedFavoriteIds
+                            )
                             self.categoriesPipe.putNext(self.categories)
                         }
                         self.channelsLoadedPromise.set(true)
@@ -3053,6 +3084,21 @@ final class ChannelListViewController: ViewController {
                 self.isLoadingPipe.putNext(false)
                 self.needsReloadPipe.putNext(())
                 self.clearInflightChannelFetchIfMatches(clanId: clanId)
+            }, completed: { [weak self] in
+                guard let self, !didDeliverFetchResult else { return }
+                self.clearInflightChannelFetchIfMatches(clanId: clanId)
+                guard self.clanId == clanId else { return }
+                self.channelListNode.endRefreshing()
+                if self.allChannels.isEmpty, NetworkMonitor.shared.isConnected {
+                    self.isLoading = true
+                    self.needsReloadPipe.putNext(())
+                    self.scheduleEmptyChannelRetryIfNeeded(clanId: clanId)
+                } else {
+                    self.cancelDeferredSkeletonReveal()
+                    self.isLoading = false
+                    self.isLoadingPipe.putNext(false)
+                    self.needsReloadPipe.putNext(())
+                }
             }))
     }
 
@@ -3573,6 +3619,25 @@ final class ChannelListViewController: ViewController {
         )
     }
 
+    func ingestNotificationChannelData(
+        channels: [Mezon_Api_ChannelDescription],
+        categoryDescs: [Mezon_Api_CategoryDesc],
+        favoriteIds: Set<Int64>,
+        selectChannelId: Int64?
+    ) {
+        guard clanId != 0 else { return }
+        if !categoryDescs.isEmpty {
+            channelListCategoryDescs = categoryDescs
+        }
+        if !favoriteIds.isEmpty {
+            channelListFavoriteIds = favoriteIds
+        }
+        updateChannels(channels)
+        if let selectChannelId {
+            selectWithoutNavigation(channelId: selectChannelId)
+        }
+    }
+
     private(set) var allChannels: [Mezon_Api_ChannelDescription] = []
 
     var currentState: ChannelListState {
@@ -3604,10 +3669,21 @@ final class ChannelListViewController: ViewController {
     }
 
     private var displayedCategories: [ChannelCategory] {
+        if allChannels.isEmpty { return [] }
+        if isLoading && categoriesContainOrphanUnnamedBucket() { return [] }
         guard !showEmptyCategoriesEnabled else { return categories }
         return categories.filter { cat in
             if let fav = cat.favoriteFlatChannels { return !fav.isEmpty }
             return !cat.channels.isEmpty
+        }
+    }
+
+    private func categoriesContainOrphanUnnamedBucket() -> Bool {
+        categories.contains { cat in
+            cat.id == 0
+                && cat.name.isEmpty
+                && (!cat.channels.isEmpty
+                    || cat.orderedThreadChildren.values.contains { !$0.isEmpty })
         }
     }
 
@@ -3933,13 +4009,6 @@ final class ChannelListViewController: ViewController {
         if clanId == self.clanId, !allChannels.isEmpty {
             return allChannels
         }
-        if let cached = resolveChannelCachePayloadForDisplay(clanId: clanId)?.channels, !cached.isEmpty {
-            return cached
-        }
-        if let allChannelsByUser = context.engine.clanData.getAllChannelsByUser()?.channeldesc {
-            let filtered = allChannelsByUser.filter { $0.clanID == clanId }
-            if !filtered.isEmpty { return filtered }
-        }
         return nil
     }
 
@@ -3949,16 +4018,12 @@ final class ChannelListViewController: ViewController {
     }
 
     private func resolveChannelCachePayloadForDisplay(clanId: Int64) -> (channels: [Mezon_Api_ChannelDescription], meta: ChannelListCachedMeta?)? {
-        guard clanId != 0 else { return nil }
-        if let payload = readChannelCachePayloadIfAvailable(clanId: clanId) {
-            return payload
-        }
-        if let allChannelsByUser = context.engine.clanData.getAllChannelsByUser()?.channeldesc {
-            let filtered = allChannelsByUser.filter { $0.clanID == 0 || $0.clanID == clanId }
-            guard !filtered.isEmpty else { return nil }
-            return (filtered, readChannelListMetaFromCache(clanId: clanId))
-        }
-        return nil
+        nil
+    }
+
+    private static func isDirectMessageChannel(_ channel: Mezon_Api_ChannelDescription) -> Bool {
+        channel.type == MezonConstants.ChannelType.dm.rawValue
+            || channel.type == MezonConstants.ChannelType.group.rawValue
     }
 
     private func applyResolvedChannelCachePayload(

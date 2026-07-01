@@ -944,6 +944,18 @@ final class AccountContextImpl: AccountContext {
         }
     }
 
+    private func applyTopicInMessageEvent(_ event: Mezon_Realtime_TopicInMessageEvent) {
+        let topicId = Int64(event.tpID) ?? event.messageID
+        guard topicId != 0 else { return }
+        account.postbox.write { tx in
+            tx.setTopicReplyCount(
+                topicId: topicId,
+                replyCount: Int(event.rpl),
+                lastSentTimestamp: event.lsnt
+            )
+        }
+    }
+
     private func handleSocketEvent(_ event: SocketEvent) {
         switch event {
         case .connected:
@@ -1177,6 +1189,9 @@ final class AccountContextImpl: AccountContext {
 
         case .sdTopicEvent(let event):
             applySdTopicEvent(event)
+
+        case .topicInMessage(let event):
+            applyTopicInMessageEvent(event)
 
         case .notification(let noti):
             handleSocketNotification(noti)

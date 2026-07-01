@@ -663,7 +663,13 @@ final class ChatViewController: ViewController {
                 guard let idInt = Int64(channelId) else { return false }
                 let resolvedClan = clanIdOpt.flatMap { Int64($0) } ?? self.clanId
                 let channels = self.context.engine.clanData.getAllChannelsByUser()?.channeldesc ?? []
-                return channels.contains(where: { $0.channelID == idInt && (resolvedClan == 0 || $0.clanID == resolvedClan || $0.clanID == 0) })
+                if channels.contains(where: { $0.channelID == idInt && (resolvedClan == 0 || $0.clanID == resolvedClan || $0.clanID == 0) }) {
+                    return true
+                }
+                if let desc = self.context.account.postbox.getChannelDescription(channelId: idInt)?.channel {
+                    return desc.channelPrivate == 0
+                }
+                return false
             },
             onMessageLongPressed: { [weak self] display in
                 self?.showMessageActions(display)
@@ -1717,6 +1723,12 @@ final class ChatViewController: ViewController {
         1_200_000_000
     ]
 
+    private static let initialFetchFailureRetryDelaysNanoseconds: [UInt64] = [
+        600_000_000,
+        1_200_000_000,
+        2_400_000_000
+    ]
+
     func start() {
         if topicId == 0 {
             context.currentClanId = clanId
@@ -2239,61 +2251,77 @@ final class ChatViewController: ViewController {
             let resolvedToken: String?
             if let token { resolvedToken = token } else { resolvedToken = await self.context.getTokenPreferringCachedSkipSessionReadyWait() }
             guard let token = resolvedToken else { return }
-            do {
-                func loadInitialMessages() async throws -> Mezon_Api_ChannelMessageList {
-                    var response = try await self.context.account.network.listChannelMessages(
-                        clanId: clanId,
-                        channelId: channel.channelID,
-                        messageId: 0,
-                        direction: 2,
-                        limit: 30,
-                        topicId: self.topicId,
-                        token: token,
-                        preferHTTPFirst: preferHTTPFirst
-                    )
-                    if response.messages.isEmpty {
-                        response = try await self.context.account.network.listChannelMessages(
+            var fetchAttempt = 0
+            while true {
+                do {
+                    func loadInitialMessages() async throws -> Mezon_Api_ChannelMessageList {
+                        var response = try await self.context.account.network.listChannelMessages(
                             clanId: clanId,
                             channelId: channel.channelID,
                             messageId: 0,
-                            direction: 3,
+                            direction: 2,
                             limit: 30,
                             topicId: self.topicId,
                             token: token,
                             preferHTTPFirst: preferHTTPFirst
                         )
-                    }
-                    return response
-                }
-
-                var response = try await loadInitialMessages()
-                if response.messages.isEmpty && !hadCachedMessages && !hadCachedInPostbox {
-                    for delay in Self.initialEmptyMessageRetryDelaysNanoseconds {
-                        guard response.messages.isEmpty,
-                              NetworkMonitor.shared.isConnected,
-                              !Task.isCancelled else {
-                            break
+                        if response.messages.isEmpty {
+                            response = try await self.context.account.network.listChannelMessages(
+                                clanId: clanId,
+                                channelId: channel.channelID,
+                                messageId: 0,
+                                direction: 3,
+                                limit: 30,
+                                topicId: self.topicId,
+                                token: token,
+                                preferHTTPFirst: preferHTTPFirst
+                            )
                         }
-                        try await Task.sleep(nanoseconds: delay)
-                        response = try await loadInitialMessages()
+                        return response
                     }
-                }
-                self.setHasMoreOlder(response.messages.count > 1)
-                let records = response.messages.map { self.messageRecord(from: $0) }
-                if records.isEmpty && (hadCachedMessages || hadCachedInPostbox) {
+
+                    var response = try await loadInitialMessages()
+                    if response.messages.isEmpty && !hadCachedMessages && !hadCachedInPostbox {
+                        for delay in Self.initialEmptyMessageRetryDelaysNanoseconds {
+                            guard response.messages.isEmpty,
+                                  NetworkMonitor.shared.isConnected,
+                                  !Task.isCancelled else {
+                                break
+                            }
+                            try await Task.sleep(nanoseconds: delay)
+                            response = try await loadInitialMessages()
+                        }
+                    }
+                    self.setHasMoreOlder(response.messages.count > 1)
+                    let records = response.messages.map { self.messageRecord(from: $0) }
+                    if records.isEmpty && (hadCachedMessages || hadCachedInPostbox) {
+                        return
+                    }
+                    self.context.account.postbox.write { tx in
+                        tx.replaceAllMessages(records, channelId: self.storageChannelId)
+                    }
+                    return
+                } catch {
+                    if error is CancellationError || Task.isCancelled {
+                        return
+                    }
+                    if fetchAttempt < Self.initialFetchFailureRetryDelaysNanoseconds.count,
+                       NetworkMonitor.shared.isConnected,
+                       !hadCachedMessages, !hadCachedInPostbox {
+                        let delay = Self.initialFetchFailureRetryDelaysNanoseconds[fetchAttempt]
+                        fetchAttempt += 1
+                        try? await Task.sleep(nanoseconds: delay)
+                        continue
+                    }
+                    SentryLogger.capture(error, extras: [
+                        "where": "ChatViewController.fetchMessages",
+                        "channelId": channel.channelID,
+                        "clanId": clanId,
+                        "topicId": self.topicId,
+                    ])
+                    self.setErrorMessage(error.localizedDescription)
                     return
                 }
-                self.context.account.postbox.write { tx in
-                    tx.replaceAllMessages(records, channelId: self.storageChannelId)
-                }
-            } catch {
-                SentryLogger.capture(error, extras: [
-                    "where": "ChatViewController.fetchMessages",
-                    "channelId": channel.channelID,
-                    "clanId": clanId,
-                    "topicId": self.topicId,
-                ])
-                self.setErrorMessage(error.localizedDescription)
             }
         }
     }

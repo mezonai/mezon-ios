@@ -71,6 +71,12 @@ final class DmListItemCell: UITableViewCell {
     private static let unreadNameFont = UIFont.systemFont(ofSize: 14.sf, weight: .semibold)
     private static let readNameFont = UIFont.systemFont(ofSize: 14.sf, weight: .medium)
 
+    private static let avatarMemoryCache: NSCache<NSString, UIImage> = {
+        let c = NSCache<NSString, UIImage>()
+        c.countLimit = 600
+        return c
+    }()
+
     private struct PreviewBodyKey: Hashable {
         let channelId: Int64
         let hasLastSentMessage: Bool
@@ -253,7 +259,9 @@ final class DmListItemCell: UITableViewCell {
         avatarLoadGeneration += 1
         let gen = avatarLoadGeneration
         let proxied = ImgproxyURL.avatarProxyURL(from: url.absoluteString, width: 100, height: 100)
-        if let cached = ImageCache.shared.memoryImage(forKey: proxied) {
+        let proxiedKey = proxied as NSString
+        if let cached = Self.avatarMemoryCache.object(forKey: proxiedKey) ?? ImageCache.shared.memoryImage(forKey: proxied) {
+            Self.avatarMemoryCache.setObject(cached, forKey: proxiedKey)
             guard gen == avatarLoadGeneration else { return }
             isAvatarLoadInFlight = false
             groupIconView.isHidden = true
@@ -271,6 +279,7 @@ final class DmListItemCell: UITableViewCell {
         }
 
         ImageCache.shared.loadAvatar(urlString: proxied) { [weak self] image in
+            if let image { Self.avatarMemoryCache.setObject(image, forKey: proxiedKey) }
             guard let self, gen == self.avatarLoadGeneration else { return }
             self.isAvatarLoadInFlight = false
             if let image {
