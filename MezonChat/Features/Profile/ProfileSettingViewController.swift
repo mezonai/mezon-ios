@@ -465,6 +465,7 @@ final class ProfileSettingViewController: BaseViewController {
         displayNameField.addTarget(self, action: #selector(displayNameFieldChanged), for: .editingChanged)
         displayNameClearButton.addTarget(self, action: #selector(clearDisplayName), for: .touchUpInside)
 
+        registerKeyboardNotifications()
         currentTab = initialTab
         loadInitialData()
     }
@@ -532,7 +533,7 @@ final class ProfileSettingViewController: BaseViewController {
         createClanButton.setTitleColor(.white, for: .normal)
         joinClanButton.backgroundColor = .darkGray
         joinClanButton.setTitleColor(.white, for: .normal)
-        updateClanNicknamePlaceholderAppearance()
+        updateDisplayNamePlaceholderAppearance()
     }
 
     private func setupBanner() {
@@ -838,7 +839,7 @@ final class ProfileSettingViewController: BaseViewController {
             let profile = try await context.account.network.getUserProfileOnClan(clanId: clan.clanID, token: token)
             self.clanProfile = profile
             self.clanNickname = profile.nickName
-            self.clanAvatarUrl = profile.avatar.isEmpty ? userAvatarUrl : profile.avatar
+            self.clanAvatarUrl = profile.avatar
             self.clanUserName = userName
             refreshContent()
         } catch {
@@ -912,11 +913,11 @@ final class ProfileSettingViewController: BaseViewController {
                 clanSelectorAvatar.configure(username: clan.clanName, fontSize: 12.sf)
                 loadClanSelectorAvatar(urlString: clan.logo)
             }
-            let avatarToShow = clanAvatarUrl.isEmpty ? userAvatarUrl : clanAvatarUrl
+            let avatarToShow = clanAvatarUrl.isEmpty ? initialUserAvatarUrl : clanAvatarUrl
             loadAvatarImage(urlString: avatarToShow)
         }
         updateDisplayNameClearButtonVisibility()
-        updateClanNicknamePlaceholderAppearance()
+        updateDisplayNamePlaceholderAppearance()
         updateDetailStackSpacing()
     }
 
@@ -969,19 +970,15 @@ final class ProfileSettingViewController: BaseViewController {
         return normalizedClanNickname(clanNicknamePreviewWhenEmpty())
     }
 
-    private func updateClanNicknamePlaceholderAppearance() {
-        guard currentTab == .clanProfile else {
-            displayNameField.placeholder = nil
-            displayNameField.attributedPlaceholder = nil
-            return
-        }
-        let trimmed = clanNickname.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func updateDisplayNamePlaceholderAppearance() {
+        let isUser = currentTab == .userProfile
+        let trimmed = isUser ? userDisplayName.trimmingCharacters(in: .whitespacesAndNewlines) : clanNickname.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmed.isEmpty else {
             displayNameField.placeholder = nil
             displayNameField.attributedPlaceholder = nil
             return
         }
-        let text = clanNicknamePreviewWhenEmpty()
+        let text = isUser ? userName : clanNicknamePreviewWhenEmpty()
         let attrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: 15.sf),
             .foregroundColor: UIColor.mezonTextMuted,
@@ -994,7 +991,7 @@ final class ProfileSettingViewController: BaseViewController {
         if currentTab == .userProfile {
             url = userAvatarUrl
         } else {
-            url = clanAvatarUrl.isEmpty ? userAvatarUrl : clanAvatarUrl
+            url = clanAvatarUrl.isEmpty ? initialUserAvatarUrl : clanAvatarUrl
         }
         if url.isEmpty {
             bannerColorView.backgroundColor = .outgoingBubble
@@ -1303,11 +1300,9 @@ final class ProfileSettingViewController: BaseViewController {
             avatarContainerView.backgroundColor = .clear
             bannerColorView.backgroundColor = bannerTint
         case .clanAvatar:
-            clanAvatarUrl = kMezonLogoURL
-            avatarImageView.image = logo
-            avatarPlaceholderLabel.isHidden = true
-            avatarContainerView.backgroundColor = .clear
-            bannerColorView.backgroundColor = bannerTint
+            clanAvatarUrl = ""
+            let avatarToShow = clanAvatarUrl.isEmpty ? initialUserAvatarUrl : clanAvatarUrl
+            loadAvatarImage(urlString: avatarToShow)
         case .dmIcon:
             userDmLogoUrl = ""
             dmIconImageView.image = UIImage(named: "NewMezonLogo")
@@ -1342,8 +1337,11 @@ final class ProfileSettingViewController: BaseViewController {
         }
 
         if data.count > maxBytes {
-            let limitMB = maxBytes / (1024 * 1024)
-            Toast.error("File size exceeds \(limitMB)MB limit")
+            if maxBytes == kMaxAvatarBytes {
+                Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge10MB))
+            } else {
+                Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge1MB))
+            }
             return
         }
 
@@ -1415,6 +1413,28 @@ final class ProfileSettingViewController: BaseViewController {
         }
     }
 
+    private func registerKeyboardNotifications() {
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillShow(_:)), name: UIResponder.keyboardWillShowNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillHide(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
+    }
+
+    @objc private func keyboardWillShow(_ note: Notification) {
+        guard let info = note.userInfo,
+              let frame = (info[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue else { return }
+        let inset = frame.height - view.safeAreaInsets.bottom
+        scrollView.contentInset.bottom = inset
+        scrollView.verticalScrollIndicatorInsets.bottom = inset
+    }
+
+    @objc private func keyboardWillHide(_ note: Notification) {
+        scrollView.contentInset.bottom = 0
+        scrollView.verticalScrollIndicatorInsets.bottom = 0
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
     @objc private func closeTapped() {
         navigationController?.popViewController(animated: true)
     }
@@ -1453,8 +1473,8 @@ final class ProfileSettingViewController: BaseViewController {
             detailNameLabel.text = clanNickname
                 .trimmingCharacters(in: .whitespacesAndNewlines)
                 .isEmpty ? clanNicknamePreviewWhenEmpty() : clanNickname
-            updateClanNicknamePlaceholderAppearance()
         }
+        updateDisplayNamePlaceholderAppearance()
     }
 
     @objc private func clearDisplayName() {
@@ -1523,14 +1543,41 @@ extension ProfileSettingViewController: UITextViewDelegate {
 extension ProfileSettingViewController: PHPickerViewControllerDelegate {
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         picker.dismiss(animated: true)
-        guard let provider = results.first?.itemProvider,
-              provider.canLoadObject(ofClass: UIImage.self) else { return }
+        guard let provider = results.first?.itemProvider else { return }
 
-        provider.loadObject(ofClass: UIImage.self) { [weak self] object, _ in
-            guard let self, let image = object as? UIImage else { return }
-            let jpegData = image.jpegData(compressionQuality: 0.9) ?? Data()
-            DispatchQueue.main.async {
-                self.handlePickedImage(image, data: jpegData)
+        let typeId = provider.registeredTypeIdentifiers.first { $0.hasPrefix("public.") || $0.hasPrefix("com.apple.") } ?? "public.image"
+        
+        provider.loadDataRepresentation(forTypeIdentifier: typeId) { [weak self] data, error in
+            guard let self = self else { return }
+            
+            if let data = data {
+                let maxBytes = self.pendingAvatarTarget == .dmIcon ? kMaxDMIconBytes : kMaxAvatarBytes
+                if data.count > maxBytes {
+                    DispatchQueue.main.async {
+                        if maxBytes == kMaxAvatarBytes {
+                            Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge10MB))
+                        } else {
+                            Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge1MB))
+                        }
+                    }
+                    return
+                }
+                
+                if let image = UIImage(data: data) {
+                    let jpegData = image.jpegData(compressionQuality: 1.0) ?? data
+                    DispatchQueue.main.async {
+                        self.handlePickedImage(image, data: jpegData)
+                    }
+                    return
+                }
+            }
+            
+            provider.loadObject(ofClass: UIImage.self) { object, _ in
+                guard let image = object as? UIImage else { return }
+                let jpegData = image.jpegData(compressionQuality: 1.0) ?? Data()
+                DispatchQueue.main.async {
+                    self.handlePickedImage(image, data: jpegData)
+                }
             }
         }
     }
@@ -1539,8 +1586,24 @@ extension ProfileSettingViewController: PHPickerViewControllerDelegate {
 extension ProfileSettingViewController: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
     func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
         picker.dismiss(animated: true)
+        
+        let maxBytes = self.pendingAvatarTarget == .dmIcon ? kMaxDMIconBytes : kMaxAvatarBytes
+        
+        if let url = info[.imageURL] as? URL,
+           let attr = try? FileManager.default.attributesOfItem(atPath: url.path),
+           let size = attr[.size] as? NSNumber {
+            if size.intValue > maxBytes {
+                if maxBytes == kMaxAvatarBytes {
+                    Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge10MB))
+                } else {
+                    Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge1MB))
+                }
+                return
+            }
+        }
+        
         guard let image = info[.originalImage] as? UIImage else { return }
-        let jpegData = image.jpegData(compressionQuality: 0.9) ?? Data()
+        let jpegData = image.jpegData(compressionQuality: 1.0) ?? Data()
         handlePickedImage(image, data: jpegData)
     }
 
