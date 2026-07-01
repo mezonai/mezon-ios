@@ -191,6 +191,44 @@ enum Mezon_Api_Operator: SwiftProtobuf.Enum, Swift.CaseIterable {
 
 }
 
+enum Mezon_Api_TrackType: SwiftProtobuf.Enum, Swift.CaseIterable {
+  typealias RawValue = Int
+  case audio // = 0
+  case video // = 1
+  case data // = 2
+  case UNRECOGNIZED(Int)
+
+  init() {
+    self = .audio
+  }
+
+  init?(rawValue: Int) {
+    switch rawValue {
+    case 0: self = .audio
+    case 1: self = .video
+    case 2: self = .data
+    default: self = .UNRECOGNIZED(rawValue)
+    }
+  }
+
+  var rawValue: Int {
+    switch self {
+    case .audio: return 0
+    case .video: return 1
+    case .data: return 2
+    case .UNRECOGNIZED(let i): return i
+    }
+  }
+
+  // The compiler won't synthesize support with the UNRECOGNIZED case.
+  static let allCases: [Mezon_Api_TrackType] = [
+    .audio,
+    .video,
+    .data,
+  ]
+
+}
+
 /// Poll type: SINGLE = one choice, MULTIPLE = multiple choices.
 enum Mezon_Api_PollType: SwiftProtobuf.Enum, Swift.CaseIterable {
   typealias RawValue = Int
@@ -8602,6 +8640,20 @@ struct Mezon_Api_UpdateAIAgentRequest: Sendable {
   init() {}
 }
 
+struct Mezon_Api_TrackInfo: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var sid: String = String()
+
+  var type: Mezon_Api_TrackType = .audio
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
 struct Mezon_Api_ParticipantInfo: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -8612,6 +8664,8 @@ struct Mezon_Api_ParticipantInfo: Sendable {
   var identity: String = String()
 
   var state: Mezon_Api_ParticipantInfo.State = .joining
+
+  var tracks: [Mezon_Api_TrackInfo] = []
 
   var isPublisher: Bool = false
 
@@ -9312,6 +9366,10 @@ extension Mezon_Api_StoreEnvironment: SwiftProtobuf._ProtoNameProviding {
 
 extension Mezon_Api_Operator: SwiftProtobuf._ProtoNameProviding {
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0NO_OVERRIDE\0\u{1}BEST\0\u{1}SET\0\u{1}INCREMENT\0\u{1}DECREMENT\0")
+}
+
+extension Mezon_Api_TrackType: SwiftProtobuf._ProtoNameProviding {
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0AUDIO\0\u{1}VIDEO\0\u{1}DATA\0")
 }
 
 extension Mezon_Api_PollType: SwiftProtobuf._ProtoNameProviding {
@@ -25645,9 +25703,44 @@ extension Mezon_Api_UpdateAIAgentRequest: SwiftProtobuf.Message, SwiftProtobuf._
   }
 }
 
+extension Mezon_Api_TrackInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".TrackInfo"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}sid\0\u{1}type\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.sid) }()
+      case 2: try { try decoder.decodeSingularEnumField(value: &self.type) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.sid.isEmpty {
+      try visitor.visitSingularStringField(value: self.sid, fieldNumber: 1)
+    }
+    if self.type != .audio {
+      try visitor.visitSingularEnumField(value: self.type, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Api_TrackInfo, rhs: Mezon_Api_TrackInfo) -> Bool {
+    if lhs.sid != rhs.sid {return false}
+    if lhs.type != rhs.type {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
 extension Mezon_Api_ParticipantInfo: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".ParticipantInfo"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}sid\0\u{1}identity\0\u{1}state\0\u{4}\u{a}is_publisher\0\u{1}kind\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}sid\0\u{1}identity\0\u{1}state\0\u{1}tracks\0\u{4}\u{9}is_publisher\0\u{1}kind\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -25658,6 +25751,7 @@ extension Mezon_Api_ParticipantInfo: SwiftProtobuf.Message, SwiftProtobuf._Messa
       case 1: try { try decoder.decodeSingularStringField(value: &self.sid) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.identity) }()
       case 3: try { try decoder.decodeSingularEnumField(value: &self.state) }()
+      case 4: try { try decoder.decodeRepeatedMessageField(value: &self.tracks) }()
       case 13: try { try decoder.decodeSingularBoolField(value: &self.isPublisher) }()
       case 14: try { try decoder.decodeSingularEnumField(value: &self.kind) }()
       default: break
@@ -25675,6 +25769,9 @@ extension Mezon_Api_ParticipantInfo: SwiftProtobuf.Message, SwiftProtobuf._Messa
     if self.state != .joining {
       try visitor.visitSingularEnumField(value: self.state, fieldNumber: 3)
     }
+    if !self.tracks.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.tracks, fieldNumber: 4)
+    }
     if self.isPublisher != false {
       try visitor.visitSingularBoolField(value: self.isPublisher, fieldNumber: 13)
     }
@@ -25688,6 +25785,7 @@ extension Mezon_Api_ParticipantInfo: SwiftProtobuf.Message, SwiftProtobuf._Messa
     if lhs.sid != rhs.sid {return false}
     if lhs.identity != rhs.identity {return false}
     if lhs.state != rhs.state {return false}
+    if lhs.tracks != rhs.tracks {return false}
     if lhs.isPublisher != rhs.isPublisher {return false}
     if lhs.kind != rhs.kind {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}

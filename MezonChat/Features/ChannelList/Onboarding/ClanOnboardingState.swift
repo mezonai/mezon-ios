@@ -64,8 +64,14 @@ enum ClanOnboardingProgress {
             return .hidden
         }
 
-        let createChannelCompleted = topLevelChannelCount > 1
-        let inviteCompleted = memberCount > 1
+        guard !channels.isEmpty else { return .hidden }
+
+        let createChannelLive = topLevelChannelCount > 1
+        let inviteLive = memberCount > 1
+        if createChannelLive { markStepCompleted(.createChannel, clanId: clanId) }
+        if inviteLive { markStepCompleted(.invite, clanId: clanId) }
+        let createChannelCompleted = createChannelLive || isStepCompleted(.createChannel, clanId: clanId)
+        let inviteCompleted = inviteLive || isStepCompleted(.invite, clanId: clanId)
         let sendMessageCompleted = sendMessageStepStatus(
             context: context,
             clanId: clanId,
@@ -87,6 +93,25 @@ enum ClanOnboardingProgress {
             welcomeChannelId: clanInfo.welcomeChannelId,
             welcomeChannelCategoryId: welcomeCategoryId
         )
+    }
+
+    enum Step: String {
+        case createChannel
+        case invite
+    }
+
+    private static func stepFlagKey(_ step: Step, clanId: Int64) -> String {
+        "mezon.clanOnboardingStep.\(step.rawValue).\(clanId)"
+    }
+
+    static func markStepCompleted(_ step: Step, clanId: Int64) {
+        guard clanId != 0 else { return }
+        UserDefaults.standard.set(true, forKey: stepFlagKey(step, clanId: clanId))
+    }
+
+    static func isStepCompleted(_ step: Step, clanId: Int64) -> Bool {
+        guard clanId != 0 else { return false }
+        return UserDefaults.standard.bool(forKey: stepFlagKey(step, clanId: clanId))
     }
 
     @MainActor

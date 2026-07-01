@@ -1141,6 +1141,8 @@ struct Mezon_Realtime_TopicInMessageEvent: Sendable {
 
   var lsnt: Int64 = 0
 
+  var tpID: String = String()
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
@@ -5735,7 +5737,7 @@ extension Mezon_Realtime_Envelope: SwiftProtobuf.Message, SwiftProtobuf._Message
 
 extension Mezon_Realtime_TopicInMessageEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".TopicInMessageEvent"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}message_id\0\u{1}rpl\0\u{1}lsnt\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}message_id\0\u{1}rpl\0\u{1}lsnt\0\u{3}tp_id\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -5746,6 +5748,7 @@ extension Mezon_Realtime_TopicInMessageEvent: SwiftProtobuf.Message, SwiftProtob
       case 1: try { try decoder.decodeSingularInt64Field(value: &self.messageID) }()
       case 2: try { try decoder.decodeSingularInt32Field(value: &self.rpl) }()
       case 3: try { try decoder.decodeSingularInt64Field(value: &self.lsnt) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.tpID) }()
       default: break
       }
     }
@@ -5761,6 +5764,9 @@ extension Mezon_Realtime_TopicInMessageEvent: SwiftProtobuf.Message, SwiftProtob
     if self.lsnt != 0 {
       try visitor.visitSingularInt64Field(value: self.lsnt, fieldNumber: 3)
     }
+    if !self.tpID.isEmpty {
+      try visitor.visitSingularStringField(value: self.tpID, fieldNumber: 4)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -5768,6 +5774,7 @@ extension Mezon_Realtime_TopicInMessageEvent: SwiftProtobuf.Message, SwiftProtob
     if lhs.messageID != rhs.messageID {return false}
     if lhs.rpl != rhs.rpl {return false}
     if lhs.lsnt != rhs.lsnt {return false}
+    if lhs.tpID != rhs.tpID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

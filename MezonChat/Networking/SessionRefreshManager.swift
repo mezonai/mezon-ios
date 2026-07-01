@@ -16,20 +16,17 @@ final class SessionRefreshManager {
 
     private init() {}
 
-    private func isTransientURLError(_ error: Error) -> Bool {
-        var e: Error? = error
-        for _ in 0..<4 {
-            guard let err = e else { break }
-            let ns = err as NSError
-            if ns.domain == NSURLErrorDomain {
-                switch ns.code {
-                case NSURLErrorTimedOut, NSURLErrorNetworkConnectionLost, NSURLErrorNotConnectedToInternet,
-                    NSURLErrorCannotConnectToHost, NSURLErrorDataNotAllowed:
-                    return true
-                default: break
-                }
-            }
-            e = ns.userInfo[NSUnderlyingErrorKey] as? Error
+    private func isDefinitiveAuthFailure(_ error: Error) -> Bool {
+        if let mezon = error as? MezonError, case .httpError(let code, _) = mezon {
+            return code == 401 || code == 403
+        }
+        return false
+    }
+
+    private func isDefinitiveExpiry(_ error: Error) -> Bool {
+        if isDefinitiveAuthFailure(error) { return true }
+        if let sessionError = error as? SessionError, case .maxRetriesExceeded = sessionError {
+            return true
         }
         return false
     }
@@ -60,28 +57,23 @@ final class SessionRefreshManager {
     }
 
     private func doRefresh(session: MezonSession) async throws -> MezonSession {
-        let isSameToken = lastRefreshToken == session.refreshToken
-        if isSameToken {
-            failCount += 1
-        } else {
-            lastRefreshToken = session.refreshToken
-            failCount = 0
-        }
-
-        if failCount >= maxRetriesSameToken {
-            reset()
-            throw SessionError.maxRetriesExceeded
-        }
-
         let newSession: MezonSession
         do {
             newSession = try await MezonHTTPClient.shared.sessionRefresh(
                 refreshToken: session.refreshToken
             )
         } catch {
-            let transient = isTransientURLError(error)
-            if transient, isSameToken {
-                failCount = max(0, failCount - 1)
+            if isDefinitiveAuthFailure(error) {
+                if lastRefreshToken == session.refreshToken {
+                    failCount += 1
+                } else {
+                    lastRefreshToken = session.refreshToken
+                    failCount = 1
+                }
+                if failCount >= maxRetriesSameToken {
+                    reset()
+                    throw SessionError.maxRetriesExceeded
+                }
             }
             throw error
         }
@@ -128,31 +120,15 @@ final class SessionRefreshManager {
                     onSuccess(newSession)
                     safeOnReady()
                     return
-                } catch is MezonError {
-                    retriesLeft -= 1
-                    if retriesLeft == 0 {
-                        safeOnReady()
-                        await endLaunchRefreshExpired()
-                        return
-                    }
-
-                    let delay = UInt64(maxAppLaunchRetries - retriesLeft) * 1_000_000_000
-                    try? await Task.sleep(nanoseconds: delay)
-
-                } catch is SessionError {
-                    retriesLeft -= 1
-                    if retriesLeft == 0 {
-                        safeOnReady()
-                        await endLaunchRefreshExpired()
-                        return
-                    }
-                    let delay = UInt64(maxAppLaunchRetries - retriesLeft) * 1_000_000_000
-                    try? await Task.sleep(nanoseconds: delay)
                 } catch {
+                    if isDefinitiveExpiry(error) {
+                        safeOnReady()
+                        await endLaunchRefreshExpired()
+                        return
+                    }
                     retriesLeft -= 1
                     if retriesLeft == 0 {
                         safeOnReady()
-                        await endLaunchRefreshExpired()
                         return
                     }
                     let delay = UInt64(maxAppLaunchRetries - retriesLeft) * 1_000_000_000

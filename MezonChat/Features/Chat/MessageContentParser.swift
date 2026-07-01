@@ -393,6 +393,7 @@ enum MessageContentParser {
             let url = stringValue(item["url"])?.trimmingCharacters(in: .whitespacesAndNewlines)
                 ?? ogpURLFromText(text, index: intValue(item["index"]))
             guard let url, !url.isEmpty, !isGoogleMapLink(url) else { return nil }
+            guard ClanInviteLinkParser.firstInviteCode(in: url) == nil else { return nil }
             return ParsedOgpPreview(title: title, description: description, imageURL: image, url: url)
         }
     }

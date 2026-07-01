@@ -82,6 +82,7 @@ final class ChannelListContainerNode: ASDisplayNode {
     private var isClanSwitching = false
     private var deferOnboardingTableUpdates = false
     private var clanSwitchTableRefreshDone = false
+    private var animateNextContentReplace = false
 
     private var shouldDeferLeadingSectionTableMutations: Bool {
         isClanSwitching || deferOnboardingTableUpdates
@@ -152,7 +153,8 @@ final class ChannelListContainerNode: ASDisplayNode {
         )
         super.init()
         backgroundColor = UIColor.theme.secondary
-        
+        tableNode.backgroundColor = UIColor.theme.secondary
+
         headerUIView.onQRTapped = { [weak self] in
             self?.interaction.onQRTapped?()
         }
@@ -204,10 +206,30 @@ final class ChannelListContainerNode: ASDisplayNode {
         let treeStructureChanged = loadingPlaceholderToggled
             || prevCats.count != newCats.count
             || !categoriesChannelTreeEqual(prevCats, newCats)
+        let revealingFromLoadingPlaceholder = loadingPHWas && !loadingPHNow && !newCats.isEmpty
 
         isClanSwitching = wasClanSwitching && newState.isLoading
 
-        if wasClanSwitching {
+        let shouldAnimateReplace = animateNextContentReplace
+        animateNextContentReplace = false
+
+        if !tableIsInWindow {
+            if wasClanSwitching {
+                cachedHeaders = [:]
+                interaction.onClanSwitchChannelListApplied?()
+                clanSwitchTableRefreshDone = true
+                deferOnboardingTableUpdates = false
+            }
+            if treeStructureChanged || revealingFromLoadingPlaceholder || !newCats.isEmpty {
+                cachedHeaders = [:]
+                pendingVisibleReconcile = true
+                pendingVisibleReconcileShouldResetScroll =
+                    pendingVisibleReconcileShouldResetScroll || wasClanSwitching
+            }
+        } else if shouldAnimateReplace && !wasClanSwitching && nodeIsVisible && tableIsInWindow && treeStructureChanged {
+            cachedHeaders = [:]
+            crossfadeReloadAnimated()
+        } else if wasClanSwitching {
             cachedHeaders = [:]
             interaction.onClanSwitchChannelListApplied?()
             if !clanSwitchTableRefreshDone {
@@ -216,10 +238,11 @@ final class ChannelListContainerNode: ASDisplayNode {
                 } else {
                     pendingVisibleReconcile = true
                     pendingVisibleReconcileShouldResetScroll = true
-                    safeReloadData()
                 }
                 clanSwitchTableRefreshDone = true
                 deferOnboardingTableUpdates = false
+            } else if revealingFromLoadingPlaceholder && tableIsInWindow {
+                crossfadeReloadAnimated(duration: 0.15)
             } else if treeStructureChanged {
                 applyBatchStructureUpdate(prev: prevState, new: newState)
             } else if !newCats.isEmpty {
@@ -230,7 +253,9 @@ final class ChannelListContainerNode: ASDisplayNode {
             cachedHeaders = [:]
             pendingVisibleReconcile = true
             pendingVisibleReconcileShouldResetScroll = false
-            safeReloadData()
+        } else if revealingFromLoadingPlaceholder && tableIsInWindow {
+            cachedHeaders = [:]
+            crossfadeReloadAnimated(duration: 0.15)
         } else if treeStructureChanged {
             applyBatchStructureUpdate(prev: prevState, new: newState)
         } else if !newCats.isEmpty {
@@ -271,18 +296,43 @@ final class ChannelListContainerNode: ASDisplayNode {
         newState: ChannelListState,
         wasClanSwitching: Bool
     ) {
-        guard wasClanSwitching else { return }
         guard !newState.isLoading else { return }
         guard let selectedId = newState.selectedChannelId, selectedId != 0 else { return }
         guard firstCategoryIndexContainingListChannel(selectedId) != nil else { return }
-        scrollToChannel(channelId: selectedId, animated: false)
+        let selectionChanged = prevState.selectedChannelId != newState.selectedChannelId
+        let loadingJustFinished = prevState.isLoading && !newState.isLoading
+        let selectedIsVoiceChannel = newState.allChannels.contains {
+            $0.channelID == selectedId && Self.voiceChannelTypes.contains($0.type)
+        }
+        let prevSelectedVoiceEmpty = (prevState.voiceUsersByChannel[selectedId] ?? []).isEmpty
+        let newSelectedVoiceActive = !(newState.voiceUsersByChannel[selectedId] ?? []).isEmpty
+        let selectedVoiceBecameActive = prevSelectedVoiceEmpty && newSelectedVoiceActive
+        if loadingJustFinished && skipNextLoadingFinishedReveal {
+            skipNextLoadingFinishedReveal = false
+            if !(wasClanSwitching || selectionChanged || (selectedIsVoiceChannel && selectedVoiceBecameActive)) {
+                return
+            }
+        }
+        guard wasClanSwitching || selectionChanged || loadingJustFinished || (selectedIsVoiceChannel && selectedVoiceBecameActive) else { return }
+        scrollToChannel(channelId: selectedId, animated: !wasClanSwitching)
     }
 
     func suppressNextLoadingFinishedReveal() {
         skipNextLoadingFinishedReveal = true
     }
 
+    private var tableIsInWindow: Bool {
+        tableNode.isNodeLoaded && tableNode.view.window != nil
+    }
+
     private func safeReloadData(preserving scrollAnchor: ScrollAnchor? = nil, preserveContentOffset: Bool = true) {
+        guard tableIsInWindow else {
+            if tableNode.isNodeLoaded {
+                UIView.performWithoutAnimation { self.tableNode.reloadData() }
+            }
+            committedSectionCount = totalSections
+            return
+        }
         let previousOffset = tableNode.view.contentOffset
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -304,6 +354,13 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private func applyCrossfadeReload(resetScroll: Bool = true) {
+        guard tableIsInWindow else {
+            if tableNode.isNodeLoaded {
+                UIView.performWithoutAnimation { self.tableNode.reloadData() }
+            }
+            committedSectionCount = totalSections
+            return
+        }
         let previousOffset = tableNode.view.contentOffset
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -319,6 +376,34 @@ final class ChannelListContainerNode: ASDisplayNode {
         if !resetScroll {
             restoreContentOffset(previousOffset)
         }
+        updateStickyHeaderPosition()
+    }
+
+    func animateNextDataReplace() {
+        animateNextContentReplace = true
+    }
+
+    private func crossfadeReloadAnimated(duration: TimeInterval = 0.1) {
+        guard tableIsInWindow else {
+            if tableNode.isNodeLoaded {
+                UIView.performWithoutAnimation { self.tableNode.reloadData() }
+            }
+            committedSectionCount = totalSections
+            return
+        }
+        let previousOffset = tableNode.view.contentOffset
+        UIView.transition(
+            with: tableNode.view,
+            duration: duration,
+            options: [.transitionCrossDissolve, .allowUserInteraction]
+        ) {
+            UIView.performWithoutAnimation {
+                self.tableNode.reloadData()
+                self.tableNode.waitUntilAllUpdatesAreProcessed()
+                self.restoreContentOffset(previousOffset)
+            }
+        }
+        committedSectionCount = totalSections
         updateStickyHeaderPosition()
     }
 
@@ -356,7 +441,7 @@ final class ChannelListContainerNode: ASDisplayNode {
                     let committedSection = prevIdx + sectionOffset
                     guard committedSection < tableNode.numberOfSections else { survivingRowsConsistent = false; break }
                     let mappedNewIdx = prevIdx < insertAt ? prevIdx : prevIdx + 1
-                    if tableNode.numberOfRows(inSection: committedSection) != computeRows(for: new, categoryIndex: mappedNewIdx).count {
+                    if tableNode.numberOfRows(inSection: committedSection) != computeRows(for: new, categoryIndex: mappedNewIdx, threadLookup: threadLookup).count {
                         survivingRowsConsistent = false
                         break
                     }
@@ -399,7 +484,7 @@ final class ChannelListContainerNode: ASDisplayNode {
                     let committedSection = prevIdx + sectionOffset
                     guard committedSection < tableNode.numberOfSections else { survivingRowsConsistent = false; break }
                     let mappedNewIdx = prevIdx < deleteAt ? prevIdx : prevIdx - 1
-                    if tableNode.numberOfRows(inSection: committedSection) != computeRows(for: new, categoryIndex: mappedNewIdx).count {
+                    if tableNode.numberOfRows(inSection: committedSection) != computeRows(for: new, categoryIndex: mappedNewIdx, threadLookup: threadLookup).count {
                         survivingRowsConsistent = false
                         break
                     }
@@ -436,6 +521,7 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     private func applyBatchStructureUpdate(prev: ChannelListState, new: ChannelListState) {
         let expectedAfter = totalSections
+        let prevThreadLookup = buildThreadLookup(prev.allChannels)
         let fallbackScrollAnchor = isPinnedNearListTop() ? nil : captureScrollAnchor(prev: prev)
 
         if channelListLoadingPlaceholderVisible(for: prev)
@@ -477,7 +563,7 @@ final class ChannelListContainerNode: ASDisplayNode {
             let nc = new.categories[i]
             let section = i + sectionOffset
 
-            let oldRows = computeRows(for: prev, categoryIndex: i)
+            let oldRows = computeRows(for: prev, categoryIndex: i, threadLookup: prevThreadLookup)
 
             if isNodeLoaded,
                section < tableNode.numberOfSections,
@@ -677,12 +763,20 @@ final class ChannelListContainerNode: ASDisplayNode {
             )
         }
 
+        let prevThreadLookup = buildThreadLookup(prev.allChannels)
+        var oldRowsByCat: [Int: [ChannelListRow]] = [:]
         var firstVisibleAnchor: ScrollAnchor?
         for ip in sorted {
             guard ip.section >= sectionOffset else { continue }
             let catIdx = ip.section - sectionOffset
             guard catIdx >= 0, catIdx < prev.categories.count else { continue }
-            let oldRows = computeRows(for: prev, categoryIndex: catIdx)
+            let oldRows: [ChannelListRow]
+            if let cached = oldRowsByCat[catIdx] {
+                oldRows = cached
+            } else {
+                oldRows = computeRows(for: prev, categoryIndex: catIdx, threadLookup: prevThreadLookup)
+                oldRowsByCat[catIdx] = oldRows
+            }
             guard ip.row >= 0, ip.row < oldRows.count else { continue }
             let row = oldRows[ip.row]
             guard let anchor = makeAnchor(ip, row) else { continue }
@@ -837,6 +931,8 @@ final class ChannelListContainerNode: ASDisplayNode {
         new: ChannelListState
     ) -> ([IndexPath], [IndexPath]) {
         let sectionOffset = leadingTableSectionsCount
+        let prevThreadLookup = buildThreadLookup(prev.allChannels)
+        var oldRowsByCat: [Int: [ChannelListRow]] = [:]
         var selectionPaths: [IndexPath] = []
         var fullPaths: [IndexPath] = []
         for ip in paths {
@@ -852,7 +948,13 @@ final class ChannelListContainerNode: ASDisplayNode {
                 fullPaths.append(ip)
                 continue
             }
-            let oldRows = computeRows(for: prev, categoryIndex: catIdx)
+            let oldRows: [ChannelListRow]
+            if let cached = oldRowsByCat[catIdx] {
+                oldRows = cached
+            } else {
+                oldRows = computeRows(for: prev, categoryIndex: catIdx, threadLookup: prevThreadLookup)
+                oldRowsByCat[catIdx] = oldRows
+            }
             let newRows = rowsForSection(catIdx)
             guard ip.row < oldRows.count, ip.row < newRows.count else {
                 fullPaths.append(ip)
@@ -1004,10 +1106,11 @@ final class ChannelListContainerNode: ASDisplayNode {
             return
         }
 
+        let prevThreadLookup = buildThreadLookup(prev.allChannels)
         var selectionPaths: [IndexPath] = []
         var reloadPaths: [IndexPath] = []
         for s in 0..<new.categories.count {
-            let oldRows = computeRows(for: prev, categoryIndex: s)
+            let oldRows = computeRows(for: prev, categoryIndex: s, threadLookup: prevThreadLookup)
             let newRows = rowsForSection(s)
 
             for r in 0..<newRows.count {
@@ -1191,6 +1294,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         headerSpacer.backgroundColor = .clear
         headerSpacer.translatesAutoresizingMaskIntoConstraints = false
         let headerHConstraint = headerSpacer.heightAnchor.constraint(equalToConstant: currentHeaderH)
+        headerHConstraint.priority = .defaultHigh
         headerHConstraint.isActive = true
         headerSpacerHeightConstraint = headerHConstraint
 
@@ -1825,11 +1929,10 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     private func computeRows(
         for category: ChannelCategory,
-        allChannels: [Mezon_Api_ChannelDescription],
+        threadLookup lookup: [Int64: [Mezon_Api_ChannelDescription]],
         selectedChannelId: Int64?,
         voiceUsersByChannel: [Int64: [String]]
     ) -> [ChannelListRow] {
-        let lookup = buildThreadLookup(allChannels)
         let baseRows = flattenCategoryToRows(category, threadLookup: lookup)
         let isExpanded = !category.isCollapsed
 
@@ -1883,11 +1986,15 @@ final class ChannelListContainerNode: ASDisplayNode {
         }
     }
 
-    private func computeRows(for state: ChannelListState, categoryIndex: Int) -> [ChannelListRow] {
+    private func computeRows(
+        for state: ChannelListState,
+        categoryIndex: Int,
+        threadLookup lookup: [Int64: [Mezon_Api_ChannelDescription]]
+    ) -> [ChannelListRow] {
         guard categoryIndex < state.categories.count else { return [] }
         return computeRows(
             for: state.categories[categoryIndex],
-            allChannels: state.allChannels,
+            threadLookup: lookup,
             selectedChannelId: state.selectedChannelId,
             voiceUsersByChannel: state.voiceUsersByChannel
         )
@@ -1895,7 +2002,7 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     private func rowsForSection(_ section: Int) -> [ChannelListRow] {
         if let cached = cachedRows[section] { return cached }
-        let rows = computeRows(for: state, categoryIndex: section)
+        let rows = computeRows(for: state, categoryIndex: section, threadLookup: threadLookup)
         cachedRows[section] = rows
         return rows
     }

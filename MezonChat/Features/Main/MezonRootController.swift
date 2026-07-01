@@ -162,16 +162,7 @@ final class MezonRootController: NavigationController {
 
         Task { @MainActor [weak self] in
             guard let self else { return }
-            await withTaskGroup(of: Void.self) { group in
-                group.addTask { @MainActor in
-                    await self.context.waitForSessionReady()
-                }
-                group.addTask {
-                    try? await Task.sleep(nanoseconds: 5_000_000_000)
-                }
-                _ = await group.next()
-                group.cancelAll()
-            }
+            await self.awaitSessionReadyBounded()
             if let sid = pending["navigationInstanceId"] as? String,
                sid == AppDelegate.lastHandledNavigationInstanceId {
                 return
@@ -199,10 +190,31 @@ final class MezonRootController: NavigationController {
 
         AppDelegate.pendingNavigation = nil
 
-        if isDM {
-            navigateToDM(channelIdStr: channelIdStr)
-        } else {
-            navigateToChannel(channelIdStr: channelIdStr, clanIdStr: clanIdStr)
+        if !isDM, let clanId = clanIdStr.flatMap({ Int64($0) }), clanId != 0 {
+            context.currentClanId = clanId
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.awaitSessionReadyBounded()
+            if isDM {
+                self.navigateToDM(channelIdStr: channelIdStr)
+            } else {
+                self.navigateToChannel(channelIdStr: channelIdStr, clanIdStr: clanIdStr)
+            }
+        }
+    }
+
+    private func awaitSessionReadyBounded(timeoutNanoseconds: UInt64 = 5_000_000_000) async {
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { @MainActor [weak self] in
+                await self?.context.waitForSessionReady()
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+            }
+            _ = await group.next()
+            group.cancelAll()
         }
     }
 
@@ -619,10 +631,15 @@ final class MezonRootController: NavigationController {
             guard let self else { return }
             let startEpoch = self.context.sessionEpoch
             guard let token = await self.context.getToken() else { return }
+            let network = self.context.account.network
             do {
-                let channels = try await self.context.account.network.listChannelDescs(clanId: clanId, token: token)
-                NSLog("[ChannelList] MezonRoot listChannelDescs clanId=%lld count=%d", clanId, channels.count)
-                print("[ChannelList] MezonRoot listChannelDescs clanId=\(clanId) count=\(channels.count) ids=\(channels.map { "\($0.channelID):\($0.channelLabel)" }.joined(separator: ", "))")
+                async let channelsTask = network.listChannelDescs(clanId: clanId, token: token)
+                async let categoriesTask = network.listCategoryDescs(clanId: clanId, token: token)
+                async let favoritesTask = network.listFavoriteChannelIds(clanId: clanId, token: token)
+                let categoryDescs = (try? await categoriesTask) ?? []
+                let favoriteIds = Set((try? await favoritesTask) ?? [])
+                let channels = try await channelsTask
+                NSLog("[ChannelList] MezonRoot listChannelDescs clanId=%lld count=%d cats=%d", clanId, channels.count, categoryDescs.count)
                 guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
                 if channels.isEmpty {
                     if let homeVC = self.homeController, homeVC.channelListVC.clanId == clanId {
@@ -640,10 +657,12 @@ final class MezonRootController: NavigationController {
                     value: self.encodeChannelList(channels)
                 )
                 if let homeVC = self.homeController, homeVC.channelListVC.clanId == clanId {
-                    homeVC.channelListVC.updateChannels(channels)
-                    if let selectChannelId {
-                        homeVC.channelListVC.selectWithoutNavigation(channelId: selectChannelId)
-                    }
+                    homeVC.channelListVC.ingestNotificationChannelData(
+                        channels: channels,
+                        categoryDescs: categoryDescs,
+                        favoriteIds: favoriteIds,
+                        selectChannelId: selectChannelId
+                    )
                 }
             } catch {
                 if let homeVC = self.homeController, homeVC.channelListVC.clanId == clanId,

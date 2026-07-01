@@ -125,10 +125,20 @@ final class PostboxTransaction {
     }
 
     func updateTopicReplyCount(parentChannelId: String, topicId: Int64, delta: Int) {
-        if let ch = messageTable.updateTopicReplyCount(
+        for ch in messageTable.updateTopicReplyCount(
             parentChannelId: parentChannelId,
             topicId: topicId,
             delta: delta
+        ) {
+            updatedMessageChannelIds.insert(ch)
+        }
+    }
+
+    func setTopicReplyCount(topicId: Int64, replyCount: Int, lastSentTimestamp: Int64) {
+        for ch in messageTable.setTopicReplyCount(
+            topicId: topicId,
+            replyCount: replyCount,
+            lastSentTimestamp: lastSentTimestamp
         ) {
             updatedMessageChannelIds.insert(ch)
         }

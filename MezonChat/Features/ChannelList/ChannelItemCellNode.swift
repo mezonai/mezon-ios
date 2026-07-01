@@ -224,6 +224,12 @@ struct VoiceMemberDisplay: Equatable {
 
 final class VoiceAvatarNode: ASDisplayNode, ASNetworkImageNodeDelegate {
 
+    private static let decodedImageCache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 512
+        return cache
+    }()
+
     private let imgNode = ASNetworkImageNode()
     private let initNode = ASTextNode2()
     private let proxiedURL: URL?
@@ -233,6 +239,17 @@ final class VoiceAvatarNode: ASDisplayNode, ASNetworkImageNodeDelegate {
     private var usingFallback = false
     private var retryCount = 0
     private static let maxRetries = 4
+
+    private func cachedAvatarImage() -> UIImage? {
+        if let p = proxiedURL, let img = Self.decodedImageCache.object(forKey: p.absoluteString as NSString) { return img }
+        if let o = originalURL, let img = Self.decodedImageCache.object(forKey: o.absoluteString as NSString) { return img }
+        return nil
+    }
+
+    private func storeAvatarImage(_ image: UIImage) {
+        if let p = proxiedURL { Self.decodedImageCache.setObject(image, forKey: p.absoluteString as NSString) }
+        if let o = originalURL { Self.decodedImageCache.setObject(image, forKey: o.absoluteString as NSString) }
+    }
 
     init(member m: VoiceMemberDisplay, size s: CGFloat) {
         if let av = m.avatarURL, !av.isEmpty {
@@ -266,18 +283,24 @@ final class VoiceAvatarNode: ASDisplayNode, ASNetworkImageNodeDelegate {
         imgNode.cornerRadius = s / 2
         imgNode.clipsToBounds = true
         imgNode.contentMode = .scaleAspectFill
+        imgNode.placeholderFadeDuration = 0
         imgNode.delegate = self
 
         let initialURL = proxiedURL ?? originalURL
         if let initialURL {
             usingFallback = (proxiedURL == nil)
-            imgNode.url = initialURL
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(handleNetworkStatusChanged(_:)),
-                name: NetworkMonitor.statusDidChangeNotification,
-                object: nil
-            )
+            if let cached = cachedAvatarImage() {
+                imgNode.image = cached
+                didLoadImage = true
+            } else {
+                imgNode.url = initialURL
+                NotificationCenter.default.addObserver(
+                    self,
+                    selector: #selector(handleNetworkStatusChanged(_:)),
+                    name: NetworkMonitor.statusDidChangeNotification,
+                    object: nil
+                )
+            }
         } else {
             imgNode.isHidden = true
         }
@@ -312,6 +335,7 @@ final class VoiceAvatarNode: ASDisplayNode, ASNetworkImageNodeDelegate {
         guard imageNode === imgNode else { return }
         if image.size.width >= 0.5, image.size.height >= 0.5 {
             didLoadImage = true
+            storeAvatarImage(image)
         }
     }
 
