@@ -3,6 +3,7 @@ import UIKit
 enum SessionExpiredModal {
 
     static func show(onLoginAgain: @escaping () -> Void) {
+        Toast.isSessionInvalid = true
         DispatchQueue.main.async {
             SessionExpiredModalManager.shared.present(onLoginAgain: onLoginAgain)
         }
@@ -49,6 +50,7 @@ private final class SessionExpiredModalManager: NSObject, UIGestureRecognizerDel
     }
 
     func removeOverlayImmediately() {
+        Toast.isSessionInvalid = false
         tearDownWindow()
     }
 
@@ -130,6 +132,7 @@ private final class SessionExpiredModalManager: NSObject, UIGestureRecognizerDel
     }
 
     private func dismiss(completion: (() -> Void)? = nil) {
+        Toast.isSessionInvalid = false
         let window = overlayWindow
         let dimming = dimmingView
         let content = contentView

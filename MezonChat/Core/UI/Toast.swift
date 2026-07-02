@@ -11,6 +11,8 @@ final class Toast {
 
     static let defaultDuration: TimeInterval = 3
 
+    static var isSessionInvalid = false
+
     static func show(
         _ type: ToastType,
         title: String? = nil,
@@ -27,6 +29,7 @@ final class Toast {
     }
 
     static func error(_ message: String, title: String? = nil) {
+        if isSessionInvalid { return }
         show(.error, title: title, message: message)
     }
 

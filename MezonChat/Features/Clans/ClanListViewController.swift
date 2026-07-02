@@ -71,7 +71,7 @@ final class ClanListViewController: ViewController {
 
     override func loadDisplayNode() {
         let interaction = ClanListInteraction(
-            onSelectClan: { [weak self] clan in self?.select(clan: clan) },
+            onSelectClan: { [weak self] clan in self?.handleUserClanSelection(clan) },
             onSelectDM: { [weak self] dm in self?.openDirectMessage(dm) },
             onLogoTapped: { [weak self] in self?.onLogoTapped?() },
             onJoinClanTapped: { [weak self] in self?.onJoinClanTapped?() },
@@ -515,6 +515,35 @@ final class ClanListViewController: ViewController {
             }
         }
         loadClansTask = task
+    }
+
+    private var rapidClanSwitchCount = 0
+    private var lastClanSwitchTapAt: Date?
+    private var lastRapidSwitchNoticeAt: Date?
+    private let rapidClanSwitchWindow: TimeInterval = 0.8
+    private let rapidClanSwitchThreshold = 5
+    private let rapidClanSwitchNoticeCooldown: TimeInterval = 30
+
+    private func handleUserClanSelection(_ clan: Mezon_Api_ClanDesc) {
+        noteRapidClanSwitchAndWarnIfNeeded()
+        select(clan: clan)
+    }
+
+    private func noteRapidClanSwitchAndWarnIfNeeded() {
+        let now = Date()
+        if let last = lastClanSwitchTapAt, now.timeIntervalSince(last) < rapidClanSwitchWindow {
+            rapidClanSwitchCount += 1
+        } else {
+            rapidClanSwitchCount = 1
+        }
+        lastClanSwitchTapAt = now
+        guard rapidClanSwitchCount >= rapidClanSwitchThreshold else { return }
+        if let lastNotice = lastRapidSwitchNoticeAt, now.timeIntervalSince(lastNotice) < rapidClanSwitchNoticeCooldown {
+            return
+        }
+        lastRapidSwitchNoticeAt = now
+        rapidClanSwitchCount = 0
+        RapidClanSwitchNotice.show()
     }
 
     func select(clan: Mezon_Api_ClanDesc) {

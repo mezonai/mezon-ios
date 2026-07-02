@@ -122,7 +122,7 @@ extension MezonEngine {
 
         private var inflightFetchAllByClanId: [Int64: Task<Void, Never>] = [:]
         private var lastFetchAllAtByClanId: [Int64: Date] = [:]
-        private let fetchAllCooldownInterval: TimeInterval = 2.0
+        private let clanDataCacheTTL: TimeInterval = 300
         private var inflightForceRefreshClanUsersByClanId: [Int64: Task<Void, Never>] = [:]
         private var lastPresenceMemberRefreshAtByClanId: [Int64: Date] = [:]
         private var attemptedMemberRefreshUserIdsByClanId: [Int64: Set<Int64>] = [:]
@@ -164,7 +164,7 @@ extension MezonEngine {
                 await existing.value
                 return
             }
-            if let last = lastFetchAllAtByClanId[clanId], Date().timeIntervalSince(last) < fetchAllCooldownInterval {
+            if let last = lastFetchAllAtByClanId[clanId], Date().timeIntervalSince(last) < clanDataCacheTTL {
                 return
             }
             lastFetchAllAtByClanId[clanId] = Date()
@@ -188,9 +188,17 @@ extension MezonEngine {
                     usersResult, rolesResult, eventsResult, userPermsResult, allPermsResult,
                     voiceResult, streamResult, badgeResult, notifResult, catNotifResult
                 )
+                if !Task.isCancelled, !self.hasPersistedClanData(clanId: clanId) {
+                    self.lastFetchAllAtByClanId[clanId] = nil
+                }
             }
             inflightFetchAllByClanId[clanId] = task
             await task.value
+        }
+
+        private func hasPersistedClanData(clanId: Int64) -> Bool {
+            postbox.getPreferenceData(key: PreferencesKeys.clanRoles(clanId: clanId))?.isEmpty == false
+                || postbox.getPreferenceData(key: PreferencesKeys.clanUsers(clanId: clanId))?.isEmpty == false
         }
 
         private func fetchClanUsers(clanId: Int64, token: String) async {

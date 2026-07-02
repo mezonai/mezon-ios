@@ -13,6 +13,8 @@ final class SessionRefreshManager {
     private var activeTask: Task<MezonSession, Error>?
     private var lastSuccessfulRefresh: (at: Date, session: MezonSession)?
     private let minSuccessfulRefreshInterval: TimeInterval = 2.0
+    private var lastFailedRefresh: (at: Date, error: Error)?
+    private let minFailedRefreshInterval: TimeInterval = 1.5
 
     private init() {}
 
@@ -45,6 +47,10 @@ final class SessionRefreshManager {
            !recent.session.isExpired {
             return recent.session
         }
+        if let recentFail = lastFailedRefresh,
+           Date().timeIntervalSince(recentFail.at) < minFailedRefreshInterval {
+            throw recentFail.error
+        }
         let task = Task<MezonSession, Error> { [weak self] in
             guard let self else { throw SessionError.notInitialized }
             return try await self.doRefresh(session: session)
@@ -63,7 +69,7 @@ final class SessionRefreshManager {
                 refreshToken: session.refreshToken
             )
         } catch {
-            if isDefinitiveAuthFailure(error) {
+            if isDefinitiveAuthFailure(error) || Date() >= session.expiresAt {
                 if lastRefreshToken == session.refreshToken {
                     failCount += 1
                 } else {
@@ -75,12 +81,16 @@ final class SessionRefreshManager {
                     throw SessionError.maxRetriesExceeded
                 }
             }
+            if !isDefinitiveAuthFailure(error) {
+                lastFailedRefresh = (Date(), error)
+            }
             throw error
         }
         let merged = SessionStore.applyIdTokenFallback(newSession.mergedPreservingIdToken(from: session))
         lastRefreshToken = merged.refreshToken
         failCount = 0
         lastSuccessfulRefresh = (Date(), merged)
+        lastFailedRefresh = nil
         return merged
     }
 
@@ -129,6 +139,7 @@ final class SessionRefreshManager {
                     retriesLeft -= 1
                     if retriesLeft == 0 {
                         safeOnReady()
+                        await endLaunchRefreshExpired()
                         return
                     }
                     let delay = UInt64(maxAppLaunchRetries - retriesLeft) * 1_000_000_000
@@ -144,6 +155,7 @@ final class SessionRefreshManager {
         failCount = 0
         activeTask = nil
         lastSuccessfulRefresh = nil
+        lastFailedRefresh = nil
     }
 }
 

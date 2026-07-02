@@ -82,6 +82,22 @@ final class ChatMessageItem: ListViewItem {
 
 final class ChatMessageItemNode: ListViewItemNode, UIGestureRecognizerDelegate {
 
+    private static func isBodyPresentationStable(existing: ChatMessageDisplay, item: ChatMessageDisplay) -> Bool {
+        let editedA = existing.message.editedAt?.timeIntervalSince1970
+        let editedB = item.message.editedAt?.timeIntervalSince1970
+        return existing.parsedContent.text == item.parsedContent.text
+            && editedA == editedB
+            && existing.pollData?.totalVotes == item.pollData?.totalVotes
+            && existing.pollData?.answerCounts == item.pollData?.answerCounts
+            && existing.parsedContent.embeds == item.parsedContent.embeds
+            && existing.parsedContent.ogpPreviews == item.parsedContent.ogpPreviews
+            && existing.messageCode == item.messageCode
+            && existing.topicData == item.topicData
+            && existing.reactions == item.reactions
+            && existing.sendingState == item.sendingState
+            && existing.showsSendingFeedback == item.showsSendingFeedback
+    }
+
     private var bubbleNode: MessageBubbleNode?
     private var currentItem: ChatMessageItem?
 
@@ -231,24 +247,38 @@ final class ChatMessageItemNode: ListViewItemNode, UIGestureRecognizerDelegate {
                     existing.display.attachments, item.display.attachments)
             }()
 
-            if let existing = existingBubble, isSameLogicalMessage, !attachmentsChanged {
-                if existing.display.sendingState == item.display.sendingState,
-                   existing.display.showsSendingFeedback == item.display.showsSendingFeedback,
-                   existing.display.id == item.display.id {
-                    let editedA = existing.display.message.editedAt?.timeIntervalSince1970
-                    let editedB = item.display.message.editedAt?.timeIntervalSince1970
-                    let bodyUnchanged = existing.display.parsedContent.text == item.display.parsedContent.text
-                        && editedA == editedB
-                        && existing.display.rawContentData == item.display.rawContentData
-                        && existing.display.pollData?.totalVotes == item.display.pollData?.totalVotes
-                        && existing.display.pollData?.answerCounts == item.display.pollData?.answerCounts
-                        && existing.display.parsedContent.embeds == item.display.parsedContent.embeds
-                        && existing.display.parsedContent.ogpPreviews == item.display.parsedContent.ogpPreviews
-                        && existing.display.messageCode == item.display.messageCode
-                        && existing.display.topicData == item.display.topicData
-                    if bodyUnchanged && !uploadPresentationChanged {
-                        existing.updateReactions(newDisplay: item.display)
-                        bubble = existing
+            let incrementalMediaPresentation: Bool = {
+                guard let existing = existingBubble, isSameLogicalMessage else { return false }
+                return ParsedAttachment.attachmentsIdentityEqual(
+                    existing.display.attachments, item.display.attachments)
+            }()
+
+            let mediaPresentationDelta = uploadPresentationChanged
+                || (incrementalMediaPresentation && attachmentsChanged)
+
+            let bodyPresentationStable: Bool = {
+                guard let existing = existingBubble else { return false }
+                return Self.isBodyPresentationStable(existing: existing.display, item: item.display)
+            }()
+
+            var skipMeasureSize = false
+            if let existing = existingBubble, isSameLogicalMessage {
+                if incrementalMediaPresentation && mediaPresentationDelta && bodyPresentationStable {
+                    skipMeasureSize = !existing.updateMediaPresentation(item.display)
+                    bubble = existing
+                } else if !attachmentsChanged {
+                    if existing.display.sendingState == item.display.sendingState,
+                       existing.display.showsSendingFeedback == item.display.showsSendingFeedback,
+                       existing.display.id == item.display.id {
+                        let bodyUnchanged = Self.isBodyPresentationStable(existing: existing.display, item: item.display)
+                            && existing.display.rawContentData == item.display.rawContentData
+                        if bodyUnchanged && !uploadPresentationChanged {
+                            existing.updateReactions(newDisplay: item.display)
+                            bubble = existing
+                        } else {
+                            existing.updateDisplay(item.display)
+                            bubble = existing
+                        }
                     } else {
                         existing.updateDisplay(item.display)
                         bubble = existing
@@ -261,8 +291,14 @@ final class ChatMessageItemNode: ListViewItemNode, UIGestureRecognizerDelegate {
                 bubble = MessageBubbleNode(display: item.display, interaction: item.interaction)
             }
 
-            _ = CGSize(width: width, height: .greatestFiniteMagnitude)
-            let measuredSize = bubble.measureSize(width: width)
+            let measuredSize: CGSize
+            if skipMeasureSize,
+               bubble.layoutContentSize.height > 0,
+               abs(bubble.layoutContentSize.width - width) < 0.5 {
+                measuredSize = bubble.layoutContentSize
+            } else {
+                measuredSize = bubble.measureSize(width: width)
+            }
             
             let nodeLayout = ListViewItemNodeLayout(
                 contentSize: CGSize(width: width, height: measuredSize.height),

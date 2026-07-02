@@ -1360,6 +1360,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private var didAnnounceMeetJoin = false
     private var didAnnounceMeetLeave = false
     private var audioRouteObserver: NSObjectProtocol?
+    private var callKitAudioReleasedObserver: NSObjectProtocol?
+    private var pendingCallKitAudioRecoveryWork: DispatchWorkItem?
 
     private var participantRows: [String: VoiceParticipantRowView] = [:]
     private var screenSharePiPHostRetain: AnyObject?
@@ -1774,6 +1776,14 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             self.refreshSpeakerRouteUI()
         }
 
+        callKitAudioReleasedObserver = NotificationCenter.default.addObserver(
+            forName: .mezonCallKitAudioReleased,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.scheduleVoiceChannelAudioRecoveryAfterExternalCall()
+        }
+
         if let pip = existingPiPOverlay,
            let (bridge, joinFlag, leaveFlag, route) = pip.takeOverBridge() {
             applyLiveKitBridgeAfterTakeover(bridge, joinFlag: joinFlag, leaveFlag: leaveFlag, preservedAudioRoute: route)
@@ -1864,6 +1874,10 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         if let audioRouteObserver {
             NotificationCenter.default.removeObserver(audioRouteObserver)
         }
+        if let callKitAudioReleasedObserver {
+            NotificationCenter.default.removeObserver(callKitAudioReleasedObserver)
+        }
+        pendingCallKitAudioRecoveryWork?.cancel()
         raiseHandBannerHideWorkItems.values.forEach { $0.cancel() }
         raiseHandBannerHideWorkItems.removeAll()
         dismissVoiceMoreToolsPopover()
@@ -3444,6 +3458,26 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     private var currentAudioOutput: AudioOutputMode = .earpiece
+
+    private func scheduleVoiceChannelAudioRecoveryAfterExternalCall() {
+        guard liveKitBridge != nil else { return }
+        pendingCallKitAudioRecoveryWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.recoverVoiceChannelAudioAfterExternalCall()
+        }
+        pendingCallKitAudioRecoveryWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
+    }
+
+    private func recoverVoiceChannelAudioAfterExternalCall() {
+        guard let bridge = liveKitBridge, bridge.room != nil else { return }
+        ensureVoiceChannelAudioSessionCategory()
+        applyAudioRoute()
+        let rtc = LKRTCAudioSession.sharedInstance()
+        rtc.lockForConfiguration()
+        rtc.isAudioEnabled = true
+        rtc.unlockForConfiguration()
+    }
 
     private func ensureVoiceChannelAudioSessionCategory() {
         let rtc = LKRTCAudioSession.sharedInstance()

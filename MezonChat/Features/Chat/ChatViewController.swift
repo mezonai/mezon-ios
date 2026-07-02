@@ -96,11 +96,43 @@ struct ParsedAttachment: Equatable {
     static func attachmentsUploadStateEqual(_ lhs: [ParsedAttachment], _ rhs: [ParsedAttachment]) -> Bool {
         guard lhs.count == rhs.count else { return false }
         for (l, r) in zip(lhs, rhs) {
-            if l.isUploading != r.isUploading || l.uploadFailed != r.uploadFailed {
+            if l.isUploading != r.isUploading || l.uploadFailed != r.uploadFailed
+                || l.isPresignPending != r.isPresignPending {
                 return false
             }
         }
         return true
+    }
+
+    static func attachmentsIdentityEqual(_ lhs: [ParsedAttachment], _ rhs: [ParsedAttachment]) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        for (l, r) in zip(lhs, rhs) {
+            if l.url != r.url || l.filename != r.filename || l.filetype != r.filetype || l.thumbnail != r.thumbnail {
+                return false
+            }
+        }
+        return true
+    }
+
+    static func attachmentsDimensionsEqual(_ lhs: [ParsedAttachment], _ rhs: [ParsedAttachment]) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        for (l, r) in zip(lhs, rhs) {
+            if l.width != r.width || l.height != r.height || l.durationSeconds != r.durationSeconds {
+                return false
+            }
+        }
+        return true
+    }
+
+    static func slotPresentationEqual(_ lhs: ParsedAttachment, _ rhs: ParsedAttachment) -> Bool {
+        lhs.width == rhs.width
+            && lhs.height == rhs.height
+            && lhs.durationSeconds == rhs.durationSeconds
+            && lhs.isPresignPending == rhs.isPresignPending
+            && lhs.isUploading == rhs.isUploading
+            && lhs.uploadFailed == rhs.uploadFailed
+            && (lhs.localImage == nil) == (rhs.localImage == nil)
+            && (!lhs.isUploading || !rhs.isUploading || lhs.uploadProgress == rhs.uploadProgress)
     }
 
     private static let maxPendingCacheEntries = 50

@@ -1096,5 +1096,6 @@ extension CallKitManager: CXProviderDelegate {
         let rtc = LKRTCAudioSession.sharedInstance()
         rtc.isAudioEnabled = false
         rtc.audioSessionDidDeactivate(audioSession)
+        NotificationCenter.default.post(name: .mezonCallKitAudioReleased, object: nil)
     }
 }

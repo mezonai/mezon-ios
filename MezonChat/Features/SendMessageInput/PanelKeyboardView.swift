@@ -482,6 +482,14 @@ final class PanelKeyboardView: UIView, UIGestureRecognizerDelegate {
         }
     }
 
+    private func isPanTouchOnActiveInnerScroll(_ gesture: UIPanGestureRecognizer) -> Bool {
+        let loc = gesture.location(in: self)
+        let inner = activeInnerScrollView
+        guard inner.window != nil else { return false }
+        let frame = inner.convert(inner.bounds, to: self)
+        return frame.contains(loc)
+    }
+
     private func findFirstResponder(in view: UIView) -> UIResponder? {
         if view.isFirstResponder { return view }
         for sub in view.subviews {
@@ -559,6 +567,16 @@ final class PanelKeyboardView: UIView, UIGestureRecognizerDelegate {
         snapTo(expanded: appliedHeight > midPoint)
     }
 
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer == sheetPanGesture,
+              let pan = gestureRecognizer as? UIPanGestureRecognizer else { return false }
+        guard !isPanTouchOnActiveInnerScroll(pan) else { return false }
+        if let scroll = otherGestureRecognizer.view as? UIScrollView, scroll !== activeInnerScrollView {
+            return true
+        }
+        return false
+    }
+
     override func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard gestureRecognizer == sheetPanGesture else { return true }
 
@@ -569,10 +587,15 @@ final class PanelKeyboardView: UIView, UIGestureRecognizerDelegate {
         if !isPanelTall {
             return true
         }
+
+        let draggingDown = velocity.y > 0
+        if draggingDown, !isPanTouchOnActiveInnerScroll(sheetPanGesture) {
+            return true
+        }
+
         let inner = activeInnerScrollView
         let topY = -inner.adjustedContentInset.top
         let atTop = inner.contentOffset.y <= topY + 0.5
-        let draggingDown = velocity.y > 0
         return atTop && draggingDown
     }
 

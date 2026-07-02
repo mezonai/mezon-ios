@@ -7,6 +7,7 @@ final class MezonHTTPClient {
 
     static let shared = MezonHTTPClient()
     var bearerUnauthorizedRecovery: ((_ failedToken: String, _ statusCode: Int) async throws -> String?)?
+    var bearerTokenProvider: (() async -> String?)?
 
     private let urlSession: URLSession
     private let uploadURLSession: URLSession
@@ -69,6 +70,26 @@ final class MezonHTTPClient {
         return token.isEmpty ? nil : token
     }
 
+    private func isBearerExpiringSoon(_ token: String, marginSeconds: TimeInterval = 60) -> Bool {
+        guard !token.isEmpty else { return true }
+        guard let exp = MezonSession.accessTokenExpiryFromJWT(token) else { return true }
+        return Date() >= exp.addingTimeInterval(-marginSeconds)
+    }
+
+    private func resolveFreshBearer(_ token: String) async -> String {
+        guard isBearerExpiringSoon(token) else { return token }
+        guard let provider = bearerTokenProvider else { return token }
+        if let fresh = await provider(), !fresh.isEmpty {
+            return fresh
+        }
+        return token
+    }
+
+    private func resolveAuth(_ auth: AuthMethod) async -> AuthMethod {
+        guard case .bearer(let token) = auth else { return auth }
+        return .bearer(await resolveFreshBearer(token))
+    }
+
     private func legacyData(for request: URLRequest) async throws -> (Data, URLResponse) {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(Data, URLResponse), Error>) in
             let task = urlSession.dataTask(with: request) { data, response, error in
@@ -120,7 +141,7 @@ final class MezonHTTPClient {
                 }
 
                 let delay = Self.transientRetryDelaysNanoseconds[attempt - 1]
-                MezonRPCLog.response("\(operationName) transient fail attempt=\(attempt) retryDelayMs=\(delay / 1_000_000) error=\(error.localizedDescription)")
+                MezonRPCLog.response("\(operationName) transient fail attempt=\(attempt) retryDelayMs=\(delay / 1_000_000) error=\((error as? MezonError)?.technicalDescription ?? error.localizedDescription)")
                 attempt += 1
                 try await Task.sleep(nanoseconds: delay)
             }
@@ -538,19 +559,21 @@ final class MezonHTTPClient {
     }
 
     private func performListChannelDescs(clanId: Int64, token: String) async throws -> [Mezon_Api_ChannelDescription] {
-        var req = Mezon_Api_ListChannelDescsRequest()
-        req.clanID      = clanId
-        req.limit       = 500
-        req.state       = 1
-        req.page        = 0
-        req.channelType = 1
-        req.isMobile    = true
-        let response: Mezon_Api_ChannelDescList = try await postProto(
-            path: "/mezon.api.Mezon/ListChannelDescs",
-            message: req,
-            auth: .bearer(token)
-        )
-        return response.channeldesc
+        try await retryingTransientRequest(operationName: "ListChannelDescs clanId=\(clanId)") {
+            var req = Mezon_Api_ListChannelDescsRequest()
+            req.clanID      = clanId
+            req.limit       = 500
+            req.state       = 1
+            req.page        = 0
+            req.channelType = 1
+            req.isMobile    = true
+            let response: Mezon_Api_ChannelDescList = try await self.postProto(
+                path: "/mezon.api.Mezon/ListChannelDescs",
+                message: req,
+                auth: .bearer(token)
+            )
+            return response.channeldesc
+        }
     }
 
     func listCategoryDescs(clanId: Int64, token: String) async throws -> [Mezon_Api_CategoryDesc] {
@@ -2156,7 +2179,8 @@ final class MezonHTTPClient {
     }
 
     func get<T: Decodable>(path: String, queryItems: [URLQueryItem] = [], token: String) async throws -> T {
-        let req = try buildRequest(method: "GET", path: path, queryItems: queryItems, body: Optional<EmptyBody>.none, auth: .bearer(token))
+        let effective = await resolveFreshBearer(token)
+        let req = try buildRequest(method: "GET", path: path, queryItems: queryItems, body: Optional<EmptyBody>.none, auth: .bearer(effective))
         return try await execute(req, allowBearerRetry: true)
     }
 
@@ -2171,7 +2195,8 @@ final class MezonHTTPClient {
         body: Body,
         auth: AuthMethod
     ) async throws -> Response {
-        let req = try buildRequest(method: "POST", path: path, queryItems: queryItems, body: body, auth: auth)
+        let resolvedAuth = await resolveAuth(auth)
+        let req = try buildRequest(method: "POST", path: path, queryItems: queryItems, body: body, auth: resolvedAuth)
         return try await execute(req, allowBearerRetry: true)
     }
 
@@ -2245,7 +2270,7 @@ final class MezonHTTPClient {
                 MezonRPCLog.response("route api='\(apiName)' HTTP-FIRST ok (skipped socket)")
                 return response
             } catch {
-                MezonRPCLog.response("route api='\(apiName)' HTTP-FIRST fail error=\(error.localizedDescription) → SOCKET fallback")
+                MezonRPCLog.response("route api='\(apiName)' HTTP-FIRST fail error=\((error as? MezonError)?.technicalDescription ?? error.localizedDescription) → SOCKET fallback")
                 if singleTransportOnly, !isTransientHTTPFailure(error) {
                     throw error
                 }
@@ -2354,7 +2379,7 @@ final class MezonHTTPClient {
             if ms >= 3000 {
                 await MezonSocket.shared.noteApiRequestTimedOut()
             }
-            MezonRPCLog.response("route api='\(apiName)' SOCKET fail elapsedMs=\(ms) error=\(error.localizedDescription) → HTTP fallback")
+            MezonRPCLog.response("route api='\(apiName)' SOCKET fail elapsedMs=\(ms) error=\((error as? MezonError)?.technicalDescription ?? error.localizedDescription) → HTTP fallback")
             return nil
         }
     }
@@ -2365,12 +2390,13 @@ final class MezonHTTPClient {
         auth: AuthMethod,
         allowBearerRetry: Bool = true
     ) async throws -> Response {
+        let resolvedAuth = await resolveAuth(auth)
         let url = protoBaseURL.appendingPathComponent(path)
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/proto", forHTTPHeaderField: "Content-Type")
         request.setValue("application/proto", forHTTPHeaderField: "Accept")
-        switch auth {
+        switch resolvedAuth {
         case .serverKey:
             request.setValue(MezonConfig.basicAuthHeader, forHTTPHeaderField: "Authorization")
         case .bearer(let token):
@@ -2400,7 +2426,7 @@ final class MezonHTTPClient {
 
         if allowBearerRetry,
            isBearerAuthenticationFailure(httpStatusCode: http.statusCode, data: data),
-           case .bearer(let failedToken) = auth,
+           case .bearer(let failedToken) = resolvedAuth,
            let recovery = bearerUnauthorizedRecovery {
             let newToken = try await recovery(failedToken, http.statusCode)
             if let newToken,
@@ -2464,12 +2490,13 @@ final class MezonHTTPClient {
         auth: AuthMethod,
         allowBearerRetry: Bool = true
     ) async throws {
+        let resolvedAuth = await resolveAuth(auth)
         let url = protoBaseURL.appendingPathComponent(path)
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/proto", forHTTPHeaderField: "Content-Type")
         request.setValue("application/proto", forHTTPHeaderField: "Accept")
-        switch auth {
+        switch resolvedAuth {
         case .serverKey:
             request.setValue(MezonConfig.basicAuthHeader, forHTTPHeaderField: "Authorization")
         case .bearer(let token):
@@ -2487,7 +2514,7 @@ final class MezonHTTPClient {
 
         if allowBearerRetry,
            isBearerAuthenticationFailure(httpStatusCode: http.statusCode, data: data),
-           case .bearer(let failedToken) = auth,
+           case .bearer(let failedToken) = resolvedAuth,
            let recovery = bearerUnauthorizedRecovery {
             let newToken = try await recovery(failedToken, http.statusCode)
             if let newToken,
@@ -2887,6 +2914,10 @@ enum MezonError: LocalizedError {
     case socketError(String)
 
     var errorDescription: String? {
+        L(L10n.Error.somethingWentWrong)
+    }
+
+    var technicalDescription: String {
         switch self {
         case .invalidResponse:              return "Invalid server response."
         case .httpError(let c, let msg):    return "HTTP \(c): \(msg)"

@@ -85,7 +85,7 @@ final class ChannelListContainerNode: ASDisplayNode {
     private var animateNextContentReplace = false
 
     private var shouldDeferLeadingSectionTableMutations: Bool {
-        isClanSwitching || deferOnboardingTableUpdates
+        isClanSwitching || deferOnboardingTableUpdates || !tableIsInWindow
     }
     private var nodeIsVisible = false
     private var pendingVisibleReconcile = false
@@ -271,7 +271,7 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private func reloadCategoryHeadersIfNamesChanged(prev: ChannelListState, new: ChannelListState) {
-        guard isNodeLoaded, prev.categories.count == new.categories.count else { return }
+        guard isNodeLoaded, tableIsInWindow, prev.categories.count == new.categories.count else { return }
         let offset = leadingTableSectionsCount
         var sections = IndexSet()
         for (i, pair) in zip(prev.categories, new.categories).enumerated() {
@@ -1325,14 +1325,28 @@ final class ChannelListContainerNode: ASDisplayNode {
         super.didEnterVisibleState()
         nodeIsVisible = true
         interaction.onBecameVisible?()
-        if pendingVisibleReconcile {
-            let shouldResetScroll = pendingVisibleReconcileShouldResetScroll
-            pendingVisibleReconcile = false
-            pendingVisibleReconcileShouldResetScroll = false
-            cachedRows = [:]
-            cachedHeaders = [:]
-            applyCrossfadeReload(resetScroll: shouldResetScroll)
+        drainPendingVisibleReconcile()
+    }
+
+    override func didEnterHierarchy() {
+        super.didEnterHierarchy()
+        drainPendingVisibleReconcile()
+    }
+
+    private func drainPendingVisibleReconcile(attempt: Int = 0) {
+        guard nodeIsVisible, pendingVisibleReconcile else { return }
+        if !tableIsInWindow, attempt < 8 {
+            DispatchQueue.main.async { [weak self] in
+                self?.drainPendingVisibleReconcile(attempt: attempt + 1)
+            }
+            return
         }
+        let shouldResetScroll = pendingVisibleReconcileShouldResetScroll
+        pendingVisibleReconcile = false
+        pendingVisibleReconcileShouldResetScroll = false
+        cachedRows = [:]
+        cachedHeaders = [:]
+        applyCrossfadeReload(resetScroll: shouldResetScroll)
     }
 
     override func didExitVisibleState() {
@@ -1569,7 +1583,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         }
         let afterVisible = onboardingBannerVisible
 
-        guard !deferOnboardingTableUpdates else {
+        guard !deferOnboardingTableUpdates, tableIsInWindow else {
             if beforeVisible != afterVisible {
                 scheduleReload()
             }
@@ -1628,7 +1642,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         memberOnboardingState = state
         let afterVisible = onboardingBannerVisible
 
-        guard !deferOnboardingTableUpdates else {
+        guard !deferOnboardingTableUpdates, tableIsInWindow else {
             if beforeVisible != afterVisible {
                 scheduleReload()
             }
