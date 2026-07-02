@@ -1379,7 +1379,7 @@ final class AccountContextImpl: AccountContext {
     }
 
     private func handleSocketNotification(_ noti: Mezon_Api_Notification) {
-        if noti.code == -3 { // NOTIFICATION_CODE_FRIEND_ACCEPT
+        if noti.code == -3 { 
             var senderName = ""
             if !noti.content.isEmpty {
                 let firstByte = noti.content.first ?? 0
