@@ -1415,6 +1415,30 @@ final class AccountContextImpl: AccountContext {
     }
 
     private func handleSocketNotification(_ noti: Mezon_Api_Notification) {
+        if noti.code == -3 { 
+            var senderName = ""
+            if !noti.content.isEmpty {
+                let firstByte = noti.content.first ?? 0
+                if firstByte == 123 || firstByte == 91 {
+                    if let obj = try? JSONSerialization.jsonObject(with: noti.content) as? [String: Any] {
+                        let dn = obj["display_name"] as? String ?? ""
+                        senderName = dn.isEmpty ? (obj["username"] as? String ?? "") : dn
+                    }
+                } else {
+                    if let fcm = try? Mezon_Api_DirectFcmProto(serializedBytes: noti.content) {
+                        senderName = fcm.displayName.isEmpty ? fcm.username : fcm.displayName
+                    }
+                }
+            }
+            if senderName.isEmpty {
+                senderName = engine.account.postbox.read { tx in tx.getProfile(userId: String(noti.senderID))?.displayName } ?? "Someone"
+            }
+            let message = String(format: L(L10n.FriendRequest.toastAcceptSuccess), senderName)
+            Toast.success(message)
+            engine.friendsData.scheduleRefreshFromSocket()
+            return
+        }
+
         guard noti.channelID != 0 else { return }
         if currentChannel?.channelID == noti.channelID, noti.clanID != 0 { return }
 
