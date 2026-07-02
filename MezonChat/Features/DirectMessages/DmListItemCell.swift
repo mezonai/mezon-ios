@@ -337,7 +337,6 @@ final class DmListItemCell: UITableViewCell {
         if !hasHeaderPayload {
             let ts = max(
                 channel.updateTimeSeconds,
-                channel.lastSeenMessage.timestampSeconds,
                 channel.createTimeSeconds
             )
             return ts > 0 ? formatRelativeTime(timestamp: ts) : ""
