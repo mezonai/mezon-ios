@@ -1216,6 +1216,7 @@ enum L10n {
         static let toastWaitAccept    = "friendRequest.toastWaitAccept"
         static let toastIncomingReq   = "friendRequest.toastIncomingReq"
         static let toastSendSuccess   = "friendRequest.toastSendSuccess"
+        static let toastAcceptSuccess = "friendRequest.toastAcceptSuccess"
     }
 
     enum FriendList {
@@ -2187,6 +2188,7 @@ extension L10n {
         "friendRequest.toastWaitAccept": "You have already sent a friend request to this user!",
         "friendRequest.toastIncomingReq": "This user already sent you a friend request",
         "friendRequest.toastSendSuccess": "Friend request sent successfully!",
+        "friendRequest.toastAcceptSuccess": "%@ accepted your friend request",
 
         "friendList.title": "Friends",
         "friendList.friendCount": "Friends",
@@ -3397,6 +3399,7 @@ extension L10n {
         "friendRequest.toastWaitAccept": "Bạn đã gửi yêu cầu kết bạn tới người dùng này rồi!",
         "friendRequest.toastIncomingReq": "Người này đã gửi yêu cầu kết bạn cho bạn",
         "friendRequest.toastSendSuccess": "Yêu cầu kết bạn đã được gửi thành công!",
+        "friendRequest.toastAcceptSuccess": "%@ đã chấp nhận yêu cầu kết bạn của bạn",
         "profile.mezonTransfer": "Chuyển tiền qua Mezon",
         "profile.historyTransaction": "Lịch sử giao dịch",
         "profile.historyAll": "Tất cả",
