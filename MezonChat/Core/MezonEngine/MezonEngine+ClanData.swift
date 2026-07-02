@@ -1114,7 +1114,7 @@ extension MezonEngine {
             persistFriends(list)
         }
 
-        private func scheduleRefreshFromSocket() {
+        func scheduleRefreshFromSocket() {
             socketRefreshTask?.cancel()
             socketRefreshTask = Task { [weak self] in
                 guard let self else { return }

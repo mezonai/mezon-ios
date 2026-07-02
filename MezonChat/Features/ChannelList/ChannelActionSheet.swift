@@ -41,7 +41,7 @@ enum ChannelAction: CaseIterable {
         case .threads: return "Channel/channelThread"
         case .editChannel: return "Profile/SettingIcon"
         case .deleteChannel: return "ChannelSetting/DeleteIcon"
-        case .leaveThread: return "ChannelSetting/LeaveGroupIcon"
+        case .leaveThread: return "Profile/RemoveFriendIcon"
         }
     }
 
