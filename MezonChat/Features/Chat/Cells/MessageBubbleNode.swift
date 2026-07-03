@@ -87,6 +87,8 @@ final class MessageBubbleNode: ASDisplayNode {
     private var cachedForwardLabelSize: CGSize = .zero
     private var cachedTotalSize: CGSize = .zero
 
+    var layoutContentSize: CGSize { cachedTotalSize }
+
     private let forwardLeftBarNode: ASDisplayNode?
     private let forwardHeaderIconNode: ASImageNode?
     private let forwardHeaderLabelNode: ASTextNode2?
@@ -542,6 +544,45 @@ final class MessageBubbleNode: ASDisplayNode {
         return false
     }
 
+    @discardableResult
+    func updateMediaPresentation(_ newDisplay: ChatMessageDisplay) -> Bool {
+        let oldDisplay = display
+        display = newDisplay
+        isFailed = newDisplay.isFailed
+
+        if Self.shouldShowEditedLabel(for: oldDisplay) != Self.shouldShowEditedLabel(for: newDisplay) {
+            applyEditedNode(for: newDisplay)
+        }
+
+        let newMediaAttachments = newDisplay.attachments.filter(\.isMedia)
+        let oldMediaAttachments = oldDisplay.attachments.filter(\.isMedia)
+        let needsRelayout = syncMediaContent(oldMedia: oldMediaAttachments, newMedia: newMediaAttachments)
+        if needsRelayout {
+            let _ = measureSize(width: max(cachedTotalSize.width, 1))
+            setNeedsLayout()
+        }
+        return needsRelayout
+    }
+
+    func updateMediaUploadState(_ newDisplay: ChatMessageDisplay) {
+        _ = updateMediaPresentation(newDisplay)
+    }
+
+    @discardableResult
+    private func syncMediaContent(oldMedia: [ParsedAttachment], newMedia: [ParsedAttachment]) -> Bool {
+        guard let mediaContentNode else { return false }
+        let handoff = Self.isUploadFinalizeHandoff(oldMedia, newMedia)
+        let contentChanged = !ParsedAttachment.attachmentsDimensionsEqual(oldMedia, newMedia)
+        let uploadChanged = !ParsedAttachment.attachmentsUploadStateEqual(oldMedia, newMedia)
+        guard handoff || contentChanged || uploadChanged else { return false }
+
+        if !ParsedAttachment.attachmentsIdentityEqual(oldMedia, newMedia) {
+            mediaContentNode.configure(media: newMedia)
+            return true
+        }
+        return mediaContentNode.applyMediaIncrementalUpdate(from: oldMedia, to: newMedia)
+    }
+
     func updateDisplay(_ newDisplay: ChatMessageDisplay) {
         let oldDisplay = self.display
         let oldFailed = self.isFailed
@@ -776,16 +817,12 @@ final class MessageBubbleNode: ASDisplayNode {
         let newMediaAttachments = newDisplay.attachments.filter(\.isMedia)
         let oldMediaAttachments = oldDisplay.attachments.filter(\.isMedia)
         let mediaContentChanged = !Self.mediaAttachmentsContentEqual(oldMediaAttachments, newMediaAttachments)
-        let mediaUploadStateChanged = !Self.mediaAttachmentsUploadStateEqual(oldMediaAttachments, newMediaAttachments)
-        let mediaUploadHandoff = Self.isUploadFinalizeHandoff(oldMediaAttachments, newMediaAttachments)
-        if mediaUploadHandoff {
-            mediaContentNode?.updateUploadOverlays(media: newMediaAttachments)
-            mediaContentNode?.setNeedsLayout()
-        } else if mediaContentChanged {
-            mediaContentNode?.configure(media: newMediaAttachments)
-        } else if mediaUploadStateChanged {
-            mediaContentNode?.updateUploadOverlays(media: newMediaAttachments)
-            mediaContentNode?.setNeedsLayout()
+        let mediaDimensionsOnlyChanged = mediaContentChanged
+            && Self.mediaAttachmentsURLsEqual(oldMediaAttachments, newMediaAttachments)
+        let mediaRelayoutNeeded = syncMediaContent(oldMedia: oldMediaAttachments, newMedia: newMediaAttachments)
+        if mediaRelayoutNeeded {
+            let _ = measureSize(width: max(cachedTotalSize.width, 1))
+            setNeedsLayout()
         }
 
         let fileFilter: (ParsedAttachment) -> Bool = {
@@ -852,7 +889,7 @@ final class MessageBubbleNode: ASDisplayNode {
 
         let needsRelayout = nameChanged || timeChanged || textChanged || callLogChanged
             || editedChanged
-            || mediaContentChanged
+            || (mediaContentChanged && !mediaDimensionsOnlyChanged && !mediaRelayoutNeeded)
             || filesChanged
             || mentionHighlightChanged
             || senderChanged
@@ -877,13 +914,11 @@ final class MessageBubbleNode: ASDisplayNode {
     }
 
     private static func mediaAttachmentsContentEqual(_ lhs: [ParsedAttachment], _ rhs: [ParsedAttachment]) -> Bool {
-        guard lhs.count == rhs.count else { return false }
-        for (l, r) in zip(lhs, rhs) {
-            if l.width != r.width || l.height != r.height || l.durationSeconds != r.durationSeconds {
-                return false
-            }
-        }
-        return true
+        ParsedAttachment.attachmentsDimensionsEqual(lhs, rhs)
+    }
+
+    private static func mediaAttachmentsURLsEqual(_ lhs: [ParsedAttachment], _ rhs: [ParsedAttachment]) -> Bool {
+        ParsedAttachment.attachmentsIdentityEqual(lhs, rhs)
     }
 
     private static func mediaAttachmentsUploadStateEqual(_ lhs: [ParsedAttachment], _ rhs: [ParsedAttachment]) -> Bool {

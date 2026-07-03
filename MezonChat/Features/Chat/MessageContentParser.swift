@@ -127,7 +127,7 @@ struct ParsedContent {
 enum ContentTokenKind: Equatable {
     case emoji(emojiId: String)
     case mention(userId: String?, roleId: String?, username: String?)
-    case hashtag(channelId: String?, clanId: String?, channelLabel: String?, channelType: Int32?, channelPrivate: Int32?, ageRestricted: Int32?)
+    case hashtag(channelId: String?, clanId: String?, parentId: String?, channelLabel: String?, channelType: Int32?, channelPrivate: Int32?, ageRestricted: Int32?)
     case mezonChannelLink(isVoiceLinkMarkdown: Bool, channelId: String, clanId: String)
     case inlineCode
     case codeBlock
@@ -324,6 +324,7 @@ enum MessageContentParser {
                   let e = intValue(item["e"]) else { return nil }
             let channelId = stringValue(item["channelId"]) ?? stringValue(item["channelid"])
             let clanId = stringValue(item["clanId"])
+            let parentId = stringValue(item["parentId"]) ?? stringValue(item["parentid"])
             let channelLabel = stringValue(item["channelLabel"]) ?? stringValue(item["channelIabel"])
             let channelType = int32Value(item["channelType"]) ?? int32Value(item["type"])
             let channelPrivate = int32Value(item["channelPrivate"]) ?? 0
@@ -331,7 +332,7 @@ enum MessageContentParser {
             return ContentToken(
                 start: s, end: e,
                 kind: .hashtag(
-                    channelId: channelId, clanId: clanId, channelLabel: channelLabel,
+                    channelId: channelId, clanId: clanId, parentId: parentId, channelLabel: channelLabel,
                     channelType: channelType, channelPrivate: channelPrivate, ageRestricted: ageRestricted
                 )
             )

@@ -208,6 +208,17 @@ final class AccountContextImpl: AccountContext {
                 do {
                     try await self.refreshSession()
                     return true
+                } catch let error as MezonError {
+                    if case .httpError(let code, _) = error, code == 401 || code == 403 {
+                        self.notifySessionExpiredAndStopRecovery()
+                        return false
+                    }
+                    if attempt < 2 {
+                        try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    }
+                } catch is SessionError {
+                    self.notifySessionExpiredAndStopRecovery()
+                    return false
                 } catch {
                     if attempt < 2 {
                         try? await Task.sleep(nanoseconds: 1_000_000_000)
@@ -322,6 +333,7 @@ final class AccountContextImpl: AccountContext {
         }
         SessionExpiredModal.removeOverlayIfPresented()
         account.network.bearerUnauthorizedRecovery = nil
+        account.network.bearerTokenProvider = nil
         socketEventsDisposable?.dispose()
         socketEventsDisposable = nil
         let s = session
@@ -485,6 +497,7 @@ final class AccountContextImpl: AccountContext {
         activeBearerRecoveryTask?.cancel()
         activeBearerRecoveryTask = nil
         account.network.bearerUnauthorizedRecovery = nil
+        account.network.bearerTokenProvider = nil
         account.socket.disconnect()
         SessionRefreshManager.shared.reset()
         return true
@@ -560,6 +573,9 @@ final class AccountContextImpl: AccountContext {
             }
         }
 
+        if let s = session, Date() >= s.expiresAt, NetworkMonitor.shared.isConnected {
+            notifySessionExpiredAndStopRecovery()
+        }
         return false
     }
 
@@ -639,6 +655,11 @@ final class AccountContextImpl: AccountContext {
                 failedToken: failedToken,
                 statusCode: statusCode
             )
+        }
+
+        account.network.bearerTokenProvider = { [weak self] in
+            guard let self else { return nil }
+            return await self.getToken()
         }
 
         if socketEventsDisposable == nil {

@@ -6,11 +6,13 @@ enum ScreenScale {
     static let baseHeight: CGFloat = 844
 
     static let width: CGFloat = {
-        (UIScreen.main.bounds.width / baseWidth).clamped(to: 0.85...1.25)
+        let size = UIScreen.main.bounds.size
+        return (min(size.width, size.height) / baseWidth).clamped(to: 0.85...1.25)
     }()
 
     static let height: CGFloat = {
-        (UIScreen.main.bounds.height / baseHeight).clamped(to: 0.82...1.25)
+        let size = UIScreen.main.bounds.size
+        return (max(size.width, size.height) / baseHeight).clamped(to: 0.82...1.25)
     }()
 
     static let square: CGFloat = min(width, height)

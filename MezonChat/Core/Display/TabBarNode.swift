@@ -14,7 +14,8 @@ extension UITabBarItem {
 
 private enum TabBarLayoutScale {
     static var value: CGFloat {
-        let w = UIScreen.main.bounds.width
+        let size = UIScreen.main.bounds.size
+        let w = min(size.width, size.height)
         return min(max(w / 375, 1), 1.25)
     }
 }

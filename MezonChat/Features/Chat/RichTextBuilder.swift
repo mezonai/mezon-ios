@@ -301,13 +301,21 @@ enum RichTextBuilder {
                 let displayText = rawText.isEmpty ? "@unknown" : rawText
                 result.append(NSAttributedString(string: displayText, attributes: attrs))
 
-            case .hashtag(let channelId, let clanId, let channelLabel, let channelType, let channelPrivate, let ageRestricted):
-                let chType = channelType ?? MezonConstants.ChannelType.channel.rawValue
+            case .hashtag(let channelId, let clanId, let parentId, let channelLabel, let channelType, let channelPrivate, let ageRestricted):
+                let hasEmbeddedLabel = !(channelLabel ?? "").isEmpty
+                let chType = channelType ?? (hasEmbeddedLabel
+                    ? MezonConstants.ChannelType.thread.rawValue
+                    : MezonConstants.ChannelType.channel.rawValue)
                 let chPriv = channelPrivate ?? 0
                 let chAge = ageRestricted ?? 0
                 let cid = channelId ?? ""
                 let gidForAccess = (clanId ?? "").isEmpty ? nil : clanId
-                let accessible = !cid.isEmpty && (hashtagChannelAccess?(cid, gidForAccess) ?? true)
+                var accessible = !cid.isEmpty && (hashtagChannelAccess?(cid, gidForAccess) ?? true)
+                if !accessible, hasEmbeddedLabel, chPriv == 0,
+                   let pid = parentId, !pid.isEmpty, pid != "0",
+                   let access = hashtagChannelAccess {
+                    accessible = access(pid, gidForAccess)
+                }
                 let iconName: String
                 if accessible {
                     iconName = Mezon_Api_ChannelDescription.channelListIconAssetName(

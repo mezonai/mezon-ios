@@ -1151,6 +1151,12 @@ enum L10n {
         static let sessionExpiredConfirm  = "error.sessionExpiredConfirm"
     }
 
+    enum ClanSwitch {
+        static let rapidTitle   = "clanSwitch.rapidTitle"
+        static let rapidMessage = "clanSwitch.rapidMessage"
+        static let rapidConfirm = "clanSwitch.rapidConfirm"
+    }
+
     enum ChannelDetail {
         static let members = "channelDetail.members"
         static let media   = "channelDetail.media"
@@ -2406,6 +2412,10 @@ extension L10n {
         "error.sessionExpiredContent":  "Your session has expired. Please log in again to continue.",
         "error.sessionExpiredConfirm":  "Login Again",
 
+        "clanSwitch.rapidTitle":   "Slow down a little",
+        "clanSwitch.rapidMessage": "You're switching clans quite fast. Give the channel list a few seconds to load so nothing gets interrupted.",
+        "clanSwitch.rapidConfirm": "Got it",
+
         "channelDetail.members": "Members",
         "channelDetail.media":   "Media",
         "channelDetail.files":   "Files",
@@ -3617,6 +3627,10 @@ extension L10n {
         "error.sessionExpiredContent":
             "Phiên đăng nhập của bạn đã hết hạn. Vui lòng đăng nhập lại.",
         "error.sessionExpiredConfirm": "Đăng nhập lại",
+
+        "clanSwitch.rapidTitle":   "Chậm lại một chút nhé",
+        "clanSwitch.rapidMessage": "Bạn đang chuyển clan khá nhanh. Đợi vài giây cho danh sách kênh tải xong để tránh bị gián đoạn nha!",
+        "clanSwitch.rapidConfirm": "Đã hiểu",
 
         "channelDetail.members": "Thành viên",
         "channelDetail.media":   "Phương tiện",

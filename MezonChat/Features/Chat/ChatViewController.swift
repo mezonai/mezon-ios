@@ -96,11 +96,43 @@ struct ParsedAttachment: Equatable {
     static func attachmentsUploadStateEqual(_ lhs: [ParsedAttachment], _ rhs: [ParsedAttachment]) -> Bool {
         guard lhs.count == rhs.count else { return false }
         for (l, r) in zip(lhs, rhs) {
-            if l.isUploading != r.isUploading || l.uploadFailed != r.uploadFailed {
+            if l.isUploading != r.isUploading || l.uploadFailed != r.uploadFailed
+                || l.isPresignPending != r.isPresignPending {
                 return false
             }
         }
         return true
+    }
+
+    static func attachmentsIdentityEqual(_ lhs: [ParsedAttachment], _ rhs: [ParsedAttachment]) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        for (l, r) in zip(lhs, rhs) {
+            if l.url != r.url || l.filename != r.filename || l.filetype != r.filetype || l.thumbnail != r.thumbnail {
+                return false
+            }
+        }
+        return true
+    }
+
+    static func attachmentsDimensionsEqual(_ lhs: [ParsedAttachment], _ rhs: [ParsedAttachment]) -> Bool {
+        guard lhs.count == rhs.count else { return false }
+        for (l, r) in zip(lhs, rhs) {
+            if l.width != r.width || l.height != r.height || l.durationSeconds != r.durationSeconds {
+                return false
+            }
+        }
+        return true
+    }
+
+    static func slotPresentationEqual(_ lhs: ParsedAttachment, _ rhs: ParsedAttachment) -> Bool {
+        lhs.width == rhs.width
+            && lhs.height == rhs.height
+            && lhs.durationSeconds == rhs.durationSeconds
+            && lhs.isPresignPending == rhs.isPresignPending
+            && lhs.isUploading == rhs.isUploading
+            && lhs.uploadFailed == rhs.uploadFailed
+            && (lhs.localImage == nil) == (rhs.localImage == nil)
+            && (!lhs.isUploading || !rhs.isUploading || lhs.uploadProgress == rhs.uploadProgress)
     }
 
     private static let maxPendingCacheEntries = 50
@@ -4822,7 +4854,7 @@ final class ChatViewController: ViewController {
                     token: token, isVk: isVk, channelId: cid, clanId: gid,
                     channels: channels, fallbackClan: fallbackClan, fallbackClanId: fallbackClanId
                 )
-            case .hashtag(let cid, let clanIdOpt, let label, let ctype, _, _):
+            case .hashtag(let cid, let clanIdOpt, let parentIdOpt, let label, let ctype, _, _):
                 if ctype != nil { return token }
                 guard let cid, !cid.isEmpty, let idInt = Int64(cid) else { return token }
                 let clanInt = clanIdOpt.flatMap { Int64($0) } ?? fallbackClan
@@ -4833,6 +4865,7 @@ final class ChatViewController: ViewController {
                         kind: .hashtag(
                             channelId: cid,
                             clanId: clanIdOpt,
+                            parentId: parentIdOpt ?? (ch.parentID != 0 ? "\(ch.parentID)" : nil),
                             channelLabel: label,
                             channelType: ch.type,
                             channelPrivate: ch.channelPrivate,
@@ -4874,6 +4907,7 @@ final class ChatViewController: ViewController {
                 kind: .hashtag(
                     channelId: channelId,
                     clanId: clanOut,
+                    parentId: ch.parentID != 0 ? "\(ch.parentID)" : nil,
                     channelLabel: ch.channelLabel,
                     channelType: ch.type,
                     channelPrivate: ch.channelPrivate,
@@ -4891,6 +4925,7 @@ final class ChatViewController: ViewController {
             kind: .hashtag(
                 channelId: channelId,
                 clanId: clanOut,
+                parentId: nil,
                 channelLabel: defaultLabel,
                 channelType: defaultType,
                 channelPrivate: 0,

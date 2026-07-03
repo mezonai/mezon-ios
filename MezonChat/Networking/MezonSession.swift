@@ -20,6 +20,8 @@ struct MezonSession: Codable {
         Date() >= expiresAt.addingTimeInterval(-60)
     }
 
+    static let unresolvedExpiryFallbackSeconds: TimeInterval = 300
+
     var wsHostname: String? {
         guard let wsURL, let url = URL(string: wsURL) else { return nil }
         return url.host
@@ -60,7 +62,7 @@ struct MezonSession: Codable {
         } else if let ts = try? c.decode(Double.self, forKey: CodingKeys.expiresAt) {
             expiresAt = Date(timeIntervalSince1970: ts)
         } else {
-            expiresAt = Date().addingTimeInterval(3600)
+            expiresAt = Date().addingTimeInterval(Self.unresolvedExpiryFallbackSeconds)
         }
     }
 
@@ -79,7 +81,7 @@ struct MezonSession: Codable {
     }
 
     static func fromProto(_ proto: Mezon_Api_Session) -> MezonSession {
-        let expiresAt = accessTokenExpiryFromJWT(proto.token) ?? Date().addingTimeInterval(3600)
+        let expiresAt = accessTokenExpiryFromJWT(proto.token) ?? Date().addingTimeInterval(unresolvedExpiryFallbackSeconds)
         return MezonSession(
             token: proto.token,
             refreshToken: proto.refreshToken,
@@ -94,7 +96,7 @@ struct MezonSession: Codable {
         )
     }
 
-    private static func accessTokenExpiryFromJWT(_ token: String) -> Date? {
+    static func accessTokenExpiryFromJWT(_ token: String) -> Date? {
         let parts = token.split(separator: ".")
         guard parts.count >= 2 else { return nil }
         var payload = String(parts[1])

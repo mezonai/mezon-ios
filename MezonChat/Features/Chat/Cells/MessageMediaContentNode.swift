@@ -219,6 +219,7 @@ final class MessageMediaContentNode: ASDisplayNode {
     private var remoteLoadRetryCountByIndex: [Int: Int] = [:]
     private var uploadingOverlayByProgressKey: [String: MediaUploadingOverlayNode] = [:]
     private var slotOverlayKindByIndex: [Int: MediaSlotOverlayKind] = [:]
+    private var pendingRevealAnimationIndices: Set<Int> = []
 
     private enum MediaSlotOverlayKind: Equatable {
         case none
@@ -228,6 +229,8 @@ final class MessageMediaContentNode: ASDisplayNode {
     }
 
     private static let maxRemoteLoadRetries = 3
+    private static let cdnRevealDuration: Double = 0.22
+    private static let skeletonFadeDuration: Double = 0.18
 
     private var mediaTapGesture: UITapGestureRecognizer?
 
@@ -393,6 +396,7 @@ final class MessageMediaContentNode: ASDisplayNode {
         remoteLoadRetryCountByIndex.removeAll()
         uploadingOverlayByProgressKey.removeAll()
         slotOverlayKindByIndex.removeAll()
+        pendingRevealAnimationIndices.removeAll()
         cachedImageFrames = []
         cachedPositions = []
         lastMeasureSignature = nil
@@ -428,7 +432,10 @@ final class MessageMediaContentNode: ASDisplayNode {
             let skeleton = addSkeletonNode(at: 0, cornerRadius: 8.swh, for: att)
             let node = TransformImageNode()
             node.isUserInteractionEnabled = false
-            node.contentAnimations = [.firstUpdate]
+            node.contentAnimations = []
+            if Self.shouldAnimateRemoteReveal(for: att) {
+                markSlotForRevealAnimation(at: 0, node: node)
+            }
             wireImageLoadCallbacks(index: 0, node: node, skeleton: skeleton, placeholder: placeholder)
             imageNodes.append(node)
             addSubnode(node)
@@ -445,7 +452,10 @@ final class MessageMediaContentNode: ASDisplayNode {
                 let skeleton = addSkeletonNode(at: i, cornerRadius: 0, for: att)
                 let node = TransformImageNode()
                 node.isUserInteractionEnabled = false
-                node.contentAnimations = att.isUploading ? [] : [.firstUpdate]
+                node.contentAnimations = []
+                if Self.shouldAnimateRemoteReveal(for: att) {
+                    markSlotForRevealAnimation(at: i, node: node)
+                }
                 wireImageLoadCallbacks(index: i, node: node, skeleton: skeleton, placeholder: placeholder)
                 imageNodes.append(node)
                 addSubnode(node)
@@ -567,7 +577,7 @@ final class MessageMediaContentNode: ASDisplayNode {
                 boundingSize: frame.size,
                 intrinsicInsets: .zero
             )
-            if node.currentArguments != args {
+            if shouldRefreshImageArguments(node: node, args: args) {
                 node.setArguments(args)
             }
             skeletonNodesByIndex[i]?.frame = frame
@@ -693,35 +703,24 @@ final class MessageMediaContentNode: ASDisplayNode {
     private func ensureRemoteImageLoaded(at index: Int, media: ParsedAttachment, isMultiple: Bool) {
         guard media.localImage == nil else { return }
         guard !media.isPresignPending else { return }
-        let sourceURL: String
-        if media.isVideo {
-            guard !media.thumbnail.isEmpty else { return }
-            sourceURL = media.thumbnail
-        } else {
-            sourceURL = media.url
-        }
-        guard !sourceURL.isEmpty else { return }
+        guard let urls = remoteImageURLs(for: media) else { return }
         guard index < imageNodes.count else { return }
         let node = imageNodes[index]
-        let w = 400
-        let h = 400
+        let proxyURL = urls.proxyURL
+        let sourceURL = urls.sourceURL
         let resizeMode: ImageResizeMode = isMultiple ? .fill : .fit
-        let proxyURL = ImgproxyURL.attachmentURL(
-            from: sourceURL,
-            width: w,
-            height: h,
-            resizeType: isMultiple ? "fill" : "fit"
-        )
         if lastRemoteProxyURLByIndex[index] == proxyURL {
             if node.image != nil { return }
             if remoteLoadInFlightByIndex.contains(index) { return }
         } else {
             lastRemoteProxyURLByIndex[index] = proxyURL
-            node.reset()
-            if let skeleton = skeletonNodesByIndex[index], skeleton.supernode == nil {
-                insertSubnode(skeleton, belowSubnode: node)
+            if node.image == nil {
+                node.reset()
+                if let skeleton = skeletonNodesByIndex[index], skeleton.supernode == nil {
+                    insertSubnode(skeleton, belowSubnode: node)
+                }
+                skeletonNodesByIndex[index]?.isHidden = false
             }
-            skeletonNodesByIndex[index]?.isHidden = false
         }
         remoteLoadInFlightByIndex.insert(index)
         let hasMem = ImageCache.shared.memoryImage(forKey: proxyURL) != nil
@@ -811,16 +810,223 @@ final class MessageMediaContentNode: ASDisplayNode {
     }
 
     func updateUploadOverlays(media: [ParsedAttachment]) {
-        guard media.count == attachments.count else {
+        let oldMedia = attachments
+        guard media.count == oldMedia.count else {
             configure(media: media)
             return
         }
-        attachments = media
-        isUploading = media.contains { $0.isUploading }
-        for (i, att) in media.enumerated() {
-            setSlotOverlay(at: i, for: att)
+        _ = applyMediaIncrementalUpdate(from: oldMedia, to: media)
+    }
+
+    func applyMediaDimensionsUpdate(media: [ParsedAttachment]) {
+        let oldMedia = attachments
+        guard media.count == oldMedia.count else {
+            configure(media: media)
+            return
         }
-        setNeedsLayout()
+        _ = applyMediaIncrementalUpdate(from: oldMedia, to: media)
+    }
+
+    @discardableResult
+    func applyMediaUploadStateUpdate(media: [ParsedAttachment]) -> Bool {
+        let oldMedia = attachments
+        guard media.count == oldMedia.count else {
+            configure(media: media)
+            return true
+        }
+        return applyMediaIncrementalUpdate(from: oldMedia, to: media)
+    }
+
+    @discardableResult
+    func applyMediaIncrementalUpdate(from oldMedia: [ParsedAttachment], to newMedia: [ParsedAttachment]) -> Bool {
+        guard newMedia.count == attachments.count, oldMedia.count == newMedia.count else {
+            configure(media: newMedia)
+            return true
+        }
+        guard ParsedAttachment.attachmentsIdentityEqual(oldMedia, newMedia) else {
+            configure(media: newMedia)
+            return true
+        }
+
+        var changedSlotIndices: [Int] = []
+        changedSlotIndices.reserveCapacity(newMedia.count)
+        var dimsChanged = false
+        for (i, att) in newMedia.enumerated() {
+            let old = oldMedia[i]
+            if !dimsChanged,
+               old.width != att.width || old.height != att.height || old.durationSeconds != att.durationSeconds {
+                dimsChanged = true
+            }
+            if !ParsedAttachment.slotPresentationEqual(old, att)
+                || slotOverlayKind(for: att) != (slotOverlayKindByIndex[i] ?? .none) {
+                changedSlotIndices.append(i)
+            }
+        }
+        guard !changedSlotIndices.isEmpty || dimsChanged else {
+            return false
+        }
+
+        var needsLayout = dimsChanged
+        for i in changedSlotIndices {
+            let old = oldMedia[i]
+            let att = newMedia[i]
+
+            let presignBecameReady = old.isPresignPending && !att.isPresignPending && !att.uploadFailed
+            let uploadHandedOff = old.localImage != nil && att.localImage == nil && !att.url.isEmpty
+                && !att.isPresignPending && !att.isUploading && !att.uploadFailed
+
+            let newKind = slotOverlayKind(for: att)
+            let oldKind = slotOverlayKindByIndex[i] ?? .none
+            if newKind != oldKind {
+                setSlotOverlay(at: i, for: att)
+                if newKind != .none {
+                    needsLayout = true
+                }
+            } else if old.isUploading && att.isUploading,
+                      case .uploading(let key) = newKind, !key.isEmpty {
+                uploadingOverlayByProgressKey[key]?.setProgress(att.uploadProgress)
+            }
+
+            if presignBecameReady || uploadHandedOff {
+                let alreadyLoaded = i < imageNodes.count && imageNodes[i].image != nil
+                if presignBecameReady && alreadyLoaded {
+                    if i < placeholderNodes.count {
+                        placeholderNodes[i].isHidden = true
+                    }
+                    skeletonNodesByIndex[i]?.isHidden = true
+                } else {
+                    beginLoadingSlot(at: i, media: att, replacingLocal: uploadHandedOff)
+                }
+                if newKind == .play {
+                    needsLayout = true
+                }
+            }
+        }
+
+        attachments = newMedia
+        let newUploading = newMedia.contains { $0.isUploading }
+        if isUploading != newUploading {
+            isUploading = newUploading
+        }
+        if dimsChanged {
+            lastMeasureSignature = nil
+        }
+        if needsLayout {
+            setNeedsLayout()
+        }
+        return needsLayout
+    }
+
+    private func shouldRefreshImageArguments(node: TransformImageNode, args: TransformImageArguments) -> Bool {
+        guard let current = node.currentArguments else { return true }
+        if node.image == nil && node.layer.contents == nil {
+            return current != args
+        }
+        if current.corners != args.corners {
+            return true
+        }
+        let dw = abs(current.boundingSize.width - args.boundingSize.width)
+        let dh = abs(current.boundingSize.height - args.boundingSize.height)
+        return dw > 0.5 || dh > 0.5
+    }
+
+    private func beginLoadingSlot(at index: Int, media: ParsedAttachment, replacingLocal: Bool = false) {
+        guard index < imageNodes.count else { return }
+        if index < placeholderNodes.count {
+            placeholderNodes[index].isHidden = true
+        }
+        let node = imageNodes[index]
+        node.contentAnimations = []
+        if replacingLocal {
+            node.reset()
+            lastRemoteProxyURLByIndex.removeValue(forKey: index)
+        }
+        markSlotForRevealAnimation(at: index, node: node)
+        guard !hasCachedRemoteImage(for: media) else {
+            loadImage(at: index, into: node, media: media, isMultiple: isMultiple)
+            return
+        }
+        if skeletonNodesByIndex[index] == nil {
+            let cornerRadius: CGFloat = isSingleImage ? 8.swh : 0
+            if let skeleton = addSkeletonNode(at: index, cornerRadius: cornerRadius, for: media) {
+                insertSubnode(skeleton, belowSubnode: node)
+            }
+        } else {
+            skeletonNodesByIndex[index]?.isHidden = false
+            skeletonNodesByIndex[index]?.alpha = 1
+        }
+        loadImage(at: index, into: node, media: media, isMultiple: isMultiple)
+    }
+
+    private static func shouldAnimateRemoteReveal(for media: ParsedAttachment) -> Bool {
+        if media.uploadFailed || media.isPresignPending || media.isUploading { return false }
+        if media.localImage != nil { return false }
+        if media.isVideo {
+            return !media.thumbnail.isEmpty || !media.url.isEmpty
+        }
+        return !media.url.isEmpty
+    }
+
+    private func markSlotForRevealAnimation(at index: Int, node: TransformImageNode) {
+        pendingRevealAnimationIndices.insert(index)
+        node.alpha = 0
+    }
+
+    private func revealLoadedImage(
+        at index: Int,
+        skeleton: MediaSkeletonNode?,
+        placeholder: MediaPlaceholderNode?
+    ) {
+        placeholder?.isHidden = true
+        skeletonNodesByIndex.removeValue(forKey: index)
+        fadeOutAndRemoveSkeleton(skeleton)
+        guard index < imageNodes.count else { return }
+        let node = imageNodes[index]
+        node.alpha = 1
+        node.layer.animateAlpha(
+            from: 0,
+            to: 1,
+            duration: Self.cdnRevealDuration,
+            timingFunction: CAMediaTimingFunctionName.easeOut.rawValue
+        )
+    }
+
+    private func fadeOutAndRemoveSkeleton(_ skeleton: MediaSkeletonNode?) {
+        guard let skeleton else { return }
+        skeleton.layer.removeAnimation(forKey: "mediaSkeleton")
+        skeleton.layer.animateAlpha(
+            from: skeleton.alpha,
+            to: 0,
+            duration: Self.skeletonFadeDuration,
+            timingFunction: CAMediaTimingFunctionName.easeOut.rawValue,
+            removeOnCompletion: false
+        ) { [weak skeleton] _ in
+            skeleton?.removeFromSupernode()
+        }
+    }
+
+    private func hasCachedRemoteImage(for media: ParsedAttachment) -> Bool {
+        guard let urls = remoteImageURLs(for: media) else { return false }
+        return ImageCache.shared.memoryImage(forKey: urls.proxyURL) != nil
+            || ImageCache.shared.memoryImage(forKey: urls.sourceURL) != nil
+    }
+
+    private func remoteImageURLs(for media: ParsedAttachment) -> (sourceURL: String, proxyURL: String)? {
+        let sourceURL: String
+        if media.isVideo {
+            guard !media.thumbnail.isEmpty else { return nil }
+            sourceURL = media.thumbnail
+        } else {
+            sourceURL = media.url
+        }
+        guard !sourceURL.isEmpty else { return nil }
+        let proxyURL = ImgproxyURL.attachmentURL(
+            from: sourceURL,
+            width: 400,
+            height: 400,
+            resizeType: isMultiple ? "fill" : "fit"
+        )
+        return (sourceURL, proxyURL)
     }
 
     private func slotOverlayKind(for att: ParsedAttachment) -> MediaSlotOverlayKind {
@@ -1029,15 +1235,23 @@ final class MessageMediaContentNode: ASDisplayNode {
         skeleton: MediaSkeletonNode?,
         placeholder: MediaPlaceholderNode
     ) {
-        node.imageUpdated = { [weak self, weak node, weak skeleton, weak placeholder] image in
-            guard let self, let node else { return }
+        node.imageUpdated = { [weak self, weak skeleton, weak placeholder] image in
+            guard let self else { return }
             self.remoteLoadInFlightByIndex.remove(index)
             if image != nil {
                 self.remoteLoadRetryCountByIndex.removeValue(forKey: index)
-                skeleton?.removeFromSupernode()
-                self.skeletonNodesByIndex.removeValue(forKey: index)
-                placeholder?.isHidden = true
+                if self.pendingRevealAnimationIndices.remove(index) != nil {
+                    self.revealLoadedImage(at: index, skeleton: skeleton, placeholder: placeholder)
+                } else {
+                    skeleton?.removeFromSupernode()
+                    self.skeletonNodesByIndex.removeValue(forKey: index)
+                    placeholder?.isHidden = true
+                }
             } else if index < self.attachments.count {
+                if index < self.imageNodes.count,
+                   self.imageNodes[index].image != nil || self.imageNodes[index].layer.contents != nil {
+                    return
+                }
                 let media = self.attachments[index]
                 if Self.shouldShowStaticPlaceholder(for: media) {
                     skeleton?.isHidden = true

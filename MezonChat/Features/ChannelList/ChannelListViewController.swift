@@ -1448,6 +1448,9 @@ final class ChannelListViewController: ViewController {
         guard clanId == self.clanId else { return }
         let updated = await fetchMergedChannelsWithBadgeCounts(base: allChannels, clanId: clanId, force: force)
         guard isCurrentSessionAlive else { return }
+        guard clanId == self.clanId else { return }
+        guard updated.count == allChannels.count,
+              zip(updated, allChannels).allSatisfy({ $0.channelID == $1.channelID }) else { return }
         if channelListRowsVisuallyEqual(allChannels, updated) {
             let total = updated.reduce(Int32(0)) { $0 + $1.countMessUnread }
             NotificationCenter.default.post(
@@ -1615,14 +1618,23 @@ final class ChannelListViewController: ViewController {
         channelListNode.updateMemberOnboardingState(state)
     }
 
+    private var lastMemberOnboardingFetchAtByClanId: [Int64: Date] = [:]
+    private let onboardingCacheTTL: TimeInterval = 300
+
     private func scheduleMemberOnboardingDataFetch() {
         guard clanId != 0, !memberOnboardingFetchInFlight else { return }
-        memberOnboardingFetchInFlight = true
         let clanId = self.clanId
+        if let last = lastMemberOnboardingFetchAtByClanId[clanId],
+           Date().timeIntervalSince(last) < onboardingCacheTTL {
+            return
+        }
+        memberOnboardingFetchInFlight = true
         Task { @MainActor [weak self] in
             defer { self?.memberOnboardingFetchInFlight = false }
             guard let self, self.clanId == clanId else { return }
             await MemberOnboardingProgress.fetchData(context: self.context, clanId: clanId)
+            guard self.clanId == clanId else { return }
+            self.lastMemberOnboardingFetchAtByClanId[clanId] = Date()
             self.memberOnboardingFetchedClanId = clanId
             self.refreshMemberOnboardingState()
         }
@@ -2901,7 +2913,14 @@ final class ChannelListViewController: ViewController {
                 "schedule fetch skipped cooldown clanId=\(clanId) "
                 + "age=\(String(format: "%.1f", Date().timeIntervalSince(last)))s"
             )
-            return
+            if recoverChannelListDisplayFromCache() { return }
+            if !allChannels.isEmpty {
+                cancelDeferredSkeletonReveal()
+                isLoading = false
+                isLoadingPipe.putNext(false)
+                needsReloadPipe.putNext(())
+                return
+            }
         }
         fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: allowEmptyChannelAppsOverwrite)
     }
@@ -3075,7 +3094,7 @@ final class ChannelListViewController: ViewController {
                     self.channelListNode.setChannelAppsLoadingIndicator(false)
                     if !self.allChannels.isEmpty {
                         self.channelsLoadedPromise.set(true)
-                    } else {
+                    } else if !self.recoverChannelListDisplayFromCache() {
                         self.lastChannelFetchAtByClanId.removeValue(forKey: clanId)
                         self.scheduleEmptyChannelRetryIfNeeded(clanId: clanId)
                     }
@@ -3090,9 +3109,11 @@ final class ChannelListViewController: ViewController {
                 guard self.clanId == clanId else { return }
                 self.channelListNode.endRefreshing()
                 if self.allChannels.isEmpty, NetworkMonitor.shared.isConnected {
-                    self.isLoading = true
-                    self.needsReloadPipe.putNext(())
-                    self.scheduleEmptyChannelRetryIfNeeded(clanId: clanId)
+                    if !self.recoverChannelListDisplayFromCache() {
+                        self.isLoading = true
+                        self.needsReloadPipe.putNext(())
+                        self.scheduleEmptyChannelRetryIfNeeded(clanId: clanId)
+                    }
                 } else {
                     self.cancelDeferredSkeletonReveal()
                     self.isLoading = false
@@ -3878,6 +3899,10 @@ final class ChannelListViewController: ViewController {
         }
     }
 
+    private var inflightChannelAppsFetchClanId: Int64 = 0
+    private var lastChannelAppsFetchAtByClanId: [Int64: Date] = [:]
+    private let channelAppsCacheTTL: TimeInterval = 300
+
     private func fetchChannelAppsInBackground() {
         fetchChannelApps(allowEmptyOverwrite: false)
     }
@@ -3885,10 +3910,23 @@ final class ChannelListViewController: ViewController {
     private func fetchChannelApps(allowEmptyOverwrite _: Bool = false) {
         guard clanId != 0 else { return }
         let clanId = self.clanId
+        if inflightChannelAppsFetchClanId == clanId { return }
+        if let last = lastChannelAppsFetchAtByClanId[clanId],
+           Date().timeIntervalSince(last) < channelAppsCacheTTL,
+           context.account.postbox.getPreferenceData(key: PreferencesKeys.channelApps(clanId: clanId))?.isEmpty == false {
+            return
+        }
+        inflightChannelAppsFetchClanId = clanId
+        lastChannelAppsFetchAtByClanId[clanId] = Date()
         Task { @MainActor [weak self] in
             defer {
-                if let self, self.clanId == clanId {
-                    self.channelListNode.setChannelAppsLoadingIndicator(false)
+                if let self {
+                    if self.clanId == clanId {
+                        self.channelListNode.setChannelAppsLoadingIndicator(false)
+                    }
+                    if self.inflightChannelAppsFetchClanId == clanId {
+                        self.inflightChannelAppsFetchClanId = 0
+                    }
                 }
             }
             guard let self else { return }
@@ -4010,6 +4048,18 @@ final class ChannelListViewController: ViewController {
             return allChannels
         }
         return nil
+    }
+
+    @discardableResult
+    private func recoverChannelListDisplayFromCache() -> Bool {
+        guard clanId != 0, allChannels.isEmpty else { return false }
+        guard let payload = readChannelCachePayloadIfAvailable(clanId: clanId), !payload.channels.isEmpty else { return false }
+        applyResolvedChannelCachePayload(clanId: clanId, channels: payload.channels, meta: payload.meta)
+        cancelDeferredSkeletonReveal()
+        isLoading = false
+        isLoadingPipe.putNext(false)
+        needsReloadPipe.putNext(())
+        return true
     }
 
     private func readChannelCachePayloadIfAvailable(clanId: Int64) -> (channels: [Mezon_Api_ChannelDescription], meta: ChannelListCachedMeta?)? {

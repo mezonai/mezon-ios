@@ -2108,7 +2108,7 @@ final class SendMessageInputViewController: UIViewController {
                 }
                 activeMentions.append(mention)
 
-            case .hashtag(let channelIdStr, let clanIdStr, let channelLabel, let channelType, let channelPrivate, let ageRestricted):
+            case .hashtag(let channelIdStr, let clanIdStr, let parentIdStr, let channelLabel, let channelType, let channelPrivate, let ageRestricted):
                 attr.addAttributes(highlightAttrs, range: r)
                 let raw = displayText.mezon_utf16Substring(from: token.start, to: token.end)
                 let labelFromText: String
@@ -2128,7 +2128,7 @@ final class SendMessageInputViewController: UIViewController {
                 let ctype = channelType ?? ch?.type ?? MezonConstants.ChannelType.channel.rawValue
                 let cpriv = channelPrivate ?? ch?.channelPrivate ?? 0
                 let cage = ageRestricted ?? ch?.ageRestricted ?? 0
-                let parentId = ch?.parentID ?? 0
+                let parentId = Int64(parentIdStr ?? "") ?? ch?.parentID ?? 0
                 let tag = ComposerHashtag(
                     channelId: cid,
                     clanId: ch?.clanID ?? gid,
@@ -4850,7 +4850,8 @@ final class SendMessageInputViewController: UIViewController {
             if h.parentId != 0 {
                 dict["parentId"] = "\(h.parentId)"
             }
-            if !h.channelLabel.isEmpty {
+            let isThreadPublish = h.channelType == MezonConstants.ChannelType.thread.rawValue && h.channelPrivate == 0
+            if isThreadPublish, !h.channelLabel.isEmpty {
                 dict["channelLabel"] = h.channelLabel
             }
             dict["channelType"] = Int(h.channelType)

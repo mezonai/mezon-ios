@@ -1,6 +1,8 @@
 import UIKit
 import AsyncDisplayKit
 
+private let sidebarAvatarLoadRetryDelays: [TimeInterval] = [1.5, 4, 10, 20]
+
 struct ClanListInteraction {
     let onSelectClan: (Mezon_Api_ClanDesc) -> Void
     let onSelectDM: (Mezon_Api_ChannelDescription) -> Void
@@ -82,14 +84,26 @@ final class ClanListContainerNode: ASDisplayNode {
                 let newDMBadges = newState.unreadDMs.map { $0.countMessUnread }
                 let newClanBadges = newState.clans.map { $0.badgeCount }
                 let newClanFingerprints = newState.clans.map { "\($0.clanID)-\($0.clanName)-\($0.logo)" }
-                let badgesChanged = prevDMBadges != newDMBadges || prevClanBadges != newClanBadges
                 let clansChanged = prevClanFingerprints != newClanFingerprints
                 let newDmFingerprint = Self.unreadDmStripFingerprint(newState.unreadDMs)
                 let dmStripIdentityChanged = prevDmFingerprint != newDmFingerprint
 
-                if newClanSectionCount != oldCount || newState.unreadDMs.count != prevDMCount || badgesChanged || clansChanged {
+                let clanStructureChanged = newClanSectionCount != oldCount || clansChanged || prevClanBadges != newClanBadges
+                let dmStripStructureChanged = newState.unreadDMs.count != prevDMCount || dmStripIdentityChanged
+                let dmBadgesOnlyChanged = prevDMBadges != newDMBadges
+
+                if clanStructureChanged {
                     self.collectionView.reloadData()
-                } else if dmStripIdentityChanged {
+                } else if dmStripStructureChanged {
+                    if self.collectionView.numberOfSections > 0 {
+                        UIView.transition(
+                            with: self.collectionView, duration: 0.22,
+                            options: [.transitionCrossDissolve, .allowUserInteraction],
+                            animations: { self.collectionView.reloadData() })
+                    } else {
+                        self.collectionView.reloadData()
+                    }
+                } else if dmBadgesOnlyChanged {
                     if self.collectionView.numberOfSections > 0 {
                         UIView.performWithoutAnimation {
                             self.collectionView.reloadSections(IndexSet(integer: 0))
@@ -204,10 +218,22 @@ final class ClanListContainerNode: ASDisplayNode {
             return
         }
         logoImageView.image = UIImage(named: "NewMezonLogo")
+        loadSidebarAccountLogo(trimmed: trimmed, proxied: proxied, attempt: 0)
+    }
+
+    private func loadSidebarAccountLogo(trimmed: String, proxied: String, attempt: Int) {
         sidebarLogoLoadTask = ImageCache.shared.loadImage(urlString: proxied) { [weak self] image in
             guard let self else { return }
             guard self.sidebarLogoDisplaySource == trimmed else { return }
-            self.logoImageView.image = image ?? UIImage(named: "NewMezonLogo")
+            if let image {
+                self.logoImageView.image = image
+            } else if attempt < sidebarAvatarLoadRetryDelays.count {
+                DispatchQueue.main.asyncAfter(deadline: .now() + sidebarAvatarLoadRetryDelays[attempt]) { [weak self] in
+                    guard let self else { return }
+                    guard self.sidebarLogoDisplaySource == trimmed else { return }
+                    self.loadSidebarAccountLogo(trimmed: trimmed, proxied: proxied, attempt: attempt + 1)
+                }
+            }
         }
     }
 
@@ -469,7 +495,7 @@ private final class ClanCell: UICollectionViewCell {
         }
     }
 
-    private func loadExpectingClan(clanId: Int64, generation: Int, clanName: String, sourceURL: String) {
+    private func loadExpectingClan(clanId: Int64, generation: Int, clanName: String, sourceURL: String, attempt: Int = 0) {
         imageTask?.cancel()
         imageTask = nil
         let urlString = ImgproxyURL.create(from: sourceURL, width: 150, height: 150)
@@ -490,12 +516,22 @@ private final class ClanCell: UICollectionViewCell {
                 self.avatarImageView.image = image
                 self.avatarImageView.isHidden = false
                 self.textAvatarView.showImageMode()
+                self.contentView.setNeedsLayout()
+                self.contentView.layoutIfNeeded()
+            } else if attempt < sidebarAvatarLoadRetryDelays.count {
+                DispatchQueue.main.asyncAfter(deadline: .now() + sidebarAvatarLoadRetryDelays[attempt]) { [weak self] in
+                    guard let self else { return }
+                    guard self.boundClanId == clanId, self.avatarGeneration == generation else { return }
+                    self.loadExpectingClan(
+                        clanId: clanId, generation: generation, clanName: clanName,
+                        sourceURL: sourceURL, attempt: attempt + 1)
+                }
             } else {
                 self.avatarImageView.isHidden = true
                 self.textAvatarView.configure(username: clanName, fontSize: 14.sf)
+                self.contentView.setNeedsLayout()
+                self.contentView.layoutIfNeeded()
             }
-            self.contentView.setNeedsLayout()
-            self.contentView.layoutIfNeeded()
         }
     }
 }
@@ -766,20 +802,9 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
                 contentView.layoutIfNeeded()
             } else {
                 avatarImageView.image = nil
-                imageTask = ImageCache.shared.loadImage(urlString: proxyURL) { [weak self] image in
-                    guard let self else { return }
-                    guard self.boundChannelId == expectChannelId, self.dmAvatarGeneration == generation else { return }
-                    if let image {
-                        self.avatarImageView.image = image
-                        self.avatarImageView.isHidden = false
-                        self.initialsLabel.isHidden = true
-                    } else {
-                        self.applyDmAvatarFallback(
-                            isDM: isDM, placeholderBg: placeholderBg, name: name)
-                    }
-                    self.contentView.setNeedsLayout()
-                    self.contentView.layoutIfNeeded()
-                }
+                loadDmAvatar(
+                    proxyURL: proxyURL, expectChannelId: expectChannelId, generation: generation,
+                    isDM: isDM, placeholderBg: placeholderBg, name: name, attempt: 0)
             }
         } else {
             avatarImageView.isHidden = true
@@ -795,6 +820,35 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
             badgeLabel.isHidden = true
             badgeLabel.layer.borderWidth = 0
             badgeLabel.layer.borderColor = nil
+        }
+    }
+
+    private func loadDmAvatar(
+        proxyURL: String, expectChannelId: Int64, generation: Int,
+        isDM: Bool, placeholderBg: UIColor, name: String, attempt: Int
+    ) {
+        imageTask = ImageCache.shared.loadImage(urlString: proxyURL) { [weak self] image in
+            guard let self else { return }
+            guard self.boundChannelId == expectChannelId, self.dmAvatarGeneration == generation else { return }
+            if let image {
+                self.avatarImageView.image = image
+                self.avatarImageView.isHidden = false
+                self.initialsLabel.isHidden = true
+                self.contentView.setNeedsLayout()
+                self.contentView.layoutIfNeeded()
+            } else if attempt < sidebarAvatarLoadRetryDelays.count {
+                DispatchQueue.main.asyncAfter(deadline: .now() + sidebarAvatarLoadRetryDelays[attempt]) { [weak self] in
+                    guard let self else { return }
+                    guard self.boundChannelId == expectChannelId, self.dmAvatarGeneration == generation else { return }
+                    self.loadDmAvatar(
+                        proxyURL: proxyURL, expectChannelId: expectChannelId, generation: generation,
+                        isDM: isDM, placeholderBg: placeholderBg, name: name, attempt: attempt + 1)
+                }
+            } else {
+                self.applyDmAvatarFallback(isDM: isDM, placeholderBg: placeholderBg, name: name)
+                self.contentView.setNeedsLayout()
+                self.contentView.layoutIfNeeded()
+            }
         }
     }
 

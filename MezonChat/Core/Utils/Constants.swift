@@ -3,8 +3,12 @@ import UIKit
 private enum _Scale {
     static let baseW: CGFloat = 375
     static let baseH: CGFloat = 812
-    static var w: CGFloat { (UIScreen.main.bounds.width / baseW).clamped(0.85...1.5) }
-    static var h: CGFloat { (UIScreen.main.bounds.height / baseH).clamped(0.85...1.5) }
+    static var portraitSize: CGSize {
+        let size = UIScreen.main.bounds.size
+        return CGSize(width: min(size.width, size.height), height: max(size.width, size.height))
+    }
+    static var w: CGFloat { (portraitSize.width / baseW).clamped(0.85...1.5) }
+    static var h: CGFloat { (portraitSize.height / baseH).clamped(0.85...1.5) }
     static var wh: CGFloat { Swift.min(w, h) }
     static var f: CGFloat { w.clamped(0.85...1.2) }
     static func sw(_ v: CGFloat) -> CGFloat { v * w }
@@ -34,7 +38,7 @@ enum Constants {
         static let largePadding: CGFloat         = _Scale.sw(24)
         static let cornerRadius: CGFloat        = _Scale.sw(12)
         static let avatarSize: CGFloat           = _Scale.swh(44)
-        static let messageBubbleMaxWidth: CGFloat = UIScreen.main.bounds.width * 0.72
+        static let messageBubbleMaxWidth: CGFloat = _Scale.portraitSize.width * 0.72
         static let inputBarHeight: CGFloat       = _Scale.sh(56)
         static let buttonHeight: CGFloat         = _Scale.sh(52)
         static let rowHeight: CGFloat            = _Scale.sh(44)
