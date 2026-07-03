@@ -4854,7 +4854,7 @@ final class ChatViewController: ViewController {
                     token: token, isVk: isVk, channelId: cid, clanId: gid,
                     channels: channels, fallbackClan: fallbackClan, fallbackClanId: fallbackClanId
                 )
-            case .hashtag(let cid, let clanIdOpt, let label, let ctype, _, _):
+            case .hashtag(let cid, let clanIdOpt, let parentIdOpt, let label, let ctype, _, _):
                 if ctype != nil { return token }
                 guard let cid, !cid.isEmpty, let idInt = Int64(cid) else { return token }
                 let clanInt = clanIdOpt.flatMap { Int64($0) } ?? fallbackClan
@@ -4865,6 +4865,7 @@ final class ChatViewController: ViewController {
                         kind: .hashtag(
                             channelId: cid,
                             clanId: clanIdOpt,
+                            parentId: parentIdOpt ?? (ch.parentID != 0 ? "\(ch.parentID)" : nil),
                             channelLabel: label,
                             channelType: ch.type,
                             channelPrivate: ch.channelPrivate,
@@ -4906,6 +4907,7 @@ final class ChatViewController: ViewController {
                 kind: .hashtag(
                     channelId: channelId,
                     clanId: clanOut,
+                    parentId: ch.parentID != 0 ? "\(ch.parentID)" : nil,
                     channelLabel: ch.channelLabel,
                     channelType: ch.type,
                     channelPrivate: ch.channelPrivate,
@@ -4923,6 +4925,7 @@ final class ChatViewController: ViewController {
             kind: .hashtag(
                 channelId: channelId,
                 clanId: clanOut,
+                parentId: nil,
                 channelLabel: defaultLabel,
                 channelType: defaultType,
                 channelPrivate: 0,
