@@ -1016,6 +1016,11 @@ final class AccountContextImpl: AccountContext {
                         )
                     }
                 }
+                NotificationCenter.default.post(
+                    name: Notification.Name("MezonChannelMessageDeleted"),
+                    object: nil,
+                    userInfo: ["channelId": channelId, "clanId": clanId]
+                )
                 return
             }
 
@@ -1172,6 +1177,11 @@ final class AccountContextImpl: AccountContext {
 
         case .messageRemoved(let removed):
             account.postbox.write { tx in tx.deleteMessage(id: "\(removed.messageID)") }
+            NotificationCenter.default.post(
+                name: Notification.Name("MezonChannelMessageDeleted"),
+                object: nil,
+                userInfo: ["channelId": removed.channelID, "clanId": removed.clanID]
+            )
 
         case .lastSeen(let e):
             NotificationCenter.default.post(

@@ -55,6 +55,38 @@ final class FileListNode: ASDisplayNode {
         }
 
         loadingNode.style.preferredSize = CGSize(width: 44, height: 44)
+        
+        NotificationCenter.default.addObserver(self, selector: #selector(handleMessageChanged(_:)), name: Notification.Name("MezonNewMessageReceived"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleMessageChanged(_:)), name: Notification.Name("MezonChannelMessageDeleted"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleMessageChanged(_:)), name: Notification.Name("MezonChannelMarkedAsRead"), object: nil)
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    private static func notificationInt64(_ value: Any?) -> Int64? {
+        if let v = value as? Int64 { return v }
+        if let v = value as? Int { return Int64(v) }
+        if let v = value as? NSNumber { return v.int64Value }
+        if let v = value as? String { return Int64(v) }
+        return nil
+    }
+
+    @objc private func handleMessageChanged(_ notification: Notification) {
+        let notiChannelId = Self.notificationInt64(notification.userInfo?["channelId"]) ?? 0
+        let notiTopicId = Self.notificationInt64(notification.userInfo?["topicId"]) ?? 0
+        
+        if notification.name == Notification.Name("MezonChannelMarkedAsRead") {
+            let fromSelf = notification.userInfo?["fromSelf"] as? Bool ?? false
+            if !fromSelf { return }
+        }
+        
+        if notiChannelId == self.channelId || (notiTopicId != 0 && notiTopicId == self.channelId) {
+            DispatchQueue.main.async {
+                self.fetchFiles(showLoading: false)
+            }
+        }
     }
 
     func loadTabDataIfNeeded() {
@@ -140,10 +172,12 @@ final class FileListNode: ASDisplayNode {
         return true
     }
 
-    private func fetchFiles() {
-        isLoading = true
+    private func fetchFiles(showLoading: Bool = true) {
+        if showLoading {
+            isLoading = true
+            setNeedsLayout()
+        }
         loadFailed = false
-        setNeedsLayout()
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
@@ -333,10 +367,10 @@ extension FileListNode: ASTableDataSource, ASTableDelegate {
         var name = ""
         context.account.postbox.read { tx in
             if let p = tx.getProfile(userId: idStr) {
-                if let dn = p.displayName, !dn.isEmpty {
-                    name = dn
-                } else if !p.username.isEmpty {
+                if !p.username.isEmpty {
                     name = p.username
+                } else if let dn = p.displayName, !dn.isEmpty {
+                    name = dn
                 }
             }
         }
@@ -468,6 +502,9 @@ private final class FileDocumentCellNode: ASCellNode {
                 .foregroundColor: t.textDisabled,
             ]
         )
+        
+        sharedNode.style.flexShrink = 1
+        timeNode.style.flexShrink = 0
     }
 
     override func didLoad() {
