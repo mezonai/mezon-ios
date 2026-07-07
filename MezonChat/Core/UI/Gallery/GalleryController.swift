@@ -28,6 +28,7 @@ final class GalleryController: UIViewController {
     private let counterLabel = UILabel()
     private let footerView = UIView()
     private let thumbnailCollectionView: UICollectionView
+    private let footerHeight: CGFloat = 96
 
     private var isHeaderVisible = false
     private var panStartCenter: CGPoint = .zero
@@ -174,9 +175,13 @@ final class GalleryController: UIViewController {
         }
         pagingNode.centralItemIndexUpdated = { [weak self] index in
             self?.updateSelection(for: index, revealControls: true)
+            self?.updateCurrentVideoInset()
         }
         pagingNode.toggleControlsVisibility = { [weak self] in
             self?.toggleHeader()
+        }
+        pagingNode.setControlsVisible = { [weak self] visible in
+            self?.setControlsVisible(visible, animated: true)
         }
         pagingNode.dismiss = { [weak self] in
             self?.closeTapped()
@@ -197,6 +202,7 @@ final class GalleryController: UIViewController {
 
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePanDismiss(_:)))
         pan.delegate = self
+        pan.delaysTouchesEnded = false
         view.addGestureRecognizer(pan)
 
         view.setNeedsLayout()
@@ -422,7 +428,7 @@ final class GalleryController: UIViewController {
             footerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             footerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             footerView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            footerView.heightAnchor.constraint(equalToConstant: 96),
+            footerView.heightAnchor.constraint(equalToConstant: footerHeight),
 
             thumbnailCollectionView.leadingAnchor.constraint(equalTo: footerView.leadingAnchor),
             thumbnailCollectionView.trailingAnchor.constraint(equalTo: footerView.trailingAnchor),
@@ -480,7 +486,7 @@ final class GalleryController: UIViewController {
             avatarImageView.image = nil
         }
 
-        if items.count > 1 {
+        if items.count > 1 && !items[index].isVideo {
             counterLabel.text = "\(index + 1)/\(items.count)"
             counterLabel.isHidden = false
         } else {
@@ -534,9 +540,15 @@ final class GalleryController: UIViewController {
         }
         items = mergedItems
         pagingNode.replaceItemsPreservingCurrent(mergedItems, focusIndex: focusIndex)
+        updateCurrentVideoInset()
         if isHeaderVisible {
             setControlsVisible(true, animated: false)
         }
+    }
+
+    private func updateCurrentVideoInset() {
+        guard let videoNode = pagingNode.currentItemNode() as? ChatVideoGalleryItemNode else { return }
+        videoNode.controlsBottomInset = (isHeaderVisible && items.count > 1) ? footerHeight : 0
     }
 
     private func mergedItems(primary: [GalleryItemInfo], fallback: [GalleryItemInfo]) -> [GalleryItemInfo] {
@@ -559,6 +571,7 @@ final class GalleryController: UIViewController {
         if visible {
             updateHeader(for: pagingNode.centralItemIndex)
             updateFooterSelection(for: pagingNode.centralItemIndex, animated: false)
+            updateCurrentVideoInset()
         }
         let updates = {
             self.headerView.alpha = visible ? 1 : 0
@@ -588,6 +601,7 @@ final class GalleryController: UIViewController {
         if info.isVideo {
             let node = ChatVideoGalleryItemNode()
             node.index = index
+            node.controlsBottomInset = (isHeaderVisible && items.count > 1) ? footerHeight : 0
             node.configure(info: info)
             return node
         } else {
@@ -1055,6 +1069,15 @@ private final class GalleryThumbnailCell: UICollectionViewCell {
 extension GalleryController: UIGestureRecognizerDelegate {
 
     func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        return true
+    }
+
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        var view = touch.view
+        while let v = view {
+            if v is UISlider { return false }
+            view = v.superview
+        }
         return true
     }
 

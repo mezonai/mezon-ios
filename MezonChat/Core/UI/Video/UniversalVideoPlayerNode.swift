@@ -12,8 +12,14 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
     private var didTryAVPlayer = false
     private var didTryVLCPlayer = false
     
-    var toggleOverlayVisibility: (() -> Void)?
+    var setOverlayVisible: ((Bool) -> Void)?
     var setPagingEnabled: ((Bool) -> Void)?
+    var controlsBottomInset: CGFloat = 0 {
+        didSet {
+            avPlayerNode?.controlsBottomInset = controlsBottomInset
+            vlcPlayerNode?.controlsBottomInset = controlsBottomInset
+        }
+    }
     
     init(url: URL, posterURL: String) {
         self.url = url
@@ -26,7 +32,7 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
     private func setupAppropriatePlayer() {
         let fileExtension = url.pathExtension.lowercased()
         let useVLC = shouldUseVLCPlayer(for: fileExtension)
-        
+
         if useVLC {
             setupVLCPlayer()
         } else {
@@ -39,8 +45,8 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
         didTryAVPlayer = true
         
         let avNode = MezonVideoPlayerNode(url: url, posterURL: posterURL)
-        avNode.toggleOverlayVisibility = { [weak self] in
-            self?.toggleOverlayVisibility?()
+        avNode.setOverlayVisible = { [weak self] visible in
+            self?.setOverlayVisible?(visible)
         }
         avNode.setPagingEnabled = { [weak self] enabled in
             self?.setPagingEnabled?(enabled)
@@ -48,6 +54,7 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
         avNode.onPlaybackFailed = { [weak self] in
             self?.fallbackToVLC()
         }
+        avNode.controlsBottomInset = controlsBottomInset
         avPlayerNode = avNode
         addSubnode(avNode)
     }
@@ -57,12 +64,13 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
         didTryVLCPlayer = true
         
         let vlcNode = VLCVideoPlayerNode(url: url, posterURL: posterURL)
-        vlcNode.toggleOverlayVisibility = { [weak self] in
-            self?.toggleOverlayVisibility?()
+        vlcNode.setOverlayVisible = { [weak self] visible in
+            self?.setOverlayVisible?(visible)
         }
         vlcNode.setPagingEnabled = { [weak self] enabled in
             self?.setPagingEnabled?(enabled)
         }
+        vlcNode.controlsBottomInset = controlsBottomInset
         vlcPlayerNode = vlcNode
         addSubnode(vlcNode)
     }

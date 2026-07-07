@@ -5,6 +5,9 @@ import AsyncDisplayKit
 final class ChatVideoGalleryItemNode: GalleryItemNode {
 
     private var playerNode: UniversalVideoPlayerNode?
+    var controlsBottomInset: CGFloat = 0 {
+        didSet { playerNode?.controlsBottomInset = controlsBottomInset }
+    }
 
     override init() {
         super.init()
@@ -15,12 +18,13 @@ final class ChatVideoGalleryItemNode: GalleryItemNode {
         playerNode?.removeFromSupernode()
         playerNode = nil
         let node = UniversalVideoPlayerNode(url: url, posterURL: info.url)
-        node.toggleOverlayVisibility = { [weak self] in
-            self?.toggleControlsVisibility()
+        node.setOverlayVisible = { [weak self] visible in
+            self?.setControlsVisible(visible)
         }
         node.setPagingEnabled = { [weak self] enabled in
             self?.setPagingEnabled(enabled)
         }
+        node.controlsBottomInset = controlsBottomInset
         self.playerNode = node
         self.addSubnode(node)
     }
@@ -36,6 +40,7 @@ final class ChatVideoGalleryItemNode: GalleryItemNode {
     override func containerLayoutUpdated(_ size: CGSize, navigationBarHeight: CGFloat, transition: ContainedViewLayoutTransition) {
         super.containerLayoutUpdated(size, navigationBarHeight: navigationBarHeight, transition: transition)
         if let playerNode = playerNode {
+            playerNode.controlsBottomInset = controlsBottomInset
             transition.updateFrame(node: playerNode, frame: CGRect(origin: .zero, size: size))
         }
     }

@@ -15,7 +15,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
 
     private let scrubberBarNode: ASDisplayNode
     private let bottomPlayPauseButton: ASButtonNode
-    private let timeSlider = UISlider()
+    private let timeSlider = SeekSlider()
     private let currentTimeLabel: ASTextNode
     private let durationLabel: ASTextNode
 
@@ -23,6 +23,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     private var playerLayer: AVPlayerLayer?
     private var timeObserver: Any?
     private var isScrubbing = false
+    private var scrubIdleTicks = 0
 
     private var controlsHideTimer: Foundation.Timer?
     private var areControlsVisible = true
@@ -32,9 +33,15 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     private var sourceURL: URL?
     private var errorOverlayNode: ASDisplayNode?
 
-    var toggleOverlayVisibility: (() -> Void)?
+    var setOverlayVisible: ((Bool) -> Void)?
     var onPlaybackFailed: (() -> Void)?
     var setPagingEnabled: ((Bool) -> Void)?
+    var controlsBottomInset: CGFloat = 0 {
+        didSet {
+            guard oldValue != controlsBottomInset else { return }
+            setNeedsLayout()
+        }
+    }
 
     convenience init(url: URL, posterURL: String) {
         let asset = AVURLAsset(url: url, options: [
@@ -109,7 +116,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         self.timeSlider.maximumTrackTintColor = UIColor.white.withAlphaComponent(0.3)
         self.timeSlider.thumbTintColor = .white
 
-        let thumbImage = makeCircleImage(radius: 6, color: .white)
+        let thumbImage = makeCircleImage(radius: 9, color: .white)
         self.timeSlider.setThumbImage(thumbImage, for: .normal)
         self.timeSlider.setThumbImage(thumbImage, for: .highlighted)
 
@@ -133,6 +140,9 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         super.didLoad()
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(playerTapped))
+        tap.cancelsTouchesInView = false
+        tap.delaysTouchesEnded = false
+        tap.delegate = self
         self.view.addGestureRecognizer(tap)
 
         scrubberBarNode.view.addSubview(timeSlider)
@@ -364,8 +374,6 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     }
 
     @objc private func playerTapped() {
-        toggleOverlayVisibility?()
-
         if areControlsVisible {
             hideControls()
         } else {
@@ -384,14 +392,14 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     @objc private func sliderDidBeginScrubbing() {
         isScrubbing = true
         setPagingEnabled?(false)
-        player?.pause()
         controlsHideTimer?.invalidate()
     }
 
     @objc private func sliderDidChange() {
+        scrubIdleTicks = 0
         let seconds = Double(timeSlider.value)
         let seekTime = CMTime(seconds: seconds, preferredTimescale: 600)
-        player?.seek(to: seekTime, toleranceBefore: .zero, toleranceAfter: .zero)
+        player?.seek(to: seekTime)
 
         currentTimeLabel.attributedText = NSAttributedString(
             string: formatTime(seconds),
@@ -404,18 +412,18 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         isScrubbing = false
         setPagingEnabled?(true)
         let seconds = Double(timeSlider.value)
-        player?.seek(to: CMTime(seconds: seconds, preferredTimescale: 600)) { [weak self] _ in
-            if self?.player?.rate == 0 {
-
-            }
-        }
-        if player?.rate != 0 {
+        player?.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
+        if player?.timeControlStatus != .paused {
             resetControlsTimer()
         }
     }
 
 
     private func updateTime(_ time: CMTime) {
+        scrubIdleTicks += 1
+        if isScrubbing && (!timeSlider.isTracking || scrubIdleTicks > 8) {
+            isScrubbing = false
+        }
         guard !isScrubbing else { return }
         let seconds = time.seconds
         guard seconds.isFinite else { return }
@@ -454,6 +462,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
 
     private func showControls() {
         areControlsVisible = true
+        setOverlayVisible?(true)
         UIView.animate(withDuration: 0.25) {
             self.centerOverlayNode.alpha = 1.0
             self.scrubberBarNode.alpha = 1.0
@@ -462,6 +471,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
 
     private func hideControls() {
         areControlsVisible = false
+        setOverlayVisible?(false)
         UIView.animate(withDuration: 0.25) {
             self.centerOverlayNode.alpha = 0.0
             self.scrubberBarNode.alpha = 0.0
@@ -474,7 +484,6 @@ final class MezonVideoPlayerNode: ASDisplayNode {
             guard let self else { return }
             if self.player?.rate != 0 {
                 self.hideControls()
-                self.toggleOverlayVisibility?()
             }
         }
     }
@@ -520,8 +529,9 @@ final class MezonVideoPlayerNode: ASDisplayNode {
 
 
         let safeBottom = view.safeAreaInsets.bottom
-        let barHeight: CGFloat = 50 + safeBottom
-        scrubberBarNode.frame = CGRect(x: 0, y: b.height - barHeight, width: b.width, height: barHeight)
+        let barBottomPadding = controlsBottomInset > 0 ? 0 : safeBottom
+        let barHeight: CGFloat = 50 + barBottomPadding
+        scrubberBarNode.frame = CGRect(x: 0, y: b.height - controlsBottomInset - barHeight, width: b.width, height: barHeight)
 
         let playSize = CGSize(width: 44, height: 44)
         bottomPlayPauseButton.frame = CGRect(x: 8, y: 3, width: playSize.width, height: playSize.height)
@@ -534,7 +544,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
 
         let sliderX = currentTimeLabel.frame.maxX + 12
         let sliderW = durationLabel.frame.minX - 12 - sliderX
-        timeSlider.frame = CGRect(x: sliderX, y: 10, width: sliderW, height: 30)
+        timeSlider.frame = CGRect(x: sliderX, y: 3, width: sliderW, height: 44)
     }
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
@@ -552,6 +562,32 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         }
 
         return super.hitTest(point, with: event)
+    }
+}
+
+extension MezonVideoPlayerNode: UIGestureRecognizerDelegate {
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        var view = touch.view
+        while let v = view {
+            if v is UISlider { return false }
+            view = v.superview
+        }
+        return true
+    }
+}
+
+private final class SeekSlider: UISlider {
+    override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+        let width = bounds.width
+        guard width > 0 else { return super.beginTracking(touch, with: event) }
+        let ratio = Float(min(max(0, touch.location(in: self).x / width), 1))
+        setValue(minimumValue + ratio * (maximumValue - minimumValue), animated: false)
+        sendActions(for: .valueChanged)
+        return true
+    }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        return bounds.insetBy(dx: 0, dy: -12).contains(point)
     }
 }
 

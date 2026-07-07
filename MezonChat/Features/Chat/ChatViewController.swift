@@ -2184,6 +2184,11 @@ final class ChatViewController: ViewController {
                 break
             }
         }
+        if latestServerMessageId == nil,
+           channel.hasLastSentMessage,
+           channel.lastSentMessage.id != 0 {
+            latestServerMessageId = channel.lastSentMessage.id
+        }
         guard let messageId = latestServerMessageId else { return }
 
         if let already = lastMarkedAsReadMessageId, messageId <= already { return }

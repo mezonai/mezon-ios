@@ -15,6 +15,7 @@ final class GalleryPagingNode: ASDisplayNode, UIScrollViewDelegate {
 
     var centralItemIndexUpdated: ((Int) -> Void)?
     var toggleControlsVisibility: (() -> Void)?
+    var setControlsVisible: ((Bool) -> Void)?
     var dismiss: (() -> Void)?
 
     override init() {
@@ -149,6 +150,7 @@ final class GalleryPagingNode: ASDisplayNode, UIScrollViewDelegate {
                 guard let factory = itemNodeFactory else { continue }
                 node = factory(items[index], index)
                 node.toggleControlsVisibility = { [weak self] in self?.toggleControlsVisibility?() }
+                node.setControlsVisible = { [weak self] visible in self?.setControlsVisible?(visible) }
                 node.dismiss = { [weak self] in self?.dismiss?() }
                 node.setPagingEnabled = { [weak self] enabled in self?.setPagingEnabled(enabled) }
                 node.itemInfo = items[index]
