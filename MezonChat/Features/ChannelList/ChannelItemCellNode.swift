@@ -22,6 +22,7 @@ final class ChannelItemCellNode: ASCellNode {
         self.isVoiceActive = isVoiceActive
         super.init()
         automaticallyManagesSubnodes = true
+        neverShowPlaceholders = true
         selectionStyle = .none
         clipsToBounds = true
         setupContent()

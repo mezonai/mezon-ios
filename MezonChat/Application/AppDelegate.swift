@@ -161,6 +161,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
 
         NotificationCenter.default.addObserver(self, selector: #selector(handleWillEnterForeground), name: UIApplication.willEnterForegroundNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleDidBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleDidEnterBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
         if let notificationResponse = connectionOptions.notificationResponse {
             let userInfo = notificationResponse.notification.request.content.userInfo
             let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)
@@ -274,7 +275,12 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
     }
 
+    @objc private func handleDidEnterBackground() {
+        MezonSocket.shared.noteEnteredBackground()
+    }
+
     @objc private func handleWillEnterForeground() {
+        MezonSocket.shared.noteWillEnterForeground()
         accountContext?.recoverFromForeground()
         if let shell = mainWindow?.viewController as? VoIPMinimalShellViewController {
             shell.flushPendingIncomingPeerCallIfNeeded()

@@ -15,6 +15,7 @@ final class ThreadItemCellNode: ASCellNode {
         self.isLast = isLast
         super.init()
         automaticallyManagesSubnodes = true
+        neverShowPlaceholders = true
         selectionStyle = .none
         clipsToBounds = false
 

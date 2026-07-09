@@ -2221,6 +2221,14 @@ final class MezonHTTPClient {
             timeoutNanoseconds: Self.socketFallbackGraceWaitNanoseconds)
     }
 
+    private func isSocketUsableForSingleTransport(apiName: String) async -> Bool {
+        if await MezonSocket.shared.isApiTransportDegraded {
+            MezonRPCLog.response("route api='\(apiName)' SOCKET degraded → HTTP")
+            return false
+        }
+        return await isSocketConnectedAfterGraceWait()
+    }
+
     private func isTransientHTTPFailure(_ error: Error) -> Bool {
         if case MezonError.httpError(let statusCode, _) = error {
             switch statusCode {
@@ -2282,7 +2290,7 @@ final class MezonHTTPClient {
         }
 
         if singleTransportOnly {
-            if await isSocketConnectedAfterGraceWait() {
+            if await isSocketUsableForSingleTransport(apiName: apiName) {
                 return try await sendOverSocketRequired(path: path, message: message)
             }
             return try await postProtoHTTP(
@@ -2310,14 +2318,25 @@ final class MezonHTTPClient {
     ) async throws -> Response {
         let apiName = protoApiName(from: path)
         let body = try message.serializedData()
-        let respBytes = try await MezonSocket.shared.sendApiRequest(apiName: apiName, body: body)
-        if Response.self == SwiftProtobuf.Google_Protobuf_Empty.self {
-            guard let empty = SwiftProtobuf.Google_Protobuf_Empty() as? Response else {
-                throw MezonError.socketError("Empty response cast failed for '\(apiName)'")
+        let started = Date()
+        do {
+            let respBytes = try await MezonSocket.shared.sendApiRequest(apiName: apiName, body: body)
+            await MezonSocket.shared.noteApiRequestSucceeded()
+            if Response.self == SwiftProtobuf.Google_Protobuf_Empty.self {
+                guard let empty = SwiftProtobuf.Google_Protobuf_Empty() as? Response else {
+                    throw MezonError.socketError("Empty response cast failed for '\(apiName)'")
+                }
+                return empty
             }
-            return empty
+            return try Response(serializedBytes: respBytes)
+        } catch {
+            let ms = Int(Date().timeIntervalSince(started) * 1000)
+            if ms >= 3000 {
+                await MezonSocket.shared.noteApiRequestTimedOut()
+            }
+            MezonRPCLog.response("route api='\(apiName)' SOCKET-REQUIRED fail elapsedMs=\(ms) error=\((error as? MezonError)?.technicalDescription ?? error.localizedDescription)")
+            throw error
         }
-        return try Response(serializedBytes: respBytes)
     }
 
     private func sendOverSocketIfPossible<Request: SwiftProtobuf.Message, Response: SwiftProtobuf.Message>(
