@@ -873,15 +873,31 @@ final class ChatViewController: ViewController {
                             channelId: Int64(channelId) ?? 0,
                             token: token
                         )
+                        let allClanMembers: [ClanMemberRecord] = self.clanId != 0
+                            ? self.context.account.postbox.read { $0.getClanMembers(clanId: self.clanId) }
+                            : []
+                        let clanMembersMap = Dictionary(allClanMembers.map { ($0.userId, $0) }, uniquingKeysWith: { first, _ in first })
+                        
                         var votersByOption: [Int: [PollVoter]] = [:]
                         for detail in response.voterDetails {
                             let voters = detail.userIds.map { userId in
                                 let profile = self.context.account.postbox.read { $0.getProfile(userId: "\(userId)") }
+                                let clanMember = clanMembersMap[userId]
+                                
+                                let displayName: String
+                                if let clanNick = clanMember?.clanNick, !clanNick.isEmpty {
+                                    displayName = clanNick
+                                } else {
+                                    displayName = profile?.displayName ?? profile?.username ?? "User"
+                                }
+                                
+                                let avatar = clanMember?.resolvedAvatarURL(fallbackProfileAvatar: profile?.avatarUrl) ?? profile?.avatarUrl ?? ""
+                                
                                 return PollVoter(
                                     id: "\(userId)",
-                                    displayName: profile?.displayName ?? profile?.username ?? "User",
-                                    username: profile?.username ?? "",
-                                    avatar: profile?.avatarUrl ?? ""
+                                    displayName: displayName,
+                                    username: profile?.username ?? clanMember?.username ?? "",
+                                    avatar: avatar
                                 )
                             }
                             votersByOption[Int(detail.answerIndex)] = voters
