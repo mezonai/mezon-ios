@@ -847,9 +847,19 @@ final class ForwardMessageViewController: UIViewController {
             return false
         }
 
-        filteredItems = suggestions.filter { item in
+        var matchedItems = suggestions.filter { item in
             matches(item, ch: channelMap[item.channelID], qRaw: trimmed)
         }
+        if !trimmed.isEmpty {
+            var matchedIds = Set(matchedItems.map(\.channelID))
+            for item in suggestions {
+                guard let ch = channelMap[item.channelID], ch.parentID != 0 else { continue }
+                guard matchedIds.contains(ch.parentID), !matchedIds.contains(item.channelID) else { continue }
+                matchedItems.append(item)
+                matchedIds.insert(item.channelID)
+            }
+        }
+        filteredItems = matchedItems
         if hashtag {
             filteredItems.sort {
                 forwardingDisplayName(for: $0).localizedCaseInsensitiveCompare(forwardingDisplayName(for: $1)) == .orderedAscending
