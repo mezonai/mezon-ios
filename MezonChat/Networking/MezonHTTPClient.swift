@@ -1053,25 +1053,12 @@ final class MezonHTTPClient {
         req.topicID = topicId
         req.code = code
 
-        let ack: Mezon_Realtime_ChannelMessageAck = try await postProto(
+        return try await postProto(
             path: "/mezon.api.Mezon/SendChannelMessage",
             message: req,
             auth: .bearer(token),
             preferHTTPFirst: preferHTTPFirst
         )
-        let channelType: Int32
-        switch mode {
-        case MezonConstants.ChannelStreamMode.group.rawValue:
-            channelType = MezonConstants.ChannelType.group.rawValue
-        case MezonConstants.ChannelStreamMode.dm.rawValue:
-            channelType = MezonConstants.ChannelType.dm.rawValue
-        case MezonConstants.ChannelStreamMode.thread.rawValue:
-            channelType = MezonConstants.ChannelType.thread.rawValue
-        default:
-            channelType = MezonConstants.ChannelType.channel.rawValue
-        }
-        ForwardTargetUsageStore.markLastSent(channelID: channelId, channelType: channelType)
-        return ack
     }
 
     func messageButtonClick(
