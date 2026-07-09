@@ -641,20 +641,8 @@ final class ForwardMessageViewController: UIViewController {
         }
     }
 
-    private func sharingRecencyTimestamp(_ ch: Mezon_Api_ChannelDescription) -> UInt32 {
-        if ch.hasLastSeenMessage { return ch.lastSeenMessage.timestampSeconds }
-        if ch.hasLastSentMessage { return ch.lastSentMessage.timestampSeconds }
-        return 0
-    }
-
     private func isUserFacingDMType(_ type: Int32) -> Bool {
         type == MezonConstants.ChannelType.dm.rawValue || type == MezonConstants.ChannelType.group.rawValue
-    }
-
-    private func isSharableClanChannelType(_ type: Int32) -> Bool {
-        type == MezonConstants.ChannelType.channel.rawValue
-            || type == MezonConstants.ChannelType.thread.rawValue
-            || type == MezonConstants.ChannelType.announcement.rawValue
     }
 
     private func currentUserId() -> Int64? {
@@ -694,19 +682,25 @@ final class ForwardMessageViewController: UIViewController {
         forwardBlockNoteByChannelId[channelId]
     }
 
-    private func recencyTimestamp(for item: SharingSuggestionItem) -> UInt32 {
-        guard let ch = channelMap[item.channelID] else { return 0 }
-        return sharingRecencyTimestamp(ch)
-    }
-
-    private func sortSuggestionsByRecency(_ items: [SharingSuggestionItem]) -> [SharingSuggestionItem] {
-        let users = items.filter { isUserFacingDMType($0.type) }
-            .sorted { recencyTimestamp(for: $0) > recencyTimestamp(for: $1) }
-        let channels = items.filter { isSharableClanChannelType($0.type) }
-            .sorted { recencyTimestamp(for: $0) > recencyTimestamp(for: $1) }
-        let other = items.filter { !isUserFacingDMType($0.type) && !isSharableClanChannelType($0.type) }
-            .sorted { recencyTimestamp(for: $0) > recencyTimestamp(for: $1) }
-        return users + channels + other
+    private func sortSuggestionsByForwardUsage(_ items: [SharingSuggestionItem]) -> [SharingSuggestionItem] {
+        let usage = ForwardTargetUsageStore.snapshot()
+        return items.enumerated()
+            .map { index, item in
+                (
+                    index: index,
+                    item: item,
+                    timestamp: ForwardTargetUsageStore.lastSent(
+                        channelID: item.channelID,
+                        channelType: item.type,
+                        in: usage
+                    )
+                )
+            }
+            .sorted { lhs, rhs in
+                if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
+                return lhs.index < rhs.index
+            }
+            .map(\.item)
     }
 
     private func resolvedClanInfo(for ch: Mezon_Api_ChannelDescription) -> (clanID: Int64, channelClanName: String) {
@@ -724,6 +718,38 @@ final class ForwardMessageViewController: UIViewController {
         return (clanID, channelClanName)
     }
 
+    private static func mergeDMRows(
+        _ rows: [Mezon_Api_ChannelDescription],
+        cached: [Mezon_Api_ChannelDescription]
+    ) -> [Mezon_Api_ChannelDescription] {
+        guard !rows.isEmpty, !cached.isEmpty else { return rows }
+        var cachedByID: [Int64: Mezon_Api_ChannelDescription] = [:]
+        for row in cached {
+            cachedByID[row.channelID] = row
+        }
+        return rows.map { row in
+            guard let cachedRow = cachedByID[row.channelID] else { return row }
+            var merged = row
+            if !merged.hasLastSentMessage, cachedRow.hasLastSentMessage {
+                merged.lastSentMessage = cachedRow.lastSentMessage
+            } else if merged.hasLastSentMessage, cachedRow.hasLastSentMessage,
+                      cachedRow.lastSentMessage.timestampSeconds > merged.lastSentMessage.timestampSeconds {
+                merged.lastSentMessage = cachedRow.lastSentMessage
+            }
+            if !merged.hasLastSeenMessage, cachedRow.hasLastSeenMessage {
+                merged.lastSeenMessage = cachedRow.lastSeenMessage
+            }
+            return merged
+        }
+    }
+
+    private static func dmAppendTimestamp(_ channel: Mezon_Api_ChannelDescription) -> UInt32 {
+        if channel.hasLastSentMessage, channel.lastSentMessage.timestampSeconds > 0 {
+            return channel.lastSentMessage.timestampSeconds
+        }
+        return channel.createTimeSeconds
+    }
+
     private func loadDestinations() {
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -734,22 +760,40 @@ final class ForwardMessageViewController: UIViewController {
 
             var dmList: [Mezon_Api_ChannelDescription] = []
             var clanList: [Mezon_Api_ChannelDescription] = []
+            var clanOrderByID: [Int64: Int] = [:]
 
             do {
-                var dms = try await context.account.network.listDirectMessageChannels(token: token)
+                async let directTask = context.account.network.listDirectMessageChannels(token: token)
+                async let groupTask = context.account.network.listGroupMessageChannels(token: token)
+                var dms = try await directTask
+                if let groups = try? await groupTask {
+                    var knownIDs = Set(dms.map(\.channelID))
+                    for group in groups where knownIDs.insert(group.channelID).inserted {
+                        dms.append(group)
+                    }
+                }
+                let cachedDMs = context.account.postbox.getCachedDMChannelList()
+                dms = Self.mergeDMRows(dms, cached: cachedDMs)
                 do {
                     let badgeResponse = try await context.account.network.listChannelBadgeCount(clanId: 0, token: token)
                     ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &dms, badgeRows: badgeResponse.channeldesc)
                 } catch {}
 
                 dmList = dms.filter { ch in
-                    guard ch.type != MezonConstants.ChannelType.mezonVoice.rawValue else { return false }
+                    guard ch.type == MezonConstants.ChannelType.dm.rawValue
+                            || ch.type == MezonConstants.ChannelType.group.rawValue else { return false }
+                    guard ch.active == 1 else { return false }
                     if !ch.channelLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
                     if ch.displayNames.contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) { return true }
                     if ch.usernames.contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) { return true }
                     return false
                 }
-                dmList = dmList.sorted { self.sharingRecencyTimestamp($0) > self.sharingRecencyTimestamp($1) }
+                dmList.sort { lhs, rhs in
+                    let lhsTimestamp = Self.dmAppendTimestamp(lhs)
+                    let rhsTimestamp = Self.dmAppendTimestamp(rhs)
+                    if lhsTimestamp != rhsTimestamp { return lhsTimestamp > rhsTimestamp }
+                    return lhs.channelID < rhs.channelID
+                }
             } catch {}
 
             if let allChannelsList = context.engine.clanData.getAllChannelsByUser() {
@@ -757,14 +801,15 @@ final class ForwardMessageViewController: UIViewController {
                     let t = ch.type
                     return t == MezonConstants.ChannelType.channel.rawValue
                         || t == MezonConstants.ChannelType.thread.rawValue
-                        || t == MezonConstants.ChannelType.announcement.rawValue
                 }
-                clanList = clanList.sorted { self.sharingRecencyTimestamp($0) > self.sharingRecencyTimestamp($1) }
             }
 
             do {
                 let clanDescs = try await context.account.network.listClanDescs(token: token)
-                for clan in clanDescs {
+                for (index, clan) in clanDescs.enumerated() {
+                    clanOrderByID[clan.clanID] = clan.clanOrder == 0
+                        ? index
+                        : Int(clan.clanOrder)
                     clanNames[clan.clanID] = clan.clanName
                     if !clan.logo.isEmpty {
                         clanLogos[clan.clanID] = clan.logo
@@ -782,11 +827,27 @@ final class ForwardMessageViewController: UIViewController {
                         let t = ch.type
                         return t == MezonConstants.ChannelType.channel.rawValue
                             || t == MezonConstants.ChannelType.thread.rawValue
-                            || t == MezonConstants.ChannelType.announcement.rawValue
                     }
-                    clanList = clanList.sorted { self.sharingRecencyTimestamp($0) > self.sharingRecencyTimestamp($1) }
                 } catch {}
             }
+
+            var channelByID: [Int64: Mezon_Api_ChannelDescription] = [:]
+            for channel in clanList {
+                channelByID[channel.channelID] = channel
+            }
+            clanList = clanList.enumerated().sorted { lhs, rhs in
+                func clanID(for channel: Mezon_Api_ChannelDescription) -> Int64 {
+                    if channel.clanID != 0 { return channel.clanID }
+                    if channel.parentID != 0, let parent = channelByID[channel.parentID] {
+                        return parent.clanID
+                    }
+                    return 0
+                }
+                let lhsOrder = clanOrderByID[clanID(for: lhs.element)] ?? Int.max
+                let rhsOrder = clanOrderByID[clanID(for: rhs.element)] ?? Int.max
+                if lhsOrder != rhsOrder { return lhsOrder < rhsOrder }
+                return lhs.offset < rhs.offset
+            }.map(\.element)
 
             channelMap.removeAll(keepingCapacity: true)
             for ch in dmList + clanList {
@@ -797,20 +858,6 @@ final class ForwardMessageViewController: UIViewController {
             var built: [SharingSuggestionItem] = []
             built.reserveCapacity(dmList.count + clanList.count)
 
-            for ch in dmList {
-                built.append(SharingSuggestionItem(
-                    channelID: ch.channelID,
-                    clanID: ch.clanID,
-                    type: ch.type,
-                    displayName: SharingChannelCell.displayName(for: ch),
-                    avatarURL: ch.avatars.first,
-                    channelAvatar: ch.channelAvatar,
-                    channelPrivate: ch.channelPrivate,
-                    ageRestricted: ch.ageRestricted,
-                    clanName: nil,
-                    clanLogo: nil
-                ))
-            }
             for ch in clanList {
                 let (cid, chClanNameRaw) = resolvedClanInfo(for: ch)
                 let mapName = (clanNames[cid] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -833,6 +880,20 @@ final class ForwardMessageViewController: UIViewController {
                     clanLogo: clanLogos[cid]
                 ))
             }
+            for ch in dmList {
+                built.append(SharingSuggestionItem(
+                    channelID: ch.channelID,
+                    clanID: ch.clanID,
+                    type: ch.type,
+                    displayName: SharingChannelCell.displayName(for: ch),
+                    avatarURL: ch.avatars.first,
+                    channelAvatar: ch.channelAvatar,
+                    channelPrivate: ch.channelPrivate,
+                    ageRestricted: ch.ageRestricted,
+                    clanName: nil,
+                    clanLogo: nil
+                ))
+            }
 
             suggestions = built
             applyFilter(resetSelection: false)
@@ -852,9 +913,14 @@ final class ForwardMessageViewController: UIViewController {
         func matches(_ item: SharingSuggestionItem, ch: Mezon_Api_ChannelDescription?, qRaw: String) -> Bool {
             if hashtag {
                 let t = ch?.type ?? item.type
-                return t == MezonConstants.ChannelType.channel.rawValue
+                let isChannel = t == MezonConstants.ChannelType.channel.rawValue
                     || t == MezonConstants.ChannelType.thread.rawValue
-                    || t == MezonConstants.ChannelType.announcement.rawValue
+                guard isChannel else { return false }
+                let query = fold(String(qRaw.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines))
+                guard !query.isEmpty else { return true }
+                if fold(item.displayName).contains(query) { return true }
+                if let clanName = item.clanName, fold(clanName).contains(query) { return true }
+                return ch.map { fold($0.channelLabel).contains(query) } ?? false
             }
             let q = fold(qRaw)
             guard !q.isEmpty else { return true }
@@ -871,13 +937,7 @@ final class ForwardMessageViewController: UIViewController {
         filteredItems = suggestions.filter { item in
             matches(item, ch: channelMap[item.channelID], qRaw: trimmed)
         }
-        if hashtag {
-            filteredItems.sort {
-                forwardingDisplayName(for: $0).localizedCaseInsensitiveCompare(forwardingDisplayName(for: $1)) == .orderedAscending
-            }
-        } else {
-            filteredItems = sortSuggestionsByRecency(filteredItems)
-        }
+        filteredItems = sortSuggestionsByForwardUsage(filteredItems)
         updateEmptyResultsVisibility()
     }
 
@@ -888,13 +948,6 @@ final class ForwardMessageViewController: UIViewController {
         emptyResultsLabel.text = L(L10n.Forward.noResults)
         emptyResultsLabel.isHidden = !showEmpty
         tableView.isScrollEnabled = !showEmpty
-    }
-
-    private func forwardingDisplayName(for item: SharingSuggestionItem) -> String {
-        if let ch = channelMap[item.channelID] {
-            return SharingChannelCell.displayName(for: ch)
-        }
-        return item.displayName
     }
 
     private var displaySuggestions: [SharingSuggestionItem] {
@@ -984,8 +1037,6 @@ final class ForwardMessageViewController: UIViewController {
             return MezonConstants.ChannelStreamMode.dm.rawValue
         case MezonConstants.ChannelType.group.rawValue:
             return MezonConstants.ChannelStreamMode.group.rawValue
-        case MezonConstants.ChannelType.announcement.rawValue:
-            return MezonConstants.ChannelStreamMode.channel.rawValue
         default:
             if channel.clanID != 0 { return MezonConstants.ChannelStreamMode.channel.rawValue }
             return MezonConstants.ChannelStreamMode.group.rawValue
@@ -995,8 +1046,7 @@ final class ForwardMessageViewController: UIViewController {
     private func forwardClanId(for channel: Mezon_Api_ChannelDescription) -> Int64 {
         let t = channel.type
         if t == MezonConstants.ChannelType.channel.rawValue
-            || t == MezonConstants.ChannelType.thread.rawValue
-            || t == MezonConstants.ChannelType.announcement.rawValue {
+            || t == MezonConstants.ChannelType.thread.rawValue {
             return resolvedClanInfo(for: channel).clanID
         }
         return 0
@@ -1005,8 +1055,7 @@ final class ForwardMessageViewController: UIViewController {
     private func isPublicDestination(_ channel: Mezon_Api_ChannelDescription) -> Bool {
         let t = channel.type
         if t == MezonConstants.ChannelType.channel.rawValue
-            || t == MezonConstants.ChannelType.thread.rawValue
-            || t == MezonConstants.ChannelType.announcement.rawValue {
+            || t == MezonConstants.ChannelType.thread.rawValue {
             return channel.channelPrivate == 0
         }
         return false
