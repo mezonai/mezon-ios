@@ -1133,6 +1133,30 @@ final class MezonHTTPClient {
         )
     }
 
+    func deleteChannelMessage(
+        clanId: Int64,
+        channelId: Int64,
+        mode: Int32,
+        isPublic: Bool,
+        messageId: Int64,
+        topicId: Int64 = 0,
+        token: String
+    ) async throws {
+        var req = Mezon_Realtime_ChannelMessageRemove()
+        req.clanID = clanId
+        req.channelID = channelId
+        req.mode = mode
+        req.isPublic = isPublic
+        req.messageID = messageId
+        req.topicID = topicId
+
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/DeleteChannelMessage",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func listChannelMessages(
         clanId: Int64,
         channelId: Int64,
