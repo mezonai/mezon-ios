@@ -383,7 +383,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         animateNextContentReplace = true
     }
 
-    private func crossfadeReloadAnimated(duration: TimeInterval = 0.1) {
+    private func crossfadeReloadAnimated(duration _: TimeInterval = 0.1) {
         guard tableIsInWindow else {
             if tableNode.isNodeLoaded {
                 UIView.performWithoutAnimation { self.tableNode.reloadData() }
@@ -392,17 +392,14 @@ final class ChannelListContainerNode: ASDisplayNode {
             return
         }
         let previousOffset = tableNode.view.contentOffset
-        UIView.transition(
-            with: tableNode.view,
-            duration: duration,
-            options: [.transitionCrossDissolve, .allowUserInteraction]
-        ) {
-            UIView.performWithoutAnimation {
-                self.tableNode.reloadData()
-                self.tableNode.waitUntilAllUpdatesAreProcessed()
-                self.restoreContentOffset(previousOffset)
-            }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        UIView.performWithoutAnimation {
+            self.tableNode.reloadData()
+            self.tableNode.waitUntilAllUpdatesAreProcessed()
+            self.restoreContentOffset(previousOffset)
         }
+        CATransaction.commit()
         committedSectionCount = totalSections
         updateStickyHeaderPosition()
     }

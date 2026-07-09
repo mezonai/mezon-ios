@@ -591,11 +591,6 @@ final class ClanListViewController: ViewController {
     }
 
     private func applyUnreadDMsFromCache() {
-        let cached = context.account.postbox.getCachedDMChannelList()
-        let unread = cached.filter { $0.countMessUnread > 0 }
-        guard !unread.isEmpty else { return }
-        let merged = Self.mergeUnreadDmStrip(serverUnread: unread, previousStrip: unreadDMs)
-        setUnreadDMs(merged)
     }
 
     private var fetchUnreadDMsTask: Task<Void, Never>?

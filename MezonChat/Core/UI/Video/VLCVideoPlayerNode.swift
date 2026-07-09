@@ -23,7 +23,11 @@ final class VLCVideoPlayerNode: ASDisplayNode {
     private var vlcPlayer: VLCMediaPlayer?
     private var vlcMedia: VLCMedia?
     private var isScrubbing = false
-    private var scrubIdleTicks = 0
+    private var pendingSeekTarget: Double?
+    private var pendingSeekFrom: Double = 0
+    private var pendingSeekWaitTicks = 0
+
+    private var lastKnownTime: Double = 0
     private var updateTimer: Foundation.Timer?
     
     private var controlsHideTimer: Foundation.Timer?
@@ -34,7 +38,16 @@ final class VLCVideoPlayerNode: ASDisplayNode {
     private var sourceURL: URL?
     private var errorOverlayNode: ASDisplayNode?
     private var loadingTimeoutTimer: Foundation.Timer?
-    
+
+    private var downloadTask: URLSessionDownloadTask?
+    private var downloadProgressObservation: NSKeyValueObservation?
+    private var wantsPlay = false
+    private var isPreparingDownload = false
+    private var pendingRemoteURL: URL?
+    private var pendingLocalURL: URL?
+    private let downloadSpinner = UIActivityIndicatorView(style: .large)
+    private let downloadProgressLabel = UILabel()
+
     var setOverlayVisible: ((Bool) -> Void)?
     var setPagingEnabled: ((Bool) -> Void)?
     var controlsBottomInset: CGFloat = 0 {
@@ -128,6 +141,30 @@ final class VLCVideoPlayerNode: ASDisplayNode {
         playerContainerNode.view.addGestureRecognizer(tap)
         
         scrubberBarNode.view.addSubview(timeSlider)
+
+        downloadSpinner.color = .white
+        downloadSpinner.hidesWhenStopped = true
+        downloadSpinner.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(downloadSpinner)
+
+        downloadProgressLabel.textColor = .white
+        downloadProgressLabel.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
+        downloadProgressLabel.textAlignment = .center
+        downloadProgressLabel.isHidden = true
+        downloadProgressLabel.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(downloadProgressLabel)
+
+        NSLayoutConstraint.activate([
+            downloadSpinner.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            downloadSpinner.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            downloadProgressLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            downloadProgressLabel.topAnchor.constraint(equalTo: downloadSpinner.bottomAnchor, constant: 8),
+        ])
+
+        if isPreparingDownload {
+            showDownloadIndicator()
+        }
+
         resetControlsTimer()
     }
     
@@ -141,14 +178,109 @@ final class VLCVideoPlayerNode: ASDisplayNode {
     }
     
     private func setupVLCPlayer(url: URL) {
-        vlcMedia = VLCMedia(url: url)
+        if url.isFileURL {
+            attachVLCPlayer(fileURL: url)
+            return
+        }
+        let localURL = Self.cachedFileURL(for: url)
+        if FileManager.default.fileExists(atPath: localURL.path) {
+            attachVLCPlayer(fileURL: localURL)
+            return
+        }
+        pendingRemoteURL = url
+        pendingLocalURL = localURL
+    }
+
+    private func attachVLCPlayer(fileURL: URL) {
+        vlcMedia = VLCMedia(url: fileURL)
         vlcPlayer = VLCMediaPlayer()
         vlcPlayer?.media = vlcMedia
         vlcPlayer?.delegate = self
-        
         vlcPlayer?.drawable = playerContainerNode.view
-        
         startUpdateTimer()
+        if wantsPlay {
+            play()
+        }
+    }
+
+    private static let downloadSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 180
+        config.waitsForConnectivity = true
+        return URLSession(configuration: config)
+    }()
+
+    private static func stableHash(_ string: String) -> UInt64 {
+        var hash: UInt64 = 5381
+        for byte in string.utf8 {
+            hash = (hash &* 33) &+ UInt64(byte)
+        }
+        return hash
+    }
+
+    private static func cachedFileURL(for remoteURL: URL) -> URL {
+        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("VideoStreamCache", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let ext = remoteURL.pathExtension.isEmpty ? "mkv" : remoteURL.pathExtension
+        let name = "\(stableHash(remoteURL.absoluteString)).\(ext)"
+        return dir.appendingPathComponent(name)
+    }
+
+    private func startDownload(remote: URL, to localURL: URL) {
+        guard !isPreparingDownload else { return }
+        isPreparingDownload = true
+        showDownloadIndicator()
+        let task = Self.downloadSession.downloadTask(with: remote) { [weak self] tempURL, response, error in
+            let httpOK = (response as? HTTPURLResponse).map { (200...299).contains($0.statusCode) } ?? true
+            if let tempURL, error == nil, httpOK {
+                try? FileManager.default.removeItem(at: localURL)
+                let moved: Bool
+                do {
+                    try FileManager.default.moveItem(at: tempURL, to: localURL)
+                    moved = true
+                } catch {
+                    moved = false
+                }
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.isPreparingDownload = false
+                    self.hideDownloadIndicator()
+                    if moved {
+                        self.attachVLCPlayer(fileURL: localURL)
+                    } else {
+                        self.showErrorOverlay(message: "Unable to load this video.")
+                    }
+                }
+            } else {
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.isPreparingDownload = false
+                    self.hideDownloadIndicator()
+                    self.showErrorOverlay(message: "Unable to load this video.")
+                }
+            }
+        }
+        downloadProgressObservation = task.progress.observe(\.fractionCompleted) { [weak self] progress, _ in
+            let percent = Int(progress.fractionCompleted * 100)
+            DispatchQueue.main.async {
+                self?.downloadProgressLabel.text = "\(percent)%"
+            }
+        }
+        downloadTask = task
+        task.resume()
+    }
+
+    private func showDownloadIndicator() {
+        downloadSpinner.startAnimating()
+        downloadProgressLabel.isHidden = false
+        downloadProgressLabel.text = "0%"
+    }
+
+    private func hideDownloadIndicator() {
+        downloadSpinner.stopAnimating()
+        downloadProgressLabel.isHidden = true
     }
     
     private func startUpdateTimer() {
@@ -159,16 +291,38 @@ final class VLCVideoPlayerNode: ASDisplayNode {
     }
     
     private func updatePlaybackTime() {
-        scrubIdleTicks += 1
-        if isScrubbing && (!timeSlider.isTracking || scrubIdleTicks > 8) {
-            isScrubbing = false
+        guard let player = vlcPlayer else { return }
+
+        if isScrubbing { return }
+
+        if let target = pendingSeekTarget {
+            timeSlider.value = Float(target)
+            currentTimeLabel.attributedText = NSAttributedString(
+                string: formatTime(target),
+                attributes: [.font: UIFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular), .foregroundColor: UIColor.white]
+            )
+            setNeedsLayout()
+
+            let currentTime = Double(player.time.intValue) / 1000.0
+            let reachedTarget = currentTime >= target && abs(currentTime - pendingSeekFrom) > 0.5
+            let closeEnough = abs(currentTime - target) <= 0.35
+            if reachedTarget || closeEnough {
+                pendingSeekTarget = nil
+                pendingSeekWaitTicks = 0
+            } else {
+                pendingSeekWaitTicks += 1
+                if pendingSeekWaitTicks == 15 {
+                    player.time = VLCTime(int: Int32(target * 1000))
+                }
+            }
+            return
         }
-        guard !isScrubbing, let player = vlcPlayer else { return }
-        
+
         if let media = player.media, media.length.intValue > 0 {
             let duration = Double(media.length.intValue) / 1000.0
             let currentTime = Double(player.time.intValue) / 1000.0
-            
+            if currentTime > 0 { lastKnownTime = currentTime }
+
             if timeSlider.maximumValue != Float(duration) {
                 timeSlider.maximumValue = Float(duration)
                 durationLabel.attributedText = NSAttributedString(
@@ -188,6 +342,8 @@ final class VLCVideoPlayerNode: ASDisplayNode {
     }
     
     deinit {
+        downloadTask?.cancel()
+        downloadProgressObservation?.invalidate()
         loadingTimeoutTimer?.invalidate()
         updateTimer?.invalidate()
         vlcPlayer?.stop()
@@ -195,6 +351,13 @@ final class VLCVideoPlayerNode: ASDisplayNode {
     }
     
     public func play() {
+        wantsPlay = true
+        guard vlcPlayer != nil else {
+            if let remote = pendingRemoteURL, let local = pendingLocalURL {
+                startDownload(remote: remote, to: local)
+            }
+            return
+        }
         try? AVAudioSession.sharedInstance().setCategory(.playback)
         try? AVAudioSession.sharedInstance().setActive(true)
         vlcPlayer?.play()
@@ -212,6 +375,7 @@ final class VLCVideoPlayerNode: ASDisplayNode {
     }
     
     public func pause() {
+        wantsPlay = false
         vlcPlayer?.pause()
         updatePlayPauseIcons(isPlaying: false)
         controlsHideTimer?.invalidate()
@@ -229,18 +393,22 @@ final class VLCVideoPlayerNode: ASDisplayNode {
     
     @objc private func seekBackwardTapped() {
         guard let player = vlcPlayer else { return }
-        let currentTime = Double(player.time.intValue) / 1000.0
-        let newTime = max(0, currentTime - seekDelta)
+        let base = pendingSeekTarget ?? (Double(player.time.intValue) / 1000.0)
+        let newTime = max(0, base - seekDelta)
+        pendingSeekTarget = nil
+        pendingSeekWaitTicks = 0
         player.time = VLCTime(int: Int32(newTime * 1000))
         resetControlsTimer()
         animateButtonTap(seekBackwardButton)
     }
-    
+
     @objc private func seekForwardTapped() {
         guard let player = vlcPlayer, let media = player.media else { return }
         let duration = Double(media.length.intValue) / 1000.0
-        let currentTime = Double(player.time.intValue) / 1000.0
-        let newTime = min(duration, currentTime + seekDelta)
+        let base = pendingSeekTarget ?? (Double(player.time.intValue) / 1000.0)
+        let newTime = min(duration, base + seekDelta)
+        pendingSeekTarget = nil
+        pendingSeekWaitTicks = 0
         player.time = VLCTime(int: Int32(newTime * 1000))
         resetControlsTimer()
         animateButtonTap(seekForwardButton)
@@ -269,13 +437,14 @@ final class VLCVideoPlayerNode: ASDisplayNode {
     
     @objc private func sliderDidBeginScrubbing() {
         isScrubbing = true
+        pendingSeekTarget = nil
+        pendingSeekWaitTicks = 0
         setPagingEnabled?(false)
         controlsHideTimer?.invalidate()
     }
-    
+
     @objc private func sliderDidChange() {
-        scrubIdleTicks = 0
-        guard let player = vlcPlayer, let media = player.media else { return }
+        guard let media = vlcPlayer?.media else { return }
         let duration = Double(media.length.intValue) / 1000.0
         guard duration > 0 else { return }
         
@@ -290,16 +459,31 @@ final class VLCVideoPlayerNode: ASDisplayNode {
     }
     
     @objc private func sliderDidEndScrubbing() {
-        isScrubbing = false
         setPagingEnabled?(true)
-        guard let player = vlcPlayer, let media = player.media else { return }
+        isScrubbing = false
+        guard let player = vlcPlayer, let media = player.media else {
+            pendingSeekTarget = nil
+            return
+        }
         let duration = Double(media.length.intValue) / 1000.0
-        guard duration > 0 else { return }
+        guard duration > 0 else {
+            pendingSeekTarget = nil
+            return
+        }
 
         let seconds = Double(timeSlider.value)
         let clampedSeconds = max(0, min(seconds, duration))
 
+        timeSlider.value = Float(clampedSeconds)
+        currentTimeLabel.attributedText = NSAttributedString(
+            string: formatTime(clampedSeconds),
+            attributes: [.font: UIFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular), .foregroundColor: UIColor.white]
+        )
+
+        pendingSeekFrom = Double(player.time.intValue) / 1000.0
         player.time = VLCTime(int: Int32(clampedSeconds * 1000))
+        pendingSeekTarget = clampedSeconds
+        pendingSeekWaitTicks = 0
 
         if player.isPlaying {
             resetControlsTimer()
@@ -392,8 +576,9 @@ final class VLCVideoPlayerNode: ASDisplayNode {
         seekForwardButton.frame = CGRect(x: sideButtonSize + buttonSpacing + centerButtonSize + buttonSpacing, y: sideY, width: sideButtonSize, height: sideButtonSize)
         seekForwardButton.cornerRadius = sideButtonSize / 2
         
-        let safeBottom = view.safeAreaInsets.bottom
-        let barBottomPadding = controlsBottomInset > 0 ? 0 : safeBottom
+        let safeBottom = max(view.safeAreaInsets.bottom, view.window?.safeAreaInsets.bottom ?? 0)
+        let minBottomPadding: CGFloat = 44
+        let barBottomPadding = controlsBottomInset > 0 ? 0 : max(safeBottom, minBottomPadding)
         let barHeight: CGFloat = 50 + barBottomPadding
         scrubberBarNode.frame = CGRect(x: 0, y: b.height - controlsBottomInset - barHeight, width: b.width, height: barHeight)
         
@@ -441,10 +626,16 @@ extension VLCVideoPlayerNode: VLCMediaPlayerDelegate {
         
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            
+
             switch player.state {
             case .ended:
                 self.loadingTimeoutTimer?.invalidate()
+                self.pendingSeekTarget = nil
+                self.pendingSeekWaitTicks = 0
+                if self.playbackEndedPrematurely(player: player) {
+                    self.showErrorOverlay(message: "This video appears to be incomplete or corrupted, so it can't be played in full.")
+                    return
+                }
                 self.updatePlayPauseIcons(isPlaying: false)
                 self.showControls()
             case .playing:
@@ -458,6 +649,8 @@ extension VLCVideoPlayerNode: VLCMediaPlayerDelegate {
                 self.showErrorOverlay(message: "An error occurred while playing this video.")
             case .stopped:
                 self.loadingTimeoutTimer?.invalidate()
+                self.pendingSeekTarget = nil
+                self.pendingSeekWaitTicks = 0
             case .opening, .buffering:
                 break
             default:
@@ -466,6 +659,13 @@ extension VLCVideoPlayerNode: VLCMediaPlayerDelegate {
         }
     }
     
+    private func playbackEndedPrematurely(player: VLCMediaPlayer) -> Bool {
+        let declared = Double(player.media?.length.intValue ?? 0) / 1000.0
+        let playedTo = max(lastKnownTime, Double(player.time.intValue) / 1000.0)
+        guard declared > 5 else { return false }
+        return playedTo < declared * 0.6 && (declared - playedTo) > 5
+    }
+
     private func showErrorOverlay(message: String) {
         guard errorOverlayNode == nil else { return }
         

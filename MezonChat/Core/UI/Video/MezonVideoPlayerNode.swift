@@ -23,7 +23,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     private var playerLayer: AVPlayerLayer?
     private var timeObserver: Any?
     private var isScrubbing = false
-    private var scrubIdleTicks = 0
+    private var scrubGeneration = 0
 
     private var controlsHideTimer: Foundation.Timer?
     private var areControlsVisible = true
@@ -163,12 +163,10 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     private var statusObserver: NSKeyValueObservation?
 
     private func setupPlayer(playerItem: AVPlayerItem) {
-        playerItem.preferredForwardBufferDuration = 2
         if #available(iOS 14.5, *) {
             playerItem.startsOnFirstEligibleVariant = true
         }
         let avPlayer = AVPlayer(playerItem: playerItem)
-        avPlayer.automaticallyWaitsToMinimizeStalling = false
         self.player = avPlayer
 
         if let layer = playerNode.layer as? AVPlayerLayer {
@@ -218,7 +216,8 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     
     private func showErrorOverlay(error: Error?) {
         guard errorOverlayNode == nil else { return }
-        
+
+        isScrubbing = false
         onPlaybackFailed?()
         
         centerOverlayNode.isHidden = true
@@ -390,13 +389,13 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     }
 
     @objc private func sliderDidBeginScrubbing() {
+        scrubGeneration += 1
         isScrubbing = true
         setPagingEnabled?(false)
         controlsHideTimer?.invalidate()
     }
 
     @objc private func sliderDidChange() {
-        scrubIdleTicks = 0
         let seconds = Double(timeSlider.value)
         let seekTime = CMTime(seconds: seconds, preferredTimescale: 600)
         player?.seek(to: seekTime)
@@ -409,21 +408,27 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     }
 
     @objc private func sliderDidEndScrubbing() {
-        isScrubbing = false
         setPagingEnabled?(true)
+        guard let player = player else {
+            isScrubbing = false
+            return
+        }
+        let generation = scrubGeneration
         let seconds = Double(timeSlider.value)
-        player?.seek(to: CMTime(seconds: seconds, preferredTimescale: 600))
-        if player?.timeControlStatus != .paused {
+        let seekTime = CMTime(seconds: seconds, preferredTimescale: 600)
+        player.seek(to: seekTime) { [weak self] _ in
+            DispatchQueue.main.async {
+                guard let self, self.scrubGeneration == generation else { return }
+                self.isScrubbing = false
+            }
+        }
+        if player.timeControlStatus != .paused {
             resetControlsTimer()
         }
     }
 
 
     private func updateTime(_ time: CMTime) {
-        scrubIdleTicks += 1
-        if isScrubbing && (!timeSlider.isTracking || scrubIdleTicks > 8) {
-            isScrubbing = false
-        }
         guard !isScrubbing else { return }
         let seconds = time.seconds
         guard seconds.isFinite else { return }
@@ -528,8 +533,9 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         seekForwardButton.cornerRadius = sideButtonSize / 2
 
 
-        let safeBottom = view.safeAreaInsets.bottom
-        let barBottomPadding = controlsBottomInset > 0 ? 0 : safeBottom
+        let safeBottom = max(view.safeAreaInsets.bottom, view.window?.safeAreaInsets.bottom ?? 0)
+        let minBottomPadding: CGFloat = 44
+        let barBottomPadding = controlsBottomInset > 0 ? 0 : max(safeBottom, minBottomPadding)
         let barHeight: CGFloat = 50 + barBottomPadding
         scrubberBarNode.frame = CGRect(x: 0, y: b.height - controlsBottomInset - barHeight, width: b.width, height: barHeight)
 

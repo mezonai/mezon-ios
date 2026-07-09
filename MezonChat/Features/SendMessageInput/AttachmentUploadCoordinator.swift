@@ -107,6 +107,7 @@ final class AttachmentUploadCoordinator {
     private static let maxConcurrentUploads = 4
     private static let presignEditBatchSize = 4
     private static let progressNotificationBucketCount = 20
+    private static let presignFinishSyncDelayNanos: UInt64 = 500_000_000
 
     private let lock = NSLock()
     private var sessionsByKey: [String: ImageUploadSession] = [:]
@@ -721,6 +722,8 @@ final class AttachmentUploadCoordinator {
         )
         guard !contentStr.isEmpty else { return }
         let localContentData = contentStr.data(using: .utf8) ?? Data()
+        try? await Task.sleep(nanoseconds: Self.presignFinishSyncDelayNanos)
+        guard !session.aborted, session.serverMessageId != 0 else { return }
         let maxAttempts = isFinal ? 4 : 1
         for attempt in 1...maxAttempts {
             let activeToken: String

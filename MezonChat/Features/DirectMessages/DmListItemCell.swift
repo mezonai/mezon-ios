@@ -61,8 +61,7 @@ final class DmListItemCell: UITableViewCell {
     }()
 
     private var avatarLoadGeneration: UInt = 0
-    private var nameTopConstraint: NSLayoutConstraint?
-    private var nameCenterYConstraint: NSLayoutConstraint?
+    private var lastMessageTopConstraint: NSLayoutConstraint?
     private var lastMessageZeroHeightConstraint: NSLayoutConstraint?
     private var configuredAvatarURLString: String?
     private var isAvatarLoadInFlight = false
@@ -135,13 +134,13 @@ final class DmListItemCell: UITableViewCell {
 
         let avatarSize: CGFloat = 40.swh
 
-        let nameTopConstraint = nameLabel.topAnchor.constraint(equalTo: containerView.topAnchor, constant: 8.sh)
-        let nameCenterYConstraint = nameLabel.centerYAnchor.constraint(equalTo: textAvatar.centerYAnchor)
+        let textBlockGuide = UILayoutGuide()
+        containerView.addLayoutGuide(textBlockGuide)
+
+        let lastMessageTopConstraint = lastMessageLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 3.sh)
         let lastMessageZeroHeightConstraint = lastMessageLabel.heightAnchor.constraint(equalToConstant: 0)
-        nameCenterYConstraint.isActive = false
         lastMessageZeroHeightConstraint.isActive = false
-        self.nameTopConstraint = nameTopConstraint
-        self.nameCenterYConstraint = nameCenterYConstraint
+        self.lastMessageTopConstraint = lastMessageTopConstraint
         self.lastMessageZeroHeightConstraint = lastMessageZeroHeightConstraint
 
         NSLayoutConstraint.activate([
@@ -172,16 +171,18 @@ final class DmListItemCell: UITableViewCell {
             onlineIndicator.heightAnchor.constraint(equalToConstant: 14.swh),
 
             nameLabel.leadingAnchor.constraint(equalTo: textAvatar.trailingAnchor, constant: 10.sw),
-            nameTopConstraint,
             nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: timeLabel.leadingAnchor, constant: -6.sw),
+
+            textBlockGuide.topAnchor.constraint(equalTo: nameLabel.topAnchor),
+            textBlockGuide.bottomAnchor.constraint(equalTo: lastMessageLabel.bottomAnchor),
+            textBlockGuide.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
 
             timeLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8.sw),
             timeLabel.centerYAnchor.constraint(equalTo: nameLabel.centerYAnchor),
 
             lastMessageLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
-            lastMessageLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor, constant: 3.sh),
+            lastMessageTopConstraint,
             lastMessageLabel.trailingAnchor.constraint(lessThanOrEqualTo: containerView.trailingAnchor, constant: -8.sw),
-            lastMessageLabel.bottomAnchor.constraint(lessThanOrEqualTo: containerView.bottomAnchor, constant: -8.sh),
         ])
     }
 
@@ -234,9 +235,8 @@ final class DmListItemCell: UITableViewCell {
         lastMessageLabel.isHidden = !hasPreview
         if hasPreviewLayout != hasPreview {
             hasPreviewLayout = hasPreview
-            nameTopConstraint?.isActive = hasPreview
+            lastMessageTopConstraint?.constant = hasPreview ? 3.sh : 0
             lastMessageZeroHeightConstraint?.isActive = !hasPreview
-            nameCenterYConstraint?.isActive = !hasPreview
         }
         lastMessageLabel.textColor = isUnread ? UIColor.theme.textStrong : UIColor.theme.textDisabled
         timeLabel.text = time
