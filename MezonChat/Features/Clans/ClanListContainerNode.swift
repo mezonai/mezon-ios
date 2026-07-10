@@ -653,7 +653,6 @@ private final class ClanCreateActionCell: UICollectionViewCell {
 private final class UnreadDMBadgeCell: UICollectionViewCell {
 
     static let reuseID = "UnreadDMBadgeCell"
-    private static let groupPlaceholderOrange = UIColor(red: 249/255, green: 115/255, blue: 22/255, alpha: 1)
 
     private let avatarImageView: UIImageView = {
         let iv = UIImageView()
@@ -768,17 +767,12 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
         let expectChannelId = dm.channelID
         boundChannelId = expectChannelId
 
-        let name = dm.channelLabel.isEmpty ? "DM" : dm.channelLabel
-        let colors: [UIColor] = [
-            UIColor(red: 0.36, green: 0.36, blue: 0.82, alpha: 1),
-            UIColor(red: 0.23, green: 0.56, blue: 0.42, alpha: 1),
-            UIColor(red: 0.72, green: 0.26, blue: 0.26, alpha: 1),
-            UIColor(red: 0.32, green: 0.52, blue: 0.78, alpha: 1),
-            UIColor(red: 0.55, green: 0.28, blue: 0.68, alpha: 1),
-        ]
-        let placeholderBg = colors[abs(name.hashValue) % colors.count]
-
         let isDM = dm.type == MezonConstants.ChannelType.dm.rawValue
+        let username = dm.usernames.first ?? ""
+        let avatarSeed = username
+        let name = avatarSeed
+        let placeholderBg = UIColor.avatarColor(for: avatarSeed)
+
         let avatarURL: String
         if isDM {
             avatarURL = dm.avatars.first(where: { !$0.isEmpty }) ?? ""
@@ -860,7 +854,7 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
             initialsLabel.isHidden = false
             initialsLabel.text = String(name.prefix(1)).uppercased()
         } else {
-            avatarContainer.backgroundColor = Self.groupPlaceholderOrange
+            avatarContainer.backgroundColor = .groupDMDefaultAvatar
             initialsLabel.isHidden = true
             groupIconView.tintColor = .white
             groupIconView.isHidden = false
