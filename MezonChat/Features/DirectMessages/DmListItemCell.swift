@@ -216,7 +216,7 @@ final class DmListItemCell: UITableViewCell {
             onlineIndicator.isHidden = !isOnline
 
             let username = channel.usernames.first ?? ""
-            let avatarSeed = username.isEmpty ? displayName : username
+            let avatarSeed = username
 
             if let urlString = resolvedAvatarURL, let url = URL(string: urlString) {
                 loadImage(url: url, fallbackUsername: avatarSeed)
