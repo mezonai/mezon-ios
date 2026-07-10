@@ -330,7 +330,6 @@ final class ForwardMessageViewController: UIViewController {
     private var clanNames: [Int64: String] = [:]
     private var clanLogos: [Int64: String] = [:]
     private var blockedByMeUserIds: Set<Int64> = []
-    private var forwardBlockNoteByChannelId: [Int64: String] = [:]
 
     private var selectedIDs: Set<Int64> = []
     private var searchText = ""
@@ -669,29 +668,9 @@ final class ForwardMessageViewController: UIViewController {
         return channel.userIds.filter { $0 != 0 && $0 != myId }
     }
 
-    private func rebuildForwardBlockNotes() {
-        forwardBlockNoteByChannelId.removeAll(keepingCapacity: true)
-        guard !blockedByMeUserIds.isEmpty else { return }
-        for (_, ch) in channelMap {
-            guard isUserFacingDMType(ch.type) else { continue }
-            let peers = peerUserIds(in: ch)
-            guard peers.contains(where: { blockedByMeUserIds.contains($0) }) else { continue }
-            let note: String
-            if ch.type == MezonConstants.ChannelType.dm.rawValue, peers.count == 1 {
-                note = L(L10n.Forward.blockedByYou)
-            } else {
-                note = L(L10n.Forward.cannotMessage)
-            }
-            forwardBlockNoteByChannelId[ch.channelID] = note
-        }
-    }
-
-    private func isForwardBlocked(channelId: Int64) -> Bool {
-        forwardBlockNoteByChannelId[channelId] != nil
-    }
-
-    private func forwardBlockNote(channelId: Int64) -> String? {
-        forwardBlockNoteByChannelId[channelId]
+    private func shouldHideBlockedDestination(_ channel: Mezon_Api_ChannelDescription) -> Bool {
+        guard isUserFacingDMType(channel.type), !blockedByMeUserIds.isEmpty else { return false }
+        return peerUserIds(in: channel).contains { blockedByMeUserIds.contains($0) }
     }
 
     private func recencyTimestamp(for item: SharingSuggestionItem) -> UInt32 {
@@ -744,6 +723,7 @@ final class ForwardMessageViewController: UIViewController {
 
                 dmList = dms.filter { ch in
                     guard ch.type != MezonConstants.ChannelType.mezonVoice.rawValue else { return false }
+                    guard !self.shouldHideBlockedDestination(ch) else { return false }
                     if !ch.channelLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
                     if ch.displayNames.contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) { return true }
                     if ch.usernames.contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) { return true }
@@ -792,7 +772,6 @@ final class ForwardMessageViewController: UIViewController {
             for ch in dmList + clanList {
                 channelMap[ch.channelID] = ch
             }
-            rebuildForwardBlockNotes()
 
             var built: [SharingSuggestionItem] = []
             built.reserveCapacity(dmList.count + clanList.count)
@@ -868,9 +847,19 @@ final class ForwardMessageViewController: UIViewController {
             return false
         }
 
-        filteredItems = suggestions.filter { item in
+        var matchedItems = suggestions.filter { item in
             matches(item, ch: channelMap[item.channelID], qRaw: trimmed)
         }
+        if !trimmed.isEmpty {
+            var matchedIds = Set(matchedItems.map(\.channelID))
+            for item in suggestions {
+                guard let ch = channelMap[item.channelID], ch.parentID != 0 else { continue }
+                guard matchedIds.contains(ch.parentID), !matchedIds.contains(item.channelID) else { continue }
+                matchedItems.append(item)
+                matchedIds.insert(item.channelID)
+            }
+        }
+        filteredItems = matchedItems
         if hashtag {
             filteredItems.sort {
                 forwardingDisplayName(for: $0).localizedCaseInsensitiveCompare(forwardingDisplayName(for: $1)) == .orderedAscending
@@ -1021,11 +1010,7 @@ final class ForwardMessageViewController: UIViewController {
                 return
             }
             let selectedChannels = selectedIDs.compactMap { self.channelMap[$0] }
-            let targets = selectedChannels.filter { !self.isForwardBlocked(channelId: $0.channelID) }
-            if targets.isEmpty {
-                if selectedChannels.contains(where: { self.isForwardBlocked(channelId: $0.channelID) }) {
-                    Toast.error(L(L10n.Forward.toastCannotForward))
-                }
+            if selectedChannels.isEmpty {
                 return
             }
             let extraRaw = ForwardOutgoing.sanitizedComment(commentField.text ?? "")
@@ -1036,7 +1021,7 @@ final class ForwardMessageViewController: UIViewController {
             isSending = true
             defer { self.isSending = false }
             do {
-                for dest in targets {
+                for dest in selectedChannels {
                     let cid = forwardClanId(for: dest)
                     let mid = forwardingMode(for: dest)
                     let pub = isPublicDestination(dest)
@@ -1091,7 +1076,7 @@ final class ForwardMessageViewController: UIViewController {
                 SentryLogger.capture(error, extras: [
                     "where": "ForwardMessage",
                     "messageCount": messagesToForward.count,
-                    "destinationCount": targets.count,
+                    "destinationCount": selectedChannels.count,
                 ])
                 Toast.error(L(L10n.Sharing.errorTitle))
             }
@@ -1108,24 +1093,18 @@ extension ForwardMessageViewController: UITableViewDelegate, UITableViewDataSour
         let cell = tableView.dequeueReusableCell(withIdentifier: SharingChannelCell.reuseId, for: indexPath) as! SharingChannelCell
         let item = displaySuggestions[indexPath.row]
         let ch = channelMap[item.channelID]
-        let blockNote = forwardBlockNote(channelId: item.channelID)
-        let blocked = blockNote != nil
         cell.configure(
             item: item,
             channel: ch,
             isSelected: selectedIDs.contains(item.channelID),
-            statusNote: blockNote,
-            isForwardingBlocked: blocked
+            statusNote: nil,
+            isForwardingBlocked: false
         )
         return cell
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         let item = displaySuggestions[indexPath.row]
-        if isForwardBlocked(channelId: item.channelID) {
-            Toast.error(forwardBlockNote(channelId: item.channelID) ?? L(L10n.Forward.toastCannotForward))
-            return
-        }
         if selectedIDs.contains(item.channelID) {
             selectedIDs.remove(item.channelID)
         } else {
@@ -1138,7 +1117,6 @@ extension ForwardMessageViewController: UITableViewDelegate, UITableViewDataSour
     }
 
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        let item = displaySuggestions[indexPath.row]
-        return isForwardBlocked(channelId: item.channelID) ? 72 : 56
+        56
     }
 }
