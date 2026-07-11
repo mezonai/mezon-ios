@@ -103,9 +103,7 @@ final class PostboxTransaction {
     }
 
     func deleteMessage(id: String) {
-        let channelId = messageTable.channelIdForMessage(id: id)
-        messageTable.deleteMessage(id: id)
-        if let channelId { updatedMessageChannelIds.insert(channelId) }
+        updatedMessageChannelIds.formUnion(messageTable.deleteMessage(id: id))
     }
 
     func updateMessageReactions(messageId: String, reaction: Mezon_Api_MessageReaction) {

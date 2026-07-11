@@ -452,11 +452,16 @@ final class MessageTable: Table {
         return nil
     }
 
-    func deleteMessage(id: String) {
+    @discardableResult
+    func deleteMessage(id: String) -> [String] {
         pendingDeletes.insert(id)
+        var affectedChannelIds: [String] = []
         for key in cache.keys {
+            guard cache[key]?.contains(where: { $0.id == id }) == true else { continue }
             cache[key]?.removeAll { $0.id == id }
+            affectedChannelIds.append(key)
         }
+        return affectedChannelIds
     }
 
     func updateMessageReactions(messageId: String, reaction: Mezon_Api_MessageReaction) -> [String] {

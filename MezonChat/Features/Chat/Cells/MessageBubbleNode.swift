@@ -116,9 +116,7 @@ final class MessageBubbleNode: ASDisplayNode {
         let shareContactData = display.shareContactData
         let mediaAttachments = display.attachments.filter { $0.isMedia }
         let audioAttachments = display.attachments.filter { $0.isAudio && !$0.url.isEmpty }
-        let fileAttachments = display.attachments.filter {
-            !$0.isMedia && !$0.isAudio && (!$0.url.isEmpty || $0.isUploading)
-        }
+        let fileAttachments = Self.fileAttachments(from: display.attachments)
 
         if display.isCallLog {
             self.hasContent = false
@@ -556,12 +554,33 @@ final class MessageBubbleNode: ASDisplayNode {
 
         let newMediaAttachments = newDisplay.attachments.filter(\.isMedia)
         let oldMediaAttachments = oldDisplay.attachments.filter(\.isMedia)
-        let needsRelayout = syncMediaContent(oldMedia: oldMediaAttachments, newMedia: newMediaAttachments)
+        let mediaRelayoutNeeded = syncMediaContent(oldMedia: oldMediaAttachments, newMedia: newMediaAttachments)
+        let filesRelayoutNeeded = syncFileContent(
+            oldAttachments: oldDisplay.attachments, newAttachments: newDisplay.attachments)
+        let needsRelayout = mediaRelayoutNeeded || filesRelayoutNeeded
         if needsRelayout {
             let _ = measureSize(width: max(cachedTotalSize.width, 1))
             setNeedsLayout()
         }
         return needsRelayout
+    }
+
+    static func fileAttachments(from attachments: [ParsedAttachment]) -> [ParsedAttachment] {
+        attachments.filter {
+            !$0.isMedia && !$0.isAudio && (!$0.url.isEmpty || $0.isUploading || $0.isPresignPending || $0.uploadFailed)
+        }
+    }
+
+    private func syncFileContent(
+        oldAttachments: [ParsedAttachment],
+        newAttachments: [ParsedAttachment]
+    ) -> Bool {
+        guard let fileAttachmentNode else { return false }
+        let oldFiles = Self.fileAttachments(from: oldAttachments)
+        let newFiles = Self.fileAttachments(from: newAttachments)
+        guard !ParsedAttachment.attachmentsStructurallyEqual(oldFiles, newFiles) else { return false }
+        fileAttachmentNode.configure(files: newFiles)
+        return true
     }
 
     func updateMediaUploadState(_ newDisplay: ChatMessageDisplay) {
@@ -825,15 +844,8 @@ final class MessageBubbleNode: ASDisplayNode {
             setNeedsLayout()
         }
 
-        let fileFilter: (ParsedAttachment) -> Bool = {
-            !$0.isMedia && !$0.isAudio && (!$0.url.isEmpty || $0.isUploading || $0.isPresignPending || $0.uploadFailed)
-        }
-        let newFileAttachments = newDisplay.attachments.filter(fileFilter)
-        let oldFileAttachments = oldDisplay.attachments.filter(fileFilter)
-        let filesChanged = !ParsedAttachment.attachmentsStructurallyEqual(oldFileAttachments, newFileAttachments)
-        if filesChanged {
-            fileAttachmentNode?.configure(files: newFileAttachments)
-        }
+        let filesChanged = syncFileContent(
+            oldAttachments: oldDisplay.attachments, newAttachments: newDisplay.attachments)
 
         syncReactionStripWithDisplay(newDisplay)
 

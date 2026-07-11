@@ -513,6 +513,7 @@ final class SendMessageInputViewController: UIViewController {
     private var editingRemoteFileAttachments: [ParsedAttachment] = []
 
     static let maxAttachmentsPerMessage = 20
+    static let maxMessageContentBytes = 3700
 
     private var currentAttachmentCount: Int {
         pickedImages.count + pickedFiles.count
@@ -705,6 +706,9 @@ final class SendMessageInputViewController: UIViewController {
         }
         tv.onGIFPasted = { [weak self] data in
             self?.handlePastedGIF(data)
+        }
+        tv.onLongTextPasted = { [weak self] pasted in
+            self?.convertPastedTextToFileIfTooLong(pasted) ?? false
         }
         return tv
     }()
@@ -2697,6 +2701,70 @@ final class SendMessageInputViewController: UIViewController {
         pickedFileURLs[index] = fileURL
         saveToCache()
         updatePreviewVisibility()
+    }
+
+    private func convertPastedTextToFileIfTooLong(_ pasted: String) -> Bool {
+        guard !isEditingShareContactMessage, editingDisplay == nil else { return false }
+
+        if Data(pasted.utf8).count > Self.maxMessageContentBytes {
+            return convertTextToPlainTextAttachment(pasted)
+        }
+
+        let combined = buildPlainTextFromAttributed() + pasted
+        guard Data(combined.utf8).count > Self.maxMessageContentBytes else { return false }
+        guard convertTextToPlainTextAttachment(combined) else { return false }
+        clearComposerTextAfterFileConversion()
+        return true
+    }
+
+    @discardableResult
+    private func convertTextToPlainTextAttachment(_ content: String) -> Bool {
+        guard remainingAttachmentSlots > 0 else {
+            notifyAttachmentLimitReached()
+            return false
+        }
+        let data = Data(content.utf8)
+        let filename = "\(Int(Date().timeIntervalSince1970 * 1000)).txt"
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("mezon-uploads", isDirectory: true)
+        let fileURL = dir.appendingPathComponent(filename)
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try data.write(to: fileURL)
+        } catch {
+            SentryLogger.capture(error, extras: [
+                "where": "SendMessageInputViewController.convertTextToPlainTextAttachment",
+                "bytes": "\(data.count)",
+            ])
+            return false
+        }
+        let info = PickedFileInfo(url: fileURL, filename: filename, filesize: data.count, filetype: "text/plain")
+        pickedFiles.append(info)
+        attachmentPreviewView.addFile(info)
+        updatePreviewVisibility()
+        return true
+    }
+
+    private func clearComposerTextAfterFileConversion() {
+        activeMentions.removeAll()
+        activeHashtags.removeAll()
+        emojiIdByColonToken.removeAll()
+        textView.attributedText = nil
+        textView.text = ""
+        text = ""
+        textView.typingAttributes = [
+            .font: UIFont.systemFont(ofSize: 15.sf),
+            .foregroundColor: UIColor.theme.textStrong
+        ]
+        placeholderLabel.isHidden = false
+        textView.isScrollEnabled = false
+        resetTextViewHeight()
+        hideMentionSuggestions()
+        hideEmojiSuggestions()
+        hideHashtagSuggestions()
+        clearOgpPreview(userDismissed: false, resetDismissed: true)
+        textPipe.putNext("")
+        syncAttachControlsWithTypedText()
+        updateSendVoiceToggle()
     }
 
     private func removeAttachment(at index: Int) {
@@ -5648,6 +5716,13 @@ final class SendMessageInputViewController: UIViewController {
             isEdit: isEdit
         )
 
+        if !isEdit, outgoingContentData.count > Self.maxMessageContentBytes {
+            if convertTextToPlainTextAttachment(text) {
+                clearComposerTextAfterFileConversion()
+            }
+            return
+        }
+
         let mentionsPayload: Data = {
             guard !mentionList.isEmpty else { return Data() }
             var list = Mezon_Api_MessageMentionList()
@@ -6524,6 +6599,7 @@ final class PastableTextView: UITextView {
 
     var onImagesPasted: (([PastedImage]) -> Void)?
     var onGIFPasted: ((Data) -> Void)?
+    var onLongTextPasted: ((String) -> Bool)?
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -6577,6 +6653,10 @@ final class PastableTextView: UITextView {
 
         if pb.hasImages, let image = pb.image {
             onImagesPasted?([PastedImage(image: Self.normalizedOrientation(image), data: nil, fileExtension: nil)])
+            return
+        }
+
+        if let text = pb.string, !text.isEmpty, onLongTextPasted?(text) == true {
             return
         }
 

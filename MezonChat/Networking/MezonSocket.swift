@@ -515,19 +515,6 @@ final class MezonSocket: NSObject {
         send(envelope)
     }
 
-    func removeChannelMessage(clanId: Int64, channelId: Int64, mode: Int32, messageId: Int64, isPublic: Bool, topicId: Int64 = 0) {
-        var remove = Mezon_Realtime_ChannelMessageRemove()
-        remove.clanID = clanId
-        remove.channelID = channelId
-        remove.messageID = messageId
-        remove.mode = mode
-        remove.isPublic = isPublic
-        remove.topicID = topicId
-        var envelope = Mezon_Realtime_Envelope()
-        envelope.channelMessageRemove = remove
-        send(envelope)
-    }
-
     func writeLastSeenMessage(clanId: Int64, channelId: Int64, mode: Int32, messageId: Int64, timestampSeconds: UInt32, badgeCount: Int32) {
         var event = Mezon_Realtime_LastSeenMessageEvent()
         event.clanID = clanId
