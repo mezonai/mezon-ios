@@ -5975,22 +5975,26 @@ final class SendMessageInputViewController: UIViewController {
                 if isEdit {
                     let hideEditted = !imagesToUpload.isEmpty || !filesToUpload.isEmpty
                     let hasNewAttachments = !imagesToUpload.isEmpty || !filesToUpload.isEmpty
-                    let editCreateTimeSeconds: UInt32? = hasNewAttachments
-                        ? capturedEditCreateTimeSeconds
-                        : nil
+                    let isAttachmentFieldUpdate = hasNewAttachments && !uploadedAttachments.isEmpty
+                    let hasExistingAttachments = !preservedEditAttachments.isEmpty
+                    let editCreateTimeSeconds: UInt32? = capturedEditCreateTimeSeconds
+                    let editContentStr: String = {
+                        guard hasExistingAttachments, !isAttachmentFieldUpdate,
+                              let seconds = capturedEditCreateTimeSeconds else { return contentStr }
+                        return PresignFinishContent.withCreateTimeSeconds(contentStr, createTimeSeconds: seconds)
+                    }()
                     let ack = try await self.context.account.network.updateChannelMessage(
                         clanId: clanId,
-                        channelId: channel.channelID,
+                        channelId: self.topicId != 0 ? self.topicId : channel.channelID,
                         mode: mode,
                         isPublic: isPublic,
                         messageId: editingMessageId,
-                        content: contentStr,
+                        content: editContentStr,
                         mentions: mentionList,
-                        attachments: hasNewAttachments && !uploadedAttachments.isEmpty
-                            ? uploadedAttachments
-                            : nil,
+                        attachments: isAttachmentFieldUpdate ? uploadedAttachments : nil,
                         hideEditted: hideEditted,
                         topicId: self.topicId != 0 ? self.topicId : nil,
+                        isUpdateMsgTopic: self.topicId != 0,
                         createTimeSeconds: editCreateTimeSeconds,
                         token: token
                     )
