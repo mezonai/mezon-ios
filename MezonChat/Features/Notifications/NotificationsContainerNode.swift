@@ -26,24 +26,15 @@ enum NotificationItem {
         case .notification(let n): return n.previewText
         case .topic(let t):
             let raw = t.content.trimmingCharacters(in: .whitespacesAndNewlines)
-            let preview = Self.parseTopicMessage(
-                content: raw,
-                code: t.rootMessageCode,
-                hasAttachment: t.rootHasAttachment
-            )
+            let preview = Self.parseTopicMessage(content: raw)
             return L(L10n.Notifications.repliedTo) + preview
         }
     }
 
-    private static func parseTopicMessage(content: String, code: Int32, hasAttachment: Bool) -> String {
+    private static func parseTopicMessage(content: String) -> String {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            let metadata = metadataPreview(code: code, hasAttachment: hasAttachment)
-            return metadata.isEmpty ? L(L10n.Notifications.topicOriginalAttachment) : metadata
-        }
-        let metadata = metadataPreview(code: code, hasAttachment: hasAttachment)
-        if !metadata.isEmpty {
-            return metadata
+            return L(L10n.Notifications.topicOriginalAttachment)
         }
         guard trimmed.first == "{" || trimmed.first == "[" else {
             return normalizePreviewText(trimmed)
@@ -75,20 +66,7 @@ enum NotificationItem {
         if let embedPreview = firstEmbedPreview(in: obj) {
             return normalizePreviewText(embedPreview)
         }
-        if obj["embed"] != nil || obj["embeds"] != nil {
-            return L(L10n.Notifications.topicOriginalAttachment)
-        }
         return L(L10n.Notifications.topicOriginalAttachment)
-    }
-
-    private static func metadataPreview(code: Int32, hasAttachment: Bool) -> String {
-        if code == MezonConstants.MessageCode.shareContact.rawValue {
-            return L(L10n.Notifications.topicOriginalContact)
-        }
-        if hasAttachment {
-            return L(L10n.Notifications.topicOriginalAttachment)
-        }
-        return ""
     }
 
     private static func normalizePreviewText(_ text: String) -> String {
@@ -108,14 +86,7 @@ enum NotificationItem {
 
     private static func hasAttachmentPayload(_ obj: [String: Any]) -> Bool {
         if containsAttachmentMarker(obj) { return true }
-        if boolValue(obj["has_attachment"]) { return true }
-        if boolValue(obj["hasAttachment"]) { return true }
-        if boolValue(obj["attachment"]) { return true }
-        if hasNonEmptyPayloadValue(obj["attachments"]) { return true }
-        if hasNonEmptyPayloadValue(obj["attachment"]) { return true }
         if hasNonEmptyPayloadValue(obj["a"]) { return true }
-        if hasNonEmptyPayloadValue(obj["files"]) { return true }
-        if hasNonEmptyPayloadValue(obj["file"]) { return true }
         return false
     }
 
