@@ -12,23 +12,17 @@ public final class TopicTable: Table {
                 id                   INTEGER PRIMARY KEY,
                 channel_id           INTEGER NOT NULL,
                 clan_id              INTEGER NOT NULL,
-                message_id           INTEGER NOT NULL DEFAULT 0,
                 creator_id           INTEGER NOT NULL,
                 content              TEXT NOT NULL,
                 update_time_seconds  INTEGER NOT NULL,
                 last_sent_message    TEXT NOT NULL,
-                last_sender_id       INTEGER NOT NULL DEFAULT 0,
-                root_message_code    INTEGER NOT NULL DEFAULT 0,
-                root_has_attachment  INTEGER NOT NULL DEFAULT 0
+                last_sender_id       INTEGER NOT NULL DEFAULT 0
             )
         """)
         db.rawExecute(
             "CREATE INDEX IF NOT EXISTS idx_topics_clan ON topics(clan_id, update_time_seconds DESC)"
         )
         addColumnIfNeeded("topics", column: "last_sender_id", definition: "INTEGER NOT NULL DEFAULT 0")
-        addColumnIfNeeded("topics", column: "message_id", definition: "INTEGER NOT NULL DEFAULT 0")
-        addColumnIfNeeded("topics", column: "root_message_code", definition: "INTEGER NOT NULL DEFAULT 0")
-        addColumnIfNeeded("topics", column: "root_has_attachment", definition: "INTEGER NOT NULL DEFAULT 0")
     }
 
     public override func beforeCommit() {
@@ -44,7 +38,7 @@ public final class TopicTable: Table {
 
         let rows = db.query(
             """
-            SELECT id, channel_id, clan_id, message_id, creator_id, content, update_time_seconds, last_sent_message, last_sender_id, root_message_code, root_has_attachment
+            SELECT id, channel_id, clan_id, creator_id, content, update_time_seconds, last_sent_message, last_sender_id
             FROM topics
             WHERE clan_id = ?
             ORDER BY update_time_seconds DESC
@@ -59,14 +53,11 @@ public final class TopicTable: Table {
                 id: sqlite3_column_int64(stmt, 0),
                 channelID: sqlite3_column_int64(stmt, 1),
                 clanID: sqlite3_column_int64(stmt, 2),
-                messageID: sqlite3_column_int64(stmt, 3),
-                creatorID: sqlite3_column_int64(stmt, 4),
-                lastSenderID: sqlite3_column_int64(stmt, 8),
-                content: String(cString: sqlite3_column_text(stmt, 5)),
-                updateTimeSeconds: UInt32(sqlite3_column_int64(stmt, 6)),
-                lastSentMessageContent: String(cString: sqlite3_column_text(stmt, 7)),
-                rootMessageCode: sqlite3_column_int(stmt, 9),
-                rootHasAttachment: sqlite3_column_int(stmt, 10) != 0
+                creatorID: sqlite3_column_int64(stmt, 3),
+                lastSenderID: sqlite3_column_int64(stmt, 7),
+                content: String(cString: sqlite3_column_text(stmt, 4)),
+                updateTimeSeconds: UInt32(sqlite3_column_int64(stmt, 5)),
+                lastSentMessageContent: String(cString: sqlite3_column_text(stmt, 6))
             )
         }
         let result = rows.compactMap { $0 }
@@ -81,21 +72,18 @@ public final class TopicTable: Table {
         for t in topics {
             db.run(
                 """
-                INSERT INTO topics (id, channel_id, clan_id, message_id, creator_id, content, update_time_seconds, last_sent_message, last_sender_id, root_message_code, root_has_attachment)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO topics (id, channel_id, clan_id, creator_id, content, update_time_seconds, last_sent_message, last_sender_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 { s in
                     sqlite3_bind_int64(s, 1, t.id)
                     sqlite3_bind_int64(s, 2, t.channelID)
                     sqlite3_bind_int64(s, 3, t.clanID)
-                    sqlite3_bind_int64(s, 4, t.messageID)
-                    sqlite3_bind_int64(s, 5, t.creatorID)
-                    sqlite3_bind_text(s, 6, (t.content as NSString).utf8String, -1, nil)
-                    sqlite3_bind_int64(s, 7, Int64(t.updateTimeSeconds))
-                    sqlite3_bind_text(s, 8, (t.lastSentMessageContent as NSString).utf8String, -1, nil)
-                    sqlite3_bind_int64(s, 9, t.lastSenderID)
-                    sqlite3_bind_int(s, 10, t.rootMessageCode)
-                    sqlite3_bind_int(s, 11, t.rootHasAttachment ? 1 : 0)
+                    sqlite3_bind_int64(s, 4, t.creatorID)
+                    sqlite3_bind_text(s, 5, (t.content as NSString).utf8String, -1, nil)
+                    sqlite3_bind_int64(s, 6, Int64(t.updateTimeSeconds))
+                    sqlite3_bind_text(s, 7, (t.lastSentMessageContent as NSString).utf8String, -1, nil)
+                    sqlite3_bind_int64(s, 8, t.lastSenderID)
                 }
             )
         }

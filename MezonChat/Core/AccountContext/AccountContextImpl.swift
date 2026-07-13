@@ -940,14 +940,11 @@ final class AccountContextImpl: AccountContext {
             id: event.id,
             channelID: event.channelID,
             clanID: event.clanID,
-            messageID: event.messageID,
             creatorID: creatorId,
             lastSenderID: lastSent?.senderID ?? creatorId,
             content: topicContent,
             updateTimeSeconds: updateTime,
-            lastSentMessageContent: lastSent?.content ?? "",
-            rootMessageCode: event.hasMessage ? event.message.code : 0,
-            rootHasAttachment: event.hasMessage && !event.message.attachments.isEmpty
+            lastSentMessageContent: lastSent?.content ?? ""
         )
 
         account.postbox.write { tx in

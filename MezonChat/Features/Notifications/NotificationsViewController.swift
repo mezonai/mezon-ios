@@ -215,16 +215,13 @@ final class NotificationsViewController: ViewController {
                         id: topic.id,
                         channelID: topic.channelID,
                         clanID: topic.clanID,
-                        messageID: topic.messageID,
                         creatorID: topic.creatorID,
                         lastSenderID: topic.lastSenderID,
                         senderAvatarURL: avatar,
                         senderDisplayName: displayName,
                         content: topic.content,
                         updateTimeSeconds: topic.updateTimeSeconds,
-                        lastSentMessageContent: topic.lastSentMessageContent,
-                        rootMessageCode: topic.rootMessageCode,
-                        rootHasAttachment: topic.rootHasAttachment
+                        lastSentMessageContent: topic.lastSentMessageContent
                     )
                 )
             }
