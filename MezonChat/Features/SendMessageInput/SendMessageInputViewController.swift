@@ -56,6 +56,12 @@ private struct ComposerDraftSnapshot: Codable {
     var fileDrafts: [FileDraftSnapshot]
 }
 
+private struct ComposerEditingStateSnapshot {
+    var display: ChatMessageDisplay
+    var remoteImageAttachments: [ParsedAttachment]
+    var remoteFileAttachments: [ParsedAttachment]
+}
+
 private struct OgpLinkCandidate {
     let url: String
     let range: NSRange
@@ -499,6 +505,7 @@ final class SendMessageInputViewController: UIViewController {
 
     private static var channelAttachmentCache: [String: [UIImage]] = [:]
     private static var channelTextDraftCache: [String: ComposerDraftSnapshot] = [:]
+    private static var channelEditingStateCache: [String: ComposerEditingStateSnapshot] = [:]
 
     private var cacheKey: String { "\(clanId)-\(channel.channelID)-\(topicId)" }
 
@@ -1283,6 +1290,19 @@ final class SendMessageInputViewController: UIViewController {
         } else {
             Self.channelTextDraftCache.removeValue(forKey: key)
         }
+        if let editing = editingDisplay {
+            Self.channelEditingStateCache[key] = ComposerEditingStateSnapshot(
+                display: editing,
+                remoteImageAttachments: editingRemoteImageAttachments,
+                remoteFileAttachments: editingRemoteFileAttachments)
+            while Self.channelEditingStateCache.count > 45 {
+                if let k = Self.channelEditingStateCache.keys.first {
+                    Self.channelEditingStateCache.removeValue(forKey: k)
+                } else { break }
+            }
+        } else {
+            Self.channelEditingStateCache.removeValue(forKey: key)
+        }
     }
 
     private func hasMeaningfulDraftContent() -> Bool {
@@ -1457,16 +1477,35 @@ final class SendMessageInputViewController: UIViewController {
             applyComposerDraftSnapshot(snap)
         } else {
             resetComposerVisualDraftState()
-            restoreFromCache()
-            updatePreviewVisibility()
-            reloadEmojiSuggestionList()
-            onHeightChanged?(totalHeight)
-            return
         }
+        restoreStashedEditingStateIfNeeded(forKey: key)
         restoreFromCache()
         updatePreviewVisibility()
         reloadEmojiSuggestionList()
         onHeightChanged?(totalHeight)
+    }
+
+    private func restoreStashedEditingStateIfNeeded(forKey key: String) {
+        guard let snap = Self.channelEditingStateCache[key] else { return }
+        replyDisplay = nil
+        editingDisplay = snap.display
+        editingRemoteImageAttachments = snap.remoteImageAttachments
+        editingRemoteFileAttachments = snap.remoteFileAttachments
+        let remoteImagePreviews = snap.remoteImageAttachments.map {
+            RemoteAttachmentPreview(url: $0.url, filename: $0.filename, filetype: $0.filetype, isVideo: $0.isVideo)
+        }
+        let remoteFilePreviews = snap.remoteFileAttachments.map {
+            RemoteAttachmentPreview(url: $0.url, filename: $0.filename, filetype: $0.filetype, isVideo: false)
+        }
+        attachmentPreviewView.setRemoteAttachments(images: remoteImagePreviews, files: remoteFilePreviews)
+        updateReplyBannerVisibility()
+        if isEditingShareContactMessage {
+            hideAdvancePanelIfNeeded()
+            hideEmojiPickerIfNeeded()
+            collapseAttachControls()
+        }
+        syncAttachControlsWithTypedText()
+        updateSendVoiceToggle()
     }
 
     func sendReplicatedThreadSeedMessage(from display: ChatMessageDisplay) async throws {
@@ -5551,7 +5590,9 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func applyOptimisticSendComposerReset() {
-        Self.channelTextDraftCache.removeValue(forKey: draftStorageKey(for: channel, topicId: topicId))
+        let key = draftStorageKey(for: channel, topicId: topicId)
+        Self.channelTextDraftCache.removeValue(forKey: key)
+        Self.channelEditingStateCache.removeValue(forKey: key)
         editingDisplay = nil
         text = ""
         activeMentions.removeAll()

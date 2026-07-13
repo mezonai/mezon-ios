@@ -26,7 +26,6 @@ final class SessionRefreshManager {
     }
 
     private func isDefinitiveExpiry(_ error: Error) -> Bool {
-        if isDefinitiveAuthFailure(error) { return true }
         if let sessionError = error as? SessionError, case .maxRetriesExceeded = sessionError {
             return true
         }
@@ -69,7 +68,7 @@ final class SessionRefreshManager {
                 refreshToken: session.refreshToken
             )
         } catch {
-            if isDefinitiveAuthFailure(error) || Date() >= session.expiresAt {
+            if isDefinitiveAuthFailure(error) {
                 if lastRefreshToken == session.refreshToken {
                     failCount += 1
                 } else {
@@ -80,8 +79,7 @@ final class SessionRefreshManager {
                     reset()
                     throw SessionError.maxRetriesExceeded
                 }
-            }
-            if !isDefinitiveAuthFailure(error) {
+            } else {
                 lastFailedRefresh = (Date(), error)
             }
             throw error

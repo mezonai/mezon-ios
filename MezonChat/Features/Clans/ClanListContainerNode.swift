@@ -64,10 +64,9 @@ final class ClanListContainerNode: ASDisplayNode {
         disposables.add(
             (signal |> deliverOnMainQueue).start(next: { [weak self] newState in
                 guard let self else { return }
-                let prevDmFingerprint = Self.unreadDmStripFingerprint(self.state.unreadDMs)
+                let prevDMs = self.state.unreadDMs
+                let prevDmFingerprint = Self.unreadDmStripFingerprint(prevDMs)
                 let prevClanId = self.state.selectedClanId
-                let prevDMCount = self.state.unreadDMs.count
-                let prevDMBadges = self.state.unreadDMs.map { $0.countMessUnread }
                 let prevClanBadges = self.state.clans.map { $0.badgeCount }
                 let prevClanFingerprints = self.state.clans.map { "\($0.clanID)-\($0.clanName)-\($0.logo)" }
                 let prevAccountLogo = self.state.accountLogoURL
@@ -81,29 +80,20 @@ final class ClanListContainerNode: ASDisplayNode {
                 let oldCount = hasClanSection ? self.collectionView.numberOfItems(inSection: 1) : 0
                 let newClanSectionCount = newState.clans.count + Self.trailingClanActionCount
 
-                let newDMBadges = newState.unreadDMs.map { $0.countMessUnread }
                 let newClanBadges = newState.clans.map { $0.badgeCount }
                 let newClanFingerprints = newState.clans.map { "\($0.clanID)-\($0.clanName)-\($0.logo)" }
                 let clansChanged = prevClanFingerprints != newClanFingerprints
                 let newDmFingerprint = Self.unreadDmStripFingerprint(newState.unreadDMs)
-                let dmStripIdentityChanged = prevDmFingerprint != newDmFingerprint
 
                 let clanStructureChanged = newClanSectionCount != oldCount || clansChanged || prevClanBadges != newClanBadges
-                let dmStripStructureChanged = newState.unreadDMs.count != prevDMCount || dmStripIdentityChanged
-                let dmBadgesOnlyChanged = prevDMBadges != newDMBadges
+                let dmIdentityChanged = prevDMs.map(\.channelID) != newState.unreadDMs.map(\.channelID)
+                let dmContentChanged = prevDmFingerprint != newDmFingerprint
 
                 if clanStructureChanged {
                     self.collectionView.reloadData()
-                } else if dmStripStructureChanged {
-                    if self.collectionView.numberOfSections > 0 {
-                        UIView.transition(
-                            with: self.collectionView, duration: 0.22,
-                            options: [.transitionCrossDissolve, .allowUserInteraction],
-                            animations: { self.collectionView.reloadData() })
-                    } else {
-                        self.collectionView.reloadData()
-                    }
-                } else if dmBadgesOnlyChanged {
+                } else if dmIdentityChanged {
+                    self.applyDmStripIdentityChange(prevDMs: prevDMs, newDMs: newState.unreadDMs)
+                } else if dmContentChanged {
                     if self.collectionView.numberOfSections > 0 {
                         UIView.performWithoutAnimation {
                             self.collectionView.reloadSections(IndexSet(integer: 0))
@@ -259,16 +249,68 @@ final class ClanListContainerNode: ASDisplayNode {
         collectionView.reloadData()
     }
 
+    private static func dmItemFingerprint(_ dm: Mezon_Api_ChannelDescription) -> String {
+        let avatarSig: String
+        if dm.type == MezonConstants.ChannelType.dm.rawValue {
+            avatarSig = dm.avatars.filter { !$0.isEmpty }.joined(separator: "|")
+        } else {
+            avatarSig = dm.channelAvatar
+        }
+        return "\(dm.channelID)|\(dm.type)|\(dm.countMessUnread)|\(avatarSig)|\(dm.channelLabel)"
+    }
+
     private static func unreadDmStripFingerprint(_ dms: [Mezon_Api_ChannelDescription]) -> String {
-        dms.map { dm in
-            let avatarSig: String
-            if dm.type == MezonConstants.ChannelType.dm.rawValue {
-                avatarSig = dm.avatars.filter { !$0.isEmpty }.joined(separator: "|")
-            } else {
-                avatarSig = dm.channelAvatar
+        dms.map { dmItemFingerprint($0) }.joined(separator: "\u{1e}")
+    }
+
+    private func applyDmStripIdentityChange(
+        prevDMs: [Mezon_Api_ChannelDescription],
+        newDMs: [Mezon_Api_ChannelDescription]
+    ) {
+        guard collectionView.numberOfSections > 0,
+              collectionView.numberOfItems(inSection: 0) == prevDMs.count else {
+            collectionView.reloadData()
+            return
+        }
+        let prevIds = prevDMs.map(\.channelID)
+        let newIds = newDMs.map(\.channelID)
+        let prevIdSet = Set(prevIds)
+        let newIdSet = Set(newIds)
+        let survivorsPrevOrder = prevIds.filter { newIdSet.contains($0) }
+        let survivorsNewOrder = newIds.filter { prevIdSet.contains($0) }
+        guard survivorsPrevOrder == survivorsNewOrder else {
+            UIView.animate(withDuration: 0.15, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
+                self.collectionView.performBatchUpdates {
+                    self.collectionView.reloadSections(IndexSet(integer: 0))
+                }
             }
-            return "\(dm.channelID)|\(dm.type)|\(dm.countMessUnread)|\(avatarSig)|\(dm.channelLabel)"
-        }.joined(separator: "\u{1e}")
+            return
+        }
+        let deletes = prevIds.enumerated()
+            .filter { !newIdSet.contains($0.element) }
+            .map { IndexPath(item: $0.offset, section: 0) }
+        let inserts = newIds.enumerated()
+            .filter { !prevIdSet.contains($0.element) }
+            .map { IndexPath(item: $0.offset, section: 0) }
+        UIView.animate(withDuration: 0.15, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
+            self.collectionView.performBatchUpdates {
+                if !deletes.isEmpty { self.collectionView.deleteItems(at: deletes) }
+                if !inserts.isEmpty { self.collectionView.insertItems(at: inserts) }
+            }
+        }
+        let prevItemById = Dictionary(prevDMs.map { ($0.channelID, $0) }, uniquingKeysWith: { _, new in new })
+        var staleSurvivorPaths: [IndexPath] = []
+        for (item, dm) in newDMs.enumerated() {
+            guard let old = prevItemById[dm.channelID] else { continue }
+            if Self.dmItemFingerprint(old) != Self.dmItemFingerprint(dm) {
+                staleSurvivorPaths.append(IndexPath(item: item, section: 0))
+            }
+        }
+        if !staleSurvivorPaths.isEmpty {
+            UIView.performWithoutAnimation {
+                collectionView.reloadItems(at: staleSurvivorPaths)
+            }
+        }
     }
 
     @objc private func logoTapped() { interaction.onLogoTapped() }

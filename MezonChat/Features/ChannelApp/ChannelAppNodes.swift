@@ -1,6 +1,42 @@
 import UIKit
 import AsyncDisplayKit
 
+enum ChannelAppLogoCache {
+    private static let cache: NSCache<NSString, UIImage> = {
+        let c = NSCache<NSString, UIImage>()
+        c.countLimit = 64
+        return c
+    }()
+
+    static func image(forURL url: String) -> UIImage? {
+        cache.object(forKey: url as NSString)
+    }
+
+    static func store(_ image: UIImage, forURL url: String) {
+        cache.setObject(image, forKey: url as NSString)
+    }
+
+    static func apply(to imageNode: ASImageNode, urlString: String) {
+        if let cached = image(forURL: urlString) {
+            imageNode.image = cached
+            return
+        }
+        if let cached = ImageCache.shared.cachedImage(forURL: urlString) {
+            store(cached, forURL: urlString)
+            imageNode.image = cached
+            return
+        }
+        ImageCache.shared.loadImage(urlString: urlString) { [weak imageNode] image in
+            guard let imageNode, let image else { return }
+            store(image, forURL: urlString)
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            imageNode.image = image
+            CATransaction.commit()
+        }
+    }
+}
+
 final class ChannelAppCellNode: ASCellNode {
 
     private let cardNode = ASDisplayNode()
@@ -11,6 +47,7 @@ final class ChannelAppCellNode: ASCellNode {
     init(app: Mezon_Api_ChannelAppResponse) {
         super.init()
         automaticallyManagesSubnodes = true
+        neverShowPlaceholders = true
         backgroundColor = .clear
         selectionStyle = .none
 
@@ -29,17 +66,7 @@ final class ChannelAppCellNode: ASCellNode {
         let resolvedAppLogoURL = ImgproxyURL.absoluteResourceURL(from: app.appLogo)
         if !resolvedAppLogoURL.isEmpty {
             let proxyURL = ImgproxyURL.create(from: resolvedAppLogoURL, width: 150, height: 150)
-            if let cached = ImageCache.shared.cachedImage(forURL: proxyURL) {
-                logoNode.image = cached
-            } else {
-                ImageCache.shared.loadImage(urlString: proxyURL) { [weak self] image in
-                    guard let self, let image else { return }
-                    CATransaction.begin()
-                    CATransaction.setDisableActions(true)
-                    self.logoNode.image = image
-                    CATransaction.commit()
-                }
-            }
+            ChannelAppLogoCache.apply(to: logoNode, urlString: proxyURL)
         } else {
             logoNode.image = UIImage(named: "Channel/channelApp")?.withRenderingMode(.alwaysTemplate)
             logoNode.tintColor = t.textDisabled
@@ -146,6 +173,7 @@ final class ChannelAppHorizontalCellNode: ASCellNode {
         scrollNode = ASScrollNode()
         super.init()
         automaticallyManagesSubnodes = true
+        neverShowPlaceholders = true
         backgroundColor = .clear
         selectionStyle = .none
 
@@ -224,17 +252,7 @@ final class ChannelAppIconNode: ASControlNode {
         let resolvedAppLogoURL = ImgproxyURL.absoluteResourceURL(from: app.appLogo)
         if !resolvedAppLogoURL.isEmpty {
             let proxyURL = ImgproxyURL.create(from: resolvedAppLogoURL, width: 150, height: 150)
-            if let cached = ImageCache.shared.cachedImage(forURL: proxyURL) {
-                logoImageNode.image = cached
-            } else {
-                ImageCache.shared.loadImage(urlString: proxyURL) { [weak self] image in
-                    guard let self, let image else { return }
-                    CATransaction.begin()
-                    CATransaction.setDisableActions(true)
-                    self.logoImageNode.image = image
-                    CATransaction.commit()
-                }
-            }
+            ChannelAppLogoCache.apply(to: logoImageNode, urlString: proxyURL)
         } else {
             logoImageNode.image = UIImage(named: "Channel/channelApp")?.withRenderingMode(.alwaysTemplate)
             logoImageNode.tintColor = t.textDisabled

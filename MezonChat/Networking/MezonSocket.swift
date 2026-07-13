@@ -830,13 +830,6 @@ final class MezonSocket: NSObject {
         if useTokenRefresh, let provider = tokenProvider {
             do {
                 tokenToUse = try await provider()
-            } catch let error as MezonError {
-                if case .httpError(let code, _) = error, code == 401 || code == 403 {
-                    NotificationCenter.default.post(name: Notification.Name("MezonSessionExpired"), object: nil)
-                    return
-                }
-                scheduleReconnect()
-                return
             } catch is SessionError {
                 NotificationCenter.default.post(name: Notification.Name("MezonSessionExpired"), object: nil)
                 return

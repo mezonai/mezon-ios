@@ -1,6 +1,8 @@
 import Foundation
 import os.log
 
+let sqliteTransient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+
 final class SqliteDatabase {
 
     private(set) var handle: OpaquePointer?
@@ -43,19 +45,35 @@ final class SqliteDatabase {
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
         guard sqlite3_prepare_v2(handle, sql, -1, &stmt, nil) == SQLITE_OK else {
+            logFailure("prepare", sql: sql)
             return false
         }
         let rc = sqlite3_step(stmt)
-        return rc == SQLITE_DONE || rc == SQLITE_OK
+        let ok = rc == SQLITE_DONE || rc == SQLITE_OK || rc == SQLITE_ROW
+        if !ok {
+            logFailure("step(\(rc))", sql: sql)
+        }
+        return ok
     }
 
     func run(_ sql: String, _ bind: ((OpaquePointer) -> Void)? = nil) {
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
         guard sqlite3_prepare_v2(handle, sql, -1, &stmt, nil) == SQLITE_OK,
-              let s = stmt else { return }
+              let s = stmt else {
+            logFailure("prepare", sql: sql)
+            return
+        }
         bind?(s)
-        sqlite3_step(s)
+        let rc = sqlite3_step(s)
+        if rc != SQLITE_DONE && rc != SQLITE_OK && rc != SQLITE_ROW {
+            logFailure("step(\(rc))", sql: sql)
+        }
+    }
+
+    private func logFailure(_ stage: String, sql: String) {
+        let message = handle.flatMap { String(cString: sqlite3_errmsg($0)) } ?? "no handle"
+        os_log(.error, log: Self.log, "sqlite %{public}@ failed: %{public}@ — %{public}@", stage, message, String(sql.prefix(120)))
     }
 
     func query<T>(_ sql: String,

@@ -50,7 +50,7 @@ final class NotificationSettingTable: Table {
                 db.run("INSERT OR REPLACE INTO notification_settings(entity_id, data) VALUES(?, ?)") { s in
                     sqlite3_bind_int64(s, 1, entityId)
                     data.withUnsafeBytes { buf in
-                        sqlite3_bind_blob(s, 2, buf.baseAddress, Int32(buf.count), nil)
+                        sqlite3_bind_blob(s, 2, buf.baseAddress, Int32(buf.count), sqliteTransient)
                     }
                 }
             } else {

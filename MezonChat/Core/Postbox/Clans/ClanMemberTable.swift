@@ -52,7 +52,7 @@ final class ClanMemberTable: Table {
                     sqlite3_bind_int64(s, 1, clanId)
                     sqlite3_bind_int64(s, 2, record.userId)
                     data.withUnsafeBytes { buf in
-                        sqlite3_bind_blob(s, 3, buf.baseAddress, Int32(buf.count), nil)
+                        sqlite3_bind_blob(s, 3, buf.baseAddress, Int32(buf.count), sqliteTransient)
                     }
                 }
             }

@@ -62,7 +62,7 @@ final class ChannelTable: Table {
         guard let data = record.postboxEncode() else { return }
         db.run("UPDATE channels SET data = ? WHERE id = ? AND clan_id = ?") { s in
             data.withUnsafeBytes { buf in
-                sqlite3_bind_blob(s, 1, buf.baseAddress, Int32(buf.count), nil)
+                sqlite3_bind_blob(s, 1, buf.baseAddress, Int32(buf.count), sqliteTransient)
             }
             sqlite3_bind_int64(s, 2, record.id)
             sqlite3_bind_int64(s, 3, record.clanId)
@@ -145,7 +145,7 @@ final class ChannelTable: Table {
                     sqlite3_bind_int64(s, 1, record.id)
                     sqlite3_bind_int64(s, 2, record.clanId)
                     data.withUnsafeBytes { buf in
-                        sqlite3_bind_blob(s, 3, buf.baseAddress, Int32(buf.count), nil)
+                        sqlite3_bind_blob(s, 3, buf.baseAddress, Int32(buf.count), sqliteTransient)
                     }
                 }
             }
@@ -157,7 +157,7 @@ final class ChannelTable: Table {
             db.run("INSERT OR REPLACE INTO channel_meta(channel_id, data) VALUES(?, ?)") { s in
                 sqlite3_bind_int64(s, 1, channelId)
                 data.withUnsafeBytes { buf in
-                    sqlite3_bind_blob(s, 2, buf.baseAddress, Int32(buf.count), nil)
+                    sqlite3_bind_blob(s, 2, buf.baseAddress, Int32(buf.count), sqliteTransient)
                 }
             }
         }

@@ -805,9 +805,15 @@ final class ChannelListViewController: ViewController {
             guard let prev = byId[ch.channelID] else { return ch }
             var merged = ch
             if prev.countMessUnread > merged.countMessUnread {
-                merged.countMessUnread = prev.countMessUnread
+                let fetchedSaysRead = ch.hasLastSeenMessage && ch.hasLastSentMessage
+                    && ch.lastSeenMessage.timestampSeconds >= ch.lastSentMessage.timestampSeconds
+                if !fetchedSaysRead {
+                    merged.countMessUnread = prev.countMessUnread
+                }
             }
-            if prev.hasLastSeenMessage {
+            if prev.hasLastSeenMessage,
+               !merged.hasLastSeenMessage
+                   || prev.lastSeenMessage.timestampSeconds > merged.lastSeenMessage.timestampSeconds {
                 merged.lastSeenMessage = prev.lastSeenMessage
             }
             if prev.hasLastSentMessage {
@@ -1051,9 +1057,10 @@ final class ChannelListViewController: ViewController {
             if earlyClanId != 0, let payload = resolveChannelCachePayloadForDisplay(clanId: earlyClanId) {
                 clanId = earlyClanId
                 showEmptyCategoriesEnabled = loadShowEmptyCategoriesPreference(clanId: earlyClanId)
-                applyResolvedChannelCachePayload(clanId: earlyClanId, channels: payload.channels, meta: payload.meta)
+                applyResolvedChannelCachePayload(clanId: earlyClanId, channels: payload.channels, meta: payload.meta, layoutOrdered: payload.layoutOrdered)
                 cancelDeferredSkeletonReveal()
                 needsReloadPipe.putNext(())
+                refreshMemberOnboardingState()
                 scheduleAuthoritativeNetworkReconcileIfNeeded(reason: "viewDidLoadEarlyCache")
             }
         }
@@ -1479,7 +1486,7 @@ final class ChannelListViewController: ViewController {
             }
             if clanId != 0 && allChannels.isEmpty {
                 if let payload = resolveChannelCachePayloadForDisplay(clanId: clanId) {
-                    applyResolvedChannelCachePayload(clanId: clanId, channels: payload.channels, meta: payload.meta)
+                    applyResolvedChannelCachePayload(clanId: clanId, channels: payload.channels, meta: payload.meta, layoutOrdered: payload.layoutOrdered)
                     cancelDeferredSkeletonReveal()
                     needsReloadPipe.putNext(())
                     scheduleAuthoritativeNetworkReconcileIfNeeded(reason: "configureSameClanHydrate")
@@ -2709,13 +2716,29 @@ final class ChannelListViewController: ViewController {
         guard notificationClanId == 0 || notificationClanId == clanId else { return }
         clearPendingMentionUnreadFloor(clanId: notificationClanId == 0 ? clanId : notificationClanId, channelId: channelId)
         let now = UInt32(Date().timeIntervalSince1970)
+        var didClearUnreadState = false
         for i in 0..<allChannels.count {
             if allChannels[i].channelID == channelId {
+                let ch = allChannels[i]
+                if ch.countMessUnread != 0
+                    || (ch.hasLastSentMessage
+                        && ch.lastSeenMessage.timestampSeconds < ch.lastSentMessage.timestampSeconds) {
+                    didClearUnreadState = true
+                }
                 allChannels[i].countMessUnread = 0
                 allChannels[i].lastSeenMessage.timestampSeconds = now
             }
         }
         rebuildAndReload()
+        if didClearUnreadState, clanId != 0 {
+            persistFullChannelListCache(
+                clanId: clanId,
+                channels: allChannels,
+                categoryDescs: channelListCategoryDescs,
+                favoriteIds: channelListFavoriteIds,
+                categories: categories
+            )
+        }
     }
 
     private func setCategories(_ v: [ChannelCategory]) { categories = v; categoriesPipe.putNext(v); needsReloadPipe.putNext(()) }
@@ -2782,13 +2805,13 @@ final class ChannelListViewController: ViewController {
 
         restoreSelectionFromPostboxForCurrentClanOnly()
 
-        let pendingCache: (channels: [Mezon_Api_ChannelDescription], meta: ChannelListCachedMeta?)? =
+        let pendingCache: (channels: [Mezon_Api_ChannelDescription], meta: ChannelListCachedMeta?, layoutOrdered: Bool)? =
             clanId != 0 ? resolveChannelCachePayloadForDisplay(clanId: clanId) : nil
         var appliedCacheOnLoad = false
 
         if clanId != 0, let cache = pendingCache {
             appliedCacheOnLoad = true
-            applyResolvedChannelCachePayload(clanId: clanId, channels: cache.channels, meta: cache.meta)
+            applyResolvedChannelCachePayload(clanId: clanId, channels: cache.channels, meta: cache.meta, layoutOrdered: cache.layoutOrdered)
         } else {
             channelsLoadedPromise.set(false)
             channelListCategoryDescs = []
@@ -2822,6 +2845,7 @@ final class ChannelListViewController: ViewController {
                 scheduleChannelListNetworkFetch(allowEmptyChannelAppsOverwrite: false)
             }
         }
+        refreshMemberOnboardingState()
         scheduleMemberOnboardingDataFetch()
     }
 
@@ -3786,6 +3810,7 @@ final class ChannelListViewController: ViewController {
                 .map(\.channelID)
         )
         return apps.filter { app in
+            guard app.hasListableChannelAppContent else { return false }
             if app.clanID != 0 && app.clanID != clanId { return false }
             guard app.clanID == 0, app.channelID != 0 else { return true }
             if fromCache { return true }
@@ -3795,8 +3820,9 @@ final class ChannelListViewController: ViewController {
     }
 
     private func applyResolvedChannelApps(_ apps: [Mezon_Api_ChannelAppResponse], clanId: Int64, cacheKey: String) {
-        channelListNode.updateChannelApps(apps)
-        let encoded = encodeChannelApps(apps)
+        let sanitized = apps.filter { $0.hasListableChannelAppContent }
+        channelListNode.updateChannelApps(sanitized)
+        let encoded = encodeChannelApps(sanitized)
         let cachedData = context.account.postbox.getPreferenceData(key: cacheKey)
         if cachedData != encoded {
             context.account.postbox.setPreferenceDataSync(key: cacheKey, value: encoded)
@@ -3883,14 +3909,17 @@ final class ChannelListViewController: ViewController {
             channelListNode.updateChannelApps([])
             return
         }
-        let apps = channelAppsForClan(decodeChannelApps(data), clanId: clanId, fromCache: true)
+        let decoded = decodeChannelApps(data)
+        let apps = channelAppsForClan(decoded, clanId: clanId, fromCache: true)
         applyResolvedChannelApps(apps, clanId: clanId, cacheKey: key)
     }
 
     private func refreshChannelAppsLabelsFromChannelList() {
         guard clanId != 0 else { return }
         let key = PreferencesKeys.channelApps(clanId: clanId)
-        guard let data = context.account.postbox.getPreferenceData(key: key), !data.isEmpty else { return }
+        guard let data = context.account.postbox.getPreferenceData(key: key), !data.isEmpty else {
+            return
+        }
         let apps = channelAppsForClan(decodeChannelApps(data), clanId: clanId, fromCache: true)
         applyResolvedChannelApps(apps, clanId: clanId, cacheKey: key)
     }
@@ -3964,7 +3993,7 @@ final class ChannelListViewController: ViewController {
     private func recoverChannelListDisplayFromCache() -> Bool {
         guard clanId != 0, allChannels.isEmpty else { return false }
         guard let payload = readChannelCachePayloadIfAvailable(clanId: clanId), !payload.channels.isEmpty else { return false }
-        applyResolvedChannelCachePayload(clanId: clanId, channels: payload.channels, meta: payload.meta)
+        applyResolvedChannelCachePayload(clanId: clanId, channels: payload.channels, meta: payload.meta, layoutOrdered: payload.layoutOrdered)
         cancelDeferredSkeletonReveal()
         isLoading = false
         isLoadingPipe.putNext(false)
@@ -3972,15 +4001,20 @@ final class ChannelListViewController: ViewController {
         return true
     }
 
-    private func readChannelCachePayloadIfAvailable(clanId: Int64) -> (channels: [Mezon_Api_ChannelDescription], meta: ChannelListCachedMeta?)? {
+    private func readChannelCachePayloadIfAvailable(clanId: Int64) -> (channels: [Mezon_Api_ChannelDescription], meta: ChannelListCachedMeta?, layoutOrdered: Bool)? {
         if let displayBlob = context.account.postbox.getPreferenceData(key: PreferencesKeys.channelListDisplay(clanId: clanId)),
            let display = decodeChannelListDisplay(displayBlob),
            cachedChannelsMatchClan(display.channels, clanId: clanId) {
             let favIds = resolvedFavoriteChannelIds(clanId: clanId, meta: display.meta)
-            return (display.channels, ChannelListCachedMeta(categoryDescs: display.meta.categoryDescs, favoriteIds: favIds))
+            return (display.channels, ChannelListCachedMeta(categoryDescs: display.meta.categoryDescs, favoriteIds: favIds), true)
         }
-        if let strict = readValidatedChannelCache(clanId: clanId) { return strict }
-        return readChannelCacheLenient(clanId: clanId)
+        if let strict = readValidatedChannelCache(clanId: clanId) {
+            return (strict.channels, strict.meta, false)
+        }
+        if let lenient = readChannelCacheLenient(clanId: clanId) {
+            return (lenient.channels, lenient.meta, false)
+        }
+        return nil
     }
 
     private func encodeChannelListDisplay(
@@ -4008,7 +4042,7 @@ final class ChannelListViewController: ViewController {
         return (channels, meta)
     }
 
-    private func resolveChannelCachePayloadForDisplay(clanId: Int64) -> (channels: [Mezon_Api_ChannelDescription], meta: ChannelListCachedMeta?)? {
+    private func resolveChannelCachePayloadForDisplay(clanId: Int64) -> (channels: [Mezon_Api_ChannelDescription], meta: ChannelListCachedMeta?, layoutOrdered: Bool)? {
         guard clanId != 0 else { return nil }
         return readChannelCachePayloadIfAvailable(clanId: clanId)
     }
@@ -4021,10 +4055,12 @@ final class ChannelListViewController: ViewController {
     private func applyResolvedChannelCachePayload(
         clanId: Int64,
         channels: [Mezon_Api_ChannelDescription],
-        meta: ChannelListCachedMeta?
+        meta: ChannelListCachedMeta?,
+        layoutOrdered: Bool = false
     ) {
+        let orderedChannels = layoutOrdered ? channels : reorderChannelsLikePersistedList(channels, clanId: clanId)
         let cachedChannels = preservePendingMentionUnread(
-            in: reorderChannelsLikePersistedList(channels, clanId: clanId),
+            in: orderedChannels,
             clanId: clanId
         )
         allChannels = cachedChannels
