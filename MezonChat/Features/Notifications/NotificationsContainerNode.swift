@@ -78,7 +78,7 @@ enum NotificationItem {
         if obj["embed"] != nil || obj["embeds"] != nil {
             return L(L10n.Notifications.topicOriginalAttachment)
         }
-        return metadataPreview(code: code, hasAttachment: hasAttachment)
+        return L(L10n.Notifications.topicOriginalAttachment)
     }
 
     private static func metadataPreview(code: Int32, hasAttachment: Bool) -> String {
