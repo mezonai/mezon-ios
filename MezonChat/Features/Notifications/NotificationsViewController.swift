@@ -194,6 +194,23 @@ final class NotificationsViewController: ViewController {
             topics.map { topic in
                 var avatar = topic.senderAvatarURL
                 var displayName = topic.senderDisplayName
+                let rootMessageId = topic.messageID
+                let root: MessageRecord?
+                if rootMessageId != 0 {
+                    root = tx.getMessageById("\(rootMessageId)", channelId: "\(topic.channelID)")
+                        ?? tx.getMessageById("\(rootMessageId)")
+                } else {
+                    root = nil
+                }
+                let rootContent: String = {
+                    guard topic.content.isEmpty,
+                          let rootText = root.flatMap({ String(data: $0.content, encoding: .utf8) }) else {
+                        return topic.content
+                    }
+                    return rootText
+                }()
+                let rootCode = topic.rootMessageCode != 0 ? topic.rootMessageCode : (root?.code ?? 0)
+                let rootHasAttachment = topic.rootHasAttachment || !(root?.attachmentsJSON.isEmpty ?? true)
                 let senderId = topic.lastSenderID != 0 ? topic.lastSenderID : topic.creatorID
                 if senderId != 0, let profile = tx.getProfile(userId: String(senderId)) {
                     if avatar.isEmpty, let url = profile.avatarUrl, !url.isEmpty {
@@ -207,7 +224,11 @@ final class NotificationsViewController: ViewController {
                         }
                     }
                 }
-                if avatar == topic.senderAvatarURL, displayName == topic.senderDisplayName {
+                if avatar == topic.senderAvatarURL,
+                   displayName == topic.senderDisplayName,
+                   rootContent == topic.content,
+                   rootCode == topic.rootMessageCode,
+                   rootHasAttachment == topic.rootHasAttachment {
                     return .topic(topic)
                 }
                 return .topic(
@@ -215,13 +236,16 @@ final class NotificationsViewController: ViewController {
                         id: topic.id,
                         channelID: topic.channelID,
                         clanID: topic.clanID,
+                        messageID: topic.messageID,
                         creatorID: topic.creatorID,
                         lastSenderID: topic.lastSenderID,
                         senderAvatarURL: avatar,
                         senderDisplayName: displayName,
-                        content: topic.content,
+                        content: rootContent,
                         updateTimeSeconds: topic.updateTimeSeconds,
-                        lastSentMessageContent: topic.lastSentMessageContent
+                        lastSentMessageContent: topic.lastSentMessageContent,
+                        rootMessageCode: rootCode,
+                        rootHasAttachment: rootHasAttachment
                     )
                 )
             }

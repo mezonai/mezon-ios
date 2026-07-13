@@ -347,9 +347,13 @@ enum L10n {
         static let messages = "notifications.messages"
         static let forYou = "notifications.forYou"
         static let topic = "notifications.topic"
+        static let topicDiscussion = "notifications.topicDiscussion"
         static let emptyTitle = "notifications.empty.title"
         static let emptyDescription = "notifications.empty.description"
         static let repliedTo = "notifications.repliedTo"
+        static let topicOriginalAttachment = "notifications.topicOriginalAttachment"
+        static let topicOriginalContact = "notifications.topicOriginalContact"
+        static let topicOriginalInteractiveMessage = "notifications.topicOriginalInteractiveMessage"
         static let sender = "notifications.sender"
         static let unreachableMessage = "notifications.unreachableMessage"
     }
@@ -1546,7 +1550,11 @@ extension L10n {
         "notifications.topic": "Topic",
         "notifications.empty.title": "Nothing yet here",
         "notifications.empty.description": "Come back for notifications on events, stream and more",
-        "notifications.repliedTo": "Replied to: ",
+        "notifications.topicDiscussion": "TOPIC DISCUSSION",
+        "notifications.repliedTo": "Original message: ",
+        "notifications.topicOriginalAttachment": "[Attachment]",
+        "notifications.topicOriginalContact": "[Contact]",
+        "notifications.topicOriginalInteractiveMessage": "[Interactive message]",
         "notifications.sender": "Sender: ",
         "notifications.unreachableMessage": "Unreachable message",
 
@@ -2760,7 +2768,11 @@ extension L10n {
         "notifications.topic": "Thảo luận ngắn",
         "notifications.empty.title": "Chưa có gì ở đây",
         "notifications.empty.description": "Quay lại để nhận thông báo về sự kiện và nhiều hơn thế nữa",
-        "notifications.repliedTo": "Trả lời: ",
+        "notifications.topicDiscussion": "THẢO LUẬN CHỦ ĐỀ",
+        "notifications.repliedTo": "Tin nhắn gốc: ",
+        "notifications.topicOriginalAttachment": "[Tệp đính kèm]",
+        "notifications.topicOriginalContact": "[Liên hệ]",
+        "notifications.topicOriginalInteractiveMessage": "[Tin nhắn tương tác]",
         "notifications.sender": "Người gửi: ",
         "notifications.unreachableMessage": "Tin nhắn không khả dụng",
 
