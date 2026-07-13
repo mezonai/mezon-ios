@@ -28,7 +28,30 @@ extension MezonEngine {
             )
             let topic = TopicRecord(from: apiTopic)
             postbox.write { tx in
-                let enriched = Self.enrichSenderAvatar(topic, tx: tx)
+                let rootMessage = tx.getMessageById(
+                    String(messageId),
+                    channelId: String(channelId)
+                ) ?? tx.getMessageById(String(messageId))
+                let hydratedTopic: TopicRecord
+                if let rootMessage {
+                    let rootContent = String(data: rootMessage.content, encoding: .utf8) ?? topic.content
+                    let rootTimestamp = max(0, rootMessage.createdAt.timeIntervalSince1970)
+                    hydratedTopic = TopicRecord(
+                        id: topic.id,
+                        channelID: topic.channelID,
+                        clanID: topic.clanID,
+                        creatorID: topic.creatorID,
+                        lastSenderID: topic.lastSenderID,
+                        senderAvatarURL: topic.senderAvatarURL,
+                        senderDisplayName: topic.senderDisplayName,
+                        content: rootContent,
+                        updateTimeSeconds: UInt32(clamping: Int64(rootTimestamp)),
+                        lastSentMessageContent: topic.lastSentMessageContent
+                    )
+                } else {
+                    hydratedTopic = topic
+                }
+                let enriched = Self.enrichSenderAvatar(hydratedTopic, tx: tx)
                 var topics = tx.topicTable.getTopics(clanId: clanId)
                 topics.removeAll { $0.id == enriched.id }
                 topics.insert(enriched, at: 0)
