@@ -6,7 +6,7 @@ enum ImgproxyURL {
         let env = MezonEnvironment.current
         return "\(env.imgproxyBaseURL)/\(env.imgproxySigningPath)"
     }
-    private static let cdnHosts = ["cdn.mezon", "profile.mezon"]
+    private static let cdnHosts = ["cdn.mezon", "cdn.komu", "profile.mezon"]
     private static let skipExtensions: Set<String> = ["gif", "webp"]
 
     private static let attachmentOutputSuffix = "@webp"
@@ -76,7 +76,7 @@ enum ImgproxyURL {
     ) -> String {
         let resolvedSourceURL = secureURLString(from: sourceURL)
         guard !resolvedSourceURL.isEmpty else { return resolvedSourceURL }
-        if resolvedSourceURL.contains("imgproxy.mezon") {
+        if resolvedSourceURL.contains("imgproxy.mezon") || resolvedSourceURL.contains("imgproxy.komu") {
             return resolvedSourceURL
         }
 
@@ -96,7 +96,7 @@ enum ImgproxyURL {
     static func avatarProxyURL(from sourceURL: String, width: Int = 100, height: Int = 100) -> String {
         let s = secureURLString(from: sourceURL)
         guard !s.isEmpty else { return s }
-        if s.contains("imgproxy.mezon") {
+        if s.contains("imgproxy.mezon") || s.contains("imgproxy.komu") {
             return s
         }
         guard s.hasPrefix("http://") || s.hasPrefix("https://") else {

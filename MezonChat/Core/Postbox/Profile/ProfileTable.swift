@@ -23,7 +23,7 @@ final class ProfileTable: Table {
         if let c = cached[userId] { return c }
         let rows = db.query(
             "SELECT user_id, username, display_name, avatar_url, status, is_online, data FROM profile WHERE user_id = ?",
-            { sqlite3_bind_text($0, 1, userId, -1, nil) }
+            { sqlite3_bind_text($0, 1, userId, -1, sqliteTransient) }
         ) { stmt -> ProfileRecord? in
             guard let uidPtr    = sqlite3_column_text(stmt, 0),
                   let unPtr     = sqlite3_column_text(stmt, 1),
@@ -63,14 +63,14 @@ final class ProfileTable: Table {
                 INSERT OR REPLACE INTO profile(user_id, username, display_name, avatar_url, status, is_online, data)
                 VALUES(?, ?, ?, ?, ?, ?, ?)
             """) { s in
-                if let d = record.displayName { sqlite3_bind_text(s, 3, d, -1, nil) }
+                if let d = record.displayName { sqlite3_bind_text(s, 3, d, -1, sqliteTransient) }
                 else { sqlite3_bind_null(s, 3) }
-                if let a = record.avatarUrl { sqlite3_bind_text(s, 4, a, -1, nil) }
+                if let a = record.avatarUrl { sqlite3_bind_text(s, 4, a, -1, sqliteTransient) }
                 else { sqlite3_bind_null(s, 4) }
                 sqlite3_bind_int(s, 5, record.status)
                 sqlite3_bind_int(s, 6, record.isOnline ? 1 : 0)
                 data.withUnsafeBytes { buf in
-                    sqlite3_bind_blob(s, 7, buf.baseAddress, Int32(buf.count), nil)
+                    sqlite3_bind_blob(s, 7, buf.baseAddress, Int32(buf.count), sqliteTransient)
                 }
             }
         }

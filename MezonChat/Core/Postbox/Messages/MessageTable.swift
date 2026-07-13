@@ -181,8 +181,8 @@ final class MessageTable: Table {
                 LIMIT 1
                 """,
                 { s in
-                    sqlite3_bind_text(s, 1, messageId, -1, nil)
-                    sqlite3_bind_text(s, 2, channelId, -1, nil)
+                    sqlite3_bind_text(s, 1, messageId, -1, sqliteTransient)
+                    sqlite3_bind_text(s, 2, channelId, -1, sqliteTransient)
                 }
             ) { stmt in self.readMessageRow(stmt) }
             return rows.compactMap { $0 }.first
@@ -201,7 +201,7 @@ final class MessageTable: Table {
             WHERE id = ? AND is_deleted = 0
             LIMIT 1
             """,
-            { s in sqlite3_bind_text(s, 1, messageId, -1, nil) }
+            { s in sqlite3_bind_text(s, 1, messageId, -1, sqliteTransient) }
         ) { stmt in self.readMessageRow(stmt) }
         return rows.compactMap { $0 }.first
     }
@@ -226,7 +226,7 @@ final class MessageTable: Table {
             LIMIT ?
             """,
             { s in
-                sqlite3_bind_text(s, 1, channelId, -1, nil)
+                sqlite3_bind_text(s, 1, channelId, -1, sqliteTransient)
                 sqlite3_bind_int(s, 2, Int32(limit))
             }
         ) { stmt in self.readMessageRow(stmt) }
@@ -256,7 +256,7 @@ final class MessageTable: Table {
             LIMIT ?
             """,
             { s in
-                sqlite3_bind_text(s, 1, channelId, -1, nil)
+                sqlite3_bind_text(s, 1, channelId, -1, sqliteTransient)
                 sqlite3_bind_int(s, 2, Int32(limit))
             }
         ) { stmt in self.readMessageRow(stmt) }
@@ -441,7 +441,7 @@ final class MessageTable: Table {
         cache[channelId] = (mergedBelonging + pendingsToKeep).sorted { MessageRecord.isOrderedAscending($0, $1) }
         pendingWrites.insert(channelId)
         db.run("DELETE FROM messages WHERE channel_id = ? AND id NOT LIKE 'pending-%'") {
-            sqlite3_bind_text($0, 1, channelId, -1, nil)
+            sqlite3_bind_text($0, 1, channelId, -1, sqliteTransient)
         }
     }
 
@@ -452,11 +452,16 @@ final class MessageTable: Table {
         return nil
     }
 
-    func deleteMessage(id: String) {
+    @discardableResult
+    func deleteMessage(id: String) -> [String] {
         pendingDeletes.insert(id)
+        var affectedChannelIds: [String] = []
         for key in cache.keys {
+            guard cache[key]?.contains(where: { $0.id == id }) == true else { continue }
             cache[key]?.removeAll { $0.id == id }
+            affectedChannelIds.append(key)
         }
+        return affectedChannelIds
     }
 
     func updateMessageReactions(messageId: String, reaction: Mezon_Api_MessageReaction) -> [String] {
@@ -954,7 +959,7 @@ final class MessageTable: Table {
                 pendingWrites.insert(channelId)
                 db.run("UPDATE messages SET sending_state = ? WHERE id = ?") {
                     sqlite3_bind_int($0, 1, state.rawValue)
-                    sqlite3_bind_text($0, 2, id, -1, nil)
+                    sqlite3_bind_text($0, 2, id, -1, sqliteTransient)
                 }
             }
         }
@@ -965,7 +970,7 @@ final class MessageTable: Table {
             cache[channelId]?.removeAll { $0.id == pendingId }
         }
         db.run("DELETE FROM messages WHERE id = ?") {
-            sqlite3_bind_text($0, 1, pendingId, -1, nil)
+            sqlite3_bind_text($0, 1, pendingId, -1, sqliteTransient)
         }
         addMessages([record])
     }
@@ -1076,7 +1081,7 @@ final class MessageTable: Table {
             WHERE channel_id = ? AND is_deleted = 0
             ORDER BY created_at ASC
             """,
-            { s in sqlite3_bind_text(s, 1, channelId, -1, nil) }
+            { s in sqlite3_bind_text(s, 1, channelId, -1, sqliteTransient) }
         ) { stmt in self.readMessageRow(stmt) }
         return rows.compactMap { $0 }.first(where: { Self.topicId(in: $0.content) == topicId })
     }
@@ -1090,11 +1095,11 @@ final class MessageTable: Table {
             """
         ) { s in
             record.content.withUnsafeBytes { buf in
-                sqlite3_bind_blob(s, 1, buf.baseAddress, Int32(buf.count), nil)
+                sqlite3_bind_blob(s, 1, buf.baseAddress, Int32(buf.count), sqliteTransient)
             }
             sqlite3_bind_int(s, 2, record.code)
-            sqlite3_bind_text(s, 3, record.id, -1, nil)
-            sqlite3_bind_text(s, 4, record.channelId, -1, nil)
+            sqlite3_bind_text(s, 3, record.id, -1, sqliteTransient)
+            sqlite3_bind_text(s, 4, record.channelId, -1, sqliteTransient)
         }
     }
 
@@ -1108,13 +1113,13 @@ final class MessageTable: Table {
         ) { s in
             if !record.reactionsJSON.isEmpty {
                 record.reactionsJSON.withUnsafeBytes { buf in
-                    sqlite3_bind_blob(s, 1, buf.baseAddress, Int32(buf.count), nil)
+                    sqlite3_bind_blob(s, 1, buf.baseAddress, Int32(buf.count), sqliteTransient)
                 }
             } else {
                 sqlite3_bind_null(s, 1)
             }
-            sqlite3_bind_text(s, 2, record.id, -1, nil)
-            sqlite3_bind_text(s, 3, record.channelId, -1, nil)
+            sqlite3_bind_text(s, 2, record.id, -1, sqliteTransient)
+            sqlite3_bind_text(s, 3, record.channelId, -1, sqliteTransient)
         }
     }
 
@@ -1124,7 +1129,7 @@ final class MessageTable: Table {
 
         for msgId in pendingDeletes {
             db.run("UPDATE messages SET is_deleted = 1 WHERE id = ?") {
-                sqlite3_bind_text($0, 1, msgId, -1, nil)
+                sqlite3_bind_text($0, 1, msgId, -1, sqliteTransient)
             }
         }
         pendingDeletes.removeAll()
@@ -1140,40 +1145,40 @@ final class MessageTable: Table {
                         attachments_json, reactions_json, references_data, mentions_json, code
                     ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """) { s in
-                    sqlite3_bind_text(s, 1, record.id,        -1, nil)
-                    sqlite3_bind_text(s, 2, record.channelId, -1, nil)
-                    if let cid = record.clanId { sqlite3_bind_text(s, 3, cid, -1, nil) }
+                    sqlite3_bind_text(s, 1, record.id,        -1, sqliteTransient)
+                    sqlite3_bind_text(s, 2, record.channelId, -1, sqliteTransient)
+                    if let cid = record.clanId { sqlite3_bind_text(s, 3, cid, -1, sqliteTransient) }
                     else { sqlite3_bind_null(s, 3) }
-                    sqlite3_bind_text(s, 4, record.senderId, -1, nil)
+                    sqlite3_bind_text(s, 4, record.senderId, -1, sqliteTransient)
                     record.content.withUnsafeBytes { buf in
-                        sqlite3_bind_blob(s, 5, buf.baseAddress, Int32(buf.count), nil)
+                        sqlite3_bind_blob(s, 5, buf.baseAddress, Int32(buf.count), sqliteTransient)
                     }
                     sqlite3_bind_double(s, 6, record.createdAt.timeIntervalSince1970)
                     if let ea = record.editedAt { sqlite3_bind_double(s, 7, ea.timeIntervalSince1970) }
                     else { sqlite3_bind_null(s, 7) }
                     sqlite3_bind_int(s, 8, record.isDeleted ? 1 : 0)
-                    sqlite3_bind_text(s, 9, record.senderDisplayName, -1, nil)
-                    if let url = record.senderAvatarURL { sqlite3_bind_text(s, 10, url, -1, nil) }
+                    sqlite3_bind_text(s, 9, record.senderDisplayName, -1, sqliteTransient)
+                    if let url = record.senderAvatarURL { sqlite3_bind_text(s, 10, url, -1, sqliteTransient) }
                     else { sqlite3_bind_null(s, 10) }
                     sqlite3_bind_int(s, 11, record.sendingState.rawValue)
                     if !record.attachmentsJSON.isEmpty {
                         record.attachmentsJSON.withUnsafeBytes { buf in
-                            sqlite3_bind_blob(s, 12, buf.baseAddress, Int32(buf.count), nil)
+                            sqlite3_bind_blob(s, 12, buf.baseAddress, Int32(buf.count), sqliteTransient)
                         }
                     } else { sqlite3_bind_null(s, 12) }
                     if !record.reactionsJSON.isEmpty {
                         record.reactionsJSON.withUnsafeBytes { buf in
-                            sqlite3_bind_blob(s, 13, buf.baseAddress, Int32(buf.count), nil)
+                            sqlite3_bind_blob(s, 13, buf.baseAddress, Int32(buf.count), sqliteTransient)
                         }
                     } else { sqlite3_bind_null(s, 13) }
                     if !record.referencesData.isEmpty {
                         record.referencesData.withUnsafeBytes { buf in
-                            sqlite3_bind_blob(s, 14, buf.baseAddress, Int32(buf.count), nil)
+                            sqlite3_bind_blob(s, 14, buf.baseAddress, Int32(buf.count), sqliteTransient)
                         }
                     } else { sqlite3_bind_null(s, 14) }
                     if !record.mentionsJSON.isEmpty {
                         record.mentionsJSON.withUnsafeBytes { buf in
-                            sqlite3_bind_blob(s, 15, buf.baseAddress, Int32(buf.count), nil)
+                            sqlite3_bind_blob(s, 15, buf.baseAddress, Int32(buf.count), sqliteTransient)
                         }
                     } else { sqlite3_bind_null(s, 15) }
                     sqlite3_bind_int(s, 16, record.code)

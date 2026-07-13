@@ -420,6 +420,11 @@ final class MessageMediaContentNode: ASDisplayNode {
             }
             stickerNode = node
             addSubnode(node)
+            if media[0].isPresignPending {
+                let placeholder = makeMediaPlaceholderNode(for: media[0])
+                placeholderNodes.append(placeholder)
+                addSubnode(placeholder)
+            }
             loadStickerImage(media: media[0], into: node)
         } else if media.count == 1 {
             isSticker = false
@@ -563,6 +568,7 @@ final class MessageMediaContentNode: ASDisplayNode {
 
         if isSticker {
             stickerNode?.frame = CGRect(origin: .zero, size: cachedTotalSize)
+            placeholderNodes.first?.frame = CGRect(origin: .zero, size: cachedTotalSize)
             return
         }
 
@@ -659,6 +665,7 @@ final class MessageMediaContentNode: ASDisplayNode {
     }
 
     private func loadStickerImage(media: ParsedAttachment, into node: ASDisplayNode) {
+        guard !media.isPresignPending else { return }
         let url = ImgproxyURL.secureURLString(from: media.url)
         guard let imageURL = URL(string: url), !url.isEmpty else { return }
         let isAnimatedImage = Self.isAnimatedImageAttachment(media)
@@ -888,6 +895,15 @@ final class MessageMediaContentNode: ASDisplayNode {
             }
 
             if presignBecameReady || uploadHandedOff {
+                if isSticker {
+                    if let sticker = stickerNode {
+                        if i < placeholderNodes.count {
+                            placeholderNodes[i].isHidden = true
+                        }
+                        loadStickerImage(media: att, into: sticker)
+                    }
+                    continue
+                }
                 let alreadyLoaded = i < imageNodes.count && imageNodes[i].image != nil
                 if presignBecameReady && alreadyLoaded {
                     if i < placeholderNodes.count {

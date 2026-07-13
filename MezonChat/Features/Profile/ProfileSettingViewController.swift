@@ -11,7 +11,7 @@ private let kMaxAvatarBytes = 10 * 1024 * 1024
 private let kMaxDMIconBytes  = 1 * 1024 * 1024
 private let kAboutMeMaxChars = 128
 private let kDisplayNameMaxChars = 32
-private let kMezonLogoURL = "https://cdn.mezon.ai/images/mezon_logo.png"
+private let kMezonLogoURL = "https://cdn.komu.vn/images/mezon_logo.png"
 
 final class ProfileSettingViewController: BaseViewController {
 

@@ -6484,33 +6484,34 @@ final class ChatViewController: ViewController {
 
     private func performDeleteMessage(display: ChatMessageDisplay) {
         let msgId = display.message.id
-        if let msgIdInt = Int64(msgId) {
-            let mode: Int32
-            switch channel.type {
-            case MezonConstants.ChannelType.thread.rawValue:
-                mode = MezonConstants.ChannelStreamMode.thread.rawValue
-            case MezonConstants.ChannelType.dm.rawValue:
-                mode = MezonConstants.ChannelStreamMode.dm.rawValue
-            case MezonConstants.ChannelType.group.rawValue:
-                mode = MezonConstants.ChannelStreamMode.group.rawValue
-            default:
-                if clanId != 0 {
-                    mode = MezonConstants.ChannelStreamMode.channel.rawValue
-                } else {
-                    mode = MezonConstants.ChannelStreamMode.group.rawValue
-                }
+        guard let msgIdInt = Int64(msgId) else { return }
+
+        let mode = streamModeForCurrentChannel()
+        let isPublic = isCurrentChannelPublicClanRoot
+        let hasAttachment = !display.attachments.isEmpty
+        let hasMentions = !display.message.mentionedUserIds.isEmpty
+        let hasReferences = display.replyRef != nil
+
+        Task { @MainActor in
+            guard let token = await self.context.getToken() else { return }
+            do {
+                try await self.context.account.network.deleteChannelMessage(
+                    clanId: self.clanId,
+                    channelId: self.channel.channelID,
+                    mode: mode,
+                    isPublic: isPublic,
+                    messageId: msgIdInt,
+                    hasAttachment: hasAttachment,
+                    topicId: self.topicId,
+                    hasMentions: hasMentions,
+                    hasReferences: hasReferences,
+                    token: token
+                )
+                self.context.account.postbox.write { tx in tx.deleteMessage(id: msgId) }
+            } catch {
+                Toast.error(L(L10n.MessageAction.deleteError))
             }
-            let isPublic = clanId != 0 && channel.parentID == 0 && channel.channelPrivate == 0
-            context.account.socket.removeChannelMessage(
-                clanId: clanId,
-                channelId: channel.channelID,
-                mode: mode,
-                messageId: msgIdInt,
-                isPublic: isPublic,
-                topicId: topicId
-            )
         }
-        context.account.postbox.write { tx in tx.deleteMessage(id: msgId) }
     }
 
     private func showPinMessageConfirm(display: ChatMessageDisplay) {

@@ -682,7 +682,7 @@ enum PresignFinishContent {
         return withoutExt.isEmpty ? last : withoutExt
     }
 
-    private static let cdnHosts = ["cdn.mezon", "profile.mezon"]
+    private static let cdnHosts = ["cdn.mezon", "profile.mezon", "cdn.komu"]
 
     static func isCdnURL(_ url: String) -> Bool {
         let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -742,6 +742,23 @@ enum PresignFinishContent {
     static func contentStringForSend(base contentData: Data, presignKeys: [String]) -> String {
         let data = injectPresignFinish(into: contentData, keys: presignKeys)
         return String(data: data, encoding: .utf8) ?? "{\"presign_finish\":[]}"
+    }
+
+    static let createTimeKey = "create_time_seconds"
+
+    static func withCreateTimeSeconds(_ content: String, createTimeSeconds: UInt32) -> String {
+        guard createTimeSeconds > 0 else { return content }
+        var json: [String: Any] = [:]
+        if let data = content.data(using: .utf8), !data.isEmpty,
+           let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            json = existing
+        }
+        json[createTimeKey] = createTimeSeconds
+        guard let encoded = try? JSONSerialization.data(withJSONObject: json),
+              let string = String(data: encoded, encoding: .utf8) else {
+            return content
+        }
+        return string
     }
 
     static func presignFinishOnlyContent(keys: [String]) -> Data {

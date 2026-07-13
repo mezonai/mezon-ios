@@ -76,13 +76,13 @@ final class ClanTable: Table {
             guard let record = cached[id], let data = record.postboxEncode() else { continue }
             db.run("INSERT OR REPLACE INTO clans(id, name, icon, owner_id, data) VALUES(?,?,?,?,?)") { s in
                 sqlite3_bind_int64(s, 1, record.id)
-                sqlite3_bind_text(s, 2, record.name, -1, nil)
-                if let icon = record.icon { sqlite3_bind_text(s, 3, icon, -1, nil) }
+                sqlite3_bind_text(s, 2, record.name, -1, sqliteTransient)
+                if let icon = record.icon { sqlite3_bind_text(s, 3, icon, -1, sqliteTransient) }
                 else { sqlite3_bind_null(s, 3) }
-                if let owner = record.ownerId { sqlite3_bind_text(s, 4, owner, -1, nil) }
+                if let owner = record.ownerId { sqlite3_bind_text(s, 4, owner, -1, sqliteTransient) }
                 else { sqlite3_bind_null(s, 4) }
                 data.withUnsafeBytes { buf in
-                    sqlite3_bind_blob(s, 5, buf.baseAddress, Int32(buf.count), nil)
+                    sqlite3_bind_blob(s, 5, buf.baseAddress, Int32(buf.count), sqliteTransient)
                 }
             }
         }

@@ -326,6 +326,7 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private func safeReloadData(preserving scrollAnchor: ScrollAnchor? = nil, preserveContentOffset: Bool = true) {
+        pendingChannelAppsTableSync = false
         guard tableIsInWindow else {
             if tableNode.isNodeLoaded {
                 UIView.performWithoutAnimation { self.tableNode.reloadData() }
@@ -354,6 +355,7 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private func applyCrossfadeReload(resetScroll: Bool = true) {
+        pendingChannelAppsTableSync = false
         guard tableIsInWindow else {
             if tableNode.isNodeLoaded {
                 UIView.performWithoutAnimation { self.tableNode.reloadData() }
@@ -384,6 +386,7 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private func crossfadeReloadAnimated(duration _: TimeInterval = 0.1) {
+        pendingChannelAppsTableSync = false
         guard tableIsInWindow else {
             if tableNode.isNodeLoaded {
                 UIView.performWithoutAnimation { self.tableNode.reloadData() }
@@ -1288,6 +1291,13 @@ final class ChannelListContainerNode: ASDisplayNode {
         refreshControl.addTarget(self, action: #selector(handleRefresh(_:)), for: .valueChanged)
         tableNode.view.refreshControl = refreshControl
 
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAppDidBecomeActiveForListSanitize),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
+
         headerSpacer.backgroundColor = .clear
         headerSpacer.translatesAutoresizingMaskIntoConstraints = false
         let headerHConstraint = headerSpacer.heightAnchor.constraint(equalToConstant: currentHeaderH)
@@ -1322,12 +1332,81 @@ final class ChannelListContainerNode: ASDisplayNode {
         super.didEnterVisibleState()
         nodeIsVisible = true
         interaction.onBecameVisible?()
+        sanitizeListPresentationArtifacts()
         drainPendingVisibleReconcile()
     }
 
     override func didEnterHierarchy() {
         super.didEnterHierarchy()
         drainPendingVisibleReconcile()
+    }
+
+    @objc private func handleAppDidBecomeActiveForListSanitize() {
+        sanitizeListPresentationArtifacts()
+    }
+
+    @discardableResult
+    private func normalizeListElementPresentation(_ view: UIView) -> Bool {
+        var changed = false
+        if view.layer.animationKeys()?.isEmpty == false {
+            view.layer.removeAllAnimations()
+            changed = true
+        }
+        if view.alpha != 1 {
+            view.alpha = 1
+            changed = true
+        }
+        if view.layer.opacity != 1 {
+            view.layer.opacity = 1
+            changed = true
+        }
+        if view.transform != .identity {
+            view.transform = .identity
+            changed = true
+        }
+        return changed
+    }
+
+    @discardableResult
+    func sanitizeListPresentationArtifacts() -> Bool {
+        guard tableIsInWindow else { return false }
+        var changed = false
+        let tableLayer = tableNode.view.layer
+        if tableLayer.animationKeys()?.isEmpty == false {
+            tableLayer.removeAllAnimations()
+            changed = true
+        }
+        if tableLayer.speed != 1 || tableLayer.timeOffset != 0 {
+            tableLayer.speed = 1
+            tableLayer.timeOffset = 0
+            changed = true
+        }
+        if tableLayer.opacity != 1 {
+            tableLayer.opacity = 1
+            changed = true
+        }
+        let visibleCells = Set(tableNode.view.visibleCells.map { ObjectIdentifier($0) })
+        for sub in tableNode.view.subviews {
+            if let cell = sub as? UITableViewCell {
+                if normalizeListElementPresentation(cell) { changed = true }
+                if normalizeListElementPresentation(cell.contentView) { changed = true }
+                if cell.isHidden, visibleCells.contains(ObjectIdentifier(cell)) {
+                    cell.isHidden = false
+                    changed = true
+                }
+            } else if let header = sub as? CategorySectionHeaderView {
+                if normalizeListElementPresentation(header) { changed = true }
+            }
+        }
+        if tableNode.numberOfSections != totalSections {
+            changed = true
+        }
+        if changed {
+            cachedRows = [:]
+            cachedHeaders = [:]
+            safeReloadData()
+        }
+        return changed
     }
 
     private func drainPendingVisibleReconcile(attempt: Int = 0) {
@@ -1688,6 +1767,8 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     func configure(clanName: String, clanId: Int64 = 0, logoURL: String? = nil, bannerURL: String? = nil, memberCount: Int = 0, isCommunity: Bool = false) {
         let clanChanged = headerClanId != clanId
+        if clanChanged {
+        }
         self.headerClanId = clanId
         self.clanLogoURL = logoURL ?? ""
         self.isCommunity = isCommunity
@@ -1756,9 +1837,10 @@ final class ChannelListContainerNode: ASDisplayNode {
         cachedHeaders = [:]
 
         if shouldDeferLeadingSectionTableMutations {
-            pendingChannelAppsTableSync = true
             if beforeHad != afterHad {
                 scheduleReload()
+            } else {
+                pendingChannelAppsTableSync = true
             }
             return
         }
@@ -2254,6 +2336,24 @@ extension ChannelListContainerNode: ASTableDataSource {
 }
 
 extension ChannelListContainerNode: ASTableDelegate {
+
+    func tableNode(_ tableNode: ASTableNode, willDisplayRowWith node: ASCellNode) {
+        guard node.isNodeLoaded else { return }
+        var current: UIView? = node.view
+        while let v = current, !(v is UITableViewCell) {
+            current = v.superview
+        }
+        guard let cell = current as? UITableViewCell else { return }
+        if cell.layer.animationKeys()?.isEmpty == false {
+            cell.layer.removeAllAnimations()
+        }
+        if cell.alpha != 1 { cell.alpha = 1 }
+        if cell.layer.opacity != 1 { cell.layer.opacity = 1 }
+        if cell.contentView.alpha != 1 { cell.contentView.alpha = 1 }
+        if cell.contentView.layer.animationKeys()?.isEmpty == false {
+            cell.contentView.layer.removeAllAnimations()
+        }
+    }
 
     func tableNode(_ tableNode: ASTableNode, didSelectRowAt indexPath: IndexPath) {
         tableNode.deselectRow(at: indexPath, animated: false)

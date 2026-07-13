@@ -68,10 +68,10 @@ final class AuthTable: Table {
                 INSERT INTO auth_sessions(user_id, token, refresh_token, expires_at, created_at, session_data)
                 VALUES(?, ?, ?, ?, ?, ?)
             """) { s in
-                sqlite3_bind_text(s, 1, record.userId, -1, nil)
-                sqlite3_bind_text(s, 2, record.token,  -1, nil)
+                sqlite3_bind_text(s, 1, record.userId, -1, sqliteTransient)
+                sqlite3_bind_text(s, 2, record.token,  -1, sqliteTransient)
                 if let rt = record.refreshToken {
-                    sqlite3_bind_text(s, 3, rt, -1, nil)
+                    sqlite3_bind_text(s, 3, rt, -1, sqliteTransient)
                 } else {
                     sqlite3_bind_null(s, 3)
                 }
@@ -83,7 +83,7 @@ final class AuthTable: Table {
                 sqlite3_bind_double(s, 5, record.createdAt.timeIntervalSince1970)
                 if let data = record.sessionData {
                     data.withUnsafeBytes { buf in
-                        sqlite3_bind_blob(s, 6, buf.baseAddress, Int32(buf.count), nil)
+                        sqlite3_bind_blob(s, 6, buf.baseAddress, Int32(buf.count), sqliteTransient)
                     }
                 } else {
                     sqlite3_bind_null(s, 6)

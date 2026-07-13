@@ -205,19 +205,14 @@ final class AccountContextImpl: AccountContext {
                 self.activeRefreshTask = nil
             }
             for attempt in 1...2 {
+                guard !Task.isCancelled else { return false }
                 do {
                     try await self.refreshSession()
                     return true
-                } catch let error as MezonError {
-                    if case .httpError(let code, _) = error, code == 401 || code == 403 {
-                        self.notifySessionExpiredAndStopRecovery()
-                        return false
-                    }
-                    if attempt < 2 {
-                        try? await Task.sleep(nanoseconds: 1_000_000_000)
-                    }
                 } catch is SessionError {
                     self.notifySessionExpiredAndStopRecovery()
+                    return false
+                } catch is CancellationError {
                     return false
                 } catch {
                     if attempt < 2 {
@@ -419,7 +414,11 @@ final class AccountContextImpl: AccountContext {
         guard let current = session else {
             throw SessionError.noSession
         }
+        let startEpoch = sessionEpoch
         let new = try await engine.auth.sessionRefresh(session: current)
+        guard isStillCurrentSession(epoch: startEpoch) else {
+            throw CancellationError()
+        }
         let merged = mergeIdToken(into: new, previous: current)
         applySession(merged, user: currentUser, connectSocket: false, fetchAccount: false)
     }
@@ -469,11 +468,6 @@ final class AccountContextImpl: AccountContext {
                     return nil
                 }
                 return refreshed.token
-            } catch let error as MezonError {
-                if case .httpError(let code, _) = error, code == 401 || code == 403 {
-                    self.notifySessionExpiredAndStopRecovery()
-                }
-                return nil
             } catch is SessionError {
                 self.notifySessionExpiredAndStopRecovery()
                 return nil
@@ -553,16 +547,14 @@ final class AccountContextImpl: AccountContext {
 
     private func refreshSessionWithRetry() async -> Bool {
         for attempt in 1...maxForegroundRecoverRetries {
+            guard !Task.isCancelled else { return false }
             do {
                 try await refreshSession()
                 return true
-            } catch let error as MezonError {
-                if case .httpError(let code, _) = error, (code == 401 || code == 403) {
-                    notifySessionExpiredAndStopRecovery()
-                    return false
-                }
             } catch is SessionError {
                 notifySessionExpiredAndStopRecovery()
+                return false
+            } catch is CancellationError {
                 return false
             } catch {
             }
@@ -571,10 +563,6 @@ final class AccountContextImpl: AccountContext {
                 let delay = UInt64(attempt) * 2_000_000_000
                 try? await Task.sleep(nanoseconds: delay)
             }
-        }
-
-        if let s = session, Date() >= s.expiresAt, NetworkMonitor.shared.isConnected {
-            notifySessionExpiredAndStopRecovery()
         }
         return false
     }

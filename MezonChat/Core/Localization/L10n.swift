@@ -1117,6 +1117,7 @@ enum L10n {
         static let editedSuffix     = "messageAction.editedSuffix"
         static let deleteMessage    = "messageAction.deleteMessage"
         static let deleteMessageConfirm = "messageAction.deleteMessageConfirm"
+        static let deleteError      = "messageAction.deleteError"
         static let pinMessage       = "messageAction.pinMessage"
         static let unpinMessage     = "messageAction.unpinMessage"
         static let forward          = "messageAction.forward"
@@ -2242,6 +2243,7 @@ extension L10n {
         "messageAction.report": "Report",
         "messageAction.pinMessageConfirm": "Please confirm if you would like to pin this message?",
         "messageAction.unpinMessageConfirm": "Remove this message from pinned messages?",
+        "messageAction.deleteError": "Failed to delete message",
         "messageAction.pinSuccess": "Message pinned successfully",
         "messageAction.pinError": "Failed to pin message",
         "messageAction.unpinSuccess": "Message unpinned",
@@ -3479,6 +3481,7 @@ extension L10n {
         "messageAction.report": "Báo cáo",
         "messageAction.pinMessageConfirm": "Bạn có muốn ghim tin nhắn này không?",
         "messageAction.unpinMessageConfirm": "Bỏ ghim tin nhắn này?",
+        "messageAction.deleteError": "Xóa tin nhắn thất bại",
         "messageAction.pinSuccess": "Ghim tin nhắn thành công",
         "messageAction.pinError": "Ghim tin nhắn thất bại",
         "messageAction.unpinSuccess": "Đã bỏ ghim",

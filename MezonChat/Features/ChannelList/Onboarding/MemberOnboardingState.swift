@@ -1,12 +1,12 @@
 import Foundation
 
-enum MemberOnboardingMissionType: Int32 {
+enum MemberOnboardingMissionType: Int32, Codable {
     case sendMessage = 1
     case visit = 2
     case doSomething = 3
 }
 
-struct MemberOnboardingMission: Equatable {
+struct MemberOnboardingMission: Equatable, Codable {
     let id: Int64
     let channelId: Int64
     let taskType: MemberOnboardingMissionType
@@ -28,6 +28,7 @@ struct MemberOnboardingViewState: Equatable {
 enum MemberOnboardingProgress {
     private static let doneMissionKeyPrefix = "mezon.memberOnboarding.doneMission."
     private static let fullyDoneKeyPrefix = "mezon.memberOnboarding.fullyDone."
+    private static let missionsKeyPrefix = "mezon.memberOnboarding.missions."
 
     @MainActor
     private static var missionsByClanId: [Int64: [MemberOnboardingMission]] = [:]
@@ -35,6 +36,31 @@ enum MemberOnboardingProgress {
     @MainActor
     static func clearClanData(clanId: Int64) {
         missionsByClanId[clanId] = nil
+        UserDefaults.standard.removeObject(forKey: missionsStorageKey(clanId: clanId))
+    }
+
+    private static func missionsStorageKey(clanId: Int64) -> String {
+        "\(missionsKeyPrefix)\(clanId)"
+    }
+
+    private static func persistMissions(_ missions: [MemberOnboardingMission], clanId: Int64) {
+        guard !missions.isEmpty else {
+            UserDefaults.standard.removeObject(forKey: missionsStorageKey(clanId: clanId))
+            return
+        }
+        guard let data = try? JSONEncoder().encode(missions) else { return }
+        UserDefaults.standard.set(data, forKey: missionsStorageKey(clanId: clanId))
+    }
+
+    @MainActor
+    private static func loadPersistedMissions(clanId: Int64) -> [MemberOnboardingMission] {
+        guard let data = UserDefaults.standard.data(forKey: missionsStorageKey(clanId: clanId)),
+              let missions = try? JSONDecoder().decode([MemberOnboardingMission].self, from: data),
+              !missions.isEmpty else {
+            return []
+        }
+        missionsByClanId[clanId] = missions
+        return missions
     }
 
     @MainActor
@@ -53,7 +79,10 @@ enum MemberOnboardingProgress {
     static func compute(context: AccountContext, clanId: Int64) -> MemberOnboardingViewState {
         guard isEligible(context: context, clanId: clanId) else { return .hidden }
 
-        let missions = missionsByClanId[clanId] ?? []
+        var missions = missionsByClanId[clanId] ?? []
+        if missions.isEmpty {
+            missions = loadPersistedMissions(clanId: clanId)
+        }
         guard !missions.isEmpty else { return .hidden }
 
         let userId = resolvedUserId(context: context)
@@ -88,6 +117,7 @@ enum MemberOnboardingProgress {
             let onboardingItems = try await onboardingItemsTask
             let missions = parseMissions(from: onboardingItems)
             missionsByClanId[clanId] = missions
+            persistMissions(missions, clanId: clanId)
 
             let userId = await awaitResolvedUserId(context: context)
             let steps = (try? await onboardingStepsTask) ?? []

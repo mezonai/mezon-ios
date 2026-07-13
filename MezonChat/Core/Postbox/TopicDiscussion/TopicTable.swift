@@ -80,9 +80,9 @@ public final class TopicTable: Table {
                     sqlite3_bind_int64(s, 2, t.channelID)
                     sqlite3_bind_int64(s, 3, t.clanID)
                     sqlite3_bind_int64(s, 4, t.creatorID)
-                    sqlite3_bind_text(s, 5, (t.content as NSString).utf8String, -1, nil)
+                    sqlite3_bind_text(s, 5, (t.content as NSString).utf8String, -1, sqliteTransient)
                     sqlite3_bind_int64(s, 6, Int64(t.updateTimeSeconds))
-                    sqlite3_bind_text(s, 7, (t.lastSentMessageContent as NSString).utf8String, -1, nil)
+                    sqlite3_bind_text(s, 7, (t.lastSentMessageContent as NSString).utf8String, -1, sqliteTransient)
                     sqlite3_bind_int64(s, 8, t.lastSenderID)
                 }
             )
