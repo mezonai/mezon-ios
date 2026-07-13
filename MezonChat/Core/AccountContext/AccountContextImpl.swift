@@ -946,8 +946,28 @@ final class AccountContextImpl: AccountContext {
             }
             if event.clanID != 0 {
                 var topics = tx.topicTable.getTopics(clanId: event.clanID)
-                topics.removeAll { $0.id == topic.id }
-                topics.insert(topic, at: 0)
+                let resolvedTopic: TopicRecord
+                if let existing = topics.first(where: { $0.id == topic.id }) {
+                    let resolvedContent = existing.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? topic.content
+                        : existing.content
+                    resolvedTopic = TopicRecord(
+                        id: existing.id,
+                        channelID: existing.channelID,
+                        clanID: existing.clanID,
+                        creatorID: existing.creatorID,
+                        lastSenderID: lastSent?.senderID ?? existing.lastSenderID,
+                        senderAvatarURL: existing.senderAvatarURL,
+                        senderDisplayName: existing.senderDisplayName,
+                        content: resolvedContent,
+                        updateTimeSeconds: updateTime,
+                        lastSentMessageContent: lastSent?.content ?? existing.lastSentMessageContent
+                    )
+                } else {
+                    resolvedTopic = topic
+                }
+                topics.removeAll { $0.id == resolvedTopic.id }
+                topics.insert(resolvedTopic, at: 0)
                 tx.updateTopics(topics, clanId: event.clanID)
             }
         }

@@ -2,11 +2,6 @@ import AsyncDisplayKit
 import Combine
 import UIKit
 
-
-private struct TopicContent: Decodable {
-    let t: String?
-}
-
 enum NotificationItem {
     case notification(NotificationRecord)
     case topic(TopicRecord)
@@ -21,10 +16,8 @@ enum NotificationItem {
     var subject: String {
         switch self {
         case .notification(let n): return n.subject
-        case .topic(let t):
-            let raw = t.content.trimmingCharacters(in: .whitespacesAndNewlines)
-            let preview = Self.parseTopicMessage(content: raw)
-            return L(L10n.Notifications.repliedTo) + preview
+        case .topic:
+            return L(L10n.Notifications.topicDiscussion)
         }
     }
 
@@ -32,19 +25,189 @@ enum NotificationItem {
         switch self {
         case .notification(let n): return n.previewText
         case .topic(let t):
-            let rawContent = t.lastSentMessageContent.trimmingCharacters(in: .whitespacesAndNewlines)
-            
-            let msgText = Self.parseTopicMessage(content: rawContent.isEmpty ? t.content : rawContent)
-            
-            let prefix = t.senderDisplayName.isEmpty ? "" : "\(t.senderDisplayName): "
-            let line = prefix + msgText
-
-            return line
+            let raw = t.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            let preview = Self.parseTopicMessage(content: raw)
+            return L(L10n.Notifications.repliedTo) + preview
         }
     }
 
     private static func parseTopicMessage(content: String) -> String {
-        return NotificationRecord.extractDisplayText(from: content)
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return L(L10n.Notifications.topicOriginalAttachment)
+        }
+        guard trimmed.first == "{" || trimmed.first == "[" else {
+            return normalizePreviewText(trimmed)
+        }
+        guard trimmed.first == "{",
+              let data = trimmed.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return L(L10n.Notifications.topicOriginalAttachment)
+        }
+
+        if isShareContactPayload(obj) {
+            return L(L10n.Notifications.topicOriginalContact)
+        }
+        if hasAttachmentPayload(obj) {
+            return L(L10n.Notifications.topicOriginalAttachment)
+        }
+        let text = nonEmptyString(obj["t"]) ?? nonEmptyString(obj["text"])
+        let link = linkValue(obj["lk"])
+        if hasInteractivePayload(obj, includeRichEmbedOnly: text == nil && link == nil) {
+            return L(L10n.Notifications.topicOriginalInteractiveMessage)
+        }
+        if let text {
+            return normalizePreviewText(text)
+        }
+        if let link {
+            return normalizePreviewText(link)
+        }
+        if let embedPreview = firstEmbedPreview(in: obj) {
+            return normalizePreviewText(embedPreview)
+        }
+        return L(L10n.Notifications.topicOriginalAttachment)
+    }
+
+    private static func normalizePreviewText(_ text: String) -> String {
+        let normalized = text
+            .replacingOccurrences(of: "\\/", with: "/")
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard normalized.count > 200 else { return normalized }
+        return String(normalized.prefix(200))
+    }
+
+    private static func nonEmptyString(_ value: Any?) -> String? {
+        guard let string = value as? String else { return nil }
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func hasAttachmentPayload(_ obj: [String: Any]) -> Bool {
+        if containsAttachmentMarker(obj) { return true }
+        if hasNonEmptyPayloadValue(obj["a"]) { return true }
+        return false
+    }
+
+    private static func containsAttachmentMarker(_ value: Any?) -> Bool {
+        guard let value, !(value is NSNull) else { return false }
+        if let obj = value as? [String: Any] {
+            for (key, nested) in obj {
+                let normalizedKey = key.lowercased()
+                if normalizedKey == "has_attachment" || normalizedKey == "hasattachment" {
+                    if boolValue(nested) { return true }
+                }
+                if normalizedKey == "attachments" || normalizedKey == "attachment" ||
+                    normalizedKey == "files" || normalizedKey == "file" {
+                    if hasNonEmptyPayloadValue(nested) { return true }
+                }
+                if containsAttachmentMarker(nested) { return true }
+            }
+        }
+        if let items = value as? [Any] {
+            return items.contains { containsAttachmentMarker($0) }
+        }
+        return false
+    }
+
+    private static func boolValue(_ value: Any?) -> Bool {
+        if let bool = value as? Bool { return bool }
+        if let int = value as? Int { return int != 0 }
+        if let double = value as? Double { return double != 0 }
+        if let string = value as? String {
+            let normalized = string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return normalized == "true" || normalized == "1" || normalized == "yes"
+        }
+        return false
+    }
+
+    private static func hasNonEmptyPayloadValue(_ value: Any?) -> Bool {
+        guard let value, !(value is NSNull) else { return false }
+        if let string = value as? String {
+            return !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        if let bool = value as? Bool {
+            return bool
+        }
+        if let items = value as? [Any] {
+            return !items.isEmpty
+        }
+        if let obj = value as? [String: Any] {
+            return !obj.isEmpty
+        }
+        return true
+    }
+
+    private static func embedItems(in obj: [String: Any]) -> [[String: Any]] {
+        func normalize(_ value: Any?) -> [[String: Any]] {
+            if let item = value as? [String: Any] { return [item] }
+            if let items = value as? [[String: Any]] { return items }
+            if let items = value as? [Any] { return items.compactMap { $0 as? [String: Any] } }
+            return []
+        }
+        let embed = normalize(obj["embed"])
+        return embed.isEmpty ? normalize(obj["embeds"]) : embed
+    }
+
+    private static func isShareContactPayload(_ obj: [String: Any]) -> Bool {
+        for embed in embedItems(in: obj) {
+            guard let fields = embed["fields"] as? [Any] else { continue }
+            for item in fields {
+                guard let field = item as? [String: Any] else { continue }
+                let name = nonEmptyString(field["name"])?.lowercased() ?? ""
+                let value = nonEmptyString(field["value"])?.lowercased() ?? ""
+                if (name == "key" && (value == "share_contact" || value == "share_contact_key")) ||
+                    value == "share_contact" ||
+                    value == "share_contact_key" {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private static func hasInteractivePayload(_ obj: [String: Any], includeRichEmbedOnly: Bool) -> Bool {
+        if let components = obj["components"] as? [Any], !components.isEmpty {
+            return true
+        }
+        for embed in embedItems(in: obj) {
+            guard let fields = embed["fields"] as? [Any] else { continue }
+            if !fields.isEmpty {
+                return true
+            }
+        }
+        return includeRichEmbedOnly && embedItems(in: obj).contains { hasRichIntegrationEmbedPayload($0) }
+    }
+
+    private static func hasRichIntegrationEmbedPayload(_ embed: [String: Any]) -> Bool {
+        return hasNonEmptyPayloadValue(embed["author"]) ||
+            hasNonEmptyPayloadValue(embed["footer"]) ||
+            hasNonEmptyPayloadValue(embed["image"]) ||
+            hasNonEmptyPayloadValue(embed["thumbnail"]) ||
+            hasNonEmptyPayloadValue(embed["video"])
+    }
+
+    private static func linkValue(_ value: Any?) -> String? {
+        if let string = nonEmptyString(value) { return string }
+        if let obj = value as? [String: Any] {
+            return nonEmptyString(obj["url"]) ?? nonEmptyString(obj["href"])
+        }
+        if let items = value as? [Any] {
+            for item in items {
+                if let value = linkValue(item) { return value }
+            }
+        }
+        return nil
+    }
+
+    private static func firstEmbedPreview(in obj: [String: Any]) -> String? {
+        for embed in embedItems(in: obj) {
+            if let title = nonEmptyString(embed["title"]) { return title }
+            if let description = nonEmptyString(embed["description"]) { return description }
+            if let url = nonEmptyString(embed["url"]) { return url }
+        }
+        return nil
     }
 
     var avatarURL: String {
