@@ -12,16 +12,34 @@ final class KeychainHelper {
 
     private static let maxKeychainRetries = 3
 
-    func databaseKey(for identifier: String) -> Data {
+    private enum KeyLookup {
+        case found(Data)
+        case missing
+        case unavailable(OSStatus)
+    }
+
+    func databaseKey(for identifier: String) -> Data? {
         let account = "db.\(identifier)"
-        if let existing = load(account: account) { return existing }
+
+        switch load(account: account) {
+        case .found(let existing):
+            return existing
+        case .unavailable(let status):
+            os_log(.error, log: Self.log,
+                   "Keychain unreadable (status %d) for %{public}@; refusing to regenerate key",
+                   status, identifier)
+            return nil
+        case .missing:
+            break
+        }
 
         var key = Data(count: 32)
         let result = key.withUnsafeMutableBytes {
             SecRandomCopyBytes(kSecRandomDefault, 32, $0.baseAddress!)
         }
         guard result == errSecSuccess else {
-            fatalError("SecRandomCopyBytes failed with status \(result).")
+            os_log(.error, log: Self.log, "SecRandomCopyBytes failed with status %d", result)
+            return nil
         }
 
         for attempt in 1...Self.maxKeychainRetries {
@@ -32,9 +50,12 @@ final class KeychainHelper {
             }
         }
 
-        if let reloaded = load(account: account) { return reloaded }
+        if case .found(let reloaded) = load(account: account) { return reloaded }
 
-        fatalError("Failed to save database encryption key to Keychain for \(identifier) after \(Self.maxKeychainRetries) attempts.")
+        os_log(.error, log: Self.log,
+               "Failed to persist database encryption key for %{public}@ after %d attempts",
+               identifier, Self.maxKeychainRetries)
+        return nil
     }
 
     @discardableResult
@@ -60,7 +81,7 @@ final class KeychainHelper {
         return true
     }
 
-    private func load(account: String) -> Data? {
+    private func load(account: String) -> KeyLookup {
         let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
@@ -70,8 +91,15 @@ final class KeychainHelper {
         ]
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess else { return nil }
-        return result as? Data
+        switch status {
+        case errSecSuccess:
+            guard let data = result as? Data, !data.isEmpty else { return .unavailable(status) }
+            return .found(data)
+        case errSecItemNotFound:
+            return .missing
+        default:
+            return .unavailable(status)
+        }
     }
 
     func removeAllDatabaseEncryptionKeys() {

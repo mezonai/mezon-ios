@@ -247,7 +247,7 @@ final class DirectMessagesViewController: ViewController {
         let ts: UInt32 = {
             if let m = wsMessage, m.createTimeSeconds > 0 { return m.createTimeSeconds }
             if let t = notification.userInfo?["timestampSeconds"] as? UInt32 { return t }
-            if let t = notification.userInfo?["timestampSeconds"] as? Int { return UInt32(t) }
+            if let t = notification.userInfo?["timestampSeconds"] as? Int { return UInt32(clamping: t) }
             return UInt32(Date().timeIntervalSince1970)
         }()
 
@@ -358,7 +358,7 @@ final class DirectMessagesViewController: ViewController {
         let ud = UserDefaults.standard.integer(forKey: Self.cachedSelectedClanUserDefaultsKey)
         if ud != 0 { return Int64(ud) }
         if let selData = context.account.postbox.getPreferenceData(key: PreferencesKeys.selectedClanId), selData.count >= 8 {
-            let id = selData.withUnsafeBytes { $0.load(as: Int64.self).littleEndian }
+            let id = selData.withUnsafeBytes { $0.loadUnaligned(as: Int64.self).littleEndian }
             if id != 0 { return id }
         }
         return 0

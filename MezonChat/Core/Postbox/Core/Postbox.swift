@@ -40,8 +40,10 @@ final class Postbox {
         let authKey     = keychain.databaseKey(for: "auth")
         let messagesKey = keychain.databaseKey(for: "messages")
 
-        authDb     = SqliteDatabase(path: dbPath("auth.db"),     encryptionKey: authKey)
-        messagesDb = SqliteDatabase(path: dbPath("messages.db"), encryptionKey: messagesKey)
+        authDb     = authKey.map { SqliteDatabase(path: dbPath("auth.db"), encryptionKey: $0) }
+            ?? SqliteDatabase.unopened()
+        messagesDb = messagesKey.map { SqliteDatabase(path: dbPath("messages.db"), encryptionKey: $0) }
+            ?? SqliteDatabase.unopened()
         clansDb    = SqliteDatabase(path: dbPath("clans.db"))
         profileDb  = SqliteDatabase(path: dbPath("profile.db"))
         settingsDb = SqliteDatabase(path: dbPath("settings.db"))
@@ -485,12 +487,12 @@ final class Postbox {
 
     private func decodeChannelList(_ data: Data) -> [Mezon_Api_ChannelDescription] {
         guard data.count >= 4 else { return [] }
-        let count = data.withUnsafeBytes { $0.load(as: UInt32.self) }
+        let count = data.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
         var result: [Mezon_Api_ChannelDescription] = []
         var offset = 4
         for _ in 0..<count {
             guard offset + 4 <= data.count else { break }
-            let len = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) }
+            let len = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
             offset += 4
             guard offset + Int(len) <= data.count else { break }
             if let m = try? Mezon_Api_ChannelDescription(serializedBytes: data.subdata(in: offset..<(offset + Int(len)))) {

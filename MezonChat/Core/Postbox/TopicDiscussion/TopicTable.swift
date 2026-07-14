@@ -55,9 +55,9 @@ public final class TopicTable: Table {
                 clanID: sqlite3_column_int64(stmt, 2),
                 creatorID: sqlite3_column_int64(stmt, 3),
                 lastSenderID: sqlite3_column_int64(stmt, 7),
-                content: String(cString: sqlite3_column_text(stmt, 4)),
-                updateTimeSeconds: UInt32(sqlite3_column_int64(stmt, 5)),
-                lastSentMessageContent: String(cString: sqlite3_column_text(stmt, 6))
+                content: sqlite3_column_text(stmt, 4).map { String(cString: $0) } ?? "",
+                updateTimeSeconds: UInt32(clamping: sqlite3_column_int64(stmt, 5)),
+                lastSentMessageContent: sqlite3_column_text(stmt, 6).map { String(cString: $0) } ?? ""
             )
         }
         let result = rows.compactMap { $0 }

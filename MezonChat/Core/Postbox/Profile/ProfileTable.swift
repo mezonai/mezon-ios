@@ -63,6 +63,8 @@ final class ProfileTable: Table {
                 INSERT OR REPLACE INTO profile(user_id, username, display_name, avatar_url, status, is_online, data)
                 VALUES(?, ?, ?, ?, ?, ?, ?)
             """) { s in
+                sqlite3_bind_text(s, 1, record.userId, -1, sqliteTransient)
+                sqlite3_bind_text(s, 2, record.username, -1, sqliteTransient)
                 if let d = record.displayName { sqlite3_bind_text(s, 3, d, -1, sqliteTransient) }
                 else { sqlite3_bind_null(s, 3) }
                 if let a = record.avatarUrl { sqlite3_bind_text(s, 4, a, -1, sqliteTransient) }

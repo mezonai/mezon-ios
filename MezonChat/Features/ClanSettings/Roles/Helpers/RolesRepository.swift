@@ -194,8 +194,8 @@ final class RolesRepository {
         removeUserIds: [Int64],
         removePermissionIds: [Int64]
     ) {
-        let permissionById = Dictionary(uniqueKeysWithValues: allPermissions().map { ($0.id, $0) })
-        let memberLookup = Dictionary(uniqueKeysWithValues: clanMembers(clanId: clanId).map { ($0.userId, $0) })
+        let permissionById = Dictionary(allPermissions().map { ($0.id, $0) }, uniquingKeysWith: { $1 })
+        let memberLookup = Dictionary(clanMembers(clanId: clanId).map { ($0.userId, $0) }, uniquingKeysWith: { $1 })
 
         mutateStoredRoles(clanId: clanId) { container in
             guard let idx = container.roles.roles.firstIndex(where: { $0.id == roleId }) else { return }

@@ -3379,7 +3379,7 @@ final class SendMessageInputViewController: UIViewController {
         var offset = 4
         let end = data.count
         while offset + 4 <= end {
-            let lenU = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) }
+            let lenU = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
             offset += 4
             let len = Int(lenU)
             if len < 0 || len > 8_000_000 || len > end - offset { break }

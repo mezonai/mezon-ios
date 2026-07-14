@@ -712,13 +712,13 @@ final class ThreadListViewController: ViewController {
 
     private static func decodeThreadListCache(_ data: Data) -> (channels: [Mezon_Api_ChannelDescription], fetchedAt: TimeInterval)? {
         guard data.count >= 8 + 4 else { return nil }
-        let fetchedAt = data.subdata(in: 0..<8).withUnsafeBytes { $0.load(as: TimeInterval.self) }
-        let count = data.subdata(in: 8..<12).withUnsafeBytes { $0.load(as: UInt32.self) }
+        let fetchedAt = data.subdata(in: 0..<8).withUnsafeBytes { $0.loadUnaligned(as: TimeInterval.self) }
+        let count = data.subdata(in: 8..<12).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
         var result: [Mezon_Api_ChannelDescription] = []
         var offset = 12
         for _ in 0..<count {
             guard offset + 4 <= data.count else { break }
-            let len = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) }
+            let len = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
             offset += 4
             guard offset + Int(len) <= data.count else { break }
             if let m = try? Mezon_Api_ChannelDescription(serializedBytes: data.subdata(in: offset..<(offset + Int(len)))) {

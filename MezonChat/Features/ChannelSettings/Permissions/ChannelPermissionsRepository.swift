@@ -75,7 +75,7 @@ final class ChannelPermissionsRepository {
         guard !allRoles.isEmpty else {
             return (userId, 0, "no_roles_cached clanId=\(clanId)")
         }
-        let roleById = Dictionary(uniqueKeysWithValues: allRoles.map { ($0.id, $0) })
+        let roleById = Dictionary(allRoles.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
 
         func bestRoleId(from roleIds: [Int64]) -> Int64 {
             var bestId: Int64 = 0

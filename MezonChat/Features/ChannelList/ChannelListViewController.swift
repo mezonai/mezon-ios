@@ -1164,7 +1164,7 @@ final class ChannelListViewController: ViewController {
         let udValue = UserDefaults.standard.integer(forKey: "mezon_selectedClanId")
         if udValue != 0 { return Int64(udValue) }
         if let data = context.account.postbox.getPreferenceData(key: PreferencesKeys.selectedClanId), data.count >= 8 {
-            return data.withUnsafeBytes { $0.load(as: Int64.self).littleEndian }
+            return data.withUnsafeBytes { $0.loadUnaligned(as: Int64.self).littleEndian }
         }
         return 0
     }
@@ -2407,7 +2407,7 @@ final class ChannelListViewController: ViewController {
 
         let ts: UInt32
         if let t = notification.userInfo?["timestampSeconds"] as? UInt32 { ts = t }
-        else if let t = notification.userInfo?["timestampSeconds"] as? Int { ts = UInt32(t) }
+        else if let t = notification.userInfo?["timestampSeconds"] as? Int { ts = UInt32(clamping: t) }
         else { ts = UInt32(Date().timeIntervalSince1970) }
 
         guard clanId == self.clanId, clanId != 0 else { return }
@@ -2478,7 +2478,7 @@ final class ChannelListViewController: ViewController {
         let ts = notification.userInfo?["timestampSeconds"]
         let tsU32: UInt32? = {
             if let t = ts as? UInt32 { return t }
-            if let t = ts as? Int { return UInt32(t) }
+            if let t = ts as? Int { return UInt32(clamping: t) }
             if let t = ts as? NSNumber { return t.uint32Value }
             return nil
         }()
@@ -3772,7 +3772,7 @@ final class ChannelListViewController: ViewController {
         }
         setSelectedChannel(nil)
         if let data = context.account.postbox.getPreferenceData(key: PreferencesKeys.selectedChannelId(clanId: clanId)), data.count >= 8 {
-            let id = data.withUnsafeBytes { $0.load(as: Int64.self).littleEndian }
+            let id = data.withUnsafeBytes { $0.loadUnaligned(as: Int64.self).littleEndian }
             setSelectedChannelId(id)
         } else {
             setSelectedChannelId(nil)
@@ -3941,12 +3941,12 @@ final class ChannelListViewController: ViewController {
 
     private func decodeChannelAppsLegacy(_ data: Data) -> [Mezon_Api_ChannelAppResponse] {
         guard data.count >= 4 else { return [] }
-        let count = data.withUnsafeBytes { $0.load(as: UInt32.self) }
+        let count = data.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
         var result: [Mezon_Api_ChannelAppResponse] = []
         var offset = 4
         for _ in 0..<count {
             guard offset + 4 <= data.count else { break }
-            let len = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) }
+            let len = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
             offset += 4
             guard offset + Int(len) <= data.count else { break }
             if let m = try? Mezon_Api_ChannelAppResponse(serializedBytes: data.subdata(in: offset..<(offset + Int(len)))) {
@@ -4033,7 +4033,7 @@ final class ChannelListViewController: ViewController {
 
     private func decodeChannelListDisplay(_ data: Data) -> (channels: [Mezon_Api_ChannelDescription], meta: ChannelListCachedMeta)? {
         guard data.count >= 4 else { return nil }
-        let len = Int(data.subdata(in: 0..<4).withUnsafeBytes { $0.load(as: UInt32.self).littleEndian })
+        let len = Int(data.subdata(in: 0..<4).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self).littleEndian })
         guard len > 0, 4 + len <= data.count else { return nil }
         let channels = decodeChannelList(data.subdata(in: 4..<(4 + len)))
         guard !channels.isEmpty else { return nil }
@@ -4459,34 +4459,34 @@ final class ChannelListViewController: ViewController {
     private func decodeCategoriesSnapshot(_ data: Data) -> [ChannelCategory]? {
         guard data.count >= 8 else { return nil }
         var o = 0
-        let ver = data.subdata(in: o..<(o + 4)).withUnsafeBytes { $0.load(as: UInt32.self) }
+        let ver = data.subdata(in: o..<(o + 4)).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
         o += 4
         guard ver == 1 else { return nil }
-        let count = Int(data.subdata(in: o..<(o + 4)).withUnsafeBytes { $0.load(as: UInt32.self) })
+        let count = Int(data.subdata(in: o..<(o + 4)).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) })
         o += 4
         guard count >= 0, count < 512 else { return nil }
         var out: [ChannelCategory] = []
         for _ in 0..<count {
             guard o + 9 <= data.count else { return nil }
-            let id = data.subdata(in: o..<(o + 8)).withUnsafeBytes { $0.load(as: Int64.self).littleEndian }
+            let id = data.subdata(in: o..<(o + 8)).withUnsafeBytes { $0.loadUnaligned(as: Int64.self).littleEndian }
             o += 8
             let collapsed = data[o] != 0
             o += 1
             guard o + 4 <= data.count else { return nil }
-            let nl = Int(data.subdata(in: o..<(o + 4)).withUnsafeBytes { $0.load(as: UInt32.self) })
+            let nl = Int(data.subdata(in: o..<(o + 4)).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) })
             o += 4
             guard o + nl <= data.count else { return nil }
             let name = String(data: data.subdata(in: o..<(o + nl)), encoding: .utf8) ?? ""
             o += nl
             guard o + 4 <= data.count else { return nil }
-            let favc = Int(data.subdata(in: o..<(o + 4)).withUnsafeBytes { $0.load(as: UInt32.self) })
+            let favc = Int(data.subdata(in: o..<(o + 4)).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) })
             o += 4
             var favFlat: [Mezon_Api_ChannelDescription]? = nil
             if favc > 0 {
                 var fa: [Mezon_Api_ChannelDescription] = []
                 for _ in 0..<favc {
                     guard o + 4 <= data.count else { return nil }
-                    let len = Int(data.subdata(in: o..<(o + 4)).withUnsafeBytes { $0.load(as: UInt32.self) })
+                    let len = Int(data.subdata(in: o..<(o + 4)).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) })
                     o += 4
                     guard o + len <= data.count, len > 0 else { return nil }
                     if let ch = try? Mezon_Api_ChannelDescription(serializedBytes: data.subdata(in: o..<(o + len))) {
@@ -4497,12 +4497,12 @@ final class ChannelListViewController: ViewController {
                 favFlat = fa
             }
             guard o + 4 <= data.count else { return nil }
-            let pc = Int(data.subdata(in: o..<(o + 4)).withUnsafeBytes { $0.load(as: UInt32.self) })
+            let pc = Int(data.subdata(in: o..<(o + 4)).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) })
             o += 4
             var parents: [Mezon_Api_ChannelDescription] = []
             for _ in 0..<pc {
                 guard o + 4 <= data.count else { return nil }
-                let len = Int(data.subdata(in: o..<(o + 4)).withUnsafeBytes { $0.load(as: UInt32.self) })
+                let len = Int(data.subdata(in: o..<(o + 4)).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) })
                 o += 4
                 guard o + len <= data.count, len > 0 else { return nil }
                 if let ch = try? Mezon_Api_ChannelDescription(serializedBytes: data.subdata(in: o..<(o + len))) {
@@ -4511,20 +4511,20 @@ final class ChannelListViewController: ViewController {
                 o += len
             }
             guard o + 4 <= data.count else { return nil }
-            let mc = Int(data.subdata(in: o..<(o + 4)).withUnsafeBytes { $0.load(as: UInt32.self) })
+            let mc = Int(data.subdata(in: o..<(o + 4)).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) })
             o += 4
             var threadsMap: [Int64: [Mezon_Api_ChannelDescription]] = [:]
             for _ in 0..<mc {
                 guard o + 8 <= data.count else { return nil }
-                let pk = data.subdata(in: o..<(o + 8)).withUnsafeBytes { $0.load(as: Int64.self).littleEndian }
+                let pk = data.subdata(in: o..<(o + 8)).withUnsafeBytes { $0.loadUnaligned(as: Int64.self).littleEndian }
                 o += 8
                 guard o + 4 <= data.count else { return nil }
-                let tc = Int(data.subdata(in: o..<(o + 4)).withUnsafeBytes { $0.load(as: UInt32.self) })
+                let tc = Int(data.subdata(in: o..<(o + 4)).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) })
                 o += 4
                 var tarr: [Mezon_Api_ChannelDescription] = []
                 for _ in 0..<tc {
                     guard o + 4 <= data.count else { return nil }
-                    let len = Int(data.subdata(in: o..<(o + 4)).withUnsafeBytes { $0.load(as: UInt32.self) })
+                    let len = Int(data.subdata(in: o..<(o + 4)).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) })
                     o += 4
                     guard o + len <= data.count, len > 0 else { return nil }
                     if let ch = try? Mezon_Api_ChannelDescription(serializedBytes: data.subdata(in: o..<(o + len))) {
@@ -4656,12 +4656,12 @@ final class ChannelListViewController: ViewController {
 
     private func decodeChannelList(_ data: Data) -> [Mezon_Api_ChannelDescription] {
         guard data.count >= 4 else { return [] }
-        let count = data.withUnsafeBytes { $0.load(as: UInt32.self) }
+        let count = data.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
         var result: [Mezon_Api_ChannelDescription] = []
         var offset = 4
         for _ in 0..<count {
             guard offset + 4 <= data.count else { break }
-            let len = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) }
+            let len = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
             offset += 4
             guard offset + Int(len) <= data.count else { break }
             if let m = try? Mezon_Api_ChannelDescription(serializedBytes: data.subdata(in: offset..<(offset + Int(len)))) {
@@ -4697,12 +4697,12 @@ final class ChannelListViewController: ViewController {
 
     private func decodeCollapsedIds(_ data: Data) -> Set<Int64> {
         guard data.count >= 4 else { return [] }
-        let count = data.withUnsafeBytes { $0.load(as: UInt32.self) }
+        let count = data.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
         var result = Set<Int64>()
         var offset = 4
         for _ in 0..<count {
             guard offset + 8 <= data.count else { break }
-            let id = data.subdata(in: offset..<(offset + 8)).withUnsafeBytes { $0.load(as: Int64.self).littleEndian }
+            let id = data.subdata(in: offset..<(offset + 8)).withUnsafeBytes { $0.loadUnaligned(as: Int64.self).littleEndian }
             result.insert(id)
             offset += 8
         }

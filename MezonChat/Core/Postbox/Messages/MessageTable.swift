@@ -343,15 +343,25 @@ final class MessageTable: Table {
             var current = cache[msg.channelId] ?? []
 
             if !msg.id.hasPrefix("pending-") {
+                let existingIdx = current.firstIndex(where: { $0.id == msg.id })
                 if let pidx = current.firstIndex(where: { serverEchoMatchesPending(server: msg, pending: $0) }) {
                     let pending = current[pidx]
                     let pid = pending.id
-                    current[pidx] = Self.mergePendingIdentityIntoServerEcho(pending: pending, server: msg)
+                    let echo = Self.mergePendingIdentityIntoServerEcho(pending: pending, server: msg)
+                    if let existingIdx {
+                        current[existingIdx] = MessageRecord.mergingIncomingPreservingEmptyAttachments(
+                            incoming: echo,
+                            previous: current[existingIdx]
+                        )
+                        current.remove(at: pidx)
+                    } else {
+                        current[pidx] = echo
+                    }
                     pendingDeletes.insert(pid)
-                } else if let idx = current.firstIndex(where: { $0.id == msg.id }) {
-                    current[idx] = MessageRecord.mergingIncomingPreservingEmptyAttachments(
+                } else if let existingIdx {
+                    current[existingIdx] = MessageRecord.mergingIncomingPreservingEmptyAttachments(
                         incoming: msg,
-                        previous: current[idx]
+                        previous: current[existingIdx]
                     )
                 } else if isResendDuplicate(msg, in: current) {
                     continue
@@ -413,7 +423,7 @@ final class MessageTable: Table {
     func replaceAllMessages(_ messages: [MessageRecord], channelId: String) {
         let belonging = messages.filter { $0.channelId == channelId }
         let existing = cache[channelId] ?? getMessages(channelId: channelId)
-        let existingById = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
+        let existingById = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
         let mergedRaw = belonging.map { incoming -> MessageRecord in
             guard let previous = existingById[incoming.id] else { return incoming }
             return MessageRecord.mergingIncomingPreservingEmptyAttachments(
@@ -422,7 +432,9 @@ final class MessageTable: Table {
             )
         }
         var mergedBelonging: [MessageRecord] = []
+        var keptIds = Set<String>()
         for record in mergedRaw {
+            guard !keptIds.contains(record.id) else { continue }
             let isTwin = !record.id.hasPrefix("pending-") && mergedBelonging.contains { kept in
                 !kept.id.hasPrefix("pending-")
                     && kept.id != record.id
@@ -432,10 +444,11 @@ final class MessageTable: Table {
             if isTwin, hasActiveResendDuplicateGuard(senderId: record.senderId, content: record.content) {
                 continue
             }
+            keptIds.insert(record.id)
             mergedBelonging.append(record)
         }
         let pendingsToKeep = existing.filter { record in
-            guard record.id.hasPrefix("pending-") else { return false }
+            guard record.id.hasPrefix("pending-"), keptIds.insert(record.id).inserted else { return false }
             return !mergedBelonging.contains(where: { serverEchoMatchesPending(server: $0, pending: record) })
         }
         cache[channelId] = (mergedBelonging + pendingsToKeep).sorted { MessageRecord.isOrderedAscending($0, $1) }
