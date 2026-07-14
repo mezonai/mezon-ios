@@ -64,13 +64,13 @@ final class ClanListContainerNode: ASDisplayNode {
         disposables.add(
             (signal |> deliverOnMainQueue).start(next: { [weak self] newState in
                 guard let self else { return }
-                let prevDMs = self.state.unreadDMs
+                let prevState = self.state
+                let prevDMs = prevState.unreadDMs
                 let prevDmFingerprint = Self.unreadDmStripFingerprint(prevDMs)
-                let prevClanId = self.state.selectedClanId
-                let prevClanBadges = self.state.clans.map { $0.badgeCount }
-                let prevClanFingerprints = self.state.clans.map { "\($0.clanID)-\($0.clanName)-\($0.logo)" }
-                let prevAccountLogo = self.state.accountLogoURL
-                self.state = newState
+                let prevClanId = prevState.selectedClanId
+                let prevClanBadges = prevState.clans.map { $0.badgeCount }
+                let prevClanFingerprints = prevState.clans.map { "\($0.clanID)-\($0.clanName)-\($0.logo)" }
+                let prevAccountLogo = prevState.accountLogoURL
 
                 if prevAccountLogo != newState.accountLogoURL {
                     self.applySidebarAccountLogo(urlString: newState.accountLogoURL)
@@ -90,10 +90,12 @@ final class ClanListContainerNode: ASDisplayNode {
                 let dmContentChanged = prevDmFingerprint != newDmFingerprint
 
                 if clanStructureChanged {
+                    self.state = newState
                     self.collectionView.reloadData()
                 } else if dmIdentityChanged {
-                    self.applyDmStripIdentityChange(prevDMs: prevDMs, newDMs: newState.unreadDMs)
+                    self.applyDmStripIdentityChange(prevDMs: prevDMs, newState: newState)
                 } else if dmContentChanged {
+                    self.state = newState
                     if self.collectionView.numberOfSections > 0 {
                         UIView.performWithoutAnimation {
                             self.collectionView.reloadSections(IndexSet(integer: 0))
@@ -102,6 +104,7 @@ final class ClanListContainerNode: ASDisplayNode {
                         self.collectionView.reloadData()
                     }
                 } else if prevClanId != newState.selectedClanId {
+                    self.state = newState
                     var paths: [IndexPath] = []
                     if let prev = prevClanId, let idx = newState.clans.firstIndex(where: { $0.clanID == prev }) {
                         paths.append(IndexPath(item: idx, section: 1))
@@ -112,6 +115,8 @@ final class ClanListContainerNode: ASDisplayNode {
                     if !paths.isEmpty {
                         UIView.performWithoutAnimation { self.collectionView.reloadItems(at: paths) }
                     }
+                } else {
+                    self.state = newState
                 }
             })
         )
@@ -265,13 +270,22 @@ final class ClanListContainerNode: ASDisplayNode {
 
     private func applyDmStripIdentityChange(
         prevDMs: [Mezon_Api_ChannelDescription],
-        newDMs: [Mezon_Api_ChannelDescription]
+        newState: ClanListState
     ) {
+        let newDMs = newState.unreadDMs
         guard collectionView.numberOfSections > 0,
               collectionView.numberOfItems(inSection: 0) == prevDMs.count else {
+            state = newState
             collectionView.reloadData()
             return
         }
+        collectionView.layoutIfNeeded()
+        guard collectionView.numberOfItems(inSection: 0) == prevDMs.count else {
+            state = newState
+            collectionView.reloadData()
+            return
+        }
+        state = newState
         let prevIds = prevDMs.map(\.channelID)
         let newIds = newDMs.map(\.channelID)
         let prevIdSet = Set(prevIds)
@@ -331,6 +345,7 @@ extension ClanListContainerNode: UICollectionViewDataSource, UICollectionViewDel
     func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         if indexPath.section == 0 {
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: UnreadDMBadgeCell.reuseID, for: indexPath) as! UnreadDMBadgeCell
+            guard indexPath.item < state.unreadDMs.count else { return cell }
             let dm = state.unreadDMs[indexPath.item]
             cell.configure(with: dm)
             return cell
@@ -352,6 +367,7 @@ extension ClanListContainerNode: UICollectionViewDataSource, UICollectionViewDel
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         if indexPath.section == 0 {
+            guard indexPath.item < state.unreadDMs.count else { return }
             interaction.onSelectDM(state.unreadDMs[indexPath.item])
         } else {
             let i = indexPath.item

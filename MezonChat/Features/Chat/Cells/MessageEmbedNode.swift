@@ -1007,6 +1007,7 @@ final class EmbedActionButtonsNode: ASDisplayNode {
 
 private final class EmbedActionRowNode: ASDisplayNode {
     private var buttonNodes: [EmbedButtonNode] = []
+    private var cachedButtonFrames: [CGRect] = []
     fileprivate(set) var cachedSize: CGSize = .zero
     var onButtonTapped: ((ParsedEmbedButton) -> Void)?
 
@@ -1025,25 +1026,31 @@ private final class EmbedActionRowNode: ASDisplayNode {
     func measureSize(maxWidth: CGFloat) -> CGSize {
         guard !buttonNodes.isEmpty else { return .zero }
         let buttonSpacing: CGFloat = 8
+        let lineSpacing: CGFloat = 8
         let buttonHeight: CGFloat = 32
-        var totalWidth: CGFloat = 0
-        for (i, node) in buttonNodes.enumerated() {
-            let bw = node.intrinsicWidth(maxWidth: maxWidth)
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var maxLineWidth: CGFloat = 0
+        cachedButtonFrames.removeAll()
+        for node in buttonNodes {
+            let bw = min(node.intrinsicWidth(maxWidth: maxWidth), maxWidth)
+            if x > 0, x + bw > maxWidth {
+                x = 0
+                y += buttonHeight + lineSpacing
+            }
             node.cachedSize = CGSize(width: bw, height: buttonHeight)
-            totalWidth += bw
-            if i > 0 { totalWidth += buttonSpacing }
+            cachedButtonFrames.append(CGRect(x: x, y: y, width: bw, height: buttonHeight))
+            x += bw + buttonSpacing
+            maxLineWidth = max(maxLineWidth, x - buttonSpacing)
         }
-        cachedSize = CGSize(width: min(totalWidth, maxWidth), height: buttonHeight)
+        cachedSize = CGSize(width: min(maxLineWidth, maxWidth), height: y + buttonHeight)
         return cachedSize
     }
 
     override func layout() {
         super.layout()
-        let buttonSpacing: CGFloat = 8
-        var x: CGFloat = 0
-        for node in buttonNodes {
-            node.frame = CGRect(x: x, y: 0, width: node.cachedSize.width, height: bounds.height)
-            x += node.cachedSize.width + buttonSpacing
+        for (i, node) in buttonNodes.enumerated() where i < cachedButtonFrames.count {
+            node.frame = cachedButtonFrames[i]
         }
     }
 }

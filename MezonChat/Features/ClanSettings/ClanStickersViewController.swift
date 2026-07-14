@@ -369,7 +369,7 @@ final class ClanStickersViewController: BaseViewController {
     private func reloadData() {
         stickers = repository.stickers(clanId: clanId)
         let members = context.engine.account.postbox.read { $0.getClanMembers(clanId: self.clanId) }
-        clanMembers = Dictionary(uniqueKeysWithValues: members.map { ($0.userId, $0) })
+        clanMembers = Dictionary(members.map { ($0.userId, $0) }, uniquingKeysWith: { $1 })
 
         let atLimit = repository.isAtUploadLimit(clanId: clanId)
         uploadButton.isEnabled = !atLimit
@@ -392,7 +392,7 @@ final class ClanStickersViewController: BaseViewController {
                     tx.updateClanMembers(records, clanId: self.clanId)
                 }
                 await MainActor.run {
-                    self.clanMembers = Dictionary(uniqueKeysWithValues: records.map { ($0.userId, $0) })
+                    self.clanMembers = Dictionary(records.map { ($0.userId, $0) }, uniquingKeysWith: { $1 })
                     self.tableView.reloadData()
                 }
             } catch {}

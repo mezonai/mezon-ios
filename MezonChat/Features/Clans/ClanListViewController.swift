@@ -156,7 +156,7 @@ final class ClanListViewController: ViewController {
         guard let clanId = Self.int64UserInfo(notification.userInfo?["clanId"]), clanId != 0 else { return }
         let total: Int32 = {
             if let n = notification.userInfo?["totalUnread"] as? Int32 { return n }
-            if let n = notification.userInfo?["totalUnread"] as? Int { return Int32(n) }
+            if let n = notification.userInfo?["totalUnread"] as? Int { return Int32(clamping: n) }
             if let n = notification.userInfo?["totalUnread"] as? NSNumber { return n.int32Value }
             return 0
         }()
@@ -304,7 +304,7 @@ final class ClanListViewController: ViewController {
 
         let ts: UInt32
         if let t = notification.userInfo?["timestampSeconds"] as? UInt32 { ts = t }
-        else if let t = notification.userInfo?["timestampSeconds"] as? Int { ts = UInt32(t) }
+        else if let t = notification.userInfo?["timestampSeconds"] as? Int { ts = UInt32(clamping: t) }
         else { ts = UInt32(Date().timeIntervalSince1970) }
 
         if let idx = unreadDMs.firstIndex(where: { $0.channelID == channelId }) {
@@ -760,7 +760,7 @@ final class ClanListViewController: ViewController {
         if udValue != 0 {
             restoredId = Int64(udValue)
         } else if let selData = self.context.account.postbox.getPreferenceData(key: PreferencesKeys.selectedClanId), selData.count >= 8 {
-            restoredId = selData.withUnsafeBytes { $0.load(as: Int64.self).littleEndian }
+            restoredId = selData.withUnsafeBytes { $0.loadUnaligned(as: Int64.self).littleEndian }
         }
 
         if restoredId != 0, clans.contains(where: { $0.clanID == restoredId }) {
@@ -838,12 +838,12 @@ final class ClanListViewController: ViewController {
 
     private func decodeProtoArray(_ data: Data) -> [Mezon_Api_ClanDesc] {
         guard data.count >= 4 else { return [] }
-        let count = data.withUnsafeBytes { $0.load(as: UInt32.self) }
+        let count = data.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
         var result: [Mezon_Api_ClanDesc] = []
         var offset = 4
         for _ in 0..<count {
             guard offset + 4 <= data.count else { break }
-            let len = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) }
+            let len = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
             offset += 4
             guard offset + Int(len) <= data.count else { break }
             if let m = try? Mezon_Api_ClanDesc(serializedBytes: data.subdata(in: offset..<(offset + Int(len)))) { result.append(m) }

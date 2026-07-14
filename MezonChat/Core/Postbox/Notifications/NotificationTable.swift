@@ -55,16 +55,16 @@ final class NotificationTable: Table {
             }
         ) { stmt -> NotificationRecord? in
             let id = sqlite3_column_int64(stmt, 0)
-            let subject = String(cString: sqlite3_column_text(stmt, 1))
-            let content = String(cString: sqlite3_column_text(stmt, 2))
+            let subject = sqlite3_column_text(stmt, 1).map { String(cString: $0) } ?? ""
+            let content = sqlite3_column_text(stmt, 2).map { String(cString: $0) } ?? ""
             let code = sqlite3_column_int(stmt, 3)
             let senderId = sqlite3_column_int64(stmt, 4)
-            let createTime = UInt32(sqlite3_column_int64(stmt, 5))
+            let createTime = UInt32(clamping: sqlite3_column_int64(stmt, 5))
             let persistent = sqlite3_column_int(stmt, 6) != 0
             let rClanId = sqlite3_column_int64(stmt, 7)
             let channelId = sqlite3_column_int64(stmt, 8)
             let channelType = sqlite3_column_int(stmt, 9)
-            let avatarUrl = String(cString: sqlite3_column_text(stmt, 10))
+            let avatarUrl = sqlite3_column_text(stmt, 10).map { String(cString: $0) } ?? ""
             let topicId = sqlite3_column_int64(stmt, 11)
             let rCategory = sqlite3_column_int(stmt, 12)
             let messageId = sqlite3_column_int64(stmt, 13)

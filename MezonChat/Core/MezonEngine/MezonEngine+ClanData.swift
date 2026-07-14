@@ -4,12 +4,12 @@ import SwiftProtobuf
 enum ChannelPreferenceListCodec {
     static func decode(_ data: Data) -> [Mezon_Api_ChannelDescription] {
         guard data.count >= 4 else { return [] }
-        let count = data.withUnsafeBytes { $0.load(as: UInt32.self) }
+        let count = data.withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
         var result: [Mezon_Api_ChannelDescription] = []
         var offset = 4
         for _ in 0..<count {
             guard offset + 4 <= data.count else { break }
-            let len = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) }
+            let len = data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
             offset += 4
             guard offset + Int(len) <= data.count else { break }
             if let m = try? Mezon_Api_ChannelDescription(serializedBytes: data.subdata(in: offset..<(offset + Int(len)))) {
@@ -65,26 +65,26 @@ enum ChannelListMetaCodec {
     static func decode(_ data: Data) -> ChannelListCachedMeta? {
         guard data.count >= 4 else { return nil }
         var offset = 0
-        let version = data.subdata(in: 0..<4).withUnsafeBytes { $0.load(as: UInt32.self) }
+        let version = data.subdata(in: 0..<4).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
         guard version == 1 else { return nil }
         offset = 4
         guard offset + 4 <= data.count else { return nil }
-        let favCount = Int(data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) })
+        let favCount = Int(data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) })
         offset += 4
         var favs = Set<Int64>()
         for _ in 0..<favCount {
             guard offset + 8 <= data.count else { return nil }
-            let id = data.subdata(in: offset..<(offset + 8)).withUnsafeBytes { $0.load(as: Int64.self).littleEndian }
+            let id = data.subdata(in: offset..<(offset + 8)).withUnsafeBytes { $0.loadUnaligned(as: Int64.self).littleEndian }
             favs.insert(id)
             offset += 8
         }
         guard offset + 4 <= data.count else { return ChannelListCachedMeta(categoryDescs: [], favoriteIds: favs) }
-        let catCount = Int(data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) })
+        let catCount = Int(data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) })
         offset += 4
         var cats: [Mezon_Api_CategoryDesc] = []
         for _ in 0..<catCount {
             guard offset + 4 <= data.count else { break }
-            let len = Int(data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) })
+            let len = Int(data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) })
             offset += 4
             guard offset + len <= data.count else { break }
             if let m = try? Mezon_Api_CategoryDesc(serializedBytes: data.subdata(in: offset..<(offset + len))) {
@@ -258,7 +258,7 @@ extension MezonEngine {
         private func persistClanUsersResponse(clanId: Int64, response: Mezon_Api_ClanUserList) {
             let responseMembers = response.clanUsers.map { ClanMemberRecord(from: $0) }
             let existingMembers = postbox.read { tx in tx.getClanMembers(clanId: clanId) }
-            var merged: [Int64: ClanMemberRecord] = Dictionary(uniqueKeysWithValues: existingMembers.map { ($0.userId, $0) })
+            var merged: [Int64: ClanMemberRecord] = Dictionary(existingMembers.map { ($0.userId, $0) }, uniquingKeysWith: { $1 })
             for m in responseMembers { merged[m.userId] = m }
             let finalMembers = Array(merged.values)
             postbox.write { tx in
@@ -724,7 +724,7 @@ extension MezonEngine {
         func getBadgeCount(clanId: Int64) -> Int32 {
             guard let data = postbox.getPreferenceData(key: PreferencesKeys.clanBadgeCount(clanId: clanId)),
                   data.count >= 4 else { return 0 }
-            return data.withUnsafeBytes { $0.load(as: Int32.self).littleEndian }
+            return data.withUnsafeBytes { $0.loadUnaligned(as: Int32.self).littleEndian }
         }
 
         func getAllUserClans() -> Mezon_Api_AllUserClans? {
@@ -896,13 +896,13 @@ extension MezonEngine {
         private func decodeThreadListPreferenceBlob(_ data: Data) -> [Mezon_Api_ChannelDescription] {
             guard data.count >= 8 + 4 else { return [] }
             var offset = 8
-            let count = Int(data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) })
+            let count = Int(data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) })
             offset += 4
             guard count >= 0, count < 4096 else { return [] }
             var channels: [Mezon_Api_ChannelDescription] = []
             for _ in 0..<count {
                 guard offset + 4 <= data.count else { break }
-                let len = Int(data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.load(as: UInt32.self) })
+                let len = Int(data.subdata(in: offset..<(offset + 4)).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) })
                 offset += 4
                 guard offset + len <= data.count, len > 0 else { break }
                 if let ch = try? Mezon_Api_ChannelDescription(serializedBytes: data.subdata(in: offset..<(offset + len))) {

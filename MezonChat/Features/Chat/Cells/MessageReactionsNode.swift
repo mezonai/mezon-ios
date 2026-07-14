@@ -105,21 +105,27 @@ final class MessageReactionsNode: ASDisplayNode {
         return nil
     }
 
+    private static func deduplicatedByEmojiId(_ reactions: [ParsedReaction]) -> [ParsedReaction] {
+        var seen = Set<String>()
+        return reactions.filter { seen.insert($0.emojiId).inserted }
+    }
+
     func configure(reactions: [ParsedReaction], showAddButton: Bool) {
         self.showAddButton = showAddButton
         pillNodes.forEach { $0.removeFromSupernode() }
         overflowNode?.removeFromSupernode()
         overflowNode = nil
 
-        let visible = Array(reactions.prefix(Self.maxVisiblePills))
+        let unique = Self.deduplicatedByEmojiId(reactions)
+        let visible = Array(unique.prefix(Self.maxVisiblePills))
         currentReactions = visible
 
         pillNodes = visible.map { ReactionPillNode(reaction: $0) }
         pillNodes.forEach { addSubnode($0) }
 
-        if reactions.count > Self.maxVisiblePills {
+        if unique.count > Self.maxVisiblePills {
             let node = ASTextNode2()
-            let remaining = reactions.count - Self.maxVisiblePills
+            let remaining = unique.count - Self.maxVisiblePills
             node.attributedText = NSAttributedString(
                 string: "+\(remaining)",
                 attributes: [
@@ -137,9 +143,13 @@ final class MessageReactionsNode: ASDisplayNode {
 
     func updateReactions(_ newReactions: [ParsedReaction], showAddButton: Bool) {
         self.showAddButton = showAddButton
-        let visible = Array(newReactions.prefix(Self.maxVisiblePills))
+        let unique = Self.deduplicatedByEmojiId(newReactions)
+        let visible = Array(unique.prefix(Self.maxVisiblePills))
 
-        let oldMap = Dictionary(uniqueKeysWithValues: currentReactions.enumerated().map { ($1.emojiId, (index: $0, reaction: $1)) })
+        let oldMap = Dictionary(
+            currentReactions.enumerated().map { ($1.emojiId, (index: $0, reaction: $1)) },
+            uniquingKeysWith: { first, _ in first }
+        )
 
         let oldKeys = Set(oldMap.keys)
         let newKeys = Set(visible.map { $0.emojiId })
@@ -173,9 +183,9 @@ final class MessageReactionsNode: ASDisplayNode {
 
         overflowNode?.removeFromSupernode()
         overflowNode = nil
-        if newReactions.count > Self.maxVisiblePills {
+        if unique.count > Self.maxVisiblePills {
             let node = ASTextNode2()
-            let remaining = newReactions.count - Self.maxVisiblePills
+            let remaining = unique.count - Self.maxVisiblePills
             node.attributedText = NSAttributedString(
                 string: "+\(remaining)",
                 attributes: [

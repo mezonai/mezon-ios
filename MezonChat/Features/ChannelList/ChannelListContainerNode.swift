@@ -1470,6 +1470,7 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private func updateTableHeaderLayout() {
+        guard tableNode.bounds.width > 0 else { return }
         guard let header = tableNode.view.tableHeaderView else { return }
         header.setNeedsLayout()
         header.layoutIfNeeded()
@@ -1602,6 +1603,7 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private func updateStickyHeaderPosition() {
+        guard tableNode.bounds.width > 0 else { return }
         recomputeClanHeaderHeight()
         let bannerHeight = hasClanBanner ? Self.bannerKnownHeight : 0
         let contentOffsetY = tableNode.view.contentOffset.y
@@ -1788,7 +1790,7 @@ final class ChannelListContainerNode: ASDisplayNode {
                 bannerView.isHidden = true
                 bannerView.clearBanner()
             }
-            if let header = tableNode.view.tableHeaderView {
+            if tableNode.bounds.width > 0, let header = tableNode.view.tableHeaderView {
                 header.setNeedsLayout()
                 header.layoutIfNeeded()
                 let size = header.systemLayoutSizeFitting(
@@ -2084,7 +2086,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         categoryIndex: Int,
         threadLookup lookup: [Int64: [Mezon_Api_ChannelDescription]]
     ) -> [ChannelListRow] {
-        guard categoryIndex < state.categories.count else { return [] }
+        guard categoryIndex >= 0, categoryIndex < state.categories.count else { return [] }
         return computeRows(
             for: state.categories[categoryIndex],
             threadLookup: lookup,
