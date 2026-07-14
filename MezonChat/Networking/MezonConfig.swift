@@ -32,10 +32,6 @@ enum MezonConfig {
         return "https://mezon.ai"
     }
 
-    static func canvasMobileURL(clanId: Int64, channelId: Int64, canvasId: Int64) -> URL? {
-        URL(string: "\(chatWebAppBaseURL)/chat/canvas-mobile/\(clanId)/\(channelId)/\(canvasId)")
-    }
-
     static func canvasShareURLString(clanId: Int64, channelId: Int64, canvasId: Int64) -> String {
         "\(chatWebAppBaseURL)/chat/clans/\(clanId)/channels/\(channelId)/canvas/\(canvasId)"
     }

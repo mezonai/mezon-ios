@@ -66,14 +66,20 @@ final class CanvasNode: ASDisplayNode {
     }
 
     private func presentCanvas(for item: Mezon_Api_ChannelCanvasItem) {
-        guard let url = MezonConfig.canvasMobileURL(clanId: clanId, channelId: channelId, canvasId: item.id),
-            let host = tableNode.view.findHostingViewController(),
+        guard let host = tableNode.view.findHostingViewController(),
             let nav = host.navigationController
         else { return }
         let title =
             item.title.isEmpty ? L(L10n.ChannelDetail.untitledCanvas) : item.title.replacingOccurrences(
                 of: "\n", with: " ")
-        let vc = CanvasWebViewController(pageURL: url, canvasTitle: title, accountContext: context)
+        let vc = CanvasWebViewController(
+            canvasId: item.id,
+            clanId: clanId,
+            channelId: channelId,
+            channelType: channelType,
+            canvasTitle: title,
+            accountContext: context
+        )
         nav.pushViewController(vc, animated: true)
     }
 

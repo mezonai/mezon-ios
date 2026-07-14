@@ -2211,6 +2211,23 @@ final class MezonHTTPClient {
         )
     }
 
+    func getChannelCanvasDetail(
+        canvasId: Int64,
+        clanId: Int64,
+        channelId: Int64,
+        token: String
+    ) async throws -> Mezon_Api_ChannelCanvasDetailResponse {
+        var req = Mezon_Api_ChannelCanvasDetailRequest()
+        req.id = canvasId
+        req.clanID = clanId
+        req.channelID = channelId
+        return try await postProto(
+            path: "/mezon.api.Mezon/GetChannelCanvasDetail",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func get<T: Decodable>(path: String, queryItems: [URLQueryItem] = [], token: String) async throws -> T {
         let effective = await resolveFreshBearer(token)
         let req = try buildRequest(method: "GET", path: path, queryItems: queryItems, body: Optional<EmptyBody>.none, auth: .bearer(effective))
