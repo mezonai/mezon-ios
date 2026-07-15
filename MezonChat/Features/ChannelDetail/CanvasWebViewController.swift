@@ -205,14 +205,16 @@ final class CanvasWebViewController: ViewController, WKNavigationDelegate {
           try {
             var sessionStr = '\(sessionEscaped)';
             var mezonSessionStr = '\(mezonEscaped)';
+            var sessionData = JSON.parse(sessionStr);
+            sessionData.session_id = sessionData.token;
             var authData = {
               loadingStatus: JSON.stringify("loaded"),
-              session: JSON.stringify(sessionStr),
+              session: JSON.stringify(sessionData),
               isLogin: "true",
               _persist: JSON.stringify({"version":-1,"rehydrated":true})
             };
             localStorage.setItem('persist:auth', JSON.stringify(authData));
-            localStorage.setItem('mezon_session', JSON.stringify(mezonSessionStr));
+            localStorage.setItem('mezon_session', mezonSessionStr);
           } catch (e) {}
         })();
         true;
