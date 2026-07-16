@@ -11,6 +11,7 @@ struct MediaPickerResult {
 final class MediaPickerViewController: UIViewController {
 
     var onPicked: (([MediaPickerResult]) -> Void)?
+    var onEditedSend: ((MediaPickerResult) -> Void)?
     var selectionLimit: Int = .max
 
     private static let maxUploadImageDimension: CGFloat = 2048
@@ -112,12 +113,33 @@ final class MediaPickerViewController: UIViewController {
     private lazy var sendButton: UIButton = {
         let btn = UIButton(type: .system)
         btn.translatesAutoresizingMaskIntoConstraints = false
-        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
-        btn.setImage(UIImage(systemName: "checkmark.circle.fill", withConfiguration: config), for: .normal)
-        btn.tintColor = UIColor(red: 0.35, green: 0.40, blue: 0.95, alpha: 1)
+        btn.setTitleColor(.white, for: .normal)
+        btn.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
+        btn.backgroundColor = UIColor(red: 0.35, green: 0.40, blue: 0.95, alpha: 1)
+        btn.layer.cornerRadius = 12
         btn.addTarget(self, action: #selector(confirmSelectionAction), for: .touchUpInside)
+        return btn
+    }()
+
+    private lazy var editButton: UIButton = {
+        let btn = UIButton(type: .system)
+        btn.translatesAutoresizingMaskIntoConstraints = false
+        btn.setTitle(isVietnamese ? "Chỉnh sửa" : "Edit", for: .normal)
+        btn.setTitleColor(.black, for: .normal)
+        btn.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
+        btn.backgroundColor = .white
+        btn.layer.cornerRadius = 12
+        btn.addTarget(self, action: #selector(editSelectionAction), for: .touchUpInside)
         btn.isHidden = true
         return btn
+    }()
+
+    private lazy var actionBar: UIView = {
+        let view = UIView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.backgroundColor = UIColor.black.withAlphaComponent(0.18)
+        view.isHidden = true
+        return view
     }()
 
     private lazy var cancelButton: UIButton = {
@@ -260,6 +282,13 @@ final class MediaPickerViewController: UIViewController {
     private var limitedBannerHeightConstraint: NSLayoutConstraint?
 
     private var didSendResults = false
+    private var isPresentingEditor = false
+    private var sendLeadingEditConstraint: NSLayoutConstraint?
+    private var sendLeadingBarConstraint: NSLayoutConstraint?
+
+    private var isVietnamese: Bool {
+        LanguageManager.shared.current == .vietnamese
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -280,7 +309,9 @@ final class MediaPickerViewController: UIViewController {
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         stopCameraCell()
-        sendResultsIfNeeded()
+        if !isPresentingEditor {
+            sendResultsIfNeeded()
+        }
     }
 
     deinit {
@@ -304,16 +335,24 @@ final class MediaPickerViewController: UIViewController {
         view.addSubview(headerView)
         headerView.addSubview(dragIndicator)
         headerView.addSubview(titleButton)
-        headerView.addSubview(sendButton)
         headerView.addSubview(cancelButton)
         view.addSubview(limitedBanner)
         view.addSubview(collectionView)
+        view.addSubview(actionBar)
+        actionBar.addSubview(editButton)
+        actionBar.addSubview(sendButton)
         view.addSubview(dropdownOverlay)
         view.addSubview(albumDropdownView)
 
         let headerHeight: CGFloat = 52
         let bannerHeight = limitedBanner.heightAnchor.constraint(equalToConstant: 0)
         self.limitedBannerHeightConstraint = bannerHeight
+
+        let editWidth = editButton.widthAnchor.constraint(equalTo: sendButton.widthAnchor, multiplier: 1.0 / 3.0)
+        let sendLeadingEdit = sendButton.leadingAnchor.constraint(equalTo: editButton.trailingAnchor, constant: 10)
+        let sendLeadingBar = sendButton.leadingAnchor.constraint(equalTo: actionBar.leadingAnchor, constant: 16)
+        sendLeadingEditConstraint = sendLeadingEdit
+        sendLeadingBarConstraint = sendLeadingBar
 
         NSLayoutConstraint.activate([
             headerView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -332,9 +371,6 @@ final class MediaPickerViewController: UIViewController {
             titleButton.centerXAnchor.constraint(equalTo: headerView.centerXAnchor),
             titleButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor, constant: 4),
 
-            sendButton.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -16),
-            sendButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor, constant: 4),
-
             limitedBanner.topAnchor.constraint(equalTo: headerView.bottomAnchor),
             limitedBanner.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             limitedBanner.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -344,6 +380,21 @@ final class MediaPickerViewController: UIViewController {
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            actionBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            actionBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            actionBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+            actionBar.heightAnchor.constraint(equalToConstant: 72),
+
+            editButton.leadingAnchor.constraint(equalTo: actionBar.leadingAnchor, constant: 16),
+            editButton.topAnchor.constraint(equalTo: actionBar.topAnchor, constant: 10),
+            editButton.bottomAnchor.constraint(equalTo: actionBar.bottomAnchor, constant: -10),
+            editWidth,
+
+            sendLeadingEdit,
+            sendButton.trailingAnchor.constraint(equalTo: actionBar.trailingAnchor, constant: -16),
+            sendButton.topAnchor.constraint(equalTo: actionBar.topAnchor, constant: 10),
+            sendButton.bottomAnchor.constraint(equalTo: actionBar.bottomAnchor, constant: -10),
 
             dropdownOverlay.topAnchor.constraint(equalTo: headerView.bottomAnchor),
             dropdownOverlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -390,7 +441,7 @@ final class MediaPickerViewController: UIViewController {
         }
         let status = PHPhotoLibrary.authorizationStatus()
         switch status {
-        case .authorized:
+        case .authorized, .limited:
             loadAssets()
         case .notDetermined:
             PHPhotoLibrary.requestAuthorization { [weak self] newStatus in
@@ -588,6 +639,39 @@ final class MediaPickerViewController: UIViewController {
         confirmSelection()
     }
 
+    @objc private func editSelectionAction() {
+        guard selectedAssets.count == 1,
+              let asset = selectedAssets.first,
+              asset.mediaType == .image else { return }
+
+        editButton.isEnabled = false
+        sendButton.isEnabled = false
+        exportImage(asset: asset) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.editButton.isEnabled = true
+                self.sendButton.isEnabled = true
+                guard let result else { return }
+
+                self.isPresentingEditor = true
+                let editor = ImageEditorViewController(result: result)
+                editor.onCancel = { [weak self] in
+                    self?.isPresentingEditor = false
+                }
+                editor.onSend = { [weak self, weak editor] edited in
+                    guard let self else { return }
+                    self.didSendResults = true
+                    self.onEditedSend?(edited)
+                    editor?.dismiss(animated: true) { [weak self] in
+                        self?.dismiss(animated: true)
+                    }
+                }
+                editor.modalPresentationStyle = .fullScreen
+                self.present(editor, animated: true)
+            }
+        }
+    }
+
     @objc private func cancelButtonTapped() {
         dismiss(animated: true)
     }
@@ -716,7 +800,17 @@ final class MediaPickerViewController: UIViewController {
     }
 
     private func updateSendButton() {
-        sendButton.isHidden = selectedAssets.isEmpty
+        let count = selectedAssets.count
+        let hasSelection = count > 0
+        actionBar.isHidden = !hasSelection
+        sendButton.setTitle(isVietnamese ? "Gửi (\(count))" : "Send (\(count))", for: .normal)
+
+        let canEdit = count == 1 && selectedAssets.first?.mediaType == .image
+        editButton.isHidden = !canEdit
+        sendLeadingEditConstraint?.isActive = canEdit
+        sendLeadingBarConstraint?.isActive = !canEdit
+        collectionView.contentInset.bottom = hasSelection ? 72 : 0
+        collectionView.verticalScrollIndicatorInsets.bottom = hasSelection ? 72 : 0
     }
 
     private func openCamera() {
@@ -1130,9 +1224,15 @@ private final class MediaPickerCell: UICollectionViewCell {
 
 extension MediaPickerViewController {
 
-    static func present(from viewController: UIViewController, selectionLimit: Int = .max, onPicked: @escaping ([MediaPickerResult]) -> Void) {
+    static func present(
+        from viewController: UIViewController,
+        selectionLimit: Int = .max,
+        onEditedSend: ((MediaPickerResult) -> Void)? = nil,
+        onPicked: @escaping ([MediaPickerResult]) -> Void
+    ) {
         let picker = MediaPickerViewController()
         picker.onPicked = onPicked
+        picker.onEditedSend = onEditedSend
         picker.selectionLimit = selectionLimit
         picker.modalPresentationStyle = .pageSheet
 

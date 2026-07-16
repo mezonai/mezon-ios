@@ -2438,7 +2438,13 @@ final class SendMessageInputViewController: UIViewController {
             notifyAttachmentLimitReached()
             return
         }
-        MediaPickerViewController.present(from: self, selectionLimit: remaining) { [weak self] results in
+        MediaPickerViewController.present(
+            from: self,
+            selectionLimit: remaining,
+            onEditedSend: { [weak self] result in
+                self?.sendEditedImageImmediately(result)
+            }
+        ) { [weak self] results in
             guard let self else { return }
             for result in results.prefix(self.remainingAttachmentSlots) {
                 let index = self.pickedImages.count
@@ -2455,6 +2461,23 @@ final class SendMessageInputViewController: UIViewController {
             self.saveToCache()
             self.updatePreviewVisibility()
         }
+    }
+
+    private func sendEditedImageImmediately(_ result: MediaPickerResult) {
+        guard !composerSendPermissionBlocked, !result.isVideo else { return }
+        ensureChannelMetadataResolvedFromPostboxIfNeeded()
+        let text = buildPlainTextFromAttributed().trimmingCharacters(in: .whitespacesAndNewlines)
+        let editingId = editingDisplay.flatMap { Int64($0.message.id) } ?? 0
+        let urls = result.fileURL.map { [0: $0] } ?? [:]
+        sendChannelMessage(
+            text: text,
+            images: [result.image],
+            clanId: clanId,
+            channel: channel,
+            editingMessageId: editingId,
+            fileURLsOverride: urls,
+            filesOverride: []
+        )
     }
 
     func openFilePicker() {
@@ -5696,15 +5719,23 @@ final class SendMessageInputViewController: UIViewController {
         return (try? JSONSerialization.data(withJSONObject: contentJSON)) ?? Data()
     }
 
-    private func sendChannelMessage(text: String, images: [UIImage], clanId: Int64, channel: Mezon_Api_ChannelDescription, editingMessageId: Int64 = 0) {
+    private func sendChannelMessage(
+        text: String,
+        images: [UIImage],
+        clanId: Int64,
+        channel: Mezon_Api_ChannelDescription,
+        editingMessageId: Int64 = 0,
+        fileURLsOverride: [Int: URL]? = nil,
+        filesOverride: [PickedFileInfo]? = nil
+    ) {
         guard !composerSendPermissionBlocked else { return }
         let isEdit = editingMessageId != 0
         let sendAsAnonymous = shouldSendAsAnonymousMessage
         let localId = "pending-\(UUID().uuidString)"
         let channelIdStr = topicId != 0 ? "topic-\(topicId)" : "\(channel.channelID)"
         let imagesToUpload = images
-        let fileURLsToUpload = pickedFileURLs
-        let filesToUpload = pickedFiles
+        let fileURLsToUpload = fileURLsOverride ?? pickedFileURLs
+        let filesToUpload = filesOverride ?? pickedFiles
         let hasAttachmentsToUpload = !imagesToUpload.isEmpty || !filesToUpload.isEmpty
         let useIncrementalAttachmentPath = !isEdit && !sendAsAnonymous && hasAttachmentsToUpload
         if !skipOptimisticPendingMessageOnSend, !isEdit, !imagesToUpload.isEmpty, !sendAsAnonymous, !useIncrementalAttachmentPath {
