@@ -124,7 +124,7 @@ final class MediaPickerViewController: UIViewController {
     private lazy var editButton: UIButton = {
         let btn = UIButton(type: .system)
         btn.translatesAutoresizingMaskIntoConstraints = false
-        btn.setTitle(isVietnamese ? "Chỉnh sửa" : "Edit", for: .normal)
+        btn.setTitle(L(L10n.MediaPicker.edit), for: .normal)
         btn.setTitleColor(.black, for: .normal)
         btn.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
         btn.backgroundColor = .white
@@ -285,10 +285,6 @@ final class MediaPickerViewController: UIViewController {
     private var isPresentingEditor = false
     private var sendLeadingEditConstraint: NSLayoutConstraint?
     private var sendLeadingBarConstraint: NSLayoutConstraint?
-
-    private var isVietnamese: Bool {
-        LanguageManager.shared.current == .vietnamese
-    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -655,17 +651,21 @@ final class MediaPickerViewController: UIViewController {
 
                 self.isPresentingEditor = true
                 let editor = ImageEditorViewController(result: result)
+                let sendEditedResult = self.onEditedSend
                 editor.onCancel = { [weak self] in
                     self?.isPresentingEditor = false
                 }
-                editor.onSend = { [weak self, weak editor] edited in
+                editor.onSendStarted = { [weak self] in
                     guard let self else { return }
                     self.didSendResults = true
-                    self.onEditedSend?(edited)
-                    editor?.dismiss(animated: true) { [weak self] in
-                        self?.dismiss(animated: true)
+                    self.isPresentingEditor = false
+                    if let presenter = self.presentingViewController {
+                        presenter.dismiss(animated: true)
+                    } else {
+                        self.dismiss(animated: true)
                     }
                 }
+                editor.onSend = { edited in sendEditedResult?(edited) }
                 editor.modalPresentationStyle = .fullScreen
                 self.present(editor, animated: true)
             }
@@ -803,7 +803,7 @@ final class MediaPickerViewController: UIViewController {
         let count = selectedAssets.count
         let hasSelection = count > 0
         actionBar.isHidden = !hasSelection
-        sendButton.setTitle(isVietnamese ? "Gửi (\(count))" : "Send (\(count))", for: .normal)
+        sendButton.setTitle(L(L10n.MediaPicker.sendCount, count), for: .normal)
 
         let canEdit = count == 1 && selectedAssets.first?.mediaType == .image
         editButton.isHidden = !canEdit

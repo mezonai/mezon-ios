@@ -2476,7 +2476,8 @@ final class SendMessageInputViewController: UIViewController {
             channel: channel,
             editingMessageId: editingId,
             fileURLsOverride: urls,
-            filesOverride: []
+            filesOverride: [],
+            preserveComposerAttachmentsOnReset: editingId == 0
         )
     }
 
@@ -5612,7 +5613,7 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
-    private func applyOptimisticSendComposerReset() {
+    private func applyOptimisticSendComposerReset(preserveAttachments: Bool = false) {
         let key = draftStorageKey(for: channel, topicId: topicId)
         Self.channelTextDraftCache.removeValue(forKey: key)
         Self.channelEditingStateCache.removeValue(forKey: key)
@@ -5630,7 +5631,9 @@ final class SendMessageInputViewController: UIViewController {
         placeholderLabel.isHidden = false
         textView.isScrollEnabled = false
         resetTextViewHeight()
-        clearPickedImages()
+        if !preserveAttachments {
+            clearPickedImages()
+        }
         clearReply()
         hideMentionSuggestions()
         hideEmojiSuggestions()
@@ -5726,7 +5729,8 @@ final class SendMessageInputViewController: UIViewController {
         channel: Mezon_Api_ChannelDescription,
         editingMessageId: Int64 = 0,
         fileURLsOverride: [Int: URL]? = nil,
-        filesOverride: [PickedFileInfo]? = nil
+        filesOverride: [PickedFileInfo]? = nil,
+        preserveComposerAttachmentsOnReset: Bool = false
     ) {
         guard !composerSendPermissionBlocked else { return }
         let isEdit = editingMessageId != 0
@@ -5945,7 +5949,9 @@ final class SendMessageInputViewController: UIViewController {
             return nil
         }()
 
-        applyOptimisticSendComposerReset()
+        applyOptimisticSendComposerReset(
+            preserveAttachments: preserveComposerAttachmentsOnReset
+        )
 
         let contentStr: String = {
             guard let s = String(data: outgoingContentData, encoding: .utf8), !s.isEmpty else { return "{}" }

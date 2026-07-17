@@ -18,6 +18,7 @@ private enum ImageEditorTool: Hashable {
 
 final class ImageEditorViewController: UIViewController {
     var onSend: ((MediaPickerResult) -> Void)?
+    var onSendStarted: (() -> Void)?
     var onCancel: (() -> Void)?
 
     private let sourceResult: MediaPickerResult
@@ -29,10 +30,23 @@ final class ImageEditorViewController: UIViewController {
     private var toolTopConstraint: NSLayoutConstraint?
     private var paletteBottomConstraint: NSLayoutConstraint?
 
+    private lazy var closeButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        let config = UIImage.SymbolConfiguration(pointSize: 17, weight: .bold)
+        button.setImage(UIImage(systemName: "xmark", withConfiguration: config), for: .normal)
+        button.tintColor = .white
+        button.backgroundColor = UIColor.black.withAlphaComponent(0.55)
+        button.layer.cornerRadius = 22
+        button.accessibilityLabel = L(L10n.Common.close)
+        button.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
+        return button
+    }()
+
     private lazy var undoButton: UIButton = {
         let button = UIButton(type: .system)
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.setTitle(isVietnamese ? "Hoàn tác" : "Undo", for: .normal)
+        button.setTitle(L(L10n.Common.reset), for: .normal)
         button.setTitleColor(.white, for: .normal)
         button.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
         button.contentHorizontalAlignment = .left
@@ -45,7 +59,7 @@ final class ImageEditorViewController: UIViewController {
         let button = UIButton(type: .system)
         button.translatesAutoresizingMaskIntoConstraints = false
         var configuration = UIButton.Configuration.filled()
-        configuration.title = isVietnamese ? "Gửi" : "Send"
+        configuration.title = L(L10n.ImageEditor.send)
         configuration.image = UIImage(systemName: "paperplane.fill")
         configuration.imagePadding = 8
         configuration.baseBackgroundColor = .white
@@ -109,10 +123,6 @@ final class ImageEditorViewController: UIViewController {
 
     private lazy var textInputOverlay: UIView = makeTextInputOverlay()
     private let textView = UITextView()
-
-    private var isVietnamese: Bool {
-        LanguageManager.shared.current == .vietnamese
-    }
 
     init(result: MediaPickerResult) {
         sourceResult = result
@@ -186,6 +196,8 @@ final class ImageEditorViewController: UIViewController {
     }
 
     private func setupControls() {
+        view.addSubview(closeButton)
+
         undoButton.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(undoButton)
 
@@ -195,10 +207,10 @@ final class ImageEditorViewController: UIViewController {
         toolRail.spacing = 10
         view.addSubview(toolRail)
 
-        addTool(.draw, title: isVietnamese ? "Vẽ" : "Draw", systemImage: "scribble")
-        addTool(.text, title: isVietnamese ? "Văn bản" : "Text", textIcon: "Aa")
-        addTool(.crop, title: isVietnamese ? "Cắt" : "Crop", systemImage: "crop")
-        addTool(.rotate, title: isVietnamese ? "Xoay" : "Rotate", systemImage: "rotate.left")
+        addTool(.draw, title: L(L10n.ImageEditor.draw), systemImage: "scribble")
+        addTool(.text, title: L(L10n.ImageEditor.text), textIcon: "Aa")
+        addTool(.crop, title: L(L10n.ImageEditor.crop), systemImage: "crop")
+        addTool(.rotate, title: L(L10n.ImageEditor.rotate), systemImage: "rotate.left")
 
         configurePalette()
         view.addSubview(palette)
@@ -218,7 +230,12 @@ final class ImageEditorViewController: UIViewController {
         paletteBottomConstraint = paletteBottom
 
         NSLayoutConstraint.activate([
-            undoButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 18),
+            closeButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 12),
+            closeButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
+            closeButton.widthAnchor.constraint(equalToConstant: 44),
+            closeButton.heightAnchor.constraint(equalToConstant: 44),
+
+            undoButton.leadingAnchor.constraint(equalTo: closeButton.trailingAnchor, constant: 12),
             undoButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
             undoButton.heightAnchor.constraint(equalToConstant: 44),
             undoButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 72),
@@ -364,39 +381,58 @@ final class ImageEditorViewController: UIViewController {
         sendButton.isEnabled = false
         if !hasChanges {
             handedOffFile = true
+            onSendStarted?()
             onSend?(sourceResult)
             return
         }
-        guard let image = canvas.renderedImage(maxEdge: 2560) else {
+        guard let renderImage = canvas.makeRenderOperation(maxEdge: 2560) else {
             sendButton.isEnabled = true
             return
         }
+        canvas.isUserInteractionEnabled = false
         let originalURL = sourceResult.fileURL
+        let sendResult = onSend
+        onSendStarted?()
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let image = renderImage() else {
+                DispatchQueue.main.async {
+                    self?.sendButton.isEnabled = true
+                    self?.canvas.isUserInteractionEnabled = true
+                }
+                return
+            }
             let url = FileManager.default.temporaryDirectory
                 .appendingPathComponent("edited-\(UUID().uuidString).jpg")
             guard let data = image.jpegData(compressionQuality: 0.92),
                   (try? data.write(to: url, options: .atomic)) != nil else {
-                DispatchQueue.main.async { self?.sendButton.isEnabled = true }
+                DispatchQueue.main.async {
+                    self?.sendButton.isEnabled = true
+                    self?.canvas.isUserInteractionEnabled = true
+                }
                 return
             }
             if let originalURL { try? FileManager.default.removeItem(at: originalURL) }
             let result = MediaPickerResult(image: image, fileURL: url, isVideo: false)
             DispatchQueue.main.async { [weak self] in
-                guard let self else {
-                    try? FileManager.default.removeItem(at: url)
-                    return
-                }
-                self.handedOffFile = true
-                self.onSend?(result)
+                self?.handedOffFile = true
+                sendResult?(result)
             }
         }
+    }
+
+    @objc private func closeTapped() {
+        dismissEditor()
     }
 
     @objc private func edgeDismiss(_ gesture: UIScreenEdgePanGestureRecognizer) {
         guard sendButton.isEnabled,
               gesture.state == .ended,
               gesture.translation(in: view).x > 80 else { return }
+        dismissEditor()
+    }
+
+    private func dismissEditor() {
+        guard sendButton.isEnabled else { return }
         onCancel?()
         dismiss(animated: true)
     }
@@ -418,14 +454,14 @@ final class ImageEditorViewController: UIViewController {
 
         let cancel = UIButton(type: .system)
         cancel.translatesAutoresizingMaskIntoConstraints = false
-        cancel.setTitle(isVietnamese ? "Hủy" : "Cancel", for: .normal)
+        cancel.setTitle(L(L10n.Common.cancel), for: .normal)
         cancel.setTitleColor(.white, for: .normal)
         cancel.titleLabel?.font = .systemFont(ofSize: 17)
         cancel.addTarget(self, action: #selector(cancelTextInput), for: .touchUpInside)
 
         let done = UIButton(type: .system)
         done.translatesAutoresizingMaskIntoConstraints = false
-        done.setTitle(isVietnamese ? "Xong" : "Done", for: .normal)
+        done.setTitle(L(L10n.ImageEditor.done), for: .normal)
         done.setTitleColor(.white, for: .normal)
         done.titleLabel?.font = .systemFont(ofSize: 17, weight: .bold)
         done.addTarget(self, action: #selector(doneTextInput), for: .touchUpInside)
@@ -866,18 +902,18 @@ private final class ImageEditorCanvasView: UIView, UIGestureRecognizerDelegate {
         context.concatenate(outputTransform)
         context.concatenate(imageTransform)
         image.draw(in: CGRect(origin: .zero, size: image.size))
-        for stroke in strokes { draw(stroke: stroke) }
-        if let currentStroke { draw(stroke: currentStroke) }
+        for stroke in strokes { Self.draw(stroke: stroke) }
+        if let currentStroke { Self.draw(stroke: currentStroke) }
         context.restoreGState()
 
         context.saveGState()
         context.concatenate(outputTransform)
         context.clip(to: cropRect)
-        for overlay in texts { draw(text: overlay) }
+        for overlay in texts { Self.draw(text: overlay, cropRect: cropRect) }
         context.restoreGState()
     }
 
-    private func draw(stroke: Stroke) {
+    private static func draw(stroke: Stroke) {
         guard let first = stroke.points.first else { return }
         let path = UIBezierPath()
         path.move(to: first)
@@ -899,8 +935,8 @@ private final class ImageEditorCanvasView: UIView, UIGestureRecognizerDelegate {
         path.stroke()
     }
 
-    private func draw(text overlay: TextOverlay) {
-        let rect = textBounds(overlay)
+    private static func draw(text overlay: TextOverlay, cropRect: CGRect) {
+        let rect = textBounds(overlay, cropRect: cropRect)
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
         let font = UIFont.boldSystemFont(ofSize: overlay.fontSize)
@@ -1186,6 +1222,19 @@ private final class ImageEditorCanvasView: UIView, UIGestureRecognizerDelegate {
             width: newSize.width,
             height: newSize.height
         )
+        for index in texts.indices {
+            var overlay = texts[index]
+            let oldTextOffset = CGPoint(
+                x: overlay.center.x - oldCropCenter.x,
+                y: overlay.center.y - oldCropCenter.y
+            )
+            let remappedCenter = CGPoint(
+                x: newCropCenter.x + oldTextOffset.y * scaleChange,
+                y: newCropCenter.y - oldTextOffset.x * scaleChange
+            )
+            overlay.center = clampTextCenter(remappedCenter, overlay: overlay)
+            texts[index] = overlay
+        }
         rotationCropFitScale = newFit
         clampImageToCrop()
         changed()
@@ -1256,6 +1305,10 @@ private final class ImageEditorCanvasView: UIView, UIGestureRecognizerDelegate {
     }
 
     private func textBounds(_ overlay: TextOverlay) -> CGRect {
+        Self.textBounds(overlay, cropRect: cropRect)
+    }
+
+    private static func textBounds(_ overlay: TextOverlay, cropRect: CGRect) -> CGRect {
         let maxWidth = max(80, cropRect.width - 24)
         let font = UIFont.boldSystemFont(ofSize: overlay.fontSize)
         var size = (overlay.text as NSString).boundingRect(
@@ -1307,7 +1360,7 @@ private final class ImageEditorCanvasView: UIView, UIGestureRecognizerDelegate {
         return hypot(point.x - (start.x + t * dx), point.y - (start.y + t * dy))
     }
 
-    func renderedImage(maxEdge: CGFloat) -> UIImage? {
+    func makeRenderOperation(maxEdge: CGFloat) -> (() -> UIImage?)? {
         guard cropRect.width > 0, cropRect.height > 0 else { return nil }
         let sourceScale = max(1, 1 / imageScale)
         var output = CGSize(width: cropRect.width * sourceScale, height: cropRect.height * sourceScale)
@@ -1320,13 +1373,37 @@ private final class ImageEditorCanvasView: UIView, UIGestureRecognizerDelegate {
         output.height = max(1, output.height.rounded())
         let sx = output.width / cropRect.width
         let sy = output.height / cropRect.height
-        let renderer = UIGraphicsImageRenderer(size: output)
-        return renderer.image { context in
-            UIColor.black.setFill()
-            context.cgContext.fill(CGRect(origin: .zero, size: output))
-            let transform = CGAffineTransform(scaleX: sx, y: sy)
-                .translatedBy(x: -cropRect.minX, y: -cropRect.minY)
-            drawContent(in: context.cgContext, outputTransform: transform)
+        let sourceImage = image
+        let sourceImageTransform = imageTransform
+        let capturedCropRect = cropRect
+        let capturedStrokes = strokes + (currentStroke.map { [$0] } ?? [])
+        let capturedTexts = texts
+
+        return {
+            let format = UIGraphicsImageRendererFormat.default()
+            format.scale = 1
+            let renderer = UIGraphicsImageRenderer(size: output, format: format)
+            return renderer.image { context in
+                UIColor.black.setFill()
+                context.cgContext.fill(CGRect(origin: .zero, size: output))
+                let transform = CGAffineTransform(scaleX: sx, y: sy)
+                    .translatedBy(x: -capturedCropRect.minX, y: -capturedCropRect.minY)
+
+                context.cgContext.saveGState()
+                context.cgContext.concatenate(transform)
+                context.cgContext.concatenate(sourceImageTransform)
+                sourceImage.draw(in: CGRect(origin: .zero, size: sourceImage.size))
+                for stroke in capturedStrokes { Self.draw(stroke: stroke) }
+                context.cgContext.restoreGState()
+
+                context.cgContext.saveGState()
+                context.cgContext.concatenate(transform)
+                context.cgContext.clip(to: capturedCropRect)
+                for overlay in capturedTexts {
+                    Self.draw(text: overlay, cropRect: capturedCropRect)
+                }
+                context.cgContext.restoreGState()
+            }
         }
     }
 
