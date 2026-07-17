@@ -467,6 +467,17 @@ final class Postbox {
         return decodeChannelList(data)
     }
 
+    func getAllCachedClanChannelDescriptions() -> [Mezon_Api_ChannelDescription] {
+        let clanIds = read { tx in tx.getClans() }.map(\.id)
+        var result: [Mezon_Api_ChannelDescription] = []
+        for clanId in clanIds where clanId != 0 {
+            guard let data = getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId)),
+                !data.isEmpty else { continue }
+            result.append(contentsOf: decodeChannelList(data))
+        }
+        return result
+    }
+
     func updateCachedDMChannelDescription(_ channel: Mezon_Api_ChannelDescription) {
         var channels = getCachedDMChannelList()
         if let index = channels.firstIndex(where: { $0.channelID == channel.channelID }) {

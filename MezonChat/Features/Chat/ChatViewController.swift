@@ -520,6 +520,7 @@ final class ChatViewController: ViewController {
     private var advancePanelCollapsedHeight: CGFloat = 0
 
     private var inputBarHeight: CGFloat = 56
+    private var lastNotifiedComposerHeight: CGFloat = -1
     private let channelAppHotbar: ChannelAppHotbarBarView = {
         let v = ChannelAppHotbarBarView()
         v.isHidden = true
@@ -3984,8 +3985,10 @@ final class ChatViewController: ViewController {
         }
     }
 
-    private func updateInputBarHeight(_: CGFloat) {
+    private func updateInputBarHeight(_ newHeight: CGFloat) {
         guard let layout = lastLayout else { return }
+        guard abs(newHeight - lastNotifiedComposerHeight) > 0.5 else { return }
+        lastNotifiedComposerHeight = newHeight
         let transition: ContainedViewLayoutTransition =
             isKeyboardVisible || currentKeyboardOffset > 0.5
             ? .immediate

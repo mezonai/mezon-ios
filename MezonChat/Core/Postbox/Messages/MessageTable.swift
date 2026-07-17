@@ -50,6 +50,9 @@ final class MessageTable: Table {
         db.rawExecute(
             "CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel_id, created_at DESC)"
         )
+        db.rawExecute(
+            "UPDATE messages SET sending_state = \(SendingState.failed.rawValue) WHERE sending_state = \(SendingState.pending.rawValue)"
+        )
     }
 
     private func migrateMessagesPrimaryKeyIfNeeded() {

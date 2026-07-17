@@ -541,6 +541,10 @@ final class SendMessageInputViewController: UIViewController {
     private var activeHashtags: [ComposerHashtag] = []
 
     private var emojiIdByColonToken: [String: String] = [:]
+    private var lastHandledComposerSelection = NSRange(location: -1, length: -1)
+    private var lastHandledComposerSelectionTextLength = -1
+    private var isHandlingComposerSelectionChange = false
+    private var didAttemptEmojiSuggestionCacheLoad = false
     private var mentionSuggestionView: MentionSuggestionView?
     private var mentionSuggestionHeightConstraint: NSLayoutConstraint?
     private var mentionComposerConstraints: [NSLayoutConstraint] = []
@@ -2325,7 +2329,7 @@ final class SendMessageInputViewController: UIViewController {
                 self.context.account.postbox.write { tx in
                     guard ack.messageID != 0 else {
                         if tx.getMessageById(localId) != nil {
-                            tx.markMessageSent(id: localId)
+                            tx.markMessageFailed(id: localId)
                         }
                         return
                     }
@@ -2404,11 +2408,11 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func scheduleAmbiguousSendFailsafe(localId: String) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.ambiguousSendFailsafeDelay) { [weak self] in
-            guard let self else { return }
-            let record = self.context.account.postbox.read { tx in tx.getMessageById(localId) }
+        let postbox = context.account.postbox
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.ambiguousSendFailsafeDelay) {
+            let record = postbox.read { tx in tx.getMessageById(localId) }
             guard let record, record.id == localId, record.sendingState == .pending else { return }
-            self.context.account.postbox.write { tx in tx.markMessageFailed(id: localId) }
+            postbox.write { tx in tx.markMessageFailed(id: localId) }
         }
     }
 
@@ -4372,6 +4376,8 @@ final class SendMessageInputViewController: UIViewController {
         hideEmojiSuggestions()
         hideHashtagSuggestions()
         guard let sv = mentionSuggestionView else { return }
+        let wasVisible = !sv.isHidden
+        let previousHeight = mentionSuggestionHeightConstraint?.constant ?? 0
         sv.update(items: items)
         sv.applyTheme()
         let h = sv.preferredHeight
@@ -4385,6 +4391,7 @@ final class SendMessageInputViewController: UIViewController {
             visibleHeight: h
         )
         promoteInlineSuggestionZOrder(strip: sv)
+        guard !wasVisible || abs(previousHeight - h) > 0.5 else { return }
         notifyComposerHeightChanged()
         notifyInlineSuggestionVisibilityChanged()
         layoutSuperviewForComposerChange(shouldAnimateSuperview: true, duration: 0.15)
@@ -4410,7 +4417,8 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func updateEmojiSuggestions() {
-        if allSuggestionEmojis.isEmpty {
+        if allSuggestionEmojis.isEmpty, !didAttemptEmojiSuggestionCacheLoad {
+            didAttemptEmojiSuggestionCacheLoad = true
             reloadEmojiSuggestionList()
         }
         guard let ctx = detectEmojiColonContext() else {
@@ -4437,6 +4445,8 @@ final class SendMessageInputViewController: UIViewController {
         hideMentionSuggestions()
         hideHashtagSuggestions()
         guard let ev = emojiSuggestionView else { return }
+        let wasVisible = !ev.isHidden
+        let previousHeight = emojiSuggestionHeightConstraint?.constant ?? 0
         ev.update(items: items)
         ev.applyTheme()
         let h = ev.preferredHeight
@@ -4450,6 +4460,7 @@ final class SendMessageInputViewController: UIViewController {
             visibleHeight: h
         )
         promoteInlineSuggestionZOrder(strip: ev)
+        guard !wasVisible || abs(previousHeight - h) > 0.5 else { return }
         notifyComposerHeightChanged()
         notifyInlineSuggestionVisibilityChanged()
         layoutSuperviewForComposerChange(shouldAnimateSuperview: true, duration: 0.15)
@@ -4498,6 +4509,8 @@ final class SendMessageInputViewController: UIViewController {
     private func showHashtagSuggestions(items: [Mezon_Api_ChannelDescription]) {
         hideEmojiSuggestions()
         guard let hv = hashtagSuggestionView else { return }
+        let wasVisible = !hv.isHidden
+        let previousHeight = hashtagSuggestionHeightConstraint?.constant ?? 0
         hv.update(items: items)
         hv.applyTheme()
         let h = hv.preferredHeight
@@ -4511,6 +4524,7 @@ final class SendMessageInputViewController: UIViewController {
             visibleHeight: h
         )
         promoteInlineSuggestionZOrder(strip: hv)
+        guard !wasVisible || abs(previousHeight - h) > 0.5 else { return }
         notifyComposerHeightChanged()
         notifyInlineSuggestionVisibilityChanged()
         layoutSuperviewForComposerChange(shouldAnimateSuperview: true, duration: 0.15)
@@ -6104,7 +6118,7 @@ final class SendMessageInputViewController: UIViewController {
                             guard ack.messageID != 0 else {
                                 let msgs = tx.getMessages(channelId: channelIdStr)
                                 if msgs.contains(where: { $0.id == localId }) {
-                                    tx.markMessageSent(id: localId)
+                                    tx.markMessageFailed(id: localId)
                                 }
                                 return
                             }
@@ -6432,6 +6446,7 @@ final class SendMessageInputViewController: UIViewController {
 
 extension SendMessageInputViewController: UITextViewDelegate {
     func textViewDidChange(_ textView: UITextView) {
+        lastHandledComposerSelection = NSRange(location: -1, length: -1)
         text = textView.text ?? ""
         placeholderLabel.isHidden = !text.isEmpty
         updateTextViewHeight()
@@ -6447,6 +6462,16 @@ extension SendMessageInputViewController: UITextViewDelegate {
     }
 
     func textViewDidChangeSelection(_ textView: UITextView) {
+        guard !isHandlingComposerSelectionChange else { return }
+        guard textView.markedTextRange == nil else { return }
+        let sel = textView.selectedRange
+        let textLength = ((textView.text ?? "") as NSString).length
+        guard !NSEqualRanges(sel, lastHandledComposerSelection)
+            || textLength != lastHandledComposerSelectionTextLength else { return }
+        isHandlingComposerSelectionChange = true
+        defer { isHandlingComposerSelectionChange = false }
+        lastHandledComposerSelection = sel
+        lastHandledComposerSelectionTextLength = textLength
         updateInlineSuggestions()
         refreshComposerTypingAttributesForSelection()
     }

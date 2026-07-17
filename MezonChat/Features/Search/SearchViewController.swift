@@ -226,9 +226,11 @@ final class SearchViewController: ViewController {
 
         if let allCh = allChCache {
             allChannels = allCh.channeldesc
+            mergeInitialChannelsIntoAllChannels()
         } else {
             allChannels = initialChannels
         }
+        mergeCachedClanChannelListsIntoAllChannels()
         mergeDMChannelsIntoAllChannels()
 
         if needsChannelMemberFilter, let channelId = scopedChannelId {
@@ -250,6 +252,25 @@ final class SearchViewController: ViewController {
             fetchChannelMembersAndUsers()
         } else {
             fetchFromAPI()
+        }
+    }
+
+    private func mergeInitialChannelsIntoAllChannels() {
+        guard !initialChannels.isEmpty else { return }
+        var existingIds = Set(allChannels.map { $0.channelID })
+        for ch in initialChannels where !existingIds.contains(ch.channelID) {
+            allChannels.append(ch)
+            existingIds.insert(ch.channelID)
+        }
+    }
+
+    private func mergeCachedClanChannelListsIntoAllChannels() {
+        let cached = context.account.postbox.getAllCachedClanChannelDescriptions()
+        guard !cached.isEmpty else { return }
+        var existingIds = Set(allChannels.map { $0.channelID })
+        for ch in cached where !existingIds.contains(ch.channelID) {
+            allChannels.append(ch)
+            existingIds.insert(ch.channelID)
         }
     }
 
@@ -293,9 +314,26 @@ final class SearchViewController: ViewController {
                     }
                     filterMembersByChannel()
                 }
-                if allChannels.isEmpty || allChannels.count == initialChannels.count {
-                    let channels = try await context.account.network.listChannelByUserId(token: token)
+            } catch {}
+            do {
+                let channels = try await context.account.network.listChannelByUserId(token: token)
+                if !channels.channeldesc.isEmpty {
                     allChannels = channels.channeldesc
+                    mergeInitialChannelsIntoAllChannels()
+                    mergeCachedClanChannelListsIntoAllChannels()
+                    mergeDMChannelsIntoAllChannels()
+                    var persistList = channels
+                    if let existing = context.engine.clanData.getAllChannelsByUser() {
+                        var ids = Set(persistList.channeldesc.map { $0.channelID })
+                        for ch in existing.channeldesc where !ids.contains(ch.channelID) {
+                            persistList.channeldesc.append(ch)
+                            ids.insert(ch.channelID)
+                        }
+                    }
+                    if let data = try? persistList.serializedData() {
+                        context.account.postbox.setPreferenceData(
+                            key: PreferencesKeys.allChannelsByUser, value: data)
+                    }
                 }
             } catch {}
             await fetchDMAndGroupChannels()
@@ -647,6 +685,17 @@ final class SearchViewController: ViewController {
 
     private func fetchMessages() {
         guard !isLoadingMessages else { return }
+        guard let searchableChannelId = scopedChannelId, searchableChannelId != 0 else {
+            searchMessages = []
+            groupedMessages = []
+            messageTotalCount = 0
+            setLoadMoreIndicator(false)
+            updateTabCounts()
+            if activeTab == .messages {
+                reloadSearchTable()
+            }
+            return
+        }
         isLoadingMessages = true
 
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -664,12 +713,10 @@ final class SearchViewController: ViewController {
 
                 var filters: [Mezon_Api_FilterParam] = []
 
-                if let scopedChannelId {
-                    var channelFilter = Mezon_Api_FilterParam()
-                    channelFilter.fieldName = "channel_id"
-                    channelFilter.fieldValue = "\(scopedChannelId)"
-                    filters.append(channelFilter)
-                }
+                var channelFilter = Mezon_Api_FilterParam()
+                channelFilter.fieldName = "channel_id"
+                channelFilter.fieldValue = "\(searchableChannelId)"
+                filters.append(channelFilter)
 
                 var clanFilter = Mezon_Api_FilterParam()
                 clanFilter.fieldName = "clan_id"

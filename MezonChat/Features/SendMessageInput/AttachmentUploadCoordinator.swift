@@ -508,16 +508,13 @@ final class AttachmentUploadCoordinator {
             )
             session.serverMessageId = ack.messageID
             session.serverCreateTimeSeconds = ack.createTimeSeconds
-            if ack.messageID != 0 {
-                register(session, key: "\(ack.messageID)")
+            guard ack.messageID != 0 else {
+                session.aborted = true
+                context.account.postbox.write { tx in tx.markMessageFailed(id: p.localId) }
+                return
             }
+            register(session, key: "\(ack.messageID)")
             context.account.postbox.write { tx in
-                guard ack.messageID != 0 else {
-                    if tx.getMessageById(p.localId) != nil {
-                        tx.markMessageSent(id: p.localId)
-                    }
-                    return
-                }
                 let pending = tx.getMessageById(p.localId)
                 let attachmentsJSON: Data = {
                     guard !attachments.isEmpty else { return pending?.attachmentsJSON ?? Data() }

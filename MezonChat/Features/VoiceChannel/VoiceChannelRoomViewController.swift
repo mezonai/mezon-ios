@@ -211,29 +211,68 @@ private func voiceChannelEarpieceCategoryOptions() -> AVAudioSession.CategoryOpt
 }
 
 @MainActor
+private func voiceChannelSessionAlreadyMatchesPreservedRoute(
+    _ route: VoiceChannelPiPPreservedAudioRoute,
+    desiredMode: String
+) -> Bool {
+    guard LKRTCAudioSession.sharedInstance().isActive else { return false }
+    let session = AVAudioSession.sharedInstance()
+    guard session.category == .playAndRecord else { return false }
+    guard session.mode.rawValue == desiredMode else { return false }
+    guard let port = session.currentRoute.outputs.first?.portType else { return false }
+    switch route {
+    case .speaker:
+        return port == .builtInSpeaker
+    case .bluetooth:
+        switch port {
+        case .bluetoothA2DP, .bluetoothHFP, .bluetoothLE:
+            return true
+        default:
+            return false
+        }
+    case .earpiece:
+        switch port {
+        case .builtInReceiver, .headphones, .headsetMic:
+            return true
+        default:
+            return false
+        }
+    }
+}
+
+@MainActor
 fileprivate func applyVoiceChannelPreservedAudioRouteToSession(_ route: VoiceChannelPiPPreservedAudioRoute) {
+    let cfg = LKRTCAudioSessionConfiguration.webRTC()
+    cfg.category = AVAudioSession.Category.playAndRecord.rawValue
+    let speakerPreferred: Bool
+    switch route {
+    case .speaker:
+        speakerPreferred = true
+        cfg.mode = AVAudioSession.Mode.default.rawValue
+        cfg.categoryOptions = voiceChannelSpeakerCategoryOptions()
+    case .bluetooth, .earpiece:
+        speakerPreferred = false
+        cfg.mode = (VoiceChannelAudioPreferences.mixWithOthersEnabled
+            ? AVAudioSession.Mode.default
+            : AVAudioSession.Mode.voiceChat).rawValue
+        cfg.categoryOptions = voiceChannelEarpieceCategoryOptions()
+    }
+    LKRTCAudioSessionConfiguration.setWebRTC(cfg)
+    if AudioManager.shared.isSpeakerOutputPreferred != speakerPreferred {
+        AudioManager.shared.isSpeakerOutputPreferred = speakerPreferred
+    }
+    if voiceChannelSessionAlreadyMatchesPreservedRoute(route, desiredMode: cfg.mode) {
+        return
+    }
     let rtc = LKRTCAudioSession.sharedInstance()
     rtc.lockForConfiguration()
     defer { rtc.unlockForConfiguration() }
-    let cfg = LKRTCAudioSessionConfiguration.webRTC()
-    cfg.category = AVAudioSession.Category.playAndRecord.rawValue
     do {
+        try rtc.setConfiguration(cfg, active: true)
         switch route {
         case .speaker:
-            AudioManager.shared.isSpeakerOutputPreferred = true
-            cfg.mode = AVAudioSession.Mode.default.rawValue
-            cfg.categoryOptions = voiceChannelSpeakerCategoryOptions()
-            LKRTCAudioSessionConfiguration.setWebRTC(cfg)
-            try rtc.setConfiguration(cfg, active: true)
             try rtc.overrideOutputAudioPort(.speaker)
         case .bluetooth, .earpiece:
-            AudioManager.shared.isSpeakerOutputPreferred = false
-            cfg.mode = (VoiceChannelAudioPreferences.mixWithOthersEnabled
-                ? AVAudioSession.Mode.default
-                : AVAudioSession.Mode.voiceChat).rawValue
-            cfg.categoryOptions = voiceChannelEarpieceCategoryOptions()
-            LKRTCAudioSessionConfiguration.setWebRTC(cfg)
-            try rtc.setConfiguration(cfg, active: true)
             try rtc.overrideOutputAudioPort(.none)
         }
     } catch {
@@ -1100,6 +1139,8 @@ extension VoiceChannelPiPOverlay: AVPictureInPictureControllerDelegate {
                 self.pipWindow = nil
                 self.videoView.track = nil
                 self.systemCallPiPVideoView.track = nil
+            } else {
+                self.systemCallPiPContentVC?.view.alpha = 1
             }
         }
     }
@@ -1128,6 +1169,11 @@ extension VoiceChannelPiPOverlay: AVPictureInPictureControllerDelegate {
                 return
             }
             self.isRestoringFromSystemPiP = true
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            self.systemCallPiPContentVC?.view.alpha = 0
+            CATransaction.commit()
+            CATransaction.flush()
             let restored = self.restoreFullScreen(animated: false)
             if restored {
                 DispatchQueue.main.async {
@@ -1135,6 +1181,7 @@ extension VoiceChannelPiPOverlay: AVPictureInPictureControllerDelegate {
                 }
             } else {
                 self.isRestoringFromSystemPiP = false
+                self.systemCallPiPContentVC?.view.alpha = 1
                 completionHandler(false)
             }
         }
@@ -1348,6 +1395,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private var voiceReactionDisposable: Disposable?
     private var clanUsersUpdatedDisposable: Disposable?
     private var didRequestClanUsersForAvatars = false
+    private var didPrewarmVoiceReactionEmojiCache = false
     private var didStartVoiceConnection = false
     private var micButton: UIButton!
     private var camButton: UIButton!
@@ -1764,7 +1812,12 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             case .newDeviceAvailable, .oldDeviceUnavailable, .override:
                 self.syncCurrentAudioOutputFromSession()
                 if self.liveKitBridge != nil {
-                    self.ensureVoiceChannelAudioSessionCategory()
+                    if reason == .oldDeviceUnavailable, self.voiceOutputShouldDefaultToSpeaker() {
+                        self.currentAudioOutput = .speaker
+                        self.applyAudioRoute()
+                    } else {
+                        self.ensureVoiceChannelAudioSessionCategory()
+                    }
                 }
             case .categoryChange, .routeConfigurationChange:
                 if self.liveKitBridge != nil, self.systemRoutePortMatchesPreferredOutput() == false {
@@ -1936,17 +1989,22 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     private func prewarmVoiceReactionEmojiCache() {
-        let emojiIds: [String] = {
-            guard let cache = context.engine.data.cachedEmojiList(clanId: 0) else { return [] }
-            var ids: [String] = []
-            ids.reserveCapacity(cache.emojis.count)
-            for e in cache.emojis where e.id != 0 {
-                ids.append(String(e.id))
-            }
-            return ids
-        }()
-        guard !emojiIds.isEmpty else { return }
-        voiceReactionOverlay.prewarmEmojiCache(emojiIds: emojiIds)
+        guard !didPrewarmVoiceReactionEmojiCache else { return }
+        didPrewarmVoiceReactionEmojiCache = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let emojiIds: [String] = {
+                guard let cache = self.context.engine.data.cachedEmojiList(clanId: 0) else { return [] }
+                var ids: [String] = []
+                ids.reserveCapacity(cache.emojis.count)
+                for e in cache.emojis where e.id != 0 {
+                    ids.append(String(e.id))
+                }
+                return ids
+            }()
+            guard !emojiIds.isEmpty else { return }
+            self.voiceReactionOverlay.prewarmEmojiCache(emojiIds: emojiIds)
+        }
     }
 
     private func unbindVoiceReactionSocketForPiP() {
@@ -2422,7 +2480,6 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             case .earpiece: currentAudioOutput = .earpiece
             case .bluetooth: currentAudioOutput = .bluetooth
             }
-            applyAudioRoute()
         } else {
             detectInitialAudioRoute()
         }
@@ -3529,9 +3586,21 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         }
     }
 
+    private func voiceOutputShouldDefaultToSpeaker() -> Bool {
+        let session = AVAudioSession.sharedInstance()
+        guard let port = session.currentRoute.outputs.first?.portType else { return true }
+        guard port == .builtInReceiver else { return false }
+        return !Self.audioRouteHasBluetooth(session)
+    }
+
     private func detectInitialAudioRoute() {
         ensureVoiceChannelAudioSessionCategory()
         syncCurrentAudioOutputFromSession()
+        if voiceOutputShouldDefaultToSpeaker() {
+            currentAudioOutput = .speaker
+            applyAudioRoute()
+            return
+        }
         refreshSpeakerRouteUI()
     }
 
@@ -4234,6 +4303,7 @@ extension VoiceChannelRoomViewController: AVPictureInPictureControllerDelegate {
     func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         guard pictureInPictureController === callPiPController else { return }
         isRestoringCallPiP = false
+        callPiPContentVC?.view.alpha = 1
     }
 
     func pictureInPictureController(
@@ -4256,6 +4326,11 @@ extension VoiceChannelRoomViewController: AVPictureInPictureControllerDelegate {
             return
         }
         isRestoringCallPiP = true
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        callPiPContentVC?.view.alpha = 0
+        CATransaction.commit()
+        CATransaction.flush()
         view.setNeedsLayout()
         view.layoutIfNeeded()
         navigationController?.view.layoutIfNeeded()

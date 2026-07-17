@@ -160,8 +160,11 @@ final class MezonSocket: NSObject {
         pendingLivenessProbe = nil
     }
 
-    private let heartbeatIntervalSeconds: TimeInterval = 15
+    private let heartbeatIntervalSeconds: TimeInterval = 8
+    private var heartbeatPongTimeoutSeconds: TimeInterval { heartbeatIntervalSeconds * 3 }
     private var heartbeatTask: Task<Void, Never>?
+    private var lastPongAt: Date?
+    private var lastPingSentAt: Date?
     private let livenessProbeTimeoutSeconds: TimeInterval = 5
     private var livenessProbeTask: Task<Void, Never>?
     private var pendingLivenessProbe: URLSessionWebSocketTask?
@@ -392,22 +395,36 @@ final class MezonSocket: NSObject {
 
     private func startHeartbeat() {
         heartbeatTask?.cancel()
+        lastPongAt = Date()
         let intervalNs = UInt64(heartbeatIntervalSeconds * 1_000_000_000)
+        MezonRPCLog.response("[ping-pong] heartbeat started (interval=\(Int(heartbeatIntervalSeconds))s, pongTimeout=\(Int(heartbeatPongTimeoutSeconds))s)")
         heartbeatTask = Task { @MainActor [weak self] in
             while true {
-                try? await Task.sleep(nanoseconds: intervalNs)
-                if Task.isCancelled { return }
                 guard let self else { return }
                 guard self.isConnected, let task = self.webSocketTask else { return }
+
+                if let last = self.lastPongAt,
+                   Date().timeIntervalSince(last) > self.heartbeatPongTimeoutSeconds {
+                    MezonRPCLog.response("[ping-pong] pong timeout: no pong for \(Int(Date().timeIntervalSince(last)))s → treating socket as dead, reconnecting")
+                    self.handleTransportFailure(MezonError.socketError("Heartbeat pong timeout"), for: task)
+                    return
+                }
+
                 var envelope = Mezon_Realtime_Envelope()
                 envelope.ping = Mezon_Realtime_Ping()
-                guard let data = try? envelope.serializedData() else { continue }
-                task.send(.data(data)) { [weak self] error in
-                    guard let error else { return }
-                    Task { @MainActor in
-                        self?.handleTransportFailure(error, for: task)
+                if let data = try? envelope.serializedData() {
+                    self.lastPingSentAt = Date()
+                    task.send(.data(data)) { [weak self] error in
+                        guard let error else { return }
+                        Task { @MainActor in
+                            MezonRPCLog.response("[ping-pong] ping send failed: \(error.localizedDescription) → reconnecting")
+                            self?.handleTransportFailure(error, for: task)
+                        }
                     }
                 }
+
+                try? await Task.sleep(nanoseconds: intervalNs)
+                if Task.isCancelled { return }
             }
         }
     }
@@ -796,9 +813,15 @@ final class MezonSocket: NSObject {
         case .topicInMessageEvent(let m):
             eventPipe.putNext(.topicInMessage(m))
         case .ping:
+            MezonRPCLog.response("[ping-pong] ← ping from server, → pong reply")
             var pong = Mezon_Realtime_Envelope()
             pong.pong = Mezon_Realtime_Pong()
             send(pong)
+        case .pong:
+            let now = Date()
+            let rtt = lastPingSentAt.map { Int(now.timeIntervalSince($0) * 1000) } ?? -1
+            MezonRPCLog.response("[ping-pong] ← pong received (rtt=\(rtt)ms)")
+            lastPongAt = now
         case .rpc(_):
             break
         default:

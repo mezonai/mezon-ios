@@ -127,6 +127,9 @@ extension MezonEngine {
         private var lastPresenceMemberRefreshAtByClanId: [Int64: Date] = [:]
         private var attemptedMemberRefreshUserIdsByClanId: [Int64: Set<Int64>] = [:]
         private let presenceMemberRefreshCooldown: TimeInterval = 60
+        private var clanUsersMemoByClanId: [Int64: (list: Mezon_Api_ClanUserList?, at: Date)] = [:]
+        private let clanUsersMemoTTL: TimeInterval = 2
+        private let clanUsersMemoMaxEntries = 4
 
         init(engine: MezonEngine) { self.engine = engine }
 
@@ -142,6 +145,7 @@ extension MezonEngine {
             inflightForceRefreshClanUsersByClanId.removeAll()
             lastPresenceMemberRefreshAtByClanId.removeAll()
             attemptedMemberRefreshUserIdsByClanId.removeAll()
+            clanUsersMemoByClanId.removeAll()
         }
 
         func cancelFetchAllClanData(exceptClanId: Int64) {
@@ -460,6 +464,15 @@ extension MezonEngine {
         }
 
         func getClanUsers(clanId: Int64) -> Mezon_Api_ClanUserList? {
+            if let memo = clanUsersMemoByClanId[clanId], Date().timeIntervalSince(memo.at) < clanUsersMemoTTL {
+                return memo.list
+            }
+            let resolved = readClanUsersFromPostbox(clanId: clanId)
+            storeClanUsersMemo(clanId: clanId, list: resolved)
+            return resolved
+        }
+
+        private func readClanUsersFromPostbox(clanId: Int64) -> Mezon_Api_ClanUserList? {
             if let data = postbox.getPreferenceData(key: PreferencesKeys.clanUsers(clanId: clanId)),
                let cached = try? Mezon_Api_ClanUserList(serializedBytes: data),
                !cached.clanUsers.isEmpty {
@@ -474,6 +487,14 @@ extension MezonEngine {
             list.clanID = clanId
             list.clanUsers = rows.map { $0.toClanUserListClanUser() }
             return list
+        }
+
+        private func storeClanUsersMemo(clanId: Int64, list: Mezon_Api_ClanUserList?) {
+            if clanUsersMemoByClanId[clanId] == nil, clanUsersMemoByClanId.count >= clanUsersMemoMaxEntries,
+               let oldest = clanUsersMemoByClanId.min(by: { $0.value.at < $1.value.at })?.key {
+                clanUsersMemoByClanId.removeValue(forKey: oldest)
+            }
+            clanUsersMemoByClanId[clanId] = (list, Date())
         }
 
         func applyClanUserAddedFromSocket(_ event: Mezon_Realtime_AddClanUserEvent) {
@@ -587,6 +608,7 @@ extension MezonEngine {
             list.clanUsers = members.map { $0.toClanUserListClanUser() }
             guard let data = try? list.serializedData() else { return }
             postbox.setPreferenceDataSync(key: PreferencesKeys.clanUsers(clanId: clanId), value: data)
+            storeClanUsersMemo(clanId: clanId, list: list.clanUsers.isEmpty ? nil : list)
         }
 
         func getClanRoles(clanId: Int64) -> Mezon_Api_RoleListEventResponse? {

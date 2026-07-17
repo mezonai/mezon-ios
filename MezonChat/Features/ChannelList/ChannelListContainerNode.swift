@@ -282,6 +282,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         }
         guard !sections.isEmpty else { return }
         guard tableNode.numberOfSections > 0 else { return }
+        guard leadingSectionSurgeryIsSafe(committedLeadingSections: leadingTableSectionsCount) else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         UIView.performWithoutAnimation {
@@ -1455,9 +1456,28 @@ final class ChannelListContainerNode: ASDisplayNode {
         return byChannel.values.sorted { $0.channelID < $1.channelID }
     }
 
+    private func leadingSectionSurgeryIsSafe(committedLeadingSections: Int) -> Bool {
+        guard !pendingVisibleReconcile else { return false }
+        let trailingCount = channelListLoadingPlaceholderVisible ? 1 : state.categories.count
+        guard tableNode.numberOfSections == committedLeadingSections + trailingCount else { return false }
+        if channelListLoadingPlaceholderVisible {
+            return tableNode.numberOfRows(inSection: committedLeadingSections) == 1
+        }
+        for i in 0..<trailingCount {
+            if tableNode.numberOfRows(inSection: committedLeadingSections + i) != rowsForSection(i).count {
+                return false
+            }
+        }
+        return true
+    }
+
     private func reloadChannelAppsSectionOnly() {
         guard channelAppsStripeVisible else { return }
         guard tableNode.numberOfSections > 0 else { return }
+        guard leadingSectionSurgeryIsSafe(committedLeadingSections: leadingTableSectionsCount) else {
+            scheduleReload()
+            return
+        }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         UIView.performWithoutAnimation {
@@ -1527,6 +1547,10 @@ final class ChannelListContainerNode: ASDisplayNode {
             return
         }
         if !beforeHad && afterHad {
+            guard leadingSectionSurgeryIsSafe(committedLeadingSections: leadingTableSectionsCount - 1) else {
+                scheduleReload()
+                return
+            }
             let section = self.channelAppsTableSection
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -1539,6 +1563,10 @@ final class ChannelListContainerNode: ASDisplayNode {
             CATransaction.commit()
             committedSectionCount = totalSections
         } else if beforeHad && !afterHad {
+            guard leadingSectionSurgeryIsSafe(committedLeadingSections: leadingTableSectionsCount + 1) else {
+                scheduleReload()
+                return
+            }
             let section = channelAppsTableSection
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -1641,6 +1669,10 @@ final class ChannelListContainerNode: ASDisplayNode {
             committedSectionCount = totalSections
             return
         }
+        guard leadingSectionSurgeryIsSafe(committedLeadingSections: leadingTableSectionsCount + 1) else {
+            scheduleReload()
+            return
+        }
         let section = channelAppsTableSection
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -1672,6 +1704,10 @@ final class ChannelListContainerNode: ASDisplayNode {
         cachedHeaders = [:]
 
         if !beforeVisible && afterVisible {
+            guard leadingSectionSurgeryIsSafe(committedLeadingSections: leadingTableSectionsCount - 1) else {
+                scheduleReload()
+                return
+            }
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             UIView.performWithoutAnimation {
@@ -1682,6 +1718,10 @@ final class ChannelListContainerNode: ASDisplayNode {
             }
             CATransaction.commit()
         } else if beforeVisible && !afterVisible {
+            guard leadingSectionSurgeryIsSafe(committedLeadingSections: leadingTableSectionsCount + 1) else {
+                scheduleReload()
+                return
+            }
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             UIView.performWithoutAnimation {
@@ -1693,7 +1733,8 @@ final class ChannelListContainerNode: ASDisplayNode {
             CATransaction.commit()
         } else if beforeVisible && afterVisible {
             let section = onboardingTableSection
-            if section < tableNode.numberOfSections, tableNode.numberOfRows(inSection: section) > 0 {
+            if section < tableNode.numberOfSections, tableNode.numberOfRows(inSection: section) > 0,
+               leadingSectionSurgeryIsSafe(committedLeadingSections: leadingTableSectionsCount) {
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
                 UIView.performWithoutAnimation {
@@ -1731,6 +1772,10 @@ final class ChannelListContainerNode: ASDisplayNode {
         cachedHeaders = [:]
 
         if !beforeVisible && afterVisible {
+            guard leadingSectionSurgeryIsSafe(committedLeadingSections: leadingTableSectionsCount - 1) else {
+                scheduleReload()
+                return
+            }
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             UIView.performWithoutAnimation {
@@ -1741,6 +1786,10 @@ final class ChannelListContainerNode: ASDisplayNode {
             }
             CATransaction.commit()
         } else if beforeVisible && !afterVisible {
+            guard leadingSectionSurgeryIsSafe(committedLeadingSections: leadingTableSectionsCount + 1) else {
+                scheduleReload()
+                return
+            }
             CATransaction.begin()
             CATransaction.setDisableActions(true)
             UIView.performWithoutAnimation {
@@ -1752,7 +1801,8 @@ final class ChannelListContainerNode: ASDisplayNode {
             CATransaction.commit()
         } else if beforeVisible && afterVisible {
             let section = onboardingTableSection
-            if section < tableNode.numberOfSections, tableNode.numberOfRows(inSection: section) > 0 {
+            if section < tableNode.numberOfSections, tableNode.numberOfRows(inSection: section) > 0,
+               leadingSectionSurgeryIsSafe(committedLeadingSections: leadingTableSectionsCount) {
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
                 UIView.performWithoutAnimation {
@@ -1849,6 +1899,10 @@ final class ChannelListContainerNode: ASDisplayNode {
         pendingChannelAppsTableSync = false
 
         if !beforeHad && afterHad {
+            guard leadingSectionSurgeryIsSafe(committedLeadingSections: leadingTableSectionsCount - 1) else {
+                scheduleReload()
+                return
+            }
             let section = self.channelAppsTableSection
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -1861,6 +1915,10 @@ final class ChannelListContainerNode: ASDisplayNode {
             CATransaction.commit()
             committedSectionCount = totalSections
         } else if beforeHad && !afterHad {
+            guard leadingSectionSurgeryIsSafe(committedLeadingSections: leadingTableSectionsCount + 1) else {
+                scheduleReload()
+                return
+            }
             let section = channelAppsTableSection
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -1962,7 +2020,8 @@ final class ChannelListContainerNode: ASDisplayNode {
         let newCount = channelAppsSectionRowCount()
         guard oldCount != newCount else { return }
         guard tableNode.numberOfSections > 0,
-            tableNode.numberOfRows(inSection: channelAppsTableSection) == oldCount
+            tableNode.numberOfRows(inSection: channelAppsTableSection) == oldCount,
+            leadingSectionSurgeryIsSafe(committedLeadingSections: leadingTableSectionsCount)
         else {
             scheduleReload()
             return
