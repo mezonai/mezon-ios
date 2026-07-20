@@ -136,7 +136,7 @@ final class MediaGalleryNode: ASDisplayNode {
                 self.collectionNode.performBatch(
                     animated: false,
                     updates: { self.collectionNode.insertItems(at: indexPaths) },
-                    completion: nil
+                    completion: { _ in }
                 )
             } catch {
             }
