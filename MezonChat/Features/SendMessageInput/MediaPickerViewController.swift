@@ -137,7 +137,7 @@ final class MediaPickerViewController: UIViewController {
     private lazy var actionBar: UIView = {
         let view = UIView()
         view.translatesAutoresizingMaskIntoConstraints = false
-        view.backgroundColor = UIColor.black.withAlphaComponent(0.18)
+        view.backgroundColor = .clear
         view.isHidden = true
         return view
     }()
@@ -344,7 +344,7 @@ final class MediaPickerViewController: UIViewController {
         let bannerHeight = limitedBanner.heightAnchor.constraint(equalToConstant: 0)
         self.limitedBannerHeightConstraint = bannerHeight
 
-        let editWidth = editButton.widthAnchor.constraint(equalTo: sendButton.widthAnchor, multiplier: 1.0 / 3.0)
+        let editWidth = editButton.widthAnchor.constraint(equalTo: sendButton.widthAnchor, multiplier: 1.0)
         let sendLeadingEdit = sendButton.leadingAnchor.constraint(equalTo: editButton.trailingAnchor, constant: 10)
         let sendLeadingBar = sendButton.leadingAnchor.constraint(equalTo: actionBar.leadingAnchor, constant: 16)
         sendLeadingEditConstraint = sendLeadingEdit
@@ -382,15 +382,15 @@ final class MediaPickerViewController: UIViewController {
             actionBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
             actionBar.heightAnchor.constraint(equalToConstant: 72),
 
-            editButton.leadingAnchor.constraint(equalTo: actionBar.leadingAnchor, constant: 16),
-            editButton.topAnchor.constraint(equalTo: actionBar.topAnchor, constant: 10),
-            editButton.bottomAnchor.constraint(equalTo: actionBar.bottomAnchor, constant: -10),
+            editButton.leadingAnchor.constraint(equalTo: actionBar.leadingAnchor, constant: 24),
+            editButton.topAnchor.constraint(equalTo: actionBar.topAnchor, constant: 14),
+            editButton.bottomAnchor.constraint(equalTo: actionBar.bottomAnchor, constant: -14),
             editWidth,
 
             sendLeadingEdit,
-            sendButton.trailingAnchor.constraint(equalTo: actionBar.trailingAnchor, constant: -16),
-            sendButton.topAnchor.constraint(equalTo: actionBar.topAnchor, constant: 10),
-            sendButton.bottomAnchor.constraint(equalTo: actionBar.bottomAnchor, constant: -10),
+            sendButton.trailingAnchor.constraint(equalTo: actionBar.trailingAnchor, constant: -24),
+            sendButton.topAnchor.constraint(equalTo: actionBar.topAnchor, constant: 14),
+            sendButton.bottomAnchor.constraint(equalTo: actionBar.bottomAnchor, constant: -14),
 
             dropdownOverlay.topAnchor.constraint(equalTo: headerView.bottomAnchor),
             dropdownOverlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
