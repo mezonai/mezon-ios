@@ -180,6 +180,9 @@ final class ChatEmojiPickerPresenter {
     }
 
     func handleKeyboardWillHide() {
+        if isEmojiPanelSearchConsumingKeyboard {
+            return
+        }
         if collapsedHeight > 0 && !pickerView.isHidden {
             pickerView.applySnapCollapsed()
         }

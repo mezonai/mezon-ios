@@ -3933,7 +3933,9 @@ final class ChatViewController: ViewController {
     }
 
     @objc private func keyboardWillShow(_ notification: Notification) {
-        guard sendInputViewController.view.findFirstResponder() != nil else { return }
+        let isInputFocused = sendInputViewController.view.findFirstResponder() != nil
+        let isEmojiSearchFocused = emojiPicker.isEmojiPanelSearchConsumingKeyboard
+        guard isInputFocused || isEmojiSearchFocused else { return }
         isKeyboardVisible = true
         if let frame = (notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue {
             trackedKeyboardHeight = frame.height
@@ -3956,7 +3958,9 @@ final class ChatViewController: ViewController {
     }
 
     @objc private func keyboardWillChangeFrame(_ notification: Notification) {
-        guard sendInputViewController.view.findFirstResponder() != nil else { return }
+        let isInputFocused = sendInputViewController.view.findFirstResponder() != nil
+        let isEmojiSearchFocused = emojiPicker.isEmojiPanelSearchConsumingKeyboard
+        guard isInputFocused || isEmojiSearchFocused else { return }
         guard let frame = (notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue else { return }
         let screen = view.window?.screen.bounds ?? UIScreen.main.bounds
         guard frame.minY < screen.maxY - 2 else { return }

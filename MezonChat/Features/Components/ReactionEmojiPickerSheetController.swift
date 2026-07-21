@@ -119,7 +119,7 @@ private final class ReactionEmojiPickerSheetNode: ASDisplayNode, UIGestureRecogn
         addSubnode(containerNode)
         containerNode.addSubnode(handleNode)
 
-        emojisPanel.searchPlaceholderText = "Find the perfect reaction"
+        emojisPanel.searchPlaceholderText = L(L10n.MediaPanel.findReaction)
         emojisPanel.onEmojiSelected = { [weak self] id, sn in
             self?.onEmojiSelected(id, sn)
         }

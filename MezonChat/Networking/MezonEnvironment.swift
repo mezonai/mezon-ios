@@ -148,6 +148,20 @@ enum MezonEnvironment {
         }
     }
 
+    static var klipyAPIKey: String {
+        switch current {
+        case .dev:  return Secrets.devKlipyAPIKey
+        case .prod: return Secrets.prodKlipyAPIKey
+        }
+    }
+
+    static var klipyBaseURL: String {
+        switch current {
+        case .dev:  return Secrets.devKlipyBaseURL
+        case .prod: return Secrets.prodKlipyBaseURL
+        }
+    }
+
     var mmnAPIURL: URL {
         switch self {
         case .dev:  return URL(string: Secrets.devMmnAPIURL)!

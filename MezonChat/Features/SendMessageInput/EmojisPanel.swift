@@ -46,7 +46,7 @@ final class EmojisPanel: UIView {
 
     var sheetPanCoordinationScrollView: UIScrollView { emojiGrid }
 
-    var searchPlaceholderText: String = "Find the perfect emoji"
+    var searchPlaceholderText: String = L(L10n.MediaPanel.findEmoji)
 
     private weak var cacheEngine: MezonEngine?
 

@@ -27,9 +27,9 @@ enum PanelKeyboardTab: Int, CaseIterable {
 
     var title: String {
         switch self {
-        case .emoji: return "Emoji"
-        case .gifs: return "GIFs"
-        case .stickers: return "Stickers"
+        case .emoji: return L(L10n.MediaPanel.emoji)
+        case .gifs: return L(L10n.MediaPanel.gifs)
+        case .stickers: return L(L10n.MediaPanel.stickers)
         }
     }
 }
@@ -501,6 +501,7 @@ final class PanelKeyboardView: UIView, UIGestureRecognizerDelegate {
     @objc private func tabTapped(_ sender: UIButton) {
         guard let tab = PanelKeyboardTab(rawValue: sender.tag), tab != currentTab else { return }
         dismissSearch()
+        gifsPanel.resetCategoryState()
         currentTab = tab
         updateTabSelection(animated: true)
         updateVisiblePanel()

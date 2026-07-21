@@ -46,7 +46,7 @@ final class StickersPanel: UIView {
 
     var sheetPanCoordinationScrollView: UIScrollView { stickerGrid }
 
-    var searchPlaceholderText: String = "Find the perfect sticker" {
+    var searchPlaceholderText: String = L(L10n.MediaPanel.findSticker) {
         didSet { applyTheme() }
     }
 
