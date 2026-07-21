@@ -503,7 +503,7 @@ final class SendMessageInputViewController: UIViewController {
     }
     private static let replyBannerHeight: CGFloat = 40
 
-    private static var channelAttachmentCache: [String: [UIImage]] = [:]
+    private static var channelAttachmentCache: [String: ([UIImage], [Int: URL])] = [:]
     private static var channelTextDraftCache: [String: ComposerDraftSnapshot] = [:]
     private static var channelEditingStateCache: [String: ComposerEditingStateSnapshot] = [:]
 
@@ -1252,15 +1252,15 @@ final class SendMessageInputViewController: UIViewController {
             stashCurrentComposerDraftIfNeeded()
         }
         let preservedDraft = migrateDraftToNewChannelIdentity ? Self.channelTextDraftCache[oldKey] : nil
-        let preservedAttachmentImages = migrateDraftToNewChannelIdentity ? Self.channelAttachmentCache[oldAttachmentCacheKey] : nil
+        let preservedAttachmentEntry = migrateDraftToNewChannelIdentity ? Self.channelAttachmentCache[oldAttachmentCacheKey] : nil
         channel = newChannel
         topicId = newTopicId
         if migrateDraftToNewChannelIdentity, let preservedDraft {
             let newKey = draftStorageKey(for: channel, topicId: topicId)
             Self.channelTextDraftCache[newKey] = preservedDraft
         }
-        if migrateDraftToNewChannelIdentity, let imgs = preservedAttachmentImages, !imgs.isEmpty {
-            Self.channelAttachmentCache[cacheKey] = imgs
+        if migrateDraftToNewChannelIdentity, let entry = preservedAttachmentEntry, !entry.0.isEmpty {
+            Self.channelAttachmentCache[cacheKey] = entry
         }
         rebindMentionForCurrentChannel()
         if preserveComposerContentsDuringMigration && migrateDraftToNewChannelIdentity {
@@ -2899,14 +2899,15 @@ final class SendMessageInputViewController: UIViewController {
         if pickedImages.isEmpty {
             Self.channelAttachmentCache.removeValue(forKey: cacheKey)
         } else {
-            Self.channelAttachmentCache[cacheKey] = pickedImages
+            Self.channelAttachmentCache[cacheKey] = (pickedImages, pickedFileURLs)
         }
     }
 
     private func restoreFromCache() {
-        guard let cached = Self.channelAttachmentCache[cacheKey], !cached.isEmpty else { return }
-        pickedImages = cached
-        attachmentPreviewView.setImages(cached)
+        guard let (images, urls) = Self.channelAttachmentCache[cacheKey], !images.isEmpty else { return }
+        pickedImages = images
+        pickedFileURLs = urls.filter { FileManager.default.fileExists(atPath: $0.value.path) }
+        attachmentPreviewView.setImages(images)
         let targetH = AttachmentPreviewView.preferredHeight(
             imageCount: pickedImages.count, fileCount: pickedFiles.count)
         previewHeightConstraint?.constant = targetH
