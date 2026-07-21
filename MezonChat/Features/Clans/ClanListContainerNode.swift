@@ -27,7 +27,6 @@ final class ClanListContainerNode: ASDisplayNode {
         iv.clipsToBounds = true
         iv.backgroundColor = .clear
         iv.layer.cornerRadius = 12.swh
-        iv.image = UIImage(named: "NewMezonLogo")
         iv.translatesAutoresizingMaskIntoConstraints = true
         iv.autoresizingMask = []
         iv.isUserInteractionEnabled = true
@@ -60,6 +59,8 @@ final class ClanListContainerNode: ASDisplayNode {
         collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
         self.interaction = interaction
         super.init()
+
+        applySidebarAccountLogo(urlString: nil)
 
         disposables.add(
             (signal |> deliverOnMainQueue).start(next: { [weak self] newState in
@@ -201,19 +202,22 @@ final class ClanListContainerNode: ASDisplayNode {
         sidebarLogoLoadTask?.cancel()
         sidebarLogoLoadTask = nil
         let trimmed = urlString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !trimmed.isEmpty, URL(string: trimmed) != nil else {
+        let resolvedURL = trimmed.isEmpty ? MezonConstants.defaultDMLogoURL : trimmed
+        guard URL(string: resolvedURL) != nil else {
             sidebarLogoDisplaySource = nil
-            logoImageView.image = UIImage(named: "NewMezonLogo")
+            logoImageView.image = nil
             return
         }
-        sidebarLogoDisplaySource = trimmed
-        let proxied = ImgproxyURL.create(from: trimmed, width: 150, height: 150)
+        sidebarLogoDisplaySource = resolvedURL
+        let proxied = resolvedURL == MezonConstants.defaultDMLogoURL
+            ? resolvedURL
+            : ImgproxyURL.create(from: resolvedURL, width: 150, height: 150)
         if let cached = ImageCache.shared.cachedImage(forURL: proxied) {
             logoImageView.image = cached
             return
         }
-        logoImageView.image = UIImage(named: "NewMezonLogo")
-        loadSidebarAccountLogo(trimmed: trimmed, proxied: proxied, attempt: 0)
+        logoImageView.image = nil
+        loadSidebarAccountLogo(trimmed: resolvedURL, proxied: proxied, attempt: 0)
     }
 
     private func loadSidebarAccountLogo(trimmed: String, proxied: String, attempt: Int) {

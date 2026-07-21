@@ -140,6 +140,20 @@ enum L10n {
         static let detail         = "common.detail"
     }
 
+    enum ImageEditor {
+        static let send   = "imageEditor.send"
+        static let draw   = "imageEditor.draw"
+        static let text   = "imageEditor.text"
+        static let crop   = "imageEditor.crop"
+        static let rotate = "imageEditor.rotate"
+        static let done   = "imageEditor.done"
+    }
+
+    enum MediaPicker {
+        static let edit      = "mediaPicker.edit"
+        static let sendCount = "mediaPicker.sendCount"
+    }
+
     enum AccountSetting {
         static let accountInformation = "accountSetting.accountInformation"
         static let users              = "accountSetting.users"
@@ -1409,6 +1423,16 @@ extension L10n {
         "common.linkPhoneNumber": "Add phone number",
         "common.detail":        "Detail",
 
+        "imageEditor.send":   "Send",
+        "imageEditor.draw":   "Draw",
+        "imageEditor.text":   "Text",
+        "imageEditor.crop":   "Crop",
+        "imageEditor.rotate": "Rotate",
+        "imageEditor.done":   "Done",
+
+        "mediaPicker.edit":      "Edit",
+        "mediaPicker.sendCount": "Send (%d)",
+
         "updateGate.outOfDateVersion": "New Version Ready",
         "updateGate.updateExperience": "A quick update is needed to continue using our latest family features.",
         "updateGate.updateNow": "Update now",
@@ -2627,6 +2651,16 @@ extension L10n {
         "common.linkEmail":     "Thêm email",
         "common.linkPhoneNumber": "Thêm số điện thoại",
         "common.detail":        "Chi tiết",
+
+        "imageEditor.send":   "Gửi",
+        "imageEditor.draw":   "Vẽ",
+        "imageEditor.text":   "Văn bản",
+        "imageEditor.crop":   "Cắt",
+        "imageEditor.rotate": "Xoay",
+        "imageEditor.done":   "Xong",
+
+        "mediaPicker.edit":      "Chỉnh sửa",
+        "mediaPicker.sendCount": "Gửi (%d)",
 
         "updateGate.outOfDateVersion": "Phiên Bản Mới Đã Sẵn Sàng",
         "updateGate.updateExperience": "Cần cập nhật nhanh để tiếp tục sử dụng các tính năng gia đình mới nhất của chúng tôi.",

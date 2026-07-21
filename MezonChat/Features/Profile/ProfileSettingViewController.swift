@@ -936,7 +936,7 @@ final class ProfileSettingViewController: BaseViewController {
     private func refreshDMIcon() {
         let isDefaultLogo = userDmLogoUrl.isEmpty || userDmLogoUrl == kMezonLogoURL
         if isDefaultLogo {
-            dmIconImageView.image = UIImage(named: "NewMezonLogo")
+            loadRemoteImage(urlString: MezonConstants.defaultDMLogoURL, into: dmIconImageView)
             dmIconRemoveButton.isHidden = true
         } else {
             loadRemoteImage(urlString: userDmLogoUrl, into: dmIconImageView)
@@ -1305,8 +1305,7 @@ final class ProfileSettingViewController: BaseViewController {
             loadAvatarImage(urlString: avatarToShow)
         case .dmIcon:
             userDmLogoUrl = ""
-            dmIconImageView.image = UIImage(named: "NewMezonLogo")
-            dmIconRemoveButton.isHidden = true
+            refreshDMIcon()
         }
     }
 

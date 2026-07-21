@@ -99,9 +99,19 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
         t.font = .systemFont(ofSize: 15.sf)
         t.returnKeyType = .done
         t.autocorrectionType = .no
-        t.clearButtonMode = .whileEditing
+        t.clearButtonMode = .never
         t.translatesAutoresizingMaskIntoConstraints = false
         return t
+    }()
+
+    private let clearNameButton: UIButton = {
+        let button = UIButton(type: .system)
+        let configuration = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
+        button.setImage(UIImage(systemName: "xmark.circle.fill", withConfiguration: configuration), for: .normal)
+        button.isHidden = true
+        button.accessibilityLabel = "Clear clan name"
+        button.translatesAutoresizingMaskIntoConstraints = false
+        return button
     }()
 
     private let nameErrorLabel: UILabel = {
@@ -201,10 +211,12 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
         nameField.placeholder = L(L10n.Clan.newClanNamePlaceholder)
         nameField.delegate = self
         nameField.addTarget(self, action: #selector(nameChanged), for: .editingChanged)
+        clearNameButton.addTarget(self, action: #selector(clearNameTapped), for: .touchUpInside)
 
         nameFieldContainer.layer.cornerRadius = 12.swh
         nameFieldContainer.translatesAutoresizingMaskIntoConstraints = false
         nameFieldContainer.addSubview(nameField)
+        nameFieldContainer.addSubview(clearNameButton)
 
         nameErrorLabel.text = L(L10n.Clan.invalidName)
         nameErrorLabel.textColor = .systemRed
@@ -297,8 +309,13 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
             nameFieldContainer.heightAnchor.constraint(equalToConstant: 48),
 
             nameField.leadingAnchor.constraint(equalTo: nameFieldContainer.leadingAnchor, constant: 12),
-            nameField.trailingAnchor.constraint(equalTo: nameFieldContainer.trailingAnchor, constant: -12),
+            nameField.trailingAnchor.constraint(equalTo: clearNameButton.leadingAnchor, constant: -8),
             nameField.centerYAnchor.constraint(equalTo: nameFieldContainer.centerYAnchor),
+
+            clearNameButton.trailingAnchor.constraint(equalTo: nameFieldContainer.trailingAnchor, constant: -12),
+            clearNameButton.centerYAnchor.constraint(equalTo: nameFieldContainer.centerYAnchor),
+            clearNameButton.widthAnchor.constraint(equalToConstant: 24),
+            clearNameButton.heightAnchor.constraint(equalToConstant: 24),
 
             createButton.heightAnchor.constraint(equalToConstant: 50),
 
@@ -332,6 +349,7 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
         nameLabel.textColor = .mezonTextStrong
         nameField.textColor = .mezonTextStrong
         nameField.tintColor = .mezonTextStrong
+        clearNameButton.tintColor = UIColor.theme.textDisabled
         nameFieldContainer.backgroundColor = .mezonSecondary
         logoImageView.backgroundColor = UIColor.theme.secondary
         logoCamIcon.tintColor = .mezonTextMuted
@@ -369,6 +387,7 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
 
     @objc private func nameChanged() {
         let name = (nameField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        clearNameButton.isHidden = name.isEmpty || isSubmitting
         if name.isEmpty {
             nameErrorLabel.isHidden = true
         } else if !ClanCreationNameRules.isValid(name) {
@@ -377,6 +396,12 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
         } else {
             nameErrorLabel.isHidden = true
         }
+    }
+
+    @objc private func clearNameTapped() {
+        nameField.text = ""
+        nameField.sendActions(for: .editingChanged)
+        nameField.becomeFirstResponder()
     }
 
     @objc private func backTapped() {
@@ -413,8 +438,26 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
             isSubmitting = true
             createButton.isEnabled = false
             nameField.isEnabled = false
+            clearNameButton.isHidden = true
             createSpinner.startAnimating()
             createButton.setTitle("", for: .normal)
+
+            do {
+                let isDuplicate = try await context.account.network.checkDuplicateName(
+                    name: name,
+                    type: 0,
+                    conditionId: 0,
+                    token: token
+                )
+                if isDuplicate {
+                    Toast.error(L(L10n.Clan.duplicateName))
+                    resetSubmittingState()
+                    return
+                }
+            } catch {
+                
+            }
+
             do {
                 let desc = try await context.engine.clanData.createClanDesc(
                     name: name,
@@ -453,20 +496,21 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
                 } else {
                     Toast.error(error.localizedDescription)
                 }
-                createButton.isEnabled = true
-                nameField.isEnabled = true
-                createSpinner.stopAnimating()
-                createButton.setTitle(L(L10n.Clan.createClan), for: .normal)
-                isSubmitting = false
+                resetSubmittingState()
             } catch {
                 Toast.error(error.localizedDescription)
-                createButton.isEnabled = true
-                nameField.isEnabled = true
-                createSpinner.stopAnimating()
-                createButton.setTitle(L(L10n.Clan.createClan), for: .normal)
-                isSubmitting = false
+                resetSubmittingState()
             }
         }
+    }
+
+    private func resetSubmittingState() {
+        isSubmitting = false
+        createButton.isEnabled = true
+        nameField.isEnabled = true
+        clearNameButton.isHidden = (nameField.text ?? "").isEmpty
+        createSpinner.stopAnimating()
+        createButton.setTitle(L(L10n.Clan.createClan), for: .normal)
     }
 
     private func popCreateFlowAndNotify(clanId: Int64) {
