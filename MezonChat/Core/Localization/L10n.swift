@@ -151,7 +151,8 @@ enum L10n {
 
     enum MediaPicker {
         static let edit      = "mediaPicker.edit"
-        static let sendCount = "mediaPicker.sendCount"
+        static let doneCount = "mediaPicker.doneCount"
+        static let sizeLimit = "mediaPicker.sizeLimit"
     }
 
     enum AccountSetting {
@@ -1431,7 +1432,8 @@ extension L10n {
         "imageEditor.done":   "Done",
 
         "mediaPicker.edit":      "Edit",
-        "mediaPicker.sendCount": "Send (%d)",
+        "mediaPicker.doneCount": "Done (%d)",
+        "mediaPicker.sizeLimit": "You can select up to %dGB in total.",
 
         "updateGate.outOfDateVersion": "New Version Ready",
         "updateGate.updateExperience": "A quick update is needed to continue using our latest family features.",
@@ -2660,7 +2662,8 @@ extension L10n {
         "imageEditor.done":   "Xong",
 
         "mediaPicker.edit":      "Chỉnh sửa",
-        "mediaPicker.sendCount": "Gửi (%d)",
+        "mediaPicker.doneCount": "Xong (%d)",
+        "mediaPicker.sizeLimit": "Bạn chỉ có thể chọn tối đa %dGB.",
 
         "updateGate.outOfDateVersion": "Phiên Bản Mới Đã Sẵn Sàng",
         "updateGate.updateExperience": "Cần cập nhật nhanh để tiếp tục sử dụng các tính năng gia đình mới nhất của chúng tôi.",

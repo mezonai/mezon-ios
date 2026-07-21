@@ -988,11 +988,17 @@ final class AccountContextImpl: AccountContext {
     private func handleSocketEvent(_ event: SocketEvent) {
         switch event {
         case .connected:
-            if VoIPMinimalCallBootstrap.isMinimalChromeActive {
-                joinDirectMessageSocketRoomOnSocketConnected()
-            } else {
-                joinDirectMessageClanOnSocketConnected()
-                rejoinCurrentChannel()
+            let joinDelayNanos: UInt64 = 250_000_000
+            let isMinimalChrome = VoIPMinimalCallBootstrap.isMinimalChromeActive
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: joinDelayNanos)
+                guard let self, self.account.socket.isConnected else { return }
+                if isMinimalChrome {
+                    self.joinDirectMessageSocketRoomOnSocketConnected()
+                } else {
+                    self.joinDirectMessageClanOnSocketConnected()
+                    self.rejoinCurrentChannel()
+                }
             }
 
         case .typing(let e):

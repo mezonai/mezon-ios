@@ -178,6 +178,8 @@ final class MezonSocket: NSObject {
     var tokenProvider: (() async throws -> String)?
 
     private var reconnectWorkItem: DispatchWorkItem?
+    private var connectWatchdog: DispatchWorkItem?
+    private let connectTimeoutSeconds: TimeInterval = 10
 
     private override init() {
         super.init()
@@ -221,6 +223,7 @@ final class MezonSocket: NSObject {
         webSocketTask = urlSession?.webSocketTask(with: url)
         webSocketTask?.resume()
         receiveLoop()
+        armConnectWatchdog(for: webSocketTask)
     }
 
     func waitForConnected(timeoutNanoseconds: UInt64) async -> Bool {
@@ -242,6 +245,7 @@ final class MezonSocket: NSObject {
         stableReconnectResetTask = nil
         stopHeartbeat()
         cancelLivenessProbe()
+        cancelConnectWatchdog()
         webSocketTask?.cancel(with: .normalClosure, reason: nil)
         webSocketTask = nil
         urlSession?.invalidateAndCancel()
@@ -279,6 +283,17 @@ final class MezonSocket: NSObject {
         forceReconnect()
     }
 
+    func ensureFreshConnection() {
+        guard token != nil || tokenProvider != nil else { return }
+        guard isConnected else {
+            if reconnectWorkItem == nil, webSocketTask == nil {
+                forceReconnect()
+            }
+            return
+        }
+        probeConnectionLiveness()
+    }
+
     func noteEnteredBackground() {
         backgroundedAt = Date()
     }
@@ -292,6 +307,7 @@ final class MezonSocket: NSObject {
 
     private func cleanupForReconnect() {
         isConnected = false
+        cancelConnectWatchdog()
         NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": false])
         stableReconnectResetTask?.cancel()
         stableReconnectResetTask = nil
@@ -829,6 +845,25 @@ final class MezonSocket: NSObject {
         }
     }
 
+    private func armConnectWatchdog(for task: URLSessionWebSocketTask?) {
+        connectWatchdog?.cancel()
+        guard let task else { return }
+        let work = DispatchWorkItem { [weak self] in
+            Task { @MainActor in
+                guard let self, !self.isConnected, self.webSocketTask === task else { return }
+                MezonRPCLog.response("ws connect watchdog: handshake stalled \(Int(self.connectTimeoutSeconds))s → reconnecting")
+                self.handleTransportFailure(MezonError.socketError("WebSocket connect timed out"), for: task)
+            }
+        }
+        connectWatchdog = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + connectTimeoutSeconds, execute: work)
+    }
+
+    private func cancelConnectWatchdog() {
+        connectWatchdog?.cancel()
+        connectWatchdog = nil
+    }
+
     private func scheduleReconnect() {
         guard token != nil || tokenProvider != nil else { return }
         guard NetworkMonitor.shared.isConnected else {
@@ -947,6 +982,7 @@ extension MezonSocket: URLSessionWebSocketDelegate {
         Task { @MainActor in
             guard let currentTask = self.webSocketTask, currentTask === webSocketTask else { return }
             self.isConnected = true
+            self.cancelConnectWatchdog()
             self.noteApiRequestSucceeded()
             self.scheduleStableReconnectReset(for: currentTask)
             self.eventPipe.putNext(.connected)
@@ -965,6 +1001,7 @@ extension MezonSocket: URLSessionWebSocketDelegate {
         Task { @MainActor in
             guard let currentTask = self.webSocketTask, currentTask === webSocketTask else { return }
             self.isConnected = false
+            self.cancelConnectWatchdog()
             // Drop the dead task so the connect() dedupe guard knows the
             // socket really needs to be rebuilt next time.
             self.webSocketTask = nil

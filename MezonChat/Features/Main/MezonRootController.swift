@@ -194,6 +194,8 @@ final class MezonRootController: NavigationController {
             context.currentClanId = clanId
         }
 
+        context.account.socket.ensureFreshConnection()
+
         Task { @MainActor [weak self] in
             guard let self else { return }
             await self.awaitSessionReadyBounded()
