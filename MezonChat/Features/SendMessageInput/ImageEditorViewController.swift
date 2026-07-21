@@ -711,6 +711,19 @@ private extension UIColor {
     }
 }
 
+private final class CanvasTextContainerView: UIView {
+    var texts: [ImageEditorCanvasView.TextOverlay] = []
+    var cropRect: CGRect = .zero
+
+    override func draw(_ rect: CGRect) {
+        guard let context = UIGraphicsGetCurrentContext() else { return }
+        context.clip(to: cropRect)
+        for overlay in texts {
+            ImageEditorCanvasView.draw(text: overlay, cropRect: cropRect)
+        }
+    }
+}
+
 private final class ImageEditorCanvasView: UIView, UIGestureRecognizerDelegate {
     enum Mode: Hashable { case crop, draw, text }
 
@@ -743,7 +756,8 @@ private final class ImageEditorCanvasView: UIView, UIGestureRecognizerDelegate {
             currentStroke = nil
             textTouchIndex = nil
             isErasing = false
-            setNeedsDisplay()
+            updateActiveStrokeLayer()
+            updateLayers()
         }
     }
     var brushColor: UIColor = .systemRed
@@ -757,6 +771,18 @@ private final class ImageEditorCanvasView: UIView, UIGestureRecognizerDelegate {
     }
 
     private let image: UIImage
+    private let displayImage: UIImage
+    private var committedStrokesCache: UIImage?
+    
+    private let imageContainerView = UIView()
+    private let imageView = UIImageView()
+    private let strokesView = UIImageView()
+    private let activeStrokeLayer = CAShapeLayer()
+    private let cropMaskLayer = CAShapeLayer()
+    private let cropFrameLayer = CAShapeLayer()
+    private let cropCornersLayer = CAShapeLayer()
+    private let textContainerView = CanvasTextContainerView()
+
     private var cropRect: CGRect = .zero
     private var initialCropRect: CGRect = .zero
     private var imageCenter: CGPoint = .zero
@@ -782,11 +808,52 @@ private final class ImageEditorCanvasView: UIView, UIGestureRecognizerDelegate {
     private lazy var pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
 
     init(image: UIImage) {
-        self.image = image.normalizedForEditing()
+        let normalized = image.normalizedForEditing()
+        self.image = normalized
+        self.displayImage = Self.createDisplayImage(normalized)
         super.init(frame: .zero)
         backgroundColor = .black
-        contentMode = .redraw
         isOpaque = true
+        
+        imageContainerView.bounds = CGRect(origin: .zero, size: normalized.size)
+        imageContainerView.layer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+
+        imageView.frame = imageContainerView.bounds
+        imageView.contentMode = .scaleToFill
+        imageView.image = displayImage
+        imageContainerView.addSubview(imageView)
+        
+        strokesView.frame = imageContainerView.bounds
+        strokesView.contentMode = .scaleToFill
+        imageContainerView.addSubview(strokesView)
+        
+        activeStrokeLayer.frame = imageContainerView.bounds
+        activeStrokeLayer.fillColor = nil
+        activeStrokeLayer.lineCap = .round
+        activeStrokeLayer.lineJoin = .round
+        imageContainerView.layer.addSublayer(activeStrokeLayer)
+        
+        addSubview(imageContainerView)
+        
+        cropMaskLayer.fillRule = .evenOdd
+        cropMaskLayer.fillColor = UIColor.black.withAlphaComponent(0.62).cgColor
+        layer.addSublayer(cropMaskLayer)
+        
+        cropFrameLayer.fillColor = nil
+        cropFrameLayer.strokeColor = UIColor.white.withAlphaComponent(0.75).cgColor
+        cropFrameLayer.lineWidth = 1
+        layer.addSublayer(cropFrameLayer)
+        
+        cropCornersLayer.fillColor = nil
+        cropCornersLayer.strokeColor = UIColor.white.cgColor
+        cropCornersLayer.lineWidth = 3.5
+        cropCornersLayer.lineCap = .square
+        layer.addSublayer(cropCornersLayer)
+        
+        textContainerView.isOpaque = false
+        textContainerView.backgroundColor = .clear
+        addSubview(textContainerView)
+        
         pinch.delegate = self
         pinch.cancelsTouchesInView = false
         addGestureRecognizer(pinch)
@@ -794,6 +861,44 @@ private final class ImageEditorCanvasView: UIView, UIGestureRecognizerDelegate {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
+
+    private static func createDisplayImage(_ source: UIImage) -> UIImage {
+        let maxEdge = max(UIScreen.main.nativeBounds.width, UIScreen.main.nativeBounds.height)
+        let longest = max(source.size.width, source.size.height)
+        guard longest > maxEdge else { return source }
+        let factor = maxEdge / longest
+        let newSize = CGSize(
+            width: (source.size.width * factor).rounded(),
+            height: (source.size.height * factor).rounded()
+        )
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: newSize, format: format).image { _ in
+            source.draw(in: CGRect(origin: .zero, size: newSize))
+        }
+    }
+
+    private func rebuildStrokesCache() {
+        guard !strokes.isEmpty else {
+            committedStrokesCache = nil
+            strokesView.image = nil
+            return
+        }
+        let cacheSize = displayImage.size
+        let xScale = cacheSize.width / image.size.width
+        let yScale = cacheSize.height / image.size.height
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = false
+        committedStrokesCache = UIGraphicsImageRenderer(size: cacheSize, format: format).image { ctx in
+            ctx.cgContext.scaleBy(x: xScale, y: yScale)
+            for stroke in self.strokes {
+                Self.draw(stroke: stroke)
+            }
+        }
+        strokesView.image = committedStrokesCache
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()
@@ -829,7 +934,7 @@ private final class ImageEditorCanvasView: UIView, UIGestureRecognizerDelegate {
         initialImageCenter = imageCenter
         initialImageScale = imageScale
         rotationCropFitScale = 1
-        setNeedsDisplay()
+        updateLayers()
     }
 
     private func reflowForAllowedRectChange(from old: CGRect, to new: CGRect) {
@@ -884,44 +989,68 @@ private final class ImageEditorCanvasView: UIView, UIGestureRecognizerDelegate {
         return CGRect(x: imageCenter.x - width / 2, y: imageCenter.y - height / 2, width: width, height: height)
     }
 
-    override func draw(_ rect: CGRect) {
-        guard let context = UIGraphicsGetCurrentContext() else { return }
-        UIColor.black.setFill()
-        context.fill(bounds)
-        drawContent(in: context, outputTransform: .identity)
+    private func updateLayers() {
+        imageContainerView.center = imageCenter
+        imageContainerView.transform = CGAffineTransform(rotationAngle: CGFloat(quarterTurns) * -.pi / 2)
+            .scaledBy(x: imageScale, y: imageScale)
+        
+        let boundsPath = UIBezierPath(rect: bounds)
+        boundsPath.append(UIBezierPath(rect: cropRect))
+        cropMaskLayer.path = boundsPath.cgPath
 
-        context.saveGState()
-        let overlay = UIBezierPath(rect: bounds)
-        overlay.append(UIBezierPath(rect: cropRect))
-        overlay.usesEvenOddFillRule = true
-        UIColor.black.withAlphaComponent(0.62).setFill()
-        overlay.fill()
-        context.restoreGState()
+        cropFrameLayer.path = UIBezierPath(rect: cropRect).cgPath
 
-        UIColor.white.withAlphaComponent(0.75).setStroke()
-        let frame = UIBezierPath(rect: cropRect)
-        frame.lineWidth = 1
-        frame.stroke()
-        if mode == .crop { drawCropCorners() }
+        if mode == .crop {
+            let length: CGFloat = 22
+            let path = UIBezierPath()
+            path.move(to: CGPoint(x: cropRect.minX + length, y: cropRect.minY))
+            path.addLine(to: CGPoint(x: cropRect.minX, y: cropRect.minY))
+            path.addLine(to: CGPoint(x: cropRect.minX, y: cropRect.minY + length))
+            path.move(to: CGPoint(x: cropRect.maxX - length, y: cropRect.minY))
+            path.addLine(to: CGPoint(x: cropRect.maxX, y: cropRect.minY))
+            path.addLine(to: CGPoint(x: cropRect.maxX, y: cropRect.minY + length))
+            path.move(to: CGPoint(x: cropRect.minX + length, y: cropRect.maxY))
+            path.addLine(to: CGPoint(x: cropRect.minX, y: cropRect.maxY))
+            path.addLine(to: CGPoint(x: cropRect.minX, y: cropRect.maxY - length))
+            path.move(to: CGPoint(x: cropRect.maxX - length, y: cropRect.maxY))
+            path.addLine(to: CGPoint(x: cropRect.maxX, y: cropRect.maxY))
+            path.addLine(to: CGPoint(x: cropRect.maxX, y: cropRect.maxY - length))
+            cropCornersLayer.path = path.cgPath
+            cropCornersLayer.isHidden = false
+        } else {
+            cropCornersLayer.isHidden = true
+        }
+
+        textContainerView.frame = bounds
+        textContainerView.cropRect = cropRect
+        textContainerView.texts = texts
+        textContainerView.setNeedsDisplay()
+    }
+    
+    private func updateActiveStrokeLayer() {
+        guard let stroke = currentStroke, let first = stroke.points.first else {
+            activeStrokeLayer.path = nil
+            return
+        }
+        let path = UIBezierPath()
+        path.move(to: first)
+        if stroke.points.count == 1 {
+            path.addLine(to: CGPoint(x: first.x + 0.01, y: first.y + 0.01))
+        } else {
+            for index in 1..<stroke.points.count {
+                let previous = stroke.points[index - 1]
+                let point = stroke.points[index]
+                let midpoint = CGPoint(x: (previous.x + point.x) / 2, y: (previous.y + point.y) / 2)
+                path.addQuadCurve(to: midpoint, controlPoint: previous)
+            }
+            if let last = stroke.points.last { path.addLine(to: last) }
+        }
+        activeStrokeLayer.strokeColor = stroke.color.cgColor
+        activeStrokeLayer.lineWidth = stroke.width
+        activeStrokeLayer.path = path.cgPath
     }
 
-    private func drawContent(in context: CGContext, outputTransform: CGAffineTransform) {
-        context.saveGState()
-        context.concatenate(outputTransform)
-        context.concatenate(imageTransform)
-        image.draw(in: CGRect(origin: .zero, size: image.size))
-        for stroke in strokes { Self.draw(stroke: stroke) }
-        if let currentStroke { Self.draw(stroke: currentStroke) }
-        context.restoreGState()
-
-        context.saveGState()
-        context.concatenate(outputTransform)
-        context.clip(to: cropRect)
-        for overlay in texts { Self.draw(text: overlay, cropRect: cropRect) }
-        context.restoreGState()
-    }
-
-    private static func draw(stroke: Stroke) {
+    fileprivate static func draw(stroke: Stroke) {
         guard let first = stroke.points.first else { return }
         let path = UIBezierPath()
         path.move(to: first)
@@ -943,7 +1072,7 @@ private final class ImageEditorCanvasView: UIView, UIGestureRecognizerDelegate {
         path.stroke()
     }
 
-    private static func draw(text overlay: TextOverlay, cropRect: CGRect) {
+    fileprivate static func draw(text overlay: TextOverlay, cropRect: CGRect) {
         let rect = textBounds(overlay, cropRect: cropRect)
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = .center
@@ -956,27 +1085,6 @@ private final class ImageEditorCanvasView: UIView, UIGestureRecognizerDelegate {
             .strokeWidth: -2.5
         ]
         (overlay.text as NSString).draw(with: rect, options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: outline, context: nil)
-    }
-
-    private func drawCropCorners() {
-        let length: CGFloat = 22
-        let path = UIBezierPath()
-        path.move(to: CGPoint(x: cropRect.minX + length, y: cropRect.minY))
-        path.addLine(to: CGPoint(x: cropRect.minX, y: cropRect.minY))
-        path.addLine(to: CGPoint(x: cropRect.minX, y: cropRect.minY + length))
-        path.move(to: CGPoint(x: cropRect.maxX - length, y: cropRect.minY))
-        path.addLine(to: CGPoint(x: cropRect.maxX, y: cropRect.minY))
-        path.addLine(to: CGPoint(x: cropRect.maxX, y: cropRect.minY + length))
-        path.move(to: CGPoint(x: cropRect.minX + length, y: cropRect.maxY))
-        path.addLine(to: CGPoint(x: cropRect.minX, y: cropRect.maxY))
-        path.addLine(to: CGPoint(x: cropRect.minX, y: cropRect.maxY - length))
-        path.move(to: CGPoint(x: cropRect.maxX - length, y: cropRect.maxY))
-        path.addLine(to: CGPoint(x: cropRect.maxX, y: cropRect.maxY))
-        path.addLine(to: CGPoint(x: cropRect.maxX, y: cropRect.maxY - length))
-        path.lineWidth = 3.5
-        path.lineCapStyle = .square
-        UIColor.white.setStroke()
-        path.stroke()
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -1012,7 +1120,7 @@ private final class ImageEditorCanvasView: UIView, UIGestureRecognizerDelegate {
             if isErasing { erase(at: point) }
             else if cropRect.contains(point), let imagePoint = viewToImage(point), currentStroke != nil {
                 currentStroke?.points.append(imagePoint)
-                setNeedsDisplay()
+                updateActiveStrokeLayer()
             }
         case .text:
             guard let index = textTouchIndex else { break }
@@ -1021,7 +1129,7 @@ private final class ImageEditorCanvasView: UIView, UIGestureRecognizerDelegate {
                 let center = CGPoint(x: point.x + textDragOffset.x, y: point.y + textDragOffset.y)
                 texts[index].center = clampTextCenter(center, overlay: texts[index])
                 _ = onTextDrag?(true, point)
-                setNeedsDisplay()
+                updateLayers()
             }
         case .crop:
             applyCropDrag(delta)
@@ -1036,8 +1144,10 @@ private final class ImageEditorCanvasView: UIView, UIGestureRecognizerDelegate {
             if let stroke = currentStroke {
                 strokes.append(stroke)
                 currentStroke = nil
+                rebuildStrokesCache()
+                updateActiveStrokeLayer()
                 onChanged?()
-                setNeedsDisplay()
+                updateLayers()
             }
         case .text:
             if let index = textTouchIndex {
@@ -1065,7 +1175,8 @@ private final class ImageEditorCanvasView: UIView, UIGestureRecognizerDelegate {
         textTouchIndex = nil
         cropTarget = .none
         _ = onTextDrag?(false, lastTouch)
-        setNeedsDisplay()
+        updateActiveStrokeLayer()
+        updateLayers()
     }
 
     private func findCropTarget(at point: CGPoint) -> CropTarget {
@@ -1188,7 +1299,7 @@ private final class ImageEditorCanvasView: UIView, UIGestureRecognizerDelegate {
         let halfH = imageBounds.height / 2
         imageCenter.x = min(max(imageCenter.x, cropRect.maxX - halfW), cropRect.minX + halfW)
         imageCenter.y = min(max(imageCenter.y, cropRect.maxY - halfH), cropRect.minY + halfH)
-        setNeedsDisplay()
+        updateLayers()
     }
 
     func rotateLeft() {
@@ -1250,7 +1361,7 @@ private final class ImageEditorCanvasView: UIView, UIGestureRecognizerDelegate {
 
     private func changed() {
         onChanged?()
-        setNeedsDisplay()
+        updateLayers()
     }
 
     func resetAll() {
@@ -1261,6 +1372,7 @@ private final class ImageEditorCanvasView: UIView, UIGestureRecognizerDelegate {
         quarterTurns = 0
         rotationCropFitScale = 1
         strokes.removeAll()
+        committedStrokesCache = nil
         texts.removeAll()
         selectedTextIndex = nil
         textTouchIndex = nil
@@ -1356,7 +1468,10 @@ private final class ImageEditorCanvasView: UIView, UIGestureRecognizerDelegate {
             }
             return false
         }
-        if strokes.count != oldCount { changed() }
+        if strokes.count != oldCount {
+            rebuildStrokesCache()
+            changed()
+        }
     }
 
     private func distance(_ point: CGPoint, toSegmentFrom start: CGPoint, to end: CGPoint) -> CGFloat {
