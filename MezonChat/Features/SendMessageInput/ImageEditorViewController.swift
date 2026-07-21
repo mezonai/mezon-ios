@@ -1,6 +1,6 @@
 import UIKit
 
-private enum ImageEditorTool: Hashable {
+private enum ImageEditorTool: Int, Hashable {
     case draw
     case text
     case crop
@@ -56,22 +56,22 @@ final class ImageEditorViewController: UIViewController {
     }()
 
     private lazy var sendButton: UIButton = {
-        let button = UIButton(type: .system)
+        let button = UIButton(type: .custom)
         button.translatesAutoresizingMaskIntoConstraints = false
-        var configuration = UIButton.Configuration.filled()
-        configuration.title = L(L10n.ImageEditor.send)
-        configuration.image = UIImage(systemName: "paperplane.fill")
-        configuration.imagePadding = 8
-        configuration.baseBackgroundColor = .white
-        configuration.baseForegroundColor = .black
-        configuration.cornerStyle = .capsule
-        configuration.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 18, bottom: 0, trailing: 20)
-        configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
-            var attributes = attributes
-            attributes.font = .systemFont(ofSize: 17, weight: .bold)
-            return attributes
-        }
-        button.configuration = configuration
+        button.setTitle(L(L10n.ImageEditor.send), for: .normal)
+        button.setImage(UIImage(systemName: "paperplane.fill"), for: .normal)
+        button.backgroundColor = .white
+        button.setTitleColor(.black, for: .normal)
+        button.tintColor = .black
+        button.titleLabel?.font = .systemFont(ofSize: 17, weight: .bold)
+        
+        button.contentEdgeInsets = UIEdgeInsets(top: 8, left: 24, bottom: 8, right: 26)
+        button.titleEdgeInsets = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: -8)
+        button.imageEdgeInsets = UIEdgeInsets(top: 0, left: -4, bottom: 0, right: 4)
+        
+        button.layer.cornerRadius = 20
+        button.clipsToBounds = true
+        
         button.addTarget(self, action: #selector(sendTapped), for: .touchUpInside)
         return button
     }()
@@ -273,7 +273,8 @@ final class ImageEditorViewController: UIViewController {
         textIcon: String? = nil
     ) {
         let button = EditorToolButton(title: title, systemImage: systemImage, textIcon: textIcon)
-        button.addAction(UIAction { [weak self] _ in self?.selectTool(tool) }, for: .touchUpInside)
+        button.tag = tool.rawValue
+        button.addTarget(self, action: #selector(toolTapped(_:)), for: .touchUpInside)
         toolButtons[tool] = button
         toolRail.addArrangedSubview(button)
     }
@@ -298,17 +299,7 @@ final class ImageEditorViewController: UIViewController {
             button.layer.borderColor = UIColor.gray.cgColor
             button.layer.borderWidth = 1
             button.accessibilityValue = color.description
-            button.addAction(UIAction { [weak self, weak button] _ in
-                guard let self, let button, let color = button.backgroundColor else { return }
-                self.selectedColor = color
-                self.canvas.brushColor = color
-                self.canvas.isErasing = false
-                if self.canvas.mode == .text {
-                    self.canvas.setSelectedTextColor(color)
-                }
-                self.refreshPalette()
-                self.updateModeUI()
-            }, for: .touchUpInside)
+            button.addTarget(self, action: #selector(colorTapped(_:)), for: .touchUpInside)
             NSLayoutConstraint.activate([
                 button.widthAnchor.constraint(equalToConstant: 26),
                 button.heightAnchor.constraint(equalToConstant: 26)
@@ -367,6 +358,23 @@ final class ImageEditorViewController: UIViewController {
     @objc private func eraserTapped() {
         canvas.isErasing.toggle()
         updateModeUI()
+    }
+
+    @objc private func toolTapped(_ sender: UIButton) {
+        guard let tool = ImageEditorTool(rawValue: sender.tag) else { return }
+        selectTool(tool)
+    }
+
+    @objc private func colorTapped(_ sender: UIButton) {
+        guard let color = sender.backgroundColor else { return }
+        self.selectedColor = color
+        self.canvas.brushColor = color
+        self.canvas.isErasing = false
+        if self.canvas.mode == .text {
+            self.canvas.setSelectedTextColor(color)
+        }
+        self.refreshPalette()
+        self.updateModeUI()
     }
 
     @objc private func undoTapped() {
