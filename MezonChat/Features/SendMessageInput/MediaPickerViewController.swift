@@ -1089,9 +1089,10 @@ extension MediaPickerViewController: PHPhotoLibraryChangeObserver {
 extension MediaPickerViewController: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
 
     func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
-        picker.dismiss(animated: true)
-        guard let image = info[.originalImage] as? UIImage else { return }
-
+        guard let image = info[.originalImage] as? UIImage else {
+            picker.dismiss(animated: true)
+            return
+        }
 
         let tempDir = FileManager.default.temporaryDirectory
         let filename = "camera-\(UUID().uuidString).jpg"
@@ -1101,8 +1102,29 @@ extension MediaPickerViewController: UIImagePickerControllerDelegate, UINavigati
         }
 
         let result = MediaPickerResult(image: image, fileURL: fileURL, isVideo: false)
-        onPicked?([result])
-        dismiss(animated: true)
+
+        picker.dismiss(animated: true) { [weak self] in
+            guard let self else { return }
+            self.isPresentingEditor = true
+            let editor = ImageEditorViewController(result: result)
+            let sendEditedResult = self.onEditedSend
+            editor.onCancel = { [weak self] in
+                self?.isPresentingEditor = false
+            }
+            editor.onSendStarted = { [weak self] in
+                guard let self else { return }
+                self.didSendResults = true
+                self.isPresentingEditor = false
+                if let presenter = self.presentingViewController {
+                    presenter.dismiss(animated: true)
+                } else {
+                    self.dismiss(animated: true)
+                }
+            }
+            editor.onSend = { edited in sendEditedResult?(edited) }
+            editor.modalPresentationStyle = .fullScreen
+            self.present(editor, animated: true)
+        }
     }
 
     func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
