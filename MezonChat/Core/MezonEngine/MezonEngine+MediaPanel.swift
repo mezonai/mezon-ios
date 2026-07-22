@@ -87,20 +87,18 @@ extension MezonEngine {
                 }
             }
             group.addTask {
-                guard TenorGIFClient.isConfigured else {
-                    return
-                }
+                guard MezonEnvironment.isKlipyConfigured else { return }
                 do {
-                    let data = try await TenorGIFClient.fetchCategoriesData()
+                    let data = try await KlipyGIFClient.fetchCategoriesData()
                     let cache = MediaPanelTenorJsonCache(fetchedAt: now, jsonData: data)
                     postbox.setSetting(key: MediaPanelPostboxKeys.gifCategoriesJson, value: cache)
                 } catch {
                 }
             }
             group.addTask {
-                guard TenorGIFClient.isConfigured else { return }
+                guard MezonEnvironment.isKlipyConfigured else { return }
                 do {
-                    let data = try await TenorGIFClient.fetchFeaturedData()
+                    let data = try await KlipyGIFClient.fetchTrendingData()
                     let cache = MediaPanelTenorJsonCache(fetchedAt: now, jsonData: data)
                     postbox.setSetting(key: MediaPanelPostboxKeys.gifFeaturedJson, value: cache)
                 } catch {
@@ -110,49 +108,40 @@ extension MezonEngine {
     }
 }
 
-enum TenorGIFClient {
-
-    private static let categoriesURL = "https://tenor.googleapis.com/v2/categories"
-    private static let featuredURL = "https://tenor.googleapis.com/v2/featured"
-    private static let searchURL = "https://tenor.googleapis.com/v2/search"
-
-    static var isConfigured: Bool {
-        MezonEnvironment.tenorAPIKey != nil && MezonEnvironment.tenorClientKey != nil
-    }
+enum KlipyGIFClient {
 
     static func fetchCategoriesData() async throws -> Data {
-        try await getJSON(urlString: categoriesURL, extraItems: [
-            URLQueryItem(name: "type", value: "featured"),
-            URLQueryItem(name: "limit", value: "30"),
+        let urlStr = "\(MezonEnvironment.klipyBaseURL)/\(MezonEnvironment.klipyAPIKey)/gifs/categories"
+        return try await getJSON(urlString: urlStr, extraItems: [])
+    }
+
+    static func fetchTrendingData(page: Int = 1, perPage: Int = 30) async throws -> Data {
+        // Klipy uses /stickers/trending with format_filter=gif for trending gifs
+        let urlStr = "\(MezonEnvironment.klipyBaseURL)/\(MezonEnvironment.klipyAPIKey)/stickers/trending"
+        return try await getJSON(urlString: urlStr, extraItems: [
+            URLQueryItem(name: "page", value: "\(page)"),
+            URLQueryItem(name: "per_page", value: "\(perPage)"),
+            URLQueryItem(name: "format_filter", value: "gif")
         ])
     }
 
-    static func fetchFeaturedData() async throws -> Data {
-        try await getJSON(urlString: featuredURL, extraItems: [
-            URLQueryItem(name: "limit", value: "30"),
-        ])
-    }
-
-    static func fetchSearchData(query: String) async throws -> Data {
-        try await getJSON(urlString: searchURL, extraItems: [
+    static func fetchSearchData(query: String, page: Int = 1, perPage: Int = 30) async throws -> Data {
+        let urlStr = "\(MezonEnvironment.klipyBaseURL)/\(MezonEnvironment.klipyAPIKey)/gifs/search"
+        return try await getJSON(urlString: urlStr, extraItems: [
             URLQueryItem(name: "q", value: query),
-            URLQueryItem(name: "limit", value: "30"),
+            URLQueryItem(name: "page", value: "\(page)"),
+            URLQueryItem(name: "per_page", value: "\(perPage)"),
+            URLQueryItem(name: "format_filter", value: "gif")
         ])
     }
 
     private static func getJSON(urlString: String, extraItems: [URLQueryItem]) async throws -> Data {
-        guard let key = MezonEnvironment.tenorAPIKey, let clientKey = MezonEnvironment.tenorClientKey else {
-            throw URLError(.userAuthenticationRequired)
-        }
         guard var components = URLComponents(string: urlString) else {
             throw URLError(.badURL)
         }
-        var items = [
-            URLQueryItem(name: "key", value: key),
-            URLQueryItem(name: "client_key", value: clientKey),
-        ]
-        items.append(contentsOf: extraItems)
-        components.queryItems = items
+        if !extraItems.isEmpty {
+            components.queryItems = extraItems
+        }
         guard let url = components.url else { throw URLError(.badURL) }
 
         var request = URLRequest(url: url)
