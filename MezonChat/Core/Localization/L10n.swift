@@ -9,6 +9,19 @@ enum L10n {
         static let profile       = "tab.profile"
     }
 
+    enum MediaPanel {
+        static let emoji = "mediaPanel.emoji"
+        static let gifs = "mediaPanel.gifs"
+        static let stickers = "mediaPanel.stickers"
+        static let search = "mediaPanel.search"
+        static let findGif = "mediaPanel.findGif"
+        static let findEmoji = "mediaPanel.findEmoji"
+        static let findSticker = "mediaPanel.findSticker"
+        static let findReaction = "mediaPanel.findReaction"
+        static let trendingGifs = "mediaPanel.trendingGifs"
+        static let emptyGifs = "mediaPanel.emptyGifs"
+    }
+
     enum Profile {
         static let addStatus         = "profile.addStatus"
         static let editProfile       = "profile.editProfile"
@@ -2614,6 +2627,17 @@ extension L10n {
         "auditLog.removeMemberThread": "Remove Member from Thread",
         "auditLog.addRoleThread": "Add Role to Thread",
         "auditLog.removeRoleThread": "Remove Role from Thread",
+        
+        "mediaPanel.emoji": "Emojis",
+        "mediaPanel.gifs": "GIFs",
+        "mediaPanel.stickers": "Stickers",
+        "mediaPanel.search": "Search",
+        "mediaPanel.findGif": "Find the perfect GIF",
+        "mediaPanel.findEmoji": "Find the perfect emoji",
+        "mediaPanel.findSticker": "Find the perfect sticker",
+        "mediaPanel.findReaction": "Find the perfect reaction",
+        "mediaPanel.trendingGifs": "Trending GIFs",
+        "mediaPanel.emptyGifs": "GIFs will appear here",
     ]
 
     private static let vi: [String: String] = [
@@ -3845,5 +3869,16 @@ extension L10n {
         "auditLog.removeMemberThread": "Xóa thành viên khỏi chủ đề",
         "auditLog.addRoleThread": "Thêm vai trò vào chủ đề",
         "auditLog.removeRoleThread": "Xóa vai trò khỏi chủ đề",
+        
+        "mediaPanel.emoji": "Biểu cảm",
+        "mediaPanel.gifs": "GIFs",
+        "mediaPanel.stickers": "Nhãn dán",
+        "mediaPanel.search": "Tìm kiếm",
+        "mediaPanel.findGif": "Tìm kiếm GIF",
+        "mediaPanel.findEmoji": "Tìm kiếm biểu cảm",
+        "mediaPanel.findSticker": "Tìm kiếm nhãn dán",
+        "mediaPanel.findReaction": "Tìm kiếm biểu cảm",
+        "mediaPanel.trendingGifs": "Thịnh hành",
+        "mediaPanel.emptyGifs": "GIF sẽ xuất hiện ở đây",
     ]
 }
