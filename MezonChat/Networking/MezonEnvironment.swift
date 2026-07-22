@@ -134,18 +134,9 @@ enum MezonEnvironment {
         return t.isEmpty ? nil : t
     }
 
-    static var tenorAPIKey: String? {
-        switch current {
-        case .dev:  return Secrets.devTenorAPIKey
-        case .prod: return Secrets.prodTenorAPIKey
-        }
-    }
-
-    static var tenorClientKey: String? {
-        switch current {
-        case .dev:  return Secrets.devTenorClientKey
-        case .prod: return Secrets.prodTenorClientKey
-        }
+    static var isKlipyConfigured: Bool {
+        let key = klipyAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !key.isEmpty && key != "YOUR_KLIPY_API_KEY"
     }
 
     static var klipyAPIKey: String {

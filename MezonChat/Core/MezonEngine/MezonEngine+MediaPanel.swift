@@ -87,6 +87,7 @@ extension MezonEngine {
                 }
             }
             group.addTask {
+                guard MezonEnvironment.isKlipyConfigured else { return }
                 do {
                     let data = try await KlipyGIFClient.fetchCategoriesData()
                     let cache = MediaPanelTenorJsonCache(fetchedAt: now, jsonData: data)
@@ -95,6 +96,7 @@ extension MezonEngine {
                 }
             }
             group.addTask {
+                guard MezonEnvironment.isKlipyConfigured else { return }
                 do {
                     let data = try await KlipyGIFClient.fetchTrendingData()
                     let cache = MediaPanelTenorJsonCache(fetchedAt: now, jsonData: data)

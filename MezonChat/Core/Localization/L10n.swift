@@ -3871,7 +3871,7 @@ extension L10n {
         "auditLog.removeRoleThread": "Xóa vai trò khỏi chủ đề",
         
         "mediaPanel.emoji": "Biểu cảm",
-        "mediaPanel.gifs": "GIF",
+        "mediaPanel.gifs": "GIFs",
         "mediaPanel.stickers": "Nhãn dán",
         "mediaPanel.search": "Tìm kiếm",
         "mediaPanel.findGif": "Tìm kiếm GIF",

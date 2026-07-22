@@ -72,6 +72,8 @@ final class GifsPanel: UIView {
     private let trendingCategoryQuery = "Trending GIFs"
 
     private var searchDebounceWorkItem: DispatchWorkItem?
+    private var searchGeneration: Int = 0
+    private var lastBoundsSize: CGSize = .zero
 
     private let categoryHeaderContainer: UIView = {
         let v = UIView()
@@ -184,7 +186,10 @@ final class GifsPanel: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        collectionView.collectionViewLayout.invalidateLayout()
+        if bounds.size != lastBoundsSize {
+            lastBoundsSize = bounds.size
+            collectionView.collectionViewLayout.invalidateLayout()
+        }
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -194,12 +199,28 @@ final class GifsPanel: UIView {
     }
 
     func resetCategoryState() {
-        guard gifSearchActive || currentGifCategory != nil || displayMode != .categories || !(searchTextField.text?.isEmpty ?? true) else { return }
+        searchDebounceWorkItem?.cancel()
+        searchGeneration += 1
+        
         gifSearchActive = false
         currentGifCategory = nil
         searchTextField.text = ""
-        displayMode = .categories
+        
+        if categories.isEmpty && !featuredGifs.isEmpty {
+            searchResultGifs = featuredGifs
+            displayMode = .searchResults
+        } else {
+            displayMode = .categories
+        }
+        
         updateUI()
+    }
+
+    func resetCategoryStateIfNeededOnTabSwitch() {
+        let text = searchTextField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if currentGifCategory != nil && text.isEmpty {
+            resetCategoryState()
+        }
     }
 
     func bindGifCache(engine: MezonEngine) {
@@ -243,8 +264,14 @@ final class GifsPanel: UIView {
         searchBarContainer.backgroundColor = t.primary
         searchIconView.tintColor = t.textDisabled
         searchTextField.textColor = t.textStrong
+        let placeholderString: String
+        if gifSearchActive, let cat = currentGifCategory, cat != trendingCategoryQuery {
+            placeholderString = cat
+        } else {
+            placeholderString = L(L10n.MediaPanel.findGif)
+        }
         searchTextField.attributedPlaceholder = NSAttributedString(
-            string: NSLocalizedString("mediaPanel.findGif", tableName: nil, bundle: .main, value: "Find the perfect GIF", comment: ""),
+            string: placeholderString,
             attributes: [.foregroundColor: t.textDisabled]
         )
         categoryBackButton.tintColor = t.textStrong
@@ -333,6 +360,12 @@ final class GifsPanel: UIView {
     }
 
     private func updateUI() {
+        if !MezonEnvironment.isKlipyConfigured {
+            emptyLabel.text = "GIF is not configured (missing KLIPY_API_KEY)."
+        } else {
+            emptyLabel.text = L(L10n.MediaPanel.emptyGifs)
+        }
+
         if gifSearchActive && currentGifCategory != nil {
             if currentGifCategory == trendingCategoryQuery {
                 searchBarContainer.isHidden = true
@@ -376,6 +409,7 @@ final class GifsPanel: UIView {
     }
     
     private func loadInitialDataIfNeeded() {
+        guard MezonEnvironment.isKlipyConfigured else { return }
         displayMode = .loading
         updateUI()
         if #available(iOS 13.0, *) {
@@ -430,17 +464,7 @@ final class GifsPanel: UIView {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if trimmed.isEmpty {
-            if gifSearchActive && currentGifCategory != nil {
-                performCategorySearch(query: currentGifCategory!)
-            } else if categories.isEmpty && !featuredGifs.isEmpty {
-                searchResultGifs = featuredGifs
-                displayMode = .searchResults
-                updateUI()
-            } else {
-                searchResultGifs = []
-                displayMode = .categories
-                updateUI()
-            }
+            resetCategoryState()
             return
         }
 
@@ -452,20 +476,26 @@ final class GifsPanel: UIView {
     }
 
     private func performSearch(query: String) {
+        guard MezonEnvironment.isKlipyConfigured else { return }
         displayMode = .loading
         updateUI()
+
+        searchGeneration += 1
+        let currentGen = searchGeneration
 
         Task {
             do {
                 let data = try await KlipyGIFClient.fetchSearchData(query: query)
                 let resp = try JSONDecoder().decode(KlipySearchResponse.self, from: data)
                 await MainActor.run {
+                    guard self.searchGeneration == currentGen else { return }
                     self.searchResultGifs = resp.data?.data ?? []
                     self.displayMode = .searchResults
                     self.updateUI()
                 }
             } catch {
                 await MainActor.run {
+                    guard self.searchGeneration == currentGen else { return }
                     self.searchResultGifs = []
                     self.displayMode = .searchResults
                     self.updateUI()
@@ -475,8 +505,12 @@ final class GifsPanel: UIView {
     }
     
     private func performCategorySearch(query: String) {
+        guard MezonEnvironment.isKlipyConfigured else { return }
         displayMode = .loading
         updateUI()
+
+        searchGeneration += 1
+        let currentGen = searchGeneration
 
         Task {
             do {
@@ -488,12 +522,14 @@ final class GifsPanel: UIView {
                 }
                 let resp = try JSONDecoder().decode(KlipySearchResponse.self, from: data)
                 await MainActor.run {
+                    guard self.searchGeneration == currentGen else { return }
                     self.searchResultGifs = resp.data?.data ?? []
                     self.displayMode = .searchResults
                     self.updateUI()
                 }
             } catch {
                 await MainActor.run {
+                    guard self.searchGeneration == currentGen else { return }
                     self.searchResultGifs = []
                     self.displayMode = .searchResults
                     self.updateUI()
@@ -529,7 +565,7 @@ extension GifsPanel: UICollectionViewDataSource, UICollectionViewDelegate, UICol
         case .categories:
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: GifCategoryCell.reuseId, for: indexPath) as! GifCategoryCell
             let cat = categories[indexPath.item]
-            let displayName = cat.category == trendingCategoryQuery ? NSLocalizedString("mediaPanel.trendingGifs", tableName: nil, bundle: .main, value: "Trending GIFs", comment: "") : cat.category
+            let displayName = cat.category == trendingCategoryQuery ? L(L10n.MediaPanel.trendingGifs) : cat.category
             cell.configure(name: displayName, imageURL: cat.preview_url ?? "")
             return cell
         case .searchResults:

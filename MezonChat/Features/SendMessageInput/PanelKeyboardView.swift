@@ -501,7 +501,7 @@ final class PanelKeyboardView: UIView, UIGestureRecognizerDelegate {
     @objc private func tabTapped(_ sender: UIButton) {
         guard let tab = PanelKeyboardTab(rawValue: sender.tag), tab != currentTab else { return }
         dismissSearch()
-        gifsPanel.resetCategoryState()
+        gifsPanel.resetCategoryStateIfNeededOnTabSwitch()
         currentTab = tab
         updateTabSelection(animated: true)
         updateVisiblePanel()
