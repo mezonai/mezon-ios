@@ -397,6 +397,11 @@ final class Postbox {
             settingsTable.beforeCommit()
         }
     }
+    func clearPreferencesSync(withPrefix prefix: String) {
+        queue.sync { [self] in
+            settingsTable.removeKeys(withPrefix: prefix)
+        }
+    }
     func getPreference<T: PostboxCoding>(key: String, type: T.Type) -> T? { getSetting(key: key, type: type) }
     func getPreferenceData(key: String) -> Data?                  { getSettingData(key: key) }
 

@@ -242,6 +242,10 @@ final class AccountContextImpl: AccountContext {
         account.postbox.setPreferenceDataSync(key: PreferencesKeys.selectedChannelId(clanId: clanId), value: nil)
     }
 
+    func clearAllPersistedSelectedChannelPreferences() {
+        account.postbox.clearPreferencesSync(withPrefix: PreferencesKeys.selectedChannelIdPrefix)
+    }
+
     init(
         sharedContext: SharedAccountContextImpl,
         account: Account,

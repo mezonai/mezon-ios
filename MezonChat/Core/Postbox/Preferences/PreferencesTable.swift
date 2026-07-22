@@ -78,6 +78,7 @@ enum PreferencesKeys {
     static let account    = "account"
     static let clans      = "clans"
     static let selectedClanId = "selectedClanId"
+    static let selectedChannelIdPrefix = "selectedChannel_"
     static func selectedChannelId(clanId: Int64) -> String { "selectedChannel_\(clanId)" }
     static func clanUsers(clanId: Int64) -> String { "clanUsers_\(clanId)" }
     static func clanRoles(clanId: Int64) -> String { "clanRoles_\(clanId)" }

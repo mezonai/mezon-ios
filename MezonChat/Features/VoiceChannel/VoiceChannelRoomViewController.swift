@@ -2753,6 +2753,11 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         return false
     }
 
+    func handoffToPiPForExternalNavigation() {
+        guard !isMinimizingToPiP, !isEndingVoiceRoom, liveKitBridge != nil else { return }
+        voiceRoomPerformPiPHandoffIfStillInCall()
+    }
+
     @discardableResult
     private func voiceRoomPerformPiPHandoffIfStillInCall() -> Bool {
         if isMinimizingToPiP { return false }
