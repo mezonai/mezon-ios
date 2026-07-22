@@ -737,7 +737,7 @@ private final class ImageEditorCanvasView: UIView, UIGestureRecognizerDelegate {
         var text: String
         var color: UIColor
         var center: CGPoint
-        let fontSize: CGFloat
+        var fontSize: CGFloat
     }
 
     enum CropTarget: Equatable {
@@ -1080,9 +1080,7 @@ private final class ImageEditorCanvasView: UIView, UIGestureRecognizerDelegate {
         let outline: [NSAttributedString.Key: Any] = [
             .font: font,
             .paragraphStyle: paragraph,
-            .foregroundColor: overlay.color,
-            .strokeColor: overlay.color == .black ? UIColor.white : UIColor.black,
-            .strokeWidth: -2.5
+            .foregroundColor: overlay.color
         ]
         (overlay.text as NSString).draw(with: rect, options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: outline, context: nil)
     }
@@ -1267,7 +1265,34 @@ private final class ImageEditorCanvasView: UIView, UIGestureRecognizerDelegate {
         changed()
     }
 
+    private var zoomTextIndex: Int?
+
     @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {
+        if mode == .text {
+            if gesture.state == .began {
+                let focus = gesture.location(in: self)
+                var minDistance = CGFloat.greatestFiniteMagnitude
+                zoomTextIndex = nil
+                for (index, overlay) in texts.enumerated() {
+                    let dx = overlay.center.x - focus.x
+                    let dy = overlay.center.y - focus.y
+                    let dist = dx * dx + dy * dy
+                    if dist < minDistance {
+                        minDistance = dist
+                        zoomTextIndex = index
+                    }
+                }
+            }
+            if let index = zoomTextIndex, gesture.state == .began || gesture.state == .changed {
+                texts[index].fontSize = min(max(texts[index].fontSize * gesture.scale, 12), 120)
+                gesture.scale = 1
+                updateLayers()
+            }
+            return
+        }
+        
+        if mode == .draw { return }
+
         guard gesture.state == .began || gesture.state == .changed else {
             if gesture.state == .ended { clampImageToCrop() }
             return
