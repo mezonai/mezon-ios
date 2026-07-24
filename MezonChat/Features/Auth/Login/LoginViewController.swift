@@ -88,7 +88,7 @@ final class LoginViewController: ViewController, AuthScreenStatusBarStyle {
             onEmailChanged: { [weak self] text in self?.setEmail(text) },
             onPasswordChanged: { [weak self] text in self?.setPassword(text) },
             onSubmitTapped: { [weak self] in self?.triggerSubmit() },
-            onCountryPrefixTapped: { [weak self] in self?.showCountryPicker() },
+            onCountryPrefixTapped: { [weak self] anchor in self?.showCountryPicker(anchor: anchor) },
             onShowPasswordToggled: { [weak self] in
                 guard let self else { return }
                 self.setPasswordVisible(!self.isPasswordVisible)
@@ -269,15 +269,68 @@ final class LoginViewController: ViewController, AuthScreenStatusBarStyle {
         }
     }
 
-    private func showCountryPicker() {
-        let sheet = UIAlertController(title: L(L10n.Login.selectCountry), message: nil, preferredStyle: .actionSheet)
+    private var customDropdown: UIView?
+
+    private class CountryButton: UIButton {
+        var prefix: String = ""
+    }
+
+    private func showCountryPicker(anchor: UIView) {
+        if customDropdown != nil {
+            hideCountryPicker()
+            return
+        }
+
+        let overlay = UIButton(type: .custom)
+        overlay.frame = view.bounds
+        overlay.addTarget(self, action: #selector(hideCountryPicker), for: .touchUpInside)
+        view.addSubview(overlay)
+
+        let dropdown = UIView()
+        dropdown.backgroundColor = AppTheme.light.attributes.loginInputBg
+        dropdown.layer.cornerRadius = 8
+        dropdown.layer.borderWidth = 1
+        dropdown.layer.borderColor = AppTheme.light.attributes.loginInputBorder.cgColor
+        dropdown.layer.shadowColor = UIColor.black.cgColor
+        dropdown.layer.shadowOpacity = 0.1
+        dropdown.layer.shadowRadius = 8
+        dropdown.layer.shadowOffset = CGSize(width: 0, height: 4)
+
+        overlay.addSubview(dropdown)
+
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.distribution = .fillEqually
+        dropdown.addSubview(stack)
+
         let countries = [("+84", "🇻🇳 Việt Nam"), ("+81", "🇯🇵 Japan"), ("+1", "🇺🇸 USA")]
         for (prefix, name) in countries {
-            sheet.addAction(UIAlertAction(title: name, style: .default) { [weak self] _ in self?.setCountryPrefix(prefix) })
+            let btn = CountryButton(type: .system)
+            btn.prefix = prefix
+            btn.setTitle("\(name) (\(prefix))", for: .normal)
+            btn.setTitleColor(AppTheme.light.attributes.loginInputTextColor, for: .normal)
+            btn.contentHorizontalAlignment = .left
+            btn.titleEdgeInsets = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
+            btn.addTarget(self, action: #selector(countryButtonTapped(_:)), for: .touchUpInside)
+            stack.addArrangedSubview(btn)
         }
-        sheet.addAction(UIAlertAction(title: L(L10n.Common.cancel), style: .cancel))
-        if let pop = sheet.popoverPresentationController { pop.sourceView = loginNode.phonePrefixButton }
-        present(sheet, animated: true)
+
+        let anchorRect = anchor.convert(anchor.bounds, to: view)
+        
+        dropdown.frame = CGRect(x: anchorRect.minX, y: anchorRect.maxY + 4, width: 220, height: CGFloat(countries.count * 44))
+        stack.frame = dropdown.bounds
+
+        customDropdown = overlay
+    }
+
+    @objc private func countryButtonTapped(_ sender: CountryButton) {
+        setCountryPrefix(sender.prefix)
+        hideCountryPicker()
+    }
+
+    @objc private func hideCountryPicker() {
+        customDropdown?.removeFromSuperview()
+        customDropdown = nil
     }
 
     @objc private func handleLanguageChange() { loginNode.refreshLocalizedStrings() }

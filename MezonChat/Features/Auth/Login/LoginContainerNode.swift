@@ -6,7 +6,7 @@ struct LoginInteraction {
     let onEmailChanged: (String) -> Void
     let onPasswordChanged: (String) -> Void
     let onSubmitTapped: () -> Void
-    let onCountryPrefixTapped: () -> Void
+    let onCountryPrefixTapped: (UIView) -> Void
     let onShowPasswordToggled: () -> Void
     let onModeSelected: (LoginMode) -> Void
 }
@@ -320,10 +320,10 @@ private func buildAlternativeItems(mode: LoginMode, interaction: LoginInteractio
 final class PhoneInputComponent: Component {
     let prefix: String
     let phone: String
-    let onPrefixTapped: () -> Void
+    let onPrefixTapped: (UIView) -> Void
     let onPhoneChanged: (String) -> Void
 
-    init(prefix: String, phone: String, onPrefixTapped: @escaping () -> Void, onPhoneChanged: @escaping (String) -> Void) {
+    init(prefix: String, phone: String, onPrefixTapped: @escaping (UIView) -> Void, onPhoneChanged: @escaping (String) -> Void) {
         self.prefix = prefix
         self.phone = phone
         self.onPrefixTapped = onPrefixTapped
@@ -341,7 +341,7 @@ final class PhoneInputComponent: Component {
         private let prefixButton = UIButton(type: .system)
         private let separator = UIView()
         private let textField = UITextField()
-        private var onPrefixTapped: (() -> Void)?
+        private var onPrefixTapped: ((UIView) -> Void)?
         private var onPhoneChanged: ((String) -> Void)?
 
         override init(frame: CGRect) {
@@ -408,7 +408,7 @@ final class PhoneInputComponent: Component {
             return size
         }
 
-        @objc private func prefixTap() { onPrefixTapped?() }
+        @objc private func prefixTap() { onPrefixTapped?(prefixButton) }
         @objc private func textChanged() { onPhoneChanged?(textField.text ?? "") }
     }
 

@@ -895,15 +895,19 @@ final class EmbedDatePickerFieldNode: ASDisplayNode, EmbedFormInputNode {
         let wrapper = ASDisplayNode { [weak self] in return self?.button ?? UIView() }
         addSubnode(wrapper)
 
-        if let existing = EmbedFormState.shared.getValue(forComponent: component.id, messageId: messageId), !existing.isEmpty, isValidDateFormat(existing) {
-            button.setTitle(existing, for: .normal)
+        if let existing = EmbedFormState.shared.getValue(forComponent: component.id, messageId: messageId), !existing.isEmpty, parseDate(from: existing) != nil {
+            button.setTitle(formatForDisplay(existing), for: .normal)
             button.setTitleColor(t.textStrong, for: .normal)
-        } else if let existing = EmbedFormState.shared.getValue(forComponent: component.id, messageId: messageId), !existing.isEmpty, !isValidDateFormat(existing) {
+        } else if let existing = EmbedFormState.shared.getValue(forComponent: component.id, messageId: messageId), !existing.isEmpty, parseDate(from: existing) == nil {
             EmbedFormState.shared.clear(messageId: messageId)
-        } else if let def = component.dateValue, !def.isEmpty, isValidDateFormat(def) {
-            button.setTitle(def, for: .normal)
+        } else if let def = component.dateValue, !def.isEmpty, let date = parseDate(from: def) {
+            let df = DateFormatter()
+            df.dateFormat = "dd/MM/yyyy"
+            button.setTitle(df.string(from: date), for: .normal)
             button.setTitleColor(t.textStrong, for: .normal)
-            EmbedFormState.shared.setValue(def, forComponent: component.id, messageId: messageId)
+            
+            df.dateFormat = "yyyy-MM-dd"
+            EmbedFormState.shared.setValue(df.string(from: date), forComponent: component.id, messageId: messageId)
         }
     }
     func measureSize(maxWidth: CGFloat) -> CGSize {
@@ -937,9 +941,13 @@ final class EmbedDatePickerFieldNode: ASDisplayNode, EmbedFormInputNode {
         ])
         alert.addAction(UIAlertAction(title: "Done", style: .default, handler: { _ in
             let df = DateFormatter()
-            df.dateFormat = "dd/MM/yyyy"
+            df.dateFormat = "yyyy-MM-dd"
             let str = df.string(from: picker.date)
-            self.button.setTitle(str, for: .normal)
+            
+            df.dateFormat = "dd/MM/yyyy"
+            let displayStr = df.string(from: picker.date)
+            
+            self.button.setTitle(displayStr, for: .normal)
             self.button.setTitleColor(UIColor.theme.textStrong, for: .normal)
             EmbedFormState.shared.setValue(str, forComponent: self.component.id, messageId: self.messageId)
         }))
@@ -951,10 +959,20 @@ final class EmbedDatePickerFieldNode: ASDisplayNode, EmbedFormInputNode {
         vc.present(alert, animated: true)
     }
 
-    private func isValidDateFormat(_ dateString: String) -> Bool {
+    private func formatForDisplay(_ dateString: String) -> String {
+        guard let date = parseDate(from: dateString) else { return dateString }
         let formatter = DateFormatter()
         formatter.dateFormat = "dd/MM/yyyy"
-        return formatter.date(from: dateString) != nil
+        return formatter.string(from: date)
+    }
+
+    private func parseDate(from dateString: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        if let d = formatter.date(from: dateString) { return d }
+        formatter.dateFormat = "dd/MM/yyyy"
+        if let d = formatter.date(from: dateString) { return d }
+        return nil
     }
 }
 
