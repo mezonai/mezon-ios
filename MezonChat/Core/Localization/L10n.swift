@@ -1561,7 +1561,7 @@ extension L10n {
         "login.loginFailed":    "Invalid email or password. Please try again.",
         "login.phone":          "Phone number",
         "login.enterEmail":     "Enter your email",
-        "login.enterPhone":     "Enter your phone",
+        "login.enterPhone":     "Enter your phone number",
         "login.chooseAnotherOption":   "Or choose another option",
         "login.emailAddress":   "Email address",
         "login.send":           "Send OTP",
