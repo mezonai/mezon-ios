@@ -5,13 +5,35 @@ private enum ForwardOutgoing {
     private static let maxExtraTextLen = 2000
 
     static func contentJSONString(for record: MessageRecord) -> String {
-        if var dict = try? JSONSerialization.jsonObject(with: record.content) as? [String: Any] {
+        let parsedDict: [String: Any]?
+        if let d = try? JSONSerialization.jsonObject(with: record.content) as? [String: Any] {
+            parsedDict = d
+        } else if let str = String(data: record.content, encoding: .utf8),
+                  let sanitized = MessageContentParser.sanitizeAndRetryParse(str) {
+            parsedDict = sanitized
+        } else {
+            parsedDict = nil
+        }
+        
+        if var dict = parsedDict {
             dict["fwd"] = true
             if let data = try? JSONSerialization.data(withJSONObject: dict),
                let str = String(data: data, encoding: .utf8) {
                 return str
             }
         }
+        
+        if let str = String(data: record.content, encoding: .utf8) {
+             let extracted = MessageContentParser.regexExtractTextField(str)
+             if !extracted.isEmpty {
+                 let dict: [String: Any] = ["t": extracted, "fwd": true]
+                 if let data = try? JSONSerialization.data(withJSONObject: dict),
+                    let str = String(data: data, encoding: .utf8) {
+                     return str
+                 }
+             }
+        }
+        
         return #"{"fwd":true}"#
     }
 

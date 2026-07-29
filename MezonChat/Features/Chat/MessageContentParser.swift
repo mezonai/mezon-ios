@@ -205,8 +205,14 @@ enum MessageContentParser {
               !str.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .empty
         }
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return ParsedContent(text: str, tokens: [], embeds: [], ogpPreviews: [])
+        let json: [String: Any]
+        if let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            json = parsed
+        } else if let sanitized = Self.sanitizeAndRetryParse(str) {
+            json = sanitized
+        } else {
+            let extractedText = Self.regexExtractTextField(str)
+            return ParsedContent(text: extractedText, tokens: [], embeds: [], ogpPreviews: [])
         }
         let text = json["t"] as? String ?? json["text"] as? String ?? ""
         let embeds = parseEmbeds(json["embed"], topLevelComponents: json["components"])
@@ -252,6 +258,45 @@ enum MessageContentParser {
         tokens = tokens.filter { $0.start >= 0 && $0.end <= maxLen && $0.start < $0.end }
 
         return ParsedContent(text: text, tokens: tokens, embeds: embeds, ogpPreviews: ogpPreviews)
+    }
+
+    static func sanitizeAndRetryParse(_ raw: String) -> [String: Any]? {
+        var sanitized = raw
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+            .replacingOccurrences(of: "\t", with: "\\t")
+        
+        let surrogatePattern = try? NSRegularExpression(
+            pattern: "\\\\u[Dd][89AaBb][0-9A-Fa-f]{2}(?!\\\\u[Dd][CcDdEeFf][0-9A-Fa-f]{2})",
+            options: []
+        )
+        if let regex = surrogatePattern {
+            sanitized = regex.stringByReplacingMatches(
+                in: sanitized,
+                range: NSRange(sanitized.startIndex..., in: sanitized),
+                withTemplate: "\\\\uFFFD"
+            )
+        }
+        
+        guard let data = sanitized.data(using: .utf8) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+
+    static func regexExtractTextField(_ raw: String) -> String {
+        guard raw.hasPrefix("{") else { return raw }
+        let pattern = "\"t\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\""
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: raw, range: NSRange(raw.startIndex..., in: raw)),
+              match.numberOfRanges > 1,
+              let range = Range(match.range(at: 1), in: raw) else {
+            return ""
+        }
+        return String(raw[range])
+            .replacingOccurrences(of: "\\n", with: "\n")
+            .replacingOccurrences(of: "\\r", with: "\r")
+            .replacingOccurrences(of: "\\t", with: "\t")
+            .replacingOccurrences(of: "\\\"", with: "\"")
+            .replacingOccurrences(of: "\\\\", with: "\\")
     }
 
     private static func parseEmojis(_ items: [[String: Any]]) -> [ContentToken] {
