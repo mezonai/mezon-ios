@@ -4296,10 +4296,10 @@ final class SendMessageInputViewController: UIViewController {
     private func detectMentionKeyword() -> String? {
         guard let selectedRange = textView.selectedTextRange else { return nil }
         let cursorOffset = textView.offset(from: textView.beginningOfDocument, to: selectedRange.start)
-        let fullText = textView.text ?? ""
-        guard cursorOffset > 0, cursorOffset <= fullText.count else { return nil }
+        let fullNS = (textView.text ?? "") as NSString
+        guard cursorOffset > 0, cursorOffset <= fullNS.length else { return nil }
 
-        let textBefore = String(fullText.prefix(cursorOffset))
+        let textBeforeNS = fullNS.substring(to: cursorOffset) as NSString
 
         for mention in activeMentions {
             if cursorOffset > mention.range.location && cursorOffset <= mention.range.location + mention.range.length {
@@ -4307,15 +4307,16 @@ final class SendMessageInputViewController: UIViewController {
             }
         }
 
-        guard let atIdx = textBefore.lastIndex(of: "@") else { return nil }
-        let atIntIdx = textBefore.distance(from: textBefore.startIndex, to: atIdx)
+        let atRange = textBeforeNS.range(of: "@", options: .backwards)
+        guard atRange.location != NSNotFound else { return nil }
+        let atIntIdx = atRange.location
 
         if atIntIdx > 0 {
-            let charBefore = textBefore[textBefore.index(before: atIdx)]
+            let charBefore = textBeforeNS.substring(with: NSRange(location: atIntIdx - 1, length: 1))
             guard charBefore == " " || charBefore == "\n" else { return nil }
         }
 
-        let keyword = String(textBefore[textBefore.index(after: atIdx)...])
+        let keyword = textBeforeNS.substring(from: atIntIdx + 1)
         return keyword
     }
 
@@ -4564,10 +4565,12 @@ final class SendMessageInputViewController: UIViewController {
         guard let selectedRange = textView.selectedTextRange else { return }
         let cursorOffset = textView.offset(from: textView.beginningOfDocument, to: selectedRange.start)
 
-        let fullText = textView.text ?? ""
-        let textBefore = String(fullText.prefix(cursorOffset))
-        guard let atIdx = textBefore.lastIndex(of: "@") else { return }
-        let atIntIdx = textBefore.distance(from: textBefore.startIndex, to: atIdx)
+        let fullNS = (textView.text ?? "") as NSString
+        guard cursorOffset >= 0, cursorOffset <= fullNS.length else { return }
+        let textBeforeNS = fullNS.substring(to: cursorOffset) as NSString
+        let atRange = textBeforeNS.range(of: "@", options: .backwards)
+        guard atRange.location != NSNotFound else { return }
+        let atIntIdx = atRange.location
         let replaceRange = NSRange(location: atIntIdx, length: cursorOffset - atIntIdx)
 
         let mentionText: String
