@@ -1223,6 +1223,7 @@ final class MessageBubbleNode: ASDisplayNode {
                     image: preview ?? (itemIndex == index ? att.localImage : nil),
                     placeholderURL: nil,
                     senderName: display.senderDisplayName,
+                    senderId: display.message.senderId,
                     senderAvatarURL: display.avatarURL,
                     timestamp: display.message.createdAt,
                     isVideo: true
@@ -1235,6 +1236,7 @@ final class MessageBubbleNode: ASDisplayNode {
                     ?? (itemIndex == index ? att.localImage : nil),
                 pixelSize: GalleryItemInfo.pixelSize(width: att.width, height: att.height),
                 senderName: display.senderDisplayName,
+                senderId: display.message.senderId,
                 senderAvatarURL: display.avatarURL,
                 timestamp: display.message.createdAt
             )
@@ -1255,6 +1257,7 @@ final class MessageBubbleNode: ASDisplayNode {
                 sourceURL: url,
                 placeholderProxySize: EmbedItemNode.embedImageProxyDimension,
                 senderName: display.senderDisplayName,
+                senderId: display.message.senderId,
                 senderAvatarURL: display.avatarURL,
                 timestamp: display.message.createdAt
             ),

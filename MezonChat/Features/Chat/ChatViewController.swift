@@ -6019,6 +6019,7 @@ final class ChatViewController: ViewController {
                 image: previewImage ?? attachment.localImage,
                 placeholderURL: nil,
                 senderName: display.senderDisplayName,
+                senderId: display.message.senderId,
                 senderAvatarURL: display.avatarURL,
                 timestamp: display.message.createdAt,
                 isVideo: true
@@ -6031,6 +6032,7 @@ final class ChatViewController: ViewController {
                 ?? attachment.localImage,
             pixelSize: GalleryItemInfo.pixelSize(width: attachment.width, height: attachment.height),
             senderName: display.senderDisplayName,
+            senderId: display.message.senderId,
             senderAvatarURL: display.avatarURL,
             timestamp: display.message.createdAt
         )
@@ -6111,6 +6113,7 @@ final class ChatViewController: ViewController {
                 image: nil,
                 placeholderURL: nil,
                 senderName: uploader.name,
+                senderId: String(attachment.uploader),
                 senderAvatarURL: uploader.avatarURL,
                 timestamp: timestamp,
                 isVideo: true
@@ -6121,6 +6124,7 @@ final class ChatViewController: ViewController {
             pixelSize: GalleryItemInfo.pixelSize(width: attachment.width, height: attachment.height),
             placeholderProxySize: 150,
             senderName: uploader.name,
+            senderId: String(attachment.uploader),
             senderAvatarURL: uploader.avatarURL,
             timestamp: timestamp
         )

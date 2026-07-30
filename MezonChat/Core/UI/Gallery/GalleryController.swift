@@ -454,11 +454,20 @@ final class GalleryController: UIViewController {
     private func updateHeader(for index: Int) {
         guard index >= 0, index < items.count else { return }
         let item = items[index]
+        
+        let isAnonymous = item.senderId == "1767478432163172999"
 
-        nameLabel.text = item.senderName.isEmpty ? nil : item.senderName
-        avatarImageView.isHidden = item.senderName.isEmpty
-        nameLabel.isHidden = item.senderName.isEmpty
-        dateLabel.isHidden = item.senderName.isEmpty
+        if isAnonymous {
+            nameLabel.text = "Anonymous"
+            avatarImageView.isHidden = false
+            nameLabel.isHidden = false
+            dateLabel.isHidden = false
+        } else {
+            nameLabel.text = item.senderName.isEmpty ? nil : item.senderName
+            avatarImageView.isHidden = item.senderName.isEmpty
+            nameLabel.isHidden = item.senderName.isEmpty
+            dateLabel.isHidden = item.senderName.isEmpty
+        }
 
         if let ts = item.timestamp {
             dateLabel.text = formatDate(ts)
@@ -466,7 +475,17 @@ final class GalleryController: UIViewController {
             dateLabel.text = nil
         }
 
-        if let avatarURLStr = item.senderAvatarURL, !avatarURLStr.isEmpty {
+        if isAnonymous {
+            avatarImageView.contentMode = .center
+            if let raw = UIImage(named: "Chat/AnonymousIcon") {
+                avatarImageView.image = Self.anonymousAvatarCompositeImage(raw: raw, tint: .white)
+            } else {
+                avatarImageView.image = nil
+            }
+            avatarImageView.backgroundColor = UIColor(white: 0.2, alpha: 1.0)
+        } else if let avatarURLStr = item.senderAvatarURL, !avatarURLStr.isEmpty {
+            avatarImageView.contentMode = .scaleAspectFill
+            avatarImageView.backgroundColor = UIColor.white.withAlphaComponent(0.2)
             let proxyURL = ImgproxyURL.attachmentURL(
                 from: avatarURLStr,
                 width: 100,
@@ -484,6 +503,8 @@ final class GalleryController: UIViewController {
             }
         } else {
             avatarImageView.image = nil
+            avatarImageView.contentMode = .scaleAspectFill
+            avatarImageView.backgroundColor = UIColor.white.withAlphaComponent(0.2)
         }
 
         if items.count > 1 && !items[index].isVideo {
@@ -1092,5 +1113,26 @@ extension GalleryController: UIGestureRecognizerDelegate {
             }
         }
         return true
+    }
+
+    private static func anonymousAvatarCompositeImage(raw: UIImage, tint: UIColor) -> UIImage {
+        let tinted = raw.withRenderingMode(.alwaysTemplate)
+            .withTintColor(tint, renderingMode: .alwaysOriginal)
+        let iconMax = CGSize(width: 22, height: 22)
+        let canvas = CGSize(width: 40, height: 40)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = UIScreen.main.scale
+        format.opaque = false
+        return UIGraphicsImageRenderer(size: canvas, format: format).image { _ in
+            let tw = max(tinted.size.width, 1)
+            let th = max(tinted.size.height, 1)
+            let scale = min(iconMax.width / tw, iconMax.height / th)
+            let drawSize = CGSize(width: tw * scale, height: th * scale)
+            let origin = CGPoint(
+                x: (canvas.width - drawSize.width) / 2,
+                y: (canvas.height - drawSize.height) / 2
+            )
+            tinted.draw(in: CGRect(origin: origin, size: drawSize))
+        }
     }
 }
