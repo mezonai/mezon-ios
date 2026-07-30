@@ -191,6 +191,7 @@ final class MediaGalleryNode: ASDisplayNode {
         guard index >= 0, index < attachments.count else { return }
         let proxySide = Int(flowLayout.itemSize.width * UIScreen.main.scale)
         let items: [GalleryItemInfo] = attachments.enumerated().map { (itemIndex, att) in
+            let uploader = resolvedUploaderInfo(uploaderId: att.uploader)
             let isVideo = Self.isVideo(att)
             let imageThumbURL = ImgproxyURL.attachmentURL(
                 from: att.url, width: proxySide, height: proxySide, resizeType: "fill")
@@ -214,8 +215,9 @@ final class MediaGalleryNode: ASDisplayNode {
                     sourceURL: att.url,
                     image: videoPreview,
                     placeholderURL: nil,
-                    senderName: "",
-                    senderAvatarURL: nil,
+                    senderName: uploader.name,
+                    senderId: String(att.uploader),
+                    senderAvatarURL: uploader.avatarURL,
                     timestamp: ts,
                     isVideo: true
                 )
@@ -225,14 +227,34 @@ final class MediaGalleryNode: ASDisplayNode {
                 image: preview,
                 pixelSize: GalleryItemInfo.pixelSize(width: Int(att.width), height: Int(att.height)),
                 placeholderProxySize: 150,
-                senderName: "",
-                senderAvatarURL: nil,
+                senderName: uploader.name,
+                senderId: String(att.uploader),
+                senderAvatarURL: uploader.avatarURL,
                 timestamp: ts
             )
         }
         let gallery = GalleryController(items: items, initialIndex: index)
         guard let vc = view.findViewController() else { return }
         vc.present(gallery, animated: true)
+    }
+
+    private func resolvedUploaderInfo(uploaderId: Int64) -> (name: String, avatarURL: String?) {
+        guard uploaderId != 0 else { return ("", nil) }
+        let idString = String(uploaderId)
+        var name = ""
+        var avatarURL: String?
+        context.account.postbox.read { tx in
+            guard let profile = tx.getProfile(userId: idString) else { return }
+            if let displayName = profile.displayName, !displayName.isEmpty {
+                name = displayName
+            } else if !profile.username.isEmpty {
+                name = profile.username
+            }
+            if let avatar = profile.avatarUrl, !avatar.isEmpty {
+                avatarURL = avatar
+            }
+        }
+        return (name.isEmpty ? idString : name, avatarURL)
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
