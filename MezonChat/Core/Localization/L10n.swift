@@ -920,7 +920,9 @@ enum L10n {
         static let pinMessageAnchor = "chat.system.pinMessageAnchor"
         static let allThreadsAnchor = "chat.system.allThreadsAnchor"
         static let startedThread = "chat.system.startedThread"
+        static let deletedThread = "chat.system.deletedThread"
         static let seeAllThreads = "chat.system.seeAllThreads"
+        static let waveWelcome = "chat.system.waveWelcome"
     }
 
     enum Channel {
@@ -1955,7 +1957,7 @@ extension L10n {
         "clan.inviteSheet.emptyTitle":      "No friends to invite",
         "clan.inviteSheet.emptyDescription":"Add friends to your friend list to invite them to this clan.",
         "clan.inviteSheet.emptyAction":     "Add some friends",
-        "clan.inviteSheet.sessionNotFound": "Session not found.",
+        "clan.inviteSheet.sessionNotFound": "Can't connect right now. Please try again.",
         "clan.inviteSheet.cannotCreateInvite":"Cannot create clan invite link.",
         "clan.inviteSheet.cannotSendInvite":"Cannot send invite to %@.",
         "clan.inviteSheet.invite":          "Invite",
@@ -2015,7 +2017,9 @@ extension L10n {
         "chat.system.pinMessageAnchor": "a message",
         "chat.system.allThreadsAnchor": "all threads",
         "chat.system.startedThread": "started a thread:",
+        "chat.system.deletedThread": "deleted a thread:",
         "chat.system.seeAllThreads": "See",
+        "chat.system.waveWelcome": "Wave to say hi!",
         "channel.settings": "Channel Settings",
         "channel.threadSettings": "Thread Settings",
         "channel.name":   "Channel Name",
@@ -3256,7 +3260,9 @@ extension L10n {
         "chat.system.pinMessageAnchor": "một tin nhắn",
         "chat.system.allThreadsAnchor": "tất cả chủ đề",
         "chat.system.startedThread": "đã tạo một chủ đề:",
+        "chat.system.deletedThread": "đã xóa chủ đề:",
         "chat.system.seeAllThreads": "Xem",
+        "chat.system.waveWelcome": "Vẫy tay để chào!",
         "channel.settings": "Cài đặt kênh",
         "channel.threadSettings": "Cài đặt chủ đề",
         "channel.name":   "Tên kênh",

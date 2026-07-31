@@ -408,6 +408,8 @@ final class VoiceChannelPiPOverlay: NSObject {
     private var systemCallPiPForegroundObserver: NSObjectProtocol?
     private var systemCallPiPActiveObserver: NSObjectProtocol?
     private var themeChangeObserver: NSObjectProtocol?
+    private var overlayAudioRouteObserver: NSObjectProtocol?
+    private var overlayAudioInterruptionObserver: NSObjectProtocol?
     private var isRestoringFromSystemPiP = false
 
     private weak var overlayPiPRootViewController: UIViewController?
@@ -623,7 +625,91 @@ final class VoiceChannelPiPOverlay: NSObject {
         applyPiPChromeTheme()
         applyVoiceChannelPreservedAudioRouteToSession(preservedAudioRoute)
         scheduleVoicePiPDeferredAudioRouteEnforcement()
+        bindOverlayAudioSessionObservers()
         UIApplication.shared.isIdleTimerDisabled = true
+    }
+
+    private func bindOverlayAudioSessionObservers() {
+        unbindOverlayAudioSessionObservers()
+        overlayAudioRouteObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            let rawReason = (notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt) ?? 0
+            let reason = AVAudioSession.RouteChangeReason(rawValue: rawReason) ?? .unknown
+            switch reason {
+            case .newDeviceAvailable:
+                self.followOverlayPreservedRouteToNewDevice()
+                self.reapplyOverlayPreservedAudioRouteIfNeeded()
+            case .oldDeviceUnavailable:
+                self.fallbackOverlayPreservedRouteAfterDeviceLoss()
+                self.reapplyOverlayPreservedAudioRouteIfNeeded()
+            case .override, .categoryChange, .routeConfigurationChange:
+                self.reapplyOverlayPreservedAudioRouteIfNeeded()
+            default:
+                break
+            }
+        }
+        overlayAudioInterruptionObserver = NotificationCenter.default.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance(),
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            let rawType = (notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) ?? 0
+            guard AVAudioSession.InterruptionType(rawValue: rawType) == .ended else { return }
+            self.reapplyOverlayPreservedAudioRouteIfNeeded()
+        }
+    }
+
+    private func unbindOverlayAudioSessionObservers() {
+        if let obs = overlayAudioRouteObserver {
+            NotificationCenter.default.removeObserver(obs)
+            overlayAudioRouteObserver = nil
+        }
+        if let obs = overlayAudioInterruptionObserver {
+            NotificationCenter.default.removeObserver(obs)
+            overlayAudioInterruptionObserver = nil
+        }
+    }
+
+    private func reapplyOverlayPreservedAudioRouteIfNeeded() {
+        guard isActive, bridge != nil, let route = preservedAudioRoute else { return }
+        applyVoiceChannelPreservedAudioRouteToSession(route)
+    }
+
+    private func followOverlayPreservedRouteToNewDevice() {
+        guard isActive, bridge != nil, preservedAudioRoute != nil else { return }
+        guard let port = AVAudioSession.sharedInstance().currentRoute.outputs.first?.portType else { return }
+        switch port {
+        case .bluetoothA2DP, .bluetoothHFP, .bluetoothLE:
+            preservedAudioRoute = .bluetooth
+        case .headphones, .headsetMic:
+            preservedAudioRoute = .earpiece
+        default:
+            break
+        }
+    }
+
+    private func fallbackOverlayPreservedRouteAfterDeviceLoss() {
+        guard isActive, bridge != nil, preservedAudioRoute != nil else { return }
+        let session = AVAudioSession.sharedInstance()
+        guard let port = session.currentRoute.outputs.first?.portType else {
+            preservedAudioRoute = .speaker
+            return
+        }
+        switch port {
+        case .builtInReceiver, .builtInSpeaker:
+            preservedAudioRoute = VoiceChannelRoomViewController.audioRouteHasBluetooth(session) ? .bluetooth : .speaker
+        case .bluetoothA2DP, .bluetoothHFP, .bluetoothLE:
+            preservedAudioRoute = .bluetooth
+        case .headphones, .headsetMic:
+            preservedAudioRoute = .earpiece
+        default:
+            break
+        }
     }
 
     private func scheduleVoicePiPDeferredAudioRouteEnforcement() {
@@ -653,6 +739,7 @@ final class VoiceChannelPiPOverlay: NSObject {
         overlayLiveKitReconnectTask?.cancel()
         overlayLiveKitReconnectTask = nil
         overlayPiPRootViewController = nil
+        unbindOverlayAudioSessionObservers()
         sendMeetLeaveIfNeeded()
         isRestoringFromSystemPiP = false
         tearDownOverlaySystemCallPiP()
@@ -752,6 +839,7 @@ final class VoiceChannelPiPOverlay: NSObject {
         overlayLiveKitReconnectTask?.cancel()
         overlayLiveKitReconnectTask = nil
         overlayPiPRootViewController = nil
+        unbindOverlayAudioSessionObservers()
         let keepSystemPiPSourceForRestore = isRestoringFromSystemPiP && systemCallPiPController != nil
         if !keepSystemPiPSourceForRestore {
             tearDownOverlaySystemCallPiP()
@@ -3667,7 +3755,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         }
     }
 
-    private static func audioRouteHasBluetooth(_ session: AVAudioSession) -> Bool {
+    fileprivate static func audioRouteHasBluetooth(_ session: AVAudioSession) -> Bool {
         for output in session.currentRoute.outputs {
             switch output.portType {
             case .bluetoothA2DP, .bluetoothHFP, .bluetoothLE:

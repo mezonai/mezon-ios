@@ -148,6 +148,15 @@ final class PostboxTransaction {
         if let channelId { updatedMessageChannelIds.insert(channelId) }
     }
 
+    @discardableResult
+    func reconcilePendingWithServerTwin(pendingId: String) -> Bool {
+        guard let channelId = messageTable.reconcilePendingWithServerTwin(pendingId: pendingId) else {
+            return false
+        }
+        updatedMessageChannelIds.insert(channelId)
+        return true
+    }
+
     func markMessagePending(id: String) {
         let channelId = messageTable.channelIdForMessage(id: id)
         messageTable.markMessagePending(id: id)

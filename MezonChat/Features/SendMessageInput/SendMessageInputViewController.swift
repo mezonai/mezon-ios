@@ -440,6 +440,9 @@ final class SendMessageInputViewController: UIViewController {
     }
     private let clanId: Int64
     var topicId: Int64 = 0
+    private var ambiguousDeliveryVerifyTask: Task<Void, Never>?
+    private var deliveryConfirmTask: Task<Void, Never>?
+    private var pendingDeliveryConfirmations: [String: Date] = [:]
     private var locallyReactivatedThreadIds = Set<Int64>()
     private var locallyJoinedThreadIds = Set<Int64>()
     private var disposables = DisposableSet()
@@ -2399,6 +2402,7 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private static let ambiguousSendFailsafeDelay: TimeInterval = 30
+    private static let ambiguousDeliveryVerifyDelayNanoseconds: UInt64 = 2_500_000_000
 
     private static func isDefinitelyUndelivered(_ error: Error) -> Bool {
         if let mezon = error as? MezonError, case let .httpError(code, _) = mezon, (400..<500).contains(code) {
@@ -2409,10 +2413,115 @@ final class SendMessageInputViewController: UIViewController {
 
     private func scheduleAmbiguousSendFailsafe(localId: String) {
         let postbox = context.account.postbox
+        scheduleAmbiguousDeliveryVerification()
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.ambiguousSendFailsafeDelay) {
             let record = postbox.read { tx in tx.getMessageById(localId) }
             guard let record, record.id == localId, record.sendingState == .pending else { return }
-            postbox.write { tx in tx.markMessageFailed(id: localId) }
+            postbox.write { tx in
+                if tx.reconcilePendingWithServerTwin(pendingId: localId) { return }
+                tx.markMessageFailed(id: localId)
+            }
+        }
+    }
+
+    private func scheduleAmbiguousDeliveryVerification() {
+        ambiguousDeliveryVerifyTask?.cancel()
+        let clanId = self.clanId
+        let channelId = self.channel.channelID
+        let topicId = self.topicId
+        ambiguousDeliveryVerifyTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.ambiguousDeliveryVerifyDelayNanoseconds)
+            guard !Task.isCancelled, let self else { return }
+            await self.verifyAmbiguousPendingDelivery(clanId: clanId, channelId: channelId, topicId: topicId)
+        }
+    }
+
+    private func verifyAmbiguousPendingDelivery(clanId: Int64, channelId: Int64, topicId: Int64) async {
+        let postbox = context.account.postbox
+        let storageChannelId = topicId != 0 ? "topic-\(topicId)" : "\(channelId)"
+        let hasStuckPending = postbox.read { tx in
+            tx.getMessages(channelId: storageChannelId).contains {
+                $0.id.hasPrefix("pending-") && $0.sendingState == .pending
+            }
+        }
+        guard hasStuckPending else { return }
+        guard let token = await context.getToken() else { return }
+        do {
+            let response = try await context.account.network.listChannelMessages(
+                clanId: clanId,
+                channelId: channelId,
+                messageId: 0,
+                direction: 2,
+                limit: 30,
+                topicId: topicId,
+                token: token
+            )
+            guard !response.messages.isEmpty else { return }
+            postbox.write { tx in
+                for api in response.messages {
+                    let existing = tx.getMessageById("\(api.messageID)", channelId: storageChannelId)
+                    tx.addMessages([MessageRecord.fromApi(api, merging: existing)])
+                }
+            }
+        } catch {
+        }
+    }
+
+    private static let deliveryConfirmDelayNanoseconds: UInt64 = 5_000_000_000
+
+    private func registerDeliveryConfirmation(serverMessageId: String) {
+        guard !serverMessageId.isEmpty, serverMessageId != "0" else { return }
+        pendingDeliveryConfirmations[serverMessageId] = Date()
+        scheduleDeliveryConfirmation()
+    }
+
+    private func scheduleDeliveryConfirmation() {
+        deliveryConfirmTask?.cancel()
+        let clanId = self.clanId
+        let channelId = self.channel.channelID
+        let topicId = self.topicId
+        deliveryConfirmTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.deliveryConfirmDelayNanoseconds)
+            guard !Task.isCancelled, let self else { return }
+            await self.confirmPendingDeliveries(clanId: clanId, channelId: channelId, topicId: topicId)
+        }
+    }
+
+    private func confirmPendingDeliveries(clanId: Int64, channelId: Int64, topicId: Int64) async {
+        let due = pendingDeliveryConfirmations
+        guard !due.isEmpty else { return }
+        pendingDeliveryConfirmations.removeAll()
+
+        let unconfirmed = due.keys.filter { !MessageEchoRegistry.shared.hasEcho(messageId: $0) }
+        guard !unconfirmed.isEmpty else { return }
+
+        let postbox = context.account.postbox
+        let storageChannelId = topicId != 0 ? "topic-\(topicId)" : "\(channelId)"
+        guard let token = await context.getToken() else { return }
+        do {
+            let response = try await context.account.network.listChannelMessages(
+                clanId: clanId,
+                channelId: channelId,
+                messageId: 0,
+                direction: 2,
+                limit: 50,
+                topicId: topicId,
+                token: token
+            )
+            guard !response.messages.isEmpty else { return }
+            let serverIds = Set(response.messages.map { "\($0.messageID)" })
+            postbox.write { tx in
+                for api in response.messages {
+                    let existing = tx.getMessageById("\(api.messageID)", channelId: storageChannelId)
+                    tx.addMessages([MessageRecord.fromApi(api, merging: existing)])
+                }
+                for id in unconfirmed where !serverIds.contains(id) {
+                    guard let record = tx.getMessageById(id, channelId: storageChannelId),
+                          record.sendingState == .sent else { continue }
+                    tx.markMessageFailed(id: id)
+                }
+            }
+        } catch {
         }
     }
 
@@ -5771,7 +5880,8 @@ final class SendMessageInputViewController: UIViewController {
                     durationSeconds: nil,
                     localImage: nil,
                     isUploading: true,
-                    uploadProgressKey: file.url.path
+                    uploadProgressKey: file.url.path,
+                    uploadShowsPercent: file.filesize >= AttachmentUploader.minMultipartFileSize
                 )
             }
         }
@@ -5848,7 +5958,8 @@ final class SendMessageInputViewController: UIViewController {
                         durationSeconds: nil,
                         localImage: nil,
                         isUploading: true,
-                        uploadProgressKey: file.url.path
+                        uploadProgressKey: file.url.path,
+                        uploadShowsPercent: file.filesize >= AttachmentUploader.minMultipartFileSize
                     )
                 }
             }
@@ -6208,6 +6319,7 @@ final class SendMessageInputViewController: UIViewController {
                             )
                             ParsedAttachment.pendingImageCache.removeValue(forKey: localId)
                             ParsedAttachment.pendingDocumentPlaceholders.removeValue(forKey: localId)
+                            self.registerDeliveryConfirmation(serverMessageId: "\(ack.messageID)")
                         }
                     }
                 }

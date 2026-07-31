@@ -103,7 +103,7 @@ final class MezonSocket: NSObject {
     private let defaultApiRequestTimeoutNanos: UInt64 = 10_000_000_000
 
     private var consecutiveApiTimeouts = 0
-    private let apiDegradeThreshold = 2
+    private let apiDegradeThreshold = 1
     private let apiDegradeCooldown: TimeInterval = 12
     private var apiDegradedUntil: Date?
 

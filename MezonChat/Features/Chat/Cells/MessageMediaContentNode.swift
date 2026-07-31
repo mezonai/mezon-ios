@@ -53,20 +53,18 @@ private final class MediaUploadingOverlayNode: ASDisplayNode {
     private let barNode: UploadProgressBarNode?
     private let gridCompactMode: Bool
 
-    init(progress: Double, gridCompact: Bool = false) {
+    private static let primeTarget: Double = 0.10
+    private static let primeDuration: TimeInterval = 1.5
+    private var rampValue: Double = 0
+    private var realValue: Double = 0
+
+    init(progress: Double, showsPercent: Bool, gridCompact: Bool = false) {
         gridCompactMode = gridCompact
         if gridCompact {
             spinnerHost = nil
             percentLabel = nil
             barNode = nil
         } else {
-            let bar = UploadProgressBarNode(
-                progress: progress,
-                width: 0,
-                height: 3,
-                trackColor: UIColor.white.withAlphaComponent(0.3),
-                fillColor: .white)
-            barNode = bar
             let spinner = ASDisplayNode()
             spinner.setViewBlock {
                 let container = UIView()
@@ -83,10 +81,21 @@ private final class MediaUploadingOverlayNode: ASDisplayNode {
                 return container
             }
             spinnerHost = spinner
-            let label = ASTextNode2()
-            label.maximumNumberOfLines = 1
-            label.truncationMode = .byTruncatingTail
-            percentLabel = label
+            if showsPercent {
+                barNode = UploadProgressBarNode(
+                    progress: min(max(progress, 0), 1),
+                    width: 0,
+                    height: 3,
+                    trackColor: UIColor.white.withAlphaComponent(0.3),
+                    fillColor: .white)
+                let label = ASTextNode2()
+                label.maximumNumberOfLines = 1
+                label.truncationMode = .byTruncatingTail
+                percentLabel = label
+            } else {
+                barNode = nil
+                percentLabel = nil
+            }
         }
         super.init()
         isLayerBacked = false
@@ -94,11 +103,28 @@ private final class MediaUploadingOverlayNode: ASDisplayNode {
         clipsToBounds = true
         isUserInteractionEnabled = false
         if !gridCompact {
-            updatePercentText(progress)
+            realValue = min(max(progress, 0), 1)
             if let spinnerHost { addSubnode(spinnerHost) }
             if let percentLabel { addSubnode(percentLabel) }
             if let barNode { addSubnode(barNode) }
+            if percentLabel != nil { startPriming() }
         }
+    }
+
+    private func startPriming() {
+        applyDisplay()
+        guard realValue < Self.primeTarget else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.primeDuration) { [weak self] in
+            guard let self else { return }
+            self.rampValue = Self.primeTarget
+            self.applyDisplay()
+        }
+    }
+
+    private func applyDisplay() {
+        let shown = min(max(max(rampValue, realValue), 0), 1)
+        updatePercentText(shown)
+        barNode?.updateProgress(shown)
     }
 
     private func updatePercentText(_ progress: Double) {
@@ -115,8 +141,8 @@ private final class MediaUploadingOverlayNode: ASDisplayNode {
 
     func setProgress(_ value: Double) {
         guard !gridCompactMode else { return }
-        updatePercentText(value)
-        barNode?.updateProgress(value)
+        realValue = value
+        applyDisplay()
     }
 
     override func layout() {
@@ -136,7 +162,12 @@ private final class MediaUploadingOverlayNode: ASDisplayNode {
         let barHeight: CGFloat = compact ? 0 : 3
         let spacing: CGFloat = 5
 
-        let stackHeight = spinnerSide + spacing + labelHeight + (barHeight > 0 ? spacing + barHeight : 0)
+        let hasLabel = percentLabel != nil
+        let hasBar = barNode != nil && barHeight > 0
+
+        let stackHeight = spinnerSide
+            + (hasLabel ? spacing + labelHeight : 0)
+            + (hasBar ? spacing + barHeight : 0)
         var y = max(0, (h - stackHeight) * 0.5)
 
         spinnerHost?.frame = CGRect(
@@ -144,17 +175,22 @@ private final class MediaUploadingOverlayNode: ASDisplayNode {
             y: y,
             width: spinnerSide,
             height: spinnerSide)
-        y += spinnerSide + spacing
+        y += spinnerSide
 
-        let labelWidth = max(0, min(w - horizontalPad * 2, 56))
-        percentLabel?.frame = CGRect(
-            x: (w - labelWidth) * 0.5,
-            y: y,
-            width: labelWidth,
-            height: labelHeight)
-        y += labelHeight
+        if hasLabel {
+            y += spacing
+            let labelWidth = max(0, min(w - horizontalPad * 2, 56))
+            percentLabel?.frame = CGRect(
+                x: (w - labelWidth) * 0.5,
+                y: y,
+                width: labelWidth,
+                height: labelHeight)
+            y += labelHeight
+        } else {
+            percentLabel?.frame = .zero
+        }
 
-        if barHeight > 0 {
+        if hasBar {
             y += spacing
             let barWidth = max(0, min(w - horizontalPad * 2, 72))
             barNode?.frame = CGRect(
@@ -1093,7 +1129,7 @@ final class MessageMediaContentNode: ASDisplayNode {
     }
 
     private func addUploadingOverlay(for attachment: ParsedAttachment, gridCompact: Bool = false) -> MediaUploadingOverlayNode {
-        let overlay = MediaUploadingOverlayNode(progress: attachment.uploadProgress, gridCompact: gridCompact)
+        let overlay = MediaUploadingOverlayNode(progress: attachment.uploadProgress, showsPercent: attachment.uploadShowsPercent, gridCompact: gridCompact)
         let key = attachment.uploadProgressKey
         if !key.isEmpty {
             uploadingOverlayByProgressKey[key] = overlay

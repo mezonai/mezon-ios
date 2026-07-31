@@ -28,6 +28,7 @@ struct ParsedAttachment: Equatable {
     var isPresignPending: Bool = false
     var uploadProgress: Double = 0
     var uploadProgressKey: String = ""
+    var uploadShowsPercent: Bool = false
 
     var isImage: Bool {
         filetype.hasPrefix("image/") || filetype == "sticker"
@@ -310,7 +311,7 @@ struct ChatMessageDisplay: Identifiable {
     var isSystemMessage: Bool {
         let code = MezonConstants.MessageCode(rawValue: messageCode)
         switch code {
-        case .welcome, .createThread, .createPin, .auditLog, .upcomingEvent:
+        case .welcome, .createThread, .deleteThread, .createPin, .auditLog, .upcomingEvent:
             return true
         default:
             return false
@@ -807,6 +808,16 @@ final class ChatViewController: ViewController {
             },
             onSystemAllThreadsTapped: { [weak self] in
                 self?.openThreadListFromChat()
+            },
+            onSystemWaveWelcomeTapped: { [weak self] display in
+                self?.sendInputViewController.sendWaveWelcome(replyingTo: display)
+            },
+            isSystemThreadDeleted: { [weak self] threadId in
+                guard let self, !threadId.isEmpty else { return false }
+                return self.currentState.messages.contains { display in
+                    display.messageCode == MezonConstants.MessageCode.deleteThread.rawValue
+                        && MessageSystemNode.parseThreadParenLabelId(display.parsedContent.text)?.id == threadId
+                }
             },
             onVotePoll: { [weak self] messageId, channelId, answerIndices, completion in
                 guard let self else { completion(nil); return }
@@ -2994,7 +3005,8 @@ final class ChatViewController: ViewController {
                                 uploadProgress: doc.uploadProgressKey.isEmpty
                                     ? doc.uploadProgress
                                     : AttachmentUploadProgressStore.shared.progress(forKey: doc.uploadProgressKey),
-                                uploadProgressKey: doc.uploadProgressKey
+                                uploadProgressKey: doc.uploadProgressKey,
+                                uploadShowsPercent: doc.uploadShowsPercent
                             )
                         })
                     }

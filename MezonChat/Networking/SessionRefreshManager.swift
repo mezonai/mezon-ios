@@ -19,10 +19,17 @@ final class SessionRefreshManager {
     private init() {}
 
     private func isDefinitiveAuthFailure(_ error: Error) -> Bool {
-        if let mezon = error as? MezonError, case .httpError(let code, _) = mezon {
-            return code == 401 || code == 403
+        guard let mezon = error as? MezonError, case .httpError(let code, let message) = mezon else {
+            return false
         }
-        return false
+        if code == 401 { return true }
+        guard code == 403 else { return false }
+        let text = message.lowercased()
+        return text.contains("authenticate")
+            || text.contains("unauthorized")
+            || text.contains("token")
+            || text.contains("jwt")
+            || text.contains("expired")
     }
 
     private func isDefinitiveExpiry(_ error: Error) -> Bool {
@@ -137,7 +144,6 @@ final class SessionRefreshManager {
                     retriesLeft -= 1
                     if retriesLeft == 0 {
                         safeOnReady()
-                        await endLaunchRefreshExpired()
                         return
                     }
                     let delay = UInt64(maxAppLaunchRetries - retriesLeft) * 1_000_000_000

@@ -2242,6 +2242,7 @@ final class MezonHTTPClient {
     ]
     private static let socketFallbackGraceWaitNanoseconds: UInt64 = 2_000_000_000
     private static let socketFallbackApiTimeoutNanoseconds: UInt64 = 4_000_000_000
+    private static let singleTransportSocketTimeoutNanoseconds: UInt64 = 2_000_000_000
 
     private func protoApiName(from path: String) -> String {
         let prefix = "/mezon.api.Mezon/"
@@ -2324,7 +2325,11 @@ final class MezonHTTPClient {
 
         if singleTransportOnly {
             if await isSocketUsableForSingleTransport(apiName: apiName) {
-                return try await sendOverSocketRequired(path: path, message: message)
+                return try await sendOverSocketRequired(
+                    path: path,
+                    message: message,
+                    timeoutNanoseconds: Self.singleTransportSocketTimeoutNanoseconds
+                )
             }
             return try await postProtoHTTP(
                 path: path,
@@ -2347,13 +2352,18 @@ final class MezonHTTPClient {
 
     private func sendOverSocketRequired<Request: SwiftProtobuf.Message, Response: SwiftProtobuf.Message>(
         path: String,
-        message: Request
+        message: Request,
+        timeoutNanoseconds: UInt64? = nil
     ) async throws -> Response {
         let apiName = protoApiName(from: path)
         let body = try message.serializedData()
         let started = Date()
         do {
-            let respBytes = try await MezonSocket.shared.sendApiRequest(apiName: apiName, body: body)
+            let respBytes = try await MezonSocket.shared.sendApiRequest(
+                apiName: apiName,
+                body: body,
+                timeoutNanoseconds: timeoutNanoseconds
+            )
             await MezonSocket.shared.noteApiRequestSucceeded()
             if Response.self == SwiftProtobuf.Google_Protobuf_Empty.self {
                 guard let empty = SwiftProtobuf.Google_Protobuf_Empty() as? Response else {
@@ -2364,7 +2374,7 @@ final class MezonHTTPClient {
             return try Response(serializedBytes: respBytes)
         } catch {
             let ms = Int(Date().timeIntervalSince(started) * 1000)
-            if ms >= 3000 {
+            if ms >= 1500 {
                 await MezonSocket.shared.noteApiRequestTimedOut()
             }
             MezonRPCLog.response("route api='\(apiName)' SOCKET-REQUIRED fail elapsedMs=\(ms) error=\((error as? MezonError)?.technicalDescription ?? error.localizedDescription)")

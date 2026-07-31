@@ -2,7 +2,7 @@ import Foundation
 
 enum MezonConstants {
 
-    static let defaultDMLogoURL = "https://cdn.mezon.ai/images/mezon_logo.png"
+    static let defaultDMLogoURL = "https://cdn.komu.vn/images/mezon_logo.png"
 
     static let anonymousUserId: Int64 = 1767478432163172999
 
@@ -70,5 +70,6 @@ enum MezonConstants {
         case shareContact = 16
         case location = 17
         case poll = 18
+        case deleteThread = 19
     }
 }
