@@ -131,7 +131,7 @@ final class FileItemNode: ASDisplayNode {
     init(attachment: ParsedAttachment) {
         let shows = attachment.isUploading || attachment.isPresignPending
         let progress = attachment.uploadProgress
-        let showsDeterminateProgress = attachment.isUploading
+        let showsDeterminateProgress = attachment.isUploading && attachment.uploadShowsPercent
         let spinner: ASDisplayNode?
         let progressLabel: ASTextNode2?
         let progressBar: UploadProgressBarNode?

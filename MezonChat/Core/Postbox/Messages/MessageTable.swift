@@ -50,6 +50,9 @@ final class MessageTable: Table {
         db.rawExecute(
             "CREATE INDEX IF NOT EXISTS idx_messages_channel ON messages(channel_id, created_at DESC)"
         )
+        db.rawExecute(
+            "UPDATE messages SET sending_state = \(SendingState.failed.rawValue) WHERE sending_state = \(SendingState.pending.rawValue)"
+        )
     }
 
     private func migrateMessagesPrimaryKeyIfNeeded() {
@@ -264,20 +267,60 @@ final class MessageTable: Table {
         return rows.compactMap { $0 }.filter { $0.channelId == channelId }
     }
 
+    private static let volatileMatchingContentKeys: [String] = [
+        PresignFinishContent.fieldKey,
+        PresignFinishContent.createTimeKey
+    ]
+
+    private static func matchingNormalizedContent(_ data: Data) -> [String: Any]? {
+        guard !data.isEmpty,
+              var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        for key in volatileMatchingContentKeys { json.removeValue(forKey: key) }
+        return json
+    }
+
+    private static func plainTextForMatching(from data: Data) -> String? {
+        guard let json = matchingNormalizedContent(data),
+              let text = json["t"] as? String else { return nil }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     private func contentsEquivalent(_ a: Data, _ b: Data) -> Bool {
-        let baseA = PresignFinishContent.contentBaseWithoutPresign(a)
-        let baseB = PresignFinishContent.contentBaseWithoutPresign(b)
-        if baseA == baseB { return true }
-        if let objA = try? JSONSerialization.jsonObject(with: baseA) as? [String: Any],
-           let objB = try? JSONSerialization.jsonObject(with: baseB) as? [String: Any] {
+        if let objA = Self.matchingNormalizedContent(a),
+           let objB = Self.matchingNormalizedContent(b) {
             return NSDictionary(dictionary: objA).isEqual(to: objB)
         }
-        return false
+        let baseA = PresignFinishContent.contentBaseWithoutPresign(a)
+        let baseB = PresignFinishContent.contentBaseWithoutPresign(b)
+        return baseA == baseB
     }
 
     private func serverEchoMatchesPending(server: MessageRecord, pending: MessageRecord) -> Bool {
         guard pending.id.hasPrefix("pending-"), pending.senderId == server.senderId else { return false }
-        return contentsEquivalent(pending.content, server.content)
+        if contentsEquivalent(pending.content, server.content) { return true }
+        guard pending.attachmentsJSON.isEmpty else { return false }
+        guard let pendingText = Self.plainTextForMatching(from: pending.content), !pendingText.isEmpty,
+              let serverText = Self.plainTextForMatching(from: server.content),
+              pendingText == serverText else { return false }
+        return true
+    }
+
+    @discardableResult
+    func reconcilePendingWithServerTwin(pendingId: String) -> String? {
+        guard pendingId.hasPrefix("pending-") else { return nil }
+        guard let channelId = channelIdForMessage(id: pendingId) else { return nil }
+        var msgs = cache[channelId] ?? getMessages(channelId: channelId)
+        guard let pending = msgs.first(where: { $0.id == pendingId }) else { return nil }
+        guard msgs.contains(where: {
+            !$0.id.hasPrefix("pending-") && serverEchoMatchesPending(server: $0, pending: pending)
+        }) else { return nil }
+        msgs.removeAll { $0.id == pendingId }
+        cache[channelId] = msgs
+        pendingDeletes.insert(pendingId)
+        pendingWrites.insert(channelId)
+        return channelId
     }
 
     private var resendDuplicateGuards: [String: [Date]] = [:]
@@ -448,13 +491,24 @@ final class MessageTable: Table {
             mergedBelonging.append(record)
         }
         let pendingsToKeep = existing.filter { record in
-            guard record.id.hasPrefix("pending-"), keptIds.insert(record.id).inserted else { return false }
+            guard record.id.hasPrefix("pending-"),
+                  record.sendingState == .pending,
+                  keptIds.insert(record.id).inserted else { return false }
             return !mergedBelonging.contains(where: { serverEchoMatchesPending(server: $0, pending: record) })
         }
+        let keptPendingIds = Set(pendingsToKeep.map { $0.id })
+        let droppedLocalIds = existing
+            .filter { $0.id.hasPrefix("pending-") && !keptPendingIds.contains($0.id) }
+            .map { $0.id }
         cache[channelId] = (mergedBelonging + pendingsToKeep).sorted { MessageRecord.isOrderedAscending($0, $1) }
         pendingWrites.insert(channelId)
         db.run("DELETE FROM messages WHERE channel_id = ? AND id NOT LIKE 'pending-%'") {
             sqlite3_bind_text($0, 1, channelId, -1, sqliteTransient)
+        }
+        for droppedId in droppedLocalIds {
+            db.run("DELETE FROM messages WHERE id = ?") {
+                sqlite3_bind_text($0, 1, droppedId, -1, sqliteTransient)
+            }
         }
     }
 

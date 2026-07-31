@@ -351,6 +351,13 @@ final class HomeViewController: BaseViewController {
                     guard let channel, let self else { return }
                     if channel.type == MezonConstants.ChannelType.mezonVoice.rawValue { return }
                     if channel.type == MezonConstants.ChannelType.streaming.rawValue { return }
+                    if let nav = self.navigationController,
+                       let existing = nav.viewControllers
+                           .compactMap({ $0 as? ChatViewController })
+                           .first(where: { $0.channel.channelID == channel.channelID }) {
+                        nav.popToViewController(existing, animated: true)
+                        return
+                    }
                     var parentName: String?
                     if channel.parentID != 0 {
                         parentName = self.channelListVC.allChannels.first(where: { $0.channelID == channel.parentID })?.channelLabel

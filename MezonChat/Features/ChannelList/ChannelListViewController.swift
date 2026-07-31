@@ -3089,7 +3089,8 @@ final class ChannelListViewController: ViewController {
 
     func select(channel: Mezon_Api_ChannelDescription) {
         setSelectedChannelId(channel.channelID)
-        setSelectedChannel(channel)
+        selectedChannel = channel
+        selectedChannelPipe.putNext(channel)
         if isCurrentSessionAlive {
             self.context.account.postbox.setPreferenceData(key: PreferencesKeys.selectedChannelId(clanId: clanId), value: encodeChannelId(channel.channelID))
         }

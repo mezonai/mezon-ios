@@ -75,6 +75,10 @@ final class StreamingWebRTCSession: NSObject {
     private var pendingStreamId: Int64 = 0
     private var pendingUserId: String = ""
     private var receiveLoopTask: Task<Void, Never>?
+    private var availabilityPollTask: Task<Void, Never>?
+    private var hasSubscribedToStream = false
+
+    private static let availabilityPollIntervalNanos: UInt64 = 3_000_000_000
 
     private override init() {
         super.init()
@@ -143,9 +147,22 @@ final class StreamingWebRTCSession: NSObject {
                 "Value": Self.sessionDescriptionPayload(offer),
             ], label: "session_subscriber")
             sendJSON(["Key": "get_channels"], label: "get_channels")
+            startAvailabilityPolling()
         } catch {
             Self.log("join failed during offer/localDescription: \(error.localizedDescription)")
             disconnect()
+        }
+    }
+
+    private func startAvailabilityPolling() {
+        availabilityPollTask?.cancel()
+        availabilityPollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: Self.availabilityPollIntervalNanos)
+                guard !Task.isCancelled, let self else { return }
+                guard !self.isStreaming, self.webSocketTask != nil else { return }
+                self.sendJSON(["Key": "get_channels"], label: "get_channels")
+            }
         }
     }
 
@@ -180,6 +197,9 @@ final class StreamingWebRTCSession: NSObject {
         Self.log("disconnect streamId=\(activeStreamChannelId.map(String.init) ?? "nil") isStreaming=\(isStreaming)")
         receiveLoopTask?.cancel()
         receiveLoopTask = nil
+        availabilityPollTask?.cancel()
+        availabilityPollTask = nil
+        hasSubscribedToStream = false
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
         urlSession?.invalidateAndCancel()
@@ -234,6 +254,10 @@ final class StreamingWebRTCSession: NSObject {
     private func setStreaming(_ value: Bool) {
         guard isStreaming != value else { return }
         isStreaming = value
+        if value {
+            availabilityPollTask?.cancel()
+            availabilityPollTask = nil
+        }
         Self.log("isStreaming=\(value) streamId=\(pendingStreamId)")
         onStreamingStateChanged?()
     }
@@ -412,13 +436,16 @@ final class StreamingWebRTCSession: NSObject {
             setStreaming(false)
             return
         }
-        sendJSON([
-            "Key": "connect_subscriber",
-            "ClanId": "\(pendingClanId)",
-            "ChannelId": "\(pendingChannelId)",
-            "UserId": pendingUserId,
-            "Value": ["ChannelId": streamIdString],
-        ], label: "connect_subscriber")
+        if !hasSubscribedToStream {
+            hasSubscribedToStream = true
+            sendJSON([
+                "Key": "connect_subscriber",
+                "ClanId": "\(pendingClanId)",
+                "ChannelId": "\(pendingChannelId)",
+                "UserId": pendingUserId,
+                "Value": ["ChannelId": streamIdString],
+            ], label: "connect_subscriber")
+        }
         setStreaming(true)
     }
 

@@ -753,6 +753,10 @@ final class PeerWebRTCCallSession: NSObject {
             try? configureAudioSession()
             try startCameraCaptureIfNeeded()
             localCameraEnabled = true
+            if !localSpeakerEnabled && !hasExternalAudioOutputRoute {
+                localSpeakerEnabled = true
+                try? configureAudioSession()
+            }
             bindLocalVideoForOutbound(pc: pc)
             forwardLocalMediaStatus()
             onLocalMedia?(localMicEnabled, localCameraEnabled)
@@ -984,6 +988,17 @@ final class PeerWebRTCCallSession: NSObject {
 
     private func applySpeakerOutputRoute() throws {
         try configureAudioSession()
+    }
+
+    private var hasExternalAudioOutputRoute: Bool {
+        AVAudioSession.sharedInstance().currentRoute.outputs.contains { output in
+            switch output.portType {
+            case .headphones, .bluetoothA2DP, .bluetoothHFP, .bluetoothLE, .usbAudio, .carAudio, .airPlay:
+                return true
+            default:
+                return false
+            }
+        }
     }
 
     private func scheduleOutgoingRingTimeout() {

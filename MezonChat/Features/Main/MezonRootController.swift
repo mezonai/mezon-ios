@@ -190,9 +190,13 @@ final class MezonRootController: NavigationController {
 
         AppDelegate.pendingNavigation = nil
 
+        handoffActiveVoiceRoomToPiPBeforeNavigation()
+
         if !isDM, let clanId = clanIdStr.flatMap({ Int64($0) }), clanId != 0 {
             context.currentClanId = clanId
         }
+
+        context.account.socket.ensureFreshConnection()
 
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -203,6 +207,11 @@ final class MezonRootController: NavigationController {
                 self.navigateToChannel(channelIdStr: channelIdStr, clanIdStr: clanIdStr)
             }
         }
+    }
+
+    private func handoffActiveVoiceRoomToPiPBeforeNavigation() {
+        guard let voiceRoom = viewControllers.compactMap({ $0 as? VoiceChannelRoomViewController }).first else { return }
+        voiceRoom.handoffToPiPForExternalNavigation()
     }
 
     private func awaitSessionReadyBounded(timeoutNanoseconds: UInt64 = 5_000_000_000) async {

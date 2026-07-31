@@ -397,6 +397,11 @@ final class Postbox {
             settingsTable.beforeCommit()
         }
     }
+    func clearPreferencesSync(withPrefix prefix: String) {
+        queue.sync { [self] in
+            settingsTable.removeKeys(withPrefix: prefix)
+        }
+    }
     func getPreference<T: PostboxCoding>(key: String, type: T.Type) -> T? { getSetting(key: key, type: type) }
     func getPreferenceData(key: String) -> Data?                  { getSettingData(key: key) }
 
@@ -465,6 +470,17 @@ final class Postbox {
     func getCachedDMChannelList() -> [Mezon_Api_ChannelDescription] {
         guard let data = getPreferenceData(key: PreferencesKeys.dmChannelList) else { return [] }
         return decodeChannelList(data)
+    }
+
+    func getAllCachedClanChannelDescriptions() -> [Mezon_Api_ChannelDescription] {
+        let clanIds = read { tx in tx.getClans() }.map(\.id)
+        var result: [Mezon_Api_ChannelDescription] = []
+        for clanId in clanIds where clanId != 0 {
+            guard let data = getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId)),
+                !data.isEmpty else { continue }
+            result.append(contentsOf: decodeChannelList(data))
+        }
+        return result
     }
 
     func updateCachedDMChannelDescription(_ channel: Mezon_Api_ChannelDescription) {

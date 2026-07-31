@@ -20,6 +20,9 @@ final class MediaPickerViewController: UIViewController {
     private var fetchResult: PHFetchResult<PHAsset>?
     private var selectedAssets: [PHAsset] = []
     private var selectedOrder: [String: Int] = [:]
+    private var assetSizeCache: [String: Int64] = [:]
+    private let totalSizeLimitGB = 1
+    private var totalSizeLimitBytes: Int64 { Int64(totalSizeLimitGB) * 1024 * 1024 * 1024 }
 
     private let thumbnailSize: CGSize = {
         let scale = UIScreen.main.scale
@@ -784,6 +787,10 @@ final class MediaPickerViewController: UIViewController {
                 Toast.info("You can select up to \(selectionLimit) item\(selectionLimit == 1 ? "" : "s").", title: "")
                 return
             }
+            guard selectedByteSize() + byteSize(of: asset) < totalSizeLimitBytes else {
+                Toast.info(L(L10n.MediaPicker.sizeLimit, totalSizeLimitGB), title: "")
+                return
+            }
             selectedAssets.append(asset)
             selectedOrder[id] = selectedAssets.count
         }
@@ -799,11 +806,34 @@ final class MediaPickerViewController: UIViewController {
         }
     }
 
+    private func selectedByteSize() -> Int64 {
+        selectedAssets.reduce(0) { $0 + byteSize(of: $1) }
+    }
+
+    private func byteSize(of asset: PHAsset) -> Int64 {
+        let id = asset.localIdentifier
+        if let cached = assetSizeCache[id] { return cached }
+        let resources = PHAssetResource.assetResources(for: asset)
+        let preferredType: PHAssetResourceType = asset.mediaType == .video ? .video : .photo
+        let size: Int64
+        if let primary = resources.first(where: { $0.type == preferredType }),
+           let bytes = (primary.value(forKey: "fileSize") as? NSNumber)?.int64Value {
+            size = bytes
+        } else {
+            size = resources.compactMap { ($0.value(forKey: "fileSize") as? NSNumber)?.int64Value }.max() ?? 0
+        }
+        assetSizeCache[id] = size
+        return size
+    }
+
     private func updateSendButton() {
         let count = selectedAssets.count
         let hasSelection = count > 0
         actionBar.isHidden = !hasSelection
-        sendButton.setTitle(L(L10n.MediaPicker.sendCount, count), for: .normal)
+        UIView.performWithoutAnimation {
+            sendButton.setTitle(L(L10n.MediaPicker.doneCount, count), for: .normal)
+            sendButton.layoutIfNeeded()
+        }
 
         let canEdit = count == 1 && selectedAssets.first?.mediaType == .image
         editButton.isHidden = !canEdit

@@ -4,6 +4,33 @@ import UserNotifications
 import FirebaseMessaging
 import SwiftProtobuf
 
+final class MessageEchoRegistry {
+    static let shared = MessageEchoRegistry()
+
+    private let lock = NSLock()
+    private var echoTimestamps: [String: Date] = [:]
+    private let ttl: TimeInterval = 120
+
+    func recordEcho(messageId: String) {
+        guard !messageId.isEmpty, messageId != "0" else { return }
+        lock.lock(); defer { lock.unlock() }
+        pruneLocked()
+        echoTimestamps[messageId] = Date()
+    }
+
+    func hasEcho(messageId: String) -> Bool {
+        guard !messageId.isEmpty, messageId != "0" else { return false }
+        lock.lock(); defer { lock.unlock() }
+        pruneLocked()
+        return echoTimestamps[messageId] != nil
+    }
+
+    private func pruneLocked() {
+        let now = Date()
+        echoTimestamps = echoTimestamps.filter { now.timeIntervalSince($0.value) < ttl }
+    }
+}
+
 @MainActor
 final class AccountContextImpl: AccountContext {
 
@@ -187,6 +214,9 @@ final class AccountContextImpl: AccountContext {
         if let session, session.isExpired {
             let refreshed = await ensureRefreshed()
             if !refreshed {
+                if let recovered = self.session, !recovered.token.isEmpty, !recovered.isExpired {
+                    return recovered.token
+                }
                 return nil
             }
         }
@@ -216,7 +246,7 @@ final class AccountContextImpl: AccountContext {
                     return false
                 } catch {
                     if attempt < 2 {
-                        try? await Task.sleep(nanoseconds: 1_000_000_000)
+                        try? await Task.sleep(nanoseconds: 2_500_000_000)
                     }
                 }
             }
@@ -240,6 +270,10 @@ final class AccountContextImpl: AccountContext {
     func clearPersistedSelectedChannelPreference(forClanId clanId: Int64) {
         guard clanId != 0 else { return }
         account.postbox.setPreferenceDataSync(key: PreferencesKeys.selectedChannelId(clanId: clanId), value: nil)
+    }
+
+    func clearAllPersistedSelectedChannelPreferences() {
+        account.postbox.clearPreferencesSync(withPrefix: PreferencesKeys.selectedChannelIdPrefix)
     }
 
     init(
@@ -988,11 +1022,17 @@ final class AccountContextImpl: AccountContext {
     private func handleSocketEvent(_ event: SocketEvent) {
         switch event {
         case .connected:
-            if VoIPMinimalCallBootstrap.isMinimalChromeActive {
-                joinDirectMessageSocketRoomOnSocketConnected()
-            } else {
-                joinDirectMessageClanOnSocketConnected()
-                rejoinCurrentChannel()
+            let joinDelayNanos: UInt64 = 250_000_000
+            let isMinimalChrome = VoIPMinimalCallBootstrap.isMinimalChromeActive
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: joinDelayNanos)
+                guard let self, self.account.socket.isConnected else { return }
+                if isMinimalChrome {
+                    self.joinDirectMessageSocketRoomOnSocketConnected()
+                } else {
+                    self.joinDirectMessageClanOnSocketConnected()
+                    self.rejoinCurrentChannel()
+                }
             }
 
         case .typing(let e):
@@ -1065,6 +1105,7 @@ final class AccountContextImpl: AccountContext {
             
             let mid = "\(apiMessage.messageID)"
             let msgChannelId = apiMessage.topicID != 0 ? "topic-\(apiMessage.topicID)" : "\(apiMessage.channelID)"
+            MessageEchoRegistry.shared.recordEcho(messageId: mid)
             let merged = account.postbox.read { tx in
                 MessageRecord.fromApi(apiMessage, merging: tx.getMessageById(mid, channelId: msgChannelId))
             }

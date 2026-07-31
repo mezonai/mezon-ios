@@ -36,8 +36,8 @@ final class AttachmentUploader {
     static let shared = AttachmentUploader()
     private init() {}
 
-    private static let partSize = 10 * 1024 * 1024
-    private static let minMultipartFileSize = 50 * 1024 * 1024
+    static let partSize = 10 * 1024 * 1024
+    static let minMultipartFileSize = 50 * 1024 * 1024
     private static let maxParallelParts = 3
 
     private struct MultipartNotApplicable: Error {}
@@ -256,8 +256,9 @@ final class MinIOStreamingUploader: NSObject, URLSessionTaskDelegate {
     static let shared = MinIOStreamingUploader()
 
     private var session: URLSession!
+    private var imageSession: URLSession!
     private let lock = NSLock()
-    private var progressHandlers: [Int: (Double) -> Void] = [:]
+    private var progressHandlers: [ObjectIdentifier: (Double) -> Void] = [:]
 
     private override init() {
         super.init()
@@ -268,6 +269,14 @@ final class MinIOStreamingUploader: NSObject, URLSessionTaskDelegate {
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
         config.urlCache = nil
         session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
+
+        let imageConfig = URLSessionConfiguration.default
+        imageConfig.timeoutIntervalForRequest = 45
+        imageConfig.timeoutIntervalForResource = 180
+        imageConfig.waitsForConnectivity = false
+        imageConfig.requestCachePolicy = .reloadIgnoringLocalCacheData
+        imageConfig.urlCache = nil
+        imageSession = URLSession(configuration: imageConfig, delegate: self, delegateQueue: nil)
     }
 
     @discardableResult
@@ -306,7 +315,49 @@ final class MinIOStreamingUploader: NSObject, URLSessionTaskDelegate {
                 continuation.resume(returning: (etag?.isEmpty == false ? etag : nil, http.statusCode))
             }
             lock.lock()
-            progressHandlers[task.taskIdentifier] = onProgress
+            progressHandlers[ObjectIdentifier(task)] = onProgress
+            lock.unlock()
+            task.resume()
+        }
+    }
+
+    @discardableResult
+    func putData(
+        url: String,
+        data: Data,
+        contentType: String,
+        onProgress: @escaping (Double) -> Void
+    ) async throws -> (etag: String?, statusCode: Int) {
+        guard let uploadURL = URL(string: url) else {
+            throw MezonError.httpError(statusCode: 0, message: "Invalid MinIO URL")
+        }
+        var request = URLRequest(url: uploadURL)
+        request.httpMethod = "PUT"
+        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+
+        return try await withCheckedThrowingContinuation { continuation in
+            let task = imageSession.uploadTask(with: request, from: data) { _, response, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard let http = response as? HTTPURLResponse else {
+                    continuation.resume(throwing: MezonError.invalidResponse)
+                    return
+                }
+                guard (200..<300).contains(http.statusCode) else {
+                    continuation.resume(throwing: MezonError.httpError(
+                        statusCode: http.statusCode, message: "MinIO upload failed"))
+                    return
+                }
+                let raw = http.value(forHTTPHeaderField: "Etag") ?? http.value(forHTTPHeaderField: "ETag")
+                let etag = raw?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+                continuation.resume(returning: (etag?.isEmpty == false ? etag : nil, http.statusCode))
+            }
+            lock.lock()
+            progressHandlers[ObjectIdentifier(task)] = onProgress
             lock.unlock()
             task.resume()
         }
@@ -321,7 +372,7 @@ final class MinIOStreamingUploader: NSObject, URLSessionTaskDelegate {
     ) {
         guard totalBytesExpectedToSend > 0 else { return }
         lock.lock()
-        let handler = progressHandlers[task.taskIdentifier]
+        let handler = progressHandlers[ObjectIdentifier(task)]
         lock.unlock()
         handler?(Double(totalBytesSent) / Double(totalBytesExpectedToSend))
     }
@@ -332,7 +383,7 @@ final class MinIOStreamingUploader: NSObject, URLSessionTaskDelegate {
         didCompleteWithError error: Error?
     ) {
         lock.lock()
-        progressHandlers.removeValue(forKey: task.taskIdentifier)
+        progressHandlers.removeValue(forKey: ObjectIdentifier(task))
         lock.unlock()
     }
 }

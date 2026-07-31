@@ -139,6 +139,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
             )
             context = sharedContext.createAccountContext(session: savedSession, user: user, onReady: { _ in })
             self.accountContext = context
+            context.clearAllPersistedSelectedChannelPreferences()
             self.hasStartedAuthFlow = true
             VoIPAnswerAccountBridge.context = context
             self.startAuthFlow(context: context)
@@ -146,6 +147,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
             VoIPAnswerAccountBridge.context = nil
             context = sharedContext.createUnauthorizedContext(onReady: onReady)
             self.accountContext = context
+            context.clearAllPersistedSelectedChannelPreferences()
         }
         if !VoIPMinimalCallBootstrap.isMinimalChromeActive {
             registerFcmDeviceWithBackendIfPossible()

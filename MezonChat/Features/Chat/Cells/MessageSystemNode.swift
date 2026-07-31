@@ -7,9 +7,14 @@ final class MessageSystemNode: ASDisplayNode {
     private let textNode = ASTextNode2()
     private let timeNode = ASTextNode2()
 
+    private var waveContainerNode: ASDisplayNode?
+    private var waveImageNode: ASDisplayNode?
+    private var waveLabelNode: ASTextNode2?
+
     private var cachedTextSize: CGSize = .zero
     private var cachedTimeSize: CGSize = .zero
     private var cachedTotalSize: CGSize = .zero
+    private var cachedWaveLabelSize: CGSize = .zero
     private var inlineTimeInText = false
 
     private static let iconSize: CGFloat = 20
@@ -18,6 +23,12 @@ final class MessageSystemNode: ASDisplayNode {
     private static let vPadding: CGFloat = 8
     private static let iconTextGap: CGFloat = 8
     private static let timeGap: CGFloat = 6
+    private static let waveImageSize: CGFloat = 30
+    private static let waveHPad: CGFloat = 10
+    private static let waveVPad: CGFloat = 4
+    private static let waveInnerGap: CGFloat = 6
+    private static let waveTopGap: CGFloat = 8
+    private static var waveButtonHeight: CGFloat { waveImageSize + waveVPad * 2 }
 
     let display: ChatMessageDisplay
     private let interaction: ChatInteraction
@@ -62,12 +73,14 @@ final class MessageSystemNode: ASDisplayNode {
                     .foregroundColor: t.text,
                 ]
             )
-        } else if messageCode == .createThread,
-                  let threadText = Self.createThreadSystemText(
+        } else if messageCode == .createThread || messageCode == .deleteThread,
+                  let threadText = Self.threadSystemText(
                     display: display,
                     style: style,
                     theme: t,
-                    timeText: timeText
+                    timeText: timeText,
+                    isDelete: messageCode == .deleteThread,
+                    isThreadDeleted: { interaction.isSystemThreadDeleted($0) }
                   ) {
             textNode.attributedText = threadText
             inlineTimeInText = true
@@ -76,7 +89,8 @@ final class MessageSystemNode: ASDisplayNode {
             let decorated = Self.decoratedSystemTapText(
                 display: display,
                 base: NSMutableAttributedString(attributedString: built),
-                theme: t
+                theme: t,
+                isThreadDeleted: { interaction.isSystemThreadDeleted($0) }
             )
             textNode.attributedText = decorated
         }
@@ -101,6 +115,67 @@ final class MessageSystemNode: ASDisplayNode {
         addSubnode(iconNode)
         addSubnode(textNode)
         addSubnode(timeNode)
+
+        if messageCode == .welcome {
+            setupWaveButton(theme: t, createdAt: display.message.createdAt)
+        }
+    }
+
+    private func setupWaveButton(theme: ThemeAttributes, createdAt: Date) {
+        let urls = MezonConstants.waveStickerURLs
+        guard !urls.isEmpty else { return }
+        let ts = Int64(createdAt.timeIntervalSince1970)
+        let stickerURL = urls[Int(abs(ts) % Int64(urls.count))]
+
+        let container = ASDisplayNode()
+        container.backgroundColor = theme.tertiary
+        container.cornerRadius = 6
+        addSubnode(container)
+        waveContainerNode = container
+
+        let image = ASDisplayNode()
+        image.setViewBlock {
+            let imageView = UIImageView()
+            imageView.contentMode = .scaleAspectFit
+            imageView.clipsToBounds = true
+            return imageView
+        }
+        container.addSubnode(image)
+        waveImageNode = image
+
+        let label = ASTextNode2()
+        label.attributedText = NSAttributedString(
+            string: L(L10n.ChatSystem.waveWelcome),
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 13.sf, weight: .medium),
+                .foregroundColor: theme.text,
+            ]
+        )
+        label.maximumNumberOfLines = 1
+        label.isUserInteractionEnabled = false
+        container.addSubnode(label)
+        waveLabelNode = label
+
+        loadWaveSticker(urlString: stickerURL)
+    }
+
+    private func loadWaveSticker(urlString: String) {
+        guard let url = URL(string: urlString) else { return }
+        if let cachedData = ImageCache.shared.cachedData(forKey: urlString),
+           let image = UIImage.animatedImage(from: cachedData) ?? UIImage.decodeImage(from: cachedData) {
+            DispatchQueue.main.async { [weak self] in
+                (self?.waveImageNode?.view as? UIImageView)?.image = image
+            }
+            return
+        }
+        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            guard let data,
+                  let image = UIImage.animatedImage(from: data) ?? UIImage.decodeImage(from: data) else { return }
+            ImageCache.shared.setImage(image, data: data, forKey: urlString)
+            DispatchQueue.main.async {
+                (self?.waveImageNode?.view as? UIImageView)?.image = image
+            }
+        }.resume()
     }
 
     override func didLoad() {
@@ -113,6 +188,12 @@ final class MessageSystemNode: ASDisplayNode {
 
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
         let point = gesture.location(in: view)
+
+        if let wave = waveContainerNode, wave.frame.insetBy(dx: -4, dy: -4).contains(point) {
+            interaction.onSystemWaveWelcomeTapped(display)
+            return
+        }
+
         let localPoint = view.convert(point, to: textNode.view)
 
         guard let attrText = textNode.attributedText, attrText.length > 0 else { return }
@@ -175,7 +256,15 @@ final class MessageSystemNode: ASDisplayNode {
             ? cachedTextSize.height
             : cachedTextSize.height + Self.timeGap + cachedTimeSize.height
         let minH = max(textBlockH, iconW)
-        let totalH = Self.vPadding + minH + Self.vPadding
+
+        var waveExtra: CGFloat = 0
+        if let waveLabel = waveLabelNode {
+            let maxLabelW = max(0, contentW - Self.waveImageSize - Self.waveInnerGap - Self.waveHPad * 2)
+            cachedWaveLabelSize = waveLabel.measure(CGSize(width: maxLabelW, height: 20))
+            waveExtra = Self.waveTopGap + Self.waveButtonHeight
+        }
+
+        let totalH = Self.vPadding + minH + waveExtra + Self.vPadding
         cachedTotalSize = CGSize(width: width, height: totalH)
         return cachedTotalSize
     }
@@ -200,6 +289,31 @@ final class MessageSystemNode: ASDisplayNode {
         } else {
             timeNode.frame = CGRect(x: textX, y: topY + cachedTextSize.height + Self.timeGap, width: cachedTimeSize.width, height: cachedTimeSize.height)
         }
+
+        if let container = waveContainerNode {
+            let buttonW = min(
+                Self.waveHPad * 2 + Self.waveImageSize + Self.waveInnerGap + cachedWaveLabelSize.width,
+                textContentW
+            )
+            container.frame = CGRect(
+                x: textX,
+                y: topY + contentH + Self.waveTopGap,
+                width: buttonW,
+                height: Self.waveButtonHeight
+            )
+            waveImageNode?.frame = CGRect(
+                x: Self.waveHPad,
+                y: Self.waveVPad,
+                width: Self.waveImageSize,
+                height: Self.waveImageSize
+            )
+            waveLabelNode?.frame = CGRect(
+                x: Self.waveHPad + Self.waveImageSize + Self.waveInnerGap,
+                y: (Self.waveButtonHeight - cachedWaveLabelSize.height) / 2,
+                width: cachedWaveLabelSize.width,
+                height: cachedWaveLabelSize.height
+            )
+        }
     }
 
     private func configureIcon(code: Int32, theme: ThemeAttributes) {
@@ -214,7 +328,7 @@ final class MessageSystemNode: ASDisplayNode {
             iconImage = UIImage(named: "AuditLog")?.withRenderingMode(.alwaysTemplate)
                 ?? UIImage(systemName: "arrow.forward", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold))
             iconColor = theme.textSuccess
-        case .createThread:
+        case .createThread, .deleteThread:
             iconImage = UIImage(named: "Channel/channelThread")
                 ?? UIImage(systemName: "text.bubble.fill", withConfiguration: config)
             iconColor = theme.text
@@ -242,6 +356,7 @@ final class MessageSystemNode: ASDisplayNode {
         switch mc {
         case .welcome:       return "Welcome!"
         case .createThread:  return "A thread was created."
+        case .deleteThread:  return "A thread was deleted."
         case .createPin:     return "A message was pinned."
         case .auditLog:      return "Audit log entry."
         case .upcomingEvent: return "An upcoming event."
@@ -271,7 +386,8 @@ final class MessageSystemNode: ASDisplayNode {
     private static func decoratedSystemTapText(
         display: ChatMessageDisplay,
         base: NSMutableAttributedString,
-        theme: ThemeAttributes
+        theme: ThemeAttributes,
+        isThreadDeleted: (String) -> Bool
     ) -> NSAttributedString {
         let mc = MezonConstants.MessageCode(rawValue: display.messageCode)
         let haystack = base.string
@@ -292,7 +408,8 @@ final class MessageSystemNode: ASDisplayNode {
             }
         case .createThread:
             if let info = parseThreadParenLabelId(haystack), !info.label.isEmpty,
-               let threadNumericId = Int64(info.id), threadNumericId != 0 {
+               let threadNumericId = Int64(info.id), threadNumericId != 0,
+               !isThreadDeleted(info.id) {
                 for r in nsRanges(of: info.label, in: haystack, caseInsensitive: false) {
                     base.addAttributes([
                         .foregroundColor: linkColor,
@@ -316,11 +433,13 @@ final class MessageSystemNode: ASDisplayNode {
         return base
     }
 
-    private static func createThreadSystemText(
+    private static func threadSystemText(
         display: ChatMessageDisplay,
         style: RichTextBuilder.Style,
         theme: ThemeAttributes,
-        timeText: String
+        timeText: String,
+        isDelete: Bool,
+        isThreadDeleted: (String) -> Bool
     ) -> NSAttributedString? {
         let source = display.parsedContent.text
         guard let threadInfo = parseThreadParenLabelId(source), !threadInfo.label.isEmpty else {
@@ -335,38 +454,59 @@ final class MessageSystemNode: ASDisplayNode {
         }
 
         result.append(NSAttributedString(
-            string: L(L10n.ChatSystem.startedThread) + " ",
+            string: L(isDelete ? L10n.ChatSystem.deletedThread : L10n.ChatSystem.startedThread) + " ",
             attributes: bodyAttributes(style: style)
         ))
 
         let threadRangeStart = result.length
-        result.append(NSAttributedString(
-            string: threadInfo.label,
-            attributes: [
-                .font: style.mentionFont,
-                .foregroundColor: theme.textLink,
-                .mezonSystemAction: ("thread:" + threadInfo.id) as NSString,
-            ]
-        ))
+        if isDelete {
+            result.append(NSAttributedString(
+                string: threadInfo.label,
+                attributes: [
+                    .font: style.mentionFont,
+                    .foregroundColor: style.bodyColor,
+                ]
+            ))
+            result.append(NSAttributedString(string: ".", attributes: bodyAttributes(style: style)))
+        } else {
+            if isThreadDeleted(threadInfo.id) {
+                result.append(NSAttributedString(
+                    string: threadInfo.label,
+                    attributes: [
+                        .font: style.mentionFont,
+                        .foregroundColor: style.bodyColor,
+                    ]
+                ))
+            } else {
+                result.append(NSAttributedString(
+                    string: threadInfo.label,
+                    attributes: [
+                        .font: style.mentionFont,
+                        .foregroundColor: theme.textLink,
+                        .mezonSystemAction: ("thread:" + threadInfo.id) as NSString,
+                    ]
+                ))
+            }
 
-        if !threadInfo.content.isEmpty {
-            result.append(NSAttributedString(string: threadInfo.content, attributes: bodyAttributes(style: style)))
+            if !threadInfo.content.isEmpty {
+                result.append(NSAttributedString(string: threadInfo.content, attributes: bodyAttributes(style: style)))
+            }
+
+            result.append(NSAttributedString(
+                string: ". " + L(L10n.ChatSystem.seeAllThreads) + " ",
+                attributes: bodyAttributes(style: style)
+            ))
+
+            result.append(NSAttributedString(
+                string: L(L10n.ChatSystem.allThreadsAnchor),
+                attributes: [
+                    .font: style.mentionFont,
+                    .foregroundColor: theme.textLink,
+                    .mezonSystemAction: "threads" as NSString,
+                ]
+            ))
+            result.append(NSAttributedString(string: ".", attributes: bodyAttributes(style: style)))
         }
-
-        result.append(NSAttributedString(
-            string: ". " + L(L10n.ChatSystem.seeAllThreads) + " ",
-            attributes: bodyAttributes(style: style)
-        ))
-
-        result.append(NSAttributedString(
-            string: L(L10n.ChatSystem.allThreadsAnchor),
-            attributes: [
-                .font: style.mentionFont,
-                .foregroundColor: theme.textLink,
-                .mezonSystemAction: "threads" as NSString,
-            ]
-        ))
-        result.append(NSAttributedString(string: ".", attributes: bodyAttributes(style: style)))
         result.append(NSAttributedString(
             string: "   " + timeText,
             attributes: [
@@ -447,7 +587,7 @@ final class MessageSystemNode: ASDisplayNode {
         return nil
     }
 
-    private static func parseThreadParenLabelId(_ content: String) -> (label: String, id: String, content: String, matchRange: NSRange)? {
+    static func parseThreadParenLabelId(_ content: String) -> (label: String, id: String, content: String, matchRange: NSRange)? {
         guard let regex = try? NSRegularExpression(pattern: "\\(([^,]+),\\s*([^)]+)\\)"),
               let m = regex.firstMatch(in: content, range: NSRange(location: 0, length: (content as NSString).length)),
               m.numberOfRanges >= 3 else { return nil }

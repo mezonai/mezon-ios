@@ -440,6 +440,9 @@ final class SendMessageInputViewController: UIViewController {
     }
     private let clanId: Int64
     var topicId: Int64 = 0
+    private var ambiguousDeliveryVerifyTask: Task<Void, Never>?
+    private var deliveryConfirmTask: Task<Void, Never>?
+    private var pendingDeliveryConfirmations: [String: Date] = [:]
     private var locallyReactivatedThreadIds = Set<Int64>()
     private var locallyJoinedThreadIds = Set<Int64>()
     private var disposables = DisposableSet()
@@ -541,6 +544,10 @@ final class SendMessageInputViewController: UIViewController {
     private var activeHashtags: [ComposerHashtag] = []
 
     private var emojiIdByColonToken: [String: String] = [:]
+    private var lastHandledComposerSelection = NSRange(location: -1, length: -1)
+    private var lastHandledComposerSelectionTextLength = -1
+    private var isHandlingComposerSelectionChange = false
+    private var didAttemptEmojiSuggestionCacheLoad = false
     private var mentionSuggestionView: MentionSuggestionView?
     private var mentionSuggestionHeightConstraint: NSLayoutConstraint?
     private var mentionComposerConstraints: [NSLayoutConstraint] = []
@@ -2325,7 +2332,7 @@ final class SendMessageInputViewController: UIViewController {
                 self.context.account.postbox.write { tx in
                     guard ack.messageID != 0 else {
                         if tx.getMessageById(localId) != nil {
-                            tx.markMessageSent(id: localId)
+                            tx.markMessageFailed(id: localId)
                         }
                         return
                     }
@@ -2395,6 +2402,7 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private static let ambiguousSendFailsafeDelay: TimeInterval = 30
+    private static let ambiguousDeliveryVerifyDelayNanoseconds: UInt64 = 2_500_000_000
 
     private static func isDefinitelyUndelivered(_ error: Error) -> Bool {
         if let mezon = error as? MezonError, case let .httpError(code, _) = mezon, (400..<500).contains(code) {
@@ -2404,11 +2412,116 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func scheduleAmbiguousSendFailsafe(localId: String) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.ambiguousSendFailsafeDelay) { [weak self] in
-            guard let self else { return }
-            let record = self.context.account.postbox.read { tx in tx.getMessageById(localId) }
+        let postbox = context.account.postbox
+        scheduleAmbiguousDeliveryVerification()
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.ambiguousSendFailsafeDelay) {
+            let record = postbox.read { tx in tx.getMessageById(localId) }
             guard let record, record.id == localId, record.sendingState == .pending else { return }
-            self.context.account.postbox.write { tx in tx.markMessageFailed(id: localId) }
+            postbox.write { tx in
+                if tx.reconcilePendingWithServerTwin(pendingId: localId) { return }
+                tx.markMessageFailed(id: localId)
+            }
+        }
+    }
+
+    private func scheduleAmbiguousDeliveryVerification() {
+        ambiguousDeliveryVerifyTask?.cancel()
+        let clanId = self.clanId
+        let channelId = self.channel.channelID
+        let topicId = self.topicId
+        ambiguousDeliveryVerifyTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.ambiguousDeliveryVerifyDelayNanoseconds)
+            guard !Task.isCancelled, let self else { return }
+            await self.verifyAmbiguousPendingDelivery(clanId: clanId, channelId: channelId, topicId: topicId)
+        }
+    }
+
+    private func verifyAmbiguousPendingDelivery(clanId: Int64, channelId: Int64, topicId: Int64) async {
+        let postbox = context.account.postbox
+        let storageChannelId = topicId != 0 ? "topic-\(topicId)" : "\(channelId)"
+        let hasStuckPending = postbox.read { tx in
+            tx.getMessages(channelId: storageChannelId).contains {
+                $0.id.hasPrefix("pending-") && $0.sendingState == .pending
+            }
+        }
+        guard hasStuckPending else { return }
+        guard let token = await context.getToken() else { return }
+        do {
+            let response = try await context.account.network.listChannelMessages(
+                clanId: clanId,
+                channelId: channelId,
+                messageId: 0,
+                direction: 2,
+                limit: 30,
+                topicId: topicId,
+                token: token
+            )
+            guard !response.messages.isEmpty else { return }
+            postbox.write { tx in
+                for api in response.messages {
+                    let existing = tx.getMessageById("\(api.messageID)", channelId: storageChannelId)
+                    tx.addMessages([MessageRecord.fromApi(api, merging: existing)])
+                }
+            }
+        } catch {
+        }
+    }
+
+    private static let deliveryConfirmDelayNanoseconds: UInt64 = 5_000_000_000
+
+    private func registerDeliveryConfirmation(serverMessageId: String) {
+        guard !serverMessageId.isEmpty, serverMessageId != "0" else { return }
+        pendingDeliveryConfirmations[serverMessageId] = Date()
+        scheduleDeliveryConfirmation()
+    }
+
+    private func scheduleDeliveryConfirmation() {
+        deliveryConfirmTask?.cancel()
+        let clanId = self.clanId
+        let channelId = self.channel.channelID
+        let topicId = self.topicId
+        deliveryConfirmTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.deliveryConfirmDelayNanoseconds)
+            guard !Task.isCancelled, let self else { return }
+            await self.confirmPendingDeliveries(clanId: clanId, channelId: channelId, topicId: topicId)
+        }
+    }
+
+    private func confirmPendingDeliveries(clanId: Int64, channelId: Int64, topicId: Int64) async {
+        let due = pendingDeliveryConfirmations
+        guard !due.isEmpty else { return }
+        pendingDeliveryConfirmations.removeAll()
+
+        let unconfirmed = due.keys.filter { !MessageEchoRegistry.shared.hasEcho(messageId: $0) }
+        guard !unconfirmed.isEmpty else { return }
+
+        let postbox = context.account.postbox
+        let storageChannelId = topicId != 0 ? "topic-\(topicId)" : "\(channelId)"
+        guard let token = await context.getToken() else { return }
+        do {
+            let response = try await context.account.network.listChannelMessages(
+                clanId: clanId,
+                channelId: channelId,
+                messageId: 0,
+                direction: 2,
+                limit: 50,
+                topicId: topicId,
+                token: token
+            )
+            guard !response.messages.isEmpty else { return }
+            let serverIds = Set(response.messages.map { "\($0.messageID)" })
+            postbox.write { tx in
+                for api in response.messages {
+                    let existing = tx.getMessageById("\(api.messageID)", channelId: storageChannelId)
+                    tx.addMessages([MessageRecord.fromApi(api, merging: existing)])
+                }
+                for id in unconfirmed where !serverIds.contains(id) {
+                    guard let record = tx.getMessageById(id, channelId: storageChannelId),
+                          record.sendingState == .sent else { continue }
+                    tx.markMessageFailed(id: id)
+                }
+            }
+        } catch {
         }
     }
 
@@ -4398,6 +4511,8 @@ final class SendMessageInputViewController: UIViewController {
         hideEmojiSuggestions()
         hideHashtagSuggestions()
         guard let sv = mentionSuggestionView else { return }
+        let wasVisible = !sv.isHidden
+        let previousHeight = mentionSuggestionHeightConstraint?.constant ?? 0
         sv.update(items: items)
         sv.applyTheme()
         let h = sv.preferredHeight
@@ -4411,6 +4526,7 @@ final class SendMessageInputViewController: UIViewController {
             visibleHeight: h
         )
         promoteInlineSuggestionZOrder(strip: sv)
+        guard !wasVisible || abs(previousHeight - h) > 0.5 else { return }
         notifyComposerHeightChanged()
         notifyInlineSuggestionVisibilityChanged()
         layoutSuperviewForComposerChange(shouldAnimateSuperview: true, duration: 0.15)
@@ -4436,7 +4552,8 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func updateEmojiSuggestions() {
-        if allSuggestionEmojis.isEmpty {
+        if allSuggestionEmojis.isEmpty, !didAttemptEmojiSuggestionCacheLoad {
+            didAttemptEmojiSuggestionCacheLoad = true
             reloadEmojiSuggestionList()
         }
         guard let ctx = detectEmojiColonContext() else {
@@ -4463,6 +4580,8 @@ final class SendMessageInputViewController: UIViewController {
         hideMentionSuggestions()
         hideHashtagSuggestions()
         guard let ev = emojiSuggestionView else { return }
+        let wasVisible = !ev.isHidden
+        let previousHeight = emojiSuggestionHeightConstraint?.constant ?? 0
         ev.update(items: items)
         ev.applyTheme()
         let h = ev.preferredHeight
@@ -4476,6 +4595,7 @@ final class SendMessageInputViewController: UIViewController {
             visibleHeight: h
         )
         promoteInlineSuggestionZOrder(strip: ev)
+        guard !wasVisible || abs(previousHeight - h) > 0.5 else { return }
         notifyComposerHeightChanged()
         notifyInlineSuggestionVisibilityChanged()
         layoutSuperviewForComposerChange(shouldAnimateSuperview: true, duration: 0.15)
@@ -4524,6 +4644,8 @@ final class SendMessageInputViewController: UIViewController {
     private func showHashtagSuggestions(items: [Mezon_Api_ChannelDescription]) {
         hideEmojiSuggestions()
         guard let hv = hashtagSuggestionView else { return }
+        let wasVisible = !hv.isHidden
+        let previousHeight = hashtagSuggestionHeightConstraint?.constant ?? 0
         hv.update(items: items)
         hv.applyTheme()
         let h = hv.preferredHeight
@@ -4537,6 +4659,7 @@ final class SendMessageInputViewController: UIViewController {
             visibleHeight: h
         )
         promoteInlineSuggestionZOrder(strip: hv)
+        guard !wasVisible || abs(previousHeight - h) > 0.5 else { return }
         notifyComposerHeightChanged()
         notifyInlineSuggestionVisibilityChanged()
         layoutSuperviewForComposerChange(shouldAnimateSuperview: true, duration: 0.15)
@@ -5760,7 +5883,8 @@ final class SendMessageInputViewController: UIViewController {
                     durationSeconds: nil,
                     localImage: nil,
                     isUploading: true,
-                    uploadProgressKey: file.url.path
+                    uploadProgressKey: file.url.path,
+                    uploadShowsPercent: file.filesize >= AttachmentUploader.minMultipartFileSize
                 )
             }
         }
@@ -5837,7 +5961,8 @@ final class SendMessageInputViewController: UIViewController {
                         durationSeconds: nil,
                         localImage: nil,
                         isUploading: true,
-                        uploadProgressKey: file.url.path
+                        uploadProgressKey: file.url.path,
+                        uploadShowsPercent: file.filesize >= AttachmentUploader.minMultipartFileSize
                     )
                 }
             }
@@ -6145,7 +6270,7 @@ final class SendMessageInputViewController: UIViewController {
                             guard ack.messageID != 0 else {
                                 let msgs = tx.getMessages(channelId: channelIdStr)
                                 if msgs.contains(where: { $0.id == localId }) {
-                                    tx.markMessageSent(id: localId)
+                                    tx.markMessageFailed(id: localId)
                                 }
                                 return
                             }
@@ -6197,6 +6322,7 @@ final class SendMessageInputViewController: UIViewController {
                             )
                             ParsedAttachment.pendingImageCache.removeValue(forKey: localId)
                             ParsedAttachment.pendingDocumentPlaceholders.removeValue(forKey: localId)
+                            self.registerDeliveryConfirmation(serverMessageId: "\(ack.messageID)")
                         }
                     }
                 }
@@ -6473,6 +6599,7 @@ final class SendMessageInputViewController: UIViewController {
 
 extension SendMessageInputViewController: UITextViewDelegate {
     func textViewDidChange(_ textView: UITextView) {
+        lastHandledComposerSelection = NSRange(location: -1, length: -1)
         text = textView.text ?? ""
         placeholderLabel.isHidden = !text.isEmpty
         updateTextViewHeight()
@@ -6488,6 +6615,16 @@ extension SendMessageInputViewController: UITextViewDelegate {
     }
 
     func textViewDidChangeSelection(_ textView: UITextView) {
+        guard !isHandlingComposerSelectionChange else { return }
+        guard textView.markedTextRange == nil else { return }
+        let sel = textView.selectedRange
+        let textLength = ((textView.text ?? "") as NSString).length
+        guard !NSEqualRanges(sel, lastHandledComposerSelection)
+            || textLength != lastHandledComposerSelectionTextLength else { return }
+        isHandlingComposerSelectionChange = true
+        defer { isHandlingComposerSelectionChange = false }
+        lastHandledComposerSelection = sel
+        lastHandledComposerSelectionTextLength = textLength
         updateInlineSuggestions()
         refreshComposerTypingAttributesForSelection()
     }

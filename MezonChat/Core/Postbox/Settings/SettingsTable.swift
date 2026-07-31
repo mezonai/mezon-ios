@@ -65,5 +65,27 @@ final class SettingsTable: Table {
         pendingWrites.removeAll()
     }
 
+    func removeKeys(withPrefix prefix: String) {
+        beforeCommit()
+        let keys = db.query("SELECT key FROM settings") { stmt -> String in
+            sqlite3_column_text(stmt, 0).map { String(cString: $0) } ?? ""
+        }.filter { $0.hasPrefix(prefix) }
+        if !keys.isEmpty {
+            db.beginTransaction()
+            for key in keys {
+                db.run("DELETE FROM settings WHERE key = ?") {
+                    sqlite3_bind_text($0, 1, key, -1, sqliteTransient)
+                }
+            }
+            db.commitTransaction()
+        }
+        for key in cachedValues.keys where key.hasPrefix(prefix) {
+            cachedValues.removeValue(forKey: key)
+        }
+        for key in pendingWrites.keys where key.hasPrefix(prefix) {
+            pendingWrites.removeValue(forKey: key)
+        }
+    }
+
     override func clearMemoryCache() { cachedValues.removeAll() }
 }
