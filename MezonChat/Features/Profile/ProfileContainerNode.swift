@@ -650,8 +650,9 @@ final class ProfileContainerNode: ASDisplayNode {
 
         if let url = user?.avatarURL, !url.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let proxiedURLString = ImgproxyURL.create(from: url.absoluteString, width: 150, height: 150)
+            let rawURLString = url.absoluteString
             currentAvatarLoadKey = proxiedURLString
-            if let cached = ImageCache.shared.memoryImage(forKey: proxiedURLString) {
+            if let cached = ImageCache.shared.memoryImage(forKey: proxiedURLString) ?? ImageCache.shared.memoryImage(forKey: rawURLString) {
                 avatarImageView.image = cached
                 avatarPlaceholderLabel.isHidden = true
                 avatarContainerView.backgroundColor = .clear
@@ -666,15 +667,27 @@ final class ProfileContainerNode: ASDisplayNode {
                 ImageCache.shared.loadAvatar(urlString: proxiedURLString) { [weak self] image in
                     guard let self else { return }
                     guard self.currentAvatarLoadKey == proxiedURLString else { return }
-                    guard let image else {
-                        self.applyProfileAvatarPlaceholder()
-                        return
+                    if let image {
+                        self.avatarImageView.image = image
+                        self.avatarPlaceholderLabel.isHidden = true
+                        self.avatarContainerView.backgroundColor = .clear
+                        self.headerBackgroundView.backgroundColor = image.dominantColor() ?? .mezonSecondaryBackground
+                        self.statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
+                    } else {
+                        ImageCache.shared.loadAvatar(urlString: rawURLString) { [weak self] rawImage in
+                            guard let self else { return }
+                            guard self.currentAvatarLoadKey == proxiedURLString else { return }
+                            if let rawImage {
+                                self.avatarImageView.image = rawImage
+                                self.avatarPlaceholderLabel.isHidden = true
+                                self.avatarContainerView.backgroundColor = .clear
+                                self.headerBackgroundView.backgroundColor = rawImage.dominantColor() ?? .mezonSecondaryBackground
+                                self.statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
+                            } else {
+                                self.applyProfileAvatarPlaceholder()
+                            }
+                        }
                     }
-                    self.avatarImageView.image = image
-                    self.avatarPlaceholderLabel.isHidden = true
-                    self.avatarContainerView.backgroundColor = .clear
-                    self.headerBackgroundView.backgroundColor = image.dominantColor() ?? .mezonSecondaryBackground
-                    self.statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
                 }
             }
         } else {
