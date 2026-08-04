@@ -17,6 +17,7 @@ final class NotificationsViewController: ViewController {
     private(set) var isLoading: Bool = false
     private(set) var isLoadingMore: Bool = false
     private(set) var currentCategory: Int32 = 1
+    private var lastLoadedClanId: Int64 = 0
 
     private var loadedCategories: Set<Int32> = []
 
@@ -66,7 +67,9 @@ final class NotificationsViewController: ViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         notificationsNode.applyTheme()
-        if items.isEmpty {
+        let clanId = context.currentClanId
+        if items.isEmpty || clanId != lastLoadedClanId {
+            loadedCategories.removeAll()
             Task { await fetchNotifications(category: currentCategory) }
         }
     }
@@ -123,6 +126,7 @@ final class NotificationsViewController: ViewController {
                 }
             }
             loadedCategories.insert(category)
+            lastLoadedClanId = clanId
             setIsLoading(false)
             return
         }
@@ -134,6 +138,7 @@ final class NotificationsViewController: ViewController {
 
         defer {
             loadedCategories.insert(category)
+            lastLoadedClanId = clanId
             if isLoadMore { setIsLoadingMore(false) } else { setIsLoading(false) }
         }
 
