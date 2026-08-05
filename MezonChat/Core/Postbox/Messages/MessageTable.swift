@@ -492,7 +492,7 @@ final class MessageTable: Table {
         }
         let pendingsToKeep = existing.filter { record in
             guard record.id.hasPrefix("pending-"),
-                  record.sendingState == .pending,
+                  record.sendingState == .pending || record.sendingState == .failed,
                   keptIds.insert(record.id).inserted else { return false }
             return !mergedBelonging.contains(where: { serverEchoMatchesPending(server: $0, pending: record) })
         }

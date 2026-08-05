@@ -495,22 +495,21 @@ final class QRScannerViewController: ViewController {
                     
                     inviteNode.onJoin = { [weak self, weak inviteNode] in
                         guard let self = self else { return }
+                        inviteNode?.setJoining(true)
                         Task {
-                            do {
-                                let response = try await self.context.engine.clanData.joinClanWithInvite(code: code, token: token)
-                                await MainActor.run {
+                            let clanId = await ClanInviteJoiner.join(context: self.context, code: code, clanId: inviteInfo.clan_id.flatMap(Int64.init))
+                            await MainActor.run {
+                                guard let clanId else {
                                     self.hideClanInvite()
-                                    self.closeTapped()
-                                    NotificationCenter.default.post(
-                                        name: .mezonQRSelectClan,
-                                        object: nil,
-                                        userInfo: ["clanId": "\(response.clanID)"]
-                                    )
+                                    return
                                 }
-                            } catch {
-                                await MainActor.run {
-                                    self.showAlert(message: error.localizedDescription)
-                                }
+                                self.hideClanInvite()
+                                self.closeTapped()
+                                NotificationCenter.default.post(
+                                    name: .mezonQRSelectClan,
+                                    object: nil,
+                                    userInfo: ["clanId": "\(clanId)"]
+                                )
                             }
                         }
                     }

@@ -777,19 +777,17 @@ final class ChatViewController: ViewController {
                 }
                 if ClanCreationLimit.showLimitToastIfNeeded(context: self.context) { return }
                 Task {
-                    do {
-                        let response = try await self.context.engine.clanData.joinClanWithInvite(code: code, token: token)
-                        await MainActor.run {
-                            NotificationCenter.default.post(
-                                name: .mezonQRSelectClan,
-                                object: nil,
-                                userInfo: ["clanId": "\(response.clanID)"]
-                            )
+                    let clanId = await ClanInviteJoiner.join(context: self.context, code: code, clanId: info.clan_id.flatMap(Int64.init))
+                    await MainActor.run {
+                        guard let clanId else {
+                            Toast.error(L(L10n.Error.somethingWentWrong))
+                            return
                         }
-                    } catch {
-                        await MainActor.run {
-                            Toast.error(error.localizedDescription)
-                        }
+                        NotificationCenter.default.post(
+                            name: .mezonQRSelectClan,
+                            object: nil,
+                            userInfo: ["clanId": "\(clanId)"]
+                        )
                     }
                 }
             },
@@ -3732,18 +3730,25 @@ final class ChatViewController: ViewController {
         guard context.account.socket.isConnected else {
             return
         }
-        self.context.account.socket.joinClanChat(clanId: clanId)
-        let channelType: Int32 = clanId == 0
-            ? (channel.type != 0 ? channel.type : MezonConstants.ChannelType.group.rawValue)
-            : (channel.type != 0 ? channel.type : MezonConstants.ChannelType.channel.rawValue)
-        let isPublic = clanId == 0 ? false : (channel.parentID != 0 ? false : (channel.channelPrivate == 0))
-        self.context.account.socket.joinChannel(clanId: clanId, channelId: channel.channelID, channelType: channelType, isPublic: isPublic)
-        if clanId != 0 {
-            NotificationCenter.default.post(
-                name: Notification.Name("MezonJoinedClanChatForBadges"),
-                object: nil,
-                userInfo: ["clanId": clanId]
-            )
+        let targetClanId = clanId
+        let targetChannel = channel
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: self.context, clanId: targetClanId)
+            guard self.context.account.socket.isConnected else { return }
+            self.context.account.socket.joinClanChat(clanId: targetClanId)
+            let channelType: Int32 = targetClanId == 0
+                ? (targetChannel.type != 0 ? targetChannel.type : MezonConstants.ChannelType.group.rawValue)
+                : (targetChannel.type != 0 ? targetChannel.type : MezonConstants.ChannelType.channel.rawValue)
+            let isPublic = targetClanId == 0 ? false : (targetChannel.parentID != 0 ? false : (targetChannel.channelPrivate == 0))
+            self.context.account.socket.joinChannel(clanId: targetClanId, channelId: targetChannel.channelID, channelType: channelType, isPublic: isPublic)
+            if targetClanId != 0 {
+                NotificationCenter.default.post(
+                    name: Notification.Name("MezonJoinedClanChatForBadges"),
+                    object: nil,
+                    userInfo: ["clanId": targetClanId]
+                )
+            }
         }
     }
 
@@ -5035,15 +5040,14 @@ final class ChatViewController: ViewController {
         persistSelectedChannelForVoice(channel)
         guard targetClan != 0, targetClan != context.currentClanId else { return }
         context.currentClanId = targetClan
-        if context.account.socket.isConnected {
-            context.account.socket.joinClanChat(clanId: targetClan)
-        } else {
-            Task { @MainActor [weak self] in
-                guard let self else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if !self.context.account.socket.isConnected {
                 await self.waitForSocketConnected()
-                if self.context.account.socket.isConnected {
-                    self.context.account.socket.joinClanChat(clanId: targetClan)
-                }
+            }
+            await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: self.context, clanId: targetClan, force: true)
+            if self.context.account.socket.isConnected {
+                self.context.account.socket.joinClanChat(clanId: targetClan)
             }
         }
         NotificationCenter.default.post(

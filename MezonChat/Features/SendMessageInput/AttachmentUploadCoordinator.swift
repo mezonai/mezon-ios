@@ -314,7 +314,9 @@ final class AttachmentUploadCoordinator {
 
         session.isSending = true
         Task { @MainActor in
-            await self.runUploads(session, context: context, prepare: prepare)
+            await self.runWithBackgroundTask {
+                await self.runUploads(session, context: context, prepare: prepare)
+            }
         }
     }
 
@@ -334,19 +336,39 @@ final class AttachmentUploadCoordinator {
         Self.postUploadSlotStateChanged(messageId: Self.sessionMessageId(session))
 
         Task { @MainActor in
-            let item = session.items[itemIndex]
-            let success = await self.executeImageUpload(item, context: context)
-            session.items[itemIndex].state = success ? .uploaded(item.reservedAttachment!) : .failed
-            if success { self.markPresignFinished(session, key: item.presignKey) }
-            Self.postUploadSlotStateChanged(messageId: Self.sessionMessageId(session))
-            if success, let token = await context.getToken() {
-                await self.maybeSyncPresignFinish(session, context: context, token: token, forceFlush: true)
+            await self.runWithBackgroundTask {
+                let item = session.items[itemIndex]
+                let success = await self.executeImageUpload(item, context: context)
+                session.items[itemIndex].state = success ? .uploaded(item.reservedAttachment!) : .failed
+                if success { self.markPresignFinished(session, key: item.presignKey) }
+                Self.postUploadSlotStateChanged(messageId: Self.sessionMessageId(session))
+                if success, let token = await context.getToken() {
+                    await self.maybeSyncPresignFinish(session, context: context, token: token, forceFlush: true)
+                }
+                await self.finalizeIfComplete(session, context: context)
             }
-            await self.finalizeIfComplete(session, context: context)
         }
     }
 
     // MARK: - Orchestration
+
+    @MainActor
+    private func runWithBackgroundTask(_ body: @MainActor () async -> Void) async {
+        var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+        backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "MezonAttachmentUpload") {
+            if backgroundTaskID != .invalid {
+                UIApplication.shared.endBackgroundTask(backgroundTaskID)
+                backgroundTaskID = .invalid
+            }
+        }
+        defer {
+            if backgroundTaskID != .invalid {
+                UIApplication.shared.endBackgroundTask(backgroundTaskID)
+                backgroundTaskID = .invalid
+            }
+        }
+        await body()
+    }
 
     @MainActor
     private func runUploads(
@@ -820,7 +842,9 @@ final class AttachmentUploadCoordinator {
             tx.markMessagePending(id: messageId)
         }
         Task { @MainActor in
-            await self.runUploads(session, context: context, prepare: nil)
+            await self.runWithBackgroundTask {
+                await self.runUploads(session, context: context, prepare: nil)
+            }
         }
         return true
     }

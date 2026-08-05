@@ -550,9 +550,15 @@ final class ClanListViewController: ViewController {
         onClanSelected?()
         context.currentClanId = clan.clanID
         setSelectedClanId(clan.clanID)
-        context.account.socket.joinClanChat(clanId: clan.clanID)
         persistToPostbox()
         fetchClanData(clanId: clan.clanID)
+        let clanId = clan.clanID
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: self.context, clanId: clanId, force: true)
+            guard self.context.currentClanId == clanId else { return }
+            self.context.account.socket.joinClanChat(clanId: clanId)
+        }
     }
 
     func removeClanAndSelectNext(removedClanId: Int64) {
