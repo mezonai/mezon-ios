@@ -376,13 +376,13 @@ final class ProfileContainerNode: ASDisplayNode {
 
         if avatarImageView.image == nil {
             headerBackgroundView.backgroundColor = .mezonSecondaryBackground
-            avatarContainerView.backgroundColor = UIColor.avatarColor(for: context.currentUser?.username ?? "")
+            avatarContainerView.backgroundColor = UIColor.theme.secondaryLight
             avatarPlaceholderLabel.isHidden = false
         } else {
             avatarPlaceholderLabel.isHidden = true
         }
         statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
-        avatarPlaceholderLabel.textColor = .white
+        avatarPlaceholderLabel.textColor = .mezonTextStrong
 
         configureAddStatusButton(user: context.currentUser)
     }
@@ -397,7 +397,7 @@ final class ProfileContainerNode: ASDisplayNode {
         fixedHeaderView.addSubview(avatarContainerView)
 
         avatarPlaceholderLabel.font = .systemFont(ofSize: avatarSize * 0.36, weight: .semibold)
-        avatarPlaceholderLabel.textColor = .white
+        avatarPlaceholderLabel.textColor = .mezonTextStrong
         avatarContainerView.addSubview(avatarPlaceholderLabel)
         avatarImageView.backgroundColor = .clear
         avatarImageView.contentMode = .scaleAspectFill
@@ -629,7 +629,7 @@ final class ProfileContainerNode: ASDisplayNode {
         avatarPlaceholderLabel.text = Self.profileAvatarInitials(username: u?.username)
         avatarImageView.image = nil
         avatarPlaceholderLabel.isHidden = false
-        avatarContainerView.backgroundColor = UIColor.avatarColor(for: u?.username ?? "")
+        avatarContainerView.backgroundColor = UIColor.theme.secondaryLight
         headerBackgroundView.backgroundColor = .mezonSecondaryBackground
         statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
     }
@@ -660,7 +660,7 @@ final class ProfileContainerNode: ASDisplayNode {
             } else {
                 avatarImageView.image = nil
                 avatarPlaceholderLabel.isHidden = false
-                avatarContainerView.backgroundColor = UIColor.avatarColor(for: user?.username ?? "")
+                avatarContainerView.backgroundColor = UIColor.theme.secondaryLight
                 headerBackgroundView.backgroundColor = .mezonSecondaryBackground
                 statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
                 ImageCache.shared.loadAvatar(urlString: proxiedURLString) { [weak self] image in

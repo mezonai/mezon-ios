@@ -621,6 +621,7 @@ final class MezonRootController: NavigationController {
 
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: self.context, clanId: toClanId, force: true)
                 for _ in 0..<50 {
                     if self.context.account.socket.isConnected { break }
                     try? await Task.sleep(nanoseconds: 200_000_000)
@@ -927,22 +928,23 @@ final class MezonRootController: NavigationController {
                 node.onCancel = { [weak overlay] in
                     overlay?.dismissOverlay()
                 }
-                node.onJoin = { [weak self, weak overlay] in
+                node.onJoin = { [weak self, weak node, weak overlay] in
                     guard let self else { return }
+                    node?.setJoining(true)
                     Task { @MainActor in
-                        do {
-                            let response = try await self.context.engine.clanData.joinClanWithInvite(code: code, token: token)
-                            overlay?.dismissOverlay {
-                                self.rootTabController?.selectedIndex = 0
-                                self.popToTabBarController()
-                                NotificationCenter.default.post(
-                                    name: .mezonQRSelectClan,
-                                    object: nil,
-                                    userInfo: ["clanId": "\(response.clanID)"]
-                                )
-                            }
-                        } catch {
-                            Toast.error(error.localizedDescription)
+                        let clanId = await ClanInviteJoiner.join(context: self.context, code: code, clanId: inviteInfo.clan_id.flatMap(Int64.init))
+                        guard let clanId else {
+                            overlay?.dismissOverlay()
+                            return
+                        }
+                        overlay?.dismissOverlay {
+                            self.rootTabController?.selectedIndex = 0
+                            self.popToTabBarController()
+                            NotificationCenter.default.post(
+                                name: .mezonQRSelectClan,
+                                object: nil,
+                                userInfo: ["clanId": "\(clanId)"]
+                            )
                         }
                     }
                 }

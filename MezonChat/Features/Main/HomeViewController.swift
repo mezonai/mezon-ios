@@ -144,6 +144,7 @@ final class HomeViewController: BaseViewController {
         clanListVC.loadClans()
         Task { @MainActor [weak self] in
             guard let self else { return }
+            await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: self.context, clanId: clanId, force: true)
             for _ in 0..<50 {
                 if self.context.account.socket.isConnected { break }
                 try? await Task.sleep(nanoseconds: 200_000_000)

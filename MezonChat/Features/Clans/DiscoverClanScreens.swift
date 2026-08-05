@@ -379,6 +379,8 @@ final class DiscoverClanEmptyStateViewController: UIViewController {
         tableView.rowHeight = UITableView.automaticDimension
         tableView.estimatedRowHeight = 340
         tableView.register(DiscoverClanListCell.self, forCellReuseIdentifier: "c")
+        tableView.contentInset.bottom = 80
+        tableView.verticalScrollIndicatorInsets.bottom = 80
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.refreshControl = refresh
         refresh.addTarget(self, action: #selector(pullRefresh), for: .valueChanged)
@@ -934,21 +936,20 @@ final class DiscoverClanDetailViewController: BaseViewController {
     @objc private func joinTapped() {
         joinButton.isEnabled = false
         Task { @MainActor in
-            guard let token = await context.getToken() else {
+            let code = "\(item.inviteID)"
+            let clanId = await ClanInviteJoiner.join(context: context, code: code, clanId: item.clanID)
+            guard let clanId, clanId != 0 else {
                 joinButton.isEnabled = true
                 return
             }
-            do {
-                let code = "\(item.inviteID)"
-                let res = try await context.account.network.joinClanWithInvite(code: code, token: token)
-                if res.clanID != 0 {
-                    context.account.socket.joinClanChat(clanId: res.clanID)
-                }
-                onJoined?()
-                navigationController?.popViewController(animated: true)
-            } catch {
-                joinButton.isEnabled = true
-            }
+            await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: context, clanId: clanId)
+            context.account.socket.joinClanChat(clanId: clanId)
+            onJoined?()
+            NotificationCenter.default.post(
+                name: .mezonQRSelectClan,
+                object: nil,
+                userInfo: ["clanId": "\(clanId)"]
+            )
         }
     }
 }

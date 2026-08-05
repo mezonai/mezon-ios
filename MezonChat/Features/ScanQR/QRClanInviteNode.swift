@@ -10,6 +10,7 @@ final class QRClanInviteNode: ASDisplayNode {
     private let channelNode = ASTextNode()
     private let joinButton = ASButtonNode()
     private let noThanksButton = ASButtonNode()
+    private let joinSpinnerNode = ASDisplayNode()
     
     var onJoin: (() -> Void)?
     var onCancel: (() -> Void)?
@@ -73,6 +74,15 @@ final class QRClanInviteNode: ASDisplayNode {
         joinButton.cornerRadius = 24
         joinButton.style.height = ASDimensionMake(48)
         joinButton.addTarget(self, action: #selector(joinTapped), forControlEvents: .touchUpInside)
+
+        joinSpinnerNode.style.preferredSize = CGSize(width: 24, height: 24)
+        joinSpinnerNode.isHidden = true
+        joinSpinnerNode.setViewBlock {
+            let indicator = UIActivityIndicatorView(style: .medium)
+            indicator.color = .white
+            indicator.startAnimating()
+            return indicator
+        }
         
         noThanksButton.backgroundColor = .mezonPrimary
         noThanksButton.cornerRadius = 24
@@ -86,6 +96,7 @@ final class QRClanInviteNode: ASDisplayNode {
         containerNode.addSubnode(clanNameNode)
         containerNode.addSubnode(channelNode)
         containerNode.addSubnode(joinButton)
+        containerNode.addSubnode(joinSpinnerNode)
         containerNode.addSubnode(noThanksButton)
     }
     
@@ -98,12 +109,17 @@ final class QRClanInviteNode: ASDisplayNode {
         joinButton.style.width = ASDimensionMakeWithFraction(1.0)
         noThanksButton.style.width = ASDimensionMakeWithFraction(1.0)
 
+        let joinOverlay = ASOverlayLayoutSpec(
+            child: joinButton,
+            overlay: ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: joinSpinnerNode)
+        )
+
         let contentStack = ASStackLayoutSpec(
             direction: .vertical,
             spacing: 24,
             justifyContent: .center,
             alignItems: .stretch,
-            children: [titleNode, avatarNode, clanNameNode, channelNode, joinButton, noThanksButton]
+            children: [titleNode, avatarNode, clanNameNode, channelNode, joinOverlay, noThanksButton]
         )
         
         let containerInsetEnabled = ASInsetLayoutSpec(insets: UIEdgeInsets(top: 40, left: 24, bottom: 40, right: 24), child: contentStack)
@@ -126,5 +142,13 @@ final class QRClanInviteNode: ASDisplayNode {
     
     @objc private func cancelTapped() {
         onCancel?()
+    }
+
+    func setJoining(_ joining: Bool) {
+        joinSpinnerNode.isHidden = !joining
+        joinButton.isEnabled = !joining
+        noThanksButton.isEnabled = !joining
+        let title = joining ? "" : L(L10n.QRScanner.joinClan)
+        joinButton.setTitle(title, with: .systemFont(ofSize: 16, weight: .bold), with: .white, for: .normal)
     }
 }
