@@ -116,8 +116,7 @@ enum KlipyGIFClient {
     }
 
     static func fetchTrendingData(page: Int = 1, perPage: Int = 30) async throws -> Data {
-        // Klipy uses /stickers/trending with format_filter=gif for trending gifs
-        let urlStr = "\(MezonEnvironment.klipyBaseURL)/\(MezonEnvironment.klipyAPIKey)/stickers/trending"
+        let urlStr = "\(MezonEnvironment.klipyBaseURL)/\(MezonEnvironment.klipyAPIKey)/gifs/trending"
         return try await getJSON(urlString: urlStr, extraItems: [
             URLQueryItem(name: "page", value: "\(page)"),
             URLQueryItem(name: "per_page", value: "\(perPage)"),
