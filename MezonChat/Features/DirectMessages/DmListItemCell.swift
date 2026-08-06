@@ -289,7 +289,7 @@ final class DmListItemCell: UITableViewCell {
                 self.groupIconView.isHidden = true
                 self.avatarImageView.image = image
                 self.textAvatar.showImageMode()
-            } else {
+            } else if proxied != raw {
                 guard let self, gen == self.avatarLoadGeneration else { return }
                 ImageCache.shared.loadAvatar(urlString: raw) { [weak self] rawImage in
                     if let rawImage { Self.avatarMemoryCache.setObject(rawImage, forKey: rawKey) }
@@ -306,6 +306,16 @@ final class DmListItemCell: UITableViewCell {
                         self.avatarImageView.image = nil
                         self.showGroupAvatarPlaceholder()
                     }
+                }
+            } else {
+                guard let self, gen == self.avatarLoadGeneration else { return }
+                self.isAvatarLoadInFlight = false
+                if let fallbackUsername {
+                    self.avatarImageView.image = nil
+                    self.textAvatar.configure(username: fallbackUsername, fontSize: 16.sf)
+                } else {
+                    self.avatarImageView.image = nil
+                    self.showGroupAvatarPlaceholder()
                 }
             }
         }
