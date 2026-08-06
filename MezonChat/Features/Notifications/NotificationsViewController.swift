@@ -242,7 +242,7 @@ final class NotificationsViewController: ViewController {
             context.currentClanId = record.clanID
             let vc = ChatViewController(
                 clanId: record.clanID, channel: channel, context: self.context)
-            if record.category == 1 && record.messageID != 0 {
+            if record.messageID != 0 {
                 vc.pendingJumpToMessageId = String(record.messageID)
             }
             hostingNavigationController()?.pushViewController(vc, animated: true)
