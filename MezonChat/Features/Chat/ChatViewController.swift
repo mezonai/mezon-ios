@@ -3030,7 +3030,7 @@ final class ChatViewController: ViewController {
                 return "{}"
             }()
             let callLog = Self.parseCallLog(from: record.content)
-            let topicData = Self.parseTopicData(from: record.content, code: record.code)
+            let topicData = topicId != 0 ? nil : Self.parseTopicData(from: record.content, code: record.code)
             let isMe = isSenderCurrentUser(senderId: record.senderId, currentUserId: currentUserId)
             let profileInfo = profilesBySenderId[record.senderId]
             let trimmedStoredAvatar = record.senderAvatarURL?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

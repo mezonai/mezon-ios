@@ -907,10 +907,8 @@ final class MessageTable: Table {
         guard topicId != 0 else { return nil }
         if var records = cache[channelId],
            let index = records.firstIndex(where: { $0.id == messageId && !$0.isDeleted }) {
-            let record = records[index]
-            guard record.code == Self.topicMessageCode || Self.contentContainsTopicField(record.content) else { return nil }
             let updated = Self.withTopicMetadata(
-                record,
+                records[index],
                 topicId: topicId,
                 creatorId: creatorId,
                 replyCount: nil
@@ -922,7 +920,6 @@ final class MessageTable: Table {
         }
 
         guard let existing = getMessageById(messageId, channelId: channelId) else { return nil }
-        guard existing.code == Self.topicMessageCode || Self.contentContainsTopicField(existing.content) else { return nil }
         let updated = Self.withTopicMetadata(
             existing,
             topicId: topicId,
@@ -1106,15 +1103,6 @@ final class MessageTable: Table {
             record,
             content: data(from: json, fallback: record.content)
         )
-    }
-
-    private static func contentContainsTopicField(_ content: Data) -> Bool {
-        guard !content.isEmpty,
-              let json = try? JSONSerialization.jsonObject(with: content) as? [String: Any] else { return false }
-        if let tp = json["tp"] as? String, !tp.isEmpty, tp != "0" { return true }
-        if let tp = json["tp"] as? Int, tp != 0 { return true }
-        if let tp = json["tp"] as? Double, tp != 0 { return true }
-        return false
     }
 
     private static func withTopicMeta(_ record: MessageRecord, replyCount: Int, lastSentTimestamp: Int64) -> MessageRecord {
