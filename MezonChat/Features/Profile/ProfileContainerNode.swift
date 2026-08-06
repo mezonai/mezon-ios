@@ -673,7 +673,7 @@ final class ProfileContainerNode: ASDisplayNode {
                         self.avatarContainerView.backgroundColor = .clear
                         self.headerBackgroundView.backgroundColor = image.dominantColor() ?? .mezonSecondaryBackground
                         self.statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
-                    } else {
+                    } else if proxiedURLString != rawURLString {
                         ImageCache.shared.loadAvatar(urlString: rawURLString) { [weak self] rawImage in
                             guard let self else { return }
                             guard self.currentAvatarLoadKey == proxiedURLString else { return }
@@ -687,6 +687,8 @@ final class ProfileContainerNode: ASDisplayNode {
                                 self.applyProfileAvatarPlaceholder()
                             }
                         }
+                    } else {
+                        self.applyProfileAvatarPlaceholder()
                     }
                 }
             }
