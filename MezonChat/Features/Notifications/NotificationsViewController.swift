@@ -118,16 +118,15 @@ final class NotificationsViewController: ViewController {
                     self.setItems(self.enrichTopicItems(topics))
                 })
 
-            if let token {
-                do {
-                    try await context.engine.topicDiscussion.listTopics(
-                        clanId: clanId, token: token)
-                } catch {
-                }
+            defer { setIsLoading(false) }
+            guard let token else { return }
+            do {
+                try await context.engine.topicDiscussion.listTopics(
+                    clanId: clanId, token: token)
+                loadedCategories.insert(category)
+                lastLoadedClanId = clanId
+            } catch {
             }
-            loadedCategories.insert(category)
-            lastLoadedClanId = clanId
-            setIsLoading(false)
             return
         }
 
@@ -137,8 +136,6 @@ final class NotificationsViewController: ViewController {
         }
 
         defer {
-            loadedCategories.insert(category)
-            lastLoadedClanId = clanId
             if isLoadMore { setIsLoadingMore(false) } else { setIsLoading(false) }
         }
 
@@ -161,6 +158,8 @@ final class NotificationsViewController: ViewController {
                 notificationId: notificationId,
                 token: token
             )
+            loadedCategories.insert(category)
+            lastLoadedClanId = clanId
         } catch {
         }
     }
