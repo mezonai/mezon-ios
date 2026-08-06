@@ -1760,7 +1760,11 @@ final class ChatViewController: ViewController {
     private func normalizedDisplayOrder(_ displays: [ChatMessageDisplay]) -> [ChatMessageDisplay] {
         Self.applyCombine(to: Self.sortMessagesLikeChannelStore(displays))
     }
-    private func setChannelLabel(_ v: String) { channelLabel = v; needsReloadPipe.putNext(()) }
+    private func setChannelLabel(_ v: String) {
+        if topicId != 0 { return }
+        channelLabel = v
+        needsReloadPipe.putNext(())
+    }
     private func clearLastSeenMessageId() {
         guard lastSeenMessageId != nil else { return }
         lastSeenMessageId = nil
@@ -3024,7 +3028,7 @@ final class ChatViewController: ViewController {
                 return "{}"
             }()
             let callLog = Self.parseCallLog(from: record.content)
-            let topicData = Self.parseTopicData(from: record.content, code: record.code)
+            let topicData = topicId != 0 ? nil : Self.parseTopicData(from: record.content, code: record.code)
             let isMe = isSenderCurrentUser(senderId: record.senderId, currentUserId: currentUserId)
             let profileInfo = profilesBySenderId[record.senderId]
             let trimmedStoredAvatar = record.senderAvatarURL?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -3158,16 +3162,15 @@ final class ChatViewController: ViewController {
     private static let messageCodeTopic: Int32 = 9
 
     private static func parseTopicData(from data: Data, code: Int32) -> TopicData? {
+        guard code == messageCodeTopic else { return nil }
         guard !data.isEmpty,
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
 
-        let hasTp = json["tp"] != nil
-        guard code == messageCodeTopic || hasTp else { return nil }
         let topicId: String
         if let tp = json["tp"] as? String, !tp.isEmpty { topicId = tp }
         else if let tp = json["tp"] as? Int, tp != 0 { topicId = "\(tp)" }
         else if let tp = json["tp"] as? Double, tp != 0 { topicId = "\(Int64(tp))" }
-        else { return nil }
+        else { return nil } 
         let creatorId: String
         if let cid = json["cid"] as? String { creatorId = cid }
         else if let cid = json["cid"] as? Int { creatorId = "\(cid)" }
