@@ -211,9 +211,9 @@ final class ClanListViewController: ViewController {
             do {
                 let rows = try await self.context.account.network.listClanBadgeCount(token: token).listBadge
                 guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
-                guard !rows.isEmpty else { return }
                 var next = self.clans
-                ChannelUnreadBadgeSync.applyClanBadgeRows(to: &next, rows: rows)
+                Self.applyClanBadgeSnapshot(rows, to: &next)
+                guard next != self.clans else { return }
                 self.setClans(next)
                 self.persistClanRecordsToPostbox(next)
             } catch {
@@ -469,7 +469,8 @@ final class ClanListViewController: ViewController {
             do {
                 let result = try await self.context.account.network.listClanDescs(token: token)
                 guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
-                let sorted = result.sorted { $0.clanOrder != $1.clanOrder ? $0.clanOrder < $1.clanOrder : $0.clanID < $1.clanID }
+                var sorted = result.sorted { $0.clanOrder != $1.clanOrder ? $0.clanOrder < $1.clanOrder : $0.clanID < $1.clanID }
+                sorted = Self.preservingCachedClanBadges(in: sorted, previous: self.clans)
                 let records = sorted.map { api -> ClanRecord in
                     let data = (try? api.serializedData()) ?? Data()
                     return ClanRecord(id: api.clanID, name: api.clanName, icon: api.logo.isEmpty ? nil : api.logo, ownerId: api.creatorID == 0 ? nil : String(api.creatorID), data: data)
@@ -654,6 +655,32 @@ final class ClanListViewController: ViewController {
             let id = result[i].channelID
             if let p = prevCount[id] {
                 result[i].countMessUnread = max(result[i].countMessUnread, p)
+            }
+        }
+        return result
+    }
+
+    private static func applyClanBadgeSnapshot(_ rows: [Mezon_Api_ClanBadgeCount], to clans: inout [Mezon_Api_ClanDesc]) {
+        let badgeClanIds = Set(rows.map(\.clanID))
+        for i in clans.indices where !badgeClanIds.contains(clans[i].clanID) {
+            clans[i].badgeCount = 0
+            clans[i].hasUnreadMessage_p = false
+        }
+        ChannelUnreadBadgeSync.applyClanBadgeRows(to: &clans, rows: rows)
+    }
+
+    private static func preservingCachedClanBadges(in clans: [Mezon_Api_ClanDesc], previous: [Mezon_Api_ClanDesc]) -> [Mezon_Api_ClanDesc] {
+        guard !clans.isEmpty, !previous.isEmpty else { return clans }
+        let previousBadges = Dictionary(previous.map { ($0.clanID, (badgeCount: $0.badgeCount, hasUnread: $0.hasUnreadMessage_p)) }, uniquingKeysWith: { _, new in new })
+        guard !previousBadges.isEmpty else { return clans }
+        var result = clans
+        for i in result.indices {
+            guard let cached = previousBadges[result[i].clanID] else { continue }
+            if result[i].badgeCount == 0, cached.badgeCount > 0 {
+                result[i].badgeCount = cached.badgeCount
+                result[i].hasUnreadMessage_p = cached.hasUnread
+            } else if result[i].badgeCount > 0, cached.hasUnread, !result[i].hasUnreadMessage_p {
+                result[i].hasUnreadMessage_p = true
             }
         }
         return result

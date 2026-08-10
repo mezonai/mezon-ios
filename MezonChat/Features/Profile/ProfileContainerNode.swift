@@ -164,6 +164,17 @@ final class ProfileContainerNode: ASDisplayNode {
         iv.contentMode = .scaleAspectFit
         return iv
     }()
+    private let friendsBadgeLabel: UILabel = {
+        let l = UILabel()
+        l.backgroundColor = .mezonUnreadBadge
+        l.textColor = .white
+        l.font = .systemFont(ofSize: 11.sf, weight: .semibold)
+        l.textAlignment = .center
+        l.clipsToBounds = true
+        l.isHidden = true
+        return l
+    }()
+    private var friendsBadgeWidthConstraint: NSLayoutConstraint?
 
     private var friendsUpdatedDisposable: Disposable?
     private var walletFetchTask: Task<Void, Never>?
@@ -373,6 +384,8 @@ final class ProfileContainerNode: ASDisplayNode {
         memberSinceDateLabel.textColor = .mezonTextStrong
         friendsTitleLabel.textColor = .mezonTextStrong
         friendsChevron.tintColor = .mezonTextSecondary
+        friendsBadgeLabel.backgroundColor = .mezonUnreadBadge
+        friendsBadgeLabel.textColor = .white
 
         if avatarImageView.image == nil {
             headerBackgroundView.backgroundColor = .mezonPrimary
@@ -582,15 +595,28 @@ final class ProfileContainerNode: ASDisplayNode {
         friendsAvatarStack.translatesAutoresizingMaskIntoConstraints = false
         friendsCard.addSubview(friendsAvatarStack)
 
+        friendsBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
+        friendsCard.addSubview(friendsBadgeLabel)
+
         friendsChevron.translatesAutoresizingMaskIntoConstraints = false
         friendsCard.addSubview(friendsChevron)
+
+        let badgeHeight: CGFloat = 20.sh
+        let badgeWidth = friendsBadgeLabel.widthAnchor.constraint(equalToConstant: 0)
+        friendsBadgeWidthConstraint = badgeWidth
 
         NSLayoutConstraint.activate([
             friendsTitleLabel.leadingAnchor.constraint(equalTo: friendsCard.leadingAnchor, constant: cardInset),
             friendsTitleLabel.centerYAnchor.constraint(equalTo: friendsCard.centerYAnchor),
 
             friendsAvatarStack.leadingAnchor.constraint(equalTo: friendsTitleLabel.trailingAnchor, constant: 12.sw),
+            friendsAvatarStack.trailingAnchor.constraint(lessThanOrEqualTo: friendsBadgeLabel.leadingAnchor, constant: -8.sw),
             friendsAvatarStack.centerYAnchor.constraint(equalTo: friendsCard.centerYAnchor),
+
+            friendsBadgeLabel.trailingAnchor.constraint(equalTo: friendsChevron.leadingAnchor, constant: -8.sw),
+            friendsBadgeLabel.centerYAnchor.constraint(equalTo: friendsCard.centerYAnchor),
+            badgeWidth,
+            friendsBadgeLabel.heightAnchor.constraint(equalToConstant: badgeHeight),
 
             friendsChevron.trailingAnchor.constraint(equalTo: friendsCard.trailingAnchor, constant: -cardInset),
             friendsChevron.centerYAnchor.constraint(equalTo: friendsCard.centerYAnchor),
@@ -778,6 +804,7 @@ final class ProfileContainerNode: ASDisplayNode {
 
     private func applyFriendAvatarsFromFriendsData() {
         let list = context.engine.friendsData.allFriends()
+        updateFriendRequestBadge(count: context.engine.friendsData.incomingFriendRequestCount())
         let previews: [(avatarURL: String?, username: String)] = Array(
             list
                 .filter { $0.state == EStateFriend.friend.rawValue && $0.hasUser }
@@ -789,6 +816,25 @@ final class ProfileContainerNode: ASDisplayNode {
                 }
         )
         setupFriendAvatars(previews: previews)
+    }
+
+    private func updateFriendRequestBadge(count: Int) {
+        guard let widthConstraint = friendsBadgeWidthConstraint else { return }
+        guard count > 0 else {
+            friendsBadgeLabel.text = nil
+            friendsBadgeLabel.isHidden = true
+            widthConstraint.constant = 0
+            friendsCard.setNeedsLayout()
+            return
+        }
+
+        let text = count > 99 ? "99+" : "\(count)"
+        friendsBadgeLabel.text = text
+        friendsBadgeLabel.isHidden = false
+        friendsBadgeLabel.layer.cornerRadius = 10.sh
+        let textWidth = (text as NSString).size(withAttributes: [.font: friendsBadgeLabel.font as Any]).width
+        widthConstraint.constant = max(20.sh, ceil(textWidth) + 10.sw)
+        friendsCard.setNeedsLayout()
     }
 
     private func fetchWalletDetail() {
