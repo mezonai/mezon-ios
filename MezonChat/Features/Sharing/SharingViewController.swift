@@ -1219,11 +1219,7 @@ final class SharingViewController: UIViewController {
                 var dms = try await self.context.account.network.listDirectMessageChannels(token: token)
                 do {
                     let badgeResponse = try await self.context.account.network.listChannelBadgeCount(clanId: 0, token: token)
-                    ChannelUnreadBadgeSync.mergeSocketBadgeRows(
-                        into: &dms,
-                        badgeRows: badgeResponse.channeldesc,
-                        preserveContentAcrossMessageIds: false
-                    )
+                    ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &dms, badgeRows: badgeResponse.channeldesc)
                 } catch {
                 }
                 dmList = dms

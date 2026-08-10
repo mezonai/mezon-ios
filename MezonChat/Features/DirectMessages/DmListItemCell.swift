@@ -419,26 +419,8 @@ final class DmListItemCell: UITableViewCell {
             }
             return Self.previewWhenNoMessageBody()
         }
-        let body = Self.stripHeadingMarkdown(
-            from: Self.normalizeJsonEscapedSlashes(in: preview)
-        )
+        let body = Self.normalizeJsonEscapedSlashes(in: preview)
         return Self.appendPreviewEllipsisIfTruncated(body)
-    }
-
-    private static let headingMarkdownRegex = try? NSRegularExpression(
-        pattern: #"^#{1,6}\s+"#,
-        options: [.anchorsMatchLines]
-    )
-
-    private static func stripHeadingMarkdown(from text: String) -> String {
-        guard let headingMarkdownRegex else { return text }
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
-        return headingMarkdownRegex.stringByReplacingMatches(
-            in: text,
-            options: [],
-            range: range,
-            withTemplate: ""
-        )
     }
 
     private static func appendPreviewEllipsisIfTruncated(_ body: String) -> String {
@@ -451,7 +433,7 @@ final class DmListItemCell: UITableViewCell {
     private static let contentKeysAllowingEmptyAttachmentInference: Set<String> = ["t", "mk", "ej", "hg"]
 
     private static func attachmentBracketPreviewText() -> String {
-        "[\(L(L10n.DirectMessage.previewFile))]"
+        "[\(L(L10n.DirectMessage.previewAttachment))]"
     }
 
     private static func shouldInferAttachmentOnlyListPreview(msg: Mezon_Api_ChannelMessageHeader) -> Bool {

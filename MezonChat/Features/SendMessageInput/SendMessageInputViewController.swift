@@ -1906,18 +1906,32 @@ final class SendMessageInputViewController: UIViewController {
 
     private func updateCachedDMLastSentMessageIfNeeded(
         ack: Mezon_Realtime_ChannelMessageAck,
-        fallbackContent: String,
-        hasAttachments: Bool = false
+        fallbackContent: String
     ) {
-        guard clanId == 0, topicId == 0 else { return }
+        let isDmListChannel = channel.type == MezonConstants.ChannelType.dm.rawValue
+            || channel.type == MezonConstants.ChannelType.group.rawValue
+            || clanId == 0
+        guard isDmListChannel else { return }
 
-        DMListPreviewCache.updateLastSentMessage(
-            context: context,
-            channelId: channel.channelID,
-            fallbackChannel: channel,
-            ack: ack,
-            content: fallbackContent,
-            hasAttachments: hasAttachments
+        let now = UInt32(Date().timeIntervalSince1970)
+        let timestamp = ack.createTimeSeconds > 0 ? ack.createTimeSeconds : now
+        var header = Mezon_Api_ChannelMessageHeader()
+        header.id = ack.messageID
+        header.timestampSeconds = timestamp
+        header.senderID = Int64(context.currentUser?.id ?? "") ?? 0
+        header.content = fallbackContent
+
+        var updated = context.account.postbox.getDMChannelDescription(channelId: channel.channelID) ?? channel
+        updated.lastSentMessage = header
+        updated.updateTimeSeconds = max(updated.updateTimeSeconds, timestamp)
+        context.account.postbox.updateCachedDMChannelDescription(updated)
+        NotificationCenter.default.post(
+            name: .mezonChannelDescriptionDidUpdate,
+            object: nil,
+            userInfo: [
+                "clanId": Int64(0),
+                "channelId": channel.channelID,
+            ]
         )
     }
 
@@ -6249,11 +6263,6 @@ final class SendMessageInputViewController: UIViewController {
                         topicId: self.topicId,
                         token: token
                     )
-                    self.updateCachedDMLastSentMessageIfNeeded(
-                        ack: ack,
-                        fallbackContent: contentStr,
-                        hasAttachments: !uploadedAttachments.isEmpty
-                    )
                     if !sendAsAnonymous {
                         let fallbackSenderId = self.context.currentUser?.id ?? ""
                         let fallbackClanId: String? = clanId == 0 ? nil : "\(clanId)"
@@ -6466,11 +6475,6 @@ final class SendMessageInputViewController: UIViewController {
                     avatar: avatar,
                     topicId: self.topicId,
                     token: token
-                )
-                self.updateCachedDMLastSentMessageIfNeeded(
-                    ack: ack,
-                    fallbackContent: contentStr,
-                    hasAttachments: !attachments.isEmpty
                 )
                 self.markOnboardingWelcomeMessageSentIfNeeded(
                     ack: ack,
