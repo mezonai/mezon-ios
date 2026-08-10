@@ -433,7 +433,7 @@ final class DmListItemCell: UITableViewCell {
     private static let contentKeysAllowingEmptyAttachmentInference: Set<String> = ["t", "mk", "ej", "hg"]
 
     private static func attachmentBracketPreviewText() -> String {
-        "[\(L(L10n.DirectMessage.previewAttachment))]"
+        "[\(L(L10n.DirectMessage.previewFile))]"
     }
 
     private static func shouldInferAttachmentOnlyListPreview(msg: Mezon_Api_ChannelMessageHeader) -> Bool {
