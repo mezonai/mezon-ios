@@ -27,7 +27,7 @@ final class ProfileContainerNode: ASDisplayNode {
 
     private let headerBackgroundView: UIView = {
         let v = UIView()
-        v.backgroundColor = .mezonSecondaryBackground
+        v.backgroundColor = .mezonPrimary
         return v
     }()
 
@@ -375,7 +375,7 @@ final class ProfileContainerNode: ASDisplayNode {
         friendsChevron.tintColor = .mezonTextSecondary
 
         if avatarImageView.image == nil {
-            headerBackgroundView.backgroundColor = .mezonSecondaryBackground
+            headerBackgroundView.backgroundColor = .mezonPrimary
             avatarContainerView.backgroundColor = UIColor.theme.secondaryLight
             avatarPlaceholderLabel.isHidden = false
         } else {
@@ -630,7 +630,7 @@ final class ProfileContainerNode: ASDisplayNode {
         avatarImageView.image = nil
         avatarPlaceholderLabel.isHidden = false
         avatarContainerView.backgroundColor = UIColor.theme.secondaryLight
-        headerBackgroundView.backgroundColor = .mezonSecondaryBackground
+        headerBackgroundView.backgroundColor = .mezonPrimary
         statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
     }
 
@@ -656,13 +656,13 @@ final class ProfileContainerNode: ASDisplayNode {
                 avatarImageView.image = cached
                 avatarPlaceholderLabel.isHidden = true
                 avatarContainerView.backgroundColor = .clear
-                headerBackgroundView.backgroundColor = cached.dominantColor() ?? .mezonSecondaryBackground
+                headerBackgroundView.backgroundColor = cached.dominantColor() ?? .mezonPrimary
                 statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
             } else {
                 avatarImageView.image = nil
                 avatarPlaceholderLabel.isHidden = false
                 avatarContainerView.backgroundColor = UIColor.theme.secondaryLight
-                headerBackgroundView.backgroundColor = .mezonSecondaryBackground
+                headerBackgroundView.backgroundColor = .mezonPrimary
                 statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
                 ImageCache.shared.loadAvatar(urlString: proxiedURLString) { [weak self] image in
                     guard let self else { return }
@@ -671,7 +671,7 @@ final class ProfileContainerNode: ASDisplayNode {
                         self.avatarImageView.image = image
                         self.avatarPlaceholderLabel.isHidden = true
                         self.avatarContainerView.backgroundColor = .clear
-                        self.headerBackgroundView.backgroundColor = image.dominantColor() ?? .mezonSecondaryBackground
+                        self.headerBackgroundView.backgroundColor = image.dominantColor() ?? .mezonPrimary
                         self.statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
                     } else if proxiedURLString != rawURLString {
                         ImageCache.shared.loadAvatar(urlString: rawURLString) { [weak self] rawImage in
@@ -681,7 +681,7 @@ final class ProfileContainerNode: ASDisplayNode {
                                 self.avatarImageView.image = rawImage
                                 self.avatarPlaceholderLabel.isHidden = true
                                 self.avatarContainerView.backgroundColor = .clear
-                                self.headerBackgroundView.backgroundColor = rawImage.dominantColor() ?? .mezonSecondaryBackground
+                                self.headerBackgroundView.backgroundColor = rawImage.dominantColor() ?? .mezonPrimary
                                 self.statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
                             } else {
                                 self.applyProfileAvatarPlaceholder()
