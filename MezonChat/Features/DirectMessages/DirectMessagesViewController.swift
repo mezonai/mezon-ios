@@ -14,6 +14,111 @@ struct DirectMessagesState {
         incomingFriendRequestCount: 0, messageActivityRows: [], resolvedAvatarURLByChannelId: [:])
 }
 
+enum DMListPreviewCache {
+    static func content(_ content: String, hasAttachments: Bool) -> String {
+        guard hasAttachments else { return content }
+
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            return #"{"attachments":[{}]}"#
+        }
+
+        guard let data = trimmed.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) else {
+            return content
+        }
+
+        let markedJSON: Any
+        if let object = json as? [String: Any] {
+            markedJSON = addingAttachmentMarker(to: object)
+        } else if let encodedObject = json as? String,
+                  let encodedData = encodedObject.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: encodedData) as? [String: Any] {
+            markedJSON = addingAttachmentMarker(to: object)
+        } else {
+            return content
+        }
+
+        guard JSONSerialization.isValidJSONObject(markedJSON),
+              let markedData = try? JSONSerialization.data(withJSONObject: markedJSON),
+              let markedContent = String(data: markedData, encoding: .utf8) else {
+            return content
+        }
+        return markedContent
+    }
+
+    @MainActor
+    static func updateLastSentMessage(
+        context: AccountContext,
+        channelId: Int64,
+        fallbackChannel: Mezon_Api_ChannelDescription? = nil,
+        ack: Mezon_Realtime_ChannelMessageAck,
+        content: String,
+        hasAttachments: Bool
+    ) {
+        guard ack.messageID != 0,
+              var channel = context.account.postbox.getDMChannelDescription(channelId: channelId)
+                ?? fallbackChannel else { return }
+
+        let now = UInt32(Date().timeIntervalSince1970)
+        let timestamp = ack.createTimeSeconds > 0 ? ack.createTimeSeconds : now
+        if channel.hasLastSentMessage {
+            let existing = channel.lastSentMessage
+            let existingIsNewer = existing.timestampSeconds > timestamp
+                || (existing.timestampSeconds == timestamp
+                    && existing.id != 0 && existing.id > ack.messageID)
+            guard !existingIsNewer else { return }
+        }
+        var header = Mezon_Api_ChannelMessageHeader()
+        header.id = ack.messageID
+        header.timestampSeconds = timestamp
+        header.senderID = Int64(context.currentUser?.id ?? "") ?? 0
+        header.content = self.content(content, hasAttachments: hasAttachments)
+        channel.lastSentMessage = header
+        channel.updateTimeSeconds = max(channel.updateTimeSeconds, timestamp)
+        context.account.postbox.updateCachedDMChannelDescription(channel)
+        NotificationCenter.default.post(
+            name: .mezonChannelDescriptionDidUpdate,
+            object: nil,
+            userInfo: ["clanId": Int64(0), "channelId": channelId]
+        )
+    }
+
+    private static func addingAttachmentMarker(to object: [String: Any]) -> [String: Any] {
+        var result = object
+        if let nested = result["content"] as? [String: Any] {
+            result["content"] = markedPayload(nested)
+        } else if let nestedString = result["content"] as? String,
+                  let nestedData = nestedString.data(using: .utf8),
+                  let nestedJSON = try? JSONSerialization.jsonObject(with: nestedData),
+                  let nested = nestedJSON as? [String: Any] {
+            let markedNested = markedPayload(nested)
+            if JSONSerialization.isValidJSONObject(markedNested),
+               let data = try? JSONSerialization.data(withJSONObject: markedNested),
+               let string = String(data: data, encoding: .utf8) {
+                result["content"] = string
+            } else {
+                result = markedPayload(result)
+            }
+        } else {
+            result = markedPayload(result)
+        }
+        return result
+    }
+
+    private static func markedPayload(_ payload: [String: Any]) -> [String: Any] {
+        if let attachments = payload["attachments"] as? [Any], !attachments.isEmpty {
+            return payload
+        }
+        if let attachments = payload["a"] as? [Any], !attachments.isEmpty {
+            return payload
+        }
+        var result = payload
+        result["attachments"] = [[String: Any]()]
+        return result
+    }
+}
+
 final class DirectMessagesViewController: ViewController {
 
     private let context: AccountContext
@@ -114,6 +219,8 @@ final class DirectMessagesViewController: ViewController {
         view.backgroundColor = UIColor.theme.secondary
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelMarkedAsRead(_:)), name: Notification.Name("MezonChannelMarkedAsRead"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleNewMessageReceived(_:)), name: Notification.Name("MezonNewMessageReceived"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleNewMessageReceived(_:)), name: Notification.Name("MezonDMListMessageReceived"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleChannelMessageUpdated(_:)), name: Notification.Name("MezonChannelMessageUpdated"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleSocketReconnectForDMBadges(_:)), name: .mezonSocketStatusChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelDescriptionDidUpdate(_:)), name: .mezonChannelDescriptionDidUpdate, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleDirectMessagesThemeChange), name: ThemeManager.didChangeNotification, object: nil)
@@ -193,7 +300,11 @@ final class DirectMessagesViewController: ViewController {
             let rows = badgeResponse.channeldesc
             guard !rows.isEmpty else { return }
             var updated = directMessages
-            ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &updated, badgeRows: rows)
+            ChannelUnreadBadgeSync.mergeSocketBadgeRows(
+                into: &updated,
+                badgeRows: rows,
+                preserveContentAcrossMessageIds: false
+            )
             updated.sort { ch1, ch2 in
                 let t1 = ch1.hasLastSentMessage ? ch1.lastSentMessage.timestampSeconds : 0
                 let t2 = ch2.hasLastSentMessage ? ch2.lastSentMessage.timestampSeconds : 0
@@ -230,7 +341,8 @@ final class DirectMessagesViewController: ViewController {
             let isDmOrGroup =
                 m.mode == MezonConstants.ChannelStreamMode.dm.rawValue
                 || m.mode == MezonConstants.ChannelStreamMode.group.rawValue
-            if isDmOrGroup, !isMutation, Self.applyUpdateDmLastSentMessage(m, to: &directMessages) {
+            if isDmOrGroup, !isMutation,
+               Self.applyUpdateDmLastSentMessage(m, to: &directMessages) {
                 needsReload = true
             }
         }
@@ -281,8 +393,41 @@ final class DirectMessagesViewController: ViewController {
         h.id = m.messageID
         h.timestampSeconds = m.createTimeSeconds
         h.senderID = m.senderID
-        h.content = m.content
+        h.content = DMListPreviewCache.content(
+            m.content,
+            hasAttachments: !m.attachments.isEmpty
+        )
         return h
+    }
+
+    @objc private func handleChannelMessageUpdated(_ notification: Notification) {
+        guard let data = notification.userInfo?["serializedChannelMessageUpdate"] as? Data,
+              let update = try? Mezon_Realtime_ChannelMessageUpdate(serializedBytes: data),
+              update.clanID == 0,
+              update.topicID == 0,
+              let index = directMessages.firstIndex(where: { $0.channelID == update.channelID }),
+              directMessages[index].hasLastSentMessage,
+              directMessages[index].lastSentMessage.id == update.messageID else {
+            return
+        }
+
+        let hasAttachments = !update.attachments.isEmpty
+        let updatedContent = update.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard hasAttachments || !updatedContent.isEmpty else { return }
+
+        var header = directMessages[index].lastSentMessage
+        let baseContent = updatedContent.isEmpty ? header.content : update.content
+        header.content = DMListPreviewCache.content(
+            baseContent,
+            hasAttachments: hasAttachments
+        )
+        if update.createTimeSeconds > 0 {
+            header.timestampSeconds = update.createTimeSeconds
+        }
+        directMessages[index].lastSentMessage = header
+        directMessagesPipe.putNext(directMessages)
+        needsReloadPipe.putNext(())
+        persistDmChannelListToPostbox()
     }
 
     @discardableResult
@@ -292,8 +437,22 @@ final class DirectMessagesViewController: ViewController {
         var incoming = lastSentHeader(from: m)
         if list[idx].hasLastSentMessage {
             let existing = list[idx].lastSentMessage
+            let incomingIsOlder: Bool
+            if incoming.id != 0, existing.id != 0 {
+                incomingIsOlder = incoming.id < existing.id
+                    || (incoming.id == existing.id
+                        && incoming.timestampSeconds < existing.timestampSeconds)
+            } else {
+                incomingIsOlder = incoming.timestampSeconds != 0
+                    && incoming.timestampSeconds < existing.timestampSeconds
+            }
+            guard !incomingIsOlder else { return false }
+            let isSameMessage = incoming.id != 0 && incoming.id == existing.id
+            let hasNoNewerIdentity = incoming.id == 0
+                && incoming.timestampSeconds <= existing.timestampSeconds
             if incoming.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-               !existing.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+               !existing.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               isSameMessage || hasNoNewerIdentity {
                 incoming.content = existing.content
             }
             if incoming.id == 0 { incoming.id = existing.id }
@@ -898,14 +1057,21 @@ final class DirectMessagesViewController: ViewController {
             let existing = cached.lastSentMessage
             let incomingBlank = incoming.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             let existingHasPreview = !existing.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            let existingLooksNewer =
-                existing.id > incoming.id
-                || (existing.id == incoming.id && existing.timestampSeconds > incoming.timestampSeconds)
+            let existingLooksNewer: Bool
+            if existing.id != 0, incoming.id != 0 {
+                existingLooksNewer = existing.id > incoming.id
+                    || (existing.id == incoming.id
+                        && existing.timestampSeconds > incoming.timestampSeconds)
+            } else {
+                existingLooksNewer = existing.timestampSeconds > incoming.timestampSeconds
+            }
+            let hasNoNewerIdentity = incoming.id == 0
+                && incoming.timestampSeconds <= existing.timestampSeconds
 
             var next = incoming
-            if existingLooksNewer, existingHasPreview {
+            if existingLooksNewer {
                 next = existing
-            } else if incomingBlank, existingHasPreview {
+            } else if incomingBlank, existingHasPreview, hasNoNewerIdentity {
                 next.content = existing.content
                 if next.senderID == 0 { next.senderID = existing.senderID }
                 if next.id == 0 { next.id = existing.id }
@@ -1241,7 +1407,10 @@ final class DirectMessagesViewController: ViewController {
                     let badgeResponse = try await self.context.account.network.listChannelBadgeCount(
                         clanId: 0, token: token)
                     ChannelUnreadBadgeSync.mergeSocketBadgeRows(
-                        into: &channels, badgeRows: badgeResponse.channeldesc)
+                        into: &channels,
+                        badgeRows: badgeResponse.channeldesc,
+                        preserveContentAcrossMessageIds: false
+                    )
                     channels = Self.mergeDmApiRowsPreservingCachedPreview(channels, cached: cachedRows)
                 } catch {
                 }
@@ -1282,7 +1451,10 @@ final class DirectMessagesViewController: ViewController {
                     let badgeResponse = try await self.context.account.network.listChannelBadgeCount(
                         clanId: 0, token: token)
                     ChannelUnreadBadgeSync.mergeSocketBadgeRows(
-                        into: &channels, badgeRows: badgeResponse.channeldesc)
+                        into: &channels,
+                        badgeRows: badgeResponse.channeldesc,
+                        preserveContentAcrossMessageIds: false
+                    )
                     channels = Self.mergeDmApiRowsPreservingCachedPreview(channels, cached: cachedRows)
                 } catch {
                 }

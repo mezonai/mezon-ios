@@ -630,7 +630,11 @@ final class ClanListViewController: ViewController {
                     let badgeRows = try await self.context.account.network.listChannelBadgeCount(clanId: 0, token: token)
                         .channeldesc
                     guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
-                    ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &channels, badgeRows: badgeRows)
+                    ChannelUnreadBadgeSync.mergeSocketBadgeRows(
+                        into: &channels,
+                        badgeRows: badgeRows,
+                        preserveContentAcrossMessageIds: false
+                    )
                 } catch {
                 }
                 let unread = channels.filter { $0.countMessUnread > 0 }

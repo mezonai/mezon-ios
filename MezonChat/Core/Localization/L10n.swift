@@ -1074,6 +1074,7 @@ enum L10n {
 
         static let groupCreated   = "directMessage.groupCreated"
         static let previewAttachment = "directMessage.previewAttachment"
+        static let previewFile      = "directMessage.previewFile"
         static let previewLink    = "directMessage.previewLink"
         static let previewLocation = "directMessage.previewLocation"
         static let previewContact = "directMessage.previewContact"
@@ -2224,6 +2225,7 @@ extension L10n {
         "directMessage.createFailed": "Could not create group.",
         "directMessage.groupCreated": "Group created",
         "directMessage.previewAttachment": "Attachment",
+        "directMessage.previewFile": "File",
         "directMessage.previewLink": "Link",
         "directMessage.previewLocation": "Location",
         "directMessage.previewContact": "Contact",
@@ -3468,6 +3470,7 @@ extension L10n {
         "directMessage.createFailed": "Không thể tạo nhóm.",
         "directMessage.groupCreated": "Nhóm đã được tạo",
         "directMessage.previewAttachment": "Đính kèm",
+        "directMessage.previewFile": "Tệp",
         "directMessage.previewLink": "Liên kết",
         "directMessage.previewLocation": "Vị trí",
         "directMessage.previewContact": "Danh bạ",

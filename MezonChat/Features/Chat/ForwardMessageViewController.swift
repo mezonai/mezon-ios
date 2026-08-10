@@ -740,7 +740,11 @@ final class ForwardMessageViewController: UIViewController {
                 var dms = try await context.account.network.listDirectMessageChannels(token: token)
                 do {
                     let badgeResponse = try await context.account.network.listChannelBadgeCount(clanId: 0, token: token)
-                    ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &dms, badgeRows: badgeResponse.channeldesc)
+                    ChannelUnreadBadgeSync.mergeSocketBadgeRows(
+                        into: &dms,
+                        badgeRows: badgeResponse.channeldesc,
+                        preserveContentAcrossMessageIds: false
+                    )
                 } catch {}
 
                 dmList = dms.filter { ch in

@@ -1252,7 +1252,11 @@ enum MezonApiNameRegistry {
 }
 
 enum ChannelUnreadBadgeSync {
-    static func mergeSocketBadgeRows(into channels: inout [Mezon_Api_ChannelDescription], badgeRows: [Mezon_Api_ChannelDescription]) {
+    static func mergeSocketBadgeRows(
+        into channels: inout [Mezon_Api_ChannelDescription],
+        badgeRows: [Mezon_Api_ChannelDescription],
+        preserveContentAcrossMessageIds: Bool = true
+    ) {
         guard !badgeRows.isEmpty else { return }
         var byId: [Int64: Mezon_Api_ChannelDescription] = [:]
         for row in badgeRows {
@@ -1272,12 +1276,29 @@ enum ChannelUnreadBadgeSync {
                     var inc = bi
                     if channels[i].hasLastSentMessage {
                         let ex = channels[i].lastSentMessage
-                        if inc.content.isEmpty, !ex.content.isEmpty {
-                            inc.content = ex.content
-                            if inc.senderID == 0 { inc.senderID = ex.senderID }
-                            if inc.id == 0 { inc.id = ex.id }
+                        let existingLooksNewer: Bool
+                        if ex.id != 0, inc.id != 0 {
+                            existingLooksNewer = ex.id > inc.id
+                                || (ex.id == inc.id && ex.timestampSeconds > inc.timestampSeconds)
+                        } else {
+                            existingLooksNewer = ex.timestampSeconds > inc.timestampSeconds
                         }
-                        inc.timestampSeconds = max(inc.timestampSeconds, ex.timestampSeconds)
+                        if !preserveContentAcrossMessageIds, existingLooksNewer {
+                            inc = ex
+                        } else {
+                            let isSameMessage = inc.id != 0 && inc.id == ex.id
+                            let hasNoNewerIdentity = inc.id == 0
+                                && inc.timestampSeconds <= ex.timestampSeconds
+                            let canReuseExistingContent = preserveContentAcrossMessageIds
+                                || isSameMessage || hasNoNewerIdentity
+                            if inc.content.isEmpty, !ex.content.isEmpty,
+                               canReuseExistingContent {
+                                inc.content = ex.content
+                                if inc.senderID == 0 { inc.senderID = ex.senderID }
+                                if inc.id == 0 { inc.id = ex.id }
+                            }
+                            inc.timestampSeconds = max(inc.timestampSeconds, ex.timestampSeconds)
+                        }
                     }
                     channels[i].lastSentMessage = inc
                 }
