@@ -1169,12 +1169,9 @@ final class AccountContextImpl: AccountContext {
                             "timestampSeconds": now, "fromSelf": true
                         ] as [String: Any]
                     )
-                    let isDmListMessage = clanId == 0
-                        && (messageCopy.mode == MezonConstants.ChannelStreamMode.dm.rawValue
-                            || messageCopy.mode == MezonConstants.ChannelStreamMode.group.rawValue)
-                    guard isDmListMessage else { return }
+                    return
                 }
-                let incrementDmBadge = !isSelf && Self.shouldIncrementDmBadgeForSocketMessage(
+                let incrementDmBadge = Self.shouldIncrementDmBadgeForSocketMessage(
                     messageCopy, channelId: channelId,
                     currentUserId: self.currentUser?.id, currentClanId: self.currentClanId
                 )
@@ -1188,11 +1185,8 @@ final class AccountContextImpl: AccountContext {
                 if let raw = try? messageCopy.serializedData() {
                     userInfo["serializedChannelMessage"] = raw
                 }
-                let notificationName = isSelf
-                    ? Notification.Name("MezonDMListMessageReceived")
-                    : Notification.Name("MezonNewMessageReceived")
                 NotificationCenter.default.post(
-                    name: notificationName, object: nil, userInfo: userInfo
+                    name: Notification.Name("MezonNewMessageReceived"), object: nil, userInfo: userInfo
                 )
             }
 
@@ -1239,17 +1233,6 @@ final class AccountContextImpl: AccountContext {
                     mentionsJSON: existing.mentionsJSON
                 )
                 tx.addMessages([updated])
-            }
-            if update.clanID == 0, update.topicID == 0 {
-                let updateCopy = update
-                Task { @MainActor in
-                    guard let raw = try? updateCopy.serializedData() else { return }
-                    NotificationCenter.default.post(
-                        name: Notification.Name("MezonChannelMessageUpdated"),
-                        object: nil,
-                        userInfo: ["serializedChannelMessageUpdate": raw]
-                    )
-                }
             }
 
         case .reaction(let reaction):

@@ -600,15 +600,6 @@ final class AttachmentUploadCoordinator {
                 return
             }
             register(session, key: "\(ack.messageID)")
-            if p.clanId == 0, p.topicId == 0 {
-                DMListPreviewCache.updateLastSentMessage(
-                    context: context,
-                    channelId: p.channelId,
-                    ack: ack,
-                    content: contentStr,
-                    hasAttachments: !attachments.isEmpty
-                )
-            }
             context.account.postbox.write { tx in
                 let pending = tx.getMessageById(p.localId)
                 let attachmentsJSON: Data = {
