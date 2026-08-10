@@ -101,6 +101,7 @@ final class MezonRootController: NavigationController {
         pushViewController(tabBarController, animated: false)
 
         NotificationCenter.default.addObserver(self, selector: #selector(handleNavigateToChannel(_:)), name: .mezonNavigateToChannel, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleNavigateToFriendRequests(_:)), name: .mezonNavigateToFriendRequests, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleQRSelectClanRoot(_:)), name: .mezonQRSelectClan, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleQRNavigateToDM(_:)), name: .mezonQRNavigateToDM, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleSharedContent(_:)), name: .mezonDidReceiveSharedContent, object: nil)
@@ -112,6 +113,7 @@ final class MezonRootController: NavigationController {
 
         bootstrapGlobalFriendState()
         processPendingNavigation()
+        processPendingFriendRequestNavigation()
         processPendingDeepLink()
         checkPendingSharedContentOnLaunch()
 
@@ -171,6 +173,24 @@ final class MezonRootController: NavigationController {
         }
     }
 
+    private func processPendingFriendRequestNavigation() {
+        guard var pending = AppDelegate.pendingFriendRequestNavigation else { return }
+        AppDelegate.pendingFriendRequestNavigation = nil
+        if pending["navigationInstanceId"] == nil {
+            pending["navigationInstanceId"] = UUID().uuidString
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.awaitSessionReadyBounded()
+            if let sid = pending["navigationInstanceId"] as? String,
+               sid == AppDelegate.lastHandledFriendRequestNavigationInstanceId {
+                return
+            }
+            NotificationCenter.default.post(name: .mezonNavigateToFriendRequests, object: nil, userInfo: pending)
+        }
+    }
+
 
     @objc private func handleQRSelectClanRoot(_ notification: Notification) {
         rootTabController?.selectedIndex = 0
@@ -206,6 +226,42 @@ final class MezonRootController: NavigationController {
             } else {
                 self.navigateToChannel(channelIdStr: channelIdStr, clanIdStr: clanIdStr)
             }
+        }
+    }
+
+    @objc private func handleNavigateToFriendRequests(_ notification: Notification) {
+        AppDelegate.recordFriendRequestNavigationInstanceHandled(userInfo: notification.userInfo)
+        AppDelegate.pendingFriendRequestNavigation = nil
+
+        handoffActiveVoiceRoomToPiPBeforeNavigation()
+        context.account.socket.ensureFreshConnection()
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.awaitSessionReadyBounded()
+            self.navigateToFriendRequests()
+        }
+    }
+
+    private func navigateToFriendRequests() {
+        rootTabController?.selectedIndex = 1
+
+        if let existing = viewControllers.compactMap({ $0 as? FriendRequestViewController }).first {
+            popToViewController(existing, animated: true)
+            refreshFriendRequestsForNotificationTap()
+            return
+        }
+
+        popToTabBarController()
+        let vc = FriendRequestViewController(context: context)
+        pushViewController(vc, animated: false)
+        refreshFriendRequestsForNotificationTap()
+    }
+
+    private func refreshFriendRequestsForNotificationTap() {
+        Task { @MainActor [weak self] in
+            guard let self, let token = await self.context.getToken() else { return }
+            await self.context.engine.friendsData.refreshFromNetwork(token: token, force: true)
         }
     }
 

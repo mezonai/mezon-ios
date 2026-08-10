@@ -86,13 +86,26 @@ final class ClanListContainerNode: ASDisplayNode {
                 let clansChanged = prevClanFingerprints != newClanFingerprints
                 let newDmFingerprint = Self.unreadDmStripFingerprint(newState.unreadDMs)
 
-                let clanStructureChanged = newClanSectionCount != oldCount || clansChanged || prevClanBadges != newClanBadges
+                let clanStructureChanged = newClanSectionCount != oldCount || clansChanged
+                let clanBadgesChanged = prevClanBadges != newClanBadges
                 let dmIdentityChanged = prevDMs.map(\.channelID) != newState.unreadDMs.map(\.channelID)
                 let dmContentChanged = prevDmFingerprint != newDmFingerprint
 
                 if clanStructureChanged {
                     self.state = newState
                     self.collectionView.reloadData()
+                } else if clanBadgesChanged {
+                    self.state = newState
+                    let paths = Self.changedClanBadgeIndexPaths(previous: prevState.clans, current: newState.clans)
+                    if !paths.isEmpty, self.collectionView.numberOfSections > 1 {
+                        let itemCount = self.collectionView.numberOfItems(inSection: 1)
+                        let validPaths = paths.filter { $0.item < itemCount }
+                        if !validPaths.isEmpty {
+                            UIView.performWithoutAnimation {
+                                self.collectionView.reloadItems(at: validPaths)
+                            }
+                        }
+                    }
                 } else if dmIdentityChanged {
                     self.applyDmStripIdentityChange(prevDMs: prevDMs, newState: newState)
                 } else if dmContentChanged {
@@ -270,6 +283,18 @@ final class ClanListContainerNode: ASDisplayNode {
 
     private static func unreadDmStripFingerprint(_ dms: [Mezon_Api_ChannelDescription]) -> String {
         dms.map { dmItemFingerprint($0) }.joined(separator: "\u{1e}")
+    }
+
+    private static func changedClanBadgeIndexPaths(previous: [Mezon_Api_ClanDesc], current: [Mezon_Api_ClanDesc]) -> [IndexPath] {
+        guard previous.count == current.count else { return [] }
+        var paths: [IndexPath] = []
+        for i in current.indices {
+            guard previous[i].clanID == current[i].clanID else { return [] }
+            if previous[i].badgeCount != current[i].badgeCount {
+                paths.append(IndexPath(item: i, section: 1))
+            }
+        }
+        return paths
     }
 
     private func applyDmStripIdentityChange(
