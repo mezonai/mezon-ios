@@ -1,5 +1,6 @@
 import AsyncDisplayKit
 import CoreImage
+import Photos
 import UIKit
 
 private final class ClanInviteSearchWrapNode: ASDisplayNode {
@@ -125,6 +126,11 @@ private final class ClanInviteActionButtonNode: ASDisplayNode {
 
     @objc private func handleTap() { onTap?() }
 
+    func setEnabled(_ enabled: Bool) {
+        isUserInteractionEnabled = enabled
+        alpha = enabled ? 1 : 0.45
+    }
+
     override func calculateSizeThatFits(_ constrainedSize: CGSize) -> CGSize {
         let labelSz = labelNode.calculateSizeThatFits(CGSize(width: 200, height: 40))
         let maxW = max(40.swh, labelSz.width)
@@ -154,6 +160,463 @@ private final class ClanInviteActionButtonNode: ASDisplayNode {
             width: labelSz.width,
             height: labelSz.height
         )
+    }
+}
+
+private final class ClanInviteQRCodeViewController: UIViewController {
+    private enum PhotoLibrarySaveAuthorizationResult {
+        case authorized
+        case denied
+        case restricted
+    }
+
+    @available(iOS 16.0, *)
+    private static let contentDetentIdentifier = UISheetPresentationController.Detent.Identifier(
+        "mezon.clanInvite.qr.content"
+    )
+
+    private let inviteLink: String
+    private let inviteURL: URL
+    private let clanName: String
+    private let clanLogoURL: String
+
+    private let scrollView = UIScrollView()
+    private let contentView = UIView()
+    private let cardView = UIView()
+    private let qrImageView = UIImageView()
+    private let avatarContainerView = UIView()
+    private let avatarImageView = UIImageView()
+    private let avatarFallbackLabel = UILabel()
+    private let shareButton = UIButton(type: .system)
+
+    init(inviteLink: String, inviteURL: URL, clanName: String, clanLogoURL: String) {
+        self.inviteLink = inviteLink
+        self.inviteURL = inviteURL
+        self.clanName = clanName
+        self.clanLogoURL = clanLogoURL
+        super.init(nibName: nil, bundle: nil)
+        modalPresentationStyle = .pageSheet
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError()
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        configureSheet()
+        buildViewHierarchy()
+        configureContent()
+        loadClanLogo()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        view.layoutIfNeeded()
+        scrollView.isScrollEnabled = scrollView.contentSize.height > scrollView.bounds.height + 1
+    }
+
+    private func configureSheet() {
+        view.backgroundColor = UIColor.theme.primary
+        isModalInPresentation = false
+        if #available(iOS 15.0, *), let sheet = sheetPresentationController {
+            sheet.prefersGrabberVisible = true
+            sheet.preferredCornerRadius = 24.swh
+            sheet.prefersScrollingExpandsWhenScrolledToEdge = false
+
+            if #available(iOS 16.0, *) {
+                let identifier = Self.contentDetentIdentifier
+                let contentDetent = UISheetPresentationController.Detent.custom(
+                    identifier: identifier
+                ) { context in
+                    let proportionalHeight = context.maximumDetentValue * 0.8
+                    return min(context.maximumDetentValue, max(520.sh, proportionalHeight))
+                }
+                sheet.detents = [contentDetent]
+                sheet.selectedDetentIdentifier = identifier
+            } else {
+                sheet.detents = [.medium(), .large()]
+                sheet.selectedDetentIdentifier = .medium
+            }
+        }
+    }
+
+    private func buildViewHierarchy() {
+        [scrollView, contentView, cardView, qrImageView, avatarContainerView, avatarImageView,
+         avatarFallbackLabel, shareButton].forEach { $0.translatesAutoresizingMaskIntoConstraints = false }
+
+        view.addSubview(scrollView)
+        scrollView.addSubview(contentView)
+        scrollView.alwaysBounceVertical = false
+        scrollView.contentInsetAdjustmentBehavior = .never
+        scrollView.isScrollEnabled = false
+
+        let brandIcon = UIImageView(image: UIImage(named: "Setting/LogoMezon")?.withRenderingMode(.alwaysOriginal))
+        brandIcon.contentMode = .scaleAspectFit
+        brandIcon.translatesAutoresizingMaskIntoConstraints = false
+
+        let brandLabel = UILabel()
+        brandLabel.text = "Mezon"
+        brandLabel.font = .systemFont(ofSize: 28.sf, weight: .bold)
+        brandLabel.textColor = UIColor.theme.textStrong
+
+        let brandStack = UIStackView(arrangedSubviews: [brandIcon, brandLabel])
+        brandStack.axis = .horizontal
+        brandStack.alignment = .center
+        brandStack.spacing = 10.sw
+        brandStack.translatesAutoresizingMaskIntoConstraints = false
+
+        cardView.backgroundColor = UIColor.theme.secondary
+        cardView.layer.cornerRadius = 16.swh
+        cardView.clipsToBounds = true
+        contentView.addSubview(cardView)
+        cardView.addSubview(brandStack)
+
+        let qrBackgroundView = UIView()
+        qrBackgroundView.backgroundColor = .white
+        qrBackgroundView.translatesAutoresizingMaskIntoConstraints = false
+        cardView.addSubview(qrBackgroundView)
+
+        qrImageView.contentMode = .scaleAspectFit
+        qrImageView.layer.magnificationFilter = .nearest
+        qrImageView.layer.minificationFilter = .nearest
+        qrBackgroundView.addSubview(qrImageView)
+
+        avatarContainerView.backgroundColor = UIColor.theme.secondary
+        avatarContainerView.layer.cornerRadius = 8.swh
+        avatarContainerView.clipsToBounds = true
+        qrBackgroundView.addSubview(avatarContainerView)
+
+        avatarImageView.contentMode = .scaleAspectFill
+        avatarImageView.clipsToBounds = true
+        avatarImageView.layer.cornerRadius = 6.swh
+        avatarContainerView.addSubview(avatarImageView)
+
+        avatarFallbackLabel.font = .systemFont(ofSize: 20.sf, weight: .bold)
+        avatarFallbackLabel.textAlignment = .center
+        avatarFallbackLabel.textColor = .white
+        avatarFallbackLabel.backgroundColor = UIColor.theme.textLink
+        avatarFallbackLabel.layer.cornerRadius = 6.swh
+        avatarFallbackLabel.clipsToBounds = true
+        avatarContainerView.addSubview(avatarFallbackLabel)
+
+        let divider = UIView()
+        divider.backgroundColor = UIColor.theme.border
+        divider.translatesAutoresizingMaskIntoConstraints = false
+        cardView.addSubview(divider)
+
+        let poweredByLabel = UILabel()
+        poweredByLabel.text = L(L10n.QRScanner.poweredBy)
+        poweredByLabel.font = .systemFont(ofSize: 14.sf, weight: .regular)
+        poweredByLabel.textColor = UIColor.theme.textDisabled
+        poweredByLabel.textAlignment = .center
+        poweredByLabel.translatesAutoresizingMaskIntoConstraints = false
+        cardView.addSubview(poweredByLabel)
+
+        let saveButton = UIButton(type: .system)
+        configureActionButton(
+            saveButton,
+            systemImage: "square.and.arrow.down",
+            accessibilityLabel: L(L10n.ClanInviteSheet.saveQR),
+            selector: #selector(saveQR)
+        )
+        configureActionButton(
+            shareButton,
+            systemImage: "square.and.arrow.up",
+            accessibilityLabel: L(L10n.ClanInviteSheet.shareQR),
+            selector: #selector(shareQR)
+        )
+
+        let actionStack = UIStackView(arrangedSubviews: [saveButton, shareButton])
+        actionStack.axis = .horizontal
+        actionStack.alignment = .center
+        actionStack.spacing = 16.sw
+        actionStack.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(actionStack)
+
+        let hintLabel = UILabel()
+        hintLabel.text = L(L10n.ClanInviteSheet.qrHint)
+        hintLabel.font = .systemFont(ofSize: 13.sf, weight: .regular)
+        hintLabel.textColor = UIColor.theme.textDisabled
+        hintLabel.textAlignment = .center
+        hintLabel.numberOfLines = 0
+        hintLabel.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(hintLabel)
+
+        NSLayoutConstraint.activate([
+            scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            contentView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+            contentView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
+            contentView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
+            contentView.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor),
+
+            cardView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16.sh),
+            cardView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16.sw),
+            cardView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16.sw),
+
+            brandIcon.widthAnchor.constraint(equalToConstant: 34.swh),
+            brandIcon.heightAnchor.constraint(equalTo: brandIcon.widthAnchor),
+            brandStack.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 24.sh),
+            brandStack.centerXAnchor.constraint(equalTo: cardView.centerXAnchor),
+
+            qrBackgroundView.topAnchor.constraint(equalTo: brandStack.bottomAnchor, constant: 20.sh),
+            qrBackgroundView.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 24.sw),
+            qrBackgroundView.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -24.sw),
+            qrBackgroundView.heightAnchor.constraint(equalTo: qrBackgroundView.widthAnchor),
+
+            qrImageView.topAnchor.constraint(equalTo: qrBackgroundView.topAnchor, constant: 12.swh),
+            qrImageView.leadingAnchor.constraint(equalTo: qrBackgroundView.leadingAnchor, constant: 12.swh),
+            qrImageView.trailingAnchor.constraint(equalTo: qrBackgroundView.trailingAnchor, constant: -12.swh),
+            qrImageView.bottomAnchor.constraint(equalTo: qrBackgroundView.bottomAnchor, constant: -12.swh),
+
+            avatarContainerView.centerXAnchor.constraint(equalTo: qrBackgroundView.centerXAnchor),
+            avatarContainerView.centerYAnchor.constraint(equalTo: qrBackgroundView.centerYAnchor),
+            avatarContainerView.widthAnchor.constraint(equalToConstant: 46.swh),
+            avatarContainerView.heightAnchor.constraint(equalTo: avatarContainerView.widthAnchor),
+
+            avatarImageView.topAnchor.constraint(equalTo: avatarContainerView.topAnchor, constant: 3.swh),
+            avatarImageView.leadingAnchor.constraint(equalTo: avatarContainerView.leadingAnchor, constant: 3.swh),
+            avatarImageView.trailingAnchor.constraint(equalTo: avatarContainerView.trailingAnchor, constant: -3.swh),
+            avatarImageView.bottomAnchor.constraint(equalTo: avatarContainerView.bottomAnchor, constant: -3.swh),
+            avatarFallbackLabel.topAnchor.constraint(equalTo: avatarImageView.topAnchor),
+            avatarFallbackLabel.leadingAnchor.constraint(equalTo: avatarImageView.leadingAnchor),
+            avatarFallbackLabel.trailingAnchor.constraint(equalTo: avatarImageView.trailingAnchor),
+            avatarFallbackLabel.bottomAnchor.constraint(equalTo: avatarImageView.bottomAnchor),
+
+            divider.topAnchor.constraint(equalTo: qrBackgroundView.bottomAnchor, constant: 24.sh),
+            divider.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 24.sw),
+            divider.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -24.sw),
+            divider.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale),
+
+            poweredByLabel.topAnchor.constraint(equalTo: divider.bottomAnchor, constant: 20.sh),
+            poweredByLabel.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 16.sw),
+            poweredByLabel.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -16.sw),
+            poweredByLabel.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -22.sh),
+
+            actionStack.topAnchor.constraint(equalTo: cardView.bottomAnchor, constant: 20.sh),
+            actionStack.centerXAnchor.constraint(equalTo: contentView.centerXAnchor),
+            actionStack.widthAnchor.constraint(equalToConstant: 112.sw),
+            actionStack.heightAnchor.constraint(equalToConstant: 48.swh),
+            saveButton.widthAnchor.constraint(equalToConstant: 48.swh),
+            saveButton.heightAnchor.constraint(equalTo: saveButton.widthAnchor),
+            shareButton.widthAnchor.constraint(equalToConstant: 48.swh),
+            shareButton.heightAnchor.constraint(equalTo: shareButton.widthAnchor),
+
+            hintLabel.topAnchor.constraint(equalTo: actionStack.bottomAnchor, constant: 12.sh),
+            hintLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 24.sw),
+            hintLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -24.sw),
+            hintLabel.bottomAnchor.constraint(equalTo: contentView.safeAreaLayoutGuide.bottomAnchor, constant: -20.sh),
+        ])
+    }
+
+    private func configureContent() {
+        guard let image = Self.makeQRCode(from: inviteLink) else {
+            Toast.error(L(L10n.ClanInviteSheet.cannotCreateInvite))
+            dismiss(animated: true)
+            return
+        }
+        qrImageView.image = image
+        avatarFallbackLabel.text = clanName.trimmingCharacters(in: .whitespacesAndNewlines).first
+            .map { String($0).uppercased() } ?? "M"
+    }
+
+    private func loadClanLogo() {
+        let source = ImgproxyURL.absoluteResourceURL(from: clanLogoURL)
+        guard !source.isEmpty else { return }
+
+        let proxied = ImgproxyURL.create(from: source, width: 160, height: 160)
+        let candidates = [proxied, source].reduce(into: [String]()) { result, candidate in
+            guard !candidate.isEmpty,
+                  let url = URL(string: candidate),
+                  url.scheme != nil,
+                  !result.contains(candidate) else { return }
+            result.append(candidate)
+        }
+        loadClanLogo(candidates: candidates, index: 0)
+    }
+
+    private func loadClanLogo(candidates: [String], index: Int) {
+        guard candidates.indices.contains(index) else { return }
+        let candidate = candidates[index]
+
+        if let cached = ImageCache.shared.cachedImage(forURL: candidate) {
+            applyClanLogo(cached)
+            return
+        }
+
+        ImageCache.shared.loadImage(urlString: candidate) { [weak self] image in
+            guard let self else { return }
+            if let image {
+                self.applyClanLogo(image)
+            } else {
+                self.loadClanLogo(candidates: candidates, index: index + 1)
+            }
+        }
+    }
+
+    private func applyClanLogo(_ image: UIImage) {
+        avatarImageView.image = image
+        avatarFallbackLabel.isHidden = true
+    }
+
+    private static func makeQRCode(from value: String) -> UIImage? {
+        guard let data = value.data(using: .utf8),
+              let filter = CIFilter(name: "CIQRCodeGenerator") else { return nil }
+        filter.setValue(data, forKey: "inputMessage")
+        filter.setValue("H", forKey: "inputCorrectionLevel")
+        guard let output = filter.outputImage else { return nil }
+
+        let targetSize: CGFloat = 1024
+        let scale = floor(targetSize / output.extent.width)
+        let transformed = output.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let context = CIContext(options: [.useSoftwareRenderer: false])
+        guard let cgImage = context.createCGImage(transformed, from: transformed.extent) else { return nil }
+        return UIImage(cgImage: cgImage)
+    }
+
+    private func configureActionButton(
+        _ button: UIButton,
+        systemImage: String,
+        accessibilityLabel: String,
+        selector: Selector
+    ) {
+        let configuration = UIImage.SymbolConfiguration(pointSize: 18.sf, weight: .medium)
+        button.setImage(UIImage(systemName: systemImage, withConfiguration: configuration), for: .normal)
+        button.tintColor = UIColor.theme.textStrong
+        button.backgroundColor = UIColor.theme.secondary
+        button.layer.cornerRadius = 12.swh
+        button.layer.borderWidth = 1 / UIScreen.main.scale
+        button.layer.borderColor = UIColor.theme.border.withAlphaComponent(0.7).cgColor
+        button.accessibilityLabel = accessibilityLabel
+        button.addTarget(self, action: selector, for: .touchUpInside)
+        button.translatesAutoresizingMaskIntoConstraints = false
+    }
+
+    private func renderedCardImage() -> UIImage? {
+        cardView.layoutIfNeeded()
+        guard cardView.bounds.width > 0, cardView.bounds.height > 0 else { return nil }
+        let renderer = UIGraphicsImageRenderer(bounds: cardView.bounds)
+        return renderer.image { _ in
+            cardView.drawHierarchy(in: cardView.bounds, afterScreenUpdates: true)
+        }
+    }
+
+    @objc private func shareQR() {
+        guard let image = renderedCardImage() else { return }
+        let controller = UIActivityViewController(
+            activityItems: [image, inviteURL],
+            applicationActivities: nil
+        )
+        if let popover = controller.popoverPresentationController {
+            popover.sourceView = shareButton
+            popover.sourceRect = shareButton.bounds
+        }
+        present(controller, animated: true)
+    }
+
+    @objc private func saveQR() {
+        guard let image = renderedCardImage() else { return }
+        requestPhotoLibrarySaveAuthorization { [weak self] result in
+            switch result {
+            case .authorized:
+                PHPhotoLibrary.shared().performChanges({
+                    PHAssetChangeRequest.creationRequestForAsset(from: image)
+                }, completionHandler: { success, error in
+                    DispatchQueue.main.async {
+                        if success {
+                            Toast.success(L(L10n.ClanInviteSheet.qrSaved))
+                        } else {
+                            Toast.error(error?.localizedDescription ?? L(L10n.ClanInviteSheet.qrSaveFailed))
+                        }
+                    }
+                })
+            case .denied:
+                DispatchQueue.main.async {
+                    self?.presentPhotoPermissionSettingsAlert()
+                }
+            case .restricted:
+                DispatchQueue.main.async {
+                    Toast.error(L(L10n.Gallery.photoPermissionDenied))
+                }
+            }
+        }
+    }
+
+    private func requestPhotoLibrarySaveAuthorization(
+        completion: @escaping (PhotoLibrarySaveAuthorizationResult) -> Void
+    ) {
+        if #available(iOS 14.0, *) {
+            switch PHPhotoLibrary.authorizationStatus(for: .addOnly) {
+            case .authorized, .limited:
+                completion(.authorized)
+            case .notDetermined:
+                PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+                    switch status {
+                    case .authorized, .limited:
+                        completion(.authorized)
+                    case .restricted:
+                        completion(.restricted)
+                    case .denied, .notDetermined:
+                        completion(.denied)
+                    @unknown default:
+                        completion(.denied)
+                    }
+                }
+            case .restricted:
+                completion(.restricted)
+            case .denied:
+                completion(.denied)
+            @unknown default:
+                completion(.denied)
+            }
+        } else {
+            switch PHPhotoLibrary.authorizationStatus() {
+            case .authorized:
+                completion(.authorized)
+            case .notDetermined:
+                PHPhotoLibrary.requestAuthorization { status in
+                    switch status {
+                    case .authorized:
+                        completion(.authorized)
+                    case .restricted:
+                        completion(.restricted)
+                    case .denied, .notDetermined:
+                        completion(.denied)
+                    case .limited:
+                        completion(.authorized)
+                    @unknown default:
+                        completion(.denied)
+                    }
+                }
+            case .restricted:
+                completion(.restricted)
+            case .denied:
+                completion(.denied)
+            case .limited:
+                completion(.authorized)
+            @unknown default:
+                completion(.denied)
+            }
+        }
+    }
+
+    private func presentPhotoPermissionSettingsAlert() {
+        let alert = UIAlertController(
+            title: L(L10n.Gallery.photoPermissionTitle),
+            message: L(L10n.Gallery.photoPermissionMessage),
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: L(L10n.Common.cancel), style: .cancel))
+        alert.addAction(UIAlertAction(title: L(L10n.Common.settings), style: .default) { _ in
+            guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+            UIApplication.shared.open(url)
+        })
+        present(alert, animated: true)
     }
 }
 
@@ -605,8 +1068,11 @@ final class ClanInviteSheetViewController: ViewController {
 
     private let context: AccountContext
     private let clanId: Int64
+    private let nativeModalPresenter = UIViewController()
 
     private var inviteLink: String?
+    private var clanName = ""
+    private var clanLogoURL = ""
     private var allFriends: [FriendItem] = []
     private var filteredFriends: [FriendItem] = []
     private var sentIds = Set<Int64>()
@@ -634,6 +1100,9 @@ final class ClanInviteSheetViewController: ViewController {
         node.shareButton.onTap = { [weak self] in self?.shareInvite() }
         node.copyButton.onTap = { [weak self] in self?.copyInvite() }
         node.qrButton.onTap = { [weak self] in self?.showQR() }
+        node.shareButton.setEnabled(false)
+        node.copyButton.setEnabled(false)
+        node.qrButton.setEnabled(false)
         node.emptyStateNode.actionButtonNode.addTarget(
             self,
             action: #selector(emptyActionTapped),
@@ -646,10 +1115,41 @@ final class ClanInviteSheetViewController: ViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        attachNativeModalPresenter()
         containerNode.searchWrapNode.textField.addTarget(self, action: #selector(searchChanged), for: .editingChanged)
         containerNode.searchWrapNode.clearButton.addTarget(self, action: #selector(clearSearchTapped), for: .touchUpInside)
         applyTheme()
         loadData()
+    }
+
+    override func dismiss(animated flag: Bool, completion: (() -> Void)? = nil) {
+        if let modal = nativeModalPresenter.presentedViewController ?? presentedViewController {
+            modal.dismiss(animated: flag, completion: completion)
+        } else {
+            super.dismiss(animated: flag, completion: completion)
+        }
+    }
+
+    private func attachNativeModalPresenter() {
+        nativeModalPresenter.definesPresentationContext = true
+        nativeModalPresenter.view.backgroundColor = .clear
+        nativeModalPresenter.view.isUserInteractionEnabled = false
+        nativeModalPresenter.view.translatesAutoresizingMaskIntoConstraints = false
+
+        addChild(nativeModalPresenter)
+        view.insertSubview(nativeModalPresenter.view, at: 0)
+        NSLayoutConstraint.activate([
+            nativeModalPresenter.view.topAnchor.constraint(equalTo: view.topAnchor),
+            nativeModalPresenter.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            nativeModalPresenter.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            nativeModalPresenter.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+        nativeModalPresenter.didMove(toParent: self)
+    }
+
+    private func presentNativeModal(_ controller: UIViewController) {
+        guard nativeModalPresenter.presentedViewController == nil else { return }
+        nativeModalPresenter.present(controller, animated: true)
     }
 
     private func applyTheme() {
@@ -663,6 +1163,10 @@ final class ClanInviteSheetViewController: ViewController {
                 return
             }
             inviteLink = await resolveInviteLink(token: token)
+            updateInviteActionState()
+            if inviteLink == nil {
+                showSimpleAlert(message: L(L10n.ClanInviteSheet.cannotCreateInvite))
+            }
 
             do {
                 async let friendsTask = context.account.network.listFriends(
@@ -764,15 +1268,16 @@ final class ClanInviteSheetViewController: ViewController {
     }
 
     private func resolveInviteLink(token: String) async -> String? {
-        let inviteChannelId = await resolveInviteChannelId(token: token)
-        guard inviteChannelId != 0 else {
+        guard let inviteContext = await resolveInviteContext(token: token) else {
             return nil
         }
+        clanName = inviteContext.clanName
+        clanLogoURL = inviteContext.clanLogoURL
 
         do {
             let invite = try await context.account.network.linkInviteUser(
                 clanId: clanId,
-                channelId: inviteChannelId,
+                channelId: inviteContext.channelId,
                 expiryTime: 10,
                 token: token
             )
@@ -782,15 +1287,30 @@ final class ClanInviteSheetViewController: ViewController {
         return nil
     }
 
-    private func resolveInviteChannelId(token: String) async -> Int64 {
+    private func resolveInviteContext(
+        token: String
+    ) async -> (channelId: Int64, clanName: String, clanLogoURL: String)? {
+        let cachedClan = context.account.postbox.read { transaction -> (name: String, logo: String)? in
+            guard let record = transaction.getClan(id: clanId) else { return nil }
+            let cachedDesc = record.data.isEmpty
+                ? nil
+                : try? Mezon_Api_ClanDesc(serializedBytes: record.data)
+            let name = cachedDesc.flatMap { $0.clanName.isEmpty ? nil : $0.clanName } ?? record.name
+            let logo = cachedDesc.flatMap { $0.logo.isEmpty ? nil : $0.logo } ?? (record.icon ?? "")
+            return (name, logo)
+        }
+
         do {
             let clans = try await context.account.network.listClanDescs(token: token)
             if let clan = clans.first(where: { $0.clanID == clanId }) {
-                return clan.welcomeChannelID
+                guard clan.welcomeChannelID != 0 else { return nil }
+                let name = clan.clanName.isEmpty ? (cachedClan?.name ?? "") : clan.clanName
+                let logo = clan.logo.isEmpty ? (cachedClan?.logo ?? "") : clan.logo
+                return (clan.welcomeChannelID, name, logo)
             }
         } catch {
         }
-        return 0
+        return nil
     }
 
     private func applyFilter() {
@@ -843,6 +1363,7 @@ final class ClanInviteSheetViewController: ViewController {
                     resolvedInviteLink = existing
                 } else if let generated = await resolveInviteLink(token: token) {
                     inviteLink = generated
+                    updateInviteActionState()
                     resolvedInviteLink = generated
                 } else {
                     showSimpleAlert(message: L(L10n.ClanInviteSheet.cannotCreateInvite))
@@ -979,29 +1500,31 @@ final class ClanInviteSheetViewController: ViewController {
     }
 
     private func shareInvite() {
-        guard let inviteLink else { return }
-        let ac = UIActivityViewController(activityItems: [inviteLink], applicationActivities: nil)
-        configurePopover(for: ac, anchorView: containerNode.shareButton.view)
-        present(ac, animated: true)
+        guard let inviteLink, let inviteURL = URL(string: inviteLink) else { return }
+        let ac = UIActivityViewController(activityItems: [inviteURL], applicationActivities: nil)
+        if let popover = ac.popoverPresentationController {
+            popover.sourceView = containerNode.shareButton.view
+            popover.sourceRect = containerNode.shareButton.view.bounds
+        }
+        presentNativeModal(ac)
     }
 
     private func showQR() {
-        guard let inviteLink else { return }
-        guard let filter = CIFilter(name: "CIQRCodeGenerator") else { return }
-        filter.setValue(inviteLink.data(using: .utf8), forKey: "inputMessage")
-        filter.setValue("Q", forKey: "inputCorrectionLevel")
-        guard let output = filter.outputImage else { return }
-        let transform = CGAffineTransform(scaleX: 8, y: 8)
-        let image = UIImage(ciImage: output.transformed(by: transform))
-        let ac = UIActivityViewController(activityItems: [image, inviteLink], applicationActivities: nil)
-        configurePopover(for: ac, anchorView: containerNode.qrButton.view)
-        present(ac, animated: true)
+        guard let inviteLink, let inviteURL = URL(string: inviteLink) else { return }
+        let controller = ClanInviteQRCodeViewController(
+            inviteLink: inviteLink,
+            inviteURL: inviteURL,
+            clanName: clanName.isEmpty ? L(L10n.ClanInviteSheet.unknownClan) : clanName,
+            clanLogoURL: clanLogoURL
+        )
+        presentNativeModal(controller)
     }
 
-    private func configurePopover(for controller: UIViewController, anchorView: UIView) {
-        guard let popover = controller.popoverPresentationController else { return }
-        popover.sourceView = anchorView
-        popover.sourceRect = anchorView.bounds
+    private func updateInviteActionState() {
+        let isEnabled = inviteLink != nil
+        containerNode.shareButton.setEnabled(isEnabled)
+        containerNode.copyButton.setEnabled(isEnabled)
+        containerNode.qrButton.setEnabled(isEnabled)
     }
 
     @objc private func emptyActionTapped() {
@@ -1011,7 +1534,7 @@ final class ClanInviteSheetViewController: ViewController {
     private func showSimpleAlert(message: String) {
         let ac = UIAlertController(title: nil, message: message, preferredStyle: .alert)
         ac.addAction(UIAlertAction(title: "OK", style: .default))
-        present(ac, animated: true)
+        presentNativeModal(ac)
     }
 }
 
