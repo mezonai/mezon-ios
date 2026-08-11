@@ -72,6 +72,11 @@ struct ChatInteraction {
 
 final class ChatContainerNode: ASDisplayNode {
 
+    struct VisibleMessageAnchor {
+        let messageId: String
+        let offsetFromListTop: CGFloat
+    }
+
     let listView: ListView
 
     private let headerNode = ChatHeaderNode()
@@ -97,7 +102,33 @@ final class ChatContainerNode: ASDisplayNode {
     private(set) var didAutoScrollForNewMessages = false
     private var isLoadMoreGuardActive = false
     private var lastKnownDistanceFromBottom: CGFloat = 0
+    private(set) var userScrollGeneration: UInt64 = 0
     private static let nearBottomDistanceThreshold: CGFloat = 100
+
+    var isAtBottom: Bool {
+        guard listView.displayedItemRange.visibleRange?.firstIndex == 0 else {
+            return false
+        }
+        switch listView.visibleContentOffset() {
+        case let .known(value):
+            return abs(value) < Self.nearBottomDistanceThreshold
+        case .none, .unknown:
+            return false
+        }
+    }
+
+    var visibleContentOffsetDebugDescription: String {
+        let visibleRange = listView.displayedItemRange.visibleRange
+            .map { "\($0.firstIndex)...\($0.lastIndex)" } ?? "nil"
+        switch listView.visibleContentOffset() {
+        case let .known(value):
+            return "known(\(value)) visible=\(visibleRange)"
+        case .unknown:
+            return "unknown visible=\(visibleRange)"
+        case .none:
+            return "none visible=\(visibleRange)"
+        }
+    }
 
     init(signal: Signal<ChatState, NoError>, interaction: ChatInteraction, isDM: Bool = false) {
         listView = ListView()
@@ -133,13 +164,26 @@ final class ChatContainerNode: ASDisplayNode {
             guard let self else { return }
             switch offset {
             case let .known(value):
-                self.lastKnownDistanceFromBottom = value
-                let atBottom = value < Self.nearBottomDistanceThreshold
+                let distanceFromBottom = abs(value)
+                self.lastKnownDistanceFromBottom = distanceFromBottom
+                let atBottom = self.listView.displayedItemRange.visibleRange?.firstIndex == 0
+                    && distanceFromBottom < Self.nearBottomDistanceThreshold
                 self.interaction.onScrolledToBottom(atBottom)
                 self.refreshJumpButtonVisibility()
-            case .none, .unknown:
+            case .unknown:
+                // Index 0 is no longer loaded. In this reversed list that means the
+                // viewport is away from the newest message, not that its offset is zero.
+                self.lastKnownDistanceFromBottom = Self.nearBottomDistanceThreshold
+                self.interaction.onScrolledToBottom(false)
+                self.refreshJumpButtonVisibility()
+            case .none:
                 break
             }
+        }
+
+        listView.beganInteractiveDragging = { [weak self] _ in
+            guard let self else { return }
+            self.userScrollGeneration &+= 1
         }
 
         listView.displayedItemRangeChanged = { [weak self] range, _ in
@@ -313,6 +357,65 @@ final class ChatContainerNode: ASDisplayNode {
         }
     }
 
+    func captureVisibleMessageAnchor() -> VisibleMessageAnchor? {
+        let visibleTop = listView.insets.top
+        let visibleBottom = listView.bounds.height - listView.insets.bottom
+        var best: (anchor: VisibleMessageAnchor, fullyVisible: Bool, distance: CGFloat)?
+
+        listView.forEachItemNode { [weak self] node in
+            guard let self,
+                  let itemNode = node as? ListViewItemNode,
+                  let index = itemNode.index,
+                  index >= 0,
+                  index < self.committedMessageIds.count else {
+                return
+            }
+
+            let messageId = self.committedMessageIds[index]
+            guard messageId != Self.unreadLineId else { return }
+
+            let frame = itemNode.apparentFrame
+            guard frame.maxY > visibleTop, frame.minY < visibleBottom else { return }
+
+            let fullyVisible = frame.minY >= visibleTop && frame.maxY <= visibleBottom
+            let distance = abs(frame.minY - visibleTop)
+            let anchor = VisibleMessageAnchor(
+                messageId: messageId,
+                offsetFromListTop: frame.minY - visibleTop
+            )
+
+            if let current = best {
+                if (fullyVisible && !current.fullyVisible)
+                    || (fullyVisible == current.fullyVisible && distance < current.distance) {
+                    best = (anchor, fullyVisible, distance)
+                }
+            } else {
+                best = (anchor, fullyVisible, distance)
+            }
+        }
+
+        return best?.anchor
+    }
+
+    func restoreVisibleMessageAnchor(_ anchor: VisibleMessageAnchor) {
+        guard let index = committedMessageIds.firstIndex(of: anchor.messageId) else { return }
+        listView.transaction(
+            deleteIndices: [],
+            insertIndicesAndItems: [],
+            updateIndicesAndItems: [],
+            options: [.Synchronous],
+            scrollToItem: ListViewScrollToItem(
+                index: index,
+                position: .top(anchor.offsetFromListTop),
+                animated: false,
+                curve: .Default(duration: nil),
+                directionHint: .Down
+            ),
+            updateOpaqueState: nil,
+            completion: { _ in }
+        )
+    }
+
     private func findBubble(in node: ListViewItemNode) -> MessageBubbleNode? {
         for sub in node.subnodes ?? [] {
             if let bubble = sub as? MessageBubbleNode { return bubble }
@@ -383,6 +486,46 @@ final class ChatContainerNode: ASDisplayNode {
         let items = buildItems(from: state)
         let newIds = buildIds(from: state)
 
+        if !committedMessageIds.isEmpty, committedMessageIds == newIds {
+#if DEBUG
+            print("[ChatScroll] reloadAllItems update-in-place count=\(newIds.count)")
+#endif
+            let updateItems = items.enumerated().map { index, item in
+                ListViewUpdateItem(
+                    index: index,
+                    previousIndex: index,
+                    item: item,
+                    directionHint: nil
+                )
+            }
+            listView.transaction(
+                deleteIndices: [],
+                insertIndicesAndItems: [],
+                updateIndicesAndItems: updateItems,
+                options: [.Synchronous, .LowLatency],
+                scrollToItem: nil,
+                stationaryItemRange: (0, Int.max),
+                updateOpaqueState: nil,
+                completion: { _ in }
+            )
+            return
+        }
+
+        let visibleMessageAnchor = captureVisibleMessageAnchor()
+        let scrollToAnchor: ListViewScrollToItem? = visibleMessageAnchor.flatMap { anchor in
+            guard let index = newIds.firstIndex(of: anchor.messageId) else { return nil }
+            return ListViewScrollToItem(
+                index: index,
+                position: .top(anchor.offsetFromListTop),
+                animated: false,
+                curve: .Default(duration: nil),
+                directionHint: .Down
+            )
+        }
+#if DEBUG
+        print("[ChatScroll] reloadAllItems full-reload old=\(committedMessageIds.count) new=\(newIds.count) anchor=\(visibleMessageAnchor?.messageId ?? "nil")")
+#endif
+
         var deleteItems: [ListViewDeleteItem] = []
         for i in (0..<committedMessageIds.count).reversed() {
             deleteItems.append(ListViewDeleteItem(index: i, directionHint: nil))
@@ -400,7 +543,7 @@ final class ChatContainerNode: ASDisplayNode {
             insertIndicesAndItems: insertItems,
             updateIndicesAndItems: [],
             options: [.Synchronous, .LowLatency],
-            scrollToItem: nil,
+            scrollToItem: scrollToAnchor,
             updateOpaqueState: nil,
             completion: { _ in }
         )
@@ -510,14 +653,7 @@ final class ChatContainerNode: ASDisplayNode {
             ))
         }
 
-        let isAtBottom: Bool = {
-            switch self.listView.visibleContentOffset() {
-            case let .known(value):
-                return value < Self.nearBottomDistanceThreshold
-            case .none, .unknown:
-                return self.lastKnownDistanceFromBottom < Self.nearBottomDistanceThreshold
-            }
-        }()
+        let isAtBottom = self.isAtBottom
 
         isLoadMoreGuardActive = true
 
@@ -534,6 +670,9 @@ final class ChatContainerNode: ASDisplayNode {
 
         var scrollToItem: ListViewScrollToItem?
         if hasNewAtBottom && !isLoadMoreResult && !new.hasMoreNewer && (isAtBottom || newestMessageIsMe) {
+#if DEBUG
+            print("[ChatScroll] applyTransition auto-bottom isAtBottom=\(isAtBottom) newestIsMe=\(newestMessageIsMe)")
+#endif
             didAutoScrollForNewMessages = true
             scrollToItem = ListViewScrollToItem(index: 0, position: .top(0), animated: true, curve: .Spring(duration: 0.3), directionHint: .Up)
         }
@@ -674,6 +813,7 @@ final class ChatContainerNode: ASDisplayNode {
                 updateIndicesAndItems: updateItems,
                 options: [.Synchronous, .LowLatency],
                 scrollToItem: nil,
+                stationaryItemRange: (0, Int.max),
                 updateOpaqueState: nil,
                 completion: { _ in }
             )
@@ -805,6 +945,7 @@ final class ChatContainerNode: ASDisplayNode {
             updateIndicesAndItems: updateItems,
             options: [.Synchronous, .LowLatency],
             scrollToItem: nil,
+            stationaryItemRange: (0, Int.max),
             updateOpaqueState: nil,
             completion: { _ in }
         )
