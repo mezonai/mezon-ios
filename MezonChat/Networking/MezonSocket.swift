@@ -219,10 +219,15 @@ final class MezonSocket: NSObject {
 
         let session = sessionProvider?()
         let endpoint = MezonConfig.abridgedEndpoint(wsHostOverride: wsHostOverride, session: session)
-        let credential: String = {
-            if let sid = session?.sessionID, !sid.isEmpty { return sid }
-            return token
-        }()
+        let credential: String
+        let credentialSource: String
+        if let sid = session?.sessionID, !sid.isEmpty {
+            credential = sid
+            credentialSource = "session_id"
+        } else {
+            credential = token
+            credentialSource = "token"
+        }
 
         let t = AbridgedTCPTransport()
         transport = t
@@ -260,6 +265,7 @@ final class MezonSocket: NSObject {
                 }
             }
         }
+        MezonRPCLog.response("abridged connect host=\(endpoint.host) port=\(endpoint.port) credential=\(credentialSource)")
         t.connect(host: endpoint.host, port: endpoint.port, credential: credential)
         armConnectWatchdog(for: t)
     }
