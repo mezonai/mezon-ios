@@ -2926,6 +2926,60 @@ final class ChatViewController: ViewController {
         return out
     }
 
+    private func enrichReplyRefsFromPostbox(
+        _ refsByMessageId: [String: Mezon_Api_MessageRef]
+    ) -> [String: Mezon_Api_MessageRef] {
+        let refsToEnrich = refsByMessageId.filter { _, ref in
+            guard ref.messageSenderID != 0,
+                  ref.messageSenderID != MezonConstants.anonymousUserId else { return false }
+            let hasName = !ref.messageSenderClanNick.isEmpty
+                || !ref.messageSenderDisplayName.isEmpty
+                || !ref.messageSenderUsername.isEmpty
+            return !hasName || ref.messageSenderAvatar.isEmpty
+        }
+        guard !refsToEnrich.isEmpty else { return refsByMessageId }
+
+        var result = refsByMessageId
+        let senderIds = Set(refsToEnrich.values.map(\.messageSenderID))
+        context.account.postbox.read { tx in
+            var membersByUserId: [Int64: ClanMemberRecord] = [:]
+            if clanId != 0 {
+                for member in tx.getClanMembers(clanId: clanId) where senderIds.contains(member.userId) {
+                    membersByUserId[member.userId] = member
+                    if membersByUserId.count == senderIds.count { break }
+                }
+            }
+            for (messageId, ref) in refsToEnrich {
+                let senderId = ref.messageSenderID
+                let member = membersByUserId[senderId]
+                let profile = tx.getProfile(userId: "\(senderId)")
+                var enriched = ref
+
+                if ref.messageSenderClanNick.isEmpty,
+                   ref.messageSenderDisplayName.isEmpty,
+                   ref.messageSenderUsername.isEmpty {
+                    let memberDisplayName = member?.displayName ?? ""
+                    let memberUsername = member?.username ?? ""
+                    enriched.messageSenderClanNick = member?.clanNick ?? ""
+                    enriched.messageSenderDisplayName = memberDisplayName.isEmpty
+                        ? profile?.displayName ?? ""
+                        : memberDisplayName
+                    enriched.messageSenderUsername = memberUsername.isEmpty
+                        ? profile?.username ?? ""
+                        : memberUsername
+                }
+
+                let avatar = member?.resolvedAvatarURL(fallbackProfileAvatar: profile?.avatarUrl)
+                    ?? profile?.avatarUrl
+                if ref.messageSenderAvatar.isEmpty, let avatar, !avatar.isEmpty {
+                    enriched.messageSenderAvatar = avatar
+                }
+                result[messageId] = enriched
+            }
+        }
+        return result
+    }
+
     private func buildDisplayMessages(from records: [MessageRecord]) -> [ChatMessageDisplay] {
         let currentUserId = context.currentUser?.id
         let validRecords = records.filter { !$0.id.isEmpty && !$0.channelId.isEmpty }
@@ -2933,6 +2987,13 @@ final class ChatViewController: ViewController {
 
         let senderIds = Set(validRecords.map(\.senderId))
         let profilesBySenderId = cachedSenderProfilesBySenderId(senderIds: senderIds)
+        var replyInfoByMessageId: [String: (ref: Mezon_Api_MessageRef?, isDeletedReply: Bool)] = [:]
+        for record in validRecords {
+            replyInfoByMessageId[record.id] = Self.firstReplyRef(from: record.referencesData)
+        }
+        let enrichedReplyRefsByMessageId = enrichReplyRefsFromPostbox(
+            replyInfoByMessageId.compactMapValues { $0.ref }
+        )
 
         let currentUserRoleIds: Set<Int64> = {
             guard let roleList = context.engine.clanData.getUserPermissions(clanId: clanId) else { return [] }
@@ -3017,7 +3078,9 @@ final class ChatViewController: ViewController {
             }
 
             let reactions = Self.parseReactions(record.reactionsJSON, currentUserId: currentUserId)
-            let (replyRef, isDeletedReply) = Self.firstReplyRef(from: record.referencesData)
+            let replyInfo = replyInfoByMessageId[record.id] ?? (ref: nil, isDeletedReply: false)
+            let replyRef = enrichedReplyRefsByMessageId[record.id] ?? replyInfo.ref
+            let isDeletedReply = replyInfo.isDeletedReply
             let bodyEmpty = parsed.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             let senderLabel = record.senderDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             let isWelcome = record.senderId == "0" && bodyEmpty && senderLabel == "system"
