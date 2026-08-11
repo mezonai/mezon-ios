@@ -69,7 +69,9 @@ final class MessageReplyNode: ASDisplayNode {
         let name = ref.messageSenderClanNick.isEmpty
             ? (ref.messageSenderDisplayName.isEmpty ? ref.messageSenderUsername : ref.messageSenderDisplayName)
             : ref.messageSenderClanNick
-        let displayName = name.isEmpty ? "Anonymous" : name
+        let displayName = ref.messageSenderID == MezonConstants.anonymousUserId
+            ? "Anonymous"
+            : (name.isEmpty ? "\(ref.messageSenderID)" : name)
 
         nameNode.attributedText = NSAttributedString(
             string: displayName,
@@ -136,7 +138,7 @@ final class MessageReplyNode: ASDisplayNode {
             avatarImageNode.isHidden = true
             avatarPlaceholderNode.isHidden = false
             
-            let charSource = ref.messageSenderUsername
+            let charSource = ref.messageSenderUsername.isEmpty ? displayName : ref.messageSenderUsername
             let charStr = String(charSource.prefix(1)).uppercased()
             
             avatarPlaceholderNode.attributedText = NSAttributedString(
