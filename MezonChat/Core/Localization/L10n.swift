@@ -823,6 +823,11 @@ enum L10n {
         static let share                = "clan.inviteSheet.share"
         static let copy                 = "clan.inviteSheet.copy"
         static let qrCode               = "clan.inviteSheet.qrCode"
+        static let qrHint               = "clan.inviteSheet.qrHint"
+        static let shareQR              = "clan.inviteSheet.shareQR"
+        static let saveQR               = "clan.inviteSheet.saveQR"
+        static let qrSaved              = "clan.inviteSheet.qrSaved"
+        static let qrSaveFailed         = "clan.inviteSheet.qrSaveFailed"
         static let linkCopied           = "clan.inviteSheet.linkCopied"
         static let searchPlaceholder    = "clan.inviteSheet.searchPlaceholder"
         static let loadingInviteLink    = "clan.inviteSheet.loadingInviteLink"
@@ -1951,6 +1956,11 @@ extension L10n {
         "clan.inviteSheet.share":           "Share Invite",
         "clan.inviteSheet.copy":            "Copy Link",
         "clan.inviteSheet.qrCode":          "QR Code",
+        "clan.inviteSheet.qrHint":          "Scan QR code to join this clan",
+        "clan.inviteSheet.shareQR":         "Share QR",
+        "clan.inviteSheet.saveQR":          "Save QR",
+        "clan.inviteSheet.qrSaved":         "QR saved to gallery",
+        "clan.inviteSheet.qrSaveFailed":    "Could not save QR code.",
         "clan.inviteSheet.linkCopied":      "Link Copied!",
         "clan.inviteSheet.searchPlaceholder":"Invite friend to clan",
         "clan.inviteSheet.loadingInviteLink":"Creating invite link...",
@@ -3191,9 +3201,14 @@ extension L10n {
         "sharing.uploadNetworkError":       "Lỗi mạng khi tải lên. Kiểm tra kết nối và thử lại.",
         "sharing.fileUnavailable":          "Không còn file được chia sẻ. Hãy chia sẻ lại từ ứng dụng kia.",
         "clan.inviteSheet.title":           "Mời bạn bè",
-        "clan.inviteSheet.share":           "Chia sẻ",
-        "clan.inviteSheet.copy":            "Sao chép",
+        "clan.inviteSheet.share":           "Chia sẻ lời mời",
+        "clan.inviteSheet.copy":            "Sao chép link",
         "clan.inviteSheet.qrCode":          "Mã QR",
+        "clan.inviteSheet.qrHint":          "Quét mã QR để tham gia clan này",
+        "clan.inviteSheet.shareQR":         "Chia sẻ QR",
+        "clan.inviteSheet.saveQR":          "Lưu QR",
+        "clan.inviteSheet.qrSaved":         "Đã lưu QR vào thư viện",
+        "clan.inviteSheet.qrSaveFailed":    "Không thể lưu mã QR.",
         "clan.inviteSheet.linkCopied":      "Đã sao chép liên kết!",
         "clan.inviteSheet.searchPlaceholder":"Mời bạn bè vào clan",
         "clan.inviteSheet.loadingInviteLink":"Đang tạo link mời...",
