@@ -91,7 +91,7 @@ final class SessionRefreshManager {
             }
             throw error
         }
-        let merged = SessionStore.applyIdTokenFallback(newSession.mergedPreservingLocalCredentials(from: session))
+        let merged = SessionStore.applyIdTokenFallback(newSession.mergedPreservingIdToken(from: session))
         lastRefreshToken = merged.refreshToken
         failCount = 0
         lastSuccessfulRefresh = (Date(), merged)

@@ -537,7 +537,7 @@ final class AccountContextImpl: AccountContext {
     }
 
     private func mergeIdToken(into newSession: MezonSession, previous: MezonSession?) -> MezonSession {
-        let merged = previous.map { newSession.mergedPreservingLocalCredentials(from: $0) } ?? newSession
+        let merged = previous.map { newSession.mergedPreservingIdToken(from: $0) } ?? newSession
         return SessionStore.applyIdTokenFallback(merged)
     }
 
@@ -695,9 +695,6 @@ final class AccountContextImpl: AccountContext {
             account.socket.tokenProvider = { [weak self] in
                 guard let self else { throw SessionError.noSession }
                 return try await self.tokenForSocketReconnect()
-            }
-            account.socket.sessionProvider = { [weak self] in
-                self?.session
             }
             account.socket.connect(token: session.token, wsHostOverride: nil)
             if !session.token.isEmpty {
@@ -1038,12 +1035,6 @@ final class AccountContextImpl: AccountContext {
 
     private func handleSocketEvent(_ event: SocketEvent) {
         switch event {
-        case .sessionRefreshed(let refreshed):
-            guard let current = session else { return }
-            let updated = current.applyingRefreshEvent(refreshed)
-            session = updated
-            SessionStore.save(updated)
-
         case .connected:
             let joinDelayNanos: UInt64 = 250_000_000
             let isMinimalChrome = VoIPMinimalCallBootstrap.isMinimalChromeActive
