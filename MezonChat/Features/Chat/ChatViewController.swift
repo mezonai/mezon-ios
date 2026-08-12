@@ -2377,10 +2377,14 @@ final class ChatViewController: ViewController {
         // message created while the realtime subscription is being restored is covered.
         var consecutiveNoAdvancePasses = 0
         var pagesFetched = 0
+        var hitPageCap = false
         do {
             while !Task.isCancelled {
-                guard UIApplication.shared.applicationState == .active else { break }
-                guard pagesFetched < maxCatchUpPages else { break }
+                guard UIApplication.shared.applicationState != .background else { break }
+                guard pagesFetched < maxCatchUpPages else {
+                    hitPageCap = true
+                    break
+                }
                 let response = try await context.account.network.listChannelMessages(
                     clanId: clanId,
                     channelId: channel.channelID,
@@ -2421,7 +2425,7 @@ final class ChatViewController: ViewController {
             guard !Task.isCancelled else { return }
             if reachedPresent {
                 setHasMoreNewer(false)
-            } else {
+            } else if hitPageCap {
                 setHasMoreNewer(true)
                 lastFetchedNewerMessageId = nil
             }
