@@ -27,7 +27,7 @@ final class ProfileContainerNode: ASDisplayNode {
 
     private let headerBackgroundView: UIView = {
         let v = UIView()
-        v.backgroundColor = .mezonSecondaryBackground
+        v.backgroundColor = .mezonPrimary
         return v
     }()
 
@@ -164,6 +164,17 @@ final class ProfileContainerNode: ASDisplayNode {
         iv.contentMode = .scaleAspectFit
         return iv
     }()
+    private let friendsBadgeLabel: UILabel = {
+        let l = UILabel()
+        l.backgroundColor = .mezonUnreadBadge
+        l.textColor = .white
+        l.font = .systemFont(ofSize: 11.sf, weight: .semibold)
+        l.textAlignment = .center
+        l.clipsToBounds = true
+        l.isHidden = true
+        return l
+    }()
+    private var friendsBadgeWidthConstraint: NSLayoutConstraint?
 
     private var friendsUpdatedDisposable: Disposable?
     private var walletFetchTask: Task<Void, Never>?
@@ -373,16 +384,18 @@ final class ProfileContainerNode: ASDisplayNode {
         memberSinceDateLabel.textColor = .mezonTextStrong
         friendsTitleLabel.textColor = .mezonTextStrong
         friendsChevron.tintColor = .mezonTextSecondary
+        friendsBadgeLabel.backgroundColor = .mezonUnreadBadge
+        friendsBadgeLabel.textColor = .white
 
         if avatarImageView.image == nil {
-            headerBackgroundView.backgroundColor = .mezonSecondaryBackground
-            avatarContainerView.backgroundColor = UIColor.avatarColor(for: context.currentUser?.username ?? "")
+            headerBackgroundView.backgroundColor = .mezonPrimary
+            avatarContainerView.backgroundColor = UIColor.theme.secondaryLight
             avatarPlaceholderLabel.isHidden = false
         } else {
             avatarPlaceholderLabel.isHidden = true
         }
         statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
-        avatarPlaceholderLabel.textColor = .white
+        avatarPlaceholderLabel.textColor = .mezonTextStrong
 
         configureAddStatusButton(user: context.currentUser)
     }
@@ -397,7 +410,7 @@ final class ProfileContainerNode: ASDisplayNode {
         fixedHeaderView.addSubview(avatarContainerView)
 
         avatarPlaceholderLabel.font = .systemFont(ofSize: avatarSize * 0.36, weight: .semibold)
-        avatarPlaceholderLabel.textColor = .white
+        avatarPlaceholderLabel.textColor = .mezonTextStrong
         avatarContainerView.addSubview(avatarPlaceholderLabel)
         avatarImageView.backgroundColor = .clear
         avatarImageView.contentMode = .scaleAspectFill
@@ -582,15 +595,28 @@ final class ProfileContainerNode: ASDisplayNode {
         friendsAvatarStack.translatesAutoresizingMaskIntoConstraints = false
         friendsCard.addSubview(friendsAvatarStack)
 
+        friendsBadgeLabel.translatesAutoresizingMaskIntoConstraints = false
+        friendsCard.addSubview(friendsBadgeLabel)
+
         friendsChevron.translatesAutoresizingMaskIntoConstraints = false
         friendsCard.addSubview(friendsChevron)
+
+        let badgeHeight: CGFloat = 20.sh
+        let badgeWidth = friendsBadgeLabel.widthAnchor.constraint(equalToConstant: 0)
+        friendsBadgeWidthConstraint = badgeWidth
 
         NSLayoutConstraint.activate([
             friendsTitleLabel.leadingAnchor.constraint(equalTo: friendsCard.leadingAnchor, constant: cardInset),
             friendsTitleLabel.centerYAnchor.constraint(equalTo: friendsCard.centerYAnchor),
 
             friendsAvatarStack.leadingAnchor.constraint(equalTo: friendsTitleLabel.trailingAnchor, constant: 12.sw),
+            friendsAvatarStack.trailingAnchor.constraint(lessThanOrEqualTo: friendsBadgeLabel.leadingAnchor, constant: -8.sw),
             friendsAvatarStack.centerYAnchor.constraint(equalTo: friendsCard.centerYAnchor),
+
+            friendsBadgeLabel.trailingAnchor.constraint(equalTo: friendsChevron.leadingAnchor, constant: -8.sw),
+            friendsBadgeLabel.centerYAnchor.constraint(equalTo: friendsCard.centerYAnchor),
+            badgeWidth,
+            friendsBadgeLabel.heightAnchor.constraint(equalToConstant: badgeHeight),
 
             friendsChevron.trailingAnchor.constraint(equalTo: friendsCard.trailingAnchor, constant: -cardInset),
             friendsChevron.centerYAnchor.constraint(equalTo: friendsCard.centerYAnchor),
@@ -629,8 +655,8 @@ final class ProfileContainerNode: ASDisplayNode {
         avatarPlaceholderLabel.text = Self.profileAvatarInitials(username: u?.username)
         avatarImageView.image = nil
         avatarPlaceholderLabel.isHidden = false
-        avatarContainerView.backgroundColor = UIColor.avatarColor(for: u?.username ?? "")
-        headerBackgroundView.backgroundColor = .mezonSecondaryBackground
+        avatarContainerView.backgroundColor = UIColor.theme.secondaryLight
+        headerBackgroundView.backgroundColor = .mezonPrimary
         statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
     }
 
@@ -650,31 +676,46 @@ final class ProfileContainerNode: ASDisplayNode {
 
         if let url = user?.avatarURL, !url.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let proxiedURLString = ImgproxyURL.create(from: url.absoluteString, width: 150, height: 150)
+            let rawURLString = url.absoluteString
             currentAvatarLoadKey = proxiedURLString
-            if let cached = ImageCache.shared.memoryImage(forKey: proxiedURLString) {
+            if let cached = ImageCache.shared.memoryImage(forKey: proxiedURLString) ?? ImageCache.shared.memoryImage(forKey: rawURLString) {
                 avatarImageView.image = cached
                 avatarPlaceholderLabel.isHidden = true
                 avatarContainerView.backgroundColor = .clear
-                headerBackgroundView.backgroundColor = cached.dominantColor() ?? .mezonSecondaryBackground
+                headerBackgroundView.backgroundColor = cached.dominantColor() ?? .mezonPrimary
                 statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
             } else {
                 avatarImageView.image = nil
                 avatarPlaceholderLabel.isHidden = false
-                avatarContainerView.backgroundColor = UIColor.avatarColor(for: user?.username ?? "")
-                headerBackgroundView.backgroundColor = .mezonSecondaryBackground
+                avatarContainerView.backgroundColor = UIColor.theme.secondaryLight
+                headerBackgroundView.backgroundColor = .mezonPrimary
                 statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
                 ImageCache.shared.loadAvatar(urlString: proxiedURLString) { [weak self] image in
                     guard let self else { return }
                     guard self.currentAvatarLoadKey == proxiedURLString else { return }
-                    guard let image else {
+                    if let image {
+                        self.avatarImageView.image = image
+                        self.avatarPlaceholderLabel.isHidden = true
+                        self.avatarContainerView.backgroundColor = .clear
+                        self.headerBackgroundView.backgroundColor = image.dominantColor() ?? .mezonPrimary
+                        self.statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
+                    } else if proxiedURLString != rawURLString {
+                        ImageCache.shared.loadAvatar(urlString: rawURLString) { [weak self] rawImage in
+                            guard let self else { return }
+                            guard self.currentAvatarLoadKey == proxiedURLString else { return }
+                            if let rawImage {
+                                self.avatarImageView.image = rawImage
+                                self.avatarPlaceholderLabel.isHidden = true
+                                self.avatarContainerView.backgroundColor = .clear
+                                self.headerBackgroundView.backgroundColor = rawImage.dominantColor() ?? .mezonPrimary
+                                self.statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
+                            } else {
+                                self.applyProfileAvatarPlaceholder()
+                            }
+                        }
+                    } else {
                         self.applyProfileAvatarPlaceholder()
-                        return
                     }
-                    self.avatarImageView.image = image
-                    self.avatarPlaceholderLabel.isHidden = true
-                    self.avatarContainerView.backgroundColor = .clear
-                    self.headerBackgroundView.backgroundColor = image.dominantColor() ?? .mezonSecondaryBackground
-                    self.statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
                 }
             }
         } else {
@@ -763,6 +804,7 @@ final class ProfileContainerNode: ASDisplayNode {
 
     private func applyFriendAvatarsFromFriendsData() {
         let list = context.engine.friendsData.allFriends()
+        updateFriendRequestBadge(count: context.engine.friendsData.incomingFriendRequestCount())
         let previews: [(avatarURL: String?, username: String)] = Array(
             list
                 .filter { $0.state == EStateFriend.friend.rawValue && $0.hasUser }
@@ -774,6 +816,25 @@ final class ProfileContainerNode: ASDisplayNode {
                 }
         )
         setupFriendAvatars(previews: previews)
+    }
+
+    private func updateFriendRequestBadge(count: Int) {
+        guard let widthConstraint = friendsBadgeWidthConstraint else { return }
+        guard count > 0 else {
+            friendsBadgeLabel.text = nil
+            friendsBadgeLabel.isHidden = true
+            widthConstraint.constant = 0
+            friendsCard.setNeedsLayout()
+            return
+        }
+
+        let text = count > 99 ? "99+" : "\(count)"
+        friendsBadgeLabel.text = text
+        friendsBadgeLabel.isHidden = false
+        friendsBadgeLabel.layer.cornerRadius = 10.sh
+        let textWidth = (text as NSString).size(withAttributes: [.font: friendsBadgeLabel.font as Any]).width
+        widthConstraint.constant = max(20.sh, ceil(textWidth) + 10.sw)
+        friendsCard.setNeedsLayout()
     }
 
     private func fetchWalletDetail() {

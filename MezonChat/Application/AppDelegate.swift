@@ -166,11 +166,16 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         NotificationCenter.default.addObserver(self, selector: #selector(handleDidEnterBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
         if let notificationResponse = connectionOptions.notificationResponse {
             let userInfo = notificationResponse.notification.request.content.userInfo
+            let isFriendRequestNotification = Self.isFriendRequestNotification(response: notificationResponse)
             let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)
             if !isDM, let clanId, let clanIdInt = Int64(clanId), clanIdInt != 0 {
                 accountContext?.currentClanId = clanIdInt
             }
-            Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM)
+            if isFriendRequestNotification {
+                Self.navigateToFriendRequests()
+            } else {
+                Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM)
+            }
         }
 
         for urlContext in connectionOptions.urlContexts {
@@ -536,6 +541,11 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             Toast.notification(title: title, message: body) {
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
+                    let isFriendRequestNotification = Self.isFriendRequestNotification(notification: notification)
+                    if isFriendRequestNotification {
+                        Self.navigateToFriendRequests()
+                        return
+                    }
                     if !isDM, let clanId, let clanIdInt = Int64(clanId), clanIdInt != 0 {
                         self.accountContext?.currentClanId = clanIdInt
                     }
@@ -553,24 +563,122 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let userInfo = response.notification.request.content.userInfo
+        let isFriendRequestNotification = Self.isFriendRequestNotification(response: response)
         let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)
 
         if !isDM, let clanId, let clanIdInt = Int64(clanId), clanIdInt != 0 {
             accountContext?.currentClanId = clanIdInt
         }
 
-        Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM)
+        if isFriendRequestNotification {
+            Self.navigateToFriendRequests()
+        } else {
+            Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM)
+        }
 
         completionHandler()
     }
 
+    private static func isFriendRequestNotification(response: UNNotificationResponse) -> Bool {
+        return isFriendRequestNotification(notification: response.notification)
+    }
+
+    private static func isFriendRequestNotification(notification: UNNotification) -> Bool {
+        let content = notification.request.content
+        let userInfo = content.userInfo
+        return isFriendRequestNotification(
+            userInfo: userInfo,
+            title: content.title,
+            subtitle: content.subtitle,
+            body: content.body,
+            categoryIdentifier: content.categoryIdentifier
+        )
+    }
+
+    private static func isFriendRequestNotification(
+        userInfo: [AnyHashable: Any],
+        title: String,
+        subtitle: String,
+        body: String,
+        categoryIdentifier: String
+    ) -> Bool {
+        var candidates: [(key: String, value: String)] = [
+            ("notification.title", title),
+            ("notification.subtitle", subtitle),
+            ("notification.body", body),
+            ("notification.categoryIdentifier", categoryIdentifier),
+        ]
+        let keys = [
+            "type", "notification_type", "notificationType", "event", "event_type", "eventType",
+            "action", "category", "category_name", "categoryName", "subject", "title", "body",
+            "message", "content", "screen", "route", "link",
+        ]
+        for dict in pushPayloadDictionaries(userInfo) {
+            for key in keys {
+                if let value = stringFromPushValue(dict[key]) {
+                    candidates.append((key, value))
+                }
+            }
+        }
+
+        let patterns = [
+            "friend_request",
+            "friend-request",
+            "friend request",
+            "friend.invite",
+            "add_friend",
+            "add-friend",
+            "addfriend",
+            "add friend",
+            "request_friend",
+            "wants to add you",
+            "wants to be your friend",
+            "sent you a friend request",
+            "add you as a friend",
+            "loi moi ket ban",
+            "muon ket ban",
+        ]
+
+        for candidate in candidates {
+            let rawValue = candidate.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !rawValue.isEmpty else { continue }
+            let normalizedValue = rawValue
+                .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+                .lowercased()
+            if patterns.contains(where: { normalizedValue.contains($0) }) {
+                return true
+            }
+        }
+
+        return false
+    }
+
     static var pendingNavigation: [String: Any]?
     static var lastHandledNavigationInstanceId: String?
+    static var pendingFriendRequestNavigation: [String: Any]?
+    static var lastHandledFriendRequestNavigationInstanceId: String?
+
+    static func navigateToFriendRequests() {
+        let info: [String: Any] = [
+            "navigationInstanceId": UUID().uuidString,
+        ]
+        pendingFriendRequestNavigation = info
+        NotificationCenter.default.post(name: .mezonNavigateToFriendRequests, object: nil, userInfo: info)
+        let instanceId = info["navigationInstanceId"] as? String
+        DispatchQueue.main.async {
+            guard let instanceId,
+                  (pendingFriendRequestNavigation?["navigationInstanceId"] as? String) == instanceId else { return }
+            pendingFriendRequestNavigation = nil
+        }
+    }
 
     static func navigateToChannel(channelId: String?, clanId: String?, isDM: Bool = false) {
-        guard let channelId, !channelId.isEmpty else { return }
+        guard let channelId else { return }
+        let normalizedChannelId = channelId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedChannelId.isEmpty else { return }
+        if let channelIdValue = Int64(normalizedChannelId), channelIdValue == 0 { return }
         var info: [String: Any] = [
-            "channelId": channelId,
+            "channelId": normalizedChannelId,
             "isDM": isDM,
             "navigationInstanceId": UUID().uuidString,
         ]
@@ -590,10 +698,17 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             lastHandledNavigationInstanceId = sid
         }
     }
+
+    static func recordFriendRequestNavigationInstanceHandled(userInfo: [AnyHashable: Any]?) {
+        if let sid = userInfo?["navigationInstanceId"] as? String {
+            lastHandledFriendRequestNavigationInstanceId = sid
+        }
+    }
 }
 
 extension Notification.Name {
     static let mezonNavigateToChannel = Notification.Name("MezonNavigateToChannel")
+    static let mezonNavigateToFriendRequests = Notification.Name("MezonNavigateToFriendRequests")
     static let mezonSocketStatusChanged = Notification.Name("MezonSocketStatusChanged")
     static let mezonMessageTypingReceived = Notification.Name("MezonMessageTypingReceived")
     static let mezonQRSelectClan = Notification.Name("MezonQRSelectClan")

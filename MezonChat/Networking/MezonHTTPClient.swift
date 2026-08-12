@@ -773,8 +773,22 @@ final class MezonHTTPClient {
     }
 
     func listClanBadgeCount(token: String) async throws -> Mezon_Api_ListClanBadgeCountResponse {
+        try await MezonSocketRequestCoalescer.shared.coalesceClanBadgeCount {
+            try await self.performListClanBadgeCount(token: token)
+        }
+    }
+
+    private func performListClanBadgeCount(token: String) async throws -> Mezon_Api_ListClanBadgeCountResponse {
         let empty = SwiftProtobuf.Google_Protobuf_Empty()
-        return try await postProto(
+        let primary: Mezon_Api_ListClanBadgeCountResponse = try await postProto(
+            path: "/mezon.api.Mezon/ListClanBadgeCount",
+            message: empty,
+            auth: .bearer(token)
+        )
+        if !primary.listBadge.isEmpty {
+            return primary
+        }
+        return try await postProtoHTTP(
             path: "/mezon.api.Mezon/ListClanBadgeCount",
             message: empty,
             auth: .bearer(token)
@@ -2911,6 +2925,7 @@ private actor MezonSocketRequestCoalescer {
     private var channelDescsByClanId: [Int64: Task<[Mezon_Api_ChannelDescription], Error>] = [:]
     private var channelVoiceUsersByClanId: [Int64: Task<Mezon_Api_VoiceChannelUserList, Error>] = [:]
     private var channelBadgeCountByClanId: [Int64: Task<Mezon_Api_ListChannelBadgeCountResponse, Error>] = [:]
+    private var clanBadgeCount: Task<Mezon_Api_ListClanBadgeCountResponse, Error>?
 
     func coalesceChannelDescs(
         clanId: Int64,
@@ -2965,6 +2980,24 @@ private actor MezonSocketRequestCoalescer {
             return value
         } catch {
             channelBadgeCountByClanId[clanId] = nil
+            throw error
+        }
+    }
+
+    func coalesceClanBadgeCount(
+        operation: @escaping @Sendable () async throws -> Mezon_Api_ListClanBadgeCountResponse
+    ) async throws -> Mezon_Api_ListClanBadgeCountResponse {
+        if let existing = clanBadgeCount {
+            return try await existing.value
+        }
+        let task = Task { try await operation() }
+        clanBadgeCount = task
+        do {
+            let value = try await task.value
+            clanBadgeCount = nil
+            return value
+        } catch {
+            clanBadgeCount = nil
             throw error
         }
     }

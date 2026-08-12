@@ -17,6 +17,7 @@ final class NotificationsViewController: ViewController {
     private(set) var isLoading: Bool = false
     private(set) var isLoadingMore: Bool = false
     private(set) var currentCategory: Int32 = 1
+    private var lastLoadedClanId: Int64 = 0
 
     private var loadedCategories: Set<Int32> = []
 
@@ -66,7 +67,9 @@ final class NotificationsViewController: ViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         notificationsNode.applyTheme()
-        if items.isEmpty {
+        let clanId = context.currentClanId
+        if items.isEmpty || clanId != lastLoadedClanId {
+            loadedCategories.removeAll()
             Task { await fetchNotifications(category: currentCategory) }
         }
     }
@@ -115,15 +118,15 @@ final class NotificationsViewController: ViewController {
                     self.setItems(self.enrichTopicItems(topics))
                 })
 
-            if let token {
-                do {
-                    try await context.engine.topicDiscussion.listTopics(
-                        clanId: clanId, token: token)
-                } catch {
-                }
+            defer { setIsLoading(false) }
+            guard let token else { return }
+            do {
+                try await context.engine.topicDiscussion.listTopics(
+                    clanId: clanId, token: token)
+                loadedCategories.insert(category)
+                lastLoadedClanId = clanId
+            } catch {
             }
-            loadedCategories.insert(category)
-            setIsLoading(false)
             return
         }
 
@@ -133,7 +136,6 @@ final class NotificationsViewController: ViewController {
         }
 
         defer {
-            loadedCategories.insert(category)
             if isLoadMore { setIsLoadingMore(false) } else { setIsLoading(false) }
         }
 
@@ -156,6 +158,8 @@ final class NotificationsViewController: ViewController {
                 notificationId: notificationId,
                 token: token
             )
+            loadedCategories.insert(category)
+            lastLoadedClanId = clanId
         } catch {
         }
     }
@@ -242,7 +246,7 @@ final class NotificationsViewController: ViewController {
             context.currentClanId = record.clanID
             let vc = ChatViewController(
                 clanId: record.clanID, channel: channel, context: self.context)
-            if record.category == 1 && record.messageID != 0 {
+            if record.messageID != 0 {
                 vc.pendingJumpToMessageId = String(record.messageID)
             }
             hostingNavigationController()?.pushViewController(vc, animated: true)

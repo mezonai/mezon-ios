@@ -1,3 +1,4 @@
+import UIKit
 import AsyncDisplayKit
 import SwiftProtobuf
 
@@ -32,6 +33,7 @@ final class FriendListContainerNode: ASDisplayNode {
     private let requestIconNode = ASImageNode()
     private let requestTitleNode = ASTextNode()
     private let requestCountNode = ASTextNode()
+    private let requestBadgeLabel = UILabel()
     private let requestChevronNode = ASImageNode()
 
     private let tableNode: ASTableNode
@@ -208,6 +210,14 @@ final class FriendListContainerNode: ASDisplayNode {
             ]
         )
 
+        requestBadgeLabel.backgroundColor = .mezonUnreadBadge
+        requestBadgeLabel.textColor = .white
+        requestBadgeLabel.font = .systemFont(ofSize: 11.sf, weight: .semibold)
+        requestBadgeLabel.textAlignment = .center
+        requestBadgeLabel.layer.cornerRadius = 10.sh
+        requestBadgeLabel.clipsToBounds = true
+        requestBadgeLabel.isHidden = true
+
         let chevronImg = makeSymbolImage(name: "chevron.right", pointSize: 12.sf, weight: .medium)
         requestChevronNode.image = chevronImg
         requestChevronNode.tintColor = t.textDisabled
@@ -217,11 +227,13 @@ final class FriendListContainerNode: ASDisplayNode {
         requestPillNode.addSubnode(requestTitleNode)
         requestPillNode.addSubnode(requestCountNode)
         requestPillNode.addSubnode(requestChevronNode)
+        requestPillNode.view.addSubview(requestBadgeLabel)
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(requestPillTapped))
         requestPillNode.view.addGestureRecognizer(tap)
         requestPillNode.isUserInteractionEnabled = true
 
+        updateRequestBadge()
         addSubnode(requestPillNode)
     }
 
@@ -272,12 +284,25 @@ final class FriendListContainerNode: ASDisplayNode {
                 .foregroundColor: UIColor.theme.text
             ]
         )
+        updateRequestBadge()
 
         if validLayout != nil {
             applyLayout(transition: .immediate)
         }
 
         tableNode.reloadData()
+    }
+
+    private func updateRequestBadge() {
+        guard isNodeLoaded else { return }
+
+        if friendRequestReceivedCount > 0 {
+            requestBadgeLabel.text = friendRequestReceivedCount > 99 ? "99+" : "\(friendRequestReceivedCount)"
+            requestBadgeLabel.isHidden = false
+        } else {
+            requestBadgeLabel.text = nil
+            requestBadgeLabel.isHidden = true
+        }
     }
 
     func updateLayout(size: CGSize, safeTop: CGFloat, bottomInset: CGFloat, transition: ContainedViewLayoutTransition) {
@@ -353,7 +378,26 @@ final class FriendListContainerNode: ASDisplayNode {
             transition.updateFrame(node: requestChevronNode, frame: CGRect(x: chevX, y: (pillH - chevW) / 2, width: chevW, height: chevW))
 
             let textX = pillInset + reqIconSize + 12.sw
-            let textW = chevX - textX - 8.sw
+            let textRightX: CGFloat
+            if requestBadgeLabel.isHidden {
+                textRightX = chevX
+                transition.updateFrame(view: requestBadgeLabel, frame: .zero)
+            } else {
+                let badgeH: CGFloat = 20.sh
+                let badgeText = requestBadgeLabel.text ?? ""
+                let textSize = (badgeText as NSString).size(
+                    withAttributes: [.font: requestBadgeLabel.font as Any]
+                )
+                let badgeW = max(20.sw, ceil(textSize.width) + 10.sw)
+                let badgeX = chevX - 8.sw - badgeW
+                transition.updateFrame(
+                    view: requestBadgeLabel,
+                    frame: CGRect(x: badgeX, y: (pillH - badgeH) / 2, width: badgeW, height: badgeH)
+                )
+                requestBadgeLabel.layer.cornerRadius = badgeH / 2
+                textRightX = badgeX
+            }
+            let textW = max(0, textRightX - textX - 8.sw)
             transition.updateFrame(node: requestTitleNode, frame: CGRect(x: textX, y: 8.sh, width: textW, height: 22.sh))
             transition.updateFrame(node: requestCountNode, frame: CGRect(x: textX, y: 28.sh, width: textW, height: 18.sh))
 
@@ -388,6 +432,8 @@ final class FriendListContainerNode: ASDisplayNode {
         searchIconNode.tintColor = t.textDisabled
         searchTextField.textColor = t.textStrong
         requestPillNode.backgroundColor = t.secondary
+        requestBadgeLabel.backgroundColor = .mezonUnreadBadge
+        requestBadgeLabel.textColor = .white
         requestIconNode.image = makeSymbolImage(name: "paperplane.fill", pointSize: 20.sf)
         requestIconNode.tintColor = t.textStrong
         requestChevronNode.image = makeSymbolImage(name: "chevron.right", pointSize: 12.sf, weight: .medium)

@@ -538,7 +538,7 @@ final class WebhookItemCell: UITableViewCell {
             }
             avatarView.showSkeleton()
             imageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
-                guard error == nil, let data = data, let image = UIImage(data: data) else {
+                guard error == nil, let data = data, let image = UIImage.decompressedImage(from: data) else {
                     DispatchQueue.main.async {
                         self?.avatarImageView.isHidden = true
                         self?.avatarView.showPlaceholder()

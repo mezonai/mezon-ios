@@ -806,8 +806,12 @@ final class AccountContextImpl: AccountContext {
             cachedClanId = 0
         }
         if cachedClanId != 0 {
-            account.socket.joinClanChat(clanId: cachedClanId)
             currentClanId = cachedClanId
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: self, clanId: cachedClanId, force: true)
+                self.account.socket.joinClanChat(clanId: cachedClanId)
+            }
         }
     }
 
@@ -819,39 +823,49 @@ final class AccountContextImpl: AccountContext {
         guard let channel = currentChannel else {
             return
         }
-        account.socket.joinClanChat(clanId: currentClanId)
-        let channelType: Int32 = currentClanId == 0
-            ? (channel.type != 0 ? channel.type : MezonConstants.ChannelType.group.rawValue)
-            : (channel.type != 0 ? channel.type : MezonConstants.ChannelType.channel.rawValue)
-        let isPublic = currentClanId == 0
-            ? false
-            : (channel.parentID != 0 ? false : (channel.channelPrivate == 0))
-        account.socket.joinChannel(
-            clanId: currentClanId,
-            channelId: channel.channelID,
-            channelType: channelType,
-            isPublic: isPublic
-        )
+        let clanId = currentClanId
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: self, clanId: clanId, force: true)
+            self.account.socket.joinClanChat(clanId: clanId)
+            let channelType: Int32 = clanId == 0
+                ? (channel.type != 0 ? channel.type : MezonConstants.ChannelType.group.rawValue)
+                : (channel.type != 0 ? channel.type : MezonConstants.ChannelType.channel.rawValue)
+            let isPublic = clanId == 0
+                ? false
+                : (channel.parentID != 0 ? false : (channel.channelPrivate == 0))
+            self.account.socket.joinChannel(
+                clanId: clanId,
+                channelId: channel.channelID,
+                channelType: channelType,
+                isPublic: isPublic
+            )
+        }
     }
 
     private func subscribeSocketRoomsForMergedChannel(_ channel: Mezon_Api_ChannelDescription) {
         guard account.socket.isConnected else { return }
         let clanId = channel.clanID
         guard clanId != 0 else { return }
-        account.socket.joinClanChat(clanId: clanId)
-        let channelType: Int32 = channel.type != 0 ? channel.type : MezonConstants.ChannelType.channel.rawValue
-        let isPublic = channel.parentID != 0 ? false : (channel.channelPrivate == 0)
-        account.socket.joinChannel(
-            clanId: clanId,
-            channelId: channel.channelID,
-            channelType: channelType,
-            isPublic: isPublic
-        )
-        NotificationCenter.default.post(
-            name: Notification.Name("MezonJoinedClanChatForBadges"),
-            object: nil,
-            userInfo: ["clanId": clanId]
-        )
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: self, clanId: clanId)
+            guard self.account.socket.isConnected else { return }
+            self.account.socket.joinClanChat(clanId: clanId)
+            let channelType: Int32 = channel.type != 0 ? channel.type : MezonConstants.ChannelType.channel.rawValue
+            let isPublic = channel.parentID != 0 ? false : (channel.channelPrivate == 0)
+            self.account.socket.joinChannel(
+                clanId: clanId,
+                channelId: channel.channelID,
+                channelType: channelType,
+                isPublic: isPublic
+            )
+            NotificationCenter.default.post(
+                name: Notification.Name("MezonJoinedClanChatForBadges"),
+                object: nil,
+                userInfo: ["clanId": clanId]
+            )
+        }
     }
 
     private static func shouldIncrementDmBadgeForSocketMessage(

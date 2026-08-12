@@ -94,6 +94,9 @@ final class ProfileViewController: ViewController {
         Task {
             await context.refreshAccountProfile()
             await context.fetchCurrentUserStatus()
+            if let token = await context.getTokenPreferringCachedSkipSessionReadyWait() {
+                await context.engine.friendsData.refreshFromNetwork(token: token)
+            }
         }
     }
 

@@ -156,6 +156,10 @@ final class JoinClanSheetViewController: UIViewController {
             textField.isEnabled = false
             activity.startAnimating()
             do {
+                if let info = try? await context.engine.clanData.getInviteInfo(code: code, token: token),
+                   let cid = info.clan_id.flatMap(Int64.init), cid != 0 {
+                    await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: context, clanId: cid, force: true)
+                }
                 let res = try await context.engine.clanData.joinClanWithInvite(code: code, token: token)
                 dismiss(animated: true) {
                     NotificationCenter.default.post(

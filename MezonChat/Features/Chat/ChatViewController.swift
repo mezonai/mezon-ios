@@ -538,6 +538,8 @@ final class ChatViewController: ViewController {
     private var lastMarkedAsReadMessageId: Int64?
     private var pendingMarkAsRead = false
     private var nextFetchPrefersHTTPFirst = false
+    private var isCatchingUpAfterReconnect = false
+    private var reconnectCatchUpTask: Task<Void, Never>?
     private var readyToLoadMore = false
     private var hasPerformedInitialUnreadScroll = false
     private var pendingSendingFeedbackBeganAtByMessageId: [String: Date] = [:]
@@ -596,6 +598,12 @@ final class ChatViewController: ViewController {
     }()
 
     private var messagesNode: ChatContainerNode { displayNode as! ChatContainerNode }
+
+    private func scrollDebugLog(_ message: @autoclosure () -> String) {
+#if DEBUG
+        print("[ChatScroll][channel=\(channel.channelID)] \(message())")
+#endif
+    }
 
     var pendingJumpToMessageId: String?
 
@@ -658,8 +666,12 @@ final class ChatViewController: ViewController {
             onScrolledToBottom: { [weak self] atBottom in
                 guard let self else { return }
                 self.shouldScrollToBottom = atBottom
-                if atBottom && (self.hasPerformedInitialUnreadScroll || self.lastSeenMessageId == nil) {
+                if atBottom,
+                   self.viewIfLoaded?.window != nil,
+                   UIApplication.shared.applicationState == .active,
+                   self.hasPerformedInitialUnreadScroll || self.lastSeenMessageId == nil {
                     self.clearLastSeenMessageId()
+                    self.markChannelAsRead()
                 }
             },
             onJumpToPresent: { [weak self] in self?.jumpToPresent() },
@@ -777,19 +789,17 @@ final class ChatViewController: ViewController {
                 }
                 if ClanCreationLimit.showLimitToastIfNeeded(context: self.context) { return }
                 Task {
-                    do {
-                        let response = try await self.context.engine.clanData.joinClanWithInvite(code: code, token: token)
-                        await MainActor.run {
-                            NotificationCenter.default.post(
-                                name: .mezonQRSelectClan,
-                                object: nil,
-                                userInfo: ["clanId": "\(response.clanID)"]
-                            )
+                    let clanId = await ClanInviteJoiner.join(context: self.context, code: code, clanId: info.clan_id.flatMap(Int64.init))
+                    await MainActor.run {
+                        guard let clanId else {
+                            Toast.error(L(L10n.Error.somethingWentWrong))
+                            return
                         }
-                    } catch {
-                        await MainActor.run {
-                            Toast.error(error.localizedDescription)
-                        }
+                        NotificationCenter.default.post(
+                            name: .mezonQRSelectClan,
+                            object: nil,
+                            userInfo: ["clanId": "\(clanId)"]
+                        )
                     }
                 }
             },
@@ -1567,12 +1577,19 @@ final class ChatViewController: ViewController {
         if pendingMarkAsRead {
             markChannelAsRead()
         }
-        Task { @MainActor [weak self] in
-            guard let self else { return }
+        let previousCatchUp = reconnectCatchUpTask
+        previousCatchUp?.cancel()
+        reconnectCatchUpTask = Task { @MainActor [weak self] in
+            _ = await previousCatchUp?.value
+            guard let self, !Task.isCancelled else { return }
             guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
-            self.fetchMessages(token: token)
-            self.joinChat()
+            await self.joinChatAndWaitUntilSent()
             self.refreshPinnedMessagesFromServer()
+            if self.newestServerMessageId() == nil {
+                self.fetchMessages(token: token)
+            } else {
+                await self.catchUpMessagesAfterReconnect(token: token)
+            }
             if !self.hasCompletedInitialFetch {
                 self.hasCompletedInitialFetch = true
                 self.fetchNotificationSetting(token: token)
@@ -1668,6 +1685,7 @@ final class ChatViewController: ViewController {
     }
 
     deinit {
+        reconnectCatchUpTask?.cancel()
         typingPruneTimer?.invalidate()
         sendingFeedbackRefreshWorkItem?.cancel()
         notificationKeyboardReconcileWorkItem?.cancel()
@@ -1705,7 +1723,6 @@ final class ChatViewController: ViewController {
         if newLastId != oldLastId { lastFetchedNewerMessageId = nil }
         schedulePendingSendingFeedbackRefreshIfNeeded()
         needsReloadPipe.putNext(())
-        markChannelAsRead()
 
         if let jumpId = pendingJumpToMessageId {
             pendingJumpToMessageId = nil
@@ -1715,7 +1732,7 @@ final class ChatViewController: ViewController {
         } else if pendingScrollToBottom && !v.isEmpty {
             pendingScrollToBottom = false
             DispatchQueue.main.async { [weak self] in
-                self?.forceScrollToBottom()
+                self?.forceScrollToBottom(reason: "pendingScrollToBottom")
             }
         }
     }
@@ -1762,7 +1779,11 @@ final class ChatViewController: ViewController {
     private func normalizedDisplayOrder(_ displays: [ChatMessageDisplay]) -> [ChatMessageDisplay] {
         Self.applyCombine(to: Self.sortMessagesLikeChannelStore(displays))
     }
-    private func setChannelLabel(_ v: String) { channelLabel = v; needsReloadPipe.putNext(()) }
+    private func setChannelLabel(_ v: String) {
+        if topicId != 0 { return }
+        channelLabel = v
+        needsReloadPipe.putNext(())
+    }
     private func clearLastSeenMessageId() {
         guard lastSeenMessageId != nil else { return }
         lastSeenMessageId = nil
@@ -2143,6 +2164,8 @@ final class ChatViewController: ViewController {
     }
 
     func onLeave() {
+        reconnectCatchUpTask?.cancel()
+        reconnectCatchUpTask = nil
         clearRemoteTypingState()
         context.currentChannel = nil
         ActiveChannelTracker.currentChannelId = 0
@@ -2275,6 +2298,144 @@ final class ChatViewController: ViewController {
             && !hadCachedMessages
             && !hadCachedInPostbox
             && (topicId != 0 || pendingTopicCreationMessageId != nil)
+    }
+
+    private func newestServerMessageId() -> Int64? {
+        persistentMessages.reversed().lazy.compactMap { display -> Int64? in
+            guard !display.isWelcome,
+                  !display.message.id.hasPrefix("pending-"),
+                  let id = Int64(display.message.id),
+                  id != 0 else {
+                return nil
+            }
+            return id
+        }.first
+    }
+
+    private func catchUpMessagesAfterReconnect(token: String) async {
+        guard !isCatchingUpAfterReconnect else { return }
+        guard pendingJumpToMessageId == nil else { return }
+        guard var cursor = newestServerMessageId() else {
+            fetchMessages(token: token)
+            return
+        }
+
+        isCatchingUpAfterReconnect = true
+        let wasAtBottom = messagesNode.isAtBottom
+        let visibleMessageAnchor = wasAtBottom ? nil : messagesNode.captureVisibleMessageAnchor()
+        let initialUserScrollGeneration = messagesNode.userScrollGeneration
+        scrollDebugLog(
+            "catchUp start offset=\(messagesNode.visibleContentOffsetDebugDescription) "
+                + "wasAtBottom=\(wasAtBottom) anchor=\(visibleMessageAnchor?.messageId ?? "nil")"
+        )
+        if !wasAtBottom {
+            shouldScrollToBottom = false
+        }
+        setIsLoadingNewer(true)
+
+        var reachedPresent = false
+        defer {
+            isCatchingUpAfterReconnect = false
+            setIsLoadingNewer(false)
+
+            let canRestorePosition = !Task.isCancelled
+                && viewIfLoaded?.window != nil
+                && UIApplication.shared.applicationState == .active
+                && messagesNode.userScrollGeneration == initialUserScrollGeneration
+
+            if canRestorePosition, let visibleMessageAnchor {
+                scrollDebugLog("catchUp finish action=restore anchor=\(visibleMessageAnchor.messageId)")
+                messagesNode.listView.addAfterTransactionsCompleted { [weak self] in
+                    guard let self,
+                          self.messagesNode.userScrollGeneration == initialUserScrollGeneration else {
+                        return
+                    }
+                    self.messagesNode.restoreVisibleMessageAnchor(visibleMessageAnchor)
+                }
+            } else if reachedPresent, wasAtBottom, canRestorePosition {
+                scrollDebugLog("catchUp finish action=bottom")
+                messagesNode.listView.addAfterTransactionsCompleted { [weak self] in
+                    guard let self,
+                          self.messagesNode.userScrollGeneration == initialUserScrollGeneration else {
+                        return
+                    }
+                    self.forceScrollToBottom(reason: "catchUpAtBottom") {
+                        self.markChannelAsRead()
+                    }
+                }
+            } else {
+                scrollDebugLog(
+                    "catchUp finish action=none reachedPresent=\(reachedPresent) "
+                        + "wasAtBottom=\(wasAtBottom) canRestore=\(canRestorePosition)"
+                )
+            }
+        }
+
+        let pageSize: Int32 = 30
+        let maxCatchUpPages = 20
+        // The channel join has no acknowledgement. Require two quiet HTTP passes so a
+        // message created while the realtime subscription is being restored is covered.
+        var consecutiveNoAdvancePasses = 0
+        var pagesFetched = 0
+        do {
+            while !Task.isCancelled {
+                guard UIApplication.shared.applicationState == .active else { break }
+                guard pagesFetched < maxCatchUpPages else { break }
+                let response = try await context.account.network.listChannelMessages(
+                    clanId: clanId,
+                    channelId: channel.channelID,
+                    messageId: cursor,
+                    direction: 1,
+                    limit: pageSize,
+                    topicId: topicId,
+                    token: token,
+                    preferHTTPFirst: true
+                )
+                pagesFetched += 1
+
+                let validMessages = response.messages.filter { $0.messageID != 0 }
+                if !validMessages.isEmpty {
+                    context.account.postbox.write { tx in
+                        tx.addMessages(validMessages.map { self.messageRecord(from: $0) })
+                    }
+                }
+
+                let newerMessages = validMessages.filter {
+                    $0.messageID > cursor
+                }
+                guard let nextCursor = newerMessages.map(\.messageID).max(),
+                      nextCursor > cursor else {
+                    consecutiveNoAdvancePasses += 1
+                    if consecutiveNoAdvancePasses >= 2 {
+                        reachedPresent = true
+                        break
+                    }
+                    try await Task.sleep(nanoseconds: 250_000_000)
+                    continue
+                }
+
+                consecutiveNoAdvancePasses = 0
+                cursor = nextCursor
+            }
+
+            guard !Task.isCancelled else { return }
+            if reachedPresent {
+                setHasMoreNewer(false)
+            } else {
+                setHasMoreNewer(true)
+                lastFetchedNewerMessageId = nil
+            }
+        } catch {
+            if error is CancellationError || Task.isCancelled { return }
+            setHasMoreNewer(true)
+            lastFetchedNewerMessageId = nil
+            SentryLogger.capture(error, extras: [
+                "where": "ChatViewController.catchUpMessagesAfterReconnect",
+                "channelId": channel.channelID,
+                "clanId": clanId,
+                "anchorMessageId": cursor,
+            ])
+        }
     }
 
     func fetchMessages(token: String? = nil) {
@@ -2443,6 +2604,7 @@ final class ChatViewController: ViewController {
         setIsLoadingNewer(true)
         Task { @MainActor in
             guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else {
+                self.lastFetchedNewerMessageId = nil
                 self.setIsLoadingNewer(false)
                 return
             }
@@ -2465,7 +2627,8 @@ final class ChatViewController: ViewController {
                     "clanId": clanId,
                     "anchorMessageId": msgId,
                 ])
-                self.setHasMoreNewer(false)
+                self.lastFetchedNewerMessageId = nil
+                self.setHasMoreNewer(true)
                 self.setIsLoadingNewer(false)
             }
         }
@@ -2924,6 +3087,60 @@ final class ChatViewController: ViewController {
         return out
     }
 
+    private func enrichReplyRefsFromPostbox(
+        _ refsByMessageId: [String: Mezon_Api_MessageRef]
+    ) -> [String: Mezon_Api_MessageRef] {
+        let refsToEnrich = refsByMessageId.filter { _, ref in
+            guard ref.messageSenderID != 0,
+                  ref.messageSenderID != MezonConstants.anonymousUserId else { return false }
+            let hasName = !ref.messageSenderClanNick.isEmpty
+                || !ref.messageSenderDisplayName.isEmpty
+                || !ref.messageSenderUsername.isEmpty
+            return !hasName || ref.messageSenderAvatar.isEmpty
+        }
+        guard !refsToEnrich.isEmpty else { return refsByMessageId }
+
+        var result = refsByMessageId
+        let senderIds = Set(refsToEnrich.values.map(\.messageSenderID))
+        context.account.postbox.read { tx in
+            var membersByUserId: [Int64: ClanMemberRecord] = [:]
+            if clanId != 0 {
+                for member in tx.getClanMembers(clanId: clanId) where senderIds.contains(member.userId) {
+                    membersByUserId[member.userId] = member
+                    if membersByUserId.count == senderIds.count { break }
+                }
+            }
+            for (messageId, ref) in refsToEnrich {
+                let senderId = ref.messageSenderID
+                let member = membersByUserId[senderId]
+                let profile = tx.getProfile(userId: "\(senderId)")
+                var enriched = ref
+
+                if ref.messageSenderClanNick.isEmpty,
+                   ref.messageSenderDisplayName.isEmpty,
+                   ref.messageSenderUsername.isEmpty {
+                    let memberDisplayName = member?.displayName ?? ""
+                    let memberUsername = member?.username ?? ""
+                    enriched.messageSenderClanNick = member?.clanNick ?? ""
+                    enriched.messageSenderDisplayName = memberDisplayName.isEmpty
+                        ? profile?.displayName ?? ""
+                        : memberDisplayName
+                    enriched.messageSenderUsername = memberUsername.isEmpty
+                        ? profile?.username ?? ""
+                        : memberUsername
+                }
+
+                let avatar = member?.resolvedAvatarURL(fallbackProfileAvatar: profile?.avatarUrl)
+                    ?? profile?.avatarUrl
+                if ref.messageSenderAvatar.isEmpty, let avatar, !avatar.isEmpty {
+                    enriched.messageSenderAvatar = avatar
+                }
+                result[messageId] = enriched
+            }
+        }
+        return result
+    }
+
     private func buildDisplayMessages(from records: [MessageRecord]) -> [ChatMessageDisplay] {
         let currentUserId = context.currentUser?.id
         let validRecords = records.filter { !$0.id.isEmpty && !$0.channelId.isEmpty }
@@ -2931,6 +3148,13 @@ final class ChatViewController: ViewController {
 
         let senderIds = Set(validRecords.map(\.senderId))
         let profilesBySenderId = cachedSenderProfilesBySenderId(senderIds: senderIds)
+        var replyInfoByMessageId: [String: (ref: Mezon_Api_MessageRef?, isDeletedReply: Bool)] = [:]
+        for record in validRecords {
+            replyInfoByMessageId[record.id] = Self.firstReplyRef(from: record.referencesData)
+        }
+        let enrichedReplyRefsByMessageId = enrichReplyRefsFromPostbox(
+            replyInfoByMessageId.compactMapValues { $0.ref }
+        )
 
         let currentUserRoleIds: Set<Int64> = {
             guard let roleList = context.engine.clanData.getUserPermissions(clanId: clanId) else { return [] }
@@ -3015,7 +3239,9 @@ final class ChatViewController: ViewController {
             }
 
             let reactions = Self.parseReactions(record.reactionsJSON, currentUserId: currentUserId)
-            let (replyRef, isDeletedReply) = Self.firstReplyRef(from: record.referencesData)
+            let replyInfo = replyInfoByMessageId[record.id] ?? (ref: nil, isDeletedReply: false)
+            let replyRef = enrichedReplyRefsByMessageId[record.id] ?? replyInfo.ref
+            let isDeletedReply = replyInfo.isDeletedReply
             let bodyEmpty = parsed.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             let senderLabel = record.senderDisplayName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             let isWelcome = record.senderId == "0" && bodyEmpty && senderLabel == "system"
@@ -3026,7 +3252,7 @@ final class ChatViewController: ViewController {
                 return "{}"
             }()
             let callLog = Self.parseCallLog(from: record.content)
-            let topicData = Self.parseTopicData(from: record.content, code: record.code)
+            let topicData = topicId != 0 ? nil : Self.parseTopicData(from: record.content, code: record.code)
             let isMe = isSenderCurrentUser(senderId: record.senderId, currentUserId: currentUserId)
             let profileInfo = profilesBySenderId[record.senderId]
             let trimmedStoredAvatar = record.senderAvatarURL?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -3160,16 +3386,15 @@ final class ChatViewController: ViewController {
     private static let messageCodeTopic: Int32 = 9
 
     private static func parseTopicData(from data: Data, code: Int32) -> TopicData? {
+        guard code == messageCodeTopic else { return nil }
         guard !data.isEmpty,
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
 
-        let hasTp = json["tp"] != nil
-        guard code == messageCodeTopic || hasTp else { return nil }
         let topicId: String
         if let tp = json["tp"] as? String, !tp.isEmpty { topicId = tp }
         else if let tp = json["tp"] as? Int, tp != 0 { topicId = "\(tp)" }
         else if let tp = json["tp"] as? Double, tp != 0 { topicId = "\(Int64(tp))" }
-        else { return nil }
+        else { return nil } 
         let creatorId: String
         if let cid = json["cid"] as? String { creatorId = cid }
         else if let cid = json["cid"] as? Int { creatorId = "\(cid)" }
@@ -3729,20 +3954,33 @@ final class ChatViewController: ViewController {
     }
 
     private func joinChat() {
-        guard context.account.socket.isConnected else {
-            return
+        Task { @MainActor [weak self] in
+            await self?.joinChatAndWaitUntilSent()
         }
-        self.context.account.socket.joinClanChat(clanId: clanId)
-        let channelType: Int32 = clanId == 0
-            ? (channel.type != 0 ? channel.type : MezonConstants.ChannelType.group.rawValue)
-            : (channel.type != 0 ? channel.type : MezonConstants.ChannelType.channel.rawValue)
-        let isPublic = clanId == 0 ? false : (channel.parentID != 0 ? false : (channel.channelPrivate == 0))
-        self.context.account.socket.joinChannel(clanId: clanId, channelId: channel.channelID, channelType: channelType, isPublic: isPublic)
-        if clanId != 0 {
+    }
+
+    private func joinChatAndWaitUntilSent() async {
+        guard context.account.socket.isConnected else { return }
+        let targetClanId = clanId
+        let targetChannel = channel
+        await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: context, clanId: targetClanId)
+        guard context.account.socket.isConnected else { return }
+        context.account.socket.joinClanChat(clanId: targetClanId)
+        let channelType: Int32 = targetClanId == 0
+            ? (targetChannel.type != 0 ? targetChannel.type : MezonConstants.ChannelType.group.rawValue)
+            : (targetChannel.type != 0 ? targetChannel.type : MezonConstants.ChannelType.channel.rawValue)
+        let isPublic = targetClanId == 0 ? false : (targetChannel.parentID != 0 ? false : (targetChannel.channelPrivate == 0))
+        context.account.socket.joinChannel(
+            clanId: targetClanId,
+            channelId: targetChannel.channelID,
+            channelType: channelType,
+            isPublic: isPublic
+        )
+        if targetClanId != 0 {
             NotificationCenter.default.post(
                 name: Notification.Name("MezonJoinedClanChatForBadges"),
                 object: nil,
-                userInfo: ["clanId": clanId]
+                userInfo: ["clanId": targetClanId]
             )
         }
     }
@@ -4423,8 +4661,9 @@ final class ChatViewController: ViewController {
         }
     }
 
-    private func forceScrollToBottom() {
+    private func forceScrollToBottom(reason: String, completion: (() -> Void)? = nil) {
         guard !messages.isEmpty else { return }
+        scrollDebugLog("forceScrollToBottom reason=\(reason)")
         messagesNode.listView.transaction(
             deleteIndices: [],
             insertIndicesAndItems: [],
@@ -4432,7 +4671,7 @@ final class ChatViewController: ViewController {
             options: [.Synchronous],
             scrollToItem: ListViewScrollToItem(index: 0, position: .top(0), animated: false, curve: .Default(duration: nil), directionHint: .Up),
             updateOpaqueState: nil,
-            completion: { _ in }
+            completion: { _ in completion?() }
         )
     }
 
@@ -4440,6 +4679,7 @@ final class ChatViewController: ViewController {
         guard messagesNode.pendingJumpMessageId == nil else { return }
         guard !messagesNode.didAutoScrollForNewMessages else { return }
         guard shouldScrollToBottom, !messages.isEmpty else { return }
+        scrollDebugLog("scrollToBottomIfNeeded action=bottom")
         messagesNode.listView.transaction(
             deleteIndices: [],
             insertIndicesAndItems: [],
@@ -5035,15 +5275,14 @@ final class ChatViewController: ViewController {
         persistSelectedChannelForVoice(channel)
         guard targetClan != 0, targetClan != context.currentClanId else { return }
         context.currentClanId = targetClan
-        if context.account.socket.isConnected {
-            context.account.socket.joinClanChat(clanId: targetClan)
-        } else {
-            Task { @MainActor [weak self] in
-                guard let self else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if !self.context.account.socket.isConnected {
                 await self.waitForSocketConnected()
-                if self.context.account.socket.isConnected {
-                    self.context.account.socket.joinClanChat(clanId: targetClan)
-                }
+            }
+            await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: self.context, clanId: targetClan, force: true)
+            if self.context.account.socket.isConnected {
+                self.context.account.socket.joinClanChat(clanId: targetClan)
             }
         }
         NotificationCenter.default.post(

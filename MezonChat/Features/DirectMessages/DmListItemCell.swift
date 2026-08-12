@@ -259,8 +259,11 @@ final class DmListItemCell: UITableViewCell {
         avatarLoadGeneration += 1
         let gen = avatarLoadGeneration
         let proxied = ImgproxyURL.avatarProxyURL(from: url.absoluteString, width: 100, height: 100)
+        let raw = url.absoluteString
         let proxiedKey = proxied as NSString
-        if let cached = Self.avatarMemoryCache.object(forKey: proxiedKey) ?? ImageCache.shared.memoryImage(forKey: proxied) {
+        let rawKey = raw as NSString
+        
+        if let cached = Self.avatarMemoryCache.object(forKey: proxiedKey) ?? ImageCache.shared.memoryImage(forKey: proxied) ?? Self.avatarMemoryCache.object(forKey: rawKey) ?? ImageCache.shared.memoryImage(forKey: raw) {
             Self.avatarMemoryCache.setObject(cached, forKey: proxiedKey)
             guard gen == avatarLoadGeneration else { return }
             isAvatarLoadInFlight = false
@@ -279,19 +282,41 @@ final class DmListItemCell: UITableViewCell {
         }
 
         ImageCache.shared.loadAvatar(urlString: proxied) { [weak self] image in
-            if let image { Self.avatarMemoryCache.setObject(image, forKey: proxiedKey) }
-            guard let self, gen == self.avatarLoadGeneration else { return }
-            self.isAvatarLoadInFlight = false
             if let image {
+                Self.avatarMemoryCache.setObject(image, forKey: proxiedKey)
+                guard let self, gen == self.avatarLoadGeneration else { return }
+                self.isAvatarLoadInFlight = false
                 self.groupIconView.isHidden = true
                 self.avatarImageView.image = image
                 self.textAvatar.showImageMode()
-            } else if let fallbackUsername {
-                self.avatarImageView.image = nil
-                self.textAvatar.configure(username: fallbackUsername, fontSize: 16.sf)
+            } else if proxied != raw {
+                guard let self, gen == self.avatarLoadGeneration else { return }
+                ImageCache.shared.loadAvatar(urlString: raw) { [weak self] rawImage in
+                    if let rawImage { Self.avatarMemoryCache.setObject(rawImage, forKey: rawKey) }
+                    guard let self, gen == self.avatarLoadGeneration else { return }
+                    self.isAvatarLoadInFlight = false
+                    if let rawImage {
+                        self.groupIconView.isHidden = true
+                        self.avatarImageView.image = rawImage
+                        self.textAvatar.showImageMode()
+                    } else if let fallbackUsername {
+                        self.avatarImageView.image = nil
+                        self.textAvatar.configure(username: fallbackUsername, fontSize: 16.sf)
+                    } else {
+                        self.avatarImageView.image = nil
+                        self.showGroupAvatarPlaceholder()
+                    }
+                }
             } else {
-                self.avatarImageView.image = nil
-                self.showGroupAvatarPlaceholder()
+                guard let self, gen == self.avatarLoadGeneration else { return }
+                self.isAvatarLoadInFlight = false
+                if let fallbackUsername {
+                    self.avatarImageView.image = nil
+                    self.textAvatar.configure(username: fallbackUsername, fontSize: 16.sf)
+                } else {
+                    self.avatarImageView.image = nil
+                    self.showGroupAvatarPlaceholder()
+                }
             }
         }
     }
