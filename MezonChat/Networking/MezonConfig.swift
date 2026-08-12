@@ -60,31 +60,6 @@ enum MezonConfig {
         return URL(string: proxied)
     }
 
-    static func abridgedEndpoint(wsHostOverride: String?, session: MezonSession?) -> (host: String, port: UInt16) {
-        var overrideHost: String?
-        if let override = wsHostOverride, !override.isEmpty {
-            if override.contains("://"), let url = URL(string: override), let h = url.host, !h.isEmpty {
-                overrideHost = h
-            } else if !override.contains("://") {
-                overrideHost = override
-            }
-        }
-
-        var host = overrideHost
-        var port: Int?
-        if overrideHost == nil, let tcpURL = session?.tcpURL, !tcpURL.isEmpty {
-            let normalized = tcpURL.contains("://") ? tcpURL : "tcp://\(tcpURL)"
-            if let url = URL(string: normalized), let h = url.host, !h.isEmpty {
-                host = h
-                port = url.port
-            }
-        }
-
-        let resolvedHost = host ?? env.wsHost
-        let resolvedPort = port ?? env.tcpPort ?? env.wsPort ?? 443
-        return (resolvedHost, UInt16(exactly: resolvedPort) ?? 443)
-    }
-
     static func wsURL(token: String, wsHostOverride: String? = nil) -> URL {
         if let override = wsHostOverride, !override.isEmpty {
             let host: String

@@ -10,18 +10,11 @@ struct MezonSession: Codable {
 
     let apiURL: String?
     let wsURL: String?
-    let sessionID: String?
-    let tcpURL: String?
 
     let userId: String?
     let username: String?
     let idToken: String?
     let isRemember: Bool?
-
-    var socketCredential: String {
-        if let sessionID, !sessionID.isEmpty { return sessionID }
-        return token
-    }
 
     var isExpired: Bool {
         Date() >= expiresAt.addingTimeInterval(-60)
@@ -46,8 +39,6 @@ struct MezonSession: Codable {
         case created
         case apiURL          = "api_url"
         case wsURL           = "ws_url"
-        case sessionID       = "session_id"
-        case tcpURL          = "tcp_url"
         case userId          = "user_id"
         case username
         case idToken         = "id_token"
@@ -61,8 +52,6 @@ struct MezonSession: Codable {
         created      = try c.decodeIfPresent(Bool.self, forKey: CodingKeys.created) ?? false
         apiURL       = try c.decodeIfPresent(String.self, forKey: CodingKeys.apiURL)
         wsURL        = try c.decodeIfPresent(String.self, forKey: CodingKeys.wsURL)
-        sessionID    = try c.decodeIfPresent(String.self, forKey: CodingKeys.sessionID)
-        tcpURL       = try c.decodeIfPresent(String.self, forKey: CodingKeys.tcpURL)
         userId       = try c.decodeIfPresent(String.self, forKey: CodingKeys.userId)
         username     = try c.decodeIfPresent(String.self, forKey: CodingKeys.username)
         idToken      = try c.decodeIfPresent(String.self, forKey: CodingKeys.idToken)
@@ -85,8 +74,6 @@ struct MezonSession: Codable {
         try c.encode(Int64(expiresAt.timeIntervalSince1970), forKey: .expiresAt)
         try c.encodeIfPresent(apiURL, forKey: .apiURL)
         try c.encodeIfPresent(wsURL, forKey: .wsURL)
-        try c.encodeIfPresent(sessionID, forKey: .sessionID)
-        try c.encodeIfPresent(tcpURL, forKey: .tcpURL)
         try c.encodeIfPresent(userId, forKey: .userId)
         try c.encodeIfPresent(username, forKey: .username)
         try c.encodeIfPresent(idToken, forKey: .idToken)
@@ -105,9 +92,7 @@ struct MezonSession: Codable {
             userId: proto.userID != 0 ? String(proto.userID) : nil,
             username: nil,
             idToken: proto.idToken.isEmpty ? nil : proto.idToken,
-            isRemember: proto.isRemember,
-            sessionID: proto.sessionID.isEmpty ? nil : proto.sessionID,
-            tcpURL: nil
+            isRemember: proto.isRemember
         )
     }
 
@@ -143,9 +128,7 @@ struct MezonSession: Codable {
         userId: String?,
         username: String?,
         idToken: String?,
-        isRemember: Bool?,
-        sessionID: String? = nil,
-        tcpURL: String? = nil
+        isRemember: Bool?
     ) {
         self.token = token
         self.refreshToken = refreshToken
@@ -157,8 +140,6 @@ struct MezonSession: Codable {
         self.username = username
         self.idToken = idToken
         self.isRemember = isRemember
-        self.sessionID = sessionID
-        self.tcpURL = tcpURL
     }
 
     func withIdToken(_ newIdToken: String?) -> MezonSession {
@@ -172,39 +153,14 @@ struct MezonSession: Codable {
             userId: userId,
             username: username,
             idToken: newIdToken,
-            isRemember: isRemember,
-            sessionID: sessionID,
-            tcpURL: tcpURL
+            isRemember: isRemember
         )
     }
 
-    func mergedPreservingLocalCredentials(from previous: MezonSession) -> MezonSession {
-        var mergedIdToken = idToken
-        if mergedIdToken?.isEmpty != false, let p = previous.idToken, !p.isEmpty {
-            mergedIdToken = p
-        }
-        var mergedSessionID = sessionID
-        if mergedSessionID?.isEmpty != false, let p = previous.sessionID, !p.isEmpty {
-            mergedSessionID = p
-        }
-        var mergedTcpURL = tcpURL
-        if mergedTcpURL?.isEmpty != false, let p = previous.tcpURL, !p.isEmpty {
-            mergedTcpURL = p
-        }
-        return MezonSession(
-            token: token,
-            refreshToken: refreshToken,
-            expiresAt: expiresAt,
-            created: created,
-            apiURL: apiURL,
-            wsURL: wsURL,
-            userId: userId,
-            username: username,
-            idToken: mergedIdToken,
-            isRemember: isRemember,
-            sessionID: mergedSessionID,
-            tcpURL: mergedTcpURL
-        )
+    func mergedPreservingIdToken(from previous: MezonSession) -> MezonSession {
+        if let id = idToken, !id.isEmpty { return self }
+        if let p = previous.idToken, !p.isEmpty { return withIdToken(p) }
+        return self
     }
 
     func mergedWithUsernameResponse(_ proto: Mezon_Api_Session, chosenUsername: String) -> MezonSession {
@@ -219,31 +175,7 @@ struct MezonSession: Codable {
             userId: partial.userId ?? userId,
             username: chosenUsername,
             idToken: partial.idToken ?? idToken,
-            isRemember: partial.isRemember ?? isRemember,
-            sessionID: partial.sessionID ?? sessionID,
-            tcpURL: partial.tcpURL ?? tcpURL
-        )
-    }
-
-    func applyingRefreshEvent(_ proto: Mezon_Api_Session) -> MezonSession {
-        let newToken = proto.token.isEmpty ? token : proto.token
-        let newExpiry = proto.token.isEmpty
-            ? expiresAt
-            : (MezonSession.accessTokenExpiryFromJWT(proto.token)
-                ?? Date().addingTimeInterval(MezonSession.unresolvedExpiryFallbackSeconds))
-        return MezonSession(
-            token: newToken,
-            refreshToken: proto.refreshToken.isEmpty ? refreshToken : proto.refreshToken,
-            expiresAt: newExpiry,
-            created: created,
-            apiURL: apiURL,
-            wsURL: wsURL,
-            userId: userId,
-            username: username,
-            idToken: idToken,
-            isRemember: isRemember,
-            sessionID: proto.sessionID.isEmpty ? sessionID : proto.sessionID,
-            tcpURL: tcpURL
+            isRemember: partial.isRemember ?? isRemember
         )
     }
 }

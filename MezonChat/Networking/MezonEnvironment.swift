@@ -46,13 +46,6 @@ enum MezonEnvironment {
         }
     }
 
-    var tcpPort: Int? {
-        switch self {
-        case .dev:  return 7349
-        case .prod: return nil
-        }
-    }
-
     var serverKey: String {
         switch self {
         case .dev:  return Secrets.devServerKey

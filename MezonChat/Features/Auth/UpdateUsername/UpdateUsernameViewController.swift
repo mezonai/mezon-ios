@@ -302,7 +302,7 @@ final class UpdateUsernameViewController: BaseViewController, AuthScreenStatusBa
                 return
             }
             let merged = authSession.mergedWithUsernameResponse(proto, chosenUsername: sanitized)
-            let mergedIds = merged.mergedPreservingLocalCredentials(from: authSession)
+            let mergedIds = merged.mergedPreservingIdToken(from: authSession)
             SessionStore.save(mergedIds)
             MandatoryUsernamePendingStore.clearPending()
             context.account.network.updateBaseURL(from: mergedIds)

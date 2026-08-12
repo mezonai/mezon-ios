@@ -64,7 +64,6 @@ enum SocketEvent {
     case webhookEvent(Mezon_Api_Webhook)
     case sdTopicEvent(Mezon_Realtime_SdTopicEvent)
     case topicInMessage(Mezon_Realtime_TopicInMessageEvent)
-    case sessionRefreshed(Mezon_Api_Session)
 
     case disconnected
     case reconnected
@@ -83,7 +82,8 @@ final class MezonSocket: NSObject {
         return eventPipe.signal()
     }
 
-    private var transport: AbridgedTCPTransport?
+    private var webSocketTask: URLSessionWebSocketTask?
+    private var urlSession: URLSession?
     private var token: String?
     private var wsHostOverride: String?
     private(set) var isConnected = false
@@ -99,14 +99,8 @@ final class MezonSocket: NSObject {
 
     private var nextCid: UInt32 = 0
     private var pendingApiRequests: [UInt32: PendingApiRequest] = [:]
+    private var apiResponseStreams: [UInt32: Data] = [:]
     private let defaultApiRequestTimeoutNanos: UInt64 = 10_000_000_000
-
-    private var connectAckPending = false
-    private var connectAckTask: Task<Void, Never>?
-    private var handshakeRejections = 0
-    private let maxHandshakeRejections = 5
-    private var credentialRejected = false
-    private let connectAckGraceSeconds: TimeInterval = 1.0
 
     private var consecutiveApiTimeouts = 0
     private let apiDegradeThreshold = 1
@@ -137,21 +131,33 @@ final class MezonSocket: NSObject {
     }
 
     private func probeConnectionLiveness() {
-        guard isConnected, livenessProbeTask == nil, let probed = transport else { return }
-        probed.sendPing(cid: UInt16(truncatingIfNeeded: generateCid()))
+        guard isConnected, livenessProbeTask == nil, let task = webSocketTask else { return }
+        pendingLivenessProbe = task
+        task.sendPing { [weak self] error in
+            Task { @MainActor in
+                guard let self, self.pendingLivenessProbe === task else { return }
+                self.pendingLivenessProbe = nil
+                self.livenessProbeTask?.cancel()
+                self.livenessProbeTask = nil
+                guard let error else { return }
+                self.handleTransportFailure(error, for: task)
+            }
+        }
         let deadlineNanos = UInt64(livenessProbeTimeoutSeconds * 1_000_000_000)
         livenessProbeTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: deadlineNanos)
-            guard !Task.isCancelled, let self, self.transport === probed else { return }
+            guard !Task.isCancelled, let self, self.pendingLivenessProbe === task else { return }
+            self.pendingLivenessProbe = nil
             self.livenessProbeTask = nil
-            MezonRPCLog.response("liveness probe timed out after \(self.livenessProbeTimeoutSeconds)s → treating socket as dead")
-            self.handleTransportFailure(MezonError.socketError("Abridged ping timed out"), for: probed)
+            MezonRPCLog.response("ws liveness probe timed out after \(self.livenessProbeTimeoutSeconds)s → treating socket as dead")
+            self.handleTransportFailure(MezonError.socketError("WebSocket ping timed out"), for: task)
         }
     }
 
     private func cancelLivenessProbe() {
         livenessProbeTask?.cancel()
         livenessProbeTask = nil
+        pendingLivenessProbe = nil
     }
 
     private let heartbeatIntervalSeconds: TimeInterval = 8
@@ -161,6 +167,7 @@ final class MezonSocket: NSObject {
     private var lastPingSentAt: Date?
     private let livenessProbeTimeoutSeconds: TimeInterval = 5
     private var livenessProbeTask: Task<Void, Never>?
+    private var pendingLivenessProbe: URLSessionWebSocketTask?
 
     private struct PendingApiRequest {
         let apiName: String
@@ -169,7 +176,6 @@ final class MezonSocket: NSObject {
     }
 
     var tokenProvider: (() async throws -> String)?
-    var sessionProvider: (() -> MezonSession?)?
 
     private var reconnectWorkItem: DispatchWorkItem?
     private var connectWatchdog: DispatchWorkItem?
@@ -191,7 +197,7 @@ final class MezonSocket: NSObject {
 
     func connect(token: String, wsHostOverride: String? = nil, resetReconnectState: Bool = true) {
         if self.token == token, self.wsHostOverride == wsHostOverride,
-           transport != nil {
+           webSocketTask != nil {
             return
         }
 
@@ -199,75 +205,25 @@ final class MezonSocket: NSObject {
         reconnectWorkItem = nil
         stableReconnectResetTask?.cancel()
         stableReconnectResetTask = nil
-        connectAckTask?.cancel()
-        connectAckTask = nil
-        connectAckPending = false
-        if self.token != token || self.wsHostOverride != wsHostOverride {
-            credentialRejected = false
-            handshakeRejections = 0
+        if let old = webSocketTask {
+            old.cancel(with: .normalClosure, reason: nil)
+            webSocketTask = nil
         }
-        transport?.close()
-        transport = nil
+        urlSession?.invalidateAndCancel()
 
         self.token = token
         self.wsHostOverride = wsHostOverride
         if resetReconnectState {
             reconnectAttempts = 0
-            credentialRejected = false
-            handshakeRejections = 0
         }
 
-        let session = sessionProvider?()
-        let endpoint = MezonConfig.abridgedEndpoint(wsHostOverride: wsHostOverride, session: session)
-        let credential: String
-        let credentialSource: String
-        if let sid = session?.sessionID, !sid.isEmpty {
-            credential = sid
-            credentialSource = "session_id"
-        } else {
-            credential = token
-            credentialSource = "token"
-        }
-
-        let t = AbridgedTCPTransport()
-        transport = t
-        t.onOpen = { [weak self] in
-            Task { @MainActor in
-                guard let self, self.transport === t else { return }
-                self.handleTransportOpen(t)
-            }
-        }
-        t.onClose = { [weak self] wasClean in
-            Task { @MainActor in
-                guard let self, self.transport === t else { return }
-                self.handleTransportClose(t, wasClean: wasClean)
-            }
-        }
-        t.onError = { [weak self] error in
-            Task { @MainActor in
-                guard let self, self.transport === t else { return }
-                MezonRPCLog.response("abridged transport error: \(error.localizedDescription) pendingRpc=\(self.pendingApiRequests.count)")
-                self.eventPipe.putNext(.error(error))
-            }
-        }
-        t.onEvents = { [weak self] events in
-            Task { @MainActor in
-                guard let self, self.transport === t else { return }
-                for event in events {
-                    switch event {
-                    case .pong(let cid):
-                        self.handlePong(cid: cid)
-                    case .apiResponse(let cid, let code, let payload):
-                        self.handleTransportMessage(cid: UInt32(cid), code: code, payload: payload)
-                    case .realtime(let payload):
-                        self.handleTransportMessage(cid: 0, code: 0, payload: payload)
-                    }
-                }
-            }
-        }
-        MezonRPCLog.response("abridged connect host=\(endpoint.host) port=\(endpoint.port) credential=\(credentialSource)")
-        t.connect(host: endpoint.host, port: endpoint.port, credential: credential)
-        armConnectWatchdog(for: t)
+        let url = MezonConfig.wsURL(token: token, wsHostOverride: wsHostOverride)
+        let config = URLSessionConfiguration.default
+        urlSession = URLSession(configuration: config, delegate: self, delegateQueue: nil)
+        webSocketTask = urlSession?.webSocketTask(with: url)
+        webSocketTask?.resume()
+        receiveLoop()
+        armConnectWatchdog(for: webSocketTask)
     }
 
     func waitForConnected(timeoutNanoseconds: UInt64) async -> Bool {
@@ -287,16 +243,13 @@ final class MezonSocket: NSObject {
         reconnectWorkItem = nil
         stableReconnectResetTask?.cancel()
         stableReconnectResetTask = nil
-        connectAckTask?.cancel()
-        connectAckTask = nil
-        connectAckPending = false
-        handshakeRejections = 0
-        credentialRejected = false
         stopHeartbeat()
         cancelLivenessProbe()
         cancelConnectWatchdog()
-        transport?.close()
-        transport = nil
+        webSocketTask?.cancel(with: .normalClosure, reason: nil)
+        webSocketTask = nil
+        urlSession?.invalidateAndCancel()
+        urlSession = nil
         token = nil
         wsHostOverride = nil
         isConnected = false
@@ -304,7 +257,7 @@ final class MezonSocket: NSObject {
         reconnectAttempts = 0
         tokenProvider = nil
         pendingSendQueue.removeAll()
-        failAllPendingApiRequests(reason: "Socket disconnected")
+        failAllPendingApiRequests(reason: "WebSocket disconnected")
     }
 
     func reconnectFromForeground() {
@@ -333,7 +286,7 @@ final class MezonSocket: NSObject {
     func ensureFreshConnection() {
         guard token != nil || tokenProvider != nil else { return }
         guard isConnected else {
-            if reconnectWorkItem == nil, transport == nil {
+            if reconnectWorkItem == nil, webSocketTask == nil {
                 forceReconnect()
             }
             return
@@ -355,29 +308,28 @@ final class MezonSocket: NSObject {
     private func cleanupForReconnect() {
         isConnected = false
         cancelConnectWatchdog()
-        connectAckTask?.cancel()
-        connectAckTask = nil
-        connectAckPending = false
         NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": false])
         stableReconnectResetTask?.cancel()
         stableReconnectResetTask = nil
         stopHeartbeat()
         cancelLivenessProbe()
-        transport?.close()
-        transport = nil
-        failAllPendingApiRequests(reason: "Socket reconnecting")
+        webSocketTask?.cancel(with: .goingAway, reason: nil)
+        webSocketTask = nil
+        urlSession?.invalidateAndCancel()
+        urlSession = nil
+        failAllPendingApiRequests(reason: "WebSocket reconnecting")
     }
 
     func send(_ envelope: Mezon_Realtime_Envelope) {
-        guard isConnected, let t = transport else {
+        guard isConnected, let task = webSocketTask else {
             enqueuePendingSend(envelope)
             return
         }
         guard let data = try? envelope.serializedData() else { return }
-        t.send(envelopePayload: data) { [weak self] error in
+        task.send(.data(data)) { [weak self] error in
             guard let error else { return }
             Task { @MainActor in
-                self?.handleTransportFailure(error, for: t)
+                self?.handleTransportFailure(error, for: task)
             }
         }
     }
@@ -387,8 +339,8 @@ final class MezonSocket: NSObject {
         body: Data,
         timeoutNanoseconds: UInt64? = nil
     ) async throws -> Data {
-        guard isConnected, let t = transport else {
-            throw MezonError.socketError("Socket is not connected")
+        guard isConnected, let task = webSocketTask else {
+            throw MezonError.socketError("WebSocket is not connected")
         }
 
         let cid = generateCid()
@@ -420,6 +372,7 @@ final class MezonSocket: NSObject {
                 }
                 guard let self else { return }
                 if let pending = self.pendingApiRequests.removeValue(forKey: cid) {
+                    self.apiResponseStreams.removeValue(forKey: cid)
                     pending.continuation.resume(
                         throwing: MezonError.socketError(
                             "api_request_event '\(apiName)' timed out after \(timeoutNs / 1_000_000)ms"
@@ -434,11 +387,12 @@ final class MezonSocket: NSObject {
                 timeoutTask: timeoutTask
             )
 
-            t.send(envelopePayload: payload) { [weak self] error in
+            task.send(.data(payload)) { [weak self] error in
                 guard let error else { return }
                 Task { @MainActor in
                     guard let self else { return }
                     if let pending = self.pendingApiRequests.removeValue(forKey: cid) {
+                        self.apiResponseStreams.removeValue(forKey: cid)
                         pending.timeoutTask.cancel()
                         pending.continuation.resume(throwing: error)
                     }
@@ -463,17 +417,27 @@ final class MezonSocket: NSObject {
         heartbeatTask = Task { @MainActor [weak self] in
             while true {
                 guard let self else { return }
-                guard self.isConnected, let t = self.transport else { return }
+                guard self.isConnected, let task = self.webSocketTask else { return }
 
                 if let last = self.lastPongAt,
                    Date().timeIntervalSince(last) > self.heartbeatPongTimeoutSeconds {
                     MezonRPCLog.response("[ping-pong] pong timeout: no pong for \(Int(Date().timeIntervalSince(last)))s → treating socket as dead, reconnecting")
-                    self.handleTransportFailure(MezonError.socketError("Heartbeat pong timeout"), for: t)
+                    self.handleTransportFailure(MezonError.socketError("Heartbeat pong timeout"), for: task)
                     return
                 }
 
-                self.lastPingSentAt = Date()
-                t.sendPing(cid: UInt16(truncatingIfNeeded: self.generateCid()))
+                var envelope = Mezon_Realtime_Envelope()
+                envelope.ping = Mezon_Realtime_Ping()
+                if let data = try? envelope.serializedData() {
+                    self.lastPingSentAt = Date()
+                    task.send(.data(data)) { [weak self] error in
+                        guard let error else { return }
+                        Task { @MainActor in
+                            MezonRPCLog.response("[ping-pong] ping send failed: \(error.localizedDescription) → reconnecting")
+                            self?.handleTransportFailure(error, for: task)
+                        }
+                    }
+                }
 
                 try? await Task.sleep(nanoseconds: intervalNs)
                 if Task.isCancelled { return }
@@ -489,6 +453,7 @@ final class MezonSocket: NSObject {
     private func failAllPendingApiRequests(reason: String) {
         let snapshot = pendingApiRequests
         pendingApiRequests.removeAll()
+        apiResponseStreams.removeAll()
         for (_, pending) in snapshot {
             pending.timeoutTask.cancel()
             pending.continuation.resume(throwing: MezonError.socketError(reason))
@@ -505,14 +470,14 @@ final class MezonSocket: NSObject {
     }
 
     private func flushPendingSendQueue() {
-        guard isConnected, let t = transport else { return }
+        guard isConnected, let task = webSocketTask else { return }
         guard !pendingSendQueue.isEmpty else { return }
         let now = Date()
         let batch = pendingSendQueue.filter { now.timeIntervalSince($0.queuedAt) <= pendingSendStaleAge }
         pendingSendQueue.removeAll()
         for entry in batch {
             guard let data = try? entry.envelope.serializedData() else { continue }
-            t.send(envelopePayload: data) { _ in }
+            task.send(.data(data)) { _ in }
         }
     }
 
@@ -607,101 +572,45 @@ final class MezonSocket: NSObject {
         send(envelope)
     }
 
-    private func handleTransportFailure(_ error: Error, for t: AbridgedTCPTransport) {
-        guard transport === t else { return }
+    private func receiveLoop() {
+        guard let task = webSocketTask else { return }
+        task.receive { [weak self] result in
+            guard let self else { return }
+            Task { @MainActor in
+                guard self.webSocketTask === task else { return }
+                switch result {
+                case .success(let message):
+                    self.handleMessage(message)
+                    self.receiveLoop()
+                case .failure(let error):
+                    let nsErr = error as NSError
+                    MezonRPCLog.response("ws receive-fail domain=\(nsErr.domain) code=\(nsErr.code) desc='\(nsErr.localizedDescription)' pendingRpc=\(self.pendingApiRequests.count)")
+                    self.handleTransportFailure(error, for: task)
+                }
+            }
+        }
+    }
+
+    private func handleTransportFailure(_ error: Error, for task: URLSessionWebSocketTask) {
+        guard webSocketTask === task else { return }
         cleanupForReconnect()
         eventPipe.putNext(.error(error))
         scheduleReconnect()
     }
 
-    private func handleTransportOpen(_ t: AbridgedTCPTransport) {
-        isConnected = true
-        cancelConnectWatchdog()
-        noteApiRequestSucceeded()
-        scheduleStableReconnectReset(for: t)
-        eventPipe.putNext(.connected)
-        NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": true])
-        flushPendingSendQueue()
-        startHeartbeat()
-        armConnectAckGrace(for: t)
-    }
-
-    private func handleTransportClose(_ t: AbridgedTCPTransport, wasClean: Bool) {
-        let rejectionSuspect = connectAckPending
-        connectAckPending = false
-        connectAckTask?.cancel()
-        connectAckTask = nil
-        isConnected = false
-        cancelConnectWatchdog()
-        transport = nil
-        stopHeartbeat()
-        cancelLivenessProbe()
-        NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": false])
-        eventPipe.putNext(.disconnected)
-        failAllPendingApiRequests(reason: "Socket closed")
-
-        if rejectionSuspect {
-            handshakeRejections += 1
-            MezonRPCLog.response("handshake rejected before ack (\(handshakeRejections)/\(maxHandshakeRejections))")
-            if handshakeRejections >= maxHandshakeRejections {
-                handshakeRejections = 0
-                credentialRejected = true
-                NotificationCenter.default.post(name: Notification.Name("MezonSessionExpired"), object: nil)
+    private func handleMessage(_ message: URLSessionWebSocketTask.Message) {
+        switch message {
+        case .data(let data):
+            if let first = data.first, first == 0xFF {
+                handleFramedApiResponse(data)
                 return
             }
+            decodeEnvelope(data)
+        case .string(let text):
+            guard let data = text.data(using: .utf8) else { return }
+            decodeEnvelope(data)
+        @unknown default: break
         }
-        scheduleReconnect()
-    }
-
-    private func armConnectAckGrace(for t: AbridgedTCPTransport) {
-        connectAckPending = true
-        connectAckTask?.cancel()
-        let graceNanos = UInt64(connectAckGraceSeconds * 1_000_000_000)
-        connectAckTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: graceNanos)
-            guard !Task.isCancelled, let self, self.transport === t, self.isConnected else { return }
-            self.confirmConnectAck()
-        }
-    }
-
-    private func confirmConnectAck() {
-        guard connectAckPending else { return }
-        connectAckPending = false
-        handshakeRejections = 0
-        credentialRejected = false
-        connectAckTask?.cancel()
-        connectAckTask = nil
-    }
-
-    private func handlePong(cid: UInt16) {
-        let now = Date()
-        let rtt = lastPingSentAt.map { Int(now.timeIntervalSince($0) * 1000) } ?? -1
-        MezonRPCLog.response("[ping-pong] ← pong cid=\(cid) (rtt=\(rtt)ms)")
-        lastPongAt = now
-        cancelLivenessProbe()
-        confirmConnectAck()
-    }
-
-    private func handleTransportMessage(cid: UInt32, code: UInt32, payload: Data) {
-        confirmConnectAck()
-        if cid != 0 {
-            guard let pending = pendingApiRequests.removeValue(forKey: cid) else {
-                MezonRPCLog.response("frame FIN cid=\(cid) code=\(code) totalBytes=\(payload.count) (no pending)")
-                return
-            }
-            pending.timeoutTask.cancel()
-            if code == 0 {
-                pending.continuation.resume(returning: payload)
-            } else {
-                let message = String(data: payload, encoding: .utf8) ?? ""
-                MezonRPCLog.response("recv ← cid=\(cid) error code=\(code) bytes=\(payload.count) msg='\(message.prefix(160))'")
-                pending.continuation.resume(
-                    throwing: MezonError.httpError(statusCode: Int(code), message: message)
-                )
-            }
-            return
-        }
-        decodeEnvelope(payload)
     }
 
     private func decodeEnvelope(_ data: Data) {
@@ -712,6 +621,51 @@ final class MezonSocket: NSObject {
         if let envelope = try? Mezon_Realtime_Envelope(jsonUTF8Data: data) {
             routeEnvelope(envelope)
             return
+        }
+    }
+
+    private func handleFramedApiResponse(_ data: Data) {
+        let headerLength = 7
+        guard data.count >= headerLength else {
+            MezonRPCLog.response("frame drop: too small bytes=\(data.count)")
+            return
+        }
+        let bytes = [UInt8](data)
+        let cid: UInt32 = (UInt32(bytes[1]) << 8) | UInt32(bytes[2])
+        let statusWord: UInt32 =
+            (UInt32(bytes[3]) << 24) |
+            (UInt32(bytes[4]) << 16) |
+            (UInt32(bytes[5]) << 8)  |
+            UInt32(bytes[6])
+        let responseCode = (statusWord >> 16) & 0xFFFF
+        let finFlag = statusWord & 0xFFFF
+        let payload = data.count > headerLength
+            ? data.subdata(in: headerLength..<data.count)
+            : Data()
+
+        var buffer = apiResponseStreams[cid] ?? Data()
+        if !payload.isEmpty {
+            buffer.append(payload)
+        }
+
+        if finFlag == 0xFF {
+            apiResponseStreams.removeValue(forKey: cid)
+            guard let pending = pendingApiRequests.removeValue(forKey: cid) else {
+                MezonRPCLog.response("frame FIN cid=\(cid) code=\(responseCode) totalBytes=\(buffer.count) (no pending)")
+                return
+            }
+            pending.timeoutTask.cancel()
+            if responseCode == 0 {
+                pending.continuation.resume(returning: buffer)
+            } else {
+                let message = String(data: buffer, encoding: .utf8) ?? ""
+                MezonRPCLog.response("recv ← cid=\(cid) error code=\(responseCode) bytes=\(buffer.count) msg='\(message.prefix(160))'")
+                pending.continuation.resume(
+                    throwing: MezonError.httpError(statusCode: Int(responseCode), message: message)
+                )
+            }
+        } else {
+            apiResponseStreams[cid] = buffer
         }
     }
 
@@ -743,6 +697,7 @@ final class MezonSocket: NSObject {
         let cid = UInt32(bitPattern: envelope.cid)
         if cid != 0, pendingApiRequests[cid] != nil {
             guard let pending = pendingApiRequests.removeValue(forKey: cid) else { return }
+            apiResponseStreams.removeValue(forKey: cid)
             pending.timeoutTask.cancel()
             if case .some(.error(let err)) = envelope.message {
                 MezonRPCLog.response("envelope-cid cid=\(cid) error msg='\(err.message)'")
@@ -873,8 +828,6 @@ final class MezonSocket: NSObject {
             eventPipe.putNext(.sdTopicEvent(m))
         case .topicInMessageEvent(let m):
             eventPipe.putNext(.topicInMessage(m))
-        case .refreshSessionEvent(let refreshedSession):
-            eventPipe.putNext(.sessionRefreshed(refreshedSession))
         case .ping:
             MezonRPCLog.response("[ping-pong] ← ping from server, → pong reply")
             var pong = Mezon_Realtime_Envelope()
@@ -892,14 +845,14 @@ final class MezonSocket: NSObject {
         }
     }
 
-    private func armConnectWatchdog(for t: AbridgedTCPTransport?) {
+    private func armConnectWatchdog(for task: URLSessionWebSocketTask?) {
         connectWatchdog?.cancel()
-        guard let t else { return }
+        guard let task else { return }
         let work = DispatchWorkItem { [weak self] in
             Task { @MainActor in
-                guard let self, !self.isConnected, self.transport === t else { return }
-                MezonRPCLog.response("connect watchdog: handshake stalled \(Int(self.connectTimeoutSeconds))s → reconnecting")
-                self.handleTransportFailure(MezonError.socketError("Socket connect timed out"), for: t)
+                guard let self, !self.isConnected, self.webSocketTask === task else { return }
+                MezonRPCLog.response("ws connect watchdog: handshake stalled \(Int(self.connectTimeoutSeconds))s → reconnecting")
+                self.handleTransportFailure(MezonError.socketError("WebSocket connect timed out"), for: task)
             }
         }
         connectWatchdog = work
@@ -912,7 +865,6 @@ final class MezonSocket: NSObject {
     }
 
     private func scheduleReconnect() {
-        guard !credentialRejected else { return }
         guard token != nil || tokenProvider != nil else { return }
         guard NetworkMonitor.shared.isConnected else {
             reconnectWorkItem?.cancel()
@@ -951,14 +903,14 @@ final class MezonSocket: NSObject {
         eventPipe.putNext(.reconnected)
     }
 
-    private func scheduleStableReconnectReset(for openedTransport: AbridgedTCPTransport) {
+    private func scheduleStableReconnectReset(for openedTask: URLSessionWebSocketTask) {
         stableReconnectResetTask?.cancel()
         let resetDelay = stableReconnectResetNanoseconds
         stableReconnectResetTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: resetDelay)
             guard let self,
-                  let current = self.transport,
-                  current === openedTransport,
+                  let currentTask = self.webSocketTask,
+                  currentTask === openedTask,
                   self.isConnected else {
                 return
             }
@@ -1018,6 +970,49 @@ final class MezonSocket: NSObject {
         var envelope = Mezon_Realtime_Envelope()
         envelope.messageButtonClicked = btn
         send(envelope)
+    }
+}
+
+extension MezonSocket: URLSessionWebSocketDelegate {
+    nonisolated func urlSession(
+        _ session: URLSession,
+        webSocketTask: URLSessionWebSocketTask,
+        didOpenWithProtocol protocol: String?
+    ) {
+        Task { @MainActor in
+            guard let currentTask = self.webSocketTask, currentTask === webSocketTask else { return }
+            self.isConnected = true
+            self.cancelConnectWatchdog()
+            self.noteApiRequestSucceeded()
+            self.scheduleStableReconnectReset(for: currentTask)
+            self.eventPipe.putNext(.connected)
+            NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": true])
+            self.flushPendingSendQueue()
+            self.startHeartbeat()
+        }
+    }
+
+    nonisolated func urlSession(
+        _ session: URLSession,
+        webSocketTask: URLSessionWebSocketTask,
+        didCloseWith closeCode: URLSessionWebSocketTask.CloseCode,
+        reason: Data?
+    ) {
+        Task { @MainActor in
+            guard let currentTask = self.webSocketTask, currentTask === webSocketTask else { return }
+            self.isConnected = false
+            self.cancelConnectWatchdog()
+            // Drop the dead task so the connect() dedupe guard knows the
+            // socket really needs to be rebuilt next time.
+            self.webSocketTask = nil
+            NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": false])
+            self.eventPipe.putNext(.disconnected)
+            self.failAllPendingApiRequests(reason: "WebSocket closed")
+
+            if closeCode != .normalClosure {
+                self.scheduleReconnect()
+            }
+        }
     }
 }
 
