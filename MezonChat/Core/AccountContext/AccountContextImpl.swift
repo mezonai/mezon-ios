@@ -1169,9 +1169,12 @@ final class AccountContextImpl: AccountContext {
                             "timestampSeconds": now, "fromSelf": true
                         ] as [String: Any]
                     )
-                    return
+                    let isDmListMessage = clanId == 0
+                        && (messageCopy.mode == MezonConstants.ChannelStreamMode.dm.rawValue
+                            || messageCopy.mode == MezonConstants.ChannelStreamMode.group.rawValue)
+                    guard isDmListMessage else { return }
                 }
-                let incrementDmBadge = Self.shouldIncrementDmBadgeForSocketMessage(
+                let incrementDmBadge = !isSelf && Self.shouldIncrementDmBadgeForSocketMessage(
                     messageCopy, channelId: channelId,
                     currentUserId: self.currentUser?.id, currentClanId: self.currentClanId
                 )
@@ -1185,8 +1188,11 @@ final class AccountContextImpl: AccountContext {
                 if let raw = try? messageCopy.serializedData() {
                     userInfo["serializedChannelMessage"] = raw
                 }
+                let notificationName = isSelf
+                    ? Notification.Name("MezonDMListMessageReceived")
+                    : Notification.Name("MezonNewMessageReceived")
                 NotificationCenter.default.post(
-                    name: Notification.Name("MezonNewMessageReceived"), object: nil, userInfo: userInfo
+                    name: notificationName, object: nil, userInfo: userInfo
                 )
             }
 
