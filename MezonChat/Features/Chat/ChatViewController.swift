@@ -2179,13 +2179,18 @@ final class ChatViewController: ViewController {
         if !messages.isEmpty {
             markChannelAsRead()
         }
-        if context.account.socket.isConnected {
-            joinChat()
-        }
-        Task { @MainActor [weak self] in
-            guard let self else { return }
+        let previousCatchUp = reconnectCatchUpTask
+        previousCatchUp?.cancel()
+        reconnectCatchUpTask = Task { @MainActor [weak self] in
+            _ = await previousCatchUp?.value
+            guard let self, !Task.isCancelled else { return }
             guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
-            self.fetchMessages(token: token)
+            await self.joinChatAndWaitUntilSent()
+            if self.newestServerMessageId() == nil {
+                self.fetchMessages(token: token)
+            } else {
+                await self.catchUpMessagesAfterReconnect(token: token)
+            }
         }
     }
 
@@ -2340,7 +2345,7 @@ final class ChatViewController: ViewController {
 
             let canRestorePosition = !Task.isCancelled
                 && viewIfLoaded?.window != nil
-                && UIApplication.shared.applicationState == .active
+                && UIApplication.shared.applicationState != .background
                 && messagesNode.userScrollGeneration == initialUserScrollGeneration
 
             if canRestorePosition, let visibleMessageAnchor {
@@ -2585,13 +2590,14 @@ final class ChatViewController: ViewController {
                     }
                 }
             } catch {
+                self.lastFetchedOlderMessageId = nil
+                if error is CancellationError || Task.isCancelled { return }
                 SentryLogger.capture(error, extras: [
                     "where": "ChatViewController.fetchOlderMessages",
                     "channelId": channel.channelID,
                     "clanId": clanId,
                     "anchorMessageId": msgId,
                 ])
-                self.setHasMoreOlder(false)
             }
         }
     }
@@ -2655,7 +2661,7 @@ final class ChatViewController: ViewController {
                     clanId: clanId, channelId: channel.channelID,
                     messageId: 0, direction: 2, limit: 30, topicId: self.topicId, token: token
                 )
-                self.setHasMoreOlder(response.messages.count >= 30)
+                self.setHasMoreOlder(response.messages.count > 1)
                 if response.messages.isEmpty && (hadCachedMessages || hadCachedInPostbox) {
                     return
                 }
