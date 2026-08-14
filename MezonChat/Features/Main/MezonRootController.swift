@@ -905,6 +905,8 @@ final class MezonRootController: NavigationController {
             handleDeepLinkChat(username: username, data: data)
         case let .botInstall(appId):
             handleDeepLinkBotInstall(appId: appId)
+        case let .login(loginId):
+            handleDeepLinkLogin(loginId: loginId)
         }
     }
 
@@ -913,6 +915,43 @@ final class MezonRootController: NavigationController {
         let clans = homeController?.clanListVC.clans ?? []
         let vc = InstallClanViewController(context: context, appId: appIdInt, clans: clans)
         presentDeepLinkOverlay(vc)
+    }
+
+    private func handleDeepLinkLogin(loginId: String) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            var token = self.context.session?.token ?? ""
+            if token.isEmpty {
+                token = await self.context.getToken() ?? ""
+            }
+            guard !token.isEmpty else {
+                Toast.info("Please log in to Mezon first")
+                return
+            }
+            let sessionToken = token
+            let theme = self.context.sharedContext.currentPresentationTheme.attributes
+            let node = QRLoginConfirmNode(theme: theme)
+            let overlay = DeepLinkNodeOverlayController(node: node)
+            node.onCancel = { [weak overlay] in
+                overlay?.dismissOverlay()
+            }
+            node.onStartTalking = { [weak overlay] in
+                overlay?.dismissOverlay()
+            }
+            node.onLogin = { [weak self, weak node, weak overlay] in
+                guard let self else { return }
+                Task { @MainActor in
+                    do {
+                        _ = try await self.context.engine.auth.confirmLogin(loginId: loginId, token: sessionToken)
+                        node?.setSuccess(true)
+                    } catch {
+                        overlay?.dismissOverlay()
+                        Toast.error(error.localizedDescription)
+                    }
+                }
+            }
+            self.presentDeepLinkOverlay(overlay)
+        }
     }
 
     private func presentDeepLinkOverlay(_ controller: UIViewController) {

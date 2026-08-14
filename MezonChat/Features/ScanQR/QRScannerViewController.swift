@@ -256,6 +256,13 @@ final class QRScannerViewController: ViewController {
             showLoginConfirm(userId: data)
             return
         }
+
+        if let url = URL(string: data.trimmingCharacters(in: .whitespacesAndNewlines)),
+           DeepLinkRouter.isDeepLink(url),
+           case let .login(loginId)? = DeepLinkRouter.route(from: url) {
+            showLoginConfirm(userId: loginId)
+            return
+        }
         
         if data.hasPrefix("mezon://invite/") || data.contains("mezon.ai/invite/") {
             let code: String
