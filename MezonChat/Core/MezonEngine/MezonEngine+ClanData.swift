@@ -262,9 +262,10 @@ extension MezonEngine {
         private func persistClanUsersResponse(clanId: Int64, response: Mezon_Api_ClanUserList) {
             let responseMembers = response.clanUsers.map { ClanMemberRecord(from: $0) }
             let existingMembers = postbox.read { tx in tx.getClanMembers(clanId: clanId) }
-            var merged: [Int64: ClanMemberRecord] = Dictionary(existingMembers.map { ($0.userId, $0) }, uniquingKeysWith: { $1 })
-            for m in responseMembers { merged[m.userId] = m }
-            let finalMembers = Array(merged.values)
+            var seenUserIds = Set<Int64>()
+            let finalMembers = (responseMembers + existingMembers).filter {
+                seenUserIds.insert($0.userId).inserted
+            }
             postbox.write { tx in
                 for clanUser in response.clanUsers {
                     tx.updateProfile(ProfileRecord(from: clanUser))

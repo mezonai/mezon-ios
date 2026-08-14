@@ -62,7 +62,9 @@ open class TabBarControllerImpl: ViewController, TabBarController {
                 let bottomInset = validLayout.safeInsets.bottom
                 let tabBarHeight = TabBarNode.barHeight + bottomInset
                 updatedLayout.intrinsicInsets.bottom = tabBarHeight
-                self.controllers[index].containerLayoutUpdated(updatedLayout, transition: .immediate)
+                let controller = self.controllers[index]
+                controller.loadViewIfNeeded()
+                controller.containerLayoutUpdated(updatedLayout, transition: .immediate)
             }
 
             self.pendingControllerDisposable.set(
