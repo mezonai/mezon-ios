@@ -5,6 +5,7 @@ enum DeepLinkRoute: Equatable {
     case invite(code: String)
     case chat(username: String, data: String?)
     case botInstall(appId: String)
+    case login(loginId: String)
 }
 
 enum DeepLinkRouter {
@@ -50,6 +51,15 @@ enum DeepLinkRouter {
         let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         func query(_ name: String) -> String? {
             queryItems.first(where: { $0.name == name })?.value
+        }
+
+        if raw.contains("login/") || query("login_id") != nil {
+            if let id = query("login_id"), !id.isEmpty, id.allSatisfy({ $0.isNumber }) {
+                return .login(loginId: id)
+            }
+            if let m = firstMatch(in: raw, pattern: "(?:^|/)login/([0-9]+)") {
+                return .login(loginId: m[1])
+            }
         }
 
         if raw.contains("channel-app/") {
