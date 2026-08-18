@@ -1221,12 +1221,19 @@ final class MessageBubbleNode: ASDisplayNode {
                     url: att.url,
                     sourceURL: att.url,
                     image: preview ?? (itemIndex == index ? att.localImage : nil),
+                    pixelSize: GalleryItemInfo.pixelSize(width: att.width, height: att.height),
                     placeholderURL: nil,
                     senderName: display.senderDisplayName,
                     senderId: display.message.senderId,
                     senderAvatarURL: display.avatarURL,
                     timestamp: display.message.createdAt,
-                    isVideo: true
+                    isVideo: true,
+                    videoShareMetadata: GalleryVideoShareMetadata(
+                        filename: att.filename,
+                        filetype: att.filetype,
+                        durationSeconds: att.durationSeconds ?? 0,
+                        thumbnail: att.thumbnail
+                    )
                 )
             }
             return GalleryItemInfo.imageItem(

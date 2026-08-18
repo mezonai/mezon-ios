@@ -36,6 +36,10 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     var setOverlayVisible: ((Bool) -> Void)?
     var onPlaybackFailed: (() -> Void)?
     var setPagingEnabled: ((Bool) -> Void)?
+    var isPlaying: Bool {
+        guard let player else { return false }
+        return player.rate != 0 || player.timeControlStatus != .paused
+    }
     var controlsBottomInset: CGFloat = 0 {
         didSet {
             guard oldValue != controlsBottomInset else { return }
@@ -108,7 +112,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
 
         let bottomConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .regular)
         bottomPlayPauseButton.setImage(UIImage(systemName: "play.fill", withConfiguration: bottomConfig), for: .normal)
-        bottomPlayPauseButton.imageNode.imageModificationBlock = ASImageNodeTintColorModificationBlock(.white)
+        installSafeWhiteTint(on: bottomPlayPauseButton.imageNode)
         bottomPlayPauseButton.addTarget(self, action: #selector(playPauseTapped), forControlEvents: .touchUpInside)
 
 
@@ -154,9 +158,19 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         let config = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .bold)
         let image = UIImage(systemName: iconName, withConfiguration: config)
         button.setImage(image, for: .normal)
-        button.imageNode.imageModificationBlock = ASImageNodeTintColorModificationBlock(.white)
+        installSafeWhiteTint(on: button.imageNode)
         button.backgroundColor = UIColor.black.withAlphaComponent(0.35)
         button.clipsToBounds = true
+    }
+
+    private func installSafeWhiteTint(on imageNode: ASImageNode) {
+        let tintBlock = ASImageNodeTintColorModificationBlock(.white)
+        imageNode.imageModificationBlock = { image, traitCollection in
+            let size = image.size
+            guard size.width.isFinite, size.height.isFinite,
+                  size.width > 0, size.height > 0, image.scale > 0 else { return nil }
+            return tintBlock(image, traitCollection)
+        }
     }
 
 

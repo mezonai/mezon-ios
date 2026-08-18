@@ -1138,6 +1138,8 @@ enum L10n {
         static let videoSaved = "gallery.videoSaved"
         static let videoSaveFailed = "gallery.videoSaveFailed"
         static let videoDownloading = "gallery.videoDownloading"
+        static let videoPreparingForShare = "gallery.videoPreparingForShare"
+        static let videoShareFailed = "gallery.videoShareFailed"
         static let videoSaving = "gallery.videoSaving"
         static let imageLoadFailed = "gallery.imageLoadFailed"
         static let photoPermissionDenied = "gallery.photoPermissionDenied"
@@ -2272,6 +2274,8 @@ extension L10n {
         "gallery.videoSaved": "Video saved",
         "gallery.videoSaveFailed": "Could not save video",
         "gallery.videoDownloading": "Downloading video...",
+        "gallery.videoPreparingForShare": "Preparing video...",
+        "gallery.videoShareFailed": "Could not prepare video for sharing",
         "gallery.videoSaving": "Saving video...",
         "gallery.imageLoadFailed": "Could not load image",
         "gallery.photoPermissionDenied": "Allow photo access to save images",
@@ -3543,6 +3547,8 @@ extension L10n {
         "gallery.videoSaved": "Đã lưu video",
         "gallery.videoSaveFailed": "Không thể lưu video",
         "gallery.videoDownloading": "Đang tải video...",
+        "gallery.videoPreparingForShare": "Đang chuẩn bị video...",
+        "gallery.videoShareFailed": "Không thể chuẩn bị video để chia sẻ",
         "gallery.videoSaving": "Đang lưu video...",
         "gallery.imageLoadFailed": "Không thể tải ảnh",
         "gallery.photoPermissionDenied": "Vui lòng cấp quyền ảnh để lưu ảnh",

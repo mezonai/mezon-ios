@@ -775,9 +775,22 @@ final class MezonRootController: NavigationController {
 
         let sharingVC = SharingViewController(context: context, sharedContent: content)
         guard let windowRoot = view.window?.rootViewController else { return }
-
+        let shouldDismissVideoGallery: Bool
+        if case .existingVideo = content {
+            shouldDismissVideoGallery = true
+        } else {
+            shouldDismissVideoGallery = false
+        }
         dismissShareSheetStack(from: windowRoot) { [weak self] anchor in
             guard let self else { return }
+            if shouldDismissVideoGallery, anchor is GalleryController {
+                anchor.dismiss(animated: false) { [weak self] in
+                    guard let self else { return }
+                    let nextAnchor = self.resolvedSharePresentationAnchor(from: windowRoot)
+                    self.presentSharingViewController(sharingVC, on: nextAnchor)
+                }
+                return
+            }
             self.presentSharingViewController(sharingVC, on: anchor)
         }
     }

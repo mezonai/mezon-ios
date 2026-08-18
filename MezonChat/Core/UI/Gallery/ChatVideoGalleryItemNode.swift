@@ -5,6 +5,7 @@ import AsyncDisplayKit
 final class ChatVideoGalleryItemNode: GalleryItemNode {
 
     private var playerNode: UniversalVideoPlayerNode?
+    var isPlaying: Bool { playerNode?.isPlaying == true }
     var controlsBottomInset: CGFloat = 0 {
         didSet { playerNode?.controlsBottomInset = controlsBottomInset }
     }
@@ -50,5 +51,12 @@ final class ChatVideoGalleryItemNode: GalleryItemNode {
             playerNode?.pause()
         }
     }
-}
 
+    func play() {
+        playerNode?.play()
+    }
+
+    func pause() {
+        playerNode?.pause()
+    }
+}

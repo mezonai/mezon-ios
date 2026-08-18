@@ -14,6 +14,7 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
     
     var setOverlayVisible: ((Bool) -> Void)?
     var setPagingEnabled: ((Bool) -> Void)?
+    var isPlaying: Bool { avPlayerNode?.isPlaying == true || vlcPlayerNode?.isPlaying == true }
     var controlsBottomInset: CGFloat = 0 {
         didSet {
             avPlayerNode?.controlsBottomInset = controlsBottomInset

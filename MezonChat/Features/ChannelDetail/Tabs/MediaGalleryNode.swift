@@ -214,12 +214,18 @@ final class MediaGalleryNode: ASDisplayNode {
                     url: att.url,
                     sourceURL: att.url,
                     image: videoPreview,
+                    pixelSize: GalleryItemInfo.pixelSize(width: att.width, height: att.height),
                     placeholderURL: nil,
                     senderName: uploader.name,
                     senderId: String(att.uploader),
                     senderAvatarURL: uploader.avatarURL,
                     timestamp: ts,
-                    isVideo: true
+                    isVideo: true,
+                    videoShareMetadata: GalleryVideoShareMetadata(
+                        filename: att.filename,
+                        filetype: att.filetype,
+                        size: Int64(att.filesize) ?? 0
+                    )
                 )
             }
             return GalleryItemInfo.imageItem(
