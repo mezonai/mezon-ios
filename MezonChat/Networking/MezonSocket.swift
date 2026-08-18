@@ -29,6 +29,7 @@ enum SocketEvent {
     case clanDeleted(Mezon_Realtime_ClanDeletedEvent)
     case userClanRemoved(Mezon_Realtime_UserClanRemoved)
     case userClanAdded(Mezon_Realtime_AddClanUserEvent)
+    case clanEventCreated(Mezon_Api_CreateEventRequest)
 
     case voiceJoined(Mezon_Realtime_VoiceJoinedEvent)
     case voiceLeaved(Mezon_Realtime_VoiceLeavedEvent)
@@ -804,6 +805,8 @@ final class MezonSocket: NSObject {
             eventPipe.putNext(.userClanRemoved(m))
         case .addClanUserEvent(let m):
             eventPipe.putNext(.userClanAdded(m))
+        case .clanEventCreated(let m):
+            eventPipe.putNext(.clanEventCreated(m))
         case .voiceJoinedEvent(let m):
             eventPipe.putNext(.voiceJoined(m))
         case .voiceLeavedEvent(let m):

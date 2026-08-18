@@ -717,6 +717,7 @@ final class ChannelListViewController: ViewController {
     private let fetchDisposable = MetaDisposable()
     private let dataDisposable = MetaDisposable()
     private let clanUsersDisposable = MetaDisposable()
+    private let clanEventsDisposable = MetaDisposable()
     private var processedBadgeKeys = Set<String>()
     private var pendingMentionUnreadFloorByClanId: [Int64: [Int64: Int32]] = [:]
 
@@ -908,6 +909,7 @@ final class ChannelListViewController: ViewController {
         fetchDisposable.dispose()
         dataDisposable.dispose()
         clanUsersDisposable.dispose()
+        clanEventsDisposable.dispose()
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -1046,6 +1048,7 @@ final class ChannelListViewController: ViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         refreshShowEmptyCategoriesPreferenceFromCache()
+        refreshChannelEventStatuses()
         reconcileChannelListDataIfNeeded()
     }
 
@@ -1094,6 +1097,20 @@ final class ChannelListViewController: ViewController {
                 self.scheduleCoalescedClanUsersReload()
             })
         )
+        clanEventsDisposable.set(
+            (context.engine.clanData.clanEventsUpdated.signal() |> deliverOnMainQueue).start(next: { [weak self] updatedClanId in
+                guard let self, self.clanId != 0, updatedClanId == self.clanId else { return }
+                self.refreshChannelEventStatuses()
+            })
+        )
+        refreshChannelEventStatuses()
+    }
+
+    private func refreshChannelEventStatuses() {
+        let statuses = clanId == 0
+            ? [:]
+            : context.engine.clanData.channelEventStatuses(clanId: clanId)
+        channelListNode.updateChannelEventStatuses(statuses)
     }
 
     @objc private func handleAccountCurrentUserDidChangeForOnboarding(_ notification: Notification) {
@@ -1282,6 +1299,7 @@ final class ChannelListViewController: ViewController {
     @objc private func handleSocketStatusForChannelBadges(_ notification: Notification) {
         guard let connected = notification.userInfo?["isConnected"] as? Bool, connected else { return }
         guard clanId != 0 else { return }
+        refetchChannelEventsAfterConnectivityRestored()
         refreshChannelListAfterConnectivityRestored()
     }
 
@@ -1296,6 +1314,17 @@ final class ChannelListViewController: ViewController {
         Task { @MainActor [weak self] in
             guard let self, self.clanId != 0 else { return }
             await self.applyChannelBadgeCounts(clanId: self.clanId)
+        }
+    }
+
+    private func refetchChannelEventsAfterConnectivityRestored() {
+        let clanId = self.clanId
+        guard clanId != 0 else { return }
+        Task { @MainActor [weak self] in
+            guard let self, self.clanId == clanId else { return }
+            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
+            guard self.clanId == clanId else { return }
+            await self.context.engine.clanData.refetchEvents(clanId: clanId, token: token)
         }
     }
 
@@ -2799,6 +2828,7 @@ final class ChannelListViewController: ViewController {
         }
         self.clanId = clanId
         self.clanName = clanName
+        refreshChannelEventStatuses()
         emptyChannelRetryCountByClanId[clanId] = 0
         self.showEmptyCategoriesEnabled = loadShowEmptyCategoriesPreference(clanId: clanId)
         errorMessage = nil

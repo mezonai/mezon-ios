@@ -71,6 +71,7 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     private var state: ChannelListState = .empty
     private var threadLookup: [Int64: [Mezon_Api_ChannelDescription]] = [:]
+    private var channelEventStatuses: [Int64: Int32] = [:]
 
     private var cachedRows: [Int: [ChannelListRow]] = [:]
 
@@ -1007,6 +1008,39 @@ final class ChannelListContainerNode: ASDisplayNode {
             }
         }
         CATransaction.commit()
+    }
+
+    func updateChannelEventStatuses(_ statuses: [Int64: Int32]) {
+        guard channelEventStatuses != statuses else { return }
+        let previous = channelEventStatuses
+        let changedChannelIds = Set(previous.keys).union(statuses.keys).filter {
+            previous[$0] != statuses[$0]
+        }
+        channelEventStatuses = statuses
+
+        guard isNodeLoaded, !changedChannelIds.isEmpty else { return }
+        let sectionOffset = leadingTableSectionsCount
+        for categoryIndex in state.categories.indices {
+            let section = categoryIndex + sectionOffset
+            guard section < tableNode.numberOfSections else { continue }
+            let rows = rowsForSection(categoryIndex)
+            guard tableNode.numberOfRows(inSection: section) == rows.count else { continue }
+            for (rowIndex, row) in rows.enumerated() {
+                let channelId = row.channelDesc.channelID
+                guard changedChannelIds.contains(channelId),
+                      let node = tableNode.nodeForRow(at: IndexPath(row: rowIndex, section: section)) else {
+                    continue
+                }
+                switch row {
+                case .channel:
+                    (node as? ChannelItemCellNode)?.applyEventStatus(statuses[channelId])
+                case .thread:
+                    (node as? ThreadItemCellNode)?.applyEventStatus(statuses[channelId])
+                default:
+                    break
+                }
+            }
+        }
     }
 
     private func channelListRowVisuallyChanged(
@@ -2310,16 +2344,28 @@ extension ChannelListContainerNode: ASTableDataSource {
         case .channel(let ch, let inFav):
             let hasVoiceMembers = Self.voiceChannelTypes.contains(ch.type)
                 && !(state.voiceUsersByChannel[ch.channelID] ?? []).isEmpty
+            let eventStatus = channelEventStatuses[ch.channelID]
             return {
-                let node = ChannelItemCellNode(channel: ch, isSelected: isSelected, isVoiceActive: hasVoiceMembers)
+                let node = ChannelItemCellNode(
+                    channel: ch,
+                    isSelected: isSelected,
+                    isVoiceActive: hasVoiceMembers,
+                    eventStatus: eventStatus
+                )
                 node.onLongPress = { [weak self] in
                     self?.interaction.onLongPressChannel(ch)
                 }
                 return node
             }
         case .thread(let ch, let isLast, let inFav):
+            let eventStatus = channelEventStatuses[ch.channelID]
             return {
-                let node = ThreadItemCellNode(channel: ch, isSelected: isSelected, isLast: isLast)
+                let node = ThreadItemCellNode(
+                    channel: ch,
+                    isSelected: isSelected,
+                    isLast: isLast,
+                    eventStatus: eventStatus
+                )
                 node.onLongPress = { [weak self] in
                     self?.interaction.onLongPressChannel(ch)
                 }
@@ -2399,6 +2445,11 @@ extension ChannelListContainerNode: ASTableDataSource {
 extension ChannelListContainerNode: ASTableDelegate {
 
     func tableNode(_ tableNode: ASTableNode, willDisplayRowWith node: ASCellNode) {
+        if let channelNode = node as? ChannelItemCellNode {
+            channelNode.applyEventStatus(channelEventStatuses[channelNode.channelId])
+        } else if let threadNode = node as? ThreadItemCellNode {
+            threadNode.applyEventStatus(channelEventStatuses[threadNode.channelId])
+        }
         guard node.isNodeLoaded else { return }
         var current: UIView? = node.view
         while let v = current, !(v is UITableViewCell) {

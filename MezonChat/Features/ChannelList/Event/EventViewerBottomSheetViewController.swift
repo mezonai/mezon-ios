@@ -450,6 +450,10 @@ final class EventViewerBottomSheetViewController: UIViewController {
             }
         }
 
+        updateLoadingState()
+    }
+
+    private func updateLoadingState() {
         loadingRow.isHidden = !isFetching
         loadingIndicator.isHidden = !isFetching
         if isFetching {
@@ -527,22 +531,11 @@ final class EventViewerBottomSheetViewController: UIViewController {
             guard let self else { return }
             defer {
                 self.isFetching = false
-                self.reloadEvents()
+                self.updateLoadingState()
             }
             guard let token = await self.context.getToken() else { return }
-            do {
-                let response = try await MezonHTTPClient.shared.listEvents(clanId: self.clanId, token: token)
-                self.loadedEvents = response.events
-                if let data = try? response.serializedData() {
-                    self.context.account.postbox.setPreferenceDataSync(
-                        key: PreferencesKeys.clanEvents(clanId: self.clanId),
-                        value: data
-                    )
-                }
-            } catch {
-                await self.context.engine.clanData.refetchEvents(clanId: self.clanId, token: token)
-                self.loadedEvents = self.context.engine.clanData.getClanEvents(clanId: self.clanId)?.events ?? []
-            }
+            await self.context.engine.clanData.refetchEvents(clanId: self.clanId, token: token)
+            self.loadedEvents = self.context.engine.clanData.getClanEvents(clanId: self.clanId)?.events ?? []
         }
     }
 }
