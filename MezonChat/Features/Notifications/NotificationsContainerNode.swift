@@ -2,6 +2,10 @@ import AsyncDisplayKit
 import Combine
 import UIKit
 
+enum NotificationTabCategory {
+    static let topic: Int32 = 4
+}
+
 enum NotificationItem {
     case notification(NotificationRecord)
     case topic(TopicRecord)
@@ -578,7 +582,7 @@ final class NotificationsContainerNode: ASDisplayNode {
     private let tabs: [TabInfo] = [
         TabInfo(title: L(L10n.Notifications.mentions), tag: 1, iconName: "Notifications/mentions"),
         TabInfo(title: L(L10n.Notifications.messages), tag: 2, iconName: "Notifications/messages"),
-        TabInfo(title: L(L10n.Notifications.topic), tag: 4, iconName: "Notifications/topic"),
+        TabInfo(title: L(L10n.Notifications.topic), tag: NotificationTabCategory.topic, iconName: "Notifications/topic"),
         TabInfo(title: L(L10n.Notifications.forYou), tag: 3, iconName: "Notifications/forYou"),
     ]
     private var selectedTabIndex: Int = 0

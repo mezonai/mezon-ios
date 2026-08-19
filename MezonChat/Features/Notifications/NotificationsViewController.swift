@@ -67,7 +67,7 @@ final class NotificationsViewController: ViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         notificationsNode.applyTheme()
-        let clanId = context.currentClanId
+        let clanId = currentCategory == NotificationTabCategory.topic ? resolvedTopicClanId() : context.currentClanId
         if items.isEmpty || clanId != lastLoadedClanId {
             loadedCategories.removeAll()
             Task { await fetchNotifications(category: currentCategory) }
@@ -101,15 +101,22 @@ final class NotificationsViewController: ViewController {
         }
 
         let token = await context.getToken()
-        let clanId = context.currentClanId
+        let clanId = category == NotificationTabCategory.topic ? resolvedTopicClanId() : context.currentClanId
 
         if isLoadMore, token == nil {
             setIsLoadingMore(false)
             return
         }
 
-        if category == 4 {
+        if category == NotificationTabCategory.topic {
             dataDisposable?.dispose()
+            defer { setIsLoading(false) }
+            guard clanId != 0 else {
+                loadedCategories.insert(category)
+                lastLoadedClanId = clanId
+                setItems([])
+                return
+            }
             dataDisposable =
                 (context.engine.data.subscribe(
                     MezonEngine.EngineData.Item.TopicList(clanId: clanId)
@@ -118,7 +125,6 @@ final class NotificationsViewController: ViewController {
                     self.setItems(self.enrichTopicItems(topics))
                 })
 
-            defer { setIsLoading(false) }
             guard let token else { return }
             do {
                 try await context.engine.topicDiscussion.listTopics(
@@ -162,6 +168,21 @@ final class NotificationsViewController: ViewController {
             lastLoadedClanId = clanId
         } catch {
         }
+    }
+
+    private func resolvedTopicClanId() -> Int64 {
+        if context.currentClanId != 0 {
+            return context.currentClanId
+        }
+        let storedClanId = UserDefaults.standard.integer(forKey: "mezon_selectedClanId")
+        if storedClanId != 0 {
+            return Int64(storedClanId)
+        }
+        if let data = context.account.postbox.getPreferenceData(key: PreferencesKeys.selectedClanId),
+           data.count >= 8 {
+            return data.withUnsafeBytes { $0.loadUnaligned(as: Int64.self).littleEndian }
+        }
+        return 0
     }
 
     deinit {
