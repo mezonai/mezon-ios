@@ -1106,27 +1106,17 @@ extension MezonEngine {
 
         private func performRefreshFromNetwork(token: String) async {
             let net = network
-            guard let fetched = (try? await net.listFriends(token: token, limit: 100, state: 0))?.friends else {
+            guard let response = try? await net.listFriends(token: token, limit: 0, state: 0) else {
                 return
             }
-            let cached = allFriends()
-
-            guard !fetched.isEmpty || cached.isEmpty else { return }
-
+            let fetched = response.friends
             var dedupByUserId: [Int64: Mezon_Api_Friend] = [:]
             for friend in fetched {
+                guard friend.hasUser, friend.user.id != 0 else { continue }
                 dedupByUserId[friend.user.id] = friend
             }
 
-            for cachedFriend in cached {
-                guard cachedFriend.hasUser, cachedFriend.user.id != 0 else { continue }
-                if dedupByUserId[cachedFriend.user.id] == nil,
-                   cachedFriend.state != EStateFriend.friend.rawValue {
-                    dedupByUserId[cachedFriend.user.id] = cachedFriend
-                }
-            }
-
-            guard !dedupByUserId.isEmpty || cached.isEmpty else { return }
+            if !fetched.isEmpty && dedupByUserId.isEmpty { return }
 
             let merged = dedupByUserId.values.sorted { lhs, rhs in
                 let lName = lhs.user.displayName.isEmpty ? lhs.user.username : lhs.user.displayName

@@ -1256,6 +1256,7 @@ enum L10n {
         static let addByHintFormat    = "friendRequest.addByHintFormat"
         static let addBySending       = "friendRequest.addBySending"
         static let addBySubmit        = "friendRequest.addBySubmit"
+        static let addByGenericError  = "friendRequest.addByGenericError"
         static let toastSelfAddError  = "friendRequest.toastSelfAddError"
         static let toastBlockedError  = "friendRequest.toastBlockedError"
         static let toastAlreadyFriend = "friendRequest.toastAlreadyFriend"
@@ -2250,6 +2251,7 @@ extension L10n {
         "friendRequest.addByHintFormat": "By the way, your username is %@",
         "friendRequest.addBySending": "Sending...",
         "friendRequest.addBySubmit": "Send Friend Request",
+        "friendRequest.addByGenericError": "Couldn't send friend request. Please try again.",
         "friendRequest.toastSelfAddError": "Hmm, that didn't work. Double-check that the username is correct",
         "friendRequest.toastBlockedError": "You have blocked this user. Please unblock them before sending a friend request.",
         "friendRequest.toastAlreadyFriend": "You're already friends with that user!",
@@ -3499,6 +3501,7 @@ extension L10n {
         "friendRequest.addByHintFormat": "À nhân tiện, tên người dùng của bạn là %@",
         "friendRequest.addBySending": "Đang gửi...",
         "friendRequest.addBySubmit": "Gửi yêu cầu kết bạn",
+        "friendRequest.addByGenericError": "Không thể gửi lời mời kết bạn. Vui lòng thử lại.",
         "friendRequest.toastSelfAddError": "Hmm, có lỗi xảy ra. Vui lòng kiểm tra lại tên người dùng có đúng không",
         "friendRequest.toastBlockedError": "Bạn đã chặn người dùng này. Vui lòng bỏ chặn để gửi lời mời kết bạn.",
         "friendRequest.toastAlreadyFriend": "Bạn đã là bạn bè với người dùng này!",
