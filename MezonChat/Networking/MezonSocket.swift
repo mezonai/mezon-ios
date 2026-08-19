@@ -105,8 +105,11 @@ final class MezonSocket: NSObject {
     private var connectAckTask: Task<Void, Never>?
     private var handshakeRejections = 0
     private let maxHandshakeRejections = 5
-    private var credentialRejected = false
     private let connectAckGraceSeconds: TimeInterval = 1.0
+    private var connectionStartedAt: Date?
+    private var currentEndpoint: (host: String, port: UInt16)?
+    private var lastHandshakeDiagnosticAt: Date?
+    private let handshakeDiagnosticCooldown: TimeInterval = 5 * 60
 
     private var consecutiveApiTimeouts = 0
     private let apiDegradeThreshold = 1
@@ -203,7 +206,6 @@ final class MezonSocket: NSObject {
         connectAckTask = nil
         connectAckPending = false
         if self.token != token || self.wsHostOverride != wsHostOverride {
-            credentialRejected = false
             handshakeRejections = 0
         }
         transport?.close()
@@ -213,13 +215,25 @@ final class MezonSocket: NSObject {
         self.wsHostOverride = wsHostOverride
         if resetReconnectState {
             reconnectAttempts = 0
-            credentialRejected = false
             handshakeRejections = 0
         }
 
         let session = sessionProvider?()
         let endpoint = MezonConfig.abridgedEndpoint(wsHostOverride: wsHostOverride, session: session)
         let credential = token
+        connectionStartedAt = Date()
+        currentEndpoint = endpoint
+        SentryLogger.addBreadcrumb(
+            category: "tcp.connection",
+            message: "connect_start",
+            data: [
+                "host": endpoint.host,
+                "port": Int(endpoint.port),
+                "reconnect_attempt": reconnectAttempts,
+                "network_connected": NetworkMonitor.shared.isConnected,
+                "session_expired": session?.isExpired ?? true
+            ]
+        )
 
         let t = AbridgedTCPTransport()
         transport = t
@@ -229,10 +243,10 @@ final class MezonSocket: NSObject {
                 self.handleTransportOpen(t)
             }
         }
-        t.onClose = { [weak self] wasClean in
+        t.onClose = { [weak self] wasClean, error in
             Task { @MainActor in
                 guard let self, self.transport === t else { return }
-                self.handleTransportClose(t, wasClean: wasClean)
+                self.handleTransportClose(t, wasClean: wasClean, error: error)
             }
         }
         t.onError = { [weak self] error in
@@ -282,7 +296,8 @@ final class MezonSocket: NSObject {
         connectAckTask = nil
         connectAckPending = false
         handshakeRejections = 0
-        credentialRejected = false
+        connectionStartedAt = nil
+        currentEndpoint = nil
         stopHeartbeat()
         cancelLivenessProbe()
         cancelConnectWatchdog()
@@ -615,10 +630,20 @@ final class MezonSocket: NSObject {
         flushPendingSendQueue()
         startHeartbeat()
         armConnectAckGrace(for: t)
+        SentryLogger.addBreadcrumb(
+            category: "tcp.handshake",
+            message: "handshake_written",
+            data: [
+                "elapsed_ms": connectionElapsedMilliseconds(),
+                "network_connected": NetworkMonitor.shared.isConnected
+            ]
+        )
     }
 
-    private func handleTransportClose(_ t: AbridgedTCPTransport, wasClean: Bool) {
+    private func handleTransportClose(_ t: AbridgedTCPTransport, wasClean: Bool, error: Error?) {
         let rejectionSuspect = connectAckPending
+        let elapsedMs = connectionElapsedMilliseconds()
+        let nsError = error.map { $0 as NSError }
         connectAckPending = false
         connectAckTask?.cancel()
         connectAckTask = nil
@@ -631,14 +656,33 @@ final class MezonSocket: NSObject {
         eventPipe.putNext(.disconnected)
         failAllPendingApiRequests(reason: "Socket closed")
 
+        var closeData: [String: Any] = [
+            "before_ack": rejectionSuspect,
+            "elapsed_ms": elapsedMs,
+            "was_clean": wasClean,
+            "network_connected": NetworkMonitor.shared.isConnected
+        ]
+        if let endpoint = currentEndpoint {
+            closeData["host"] = endpoint.host
+            closeData["port"] = Int(endpoint.port)
+        }
+        if let nsError {
+            closeData["error_domain"] = nsError.domain
+            closeData["error_code"] = nsError.code
+            closeData["error_description"] = nsError.localizedDescription
+        }
+        SentryLogger.addBreadcrumb(
+            category: "tcp.connection",
+            message: "connection_closed",
+            data: closeData
+        )
+
         if rejectionSuspect {
             handshakeRejections += 1
-            MezonRPCLog.response("handshake rejected before ack (\(handshakeRejections)/\(maxHandshakeRejections))")
+            MezonRPCLog.response("connection closed before ack (\(handshakeRejections)/\(maxHandshakeRejections))")
             if handshakeRejections >= maxHandshakeRejections {
+                captureHandshakeRejectionDiagnostic(closeData: closeData)
                 handshakeRejections = 0
-                credentialRejected = true
-                NotificationCenter.default.post(name: Notification.Name("MezonSessionExpired"), object: nil)
-                return
             }
         }
         scheduleReconnect()
@@ -651,17 +695,24 @@ final class MezonSocket: NSObject {
         connectAckTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: graceNanos)
             guard !Task.isCancelled, let self, self.transport === t, self.isConnected else { return }
-            self.confirmConnectAck()
+            self.confirmConnectAck(source: "grace_elapsed")
         }
     }
 
-    private func confirmConnectAck() {
+    private func confirmConnectAck(source: String) {
         guard connectAckPending else { return }
         connectAckPending = false
         handshakeRejections = 0
-        credentialRejected = false
         connectAckTask?.cancel()
         connectAckTask = nil
+        SentryLogger.addBreadcrumb(
+            category: "tcp.handshake",
+            message: "ack_window_closed",
+            data: [
+                "source": source,
+                "elapsed_ms": connectionElapsedMilliseconds()
+            ]
+        )
     }
 
     private func handlePong(cid: UInt16) {
@@ -670,11 +721,11 @@ final class MezonSocket: NSObject {
         MezonRPCLog.response("[ping-pong] ← pong cid=\(cid) (rtt=\(rtt)ms)")
         lastPongAt = now
         cancelLivenessProbe()
-        confirmConnectAck()
+        confirmConnectAck(source: "pong")
     }
 
     private func handleTransportMessage(cid: UInt32, code: UInt32, payload: Data) {
-        confirmConnectAck()
+        confirmConnectAck(source: "server_frame")
         if cid != 0 {
             guard let pending = pendingApiRequests.removeValue(forKey: cid) else {
                 MezonRPCLog.response("frame FIN cid=\(cid) code=\(code) totalBytes=\(payload.count) (no pending)")
@@ -903,7 +954,6 @@ final class MezonSocket: NSObject {
     }
 
     private func scheduleReconnect() {
-        guard !credentialRejected else { return }
         guard token != nil || tokenProvider != nil else { return }
         guard NetworkMonitor.shared.isConnected else {
             reconnectWorkItem?.cancel()
@@ -922,12 +972,51 @@ final class MezonSocket: NSObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
     }
 
+    private func connectionElapsedMilliseconds() -> Int {
+        guard let connectionStartedAt else { return -1 }
+        return max(0, Int(Date().timeIntervalSince(connectionStartedAt) * 1_000))
+    }
+
+    private func captureHandshakeRejectionDiagnostic(closeData: [String: Any]) {
+        let now = Date()
+        if let lastHandshakeDiagnosticAt,
+           now.timeIntervalSince(lastHandshakeDiagnosticAt) < handshakeDiagnosticCooldown {
+            return
+        }
+        lastHandshakeDiagnosticAt = now
+
+        var extras = closeData
+        let session = sessionProvider?()
+        extras["rejection_count"] = maxHandshakeRejections
+        extras["reconnect_attempt"] = reconnectAttempts
+        extras["session_expired"] = session?.isExpired ?? true
+        extras["access_token_ttl_seconds"] = session.map {
+            Int($0.expiresAt.timeIntervalSince(now))
+        } ?? -1
+        SentryLogger.capture(
+            message: "tcp.handshake_rejection_threshold",
+            extras: extras
+        )
+    }
+
     private func performReconnect(useTokenRefresh: Bool = false) async {
         var tokenToUse = token
         if useTokenRefresh, let provider = tokenProvider {
             do {
                 tokenToUse = try await provider()
-            } catch is SessionError {
+            } catch let error as SessionError {
+                let session = sessionProvider?()
+                SentryLogger.capture(
+                    message: "session.expired_confirmed",
+                    extras: [
+                        "source": "socket_token_provider",
+                        "session_error": error.localizedDescription,
+                        "session_expired": session?.isExpired ?? true,
+                        "access_token_ttl_seconds": session.map {
+                            Int($0.expiresAt.timeIntervalSinceNow)
+                        } ?? -1
+                    ]
+                )
                 NotificationCenter.default.post(name: Notification.Name("MezonSessionExpired"), object: nil)
                 return
             } catch {

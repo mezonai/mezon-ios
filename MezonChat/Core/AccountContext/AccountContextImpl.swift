@@ -555,6 +555,8 @@ final class AccountContextImpl: AccountContext {
         }
         lastRecoverTime = now
 
+        engine.friendsData.scheduleRefreshFromSocket()
+
         let needsRefresh = session?.isExpired ?? true
 
         if needsRefresh {
@@ -1502,6 +1504,28 @@ final class AccountContextImpl: AccountContext {
         }
     }
 
+    private static func notificationSuggestsFriendRelation(_ noti: Mezon_Api_Notification) -> Bool {
+        var haystacks: [String] = [noti.subject]
+        if let contentText = String(data: noti.content, encoding: .utf8) {
+            haystacks.append(contentText)
+        }
+        let needles = [
+            "friend_request", "friend-request", "friend request",
+            "add_friend", "add-friend", "add friend", "addfriend", "request_friend",
+            "sent you a friend request", "add you as a friend",
+            "wants to add you", "wants to be your friend",
+            "loi moi ket ban", "muon ket ban", "ket ban"
+        ]
+        for haystack in haystacks {
+            let normalized = haystack
+                .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+                .lowercased()
+            guard !normalized.isEmpty else { continue }
+            if needles.contains(where: { normalized.contains($0) }) { return true }
+        }
+        return false
+    }
+
     private func handleSocketNotification(_ noti: Mezon_Api_Notification) {
         if noti.code == -3 { 
             var senderName = ""
@@ -1523,6 +1547,11 @@ final class AccountContextImpl: AccountContext {
             }
             let message = String(format: L(L10n.FriendRequest.toastAcceptSuccess), senderName)
             Toast.success(message)
+            engine.friendsData.scheduleRefreshFromSocket()
+            return
+        }
+
+        if noti.channelID == 0, Self.notificationSuggestsFriendRelation(noti) {
             engine.friendsData.scheduleRefreshFromSocket()
             return
         }

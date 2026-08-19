@@ -537,6 +537,7 @@ final class ChatViewController: ViewController {
     private var pendingScrollToBottom = false
     private var lastMarkedAsReadMessageId: Int64?
     private var pendingMarkAsRead = false
+    private var didMarkChannelAsReadForCurrentAppearance = false
     private var nextFetchPrefersHTTPFirst = false
     private var isCatchingUpAfterReconnect = false
     private var reconnectCatchUpTask: Task<Void, Never>?
@@ -1353,11 +1354,13 @@ final class ChatViewController: ViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        didMarkChannelAsReadForCurrentAppearance = false
         if topicId == 0 {
             context.currentClanId = clanId
             context.currentChannel = channel
             ActiveChannelTracker.currentChannelId = channel.channelID
         }
+        markChannelAsReadOnEntryIfPossible()
         refreshMemberOnboardingMissionBar()
         if wasCoveredByPushedController {
             wasCoveredByPushedController = false
@@ -1723,6 +1726,7 @@ final class ChatViewController: ViewController {
         if newLastId != oldLastId { lastFetchedNewerMessageId = nil }
         schedulePendingSendingFeedbackRefreshIfNeeded()
         needsReloadPipe.putNext(())
+        markChannelAsReadOnEntryIfPossible()
 
         if let jumpId = pendingJumpToMessageId {
             pendingJumpToMessageId = nil
@@ -2230,9 +2234,18 @@ final class ChatViewController: ViewController {
         metadataOnlyPipe.putNext(())
     }
 
-    private func markChannelAsRead() {
-        guard !messages.isEmpty else { return }
+    private func markChannelAsReadOnEntryIfPossible() {
+        guard !didMarkChannelAsReadForCurrentAppearance else { return }
+        guard topicId == 0, pendingJumpToMessageId == nil else { return }
+        guard viewIfLoaded?.window != nil,
+              UIApplication.shared.applicationState == .active else { return }
+        guard newestServerMessageId() != nil
+            || channel.hasLastSentMessage && channel.lastSentMessage.id != 0 else { return }
+        didMarkChannelAsReadForCurrentAppearance = true
+        markChannelAsRead()
+    }
 
+    private func markChannelAsRead() {
         var latestServerMessageId: Int64?
         for display in messages.reversed() where !display.isWelcome {
             if let id = Int64(display.message.id), id != 0 {

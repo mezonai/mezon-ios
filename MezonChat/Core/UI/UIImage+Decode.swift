@@ -35,6 +35,83 @@ extension UIImage {
         return UIImage(cgImage: decoded, scale: image.scale, orientation: image.imageOrientation)
     }
 
+    static func avatarPreviewImage(from data: Data, maxPixelSize: Int) -> UIImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              CGImageSourceGetCount(source) > 0,
+              let cgImage = avatarThumbnail(
+                from: source,
+                at: 0,
+                maxPixelSize: maxPixelSize
+              ) else {
+            return nil
+        }
+        return UIImage(cgImage: cgImage)
+    }
+
+    static func optimizedAvatarImage(from data: Data, maxPixelSize: Int) -> UIImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let count = CGImageSourceGetCount(source)
+        guard count > 0 else { return nil }
+
+        if count == 1 {
+            guard let cgImage = avatarThumbnail(
+                from: source,
+                at: 0,
+                maxPixelSize: maxPixelSize
+            ) else { return nil }
+            return UIImage(cgImage: cgImage)
+        }
+
+        var frames: [UIImage] = []
+        frames.reserveCapacity(count)
+        var duration: Double = 0
+
+        for index in 0..<count {
+            guard let cgImage = avatarThumbnail(
+                from: source,
+                at: index,
+                maxPixelSize: maxPixelSize
+            ) else { continue }
+            frames.append(UIImage(cgImage: cgImage))
+            duration += optimizedAvatarFrameDuration(source: source, index: index)
+        }
+
+        guard frames.count > 1 else { return frames.first }
+        return UIImage.animatedImage(with: frames, duration: duration)
+    }
+
+    static func optimizedAvatarCacheData(from image: UIImage) -> Data? {
+        guard let frames = image.images, frames.count > 1 else { return nil }
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            data,
+            "com.compuserve.gif" as CFString,
+            frames.count,
+            nil
+        ) else { return nil }
+
+        let gifProperties: NSDictionary = [
+            kCGImagePropertyGIFDictionary: [
+                kCGImagePropertyGIFLoopCount: 0,
+            ],
+        ]
+        CGImageDestinationSetProperties(destination, gifProperties)
+
+        let frameDelay = max(image.duration / Double(frames.count), 0.02)
+        let frameProperties: NSDictionary = [
+            kCGImagePropertyGIFDictionary: [
+                kCGImagePropertyGIFDelayTime: frameDelay,
+                kCGImagePropertyGIFUnclampedDelayTime: frameDelay,
+            ],
+        ]
+        for frame in frames {
+            guard let cgImage = frame.cgImage else { continue }
+            CGImageDestinationAddImage(destination, cgImage, frameProperties)
+        }
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return data as Data
+    }
+
     private static let heicTypeHint = "public.heic" as CFString
 
     private static func decodeWithImageIO(_ data: Data) -> UIImage? {
@@ -91,6 +168,37 @@ extension UIImage {
 
         guard images.count > 1 else { return nil }
         return UIImage.animatedImage(with: images, duration: duration)
+    }
+
+    private static func avatarThumbnail(
+        from source: CGImageSource,
+        at index: Int,
+        maxPixelSize: Int
+    ) -> CGImage? {
+        let options: NSDictionary = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true as NSNumber,
+            kCGImageSourceCreateThumbnailWithTransform: true as NSNumber,
+            kCGImageSourceShouldCacheImmediately: true as NSNumber,
+            kCGImageSourceThumbnailMaxPixelSize: max(maxPixelSize, 1) as NSNumber,
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, index, options as CFDictionary)
+    }
+
+    private static func optimizedAvatarFrameDuration(source: CGImageSource, index: Int) -> Double {
+        guard let props = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [String: Any] else {
+            return 0.1
+        }
+        let delay: Double
+        if let webp = props["{WebP}"] as? [String: Any],
+           let value = webp["DelayTime"] as? Double {
+            delay = value
+        } else if let gif = props["{GIF}"] as? [String: Any],
+                  let value = gif["DelayTime"] as? Double {
+            delay = value
+        } else {
+            delay = 0.1
+        }
+        return max(delay, 0.02)
     }
 
     private static func imageOrientation(from source: CGImageSource) -> UIImage.Orientation {

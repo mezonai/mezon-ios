@@ -1966,7 +1966,9 @@ final class MezonHTTPClient {
         cursor: String = ""
     ) async throws -> Mezon_Api_FriendList {
         var req = Mezon_Api_ListFriendsRequest()
-        req.limit = min(max(limit, 1), 100)
+        if limit > 0 {
+            req.limit = min(limit, 100)
+        }
         req.state = state
         req.cursor = cursor
         let response: Mezon_Api_FriendList = try await postProto(
