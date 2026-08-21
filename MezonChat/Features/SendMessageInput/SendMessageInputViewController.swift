@@ -1965,7 +1965,7 @@ final class SendMessageInputViewController: UIViewController {
             || srcLower.hasSuffix(".mp3")
             || srcLower.hasSuffix(".wav")
             || srcLower.hasSuffix(".m4a")
-        att.filetype = isAudio ? "audio/mpeg" : "image/gif"
+        att.filetype = isAudio ? "audio/mpeg" : "sticker"
         att.filename = "\(sticker.id)"
 
         sendChannelMessageWithAttachments(text: "", attachments: [att])
@@ -1979,7 +1979,7 @@ final class SendMessageInputViewController: UIViewController {
         }
         var att = Mezon_Api_MessageAttachment()
         att.url = url
-        att.filetype = "image/gif"
+        att.filetype = "sticker"
         sendChannelMessageWithAttachments(text: "", attachments: [att])
     }
 
@@ -5495,7 +5495,7 @@ final class SendMessageInputViewController: UIViewController {
                 var att = Mezon_Api_MessageAttachment()
                 att.filename = originalFilename
                 att.url = uploaded.cdnURL
-                att.filetype = filetype
+                att.filetype = AttachmentTypeClassifier.uploadType(for: filetype)
                 att.size = Int32(size)
                 att.width = Int32(width)
                 att.height = Int32(height)
@@ -5529,7 +5529,7 @@ final class SendMessageInputViewController: UIViewController {
             var att = Mezon_Api_MessageAttachment()
             att.filename = originalFilename
             att.url = cdnURL
-            att.filetype = filetype
+            att.filetype = AttachmentTypeClassifier.uploadType(for: filetype)
             att.size = Int32(fileData.count)
             att.width = Int32(width)
             att.height = Int32(height)
@@ -5567,7 +5567,7 @@ final class SendMessageInputViewController: UIViewController {
             var att = Mezon_Api_MessageAttachment()
             att.filename = file.filename
             att.url = uploaded.cdnURL
-            att.filetype = file.filetype
+            att.filetype = AttachmentTypeClassifier.uploadType(for: file.filetype)
             att.size = Int32(size)
             attachments.append(att)
 

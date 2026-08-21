@@ -51,14 +51,15 @@ enum ImgproxyURL {
         from sourceURL: String,
         width: Int,
         height: Int,
-        resizeType: String = "fit"
+        resizeType: String = "fit",
+        forceProxy: Bool = false
     ) -> String {
         let resolvedSourceURL = secureURLString(from: sourceURL)
         guard !resolvedSourceURL.isEmpty else { return resolvedSourceURL }
         guard cdnHosts.contains(where: { resolvedSourceURL.contains($0) }) else {
             return resolvedSourceURL
         }
-        if shouldSkipProxy(resolvedSourceURL) {
+        if !forceProxy && shouldSkipProxy(resolvedSourceURL) {
             return resolvedSourceURL
         }
         let w = max(1, width)
