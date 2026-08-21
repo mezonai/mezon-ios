@@ -634,6 +634,31 @@ enum L10n {
             static let previewTypeSticker = "clan.setting.stickers.previewTypeSticker"
         }
 
+        enum SoundStickers {
+            static let duplicateName = "clan.setting.soundStickers.duplicateName"
+            static let updateSuccess = "clan.setting.soundStickers.updateSuccess"
+            static let deleteConfirmTitle = "clan.setting.soundStickers.deleteConfirmTitle"
+            static let deleteConfirmDesc = "clan.setting.soundStickers.deleteConfirmDesc"
+            static let deleteSuccess = "clan.setting.soundStickers.deleteSuccess"
+            static let empty = "clan.setting.soundStickers.empty"
+            static let createSuccess = "clan.setting.soundStickers.createSuccess"
+            static let validateName = "clan.setting.soundStickers.validateName"
+            static let errorUpdating = "clan.setting.soundStickers.errorUpdating"
+            static let uploadButton = "clan.setting.soundStickers.uploadButton"
+            static let uploadRequirementsTitle = "clan.setting.soundStickers.uploadRequirementsTitle"
+            static let uploadRequirement1 = "clan.setting.soundStickers.uploadRequirement1"
+            static let uploadRequirement2 = "clan.setting.soundStickers.uploadRequirement2"
+            static let uploadRequirement3 = "clan.setting.soundStickers.uploadRequirement3"
+            static let uploadFileTooLarge = "clan.setting.soundStickers.uploadFileTooLarge"
+            static let invalidFileType = "clan.setting.soundStickers.invalidFileType"
+            static let durationTooLong = "clan.setting.soundStickers.durationTooLong"
+            static let previewTitle = "clan.setting.soundStickers.previewTitle"
+            static let previewNameLabel = "clan.setting.soundStickers.previewNameLabel"
+            static let previewUpload = "clan.setting.soundStickers.previewUpload"
+            static let previewLengthError = "clan.setting.soundStickers.previewLengthError"
+            static let previewTypeSound = "clan.setting.soundStickers.previewTypeSound"
+        }
+
         enum Overview {
             static let title = "clan.setting.overview.title"
             static let save = "clan.setting.overview.save"
@@ -1820,6 +1845,28 @@ extension L10n {
         "clan.setting.stickers.previewUpload": "Upload",
         "clan.setting.stickers.previewLengthError": "%@ name must be between %d and %d characters, only letters, numbers, _ and - are allowed.",
         "clan.setting.stickers.previewTypeSticker": "Sticker",
+        "clan.setting.soundStickers.duplicateName": "Sound effect name already exists",
+        "clan.setting.soundStickers.updateSuccess": "Sound effect updated successfully",
+        "clan.setting.soundStickers.deleteConfirmTitle": "Delete Sound Effect",
+        "clan.setting.soundStickers.deleteConfirmDesc": "Are you sure you want to delete this sound effect?",
+        "clan.setting.soundStickers.deleteSuccess": "Sound effect deleted successfully",
+        "clan.setting.soundStickers.empty": "No sound effects available",
+        "clan.setting.soundStickers.createSuccess": "Sound effect created successfully",
+        "clan.setting.soundStickers.validateName": "Length must be %d - %d characters. Only letters, numbers, _ and - are allowed.",
+        "clan.setting.soundStickers.errorUpdating": "Failed to update sound effect. Please try again.",
+        "clan.setting.soundStickers.uploadButton": "Upload Sound Effect",
+        "clan.setting.soundStickers.uploadRequirementsTitle": "Upload Requirements",
+        "clan.setting.soundStickers.uploadRequirement1": "Only accepts .mp3, .wav files, maximum 1MB.",
+        "clan.setting.soundStickers.uploadRequirement2": "Use memorable names for sound effects.",
+        "clan.setting.soundStickers.uploadRequirement3": "Sound effects will be used in clan notifications or events.",
+        "clan.setting.soundStickers.uploadFileTooLarge": "Audio must not be larger than 1MB.",
+        "clan.setting.soundStickers.invalidFileType": "Only MP3, MPEG, and WAV audio files are supported.",
+        "clan.setting.soundStickers.durationTooLong": "Audio must not be longer than 10 seconds.",
+        "clan.setting.soundStickers.previewTitle": "Sound Effect Preview",
+        "clan.setting.soundStickers.previewNameLabel": "Sound Effect Name",
+        "clan.setting.soundStickers.previewUpload": "Upload",
+        "clan.setting.soundStickers.previewLengthError": "%@ name must be between %d and %d characters, only letters, numbers, _ and - are allowed.",
+        "clan.setting.soundStickers.previewTypeSound": "Sound effect",
         "clan.setting.emojis.duplicateName": "Emoji name already exists",
         "clan.setting.emojis.updateSuccess": "Emoji updated successfully",
         "clan.setting.emojis.deleteConfirmTitle": "Delete Emoji",
@@ -3073,6 +3120,28 @@ extension L10n {
         "clan.setting.stickers.previewUpload": "Tải lên",
         "clan.setting.stickers.previewLengthError": "Tên %@ phải từ %d đến %d kí tự, chỉ bao gồm chữ cái, chữ số, _ và -.",
         "clan.setting.stickers.previewTypeSticker": "nhãn dán",
+        "clan.setting.soundStickers.duplicateName": "Tên hiệu ứng âm thanh đã tồn tại",
+        "clan.setting.soundStickers.updateSuccess": "Cập nhật hiệu ứng âm thanh thành công",
+        "clan.setting.soundStickers.deleteConfirmTitle": "Xoá hiệu ứng âm thanh",
+        "clan.setting.soundStickers.deleteConfirmDesc": "Bạn có chắc muốn xoá hiệu ứng âm thanh này?",
+        "clan.setting.soundStickers.deleteSuccess": "Đã xoá hiệu ứng âm thanh thành công",
+        "clan.setting.soundStickers.empty": "Chưa có hiệu ứng âm thanh nào",
+        "clan.setting.soundStickers.createSuccess": "Tạo hiệu ứng âm thanh thành công",
+        "clan.setting.soundStickers.validateName": "Độ dài phải từ %d - %d ký tự. Chỉ cho phép chữ, số, _ và -.",
+        "clan.setting.soundStickers.errorUpdating": "Cập nhật hiệu ứng âm thanh thất bại. Vui lòng thử lại.",
+        "clan.setting.soundStickers.uploadButton": "Tải lên hiệu ứng âm thanh",
+        "clan.setting.soundStickers.uploadRequirementsTitle": "Yêu cầu tải lên",
+        "clan.setting.soundStickers.uploadRequirement1": "Chỉ chấp nhận tệp .mp3, .wav, dung lượng tối đa 1MB.",
+        "clan.setting.soundStickers.uploadRequirement2": "Hãy sử dụng tên dễ nhớ cho hiệu ứng âm thanh.",
+        "clan.setting.soundStickers.uploadRequirement3": "Hiệu ứng âm thanh sẽ được dùng trong thông báo hoặc sự kiện của clan.",
+        "clan.setting.soundStickers.uploadFileTooLarge": "Tệp âm thanh không được lớn hơn 1MB.",
+        "clan.setting.soundStickers.invalidFileType": "Chỉ hỗ trợ tệp âm thanh MP3, MPEG và WAV.",
+        "clan.setting.soundStickers.durationTooLong": "Tệp âm thanh không được dài quá 10 giây.",
+        "clan.setting.soundStickers.previewTitle": "Xem trước hiệu ứng âm thanh",
+        "clan.setting.soundStickers.previewNameLabel": "Tên hiệu ứng âm thanh",
+        "clan.setting.soundStickers.previewUpload": "Tải lên",
+        "clan.setting.soundStickers.previewLengthError": "Tên %@ phải từ %d đến %d kí tự, chỉ bao gồm chữ cái, chữ số, _ và -.",
+        "clan.setting.soundStickers.previewTypeSound": "hiệu ứng âm thanh",
         "clan.setting.emojis.duplicateName": "Tên biểu cảm đã tồn tại",
         "clan.setting.emojis.updateSuccess": "Cập nhật biểu cảm thành công",
         "clan.setting.emojis.deleteConfirmTitle": "Xoá biểu cảm",
