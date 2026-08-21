@@ -1200,7 +1200,11 @@ enum L10n {
     enum ChannelDetail {
         static let members = "channelDetail.members"
         static let media   = "channelDetail.media"
+        static let images  = "channelDetail.images"
+        static let videos  = "channelDetail.videos"
         static let files   = "channelDetail.files"
+        static let docs    = "channelDetail.docs"
+        static let audios  = "channelDetail.audios"
         static let pins    = "channelDetail.pins"
         static let canvas  = "channelDetail.canvas"
         static let online  = "channelDetail.online"
@@ -2483,7 +2487,11 @@ extension L10n {
 
         "channelDetail.members": "Members",
         "channelDetail.media":   "Media",
+        "channelDetail.images":  "Images",
+        "channelDetail.videos":  "Videos",
         "channelDetail.files":   "Files",
+        "channelDetail.docs":    "Docs",
+        "channelDetail.audios":  "Audios",
         "channelDetail.pins":    "Pins",
         "channelDetail.canvas":  "Canvas",
         "channelDetail.online":  "Online",
@@ -3734,7 +3742,11 @@ extension L10n {
 
         "channelDetail.members": "Thành viên",
         "channelDetail.media":   "Phương tiện",
+        "channelDetail.images":  "Hình ảnh",
+        "channelDetail.videos":  "Video",
         "channelDetail.files":   "Tệp",
+        "channelDetail.docs":    "Tài liệu",
+        "channelDetail.audios":  "Âm thanh",
         "channelDetail.pins":    "Ghim",
         "channelDetail.canvas":  "Canvas",
         "channelDetail.online":  "Trực tuyến",

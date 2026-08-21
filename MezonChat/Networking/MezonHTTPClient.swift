@@ -1687,9 +1687,10 @@ final class MezonHTTPClient {
         token: String,
         preferHTTPFirst: Bool = false
     ) async throws -> Mezon_Api_UploadAttachment {
+        let uploadType = AttachmentTypeClassifier.uploadType(for: filetype)
         var req = Mezon_Api_UploadAttachmentRequest()
         req.filename = filename
-        req.filetype = filetype
+        req.filetype = uploadType
         req.size = Int32(size)
         req.width = Int32(width)
         req.height = Int32(height)
@@ -1728,9 +1729,10 @@ final class MezonHTTPClient {
         token: String,
         preferHTTPFirst: Bool = false
     ) async throws -> Mezon_Api_MultipartUploadAttachment {
+        let uploadType = AttachmentTypeClassifier.uploadType(for: filetype)
         var req = Mezon_Api_UploadAttachmentRequest()
         req.filename = filename
-        req.filetype = filetype
+        req.filetype = uploadType
         req.size = Int32(size)
         req.width = Int32(width)
         req.height = Int32(height)

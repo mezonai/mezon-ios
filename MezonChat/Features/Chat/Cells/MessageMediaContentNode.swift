@@ -679,6 +679,7 @@ final class MessageMediaContentNode: ASDisplayNode {
 
     private static func isAnimatedImageAttachment(_ attachment: ParsedAttachment) -> Bool {
         if isGifImageAttachment(attachment) { return true }
+        if attachment.isSticker { return true }
         let filetype = attachment.filetype
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
@@ -702,7 +703,16 @@ final class MessageMediaContentNode: ASDisplayNode {
 
     private func loadStickerImage(media: ParsedAttachment, into node: ASDisplayNode) {
         guard !media.isPresignPending else { return }
-        let url = ImgproxyURL.secureURLString(from: media.url)
+        let sourceURL = ImgproxyURL.secureURLString(from: media.url)
+        let url = media.isSticker
+            ? ImgproxyURL.attachmentURL(
+                from: sourceURL,
+                width: 400,
+                height: 400,
+                resizeType: "fit",
+                forceProxy: true
+            )
+            : sourceURL
         guard let imageURL = URL(string: url), !url.isEmpty else { return }
         let isAnimatedImage = Self.isAnimatedImageAttachment(media)
 

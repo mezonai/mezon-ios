@@ -984,7 +984,7 @@ final class AttachmentUploadCoordinator {
                 var att = Mezon_Api_MessageAttachment()
                 att.filename = file.filename
                 att.url = cdnURL
-                att.filetype = file.filetype
+                att.filetype = AttachmentTypeClassifier.uploadType(for: file.filetype)
                 att.size = Int32(size)
                 session.fileTracks.append(FileUploadTrack(
                     file: file, presignKey: presignKey, attachment: att, pending: pending))
@@ -1043,7 +1043,7 @@ final class AttachmentUploadCoordinator {
         do {
             var att = Mezon_Api_MessageAttachment()
             att.filename = originalFilename
-            att.filetype = filetype
+            att.filetype = AttachmentTypeClassifier.uploadType(for: filetype)
             att.width = Int32(width)
             att.height = Int32(height)
             var pendingUploads: [PendingMinIOUpload] = []
@@ -1076,7 +1076,7 @@ final class AttachmentUploadCoordinator {
                     width: width, height: height, token: token)
                 let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
                 att.filename = payload.filename
-                att.filetype = payload.filetype
+                att.filetype = AttachmentTypeClassifier.uploadType(for: payload.filetype)
                 att.url = cdnURL
                 att.size = Int32(payload.data.count)
                 pendingUploads.append(PendingMinIOUpload(

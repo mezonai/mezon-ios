@@ -31,23 +31,23 @@ struct ParsedAttachment: Equatable {
     var uploadShowsPercent: Bool = false
 
     var isImage: Bool {
-        filetype.hasPrefix("image/") || filetype == "sticker"
+        AttachmentTypeClassifier.isImage(filetype) || AttachmentTypeClassifier.isSticker(filetype)
             || ["jpg", "jpeg", "png", "gif", "webp", "heic"].contains(fileExtension)
             || ["jpg", "jpeg", "png", "gif", "webp", "heic"].contains(urlExtension)
     }
 
     var isVideo: Bool {
-        filetype.hasPrefix("video/") 
+        AttachmentTypeClassifier.isVideo(filetype)
             || ["mp4", "mov", "m4v", "webm", "mkv", "avi", "flv", "wmv", "ogv", "ogg", "3gp", "3g2", "mpg", "mpeg", "ts", "vob"].contains(fileExtension)
             || ["mp4", "mov", "m4v", "webm", "mkv", "avi", "flv", "wmv", "ogv", "ogg", "3gp", "3g2", "mpg", "mpeg", "ts", "vob"].contains(urlExtension)
     }
 
-    var isSticker: Bool { filetype == "sticker" }
+    var isSticker: Bool { AttachmentTypeClassifier.isSticker(filetype) }
 
     var isMedia: Bool { isImage || isVideo }
 
     var isAudio: Bool {
-        if filetype.hasPrefix("audio/") { return true }
+        if AttachmentTypeClassifier.isAudio(filetype) { return true }
         return ["mp3", "m4a", "aac", "wav", "ogg", "flac", "opus"].contains(fileExtension)
             || ["mp3", "m4a", "aac", "wav", "ogg", "flac", "opus"].contains(urlExtension)
     }
@@ -6408,9 +6408,9 @@ final class ChatViewController: ViewController {
     }
 
     private static func isVisualChannelAttachment(_ attachment: Mezon_Api_ChannelAttachment) -> Bool {
-        let filetype = attachment.filetype.lowercased()
-        if filetype == "sticker" || attachment.url.contains("/stickers") { return false }
-        if filetype.hasPrefix("image/") || filetype.hasPrefix("video/") { return true }
+        if AttachmentTypeClassifier.isSticker(attachment.filetype) || attachment.url.contains("/stickers") { return false }
+        if AttachmentTypeClassifier.isImage(attachment.filetype)
+            || AttachmentTypeClassifier.isVideo(attachment.filetype) { return true }
         let filenameExtension = (attachment.filename as NSString).pathExtension.lowercased()
         let urlExtension = URL(string: attachment.url)?.pathExtension.lowercased() ?? ""
         let imageExtensions: Set<String> = ["jpg", "jpeg", "png", "gif", "webp", "heic"]
@@ -6422,8 +6422,7 @@ final class ChatViewController: ViewController {
     }
 
     private static func isVideoChannelAttachment(_ attachment: Mezon_Api_ChannelAttachment) -> Bool {
-        let filetype = attachment.filetype.lowercased()
-        if filetype.hasPrefix("video/") { return true }
+        if AttachmentTypeClassifier.isVideo(attachment.filetype) { return true }
         let filenameExtension = (attachment.filename as NSString).pathExtension.lowercased()
         let urlExtension = URL(string: attachment.url)?.pathExtension.lowercased() ?? ""
         return ["mp4", "mov", "m4v", "webm"].contains(filenameExtension)

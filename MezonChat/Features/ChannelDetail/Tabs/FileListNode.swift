@@ -9,6 +9,20 @@ private struct FileDaySection {
     let items: [Mezon_Api_ChannelAttachment]
 }
 
+private enum ChannelFilesType: String, CaseIterable {
+    case doc
+    case audio
+}
+
+private struct ChannelFilesState {
+    var attachments: [Mezon_Api_ChannelAttachment] = []
+    var didLoad = false
+    var isFetching = false
+    var refreshPending = false
+    var showsLoading = false
+    var loadFailed = false
+}
+
 @MainActor
 final class FileListNode: ASDisplayNode {
 
@@ -17,13 +31,13 @@ final class FileListNode: ASDisplayNode {
     private let channelId: Int64
     private let channelType: Int32
 
-    private var rawAttachments: [Mezon_Api_ChannelAttachment] = []
+    private var filesStateByType: [ChannelFilesType: ChannelFilesState] = [:]
+    private var selectedFilesType: ChannelFilesType = .doc
     private var sections: [FileDaySection] = []
     private var searchQuery: String = ""
-    private var isLoading = false
-    private var loadFailed = false
-    private var filesTabActivated = false
 
+    private let filesTypeControl: UISegmentedControl
+    private let filesTypeControlNode: ASDisplayNode
     private let tableNode = ASTableNode()
     private let loadingNode: ASDisplayNode
 
@@ -33,6 +47,12 @@ final class FileListNode: ASDisplayNode {
         self.channelId = channelId
         self.channelType = channelType
 
+        let filesTypeControl = UISegmentedControl(items: [
+            L(L10n.ChannelDetail.docs),
+            L(L10n.ChannelDetail.audios),
+        ])
+        self.filesTypeControl = filesTypeControl
+        self.filesTypeControlNode = ASDisplayNode(viewBlock: { filesTypeControl })
         self.loadingNode = ASDisplayNode(viewBlock: {
             let v = UIActivityIndicatorView(style: .large)
             v.color = UIColor.theme.text
@@ -42,6 +62,18 @@ final class FileListNode: ASDisplayNode {
 
         super.init()
         automaticallyManagesSubnodes = true
+
+        filesTypeControl.selectedSegmentIndex = 0
+        filesTypeControl.addTarget(
+            self, action: #selector(filesTypeChanged(_:)), for: .valueChanged)
+        filesTypeControl.selectedSegmentTintColor = UIColor.theme.bgViolet
+        filesTypeControl.backgroundColor = UIColor.theme.secondary
+        let segmentFont = UIFont.systemFont(ofSize: 14.sf, weight: .semibold)
+        filesTypeControl.setTitleTextAttributes(
+            [.font: segmentFont, .foregroundColor: UIColor.theme.text], for: .normal)
+        filesTypeControl.setTitleTextAttributes(
+            [.font: segmentFont, .foregroundColor: UIColor.white], for: .selected)
+        filesTypeControlNode.style.height = ASDimension(unit: .points, value: 40.sf)
 
         tableNode.dataSource = self
         tableNode.delegate = self
@@ -84,15 +116,13 @@ final class FileListNode: ASDisplayNode {
         
         if notiChannelId == self.channelId || (notiTopicId != 0 && notiTopicId == self.channelId) {
             DispatchQueue.main.async {
-                self.fetchFiles(showLoading: false)
+                self.refreshFilesAfterMessageChange()
             }
         }
     }
 
     func loadTabDataIfNeeded() {
-        guard !filesTabActivated else { return }
-        filesTabActivated = true
-        fetchFiles()
+        loadFilesIfNeeded(for: selectedFilesType)
     }
 
     override func didLoad() {
@@ -115,6 +145,16 @@ final class FileListNode: ASDisplayNode {
     @objc private func searchFieldChanged(_ field: UITextField) {
         searchQuery = field.text ?? ""
         rebuildSectionsAndReload()
+    }
+
+    @objc private func filesTypeChanged(_ control: UISegmentedControl) {
+        let filesType: ChannelFilesType = control.selectedSegmentIndex == 1 ? .audio : .doc
+        guard filesType != selectedFilesType else { return }
+        selectedFilesType = filesType
+        tableNode.view.setContentOffset(.zero, animated: false)
+        rebuildSectionsAndReload()
+        loadFilesIfNeeded(for: filesType)
+        setNeedsLayout()
     }
 
     private func installSearchHeader() {
@@ -164,20 +204,59 @@ final class FileListNode: ASDisplayNode {
         tableNode.view.tableHeaderView = header
     }
 
-    private static func isDocumentAttachment(_ att: Mezon_Api_ChannelAttachment) -> Bool {
-        let ft = att.filetype.lowercased()
-        if ft == "sticker" { return false }
-        if ft.hasPrefix("image/") { return false }
-        if ft.hasPrefix("video/") { return false }
-        return true
+    private func filesState(for filesType: ChannelFilesType) -> ChannelFilesState {
+        filesStateByType[filesType] ?? ChannelFilesState()
     }
 
-    private func fetchFiles(showLoading: Bool = true) {
-        if showLoading {
-            isLoading = true
+    private static func isAttachment(
+        _ att: Mezon_Api_ChannelAttachment, matching filesType: ChannelFilesType
+    ) -> Bool {
+        if AttachmentTypeClassifier.isSticker(att.filetype) { return false }
+        if AttachmentTypeClassifier.isImage(att.filetype) { return false }
+        if AttachmentTypeClassifier.isVideo(att.filetype) { return false }
+        switch filesType {
+        case .doc: return !AttachmentTypeClassifier.isAudio(att.filetype)
+        case .audio: return AttachmentTypeClassifier.isAudio(att.filetype)
+        }
+    }
+
+    private func loadFilesIfNeeded(for filesType: ChannelFilesType) {
+        let state = filesState(for: filesType)
+        guard !state.didLoad, !state.isFetching else { return }
+        fetchFiles(for: filesType)
+    }
+
+    private func refreshFilesAfterMessageChange() {
+        for filesType in ChannelFilesType.allCases where filesType != selectedFilesType {
+            var state = filesState(for: filesType)
+            if state.isFetching {
+                state.refreshPending = true
+                filesStateByType[filesType] = state
+            } else if state.didLoad {
+                state.didLoad = false
+                filesStateByType[filesType] = state
+            }
+        }
+        var selectedState = filesState(for: selectedFilesType)
+        if selectedState.isFetching {
+            selectedState.refreshPending = true
+            filesStateByType[selectedFilesType] = selectedState
+            return
+        }
+        guard selectedState.didLoad else { return }
+        fetchFiles(for: selectedFilesType, showLoading: false)
+    }
+
+    private func fetchFiles(for filesType: ChannelFilesType, showLoading: Bool = true) {
+        var state = filesState(for: filesType)
+        guard !state.isFetching else { return }
+        state.isFetching = true
+        state.showsLoading = showLoading
+        state.loadFailed = false
+        filesStateByType[filesType] = state
+        if selectedFilesType == filesType, showLoading {
             setNeedsLayout()
         }
-        loadFailed = false
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
@@ -189,31 +268,52 @@ final class FileListNode: ASDisplayNode {
                 let res = try await self.context.account.network.listChannelAttachments(
                     clanId: targetClanId,
                     channelId: self.channelId,
-                    fileType: "all",
+                    fileType: filesType.rawValue,
                     limit: 100,
                     token: token
                 )
-                let docs = res.attachments.filter { Self.isDocumentAttachment($0) }
-                self.rawAttachments = docs
-                self.rebuildSectionsAndReload()
+                var state = self.filesState(for: filesType)
+                state.attachments = res.attachments.filter {
+                    Self.isAttachment($0, matching: filesType)
+                }
+                state.didLoad = true
+                state.loadFailed = false
+                state.isFetching = false
+                state.showsLoading = false
+                self.filesStateByType[filesType] = state
             } catch {
-                self.loadFailed = true
-                self.rawAttachments = []
-                self.sections = []
-                await self.tableNode.reloadData()
+                var state = self.filesState(for: filesType)
+                state.attachments = []
+                state.didLoad = true
+                state.loadFailed = true
+                state.isFetching = false
+                state.showsLoading = false
+                self.filesStateByType[filesType] = state
             }
-            self.isLoading = false
-            self.setNeedsLayout()
+            var state = self.filesState(for: filesType)
+            let shouldRefresh = state.refreshPending
+            if shouldRefresh {
+                state.refreshPending = false
+                self.filesStateByType[filesType] = state
+            }
+            if self.selectedFilesType == filesType {
+                self.rebuildSectionsAndReload()
+                self.setNeedsLayout()
+            }
+            if shouldRefresh {
+                self.fetchFiles(for: filesType, showLoading: false)
+            }
         }
     }
 
     private func rebuildSectionsAndReload() {
         let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let attachments = filesState(for: selectedFilesType).attachments
         let filtered: [Mezon_Api_ChannelAttachment]
         if q.isEmpty {
-            filtered = rawAttachments
+            filtered = attachments
         } else {
-            filtered = rawAttachments.filter { $0.filename.lowercased().contains(q) }
+            filtered = attachments.filter { $0.filename.lowercased().contains(q) }
         }
         sections = Self.groupByYearDay(items: filtered)
         tableNode.reloadData()
@@ -223,14 +323,15 @@ final class FileListNode: ASDisplayNode {
     private func updateEmptyFooter() {
         let t = UIColor.theme
         let w = max(tableNode.bounds.width, 280)
-        if filesTabActivated, !isLoading, sections.isEmpty {
+        let state = filesState(for: selectedFilesType)
+        if state.didLoad, !state.showsLoading, sections.isEmpty {
             let footer = UILabel()
             footer.textAlignment = .center
             footer.font = .systemFont(ofSize: 15.sf, weight: .medium)
             footer.textColor = t.textDisabled
             footer.numberOfLines = 0
             footer.text =
-                loadFailed
+                state.loadFailed
                 ? L(L10n.Error.somethingWentWrong)
                 : L(L10n.ChannelDetail.noFilesYet)
             footer.frame = CGRect(x: 0, y: 0, width: w, height: 72)
@@ -308,13 +409,30 @@ final class FileListNode: ASDisplayNode {
         )
         loadingCentered.style.flexGrow = 1
 
-        if isLoading {
-            return ASOverlayLayoutSpec(
+        let state = filesState(for: selectedFilesType)
+        let contentSpec: ASLayoutSpec
+        if state.showsLoading {
+            contentSpec = ASOverlayLayoutSpec(
                 child: ASWrapperLayoutSpec(layoutElement: tableNode),
                 overlay: loadingCentered
             )
+        } else {
+            contentSpec = ASWrapperLayoutSpec(layoutElement: tableNode)
         }
-        return ASWrapperLayoutSpec(layoutElement: tableNode)
+        contentSpec.style.flexGrow = 1
+        contentSpec.style.flexShrink = 1
+
+        let filesTypeInset = ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 8.sf, left: 8.sw, bottom: 8.sf, right: 8.sw),
+            child: filesTypeControlNode
+        )
+        return ASStackLayoutSpec(
+            direction: .vertical,
+            spacing: 0,
+            justifyContent: .start,
+            alignItems: .stretch,
+            children: [filesTypeInset, contentSpec]
+        )
     }
 }
 
