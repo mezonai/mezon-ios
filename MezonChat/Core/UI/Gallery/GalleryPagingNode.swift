@@ -117,13 +117,13 @@ final class GalleryPagingNode: ASDisplayNode, UIScrollViewDelegate {
 
     func updateLayout(size: CGSize, navigationBarHeight: CGFloat) {
         guard size.width > 0, size.height > 0 else { return }
+        let widthChanged = abs(currentSize.width - size.width) > 0.5
         self.currentSize = size
         scrollView.frame = CGRect(origin: .zero, size: size)
         scrollView.contentSize = CGSize(width: size.width * CGFloat(items.count), height: size.height)
 
-        let offset = CGFloat(centralItemIndex) * size.width
-        if !hasPerformedInitialLayout {
-            scrollView.contentOffset = CGPoint(x: offset, y: 0)
+        if !hasPerformedInitialLayout || widthChanged {
+            scrollView.contentOffset = CGPoint(x: CGFloat(centralItemIndex) * size.width, y: 0)
             hasPerformedInitialLayout = true
         }
 

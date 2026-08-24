@@ -147,7 +147,6 @@ final class MezonSocket: NSObject {
             try? await Task.sleep(nanoseconds: deadlineNanos)
             guard !Task.isCancelled, let self, self.transport === probed else { return }
             self.livenessProbeTask = nil
-            MezonRPCLog.response("liveness probe timed out after \(self.livenessProbeTimeoutSeconds)s → treating socket as dead")
             self.handleTransportFailure(MezonError.socketError("Abridged ping timed out"), for: probed)
         }
     }
@@ -252,7 +251,6 @@ final class MezonSocket: NSObject {
         t.onError = { [weak self] error in
             Task { @MainActor in
                 guard let self, self.transport === t else { return }
-                MezonRPCLog.response("abridged transport error: \(error.localizedDescription) pendingRpc=\(self.pendingApiRequests.count)")
                 self.eventPipe.putNext(.error(error))
             }
         }
@@ -465,7 +463,6 @@ final class MezonSocket: NSObject {
         heartbeatTask?.cancel()
         lastPongAt = Date()
         let intervalNs = UInt64(heartbeatIntervalSeconds * 1_000_000_000)
-        MezonRPCLog.response("[ping-pong] heartbeat started (interval=\(Int(heartbeatIntervalSeconds))s, pongTimeout=\(Int(heartbeatPongTimeoutSeconds))s)")
         heartbeatTask = Task { @MainActor [weak self] in
             while true {
                 guard let self else { return }
@@ -473,7 +470,6 @@ final class MezonSocket: NSObject {
 
                 if let last = self.lastPongAt,
                    Date().timeIntervalSince(last) > self.heartbeatPongTimeoutSeconds {
-                    MezonRPCLog.response("[ping-pong] pong timeout: no pong for \(Int(Date().timeIntervalSince(last)))s → treating socket as dead, reconnecting")
                     self.handleTransportFailure(MezonError.socketError("Heartbeat pong timeout"), for: t)
                     return
                 }
@@ -679,7 +675,6 @@ final class MezonSocket: NSObject {
 
         if rejectionSuspect {
             handshakeRejections += 1
-            MezonRPCLog.response("connection closed before ack (\(handshakeRejections)/\(maxHandshakeRejections))")
             if handshakeRejections >= maxHandshakeRejections {
                 captureHandshakeRejectionDiagnostic(closeData: closeData)
                 handshakeRejections = 0
@@ -716,10 +711,7 @@ final class MezonSocket: NSObject {
     }
 
     private func handlePong(cid: UInt16) {
-        let now = Date()
-        let rtt = lastPingSentAt.map { Int(now.timeIntervalSince($0) * 1000) } ?? -1
-        MezonRPCLog.response("[ping-pong] ← pong cid=\(cid) (rtt=\(rtt)ms)")
-        lastPongAt = now
+        lastPongAt = Date()
         cancelLivenessProbe()
         confirmConnectAck(source: "pong")
     }
@@ -728,7 +720,6 @@ final class MezonSocket: NSObject {
         confirmConnectAck(source: "server_frame")
         if cid != 0 {
             guard let pending = pendingApiRequests.removeValue(forKey: cid) else {
-                MezonRPCLog.response("frame FIN cid=\(cid) code=\(code) totalBytes=\(payload.count) (no pending)")
                 return
             }
             pending.timeoutTask.cancel()
@@ -736,7 +727,6 @@ final class MezonSocket: NSObject {
                 pending.continuation.resume(returning: payload)
             } else {
                 let message = String(data: payload, encoding: .utf8) ?? ""
-                MezonRPCLog.response("recv ← cid=\(cid) error code=\(code) bytes=\(payload.count) msg='\(message.prefix(160))'")
                 pending.continuation.resume(
                     throwing: MezonError.httpError(statusCode: Int(code), message: message)
                 )
@@ -787,7 +777,6 @@ final class MezonSocket: NSObject {
             guard let pending = pendingApiRequests.removeValue(forKey: cid) else { return }
             pending.timeoutTask.cancel()
             if case .some(.error(let err)) = envelope.message {
-                MezonRPCLog.response("envelope-cid cid=\(cid) error msg='\(err.message)'")
                 pending.continuation.resume(
                     throwing: MezonError.socketError(err.message.isEmpty ? "Server error" : err.message)
                 )
@@ -918,15 +907,11 @@ final class MezonSocket: NSObject {
         case .refreshSessionEvent(let refreshedSession):
             eventPipe.putNext(.sessionRefreshed(refreshedSession))
         case .ping:
-            MezonRPCLog.response("[ping-pong] ← ping from server, → pong reply")
             var pong = Mezon_Realtime_Envelope()
             pong.pong = Mezon_Realtime_Pong()
             send(pong)
         case .pong:
-            let now = Date()
-            let rtt = lastPingSentAt.map { Int(now.timeIntervalSince($0) * 1000) } ?? -1
-            MezonRPCLog.response("[ping-pong] ← pong received (rtt=\(rtt)ms)")
-            lastPongAt = now
+            lastPongAt = Date()
         case .rpc(_):
             break
         default:
@@ -940,7 +925,6 @@ final class MezonSocket: NSObject {
         let work = DispatchWorkItem { [weak self] in
             Task { @MainActor in
                 guard let self, !self.isConnected, self.transport === t else { return }
-                MezonRPCLog.response("connect watchdog: handshake stalled \(Int(self.connectTimeoutSeconds))s → reconnecting")
                 self.handleTransportFailure(MezonError.socketError("Socket connect timed out"), for: t)
             }
         }
@@ -1098,14 +1082,6 @@ final class MezonSocket: NSObject {
         var envelope = Mezon_Realtime_Envelope()
         envelope.messageButtonClicked = btn
         send(envelope)
-    }
-}
-
-enum MezonRPCLog {
-    static func response(_ message: @autoclosure () -> String) {
-        #if DEBUG
-        print("[MezonRPC] \(message())")
-        #endif
     }
 }
 

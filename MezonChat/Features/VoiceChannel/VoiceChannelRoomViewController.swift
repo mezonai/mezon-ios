@@ -410,6 +410,7 @@ final class VoiceChannelPiPOverlay: NSObject {
     private var themeChangeObserver: NSObjectProtocol?
     private var overlayAudioRouteObserver: NSObjectProtocol?
     private var overlayAudioInterruptionObserver: NSObjectProtocol?
+    private var overlayRouteReapplyDebounceWork: DispatchWorkItem?
     private var isRestoringFromSystemPiP = false
 
     private weak var overlayPiPRootViewController: UIViewController?
@@ -647,7 +648,7 @@ final class VoiceChannelPiPOverlay: NSObject {
                 self.fallbackOverlayPreservedRouteAfterDeviceLoss()
                 self.reapplyOverlayPreservedAudioRouteIfNeeded()
             case .override, .categoryChange, .routeConfigurationChange:
-                self.reapplyOverlayPreservedAudioRouteIfNeeded()
+                self.scheduleDebouncedOverlayPreservedRouteReapply()
             default:
                 break
             }
@@ -673,11 +674,24 @@ final class VoiceChannelPiPOverlay: NSObject {
             NotificationCenter.default.removeObserver(obs)
             overlayAudioInterruptionObserver = nil
         }
+        overlayRouteReapplyDebounceWork?.cancel()
+        overlayRouteReapplyDebounceWork = nil
     }
 
     private func reapplyOverlayPreservedAudioRouteIfNeeded() {
         guard isActive, bridge != nil, let route = preservedAudioRoute else { return }
         applyVoiceChannelPreservedAudioRouteToSession(route)
+    }
+
+    private func scheduleDebouncedOverlayPreservedRouteReapply() {
+        overlayRouteReapplyDebounceWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.overlayRouteReapplyDebounceWork = nil
+            self.reapplyOverlayPreservedAudioRouteIfNeeded()
+        }
+        overlayRouteReapplyDebounceWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: work)
     }
 
     private func followOverlayPreservedRouteToNewDevice() {
@@ -1471,6 +1485,12 @@ private extension UIViewController {
 
 final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedPiPHost {
 
+    private(set) static weak var currentLiveRoom: VoiceChannelRoomViewController?
+
+    static var hasLiveVoiceCall: Bool {
+        currentLiveRoom?.liveKitBridge != nil
+    }
+
     private let context: AccountContext
     private let channel: Mezon_Api_ChannelDescription
     var voiceChannelId: Int64 { channel.channelID }
@@ -1649,6 +1669,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        Self.currentLiveRoom = self
         view.backgroundColor = UIColor.theme.black
 
         headerBar.translatesAutoresizingMaskIntoConstraints = false

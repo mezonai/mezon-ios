@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import WebKit
 import UserNotifications
 import FirebaseMessaging
 import SwiftProtobuf
@@ -387,6 +388,10 @@ final class AccountContextImpl: AccountContext {
         currentChannel = nil
         account.postbox.clearAllSync()
         ImageCache.shared.purgeAccountScopedCaches()
+        WKWebsiteDataStore.default().removeData(
+            ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(),
+            modifiedSince: .distantPast,
+            completionHandler: {})
         EmbedFormState.shared.removeAll()
         UserDefaults.standard.removeObject(forKey: "mezon_selectedClanId")
         UserDefaults.standard.removeObject(forKey: "mezon_otp_cooldown_cache_email")

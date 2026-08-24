@@ -131,6 +131,7 @@ enum L10n {
         static let logOut         = "common.logOut"
         static let deleteAccount  = "common.deleteAccount"
         static let refresh        = "common.refresh"
+        static let retry          = "common.retry"
         static let close          = "common.close"
         static let goBack         = "common.goBack"
         static let copy           = "common.copy"
@@ -1428,6 +1429,7 @@ extension L10n {
         "common.logOut":        "Log Out",
         "common.deleteAccount": "Delete Account",
         "common.refresh":       "Refresh",
+        "common.retry":         "Retry",
         "common.close":         "Close",
         "common.goBack":        "Go Back",
         "common.copy":          "Copy",
@@ -2681,6 +2683,7 @@ extension L10n {
         "common.logOut":        "Đăng xuất",
         "common.deleteAccount": "Xóa tài khoản",
         "common.refresh":       "Làm mới",
+        "common.retry":         "Thử lại",
         "common.close":         "Đóng",
         "common.goBack":        "Quay lại",
         "common.copy":          "Sao chép",
