@@ -141,7 +141,6 @@ final class MezonHTTPClient {
                 }
 
                 let delay = Self.transientRetryDelaysNanoseconds[attempt - 1]
-                MezonRPCLog.response("\(operationName) transient fail attempt=\(attempt) retryDelayMs=\(delay / 1_000_000) error=\((error as? MezonError)?.technicalDescription ?? error.localizedDescription)")
                 attempt += 1
                 try await Task.sleep(nanoseconds: delay)
             }
@@ -2275,7 +2274,6 @@ final class MezonHTTPClient {
 
     private func isSocketUsableForSingleTransport(apiName: String) async -> Bool {
         if await MezonSocket.shared.isApiTransportDegraded {
-            MezonRPCLog.response("route api='\(apiName)' SOCKET degraded → HTTP")
             return false
         }
         return await isSocketConnectedAfterGraceWait()
@@ -2327,10 +2325,8 @@ final class MezonHTTPClient {
                     auth: auth,
                     allowBearerRetry: allowBearerRetry
                 )
-                MezonRPCLog.response("route api='\(apiName)' HTTP-FIRST ok (skipped socket)")
                 return response
             } catch {
-                MezonRPCLog.response("route api='\(apiName)' HTTP-FIRST fail error=\((error as? MezonError)?.technicalDescription ?? error.localizedDescription) → SOCKET fallback")
                 if singleTransportOnly, !isTransientHTTPFailure(error) {
                     throw error
                 }
@@ -2395,7 +2391,6 @@ final class MezonHTTPClient {
             if ms >= 1500 {
                 await MezonSocket.shared.noteApiRequestTimedOut()
             }
-            MezonRPCLog.response("route api='\(apiName)' SOCKET-REQUIRED fail elapsedMs=\(ms) error=\((error as? MezonError)?.technicalDescription ?? error.localizedDescription)")
             throw error
         }
     }
@@ -2418,13 +2413,10 @@ final class MezonHTTPClient {
                 timeoutNanoseconds: Self.socketFallbackGraceWaitNanoseconds)
         }
         guard connected else {
-            let waitMs = Int(Self.socketFallbackGraceWaitNanoseconds / 1_000_000)
-            MezonRPCLog.response("route api='\(apiName)' SOCKET unavailable after graceWaitMs=\(waitMs) → HTTP fallback")
             return nil
         }
 
         if await MezonSocket.shared.isApiTransportDegraded {
-            MezonRPCLog.response("route api='\(apiName)' SOCKET degraded → HTTP fallback")
             return nil
         }
 
@@ -2442,16 +2434,13 @@ final class MezonHTTPClient {
                 body: body,
                 timeoutNanoseconds: Self.socketFallbackApiTimeoutNanoseconds
             )
-            let ms = Int(Date().timeIntervalSince(started) * 1000)
             await MezonSocket.shared.noteApiRequestSucceeded()
-            MezonRPCLog.response("route api='\(apiName)' SOCKET ok respBytes=\(respBytes.count) elapsedMs=\(ms)")
             if Response.self == SwiftProtobuf.Google_Protobuf_Empty.self {
                 return SwiftProtobuf.Google_Protobuf_Empty() as? Response
             }
             do {
                 return try Response(serializedBytes: respBytes)
             } catch {
-                MezonRPCLog.response("route api='\(apiName)' SOCKET decode FAIL bytes=\(respBytes.count) error=\(error.localizedDescription) → HTTP fallback")
                 return nil
             }
         } catch {
@@ -2459,7 +2448,6 @@ final class MezonHTTPClient {
             if ms >= 3000 {
                 await MezonSocket.shared.noteApiRequestTimedOut()
             }
-            MezonRPCLog.response("route api='\(apiName)' SOCKET fail elapsedMs=\(ms) error=\((error as? MezonError)?.technicalDescription ?? error.localizedDescription) → HTTP fallback")
             return nil
         }
     }
@@ -2484,24 +2472,14 @@ final class MezonHTTPClient {
         }
         request.httpBody = try message.serializedData()
 
-        let started = Date()
-
         let (data, response) = try await httpData(request)
 
         guard let http = response as? HTTPURLResponse else {
-            MezonRPCLog.response("HTTP \(path) invalid response")
             throw MezonError.invalidResponse
         }
-        let ms = Int(Date().timeIntervalSince(started) * 1000)
 
         if (200..<300).contains(http.statusCode) {
-            MezonRPCLog.response("HTTP \(path) ok status=\(http.statusCode) bytes=\(data.count) elapsedMs=\(ms)")
-            do {
-                return try Response(serializedBytes: data)
-            } catch {
-                MezonRPCLog.response("HTTP \(path) decode FAIL bytes=\(data.count) error=\(error.localizedDescription)")
-                throw error
-            }
+            return try Response(serializedBytes: data)
         }
 
         if allowBearerRetry,
@@ -2522,7 +2500,6 @@ final class MezonHTTPClient {
         }
 
         let msg = apiFailureMessage(httpStatusCode: http.statusCode, data: data)
-        MezonRPCLog.response("HTTP \(path) FAIL status=\(http.statusCode) elapsedMs=\(ms) msg='\(msg)'")
         throw MezonError.httpError(statusCode: http.statusCode, message: msg)
     }
 
@@ -2611,7 +2588,6 @@ final class MezonHTTPClient {
         }
 
         let msg = apiFailureMessage(httpStatusCode: http.statusCode, data: data)
-        MezonRPCLog.response("HTTP \(path) FAIL status=\(http.statusCode) msg='\(msg)'")
         throw MezonError.httpError(statusCode: http.statusCode, message: msg)
     }
 

@@ -600,12 +600,6 @@ final class ChatViewController: ViewController {
 
     private var messagesNode: ChatContainerNode { displayNode as! ChatContainerNode }
 
-    private func scrollDebugLog(_ message: @autoclosure () -> String) {
-#if DEBUG
-        print("[ChatScroll][channel=\(channel.channelID)] \(message())")
-#endif
-    }
-
     var pendingJumpToMessageId: String?
 
     init(
@@ -1736,7 +1730,7 @@ final class ChatViewController: ViewController {
         } else if pendingScrollToBottom && !v.isEmpty {
             pendingScrollToBottom = false
             DispatchQueue.main.async { [weak self] in
-                self?.forceScrollToBottom(reason: "pendingScrollToBottom")
+                self?.forceScrollToBottom()
             }
         }
     }
@@ -2342,10 +2336,6 @@ final class ChatViewController: ViewController {
         let wasAtBottom = messagesNode.isAtBottom
         let visibleMessageAnchor = wasAtBottom ? nil : messagesNode.captureVisibleMessageAnchor()
         let initialUserScrollGeneration = messagesNode.userScrollGeneration
-        scrollDebugLog(
-            "catchUp start offset=\(messagesNode.visibleContentOffsetDebugDescription) "
-                + "wasAtBottom=\(wasAtBottom) anchor=\(visibleMessageAnchor?.messageId ?? "nil")"
-        )
         if !wasAtBottom {
             shouldScrollToBottom = false
         }
@@ -2362,7 +2352,6 @@ final class ChatViewController: ViewController {
                 && messagesNode.userScrollGeneration == initialUserScrollGeneration
 
             if canRestorePosition, let visibleMessageAnchor {
-                scrollDebugLog("catchUp finish action=restore anchor=\(visibleMessageAnchor.messageId)")
                 messagesNode.listView.addAfterTransactionsCompleted { [weak self] in
                     guard let self,
                           self.messagesNode.userScrollGeneration == initialUserScrollGeneration else {
@@ -2371,21 +2360,15 @@ final class ChatViewController: ViewController {
                     self.messagesNode.restoreVisibleMessageAnchor(visibleMessageAnchor)
                 }
             } else if reachedPresent, wasAtBottom, canRestorePosition {
-                scrollDebugLog("catchUp finish action=bottom")
                 messagesNode.listView.addAfterTransactionsCompleted { [weak self] in
                     guard let self,
                           self.messagesNode.userScrollGeneration == initialUserScrollGeneration else {
                         return
                     }
-                    self.forceScrollToBottom(reason: "catchUpAtBottom") {
+                    self.forceScrollToBottom {
                         self.markChannelAsRead()
                     }
                 }
-            } else {
-                scrollDebugLog(
-                    "catchUp finish action=none reachedPresent=\(reachedPresent) "
-                        + "wasAtBottom=\(wasAtBottom) canRestore=\(canRestorePosition)"
-                )
             }
         }
 
@@ -2574,12 +2557,25 @@ final class ChatViewController: ViewController {
         }
     }
 
+    private static func oldestServerMessageId(in messages: [ChatMessageDisplay]) -> Int64? {
+        for item in messages where !item.isWelcome {
+            if let id = Int64(item.message.id), id != 0 { return id }
+        }
+        return nil
+    }
+
+    private static func newestServerMessageId(in messages: [ChatMessageDisplay]) -> Int64? {
+        for item in messages.reversed() where !item.isWelcome {
+            if let id = Int64(item.message.id), id != 0 { return id }
+        }
+        return nil
+    }
+
     func fetchOlderMessages() {
         guard hasMoreOlder, !isLoadingMore else { return }
         guard messages.count >= 10 else { return }
 
-        guard let oldest = messages.first(where: { !$0.isWelcome }),
-              let msgId = Int64(oldest.message.id), msgId != 0 else {
+        guard let msgId = Self.oldestServerMessageId(in: messages) else {
             setHasMoreOlder(false)
             return
         }
@@ -2618,7 +2614,7 @@ final class ChatViewController: ViewController {
     func fetchNewerMessages() {
         guard hasMoreNewer, !isLoadingNewer else { return }
         guard messages.count >= 10 else { return }
-        guard let newest = messages.last, let msgId = Int64(newest.message.id) else { return }
+        guard let msgId = Self.newestServerMessageId(in: messages) else { return }
 
         guard msgId != lastFetchedNewerMessageId else { return }
         lastFetchedNewerMessageId = msgId
@@ -4684,9 +4680,8 @@ final class ChatViewController: ViewController {
         }
     }
 
-    private func forceScrollToBottom(reason: String, completion: (() -> Void)? = nil) {
+    private func forceScrollToBottom(completion: (() -> Void)? = nil) {
         guard !messages.isEmpty else { return }
-        scrollDebugLog("forceScrollToBottom reason=\(reason)")
         messagesNode.listView.transaction(
             deleteIndices: [],
             insertIndicesAndItems: [],
@@ -4702,7 +4697,6 @@ final class ChatViewController: ViewController {
         guard messagesNode.pendingJumpMessageId == nil else { return }
         guard !messagesNode.didAutoScrollForNewMessages else { return }
         guard shouldScrollToBottom, !messages.isEmpty else { return }
-        scrollDebugLog("scrollToBottomIfNeeded action=bottom")
         messagesNode.listView.transaction(
             deleteIndices: [],
             insertIndicesAndItems: [],
