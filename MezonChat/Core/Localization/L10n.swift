@@ -296,6 +296,13 @@ enum L10n {
         static let myQRCode = "qrScanner.myQRCode"
         static let qrProfile = "qrScanner.qrProfile"
         static let qrTransfer = "qrScanner.qrTransfer"
+        static let profileBadge = "qrScanner.profileBadge"
+        static let transferBadge = "qrScanner.transferBadge"
+        static let verifiedByMezon = "qrScanner.verifiedByMezon"
+        static let centerImage = "qrScanner.centerImage"
+        static let chooseCenterImage = "qrScanner.chooseCenterImage"
+        static let useProfileAvatar = "qrScanner.useProfileAvatar"
+        static let useMezonLogo = "qrScanner.useMezonLogo"
         static let poweredBy = "qrScanner.poweredBy"
         static let shareWithOthers = "qrScanner.shareWithOthers"
         static let scanProfileHelp = "qrScanner.scanProfileHelp"
@@ -2453,6 +2460,13 @@ extension L10n {
         "qrScanner.myQRCode": "My QR Code",
         "qrScanner.qrProfile": "QR Profile",
         "qrScanner.qrTransfer": "QR Transfer",
+        "qrScanner.profileBadge": "PROFILE QR",
+        "qrScanner.transferBadge": "TRANSFER QR",
+        "qrScanner.verifiedByMezon": "VERIFIED BY MEZON",
+        "qrScanner.centerImage": "QR center image",
+        "qrScanner.chooseCenterImage": "Choose from device",
+        "qrScanner.useProfileAvatar": "Use profile avatar",
+        "qrScanner.useMezonLogo": "Use Mezon logo",
         "qrScanner.poweredBy": "Powered by Mezon",
         "qrScanner.shareWithOthers": "Share with others",
         "qrScanner.scanProfileHelp": "Scan this QR code to chat with me or view my profile",
@@ -3707,6 +3721,13 @@ extension L10n {
         "qrScanner.myQRCode": "Mã QR của tôi",
         "qrScanner.qrProfile": "Mã QR Hồ sơ",
         "qrScanner.qrTransfer": "Mã QR chuyển khoản",
+        "qrScanner.profileBadge": "PROFILE QR",
+        "qrScanner.transferBadge": "TRANSFER QR",
+        "qrScanner.verifiedByMezon": "ĐƯỢC XÁC MINH BỞI MEZON",
+        "qrScanner.centerImage": "Ảnh giữa mã QR",
+        "qrScanner.chooseCenterImage": "Chọn ảnh từ thiết bị",
+        "qrScanner.useProfileAvatar": "Dùng avatar cá nhân",
+        "qrScanner.useMezonLogo": "Dùng logo Mezon",
         "qrScanner.poweredBy": "Được cung cấp bởi Mezon",
         "qrScanner.shareWithOthers": "Chia sẻ với mọi người",
         "qrScanner.scanProfileHelp": "Quét mã QR này để trò chuyện với tôi hoặc xem hồ sơ của tôi",

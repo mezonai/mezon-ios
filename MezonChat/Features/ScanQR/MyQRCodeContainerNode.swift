@@ -5,12 +5,29 @@ import UIKit
 @MainActor
 final class MyQRCodeContainerNode: ASDisplayNode {
 
-    private let context: AccountContext
-    private var selectedTab: Int = 0
-    private var layout: ContainerViewLayout?
+    private enum CenterImageSelection {
+        case profileAvatar
+        case mezonLogo
+        case custom(UIImage)
+    }
 
-    private let backgroundNode = ASDisplayNode()
-    private let headerContainer = ASDisplayNode()
+    private enum Style {
+        static let gradientColors = [
+            UIColor(hex: 0xF0EDFD).cgColor,
+            UIColor(hex: 0xBEB5F8).cgColor,
+            UIColor(hex: 0x9774FA).cgColor,
+        ]
+        static let primaryText = UIColor(hex: 0x070709)
+        static let actionBlue = UIColor(hex: 0x2F80ED)
+        static let badgeBackground = UIColor(hex: 0xF0EEFF)
+        static let badgeText = UIColor(hex: 0x6657F5)
+    }
+
+    private let context: AccountContext
+    private var selectedTab = 0
+    private var centerImageSelection: CenterImageSelection = .profileAvatar
+    private var containerLayout: ContainerViewLayout?
+
     private let backButton = ASButtonNode()
     private let titleNode = ASTextNode()
 
@@ -20,39 +37,57 @@ final class MyQRCodeContainerNode: ASDisplayNode {
     private let transferTabButton = ASButtonNode()
 
     private let cardNode = ASDisplayNode()
+    private let cardGradientLayer = CAGradientLayer()
+    private let editCenterImageButton = ASButtonNode()
     private let avatarNode = ASNetworkImageNode()
     private let nameNode = ASTextNode()
-    private let subtitleNode = ASTextNode()
-    private let dividerNode = ASDisplayNode()
+    private let usernameNode = ASTextNode()
+    private let usernameBackgroundNode = ASDisplayNode()
 
+    private let qrPanelNode = ASDisplayNode()
     private let mezonLogoIcon = ASImageNode()
     private let mezonLogoText = ASTextNode()
-
+    private let qrTypeNode = ASTextNode()
+    private let qrTypeBackgroundNode = ASDisplayNode()
     private let qrImageNode = ASImageNode()
     private let qrLogoNode = ASNetworkImageNode()
-
-    private let poweredByLine = ASDisplayNode()
-    private let poweredByText = ASTextNode()
+    private let verifiedIconNode = ASImageNode()
+    private let verifiedTextNode = ASTextNode()
+    private let verifiedBackgroundNode = ASDisplayNode()
 
     private let downloadButton = ASButtonNode()
     private let shareButton = ASButtonNode()
 
-    private let scanInstructionNode = ASTextNode()
-
     var onTabChanged: ((Int) -> Void)?
     var onBackTapped: (() -> Void)?
+    var onEditCenterImageTapped: (() -> Void)?
     var onDownloadTapped: ((UIImage) -> Void)?
     var onShareTapped: ((UIImage) -> Void)?
+    var editAnchorView: UIView { editCenterImageButton.view }
     var shareAnchorView: UIView { shareButton.view }
 
     init(context: AccountContext) {
         self.context = context
         super.init()
 
-        self.backgroundColor = .mezonPrimary
-
+        backgroundColor = .mezonPrimary
         setupNodes()
         updateContent()
+    }
+
+    override func didLoad() {
+        super.didLoad()
+
+        cardGradientLayer.colors = Style.gradientColors
+        cardGradientLayer.startPoint = CGPoint(x: 0, y: 0)
+        cardGradientLayer.endPoint = CGPoint(x: 1, y: 1)
+        cardNode.view.layer.insertSublayer(cardGradientLayer, at: 0)
+    }
+
+    override func layout() {
+        super.layout()
+        cardGradientLayer.frame = cardNode.bounds
+        cardGradientLayer.cornerRadius = cardNode.cornerRadius
     }
 
     private func setupNodes() {
@@ -64,6 +99,7 @@ final class MyQRCodeContainerNode: ASDisplayNode {
         backButton.style.preferredSize = CGSize(width: 24.swh, height: 24.swh)
         backButton.hitTestSlop = UIEdgeInsets(
             top: -16.sh, left: -16.sw, bottom: -16.sh, right: -16.sw)
+        backButton.addTarget(self, action: #selector(backTapped), forControlEvents: .touchUpInside)
 
         titleNode.attributedText = NSAttributedString(
             string: L(L10n.QRScanner.myQRCode),
@@ -71,12 +107,6 @@ final class MyQRCodeContainerNode: ASDisplayNode {
                 .font: UIFont.systemFont(ofSize: 18.sf, weight: .bold),
                 .foregroundColor: UIColor.mezonTextStrong,
             ])
-
-        backButton.addTarget(self, action: #selector(backTapped), forControlEvents: .touchUpInside)
-
-        addSubnode(headerContainer)
-        addSubnode(backButton)
-        addSubnode(titleNode)
 
         tabContainerNode.backgroundColor = .mezonSecondary
         tabContainerNode.cornerRadius = 24.swh
@@ -88,112 +118,157 @@ final class MyQRCodeContainerNode: ASDisplayNode {
         tabSelectionBackgroundNode.shadowRadius = 4.swh
         tabSelectionBackgroundNode.shadowOpacity = 1
 
-        cardNode.backgroundColor = .mezonSecondary
+        profileTabButton.addTarget(
+            self, action: #selector(profileTabTapped), forControlEvents: .touchUpInside)
+        transferTabButton.addTarget(
+            self, action: #selector(transferTabTapped), forControlEvents: .touchUpInside)
+
+        cardNode.backgroundColor = .clear
         cardNode.cornerRadius = 16.swh
         cardNode.shadowColor = UIColor.black.withAlphaComponent(0.05).cgColor
         cardNode.shadowOffset = CGSize(width: 0, height: 4.sh)
         cardNode.shadowRadius = 12.swh
         cardNode.shadowOpacity = 1
 
-        avatarNode.cornerRadius = 12.swh
+        editCenterImageButton.setImage(
+            UIImage(systemName: "pencil")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        editCenterImageButton.backgroundColor = .white
+        editCenterImageButton.cornerRadius = 20.swh
+        editCenterImageButton.tintColor = Style.actionBlue
+        editCenterImageButton.imageNode.contentMode = .scaleAspectFit
+        editCenterImageButton.accessibilityLabel = L(L10n.QRScanner.centerImage)
+        editCenterImageButton.addTarget(
+            self, action: #selector(editCenterImageTapped), forControlEvents: .touchUpInside)
+
+        avatarNode.cornerRadius = 24.swh
         avatarNode.clipsToBounds = true
-        avatarNode.backgroundColor = .mezonTertiary
+        avatarNode.contentMode = .scaleAspectFill
+        avatarNode.backgroundColor = UIColor.white.withAlphaComponent(0.7)
 
-        dividerNode.backgroundColor = .mezonTertiary
+        nameNode.maximumNumberOfLines = 1
+        nameNode.truncationMode = .byTruncatingTail
+        usernameNode.maximumNumberOfLines = 1
+        usernameNode.truncationMode = .byTruncatingTail
 
-        mezonLogoIcon.image = UIImage(named: "Setting/LogoMezon")?.withRenderingMode(
-            .alwaysOriginal)
-        mezonLogoIcon.contentMode = .scaleAspectFit
+        usernameBackgroundNode.backgroundColor = .white
+        usernameBackgroundNode.cornerRadius = 12.swh
 
+        qrPanelNode.backgroundColor = .white
+        qrPanelNode.cornerRadius = 16.swh
+
+        mezonLogoIcon.image = UIImage(named: "MezonLogo")?.withRenderingMode(.alwaysOriginal)
+        mezonLogoIcon.contentMode = .scaleAspectFill
+        mezonLogoIcon.clipsToBounds = true
+        mezonLogoIcon.cornerRadius = 2.swh
         mezonLogoText.attributedText = NSAttributedString(
-            string: "Mezon",
+            string: "MEZON",
             attributes: [
-                .font: UIFont.systemFont(ofSize: 22.sf, weight: .bold),
-                .foregroundColor: UIColor.mezonTextStrong,
+                .font: UIFont.systemFont(ofSize: 14.sf, weight: .bold),
+                .foregroundColor: Style.primaryText,
             ])
+
+        qrTypeNode.maximumNumberOfLines = 1
+        qrTypeBackgroundNode.backgroundColor = Style.badgeBackground
+        qrTypeBackgroundNode.cornerRadius = 10.swh
 
         qrImageNode.contentMode = .scaleAspectFit
 
         qrLogoNode.cornerRadius = 8.swh
         qrLogoNode.clipsToBounds = true
+        qrLogoNode.contentMode = .scaleAspectFill
+        qrLogoNode.backgroundColor = .white
         qrLogoNode.borderColor = UIColor.white.cgColor
-        qrLogoNode.borderWidth = 2
+        qrLogoNode.borderWidth = 2.swh
 
-        poweredByLine.backgroundColor = .mezonTertiary
-        poweredByText.attributedText = NSAttributedString(
-            string: L(L10n.QRScanner.poweredBy),
-            attributes: [
-                .font: UIFont.systemFont(ofSize: 12.sf, weight: .regular),
-                .foregroundColor: UIColor.mezonTextMuted,
-            ])
+        verifiedIconNode.image = UIImage(systemName: "checkmark.seal.fill")?
+            .withRenderingMode(.alwaysTemplate)
+        verifiedIconNode.tintColor = Style.actionBlue
+        verifiedIconNode.contentMode = .scaleAspectFit
+        verifiedTextNode.maximumNumberOfLines = 1
+        verifiedBackgroundNode.backgroundColor = Style.badgeBackground
+        verifiedBackgroundNode.cornerRadius = 10.swh
 
-        downloadButton.setImage(UIImage(systemName: "square.and.arrow.down"), for: .normal)
-        downloadButton.backgroundColor = .mezonTertiary
-        downloadButton.cornerRadius = 4.swh
-        downloadButton.tintColor = UIColor.mezonTextPrimary
-
-        shareButton.setImage(UIImage(systemName: "square.and.arrow.up"), for: .normal)
-        shareButton.backgroundColor = .mezonTertiary
-        shareButton.cornerRadius = 4.swh
-        shareButton.tintColor = UIColor.mezonTextPrimary
-
-        addSubnode(tabContainerNode)
-        addSubnode(tabSelectionBackgroundNode)
-        addSubnode(profileTabButton)
-        addSubnode(transferTabButton)
-
-        addSubnode(cardNode)
-        addSubnode(avatarNode)
-        addSubnode(nameNode)
-        addSubnode(subtitleNode)
-        addSubnode(dividerNode)
-        addSubnode(mezonLogoIcon)
-        addSubnode(mezonLogoText)
-        addSubnode(qrImageNode)
-        addSubnode(qrLogoNode)
-        addSubnode(poweredByLine)
-        addSubnode(poweredByText)
-
-        addSubnode(downloadButton)
-        addSubnode(shareButton)
-        addSubnode(scanInstructionNode)
-
-        profileTabButton.addTarget(
-            self, action: #selector(profileTabTapped), forControlEvents: .touchUpInside)
-        transferTabButton.addTarget(
-            self, action: #selector(transferTabTapped), forControlEvents: .touchUpInside)
-
+        configureActionButton(downloadButton, systemName: "square.and.arrow.down")
+        configureActionButton(shareButton, systemName: "square.and.arrow.up")
+        downloadButton.accessibilityLabel = L(L10n.Common.download)
+        shareButton.accessibilityLabel = L(L10n.Common.share)
         downloadButton.addTarget(
             self, action: #selector(downloadTapped), forControlEvents: .touchUpInside)
         shareButton.addTarget(
             self, action: #selector(shareTapped), forControlEvents: .touchUpInside)
+
+        [
+            backButton, titleNode,
+            tabContainerNode, tabSelectionBackgroundNode, profileTabButton, transferTabButton,
+            cardNode,
+            avatarNode, nameNode, usernameBackgroundNode, usernameNode,
+            qrPanelNode, mezonLogoIcon, mezonLogoText,
+            qrTypeBackgroundNode, qrTypeNode, qrImageNode, qrLogoNode,
+            verifiedBackgroundNode, verifiedIconNode, verifiedTextNode,
+            downloadButton, shareButton, editCenterImageButton,
+        ].forEach { addSubnode($0) }
+    }
+
+    private func configureActionButton(_ button: ASButtonNode, systemName: String) {
+        button.setImage(
+            UIImage(systemName: systemName)?.withRenderingMode(.alwaysTemplate), for: .normal)
+        button.backgroundColor = .white
+        button.cornerRadius = 8.swh
+        button.tintColor = Style.actionBlue
+        button.imageNode.contentMode = .scaleAspectFit
     }
 
     func updateLayout(layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
-        self.layout = layout
-        self.setNeedsLayout()
+        containerLayout = layout
+        setNeedsLayout()
     }
 
     func updateTab(_ index: Int) {
-        self.selectedTab = index
+        selectedTab = index
         updateContent()
-        self.setNeedsLayout()
+        setNeedsLayout()
+    }
+
+    func useProfileAvatar() {
+        centerImageSelection = .profileAvatar
+        updateCenterImage()
+    }
+
+    func useMezonLogo() {
+        centerImageSelection = .mezonLogo
+        updateCenterImage()
+    }
+
+    func useCustomCenterImage(_ image: UIImage) {
+        centerImageSelection = .custom(image)
+        updateCenterImage()
     }
 
     private func updateContent() {
         let user = context.currentUser
         avatarNode.url = user?.avatarURL
-        qrLogoNode.url = user?.avatarURL
+
+        let displayName = user.map { $0.displayName.isEmpty ? $0.username : $0.displayName }
+            ?? "User"
+        let username = user.map { $0.username.isEmpty ? displayName : $0.username }
+            ?? displayName
 
         nameNode.attributedText = NSAttributedString(
-            string: user?.displayName ?? "User",
+            string: displayName,
             attributes: [
-                .font: UIFont.systemFont(ofSize: 16.sf, weight: .bold),
-                .foregroundColor: UIColor.mezonTextStrong,
+                .font: UIFont.systemFont(ofSize: 18.sf, weight: .bold),
+                .foregroundColor: Style.primaryText,
+            ])
+        usernameNode.attributedText = NSAttributedString(
+            string: username.hasPrefix("@") ? username : "@\(username)",
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 13.sf, weight: .bold),
+                .foregroundColor: Style.badgeText,
             ])
 
-        let profileColor = selectedTab == 0 ? UIColor.mezonTextStrong : UIColor.mezonTextMuted
-        let transferColor = selectedTab == 1 ? UIColor.mezonTextStrong : UIColor.mezonTextMuted
+        let isProfile = selectedTab == 0
+        let profileColor = isProfile ? UIColor.mezonTextStrong : UIColor.mezonTextMuted
+        let transferColor = isProfile ? UIColor.mezonTextMuted : UIColor.mezonTextStrong
         profileTabButton.setTitle(
             L(L10n.QRScanner.qrProfile), with: .systemFont(ofSize: 14.sf, weight: .medium),
             with: profileColor, for: .normal)
@@ -201,42 +276,41 @@ final class MyQRCodeContainerNode: ASDisplayNode {
             L(L10n.QRScanner.qrTransfer), with: .systemFont(ofSize: 14.sf, weight: .medium),
             with: transferColor, for: .normal)
 
-        let pStyle = NSMutableParagraphStyle()
-        pStyle.alignment = .center
+        let qrType = isProfile ? L(L10n.QRScanner.profileBadge) : L(L10n.QRScanner.transferBadge)
+        qrTypeNode.attributedText = badgeText(qrType)
+        verifiedTextNode.attributedText = badgeText(L(L10n.QRScanner.verifiedByMezon).uppercased())
 
-        if selectedTab == 0 {
-            subtitleNode.isHidden = false
-            subtitleNode.attributedText = NSAttributedString(
-                string: L(L10n.QRScanner.shareWithOthers),
-                attributes: [
-                    .font: UIFont.systemFont(ofSize: 14.sf, weight: .regular),
-                    .foregroundColor: UIColor.mezonTextMuted,
-                ])
-            scanInstructionNode.attributedText = NSAttributedString(
-                string: L(L10n.QRScanner.scanProfileHelp),
-                attributes: [
-                    .font: UIFont.systemFont(ofSize: 14.sf, weight: .regular),
-                    .foregroundColor: UIColor.mezonTextMuted,
-                    .paragraphStyle: pStyle,
-                ])
-
-            if let urlString = profileChatURLString(user: user) {
-                generateQR(data: urlString)
-            } else {
-                generateQR(data: "https://mezon.ai/chat/\(user?.username ?? "")")
-            }
+        if isProfile {
+            generateQR(
+                data: profileChatURLString(user: user)
+                    ?? "https://mezon.ai/chat/\(user?.username ?? "")")
         } else {
-            subtitleNode.isHidden = true
-            subtitleNode.attributedText = nil
-            scanInstructionNode.attributedText = NSAttributedString(
-                string: L(L10n.QRScanner.scanTransferHelp),
-                attributes: [
-                    .font: UIFont.systemFont(ofSize: 14.sf, weight: .regular),
-                    .foregroundColor: UIColor.mezonTextMuted,
-                    .paragraphStyle: pStyle,
-                ])
+            generateQR(data: transferPayload(user: user))
+        }
 
-            generateQR(data: "{\"receiver_id\": \"\(user?.id ?? "")\"}")
+        updateCenterImage()
+    }
+
+    private func badgeText(_ text: String) -> NSAttributedString {
+        NSAttributedString(
+            string: text,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 10.sf, weight: .bold),
+                .foregroundColor: Style.badgeText,
+            ])
+    }
+
+    private func updateCenterImage() {
+        switch centerImageSelection {
+        case .profileAvatar:
+            qrLogoNode.image = nil
+            qrLogoNode.url = context.currentUser?.avatarURL
+        case .mezonLogo:
+            qrLogoNode.url = nil
+            qrLogoNode.image = UIImage(named: "MezonLogo")
+        case let .custom(image):
+            qrLogoNode.url = nil
+            qrLogoNode.image = image
         }
     }
 
@@ -245,17 +319,34 @@ final class MyQRCodeContainerNode: ASDisplayNode {
         let profile = QRUserProfileData(
             id: user.id, avatar: user.avatarURL?.absoluteString, name: user.displayName)
         guard let jsonData = try? JSONEncoder().encode(profile) else { return nil }
-        let b64 = jsonData.base64EncodedString()
-        var c = URLComponents()
-        c.scheme = "https"
-        c.host = "mezon.ai"
-        let pathSegAllowed = CharacterSet.urlPathAllowed.subtracting(
+        let base64 = jsonData.base64EncodedString()
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "mezon.ai"
+        let pathAllowed = CharacterSet.urlPathAllowed.subtracting(
             CharacterSet(charactersIn: "/"))
-        let enc = user.username.addingPercentEncoding(withAllowedCharacters: pathSegAllowed)
+        let encodedUsername = user.username.addingPercentEncoding(withAllowedCharacters: pathAllowed)
             ?? user.username
-        c.percentEncodedPath = "/chat/" + enc
-        c.queryItems = [URLQueryItem(name: "data", value: b64)]
-        return c.url?.absoluteString
+        components.percentEncodedPath = "/chat/" + encodedUsername
+        components.queryItems = [URLQueryItem(name: "data", value: base64)]
+        return components.url?.absoluteString
+    }
+
+    private func transferPayload(user: User?) -> String {
+        guard let user else { return "{}" }
+        let receiverName = user.username.isEmpty ? user.displayName : user.username
+        let payload: [String: Any] = [
+            "receiver_name": receiverName,
+            "receiver_display_name": user.displayName,
+            "receiver_id": user.id,
+        ]
+        guard
+            let data = try? JSONSerialization.data(withJSONObject: payload),
+            let value = String(data: data, encoding: .utf8)
+        else {
+            return "{}"
+        }
+        return value
     }
 
     private func generateQR(data: String) {
@@ -269,9 +360,9 @@ final class MyQRCodeContainerNode: ASDisplayNode {
         let transformedImage = outputImage.transformed(
             by: CGAffineTransform(scaleX: scaleX, y: scaleY))
 
-        let context = CIContext()
-        if let cgImage = context.createCGImage(transformedImage, from: transformedImage.extent) {
-            qrImageNode.image = UIImage(cgImage: cgImage)
+        let imageContext = CIContext()
+        if let image = imageContext.createCGImage(transformedImage, from: transformedImage.extent) {
+            qrImageNode.image = UIImage(cgImage: image)
         }
     }
 
@@ -287,89 +378,120 @@ final class MyQRCodeContainerNode: ASDisplayNode {
 
         let tabIndicatorCenter = ASCenterLayoutSpec(
             centeringOptions: .Y, sizingOptions: [], child: tabSelectionBackgroundNode)
-        let tabIndicatorPos = ASAbsoluteLayoutSpec(children: [tabIndicatorCenter])
         tabIndicatorCenter.style.layoutPosition = CGPoint(
             x: selectedTab == 0 ? 2.sw : tabWidth / 2 + 2.sw, y: 0)
+        let tabIndicatorPosition = ASAbsoluteLayoutSpec(children: [tabIndicatorCenter])
 
         let tabsStack = ASStackLayoutSpec.horizontal()
         tabsStack.children = [profileTabButton, transferTabButton]
-
         let tabsBackground = ASBackgroundLayoutSpec(child: tabsStack, background: tabContainerNode)
-        let tabsWithIndicator = ASOverlayLayoutSpec(child: tabsBackground, overlay: tabIndicatorPos)
+        let tabsWithIndicator = ASOverlayLayoutSpec(
+            child: tabsBackground, overlay: tabIndicatorPosition)
         let tabsInset = ASInsetLayoutSpec(
             insets: UIEdgeInsets(top: 24.sh, left: 16.sw, bottom: 20.sh, right: 16.sw),
             child: tabsWithIndicator)
 
-        avatarNode.style.preferredSize = CGSize(width: 56.swh, height: 56.swh)
+        let cardWidth = max(0, size.width - 40.sw)
+        let editButtonSize = 40.swh
+        let editButtonMargin = 10.sw
+        let headerSideInset = max(24.sw, editButtonSize + editButtonMargin + 8.sw)
+        let maxHeaderTextWidth = max(
+            80.sw,
+            cardWidth - headerSideInset * 2 - 48.swh - 12.sw)
+        avatarNode.style.preferredSize = CGSize(width: 48.swh, height: 48.swh)
+        nameNode.style.maxWidth = ASDimensionMake(maxHeaderTextWidth)
+        usernameNode.style.maxWidth = ASDimensionMake(maxHeaderTextWidth - 16.sw)
+
+        let usernameInset = ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 2.sh, left: 8.sw, bottom: 2.sh, right: 8.sw),
+            child: usernameNode)
+        let usernameBadge = ASBackgroundLayoutSpec(
+            child: usernameInset, background: usernameBackgroundNode)
+
         let identityStack = ASStackLayoutSpec.vertical()
-        identityStack.spacing = 2.sh
-        identityStack.children = [nameNode, subtitleNode]
+        identityStack.spacing = 4.sh
+        identityStack.alignItems = .start
+        identityStack.children = [nameNode, usernameBadge]
 
         let headerStack = ASStackLayoutSpec.horizontal()
         headerStack.spacing = 12.sw
         headerStack.alignItems = .center
         headerStack.children = [avatarNode, identityStack]
+        let centeredHeader = ASCenterLayoutSpec(
+            centeringOptions: .X, sizingOptions: [], child: headerStack)
 
-        dividerNode.style.preferredSize = CGSize(width: size.width - 64.sw, height: 1)
+        mezonLogoIcon.style.preferredSize = CGSize(width: 20.swh, height: 20.swh)
+        let brandStack = ASStackLayoutSpec.horizontal()
+        brandStack.spacing = 6.sw
+        brandStack.alignItems = .center
+        brandStack.children = [mezonLogoIcon, mezonLogoText]
 
-        mezonLogoIcon.style.preferredSize = CGSize(width: 28.swh, height: 28.swh)
-        let mezonLogoStack = ASStackLayoutSpec.horizontal()
-        mezonLogoStack.spacing = 10.sw
-        mezonLogoStack.alignItems = .center
-        mezonLogoStack.children = [mezonLogoIcon, mezonLogoText]
+        let qrTypeInset = ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 2.sh, left: 8.sw, bottom: 2.sh, right: 8.sw),
+            child: qrTypeNode)
+        let qrTypeBadge = ASBackgroundLayoutSpec(
+            child: qrTypeInset, background: qrTypeBackgroundNode)
 
-        qrImageNode.style.preferredSize = CGSize(width: 240.swh, height: 240.swh)
+        let qrSize = min(264.swh, max(0, cardWidth - 64.sw))
+        let panelWidth = qrSize + 32.sw
+        let panelHeaderWidth = max(0, panelWidth - 32.sw)
+        let panelHeader = ASStackLayoutSpec.horizontal()
+        panelHeader.alignItems = .center
+        panelHeader.justifyContent = .spaceBetween
+        panelHeader.children = [brandStack, qrTypeBadge]
+        panelHeader.style.preferredSize = CGSize(width: panelHeaderWidth, height: 20.sh)
+
+        qrImageNode.style.preferredSize = CGSize(width: qrSize, height: qrSize)
         qrLogoNode.style.preferredSize = CGSize(width: 48.swh, height: 48.swh)
         let qrCenter = ASCenterLayoutSpec(
             centeringOptions: .XY, sizingOptions: [], child: qrLogoNode)
         let qrContainer = ASOverlayLayoutSpec(child: qrImageNode, overlay: qrCenter)
 
-        poweredByLine.style.preferredSize = CGSize(width: 100.sw, height: 1)
-        let poweredStack = ASStackLayoutSpec.vertical()
-        poweredStack.alignItems = .center
-        poweredStack.spacing = 8.sh
-        poweredStack.children = [poweredByLine, poweredByText]
+        verifiedIconNode.style.preferredSize = CGSize(width: 14.swh, height: 14.swh)
+        let verifiedStack = ASStackLayoutSpec.horizontal()
+        verifiedStack.spacing = 4.sw
+        verifiedStack.alignItems = .center
+        verifiedStack.children = [verifiedIconNode, verifiedTextNode]
+        let verifiedInset = ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 3.sh, left: 8.sw, bottom: 3.sh, right: 8.sw),
+            child: verifiedStack)
+        let verifiedBadge = ASBackgroundLayoutSpec(
+            child: verifiedInset, background: verifiedBackgroundNode)
+
+        let panelStack = ASStackLayoutSpec.vertical()
+        panelStack.spacing = 8.sh
+        panelStack.alignItems = .center
+        panelStack.children = [panelHeader, qrContainer, verifiedBadge]
+        let panelContent = ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 14.sh, left: 16.sw, bottom: 14.sh, right: 16.sw),
+            child: panelStack)
+        let panel = ASBackgroundLayoutSpec(child: panelContent, background: qrPanelNode)
 
         downloadButton.style.preferredSize = CGSize(width: 60.sw, height: 42.sh)
         shareButton.style.preferredSize = CGSize(width: 60.sw, height: 42.sh)
-        downloadButton.cornerRadius = 8.swh
-        shareButton.cornerRadius = 8.swh
-
         let actionStack = ASStackLayoutSpec.horizontal()
         actionStack.spacing = 16.sw
         actionStack.children = [downloadButton, shareButton]
 
-        let scanInstructionInset = ASInsetLayoutSpec(
-            insets: UIEdgeInsets(top: 0, left: 16.sw, bottom: 0, right: 16.sw),
-            child: scanInstructionNode)
-
-        let footerStack = ASStackLayoutSpec.vertical()
-        footerStack.spacing = 24.sh
-        footerStack.alignItems = .center
-        footerStack.children = [actionStack, scanInstructionInset]
-
         let cardContentStack = ASStackLayoutSpec.vertical()
         cardContentStack.spacing = 24.sh
         cardContentStack.alignItems = .center
-        cardContentStack.children = [
-            ASInsetLayoutSpec(
-                insets: UIEdgeInsets(top: 24.sh, left: 24.sw, bottom: 0, right: 24.sw),
-                child: headerStack),
-            dividerNode,
-            mezonLogoStack,
-            qrContainer,
-            poweredStack,
-            footerStack,
-        ]
+        cardContentStack.children = [centeredHeader, panel, actionStack]
+        let cardContent = ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 24.sh, left: 0, bottom: 24.sh, right: 0),
+            child: cardContentStack)
+        let cardBackground = ASBackgroundLayoutSpec(child: cardContent, background: cardNode)
 
-        let cardBackground = ASBackgroundLayoutSpec(
-            child: ASInsetLayoutSpec(
-                insets: UIEdgeInsets(top: 0, left: 0, bottom: 32.sh, right: 0),
-                child: cardContentStack
-            ), background: cardNode)
+        editCenterImageButton.style.preferredSize = CGSize(
+            width: editButtonSize, height: editButtonSize)
+        editCenterImageButton.style.layoutPosition = CGPoint(
+            x: max(0, cardWidth - editButtonSize - editButtonMargin), y: 10.sh)
+        let editButtonPosition = ASAbsoluteLayoutSpec(children: [editCenterImageButton])
+        let cardWithEditButton = ASOverlayLayoutSpec(
+            child: cardBackground, overlay: editButtonPosition)
         let cardInset = ASInsetLayoutSpec(
             insets: UIEdgeInsets(top: 0, left: 20.sw, bottom: 24.sh, right: 20.sw),
-            child: cardBackground)
+            child: cardWithEditButton)
 
         let backButtonInset = ASInsetLayoutSpec(
             insets: UIEdgeInsets(top: 0, left: 16.sw, bottom: 0, right: 0), child: backButton)
@@ -379,12 +501,11 @@ final class MyQRCodeContainerNode: ASDisplayNode {
 
         let headerTitleCenter = ASCenterLayoutSpec(
             centeringOptions: .XY, sizingOptions: [], child: titleNode)
-
         let headerOverlay = ASOverlayLayoutSpec(
             child: headerTitleCenter, overlay: ASAbsoluteLayoutSpec(children: [backButtonCenter]))
         headerOverlay.style.preferredSize = CGSize(width: size.width, height: 44.sh)
 
-        let layoutTop = layout?.safeInsets.top ?? 0
+        let layoutTop = containerLayout?.safeInsets.top ?? 0
         let safeTop = isNodeLoaded ? max(view.safeAreaInsets.top, layoutTop) : layoutTop
         let headerInset = ASInsetLayoutSpec(
             insets: UIEdgeInsets(top: safeTop, left: 0, bottom: 0, right: 0),
@@ -392,7 +513,6 @@ final class MyQRCodeContainerNode: ASDisplayNode {
 
         let mainStack = ASStackLayoutSpec.vertical()
         mainStack.children = [headerInset, tabsInset, cardInset]
-
         return mainStack
     }
 
@@ -408,6 +528,10 @@ final class MyQRCodeContainerNode: ASDisplayNode {
         onBackTapped?()
     }
 
+    @objc private func editCenterImageTapped() {
+        onEditCenterImageTapped?()
+    }
+
     @objc private func downloadTapped() {
         if let image = getCardSnapshot() {
             onDownloadTapped?(image)
@@ -421,47 +545,27 @@ final class MyQRCodeContainerNode: ASDisplayNode {
     }
 
     private func getCardSnapshot() -> UIImage? {
-        let prevDownloadHidden = downloadButton.isHidden
-        let prevShareHidden = shareButton.isHidden
-        let prevSubtitleHidden = subtitleNode.isHidden
-        let prevCardBG = cardNode.backgroundColor
-
+        let previousDownloadHidden = downloadButton.isHidden
+        let previousShareHidden = shareButton.isHidden
+        let previousEditHidden = editCenterImageButton.isHidden
         downloadButton.isHidden = true
         shareButton.isHidden = true
-        subtitleNode.isHidden = true
-        cardNode.backgroundColor = .clear
-
-        let gradientLayer = CAGradientLayer()
-        gradientLayer.frame = cardNode.bounds
-        gradientLayer.colors = UIColor.loginGradientColors.map { $0.cgColor }
-        gradientLayer.startPoint = CGPoint(x: 0, y: 0)
-        gradientLayer.endPoint = CGPoint(x: 1, y: 1)
-        gradientLayer.cornerRadius = cardNode.cornerRadius
-        cardNode.view.layer.insertSublayer(gradientLayer, at: 0)
-
-        let qrBgNode = ASDisplayNode()
-        qrBgNode.backgroundColor = .white
-        qrBgNode.cornerRadius = 8
-        let qrFrame = qrImageNode.view.convert(qrImageNode.view.bounds, to: cardNode.view)
-        qrBgNode.frame = qrFrame.insetBy(dx: -8, dy: -8)
-        cardNode.view.insertSubview(qrBgNode.view, belowSubview: qrImageNode.view)
-
-        let targetFrame = cardNode.frame
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 3.0
-        let renderer = UIGraphicsImageRenderer(size: targetFrame.size, format: format)
-        let image = renderer.image { ctx in
-            ctx.cgContext.translateBy(x: -targetFrame.origin.x, y: -targetFrame.origin.y)
-            self.view.layer.render(in: ctx.cgContext)
+        editCenterImageButton.isHidden = true
+        defer {
+            downloadButton.isHidden = previousDownloadHidden
+            shareButton.isHidden = previousShareHidden
+            editCenterImageButton.isHidden = previousEditHidden
         }
 
-        gradientLayer.removeFromSuperlayer()
-        qrBgNode.view.removeFromSuperview()
-        cardNode.backgroundColor = prevCardBG
-        downloadButton.isHidden = prevDownloadHidden
-        shareButton.isHidden = prevShareHidden
-        subtitleNode.isHidden = prevSubtitleHidden
+        let targetFrame = cardNode.frame
+        guard targetFrame.width > 0, targetFrame.height > 0 else { return nil }
 
-        return image
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 3
+        let renderer = UIGraphicsImageRenderer(size: targetFrame.size, format: format)
+        return renderer.image { context in
+            context.cgContext.translateBy(x: -targetFrame.origin.x, y: -targetFrame.origin.y)
+            self.view.layer.render(in: context.cgContext)
+        }
     }
 }
