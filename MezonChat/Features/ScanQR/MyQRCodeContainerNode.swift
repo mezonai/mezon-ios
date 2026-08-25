@@ -3,7 +3,7 @@ import Foundation
 import UIKit
 
 @MainActor
-final class MyQRCodeContainerNode: ASDisplayNode {
+final class MyQRCodeContainerNode: ASDisplayNode, ASNetworkImageNodeDelegate {
 
     private enum CenterImageSelection {
         case profileAvatar
@@ -12,6 +12,9 @@ final class MyQRCodeContainerNode: ASDisplayNode {
     }
 
     private enum Style {
+        static let mezonLogoAsset = "Setting/LogoMezon"
+        static let displayNameFontSize: CGFloat = 18
+        static let usernameFontSize: CGFloat = 13
         static let gradientColors = [
             UIColor(hex: 0xF0EDFD).cgColor,
             UIColor(hex: 0xBEB5F8).cgColor,
@@ -39,6 +42,7 @@ final class MyQRCodeContainerNode: ASDisplayNode {
     private let cardNode = ASDisplayNode()
     private let cardGradientLayer = CAGradientLayer()
     private let editCenterImageButton = ASButtonNode()
+    private let avatarFallbackNode = TextAvatarNode(username: "", size: 48.swh)
     private let avatarNode = ASNetworkImageNode()
     private let nameNode = ASTextNode()
     private let usernameNode = ASTextNode()
@@ -50,6 +54,7 @@ final class MyQRCodeContainerNode: ASDisplayNode {
     private let qrTypeNode = ASTextNode()
     private let qrTypeBackgroundNode = ASDisplayNode()
     private let qrImageNode = ASImageNode()
+    private let qrLogoFallbackNode = TextAvatarNode(username: "", size: 48.swh)
     private let qrLogoNode = ASNetworkImageNode()
     private let verifiedIconNode = ASImageNode()
     private let verifiedTextNode = ASTextNode()
@@ -143,7 +148,8 @@ final class MyQRCodeContainerNode: ASDisplayNode {
         avatarNode.cornerRadius = 24.swh
         avatarNode.clipsToBounds = true
         avatarNode.contentMode = .scaleAspectFill
-        avatarNode.backgroundColor = UIColor.white.withAlphaComponent(0.7)
+        avatarNode.backgroundColor = .clear
+        avatarNode.delegate = self
 
         nameNode.maximumNumberOfLines = 1
         nameNode.truncationMode = .byTruncatingTail
@@ -156,10 +162,9 @@ final class MyQRCodeContainerNode: ASDisplayNode {
         qrPanelNode.backgroundColor = .white
         qrPanelNode.cornerRadius = 16.swh
 
-        mezonLogoIcon.image = UIImage(named: "MezonLogo")?.withRenderingMode(.alwaysOriginal)
-        mezonLogoIcon.contentMode = .scaleAspectFill
+        mezonLogoIcon.image = UIImage(named: Style.mezonLogoAsset)?.withRenderingMode(.alwaysOriginal)
+        mezonLogoIcon.contentMode = .scaleAspectFit
         mezonLogoIcon.clipsToBounds = true
-        mezonLogoIcon.cornerRadius = 2.swh
         mezonLogoText.attributedText = NSAttributedString(
             string: "MEZON",
             attributes: [
@@ -176,9 +181,11 @@ final class MyQRCodeContainerNode: ASDisplayNode {
         qrLogoNode.cornerRadius = 8.swh
         qrLogoNode.clipsToBounds = true
         qrLogoNode.contentMode = .scaleAspectFill
-        qrLogoNode.backgroundColor = .white
+        qrLogoNode.backgroundColor = .clear
         qrLogoNode.borderColor = UIColor.white.cgColor
         qrLogoNode.borderWidth = 2.swh
+        qrLogoNode.delegate = self
+        qrLogoFallbackNode.cornerRadius = 8.swh
 
         verifiedIconNode.image = UIImage(systemName: "checkmark.seal.fill")?
             .withRenderingMode(.alwaysTemplate)
@@ -201,9 +208,9 @@ final class MyQRCodeContainerNode: ASDisplayNode {
             backButton, titleNode,
             tabContainerNode, tabSelectionBackgroundNode, profileTabButton, transferTabButton,
             cardNode,
-            avatarNode, nameNode, usernameBackgroundNode, usernameNode,
+            avatarFallbackNode, avatarNode, nameNode, usernameBackgroundNode, usernameNode,
             qrPanelNode, mezonLogoIcon, mezonLogoText,
-            qrTypeBackgroundNode, qrTypeNode, qrImageNode, qrLogoNode,
+            qrTypeBackgroundNode, qrTypeNode, qrImageNode, qrLogoFallbackNode, qrLogoNode,
             verifiedBackgroundNode, verifiedIconNode, verifiedTextNode,
             downloadButton, shareButton, editCenterImageButton,
         ].forEach { addSubnode($0) }
@@ -246,23 +253,38 @@ final class MyQRCodeContainerNode: ASDisplayNode {
 
     private func updateContent() {
         let user = context.currentUser
-        avatarNode.url = user?.avatarURL
 
         let displayName = user.map { $0.displayName.isEmpty ? $0.username : $0.displayName }
             ?? "User"
         let username = user.map { $0.username.isEmpty ? displayName : $0.username }
             ?? displayName
 
+        avatarFallbackNode.configure(username: user?.username ?? "")
+        if let avatarURL = user?.avatarURL {
+            if avatarNode.url == avatarURL, hasValidImage(avatarNode.image) {
+                avatarFallbackNode.showImageMode()
+            } else {
+                if avatarNode.url != avatarURL {
+                    avatarNode.image = nil
+                }
+                avatarNode.url = avatarURL
+                avatarFallbackNode.showSkeleton()
+            }
+        } else {
+            avatarNode.url = nil
+            avatarNode.image = nil
+        }
+
         nameNode.attributedText = NSAttributedString(
             string: displayName,
             attributes: [
-                .font: UIFont.systemFont(ofSize: 18.sf, weight: .bold),
+                .font: UIFont.systemFont(ofSize: Style.displayNameFontSize, weight: .bold),
                 .foregroundColor: Style.primaryText,
             ])
         usernameNode.attributedText = NSAttributedString(
             string: username.hasPrefix("@") ? username : "@\(username)",
             attributes: [
-                .font: UIFont.systemFont(ofSize: 13.sf, weight: .bold),
+                .font: UIFont.systemFont(ofSize: Style.usernameFontSize, weight: .bold),
                 .foregroundColor: Style.badgeText,
             ])
 
@@ -303,14 +325,30 @@ final class MyQRCodeContainerNode: ASDisplayNode {
     private func updateCenterImage() {
         switch centerImageSelection {
         case .profileAvatar:
-            qrLogoNode.image = nil
-            qrLogoNode.url = context.currentUser?.avatarURL
+            let user = context.currentUser
+            qrLogoFallbackNode.configure(username: user?.username ?? "")
+            if let avatarURL = user?.avatarURL {
+                if qrLogoNode.url == avatarURL, hasValidImage(qrLogoNode.image) {
+                    qrLogoFallbackNode.showImageMode()
+                } else {
+                    if qrLogoNode.url != avatarURL {
+                        qrLogoNode.image = nil
+                    }
+                    qrLogoNode.url = avatarURL
+                    qrLogoFallbackNode.showSkeleton()
+                }
+            } else {
+                qrLogoNode.url = nil
+                qrLogoNode.image = nil
+            }
         case .mezonLogo:
             qrLogoNode.url = nil
-            qrLogoNode.image = UIImage(named: "MezonLogo")
+            qrLogoNode.image = UIImage(named: Style.mezonLogoAsset)
+            qrLogoFallbackNode.showImageMode()
         case let .custom(image):
             qrLogoNode.url = nil
             qrLogoNode.image = image
+            qrLogoFallbackNode.showImageMode()
         }
     }
 
@@ -399,6 +437,7 @@ final class MyQRCodeContainerNode: ASDisplayNode {
             80.sw,
             cardWidth - headerSideInset * 2 - 48.swh - 12.sw)
         avatarNode.style.preferredSize = CGSize(width: 48.swh, height: 48.swh)
+        avatarFallbackNode.style.preferredSize = CGSize(width: 48.swh, height: 48.swh)
         nameNode.style.maxWidth = ASDimensionMake(maxHeaderTextWidth)
         usernameNode.style.maxWidth = ASDimensionMake(maxHeaderTextWidth - 16.sw)
 
@@ -416,7 +455,8 @@ final class MyQRCodeContainerNode: ASDisplayNode {
         let headerStack = ASStackLayoutSpec.horizontal()
         headerStack.spacing = 12.sw
         headerStack.alignItems = .center
-        headerStack.children = [avatarNode, identityStack]
+        let avatar = ASOverlayLayoutSpec(child: avatarFallbackNode, overlay: avatarNode)
+        headerStack.children = [avatar, identityStack]
         let centeredHeader = ASCenterLayoutSpec(
             centeringOptions: .X, sizingOptions: [], child: headerStack)
 
@@ -442,9 +482,11 @@ final class MyQRCodeContainerNode: ASDisplayNode {
         panelHeader.style.preferredSize = CGSize(width: panelHeaderWidth, height: 20.sh)
 
         qrImageNode.style.preferredSize = CGSize(width: qrSize, height: qrSize)
+        qrLogoFallbackNode.style.preferredSize = CGSize(width: 48.swh, height: 48.swh)
         qrLogoNode.style.preferredSize = CGSize(width: 48.swh, height: 48.swh)
+        let qrLogo = ASOverlayLayoutSpec(child: qrLogoFallbackNode, overlay: qrLogoNode)
         let qrCenter = ASCenterLayoutSpec(
-            centeringOptions: .XY, sizingOptions: [], child: qrLogoNode)
+            centeringOptions: .XY, sizingOptions: [], child: qrLogo)
         let qrContainer = ASOverlayLayoutSpec(child: qrImageNode, overlay: qrCenter)
 
         verifiedIconNode.style.preferredSize = CGSize(width: 14.swh, height: 14.swh)
@@ -544,16 +586,40 @@ final class MyQRCodeContainerNode: ASDisplayNode {
         }
     }
 
+    @objc func imageNode(_ imageNode: ASNetworkImageNode, didFailWithError error: Error) {
+        if imageNode === avatarNode {
+            avatarFallbackNode.showPlaceholder()
+        } else if imageNode === qrLogoNode, case .profileAvatar = centerImageSelection {
+            qrLogoFallbackNode.showPlaceholder()
+        }
+    }
+
+    @objc func imageNode(_ imageNode: ASNetworkImageNode, didLoad image: UIImage) {
+        let imageIsValid = hasValidImage(image)
+        if imageNode === avatarNode {
+            if imageIsValid {
+                avatarFallbackNode.showImageMode()
+            } else {
+                avatarFallbackNode.showPlaceholder()
+            }
+        } else if imageNode === qrLogoNode, case .profileAvatar = centerImageSelection {
+            if imageIsValid {
+                qrLogoFallbackNode.showImageMode()
+            } else {
+                qrLogoFallbackNode.showPlaceholder()
+            }
+        }
+    }
+
+    private func hasValidImage(_ image: UIImage?) -> Bool {
+        guard let image else { return false }
+        return image.size.width >= 0.5 && image.size.height >= 0.5
+    }
+
     private func getCardSnapshot() -> UIImage? {
-        let previousDownloadHidden = downloadButton.isHidden
-        let previousShareHidden = shareButton.isHidden
         let previousEditHidden = editCenterImageButton.isHidden
-        downloadButton.isHidden = true
-        shareButton.isHidden = true
         editCenterImageButton.isHidden = true
         defer {
-            downloadButton.isHidden = previousDownloadHidden
-            shareButton.isHidden = previousShareHidden
             editCenterImageButton.isHidden = previousEditHidden
         }
 
