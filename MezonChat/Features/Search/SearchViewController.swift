@@ -153,7 +153,7 @@ final class SearchViewController: ViewController {
     required init(coder aDecoder: NSCoder) { fatalError() }
 
     override func loadDisplayNode() {
-        var hiddenTabs: Set<SearchTab> = isChannelScoped ? [.channels] : []
+        var hiddenTabs: Set<SearchTab> = isChannelScoped ? [.channels] : [.messages]
         let isDM = clanId == 0
         if isDM {
             hiddenTabs.insert(.members)
