@@ -1083,7 +1083,7 @@ final class SearchViewController: ViewController {
             chatUnreadCount: Int(channel.countMessUnread),
             members: resolvedMembers,
             onChat: { [weak self] in self?.pushChatFromVoiceSheet(for: channel) },
-            onJoinVoice: { [weak self] in self?.pushVoiceChannelRoom(for: channel) },
+            onJoinVoice: { [weak self] role in self?.pushVoiceChannelRoom(for: channel, role: role) },
             onInvite: {}
         )
         sheet.modalPresentationStyle = UIModalPresentationStyle.pageSheet
@@ -1148,7 +1148,7 @@ final class SearchViewController: ViewController {
             members: resolvedMembers,
             kind: .streaming,
             onChat: { [weak self] in self?.pushChatFromVoiceSheet(for: channel) },
-            onJoinVoice: { [weak self] in self?.pushStreamingRoom(for: channel) },
+            onJoinVoice: { [weak self] _ in self?.pushStreamingRoom(for: channel) },
             onInvite: {}
         )
         sheet.modalPresentationStyle = UIModalPresentationStyle.pageSheet
@@ -1244,7 +1244,7 @@ final class SearchViewController: ViewController {
         }
     }
 
-    private func pushVoiceChannelRoom(for channel: Mezon_Api_ChannelDescription) {
+    private func pushVoiceChannelRoom(for channel: Mezon_Api_ChannelDescription, role: SfuRole = .speaker) {
         persistSelectedChannelForVoice(channel)
         context.currentClanId = effectiveClanId(for: channel)
         guard let nav = navigationController else { return }
@@ -1266,7 +1266,8 @@ final class SearchViewController: ViewController {
 
         let vc = VoiceChannelRoomViewController(
             context: context, channel: channel,
-            parentChannelName: parentChannelName(for: channel))
+            parentChannelName: parentChannelName(for: channel),
+            joinRole: role)
         nav.pushViewController(vc, animated: true)
     }
 }

@@ -21,7 +21,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
-        MezonEnvironment.current = .prod
+        MezonEnvironment.current = .dev
         SentryLogger.start()
         CallKitManager.shared.configure()
         DispatchQueue.main.async {

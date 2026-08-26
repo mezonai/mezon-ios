@@ -1574,20 +1574,27 @@ final class MezonHTTPClient {
         var req = Mezon_Api_GenerateMeetTokenRequest()
         req.channelID = channelId
         req.roomName = roomName
-        let response: Mezon_Api_GenerateMeetTokenResponse = try await postProto(
-            path: "/mezon.api.Mezon/GenerateMeetToken",
-            message: req,
-            auth: .bearer(token)
-        )
+        let path = "/mezon.api.Mezon/GenerateMeetToken"
+        if let response: Mezon_Api_GenerateMeetTokenResponse = try? await sendOverSocketIfPossible(path: path, message: req),
+           !response.token.isEmpty {
+            return response.token
+        }
+        let data = try await postProtoRawHTTP(path: path, message: req, auth: .bearer(token))
+        let text = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"")) ?? ""
+        if text.hasPrefix("eyJ"), text.filter({ $0 == "." }).count == 2 {
+            return text
+        }
+        let response = try Mezon_Api_GenerateMeetTokenResponse(serializedBytes: data)
         return response.token
     }
 
-    func muteMezonMeetParticipant(clanId: Int64, channelId: Int64, roomName: String, username: String, token: String) async throws {
+    func muteMezonMeetParticipant(clanId: Int64, channelId: Int64, userId: Int64, token: String) async throws {
         var req = Mezon_Api_MeetParticipantRequest()
         req.clanID = clanId
         req.channelID = channelId
-        req.roomName = roomName
-        req.username = username
+        req.userID = userId
         let _: SwiftProtobuf.Google_Protobuf_Empty = try await postProto(
             path: "/mezon.api.Mezon/MuteParticipantMezonMeet",
             message: req,
@@ -1595,12 +1602,11 @@ final class MezonHTTPClient {
         )
     }
 
-    func removeMezonMeetParticipant(clanId: Int64, channelId: Int64, roomName: String, username: String, token: String) async throws {
+    func removeMezonMeetParticipant(clanId: Int64, channelId: Int64, userId: Int64, token: String) async throws {
         var req = Mezon_Api_MeetParticipantRequest()
         req.clanID = clanId
         req.channelID = channelId
-        req.roomName = roomName
-        req.username = username
+        req.userID = userId
         let _: SwiftProtobuf.Google_Protobuf_Empty = try await postProto(
             path: "/mezon.api.Mezon/RemoveParticipantMezonMeet",
             message: req,
@@ -2491,6 +2497,57 @@ final class MezonHTTPClient {
                !newToken.isEmpty,
                newToken != failedToken {
                 return try await postProtoHTTP(
+                    path: path,
+                    message: message,
+                    auth: .bearer(newToken),
+                    allowBearerRetry: false
+                )
+            }
+        }
+
+        let msg = apiFailureMessage(httpStatusCode: http.statusCode, data: data)
+        throw MezonError.httpError(statusCode: http.statusCode, message: msg)
+    }
+
+    private func postProtoRawHTTP<Request: SwiftProtobuf.Message>(
+        path: String,
+        message: Request,
+        auth: AuthMethod,
+        allowBearerRetry: Bool = true
+    ) async throws -> Data {
+        let resolvedAuth = await resolveAuth(auth)
+        let url = protoBaseURL.appendingPathComponent(path)
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/proto", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/proto", forHTTPHeaderField: "Accept")
+        switch resolvedAuth {
+        case .serverKey:
+            request.setValue(MezonConfig.basicAuthHeader, forHTTPHeaderField: "Authorization")
+        case .bearer(let token):
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        request.httpBody = try message.serializedData()
+
+        let (data, response) = try await httpData(request)
+
+        guard let http = response as? HTTPURLResponse else {
+            throw MezonError.invalidResponse
+        }
+
+        if (200..<300).contains(http.statusCode) {
+            return data
+        }
+
+        if allowBearerRetry,
+           isBearerAuthenticationFailure(httpStatusCode: http.statusCode, data: data),
+           case .bearer(let failedToken) = resolvedAuth,
+           let recovery = bearerUnauthorizedRecovery {
+            let newToken = try await recovery(failedToken, http.statusCode)
+            if let newToken,
+               !newToken.isEmpty,
+               newToken != failedToken {
+                return try await postProtoRawHTTP(
                     path: path,
                     message: message,
                     auth: .bearer(newToken),

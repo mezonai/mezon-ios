@@ -19,6 +19,7 @@ enum MezonConfig {
 
     static var meetWebSocketURLString: String { env.meetWebSocketURLString }
     static var streamWebSocketURLString: String { env.streamWebSocketURLString }
+    static var sfuWebSocketURLString: String { env.sfuWebSocketURLString }
     static var ogpURL: URL { env.ogpURL }
 
     static var webRTCIceServerURL: String { env.webRTCIceServerURL }

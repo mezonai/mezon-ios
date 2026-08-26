@@ -206,6 +206,16 @@ enum MezonEnvironment {
         }
     }
 
+    var sfuWebSocketURLString: String {
+        if let override = Self.infoPlistString("MEZON_SFU_WS_URL"), !override.isEmpty {
+            return override
+        }
+        switch self {
+        case .dev: return "wss://test-sfu.nccsoft.vn/ws"
+        case .prod: return "wss://sfu.mezon.vn/ws"
+        }
+    }
+
     var ogpURL: URL {
         switch self {
         case .dev:  return URL(string: Secrets.devOgpURL)!

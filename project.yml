@@ -23,12 +23,9 @@ schemes:
       config: Release
 
 packages:
-  LiveKit:
-    url: https://github.com/livekit/client-sdk-swift
-    from: "2.12.1"
-  LiveKitWebRTC:
-    url: https://github.com/livekit/webrtc-xcframework.git
-    exactVersion: "137.7151.12"
+  WebRTC:
+    url: https://github.com/stasel/WebRTC.git
+    exactVersion: "137.0.0"
   SwiftProtobuf:
     url: https://github.com/apple/swift-protobuf
     from: "1.28.0"
@@ -72,10 +69,8 @@ targets:
         com.apple.BackgroundModes:
           enabled: 1
     dependencies:
-      - package: LiveKit
-        product: LiveKit
-      - package: LiveKitWebRTC
-        product: LiveKitWebRTC
+      - package: WebRTC
+        product: WebRTC
       - package: SwiftProtobuf
         product: SwiftProtobuf
       - package: Sentry
@@ -104,14 +99,9 @@ targets:
         shell: /bin/sh
         basedOnDependencyAnalysis: false
     postBuildScripts:
-      - name: Generate LiveKitWebRTC dSYM
+      - name: Generate WebRTC dSYM
         script: |
-          /bin/sh "${SRCROOT}/scripts/generate_livekit_webrtc_dsym.sh"
-        shell: /bin/sh
-        basedOnDependencyAnalysis: false
-      - name: Strip unlinked Sentry framework
-        script: |
-          /bin/sh "${SRCROOT}/scripts/strip_unlinked_sentry_framework.sh"
+          /bin/sh "${SRCROOT}/scripts/generate_webrtc_dsym.sh"
         shell: /bin/sh
         basedOnDependencyAnalysis: false
     settings:
@@ -119,7 +109,7 @@ targets:
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         PRODUCT_BUNDLE_IDENTIFIER: mezon.mobile
         PRODUCT_NAME: Mezon
-        MARKETING_VERSION: "1.2.111"
+        MARKETING_VERSION: "1.2.112"
         CURRENT_PROJECT_VERSION: "1"
         INFOPLIST_FILE: MezonChat/Resources/Info.plist
         DEVELOPMENT_TEAM: ""
@@ -135,11 +125,11 @@ targets:
         Debug:
           DEBUG_INFORMATION_FORMAT: dwarf
           SWIFT_OPTIMIZATION_LEVEL: "-Onone"
-          SWIFT_ACTIVE_COMPILATION_CONDITIONS: "DEBUG ENABLE_LIVEKIT"
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: "DEBUG"
         Release:
           DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
           SWIFT_OPTIMIZATION_LEVEL: "-O"
-          SWIFT_ACTIVE_COMPILATION_CONDITIONS: "ENABLE_LIVEKIT"
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: ""
     info:
       path: MezonChat/Resources/Info.plist
       properties:
@@ -224,7 +214,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: mezon.mobile.MezonSharing
         PRODUCT_NAME: MezonSharing
-        MARKETING_VERSION: "1.2.111"
+        MARKETING_VERSION: "1.2.112"
         CURRENT_PROJECT_VERSION: "1"
         DEVELOPMENT_TEAM: ""
         CODE_SIGN_STYLE: Automatic

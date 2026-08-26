@@ -1,6 +1,6 @@
 import AVFoundation
 import Foundation
-import LiveKitWebRTC
+import WebRTC
 
 private struct IceCandidateWire: Codable {
     var candidate: String
@@ -60,14 +60,14 @@ final class PeerWebRTCCallSession: NSObject {
     private var phase: PeerCallPhase
     private var wantsVideo: Bool
 
-    private var peerConnection: LKRTCPeerConnection?
-    private var peerFactory: LKRTCPeerConnectionFactory?
-    private var localAudioTrack: LKRTCAudioTrack?
-    private var localVideoTrack: LKRTCVideoTrack?
-    private var videoCapturer: LKRTCCameraVideoCapturer?
+    private var peerConnection: RTCPeerConnection?
+    private var peerFactory: RTCPeerConnectionFactory?
+    private var localAudioTrack: RTCAudioTrack?
+    private var localVideoTrack: RTCVideoTrack?
+    private var videoCapturer: RTCCameraVideoCapturer?
 
-    private var pendingOutgoingIce: [LKRTCIceCandidate] = []
-    private var pendingRemoteIce: [LKRTCIceCandidate] = []
+    private var pendingOutgoingIce: [RTCIceCandidate] = []
+    private var pendingRemoteIce: [RTCIceCandidate] = []
     private var pendingRemoteIceJsonBeforePc: [String] = []
 
     private var pendingOfferCompressed: String?
@@ -121,27 +121,27 @@ final class PeerWebRTCCallSession: NSObject {
     private var remoteMicEnabled = true
     private var remoteCameraEnabledFromSignaling = true
 
-    nonisolated private static let sharedPeerConnectionFactory: LKRTCPeerConnectionFactory = {
-        LKRTCInitializeSSL()
-        let enc = LKRTCDefaultVideoEncoderFactory()
-        let dec = LKRTCDefaultVideoDecoderFactory()
-        return LKRTCPeerConnectionFactory(encoderFactory: enc, decoderFactory: dec)
+    nonisolated private static let sharedPeerConnectionFactory: RTCPeerConnectionFactory = {
+        RTCInitializeSSL()
+        let enc = RTCDefaultVideoEncoderFactory()
+        let dec = RTCDefaultVideoDecoderFactory()
+        return RTCPeerConnectionFactory(encoderFactory: enc, decoderFactory: dec)
     }()
 
     nonisolated static func prewarmWebRTCInfrastructure() {
         _ = sharedPeerConnectionFactory
     }
 
-    private static func makePeerConnectionFactory() -> LKRTCPeerConnectionFactory {
+    private static func makePeerConnectionFactory() -> RTCPeerConnectionFactory {
         return sharedPeerConnectionFactory
     }
 
-    private func applyPeerConnectionConfigCommon(_ config: LKRTCConfiguration) {
+    private func applyPeerConnectionConfigCommon(_ config: RTCConfiguration) {
         config.sdpSemantics = .unifiedPlan
         config.iceCandidatePoolSize = 10
         config.continualGatheringPolicy = .gatherContinually
         config.iceServers = [
-            LKRTCIceServer(
+            RTCIceServer(
                 urlStrings: [
                     "stun:stun.l.google.com:19302",
                     "stun:stun1.l.google.com:19302",
@@ -149,7 +149,7 @@ final class PeerWebRTCCallSession: NSObject {
                 username: nil,
                 credential: nil
             ),
-            LKRTCIceServer(
+            RTCIceServer(
                 urlStrings: Self.expandedTurnURLStrings(from: MezonConfig.webRTCIceServerURL),
                 username: MezonConfig.webRTCIceUsername,
                 credential: MezonConfig.webRTCIceCredential
@@ -187,9 +187,9 @@ final class PeerWebRTCCallSession: NSObject {
     var onRemoteMedia: ((Bool) -> Void)?
     var onLocalMedia: ((Bool, Bool) -> Void)?
     var onNetworkBanner: ((String?) -> Void)?
-    var onRemoteVideoTrack: ((LKRTCVideoTrack?) -> Void)?
+    var onRemoteVideoTrack: ((RTCVideoTrack?) -> Void)?
     var onRemoteVideoInboundActive: ((Bool) -> Void)?
-    var onLocalVideoTrack: ((LKRTCVideoTrack?) -> Void)?
+    var onLocalVideoTrack: ((RTCVideoTrack?) -> Void)?
 
     private enum PeerCallPhase {
         case ringing
@@ -347,7 +347,7 @@ final class PeerWebRTCCallSession: NSObject {
     }
 
     private static func waitForCallKitReadyForIncomingAnswer() async {
-        let rtc = LKRTCAudioSession.sharedInstance()
+        let rtc = RTCAudioSession.sharedInstance()
         if rtc.isActive {
             return
         }
@@ -370,7 +370,7 @@ final class PeerWebRTCCallSession: NSObject {
             Task { @MainActor in
                 for _ in 0..<80 {
                     try? await Task.sleep(nanoseconds: 50_000_000)
-                    if LKRTCAudioSession.sharedInstance().isActive {
+                    if RTCAudioSession.sharedInstance().isActive {
                         finish()
                         return
                     }
@@ -456,10 +456,10 @@ final class PeerWebRTCCallSession: NSObject {
         let factory = Self.makePeerConnectionFactory()
         peerFactory = factory
 
-        let config = LKRTCConfiguration()
+        let config = RTCConfiguration()
         applyPeerConnectionConfigCommon(config)
 
-        let constraints = LKRTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+        let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
         guard let pc = factory.peerConnection(with: config, constraints: constraints, delegate: self) else {
             throw PeerWebRTCCallSessionError.peerConnectionCreateFailed
         }
@@ -741,7 +741,7 @@ final class PeerWebRTCCallSession: NSObject {
                 guard let vt = localVideoTrack else {
                     return
                 }
-                let vi = LKRTCRtpTransceiverInit()
+                let vi = RTCRtpTransceiverInit()
                 vi.direction = .sendRecv
                 pc.addTransceiver(with: vt, init: vi)
                 needsRenegotiation = true
@@ -783,7 +783,7 @@ final class PeerWebRTCCallSession: NSObject {
 
     private func createAndSendOffer() async throws {
         guard let pc = peerConnection else { return }
-        let constraints = LKRTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+        let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             pc.offer(for: constraints) { sdp, error in
                 if let error {
@@ -925,7 +925,7 @@ final class PeerWebRTCCallSession: NSObject {
         peerConnection?.close()
         peerConnection = nil
         peerFactory = nil
-        let rtcAudio = LKRTCAudioSession.sharedInstance()
+        let rtcAudio = RTCAudioSession.sharedInstance()
         rtcAudio.lockForConfiguration()
         defer { rtcAudio.unlockForConfiguration() }
         rtcAudio.isAudioEnabled = false
@@ -952,12 +952,12 @@ final class PeerWebRTCCallSession: NSObject {
     }
 
     private func configureAudioSession() throws {
-        let rtc = LKRTCAudioSession.sharedInstance()
+        let rtc = RTCAudioSession.sharedInstance()
         rtc.useManualAudio = true
         rtc.lockForConfiguration()
         defer { rtc.unlockForConfiguration() }
         let useVideoChat = wantsVideo || localVideoTrack != nil || localCameraEnabled
-        let cfg = LKRTCAudioSessionConfiguration.webRTC()
+        let cfg = RTCAudioSessionConfiguration.webRTC()
         cfg.category = AVAudioSession.Category.playAndRecord.rawValue
         let audioMode: AVAudioSession.Mode = {
             if localSpeakerEnabled {
@@ -1042,8 +1042,8 @@ final class PeerWebRTCCallSession: NSObject {
         incomingRingTimer = nil
     }
 
-    private func buildAudioVideoTracks(factory: LKRTCPeerConnectionFactory) throws {
-        let constraints = LKRTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+    private func buildAudioVideoTracks(factory: RTCPeerConnectionFactory) throws {
+        let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
         let audioSource = factory.audioSource(with: constraints)
         let audioTrack = factory.audioTrack(with: audioSource, trackId: "peer_audio_\(UUID().uuidString.prefix(8))")
         localAudioTrack = audioTrack
@@ -1055,9 +1055,9 @@ final class PeerWebRTCCallSession: NSObject {
         }
     }
 
-    private func setupLocalVideo(factory: LKRTCPeerConnectionFactory) throws {
+    private func setupLocalVideo(factory: RTCPeerConnectionFactory) throws {
         let source = factory.videoSource()
-        let capturer = LKRTCCameraVideoCapturer(delegate: source)
+        let capturer = RTCCameraVideoCapturer(delegate: source)
         videoCapturer = capturer
         let track = factory.videoTrack(with: source, trackId: "peer_video_\(UUID().uuidString.prefix(8))")
         localVideoTrack = track
@@ -1065,7 +1065,7 @@ final class PeerWebRTCCallSession: NSObject {
         track.isEnabled = false
     }
 
-    private func setPeerRemoteDescription(_ sd: LKRTCSessionDescription) async throws {
+    private func setPeerRemoteDescription(_ sd: RTCSessionDescription) async throws {
         guard let pc = peerConnection else {
             throw PeerWebRTCCallSessionError.peerConnectionCreateFailed
         }
@@ -1080,17 +1080,17 @@ final class PeerWebRTCCallSession: NSObject {
         }
     }
 
-    private func rtpTransceiverSetSendRecv(_ tx: LKRTCRtpTransceiver) {
+    private func rtpTransceiverSetSendRecv(_ tx: RTCRtpTransceiver) {
         var err: NSError?
         tx.setDirection(.sendRecv, error: &err)
     }
 
-    private func bindLocalAudioForOutbound(pc: LKRTCPeerConnection) {
+    private func bindLocalAudioForOutbound(pc: RTCPeerConnection) {
         guard let at = localAudioTrack else { return }
         let aTx = pc.transceivers.filter { $0.mediaType == .audio && !$0.isStopped }
-        var picked: LKRTCRtpTransceiver?
+        var picked: RTCRtpTransceiver?
         for tx in aTx {
-            if (tx.sender.track as? LKRTCAudioTrack) === at {
+            if (tx.sender.track as? RTCAudioTrack) === at {
                 picked = tx
                 break
             }
@@ -1103,7 +1103,7 @@ final class PeerWebRTCCallSession: NSObject {
         }
         if picked == nil {
             for tx in aTx {
-                var cur = LKRTCRtpTransceiverDirection.inactive
+                var cur = RTCRtpTransceiverDirection.inactive
                 if tx.currentDirection(&cur) {
                     if cur == .sendOnly || cur == .sendRecv {
                         picked = tx
@@ -1126,7 +1126,7 @@ final class PeerWebRTCCallSession: NSObject {
         at.isEnabled = localMicEnabled
     }
 
-    private func bindLocalVideoForOutbound(pc: LKRTCPeerConnection) {
+    private func bindLocalVideoForOutbound(pc: RTCPeerConnection) {
         guard let vt = localVideoTrack else {
             return
         }
@@ -1134,25 +1134,25 @@ final class PeerWebRTCCallSession: NSObject {
         guard !vTx.isEmpty else {
             return
         }
-        var picked: LKRTCRtpTransceiver?
-        for tx in vTx where (tx.sender.track as? LKRTCVideoTrack) === vt {
+        var picked: RTCRtpTransceiver?
+        for tx in vTx where (tx.sender.track as? RTCVideoTrack) === vt {
             picked = tx
             break
         }
-        func currentDir(_ tx: LKRTCRtpTransceiver) -> LKRTCRtpTransceiverDirection {
-            var cur = LKRTCRtpTransceiverDirection.inactive
+        func currentDir(_ tx: RTCRtpTransceiver) -> RTCRtpTransceiverDirection {
+            var cur = RTCRtpTransceiverDirection.inactive
             if tx.currentDirection(&cur) {
                 return cur
             }
             return .inactive
         }
-        func allowsOutboundSend(_ tx: LKRTCRtpTransceiver) -> Bool {
+        func allowsOutboundSend(_ tx: RTCRtpTransceiver) -> Bool {
             currentDir(tx) != .recvOnly
         }
         if picked == nil {
             for tx in vTx.reversed() {
                 guard allowsOutboundSend(tx) else { continue }
-                if tx.sender.track == nil || (tx.sender.track as? LKRTCVideoTrack) === vt {
+                if tx.sender.track == nil || (tx.sender.track as? RTCVideoTrack) === vt {
                     picked = tx
                     break
                 }
@@ -1161,7 +1161,7 @@ final class PeerWebRTCCallSession: NSObject {
         if picked == nil {
             for tx in vTx {
                 guard allowsOutboundSend(tx) else { continue }
-                if tx.sender.track == nil || (tx.sender.track as? LKRTCVideoTrack) === vt {
+                if tx.sender.track == nil || (tx.sender.track as? RTCVideoTrack) === vt {
                     picked = tx
                     break
                 }
@@ -1197,12 +1197,12 @@ final class PeerWebRTCCallSession: NSObject {
 
     private func startCameraCaptureIfNeeded() throws {
         guard let capturer = videoCapturer else { return }
-        guard let device = LKRTCCameraVideoCapturer.captureDevices().first(where: { $0.position == preferredCameraPosition })
-                ?? LKRTCCameraVideoCapturer.captureDevices().first
+        guard let device = RTCCameraVideoCapturer.captureDevices().first(where: { $0.position == preferredCameraPosition })
+                ?? RTCCameraVideoCapturer.captureDevices().first
         else {
             throw PeerWebRTCCallSessionError.captureFailed
         }
-        let formats = LKRTCCameraVideoCapturer.supportedFormats(for: device) as [AVCaptureDevice.Format]
+        let formats = RTCCameraVideoCapturer.supportedFormats(for: device) as [AVCaptureDevice.Format]
         guard let picked = Self.selectCaptureFormat(
             from: formats,
             maxWidth: 960,
@@ -1259,10 +1259,10 @@ final class PeerWebRTCCallSession: NSObject {
         let factory = Self.makePeerConnectionFactory()
         peerFactory = factory
 
-        let config = LKRTCConfiguration()
+        let config = RTCConfiguration()
         applyPeerConnectionConfigCommon(config)
 
-        let constraints = LKRTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+        let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
         guard let pc = factory.peerConnection(with: config, constraints: constraints, delegate: self) else {
             throw PeerWebRTCCallSessionError.peerConnectionCreateFailed
         }
@@ -1271,14 +1271,14 @@ final class PeerWebRTCCallSession: NSObject {
         try buildAudioVideoTracks(factory: factory)
         try ensureCallStillActive()
 
-        let audioInit = LKRTCRtpTransceiverInit()
+        let audioInit = RTCRtpTransceiverInit()
         audioInit.direction = .sendRecv
         audioInit.streamIds = [peerCallLocalAudioStreamId]
         guard let at = localAudioTrack else { throw PeerWebRTCCallSessionError.peerConnectionCreateFailed }
         pc.addTransceiver(with: at, init: audioInit)
 
         if wantsVideo, let vt = localVideoTrack {
-            let vi = LKRTCRtpTransceiverInit()
+            let vi = RTCRtpTransceiverInit()
             vi.direction = .sendRecv
             pc.addTransceiver(with: vt, init: vi)
         }
@@ -1361,10 +1361,10 @@ final class PeerWebRTCCallSession: NSObject {
         let factory = Self.makePeerConnectionFactory()
         peerFactory = factory
 
-        let config = LKRTCConfiguration()
+        let config = RTCConfiguration()
         applyPeerConnectionConfigCommon(config)
 
-        let constraints = LKRTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+        let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
         guard let pc = factory.peerConnection(with: config, constraints: constraints, delegate: self) else {
             throw PeerWebRTCCallSessionError.peerConnectionCreateFailed
         }
@@ -1432,7 +1432,7 @@ final class PeerWebRTCCallSession: NSObject {
         scheduleRemoteVideoPostConnectWork()
     }
 
-    private func offerJSONString(from sd: LKRTCSessionDescription) throws -> String {
+    private func offerJSONString(from sd: RTCSessionDescription) throws -> String {
         let typeStr: String
         switch sd.type {
         case .offer: typeStr = "offer"
@@ -1453,7 +1453,7 @@ final class PeerWebRTCCallSession: NSObject {
         return s
     }
 
-    private func answerJSONString(from sd: LKRTCSessionDescription) throws -> String {
+    private func answerJSONString(from sd: RTCSessionDescription) throws -> String {
         let typeStr: String
         switch sd.type {
         case .offer: typeStr = "offer"
@@ -1469,7 +1469,7 @@ final class PeerWebRTCCallSession: NSObject {
         return s
     }
 
-    private func parseRemoteSessionDescription(compressedOrPlain: String) throws -> LKRTCSessionDescription {
+    private func parseRemoteSessionDescription(compressedOrPlain: String) throws -> RTCSessionDescription {
         let rawJson = try PeerWebRTCStringCompression.decompressSignalingJson(compressedOrPlain)
         guard let data = rawJson.data(using: .utf8),
               let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -1479,7 +1479,7 @@ final class PeerWebRTCCallSession: NSObject {
             throw PeerWebRTCCallSessionError.badSDPJson
         }
 
-        let type: LKRTCSdpType
+        let type: RTCSdpType
         switch typeStr {
         case "offer": type = .offer
         case "answer": type = .answer
@@ -1487,7 +1487,7 @@ final class PeerWebRTCCallSession: NSObject {
         default: type = .offer
         }
 
-        return LKRTCSessionDescription(type: type, sdp: sdp)
+        return RTCSessionDescription(type: type, sdp: sdp)
     }
 
     private func applyCompressedAnswer(_ payload: String) async {
@@ -1542,7 +1542,7 @@ final class PeerWebRTCCallSession: NSObject {
                 }
             }
             guard !ended else { return }
-            let constraints = LKRTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+            let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
             try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
                 pc.answer(for: constraints) { sdp, error in
                     if let error {
@@ -1599,7 +1599,7 @@ final class PeerWebRTCCallSession: NSObject {
         guard let data = json.data(using: .utf8) else { return }
         do {
             let wire = try JSONDecoder().decode(IceCandidateWire.self, from: data)
-            let cand = LKRTCIceCandidate(sdp: wire.candidate, sdpMLineIndex: wire.sdpMLineIndex, sdpMid: wire.sdpMid)
+            let cand = RTCIceCandidate(sdp: wire.candidate, sdpMLineIndex: wire.sdpMLineIndex, sdpMid: wire.sdpMid)
             if pc.remoteDescription == nil {
                 pendingRemoteIce.append(cand)
                 return
@@ -1609,7 +1609,7 @@ final class PeerWebRTCCallSession: NSObject {
         }
     }
 
-    private func addIceCandidate(_ cand: LKRTCIceCandidate, pc: LKRTCPeerConnection) async throws {
+    private func addIceCandidate(_ cand: RTCIceCandidate, pc: RTCPeerConnection) async throws {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             pc.add(cand) { error in
                 if let error {
@@ -1651,12 +1651,12 @@ final class PeerWebRTCCallSession: NSObject {
         }
     }
 
-    nonisolated private static func iceCandidateJSONDataForWire(_ cand: LKRTCIceCandidate) throws -> Data {
+    nonisolated private static func iceCandidateJSONDataForWire(_ cand: RTCIceCandidate) throws -> Data {
         let wire = IceCandidateWire(candidate: cand.sdp, sdpMLineIndex: cand.sdpMLineIndex, sdpMid: cand.sdpMid)
         return try JSONEncoder().encode(wire)
     }
 
-    private func iceCandidateJSONData(_ cand: LKRTCIceCandidate) throws -> Data {
+    private func iceCandidateJSONData(_ cand: RTCIceCandidate) throws -> Data {
         try Self.iceCandidateJSONDataForWire(cand)
     }
 
@@ -1778,8 +1778,8 @@ final class PeerWebRTCCallSession: NSObject {
         onLocalMedia?(localMicEnabled, localCameraEnabled)
     }
 
-    private func pickRemoteVideoTrack(receiver: LKRTCRtpReceiver, streams: [LKRTCMediaStream]) -> LKRTCVideoTrack? {
-        if let vt = receiver.track as? LKRTCVideoTrack {
+    private func pickRemoteVideoTrack(receiver: RTCRtpReceiver, streams: [RTCMediaStream]) -> RTCVideoTrack? {
+        if let vt = receiver.track as? RTCVideoTrack {
             return vt
         }
         for stream in streams {
@@ -1790,7 +1790,7 @@ final class PeerWebRTCCallSession: NSObject {
         return nil
     }
 
-    private func publishRemoteVideoTrack(_ track: LKRTCVideoTrack, fromPeerDelegate: Bool = false) {
+    private func publishRemoteVideoTrack(_ track: RTCVideoTrack, fromPeerDelegate: Bool = false) {
         if let localVideoTrack, track.trackId == localVideoTrack.trackId {
             return
         }
@@ -1802,11 +1802,9 @@ final class PeerWebRTCCallSession: NSObject {
         }
         if lastPublishedRemoteVideoTrackId == track.trackId {
             track.isEnabled = true
-            track.shouldReceive = true
             return
         }
         track.isEnabled = true
-        track.shouldReceive = true
         lastPublishedRemoteVideoTrackId = track.trackId
         onRemoteVideoTrack?(track)
     }
@@ -1821,10 +1819,10 @@ final class PeerWebRTCCallSession: NSObject {
         defer { isScanningTransceivers = false }
         let txs = pc.transceivers
         let localVideoTrackId = localVideoTrack?.trackId
-        var candidates: [(tx: LKRTCRtpTransceiver, track: LKRTCVideoTrack)] = []
+        var candidates: [(tx: RTCRtpTransceiver, track: RTCVideoTrack)] = []
         for tx in txs {
             guard tx.mediaType == .video else { continue }
-            guard let t = tx.receiver.track as? LKRTCVideoTrack else { continue }
+            guard let t = tx.receiver.track as? RTCVideoTrack else { continue }
             if let localVideoTrackId, t.trackId == localVideoTrackId {
                 continue
             }
@@ -1854,7 +1852,7 @@ final class PeerWebRTCCallSession: NSObject {
         delegateDeliveredRemoteVideoTrackIds.firstIndex(of: trackId) ?? 10_000
     }
 
-    private static func remoteVideoTransceiverPickScore(_ direction: LKRTCRtpTransceiverDirection) -> Int {
+    private static func remoteVideoTransceiverPickScore(_ direction: RTCRtpTransceiverDirection) -> Int {
         switch direction {
         case .recvOnly: return 0
         case .sendRecv: return 1
@@ -1870,10 +1868,10 @@ final class PeerWebRTCCallSession: NSObject {
         remoteVideoInboundBytesProbeTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 2_500_000_000)
             guard !Task.isCancelled, !ended, let pc = peerConnection else { return }
-            typealias Pick = (track: LKRTCVideoTrack, bytes: UInt64)
+            typealias Pick = (track: RTCVideoTrack, bytes: UInt64)
             var picks: [Pick] = []
             for tx in pc.transceivers where tx.mediaType == .video {
-                guard let vt = tx.receiver.track as? LKRTCVideoTrack else { continue }
+                guard let vt = tx.receiver.track as? RTCVideoTrack else { continue }
                 if let localVideoTrack, vt.trackId == localVideoTrack.trackId { continue }
                 let report = await Self.receiverStatisticsReport(peerConnection: pc, receiver: tx.receiver)
                 let b = Self.bytesReceivedVideoInbound(from: report)
@@ -1938,12 +1936,12 @@ final class PeerWebRTCCallSession: NSObject {
     }
 
     private nonisolated static func maxVideoInboundBytesReceived(
-        peerConnection: LKRTCPeerConnection,
+        peerConnection: RTCPeerConnection,
         excludingLocalTrackId: String?
     ) async -> UInt64 {
         var maxB: UInt64 = 0
         for tx in peerConnection.transceivers where tx.mediaType == .video {
-            guard let vt = tx.receiver.track as? LKRTCVideoTrack else { continue }
+            guard let vt = tx.receiver.track as? RTCVideoTrack else { continue }
             if let excludingLocalTrackId, vt.trackId == excludingLocalTrackId { continue }
             let report = await receiverStatisticsReport(peerConnection: peerConnection, receiver: tx.receiver)
             maxB = max(maxB, bytesReceivedVideoInbound(from: report))
@@ -1952,15 +1950,15 @@ final class PeerWebRTCCallSession: NSObject {
     }
 
     private nonisolated static func receiverStatisticsReport(
-        peerConnection: LKRTCPeerConnection,
-        receiver: LKRTCRtpReceiver
-    ) async -> LKRTCStatisticsReport {
+        peerConnection: RTCPeerConnection,
+        receiver: RTCRtpReceiver
+    ) async -> RTCStatisticsReport {
         await withCheckedContinuation { cont in
             peerConnection.statistics(for: receiver) { cont.resume(returning: $0) }
         }
     }
 
-    private nonisolated static func hasInboundAudioRtp(peerConnection: LKRTCPeerConnection) async -> Bool {
+    private nonisolated static func hasInboundAudioRtp(peerConnection: RTCPeerConnection) async -> Bool {
         for tx in peerConnection.transceivers where tx.mediaType == .audio {
             let report = await receiverStatisticsReport(peerConnection: peerConnection, receiver: tx.receiver)
             if audioInboundPresent(in: report) { return true }
@@ -1972,7 +1970,7 @@ final class PeerWebRTCCallSession: NSObject {
         }
     }
 
-    private nonisolated static func audioInboundPresent(in report: LKRTCStatisticsReport) -> Bool {
+    private nonisolated static func audioInboundPresent(in report: RTCStatisticsReport) -> Bool {
         for (_, stat) in report.statistics {
             let st = stat.type
             guard st == "inbound-rtp" || st == "remote-inbound-rtp" else { continue }
@@ -1985,7 +1983,7 @@ final class PeerWebRTCCallSession: NSObject {
         return false
     }
 
-    private nonisolated static func bytesReceivedVideoInbound(from report: LKRTCStatisticsReport) -> UInt64 {
+    private nonisolated static func bytesReceivedVideoInbound(from report: RTCStatisticsReport) -> UInt64 {
         var maxBytes: UInt64 = 0
         for (_, stat) in report.statistics {
             let vals = stat.values
@@ -2043,8 +2041,8 @@ private struct MakeCallPushBody: Encodable {
     let sentAt: String
 }
 
-extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
-    nonisolated func peerConnection(_: LKRTCPeerConnection, didChange state: LKRTCPeerConnectionState) {
+extension PeerWebRTCCallSession: RTCPeerConnectionDelegate {
+    nonisolated func peerConnection(_: RTCPeerConnection, didChange state: RTCPeerConnectionState) {
         if preWarmBackgroundIceFlag.get() { return }
         Task { @MainActor in
             switch state {
@@ -2067,7 +2065,7 @@ extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
         }
     }
 
-    nonisolated func peerConnection(_: LKRTCPeerConnection, didChange state: LKRTCIceConnectionState) {
+    nonisolated func peerConnection(_: RTCPeerConnection, didChange state: RTCIceConnectionState) {
         if preWarmBackgroundIceFlag.get() { return }
         Task { @MainActor in
             switch state {
@@ -2114,7 +2112,7 @@ extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
         }
     }
 
-    nonisolated func peerConnection(_: LKRTCPeerConnection, didGenerate candidate: LKRTCIceCandidate) {
+    nonisolated func peerConnection(_: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
         if preWarmBackgroundIceFlag.get() {
             if let data = try? Self.iceCandidateJSONDataForWire(candidate),
                let json = String(data: data, encoding: .utf8) {
@@ -2139,9 +2137,9 @@ extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
         }
     }
 
-    nonisolated func peerConnectionShouldNegotiate(_: LKRTCPeerConnection) {}
+    nonisolated func peerConnectionShouldNegotiate(_: RTCPeerConnection) {}
 
-    nonisolated func peerConnection(_: LKRTCPeerConnection, didAdd rtpReceiver: LKRTCRtpReceiver, streams: [LKRTCMediaStream]) {
+    nonisolated func peerConnection(_: RTCPeerConnection, didAdd rtpReceiver: RTCRtpReceiver, streams: [RTCMediaStream]) {
         if preWarmBackgroundIceFlag.get() { return }
         Task { @MainActor in
             guard let vt = pickRemoteVideoTrack(receiver: rtpReceiver, streams: streams) else {
@@ -2151,18 +2149,18 @@ extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
         }
     }
 
-    nonisolated func peerConnection(_: LKRTCPeerConnection, didStartReceivingOn transceiver: LKRTCRtpTransceiver) {
+    nonisolated func peerConnection(_: RTCPeerConnection, didStartReceivingOn transceiver: RTCRtpTransceiver) {
         if preWarmBackgroundIceFlag.get() { return }
         Task { @MainActor in
             guard transceiver.mediaType == .video else { return }
-            guard let vt = transceiver.receiver.track as? LKRTCVideoTrack else {
+            guard let vt = transceiver.receiver.track as? RTCVideoTrack else {
                 return
             }
             publishRemoteVideoTrack(vt, fromPeerDelegate: true)
         }
     }
 
-    nonisolated func peerConnection(_: LKRTCPeerConnection, didAdd stream: LKRTCMediaStream) {
+    nonisolated func peerConnection(_: RTCPeerConnection, didAdd stream: RTCMediaStream) {
         if preWarmBackgroundIceFlag.get() { return }
         Task { @MainActor in
             for i in 0..<stream.videoTracks.count {
@@ -2173,7 +2171,7 @@ extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
         }
     }
 
-    nonisolated func peerConnection(_: LKRTCPeerConnection, didRemove rtpReceiver: LKRTCRtpReceiver) {
+    nonisolated func peerConnection(_: RTCPeerConnection, didRemove rtpReceiver: RTCRtpReceiver) {
         Task { @MainActor in
             let kind = rtpReceiver.track?.kind ?? "nil"
             guard kind == "video" else { return }
@@ -2181,13 +2179,13 @@ extension PeerWebRTCCallSession: LKRTCPeerConnectionDelegate {
         }
     }
 
-    nonisolated func peerConnection(_: LKRTCPeerConnection, didOpen _: LKRTCDataChannel) {}
+    nonisolated func peerConnection(_: RTCPeerConnection, didOpen _: RTCDataChannel) {}
 
-    nonisolated func peerConnection(_: LKRTCPeerConnection, didRemove _: LKRTCMediaStream) {}
+    nonisolated func peerConnection(_: RTCPeerConnection, didRemove _: RTCMediaStream) {}
 
-    nonisolated func peerConnection(_: LKRTCPeerConnection, didChange _: LKRTCSignalingState) {}
+    nonisolated func peerConnection(_: RTCPeerConnection, didChange _: RTCSignalingState) {}
 
-    nonisolated func peerConnection(_: LKRTCPeerConnection, didChange _: LKRTCIceGatheringState) {}
+    nonisolated func peerConnection(_: RTCPeerConnection, didChange _: RTCIceGatheringState) {}
 
-    nonisolated func peerConnection(_: LKRTCPeerConnection, didRemove _: [LKRTCIceCandidate]) {}
+    nonisolated func peerConnection(_: RTCPeerConnection, didRemove _: [RTCIceCandidate]) {}
 }

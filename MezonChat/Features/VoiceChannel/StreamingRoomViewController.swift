@@ -1,5 +1,5 @@
 import UIKit
-import LiveKitWebRTC
+import WebRTC
 
 final class StreamingRoomViewController: ViewController {
 

@@ -3,8 +3,7 @@ import AVFoundation
 import AVKit
 import MediaPlayer
 import AsyncDisplayKit
-import LiveKit
-import LiveKitWebRTC
+import WebRTC
 
 private let kVoiceKomuAgentDefaultAvatarURL =
     ImgproxyURL.create(from: "https://cdn.mezon.vn/0/0/1779484387973271600/1737423959329_undefined173740153013517374015248704886401586613166392.png", width: 100, height: 100)
@@ -22,9 +21,20 @@ private enum VoiceMoreToolsPopoverMetrics {
     static var symbolPointSize: CGFloat { 16 }
 }
 
+private struct VoiceTileEntry {
+    let identity: String
+    let isLocal: Bool
+    let micOn: Bool
+    let speaking: Bool
+    let cameraTrack: RTCVideoTrack?
+    let screenTrack: RTCVideoTrack?
+    let mirror: Bool
+    let isAudience: Bool
+}
+
 private struct VoiceParticipantTileDescriptor {
     let rowKey: String
-    let participant: Participant
+    let entry: VoiceTileEntry
     let kind: VoiceParticipantTileKind
 }
 
@@ -112,14 +122,8 @@ private func voiceChannelShortProfileSubtitleLine(cu: Mezon_Api_ClanUserList.Cla
 }
 
 @MainActor
-private func voiceChannelResolveDisplayName(context: AccountContext, clanId: Int64, participant: Participant) -> String {
-    let isLocal = participant is LocalParticipant
-    let idKey: String
-    if isLocal {
-        idKey = context.currentUser?.id ?? ""
-    } else {
-        idKey = participant.identity?.stringValue ?? ""
-    }
+private func voiceChannelResolveDisplayName(context: AccountContext, clanId: Int64, identityKey: String, isLocal: Bool) -> String {
+    let idKey = isLocal ? (context.currentUser?.id ?? "") : identityKey
     if let cu = voiceChannelFindClanUser(context: context, clanId: clanId, identityKey: idKey),
        let name = voiceChannelDisplayNameFromClanUser(cu) {
         return name
@@ -129,7 +133,6 @@ private func voiceChannelResolveDisplayName(context: AccountContext, clanId: Int
         if let n = context.currentUser?.username, !n.isEmpty { return n }
         return NSLocalizedString("voiceChannel.placeholderYou", tableName: nil, bundle: .main, value: "You", comment: "")
     }
-    if let n = participant.name, !n.isEmpty { return n }
     if let profile = context.account.postbox.read({ $0.getProfile(userId: idKey) }) {
         if let d = profile.displayName, !d.isEmpty { return d }
         if !profile.username.isEmpty { return profile.username }
@@ -138,14 +141,8 @@ private func voiceChannelResolveDisplayName(context: AccountContext, clanId: Int
 }
 
 @MainActor
-private func voiceChannelResolveUsername(context: AccountContext, clanId: Int64, participant: Participant) -> String {
-    let isLocal = participant is LocalParticipant
-    let idKey: String
-    if isLocal {
-        idKey = context.currentUser?.id ?? ""
-    } else {
-        idKey = participant.identity?.stringValue ?? ""
-    }
+private func voiceChannelResolveUsername(context: AccountContext, clanId: Int64, identityKey: String, isLocal: Bool) -> String {
+    let idKey = isLocal ? (context.currentUser?.id ?? "") : identityKey
     if let cu = voiceChannelFindClanUser(context: context, clanId: clanId, identityKey: idKey) {
         if !cu.user.username.isEmpty { return cu.user.username }
     }
@@ -156,16 +153,6 @@ private func voiceChannelResolveUsername(context: AccountContext, clanId: Int64,
         if !profile.username.isEmpty { return profile.username }
     }
     return ""
-}
-
-private func liveKitDisconnectIsFatal(_ error: LiveKitError?) -> Bool {
-    guard let lk = error else { return false }
-    switch lk.type {
-    case .participantRemoved, .duplicateIdentity, .roomDeleted, .cancelled, .insufficientPermissions:
-        return true
-    default:
-        return false
-    }
 }
 
 fileprivate enum VoiceChannelPiPPreservedAudioRoute {
@@ -187,7 +174,6 @@ enum VoiceChannelAudioPreferences {
         set {
             UserDefaults.standard.set(newValue, forKey: mixWithOthersKey)
             UserDefaults.standard.synchronize()
-            VoiceChannelLiveKitBridge.applyEchoCancellationConfiguration()
         }
     }
 }
@@ -215,7 +201,7 @@ private func voiceChannelSessionAlreadyMatchesPreservedRoute(
     _ route: VoiceChannelPiPPreservedAudioRoute,
     desiredMode: String
 ) -> Bool {
-    guard LKRTCAudioSession.sharedInstance().isActive else { return false }
+    guard RTCAudioSession.sharedInstance().isActive else { return false }
     let session = AVAudioSession.sharedInstance()
     guard session.category == .playAndRecord else { return false }
     guard session.mode.rawValue == desiredMode else { return false }
@@ -242,29 +228,23 @@ private func voiceChannelSessionAlreadyMatchesPreservedRoute(
 
 @MainActor
 fileprivate func applyVoiceChannelPreservedAudioRouteToSession(_ route: VoiceChannelPiPPreservedAudioRoute) {
-    let cfg = LKRTCAudioSessionConfiguration.webRTC()
+    let cfg = RTCAudioSessionConfiguration.webRTC()
     cfg.category = AVAudioSession.Category.playAndRecord.rawValue
-    let speakerPreferred: Bool
     switch route {
     case .speaker:
-        speakerPreferred = true
         cfg.mode = AVAudioSession.Mode.default.rawValue
         cfg.categoryOptions = voiceChannelSpeakerCategoryOptions()
     case .bluetooth, .earpiece:
-        speakerPreferred = false
         cfg.mode = (VoiceChannelAudioPreferences.mixWithOthersEnabled
             ? AVAudioSession.Mode.default
             : AVAudioSession.Mode.voiceChat).rawValue
         cfg.categoryOptions = voiceChannelEarpieceCategoryOptions()
     }
-    LKRTCAudioSessionConfiguration.setWebRTC(cfg)
-    if AudioManager.shared.isSpeakerOutputPreferred != speakerPreferred {
-        AudioManager.shared.isSpeakerOutputPreferred = speakerPreferred
-    }
+    RTCAudioSessionConfiguration.setWebRTC(cfg)
     if voiceChannelSessionAlreadyMatchesPreservedRoute(route, desiredMode: cfg.mode) {
         return
     }
-    let rtc = LKRTCAudioSession.sharedInstance()
+    let rtc = RTCAudioSession.sharedInstance()
     rtc.lockForConfiguration()
     defer { rtc.unlockForConfiguration() }
     do {
@@ -380,7 +360,7 @@ final class VoiceChannelPiPOverlay: NSObject {
     private static let pipWidth: CGFloat = 200
     private static let pipHeight: CGFloat = 150
 
-    private(set) var bridge: VoiceChannelLiveKitBridge?
+    private(set) var session: MezonSfuSession?
     private(set) var context: AccountContext?
     private(set) var channel: Mezon_Api_ChannelDescription?
     private(set) var parentChannelName: String?
@@ -389,8 +369,8 @@ final class VoiceChannelPiPOverlay: NSObject {
     private var pipWindow: UIWindow?
     private let pipView = UIView()
     private let pipChromeBackdrop = UIView()
-    private let videoView = VideoView()
-    private let systemCallPiPVideoView = VideoView()
+    private let videoView = PeerCallVideoRenderView()
+    private let systemCallPiPVideoView = PeerCallVideoRenderView()
     private let textAvatar = TextAvatarView(username: "", size: 50, fontSize: 20)
     private let avatarView = UIImageView()
     private let badgeContainer = UIView()
@@ -414,8 +394,6 @@ final class VoiceChannelPiPOverlay: NSObject {
     private var isRestoringFromSystemPiP = false
 
     private weak var overlayPiPRootViewController: UIViewController?
-    private var overlayLiveKitReconnectTask: Task<Void, Never>?
-    private static let overlayLiveKitReconnectMax = 5
 
     var didAnnounceMeetJoin = false
     var didAnnounceMeetLeave = false
@@ -431,16 +409,14 @@ final class VoiceChannelPiPOverlay: NSObject {
         pipChromeBackdrop.isUserInteractionEnabled = false
 
         videoView.translatesAutoresizingMaskIntoConstraints = false
-        videoView.layoutMode = .fill
-        videoView.isPinchToZoomEnabled = false
+        videoView.renderContentMode = .fill
         videoView.isOpaque = false
         videoView.backgroundColor = .clear
         videoView.layer.cornerRadius = 10
         videoView.clipsToBounds = true
 
         systemCallPiPVideoView.translatesAutoresizingMaskIntoConstraints = false
-        systemCallPiPVideoView.layoutMode = .fill
-        systemCallPiPVideoView.isPinchToZoomEnabled = false
+        systemCallPiPVideoView.renderContentMode = .fill
         systemCallPiPVideoView.isOpaque = false
         systemCallPiPVideoView.backgroundColor = .clear
         systemCallPiPVideoView.layer.cornerRadius = 10
@@ -558,7 +534,7 @@ final class VoiceChannelPiPOverlay: NSObject {
     var isActive: Bool { pipWindow != nil }
 
     fileprivate func show(
-        bridge: VoiceChannelLiveKitBridge,
+        session: MezonSfuSession,
         context: AccountContext,
         channel: Mezon_Api_ChannelDescription,
         parentChannelName: String?,
@@ -568,7 +544,7 @@ final class VoiceChannelPiPOverlay: NSObject {
         crossClanVoiceExitAlignClanId: Int64? = nil
     ) {
         self.crossClanVoiceExitAlignClanId = crossClanVoiceExitAlignClanId
-        self.bridge = bridge
+        self.session = session
         self.context = context
         self.channel = channel
         self.parentChannelName = parentChannelName
@@ -576,11 +552,16 @@ final class VoiceChannelPiPOverlay: NSObject {
         self.didAnnounceMeetLeave = didAnnounceMeetLeave
         self.preservedAudioRoute = preservedAudioRoute
 
-        bridge.onRoomParticipantsChanged = { [weak self] in
+        session.onParticipants = { [weak self] _ in
             self?.refreshContent()
         }
-        bridge.onDisconnected = { [weak self] err in
-            self?.handleOverlayLiveKitDisconnected(error: err)
+        session.onLocalVideoTrack = { [weak self] _ in
+            self?.refreshContent()
+        }
+        session.onConnectionState = { [weak self] state in
+            if state == .failed {
+                self?.dismiss()
+            }
         }
 
         let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
@@ -679,7 +660,7 @@ final class VoiceChannelPiPOverlay: NSObject {
     }
 
     private func reapplyOverlayPreservedAudioRouteIfNeeded() {
-        guard isActive, bridge != nil, let route = preservedAudioRoute else { return }
+        guard isActive, session != nil, let route = preservedAudioRoute else { return }
         applyVoiceChannelPreservedAudioRouteToSession(route)
     }
 
@@ -695,7 +676,7 @@ final class VoiceChannelPiPOverlay: NSObject {
     }
 
     private func followOverlayPreservedRouteToNewDevice() {
-        guard isActive, bridge != nil, preservedAudioRoute != nil else { return }
+        guard isActive, session != nil, preservedAudioRoute != nil else { return }
         guard let port = AVAudioSession.sharedInstance().currentRoute.outputs.first?.portType else { return }
         switch port {
         case .bluetoothA2DP, .bluetoothHFP, .bluetoothLE:
@@ -708,7 +689,7 @@ final class VoiceChannelPiPOverlay: NSObject {
     }
 
     private func fallbackOverlayPreservedRouteAfterDeviceLoss() {
-        guard isActive, bridge != nil, preservedAudioRoute != nil else { return }
+        guard isActive, session != nil, preservedAudioRoute != nil else { return }
         let session = AVAudioSession.sharedInstance()
         guard let port = session.currentRoute.outputs.first?.portType else {
             preservedAudioRoute = .speaker
@@ -750,21 +731,19 @@ final class VoiceChannelPiPOverlay: NSObject {
         let savedAlign = crossClanVoiceExitAlignClanId
         let savedChannelId = channel?.channelID ?? 0
         UIApplication.shared.isIdleTimerDisabled = false
-        overlayLiveKitReconnectTask?.cancel()
-        overlayLiveKitReconnectTask = nil
         overlayPiPRootViewController = nil
         unbindOverlayAudioSessionObservers()
         sendMeetLeaveIfNeeded()
         isRestoringFromSystemPiP = false
         tearDownOverlaySystemCallPiP()
-        let b = bridge
-        videoView.track = nil
-        systemCallPiPVideoView.track = nil
-        b?.clearCallbacks()
+        let s = session
+        videoView.attach(track: nil)
+        systemCallPiPVideoView.attach(track: nil)
+        s?.clearCallbacks()
         pipView.removeFromSuperview()
         pipWindow?.isHidden = true
         pipWindow = nil
-        bridge = nil
+        session = nil
         context = nil
         channel = nil
         lastAvatarURL = nil
@@ -772,7 +751,7 @@ final class VoiceChannelPiPOverlay: NSObject {
         preservedAudioRoute = nil
         crossClanVoiceExitAlignClanId = nil
         applyCrossClanVoiceHomeExitFromPiPIfNeeded(alignClanId: savedAlign, channelId: savedChannelId)
-        Task { await b?.disconnect() }
+        s?.leave()
     }
 
     private func sendMeetLeaveIfNeeded() {
@@ -791,76 +770,15 @@ final class VoiceChannelPiPOverlay: NSObject {
         )
     }
 
-    private func handleOverlayLiveKitDisconnected(error: LiveKitError?) {
-        guard bridge != nil else { return }
-        overlayLiveKitReconnectTask?.cancel()
-        if liveKitDisconnectIsFatal(error) {
-            dismiss()
-            return
-        }
-        tearDownOverlaySystemCallPiP()
-        overlayLiveKitReconnectTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.executeOverlayLiveKitReconnect()
-        }
-    }
-
-    private func executeOverlayLiveKitReconnect() async {
-        guard bridge != nil, context != nil, let ch = channel else { return }
-        let meetURL = MezonConfig.meetWebSocketURLString
-        let roomName = "\(ch.channelID)"
-        for attempt in 1...Self.overlayLiveKitReconnectMax {
-            guard self.bridge != nil, pipWindow != nil else { return }
-            let delaySec = attempt == 1 ? 0.4 : min(Double(attempt) * 1.2, 12.0)
-            try? await Task.sleep(nanoseconds: UInt64(delaySec * 1_000_000_000))
-            if Task.isCancelled { return }
-            guard let b = self.bridge, let ctx2 = self.context, let ch2 = self.channel else { return }
-            await ctx2.waitForSessionReady()
-            if Task.isCancelled { return }
-            guard let token = await ctx2.getToken() else {
-                dismiss()
-                return
-            }
-            do {
-                let jwt = try await ctx2.account.network.generateMeetToken(
-                    channelId: ch2.channelID,
-                    roomName: roomName,
-                    token: token
-                )
-                guard !jwt.isEmpty else { continue }
-                try await b.connect(url: meetURL, token: jwt)
-                if Task.isCancelled { return }
-                refreshContent()
-                if let route = preservedAudioRoute {
-                    applyVoiceChannelPreservedAudioRouteToSession(route)
-                }
-                if let root = overlayPiPRootViewController {
-                    setupOverlaySystemCallPiP(rootVC: root)
-                    applyPiPChromeTheme()
-                }
-                if let route = preservedAudioRoute {
-                    applyVoiceChannelPreservedAudioRouteToSession(route)
-                }
-                scheduleVoicePiPDeferredAudioRouteEnforcement()
-                return
-            } catch {
-            }
-        }
-        dismiss()
-    }
-
-    fileprivate func takeOverBridge() -> (VoiceChannelLiveKitBridge, Bool, Bool, VoiceChannelPiPPreservedAudioRoute?)? {
-        overlayLiveKitReconnectTask?.cancel()
-        overlayLiveKitReconnectTask = nil
+    fileprivate func takeOverSession() -> (MezonSfuSession, Bool, Bool, VoiceChannelPiPPreservedAudioRoute?)? {
         overlayPiPRootViewController = nil
         unbindOverlayAudioSessionObservers()
         let keepSystemPiPSourceForRestore = isRestoringFromSystemPiP && systemCallPiPController != nil
         if !keepSystemPiPSourceForRestore {
             tearDownOverlaySystemCallPiP()
         }
-        guard let b = bridge else { return nil }
-        bridge?.onRoomParticipantsChanged = nil
-        bridge?.onDisconnected = nil
+        guard let s = session else { return nil }
+        s.clearCallbacks()
         let joinFlag = didAnnounceMeetJoin
         let leaveFlag = didAnnounceMeetLeave
         let route = preservedAudioRoute
@@ -872,99 +790,79 @@ final class VoiceChannelPiPOverlay: NSObject {
             pipWindow?.isHidden = true
             pipView.removeFromSuperview()
             pipWindow = nil
-            videoView.track = nil
-            systemCallPiPVideoView.track = nil
+            videoView.attach(track: nil)
+            systemCallPiPVideoView.attach(track: nil)
         }
-        bridge = nil
+        session = nil
         context = nil
         channel = nil
         lastAvatarURL = nil
         lastParticipantIdentity = nil
         crossClanVoiceExitAlignClanId = nil
-        return (b, joinFlag, leaveFlag, route)
+        return (s, joinFlag, leaveFlag, route)
     }
 
     private func refreshContent() {
-        guard let bridge, let room = bridge.room else { return }
-        defer { updateOverlaySystemCallPiPStatusFromRoom() }
-        let local = room.localParticipant
-        let remotes = Array(room.remoteParticipants.values)
+        guard let session else { return }
+        defer { updateOverlaySystemCallPiPStatusFromSession() }
 
-        for r in remotes {
-            if let track = r.firstScreenShareVideoTrack {
-                showVideo(track: track, mirror: false)
-                let name = resolveDisplayName(r)
-                showBadge(icon: "rectangle.on.rectangle", name: "\(name) Share Screen", micOn: true)
-                return
-            }
-        }
-
-        if let track = local.firstScreenShareVideoTrack {
+        if let remoteShare = session.participants.first(where: { $0.screenActive && $0.screen != nil }),
+           let track = remoteShare.screen {
             showVideo(track: track, mirror: false)
-            let name = resolveDisplayName(local)
+            let identity = remoteShare.userId ?? remoteShare.id
+            let name = resolveDisplayName(identityKey: identity, isLocal: false)
             showBadge(icon: "rectangle.on.rectangle", name: "\(name) Share Screen", micOn: true)
             return
         }
 
-        if let track = local.firstCameraVideoTrack {
-            let mirrorLocal = bridge.currentCameraCapturePosition() == .front
-            showVideo(track: track, mirror: mirrorLocal)
-            let name = resolveDisplayName(local)
-            showBadge(icon: local.isMicrophoneEnabled() ? "mic.fill" : "mic.slash.fill", name: name, micOn: local.isMicrophoneEnabled())
+        let localMicOn = session.micEnabled || session.pttActive
+        if session.cameraEnabled, let track = session.localCameraTrack {
+            showVideo(track: track, mirror: session.cameraPosition == .front)
+            let name = resolveDisplayName(identityKey: "", isLocal: true)
+            showBadge(icon: localMicOn ? "mic.fill" : "mic.slash.fill", name: name, micOn: localMicOn)
             return
         }
 
-        showAvatar(participant: local)
-        let name = resolveDisplayName(local)
-        showBadge(icon: local.isMicrophoneEnabled() ? "mic.fill" : "mic.slash.fill", name: name, micOn: local.isMicrophoneEnabled())
+        showLocalAvatar()
+        let name = resolveDisplayName(identityKey: "", isLocal: true)
+        showBadge(icon: localMicOn ? "mic.fill" : "mic.slash.fill", name: name, micOn: localMicOn)
     }
 
-    private func showVideo(track: VideoTrack, mirror: Bool) {
+    private func showVideo(track: RTCVideoTrack, mirror: Bool) {
         textAvatar.isHidden = true
         videoView.isHidden = false
         videoView.alpha = 1
-        videoView.mirrorMode = mirror ? .auto : .off
-        if videoView.track !== track {
-            videoView.track = track
-        }
+        videoView.isMirrored = mirror
+        videoView.attach(track: track)
         if let container = systemCallPiPContentVC?.view {
             systemCallPiPVideoView.isHidden = false
             systemCallPiPVideoView.alpha = 1
-            systemCallPiPVideoView.mirrorMode = mirror ? .auto : .off
-            if systemCallPiPVideoView.track !== track {
-                systemCallPiPVideoView.track = track
-            }
+            systemCallPiPVideoView.isMirrored = mirror
+            systemCallPiPVideoView.attach(track: track)
             voiceCallSystemPiPSetChromeHidden(container, hidden: true)
         }
     }
 
-    private func showAvatar(participant: Participant) {
-        videoView.track = nil
+    private func showLocalAvatar() {
+        videoView.attach(track: nil)
         videoView.isHidden = true
         videoView.alpha = 0
         if let container = systemCallPiPContentVC?.view {
-            systemCallPiPVideoView.track = nil
+            systemCallPiPVideoView.attach(track: nil)
             systemCallPiPVideoView.isHidden = true
             systemCallPiPVideoView.alpha = 0
             voiceCallSystemPiPSetChromeHidden(container, hidden: false)
         }
         textAvatar.isHidden = false
 
-        let isLocal = participant is LocalParticipant
-        let identity: String
-        if isLocal {
-            identity = context?.currentUser?.id ?? ""
-        } else {
-            identity = participant.identity?.stringValue ?? ""
-        }
-        let url = resolveAvatarURL(identity, participant: participant)
-        let name = resolveDisplayName(participant)
+        let identity = context?.currentUser?.id ?? ""
+        let url = resolveAvatarURL(identity)
 
         if url != lastAvatarURL || identity != lastParticipantIdentity {
             lastAvatarURL = url
             lastParticipantIdentity = identity
             avatarView.image = nil
-            let username = resolveUsername(participant)
+            let username = resolveUsername(identityKey: identity, isLocal: true)
             if let raw = url, !raw.isEmpty {
                 let proxy = ImgproxyURL.create(from: raw, width: 150, height: 150)
                 textAvatar.showSkeleton()
@@ -990,20 +888,17 @@ final class VoiceChannelPiPOverlay: NSObject {
         badgeLabel.text = name
     }
 
-    private func resolveDisplayName(_ participant: Participant) -> String {
-        guard let ctx = context, let ch = channel else { return participant.name ?? "…" }
-        return voiceChannelResolveDisplayName(context: ctx, clanId: ch.clanID, participant: participant)
+    private func resolveDisplayName(identityKey: String, isLocal: Bool) -> String {
+        guard let ctx = context, let ch = channel else { return identityKey.isEmpty ? "…" : identityKey }
+        return voiceChannelResolveDisplayName(context: ctx, clanId: ch.clanID, identityKey: identityKey, isLocal: isLocal)
     }
 
-    private func resolveUsername(_ participant: Participant) -> String {
+    private func resolveUsername(identityKey: String, isLocal: Bool) -> String {
         guard let ctx = context, let ch = channel else { return "" }
-        return voiceChannelResolveUsername(context: ctx, clanId: ch.clanID, participant: participant)
+        return voiceChannelResolveUsername(context: ctx, clanId: ch.clanID, identityKey: identityKey, isLocal: isLocal)
     }
 
-    private func resolveAvatarURL(_ key: String, participant: Participant) -> String? {
-        if participant.kind == .agent {
-            return kVoiceKomuAgentDefaultAvatarURL
-        }
+    private func resolveAvatarURL(_ key: String) -> String? {
         guard let ctx = context, let ch = channel else { return nil }
         return voiceChannelResolveAvatarURL(context: ctx, clanId: ch.clanID, identityKey: key)
     }
@@ -1148,7 +1043,7 @@ final class VoiceChannelPiPOverlay: NSObject {
                 self?.stopSystemPiPOnForeground()
             }
         }
-        updateOverlaySystemCallPiPStatusFromRoom()
+        updateOverlaySystemCallPiPStatusFromSession()
         refreshContent()
     }
 
@@ -1172,11 +1067,11 @@ final class VoiceChannelPiPOverlay: NSObject {
         }
     }
 
-    private func updateOverlaySystemCallPiPStatusFromRoom() {
+    private func updateOverlaySystemCallPiPStatusFromSession() {
         guard #available(iOS 15.0, *) else { return }
-        guard let contentVC = systemCallPiPContentVC, let bridge, let room = bridge.room else { return }
+        guard let contentVC = systemCallPiPContentVC, let session else { return }
         guard let statusLabel = contentVC.view.viewWithTag(VoiceCallSystemPiPViewTag.status) as? UILabel else { return }
-        let remoteCount = room.remoteParticipants.count
+        let remoteCount = session.participants.count
         if remoteCount == 0 {
             statusLabel.text = NSLocalizedString("voiceChannel.pipStatus", tableName: nil, bundle: .main, value: "You're alone on the call", comment: "")
         } else {
@@ -1216,7 +1111,7 @@ final class VoiceChannelPiPOverlay: NSObject {
         isRestoringFromSystemPiP = false
         pip?.delegate = nil
         systemCallPiPController = nil
-        systemCallPiPVideoView.track = nil
+        systemCallPiPVideoView.attach(track: nil)
         systemCallPiPVideoView.removeFromSuperview()
         systemCallPiPSourceView?.removeFromSuperview()
         systemCallPiPSourceView = nil
@@ -1232,15 +1127,15 @@ extension VoiceChannelPiPOverlay: AVPictureInPictureControllerDelegate {
     nonisolated func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         Task { @MainActor [weak self] in
             guard let self, pictureInPictureController === self.systemCallPiPController else { return }
-            let shouldTearDownAfterRestore = self.isRestoringFromSystemPiP && self.bridge == nil
+            let shouldTearDownAfterRestore = self.isRestoringFromSystemPiP && self.session == nil
             self.isRestoringFromSystemPiP = false
             if shouldTearDownAfterRestore {
                 self.tearDownOverlaySystemCallPiP(stopActivePiP: false)
                 self.pipWindow?.isHidden = true
                 self.pipView.removeFromSuperview()
                 self.pipWindow = nil
-                self.videoView.track = nil
-                self.systemCallPiPVideoView.track = nil
+                self.videoView.attach(track: nil)
+                self.systemCallPiPVideoView.attach(track: nil)
             } else {
                 self.systemCallPiPContentVC?.view.alpha = 1
             }
@@ -1488,7 +1383,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private(set) static weak var currentLiveRoom: VoiceChannelRoomViewController?
 
     static var hasLiveVoiceCall: Bool {
-        currentLiveRoom?.liveKitBridge != nil
+        currentLiveRoom?.sfuSession != nil
     }
 
     private let context: AccountContext
@@ -1498,7 +1393,11 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private let voiceChannelCrossClanExitAlignClanId: Int64?
     private let existingPiPOverlay: VoiceChannelPiPOverlay?
 
-    private var liveKitBridge: VoiceChannelLiveKitBridge?
+    private let joinRole: SfuRole
+    private var currentRole: SfuRole
+    private var sfuSession: MezonSfuSession?
+    private var sfuParticipants: [SfuParticipant] = []
+    private var hasEverConnected = false
     private var connectTask: Task<Void, Never>?
     private var voiceReactionDisposable: Disposable?
     private var clanUsersUpdatedDisposable: Disposable?
@@ -1525,11 +1424,10 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private var callPiPController: AVPictureInPictureController?
     private var callPiPSourceView: UIView?
     private var callPiPContentVC: UIViewController?
-    private let callPiPVideoView: VideoView = {
-        let v = VideoView()
+    private let callPiPVideoView: PeerCallVideoRenderView = {
+        let v = PeerCallVideoRenderView()
         v.translatesAutoresizingMaskIntoConstraints = false
-        v.layoutMode = .fill
-        v.isPinchToZoomEnabled = false
+        v.renderContentMode = .fill
         v.isOpaque = false
         v.backgroundColor = .clear
         v.isUserInteractionEnabled = false
@@ -1577,17 +1475,30 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
     private var didUnlockOrientationForScreenShareDetail = false
 
-    private var liveKitReconnectTask: Task<Void, Never>?
-    private static let liveKitManualReconnectMax = 5
     private var didPrefetchVoiceChannelPermissions = false
 
     private let bottomPill = UIView()
     private let bottomControlsStack = UIStackView()
 
-    init(context: AccountContext, channel: Mezon_Api_ChannelDescription, parentChannelName: String? = nil, voiceChannelCrossClanExitAlignClanId alignId: Int64? = nil, existingPiPOverlay: VoiceChannelPiPOverlay? = nil) {
+    private let pttContainer = UIStackView()
+    private let pttMicPill = UIControl()
+    private let pttMicIcon = UIImageView()
+    private let pttMicLabel = UILabel()
+    private let pttBottomRow = UIStackView()
+    private let pttEndPill = UIControl()
+    private let pttRaisePill = UIControl()
+    private let pttRaiseIcon = UIImageView()
+    private let pttChatPill = UIControl()
+    private var pttHoldWork: DispatchWorkItem?
+    private var pttHoldTriggered = false
+    private var pttHintView: UIView?
+
+    init(context: AccountContext, channel: Mezon_Api_ChannelDescription, parentChannelName: String? = nil, joinRole: SfuRole = .speaker, voiceChannelCrossClanExitAlignClanId alignId: Int64? = nil, existingPiPOverlay: VoiceChannelPiPOverlay? = nil) {
         self.context = context
         self.channel = channel
         self.parentChannelName = parentChannelName
+        self.joinRole = joinRole
+        self.currentRole = joinRole
         self.voiceChannelCrossClanExitAlignClanId = alignId ?? existingPiPOverlay?.crossClanVoiceExitAlignClanId
         self.existingPiPOverlay = existingPiPOverlay
         super.init(navigationBarPresentationData: nil)
@@ -1696,6 +1607,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
         headerLeft.addArrangedSubview(collapseButton)
         headerLeft.addArrangedSubview(channelTitleLabel)
+        headerLeft.addArrangedSubview(connectingOverlay)
+        headerLeft.setCustomSpacing(10, after: channelTitleLabel)
 
         headerRight.axis = .horizontal
         headerRight.alignment = .center
@@ -1776,27 +1689,32 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         bottomPill.addSubview(bottomControlsStack)
 
         connectingOverlay.translatesAutoresizingMaskIntoConstraints = false
-        connectingOverlay.backgroundColor = UIColor.black.withAlphaComponent(0.55)
-        connectingOverlay.layer.cornerRadius = 16
+        connectingOverlay.backgroundColor = UIColor.theme.secondary
+        connectingOverlay.layer.cornerRadius = 12
+        connectingOverlay.layer.borderWidth = 1
+        connectingOverlay.layer.borderColor = UIColor.theme.border.cgColor
         connectingOverlay.clipsToBounds = true
         connectingOverlay.isHidden = true
         connectingOverlay.isUserInteractionEnabled = false
+        connectingOverlay.setContentHuggingPriority(.required, for: .horizontal)
+        connectingOverlay.setContentCompressionResistancePriority(.required, for: .horizontal)
         connectingSpinner.translatesAutoresizingMaskIntoConstraints = false
         connectingSpinner.hidesWhenStopped = true
-        connectingSpinner.color = .white
+        connectingSpinner.color = UIColor.theme.textDisabled
+        connectingSpinner.transform = CGAffineTransform(scaleX: 0.65, y: 0.65)
         connectingLabel.translatesAutoresizingMaskIntoConstraints = false
-        connectingLabel.font = .systemFont(ofSize: 13, weight: .medium)
-        connectingLabel.textColor = .white
+        connectingLabel.font = .systemFont(ofSize: 11, weight: .semibold)
+        connectingLabel.textColor = UIColor.theme.textDisabled
         connectingLabel.textAlignment = .left
         connectingLabel.numberOfLines = 1
         connectingLabel.text = NSLocalizedString(
-            "voiceChannel.connecting", tableName: nil, bundle: .main, value: "Connecting to voice…", comment: "")
+            "voiceChannel.connectingShort", tableName: nil, bundle: .main, value: "Connecting…", comment: "")
         connectingStack.translatesAutoresizingMaskIntoConstraints = false
         connectingStack.axis = .horizontal
         connectingStack.alignment = .center
-        connectingStack.spacing = 8
+        connectingStack.spacing = 3
         connectingStack.isLayoutMarginsRelativeArrangement = true
-        connectingStack.layoutMargins = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 14)
+        connectingStack.layoutMargins = UIEdgeInsets(top: 0, left: 7, bottom: 0, right: 10)
         connectingStack.isUserInteractionEnabled = false
         connectingStack.addArrangedSubview(connectingSpinner)
         connectingStack.addArrangedSubview(connectingLabel)
@@ -1813,7 +1731,6 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         view.insertSubview(raiseHandBannerStack, aboveSubview: contentScroll)
         voiceReactionOverlay.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(voiceReactionOverlay)
-        view.addSubview(connectingOverlay)
 
         NSLayoutConstraint.activate([
             headerBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
@@ -1865,10 +1782,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             bottomControlsStack.trailingAnchor.constraint(equalTo: bottomPill.trailingAnchor, constant: -10),
             bottomControlsStack.bottomAnchor.constraint(equalTo: bottomPill.bottomAnchor, constant: -6),
 
-            connectingOverlay.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            connectingOverlay.topAnchor.constraint(equalTo: headerBar.bottomAnchor, constant: 8),
-            connectingOverlay.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 16),
-            connectingOverlay.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -16),
+            connectingOverlay.heightAnchor.constraint(equalToConstant: 24),
 
             connectingStack.topAnchor.constraint(equalTo: connectingOverlay.topAnchor),
             connectingStack.bottomAnchor.constraint(equalTo: connectingOverlay.bottomAnchor),
@@ -1920,7 +1834,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             switch reason {
             case .newDeviceAvailable, .oldDeviceUnavailable, .override:
                 self.syncCurrentAudioOutputFromSession()
-                if self.liveKitBridge != nil {
+                if self.sfuSession != nil {
                     if reason == .oldDeviceUnavailable, self.voiceOutputShouldDefaultToSpeaker() {
                         self.currentAudioOutput = .speaker
                         self.applyAudioRoute()
@@ -1929,7 +1843,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                     }
                 }
             case .categoryChange, .routeConfigurationChange:
-                if self.liveKitBridge != nil, self.systemRoutePortMatchesPreferredOutput() == false {
+                if self.sfuSession != nil, self.systemRoutePortMatchesPreferredOutput() == false {
                     self.applyAudioRoute()
                 }
             default:
@@ -1946,9 +1860,14 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             self?.scheduleVoiceChannelAudioRecoveryAfterExternalCall()
         }
 
+        setupPttControls()
+        if joinRole == .audience {
+            applyRole(.audience)
+        }
+
         if let pip = existingPiPOverlay,
-           let (bridge, joinFlag, leaveFlag, route) = pip.takeOverBridge() {
-            applyLiveKitBridgeAfterTakeover(bridge, joinFlag: joinFlag, leaveFlag: leaveFlag, preservedAudioRoute: route)
+           let (session, joinFlag, leaveFlag, route) = pip.takeOverSession() {
+            applySessionAfterTakeover(session, joinFlag: joinFlag, leaveFlag: leaveFlag, preservedAudioRoute: route)
             view.layoutIfNeeded()
             didStartVoiceConnection = true
         }
@@ -2016,10 +1935,223 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         return b
     }
 
+    private func setupPttControls() {
+        pttContainer.translatesAutoresizingMaskIntoConstraints = false
+        pttContainer.axis = .vertical
+        pttContainer.spacing = 12
+        pttContainer.alignment = .fill
+        pttContainer.isHidden = true
+
+        pttMicPill.translatesAutoresizingMaskIntoConstraints = false
+        pttMicPill.backgroundColor = UIColor.theme.tertiary
+        pttMicPill.layer.cornerRadius = 30
+        pttMicPill.clipsToBounds = true
+        pttMicPill.addTarget(self, action: #selector(pttTouchDown), for: .touchDown)
+        pttMicPill.addTarget(self, action: #selector(pttTouchUp), for: [.touchUpInside, .touchUpOutside, .touchCancel])
+
+        pttMicIcon.translatesAutoresizingMaskIntoConstraints = false
+        pttMicIcon.contentMode = .scaleAspectFit
+        let micCfg = UIImage.SymbolConfiguration(pointSize: 34, weight: .medium)
+        pttMicIcon.image = UIImage(systemName: "mic.slash.fill", withConfiguration: micCfg)?.withRenderingMode(.alwaysTemplate)
+        pttMicIcon.tintColor = UIColor.theme.textStrong
+        pttMicIcon.isUserInteractionEnabled = false
+
+        pttMicLabel.translatesAutoresizingMaskIntoConstraints = false
+        pttMicLabel.text = NSLocalizedString("voiceChannel.pushToTalk", tableName: nil, bundle: .main, value: "Push to Talk", comment: "")
+        pttMicLabel.font = .systemFont(ofSize: 16, weight: .bold)
+        pttMicLabel.textColor = UIColor.theme.textStrong
+        pttMicLabel.textAlignment = .center
+        pttMicLabel.isUserInteractionEnabled = false
+
+        pttMicPill.addSubview(pttMicIcon)
+        pttMicPill.addSubview(pttMicLabel)
+        NSLayoutConstraint.activate([
+            pttMicPill.heightAnchor.constraint(equalToConstant: 168),
+            pttMicIcon.centerXAnchor.constraint(equalTo: pttMicPill.centerXAnchor),
+            pttMicIcon.centerYAnchor.constraint(equalTo: pttMicPill.centerYAnchor, constant: -14),
+            pttMicIcon.widthAnchor.constraint(equalToConstant: 40),
+            pttMicIcon.heightAnchor.constraint(equalToConstant: 40),
+            pttMicLabel.centerXAnchor.constraint(equalTo: pttMicPill.centerXAnchor),
+            pttMicLabel.topAnchor.constraint(equalTo: pttMicIcon.bottomAnchor, constant: 8),
+        ])
+
+        configurePttSecondaryPill(pttEndPill, backgroundColor: UIColor(red: 0.89, green: 0.18, blue: 0.18, alpha: 1))
+        let endIcon = makePttPillIcon(systemName: "phone.down.fill", pointSize: 22, tint: .white)
+        pttEndPill.addSubview(endIcon)
+        centerPttPillIcon(endIcon, in: pttEndPill)
+        pttEndPill.addTarget(self, action: #selector(popTapped), for: .touchUpInside)
+
+        configurePttSecondaryPill(pttRaisePill, backgroundColor: UIColor.theme.tertiary)
+        pttRaiseIcon.translatesAutoresizingMaskIntoConstraints = false
+        pttRaiseIcon.contentMode = .scaleAspectFit
+        let raiseCfg = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
+        pttRaiseIcon.image = UIImage(systemName: "hand.raised.fill", withConfiguration: raiseCfg)?.withRenderingMode(.alwaysTemplate)
+        pttRaiseIcon.tintColor = UIColor.theme.textStrong
+        pttRaiseIcon.isUserInteractionEnabled = false
+        pttRaisePill.addSubview(pttRaiseIcon)
+        centerPttPillIcon(pttRaiseIcon, in: pttRaisePill)
+        pttRaisePill.addTarget(self, action: #selector(raiseHandTapped), for: .touchUpInside)
+
+        configurePttSecondaryPill(pttChatPill, backgroundColor: UIColor.theme.tertiary)
+        let chatIcon = makePttPillIcon(systemName: "bubble.left.and.bubble.right.fill", pointSize: 18, tint: UIColor.theme.textStrong)
+        pttChatPill.addSubview(chatIcon)
+        centerPttPillIcon(chatIcon, in: pttChatPill)
+        pttChatPill.addTarget(self, action: #selector(openChatTapped), for: .touchUpInside)
+
+        pttBottomRow.translatesAutoresizingMaskIntoConstraints = false
+        pttBottomRow.axis = .horizontal
+        pttBottomRow.spacing = 10
+        pttBottomRow.alignment = .fill
+        pttBottomRow.distribution = .fillEqually
+        pttBottomRow.addArrangedSubview(pttEndPill)
+        pttBottomRow.addArrangedSubview(pttRaisePill)
+        pttBottomRow.addArrangedSubview(pttChatPill)
+        pttBottomRow.heightAnchor.constraint(equalToConstant: 56).isActive = true
+
+        pttContainer.addArrangedSubview(pttMicPill)
+        pttContainer.addArrangedSubview(pttBottomRow)
+        view.addSubview(pttContainer)
+        NSLayoutConstraint.activate([
+            pttContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 14),
+            pttContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -14),
+            pttContainer.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
+        ])
+    }
+
+    private func configurePttSecondaryPill(_ pill: UIControl, backgroundColor: UIColor) {
+        pill.translatesAutoresizingMaskIntoConstraints = false
+        pill.backgroundColor = backgroundColor
+        pill.layer.cornerRadius = 28
+        pill.clipsToBounds = true
+    }
+
+    private func makePttPillIcon(systemName: String, pointSize: CGFloat, tint: UIColor) -> UIImageView {
+        let icon = UIImageView()
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        icon.contentMode = .scaleAspectFit
+        let cfg = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .medium)
+        icon.image = UIImage(systemName: systemName, withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate)
+        icon.tintColor = tint
+        icon.isUserInteractionEnabled = false
+        return icon
+    }
+
+    private func centerPttPillIcon(_ icon: UIImageView, in pill: UIControl) {
+        NSLayoutConstraint.activate([
+            icon.centerXAnchor.constraint(equalTo: pill.centerXAnchor),
+            icon.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
+        ])
+    }
+
+    @objc private func pttTouchDown() {
+        pttHoldWork?.cancel()
+        pttHoldTriggered = false
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, let session = self.sfuSession else { return }
+            self.pttHoldWork = nil
+            self.pttHoldTriggered = true
+            self.setPttPillPressed(true)
+            self.startPttPulse()
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            session.pttPress()
+        }
+        pttHoldWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: work)
+    }
+
+    @objc private func pttTouchUp() {
+        pttHoldWork?.cancel()
+        pttHoldWork = nil
+        if pttHoldTriggered {
+            pttHoldTriggered = false
+            setPttPillPressed(false)
+            stopPttPulse()
+            sfuSession?.pttRelease()
+        } else {
+            showPttHoldHint()
+        }
+    }
+
+    private func setPttPillPressed(_ pressed: Bool) {
+        let micCfg = UIImage.SymbolConfiguration(pointSize: 34, weight: .medium)
+        if pressed {
+            pttMicPill.backgroundColor = UIColor.theme.bgViolet
+            pttMicIcon.image = UIImage(systemName: "mic.fill", withConfiguration: micCfg)?.withRenderingMode(.alwaysTemplate)
+            pttMicIcon.tintColor = .white
+            pttMicLabel.textColor = .white
+        } else {
+            pttMicPill.backgroundColor = UIColor.theme.tertiary
+            pttMicIcon.image = UIImage(systemName: "mic.slash.fill", withConfiguration: micCfg)?.withRenderingMode(.alwaysTemplate)
+            pttMicIcon.tintColor = UIColor.theme.textStrong
+            pttMicLabel.textColor = UIColor.theme.textStrong
+        }
+    }
+
+    private func startPttPulse() {
+        pttMicIcon.layer.removeAnimation(forKey: "pttPulse")
+        let pulse = CABasicAnimation(keyPath: "transform.scale")
+        pulse.fromValue = 1
+        pulse.toValue = 1.18
+        pulse.duration = 0.52
+        pulse.autoreverses = true
+        pulse.repeatCount = .greatestFiniteMagnitude
+        pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        pttMicIcon.layer.add(pulse, forKey: "pttPulse")
+    }
+
+    private func stopPttPulse() {
+        pttMicIcon.layer.removeAnimation(forKey: "pttPulse")
+    }
+
+    private func showPttHoldHint() {
+        pttHintView?.removeFromSuperview()
+        let hint = UIView()
+        hint.translatesAutoresizingMaskIntoConstraints = false
+        hint.backgroundColor = UIColor.black.withAlphaComponent(0.72)
+        hint.layer.cornerRadius = 16
+        hint.isUserInteractionEnabled = false
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.text = NSLocalizedString("voiceChannel.pttHoldHint", tableName: nil, bundle: .main, value: "Please hold", comment: "")
+        label.font = .systemFont(ofSize: 14, weight: .semibold)
+        label.textColor = .white
+        hint.addSubview(label)
+        view.addSubview(hint)
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: hint.topAnchor, constant: 8),
+            label.bottomAnchor.constraint(equalTo: hint.bottomAnchor, constant: -8),
+            label.leadingAnchor.constraint(equalTo: hint.leadingAnchor, constant: 16),
+            label.trailingAnchor.constraint(equalTo: hint.trailingAnchor, constant: -16),
+            hint.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            hint.bottomAnchor.constraint(equalTo: pttContainer.topAnchor, constant: -12),
+        ])
+        pttHintView = hint
+        hint.alpha = 0
+        UIView.animate(withDuration: 0.18) {
+            hint.alpha = 1
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self, weak hint] in
+            guard let hint else { return }
+            UIView.animate(withDuration: 0.25, animations: {
+                hint.alpha = 0
+            }, completion: { _ in
+                hint.removeFromSuperview()
+                if self?.pttHintView === hint {
+                    self?.pttHintView = nil
+                }
+            })
+        }
+    }
+
+    private func refreshPttRaiseHandTint() {
+        pttRaiseIcon.tintColor = isLocalRaiseHandActive
+            ? UIColor(red: 0.94, green: 0.74, blue: 0.22, alpha: 1)
+            : UIColor.theme.textStrong
+    }
+
     deinit {
         voiceReactionDisposable?.dispose()
         clanUsersUpdatedDisposable?.dispose()
-        liveKitReconnectTask?.cancel()
         if let obs = callPiPBackgroundObserver {
             NotificationCenter.default.removeObserver(obs)
         }
@@ -2059,7 +2191,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         clanUsersUpdatedDisposable = (context.engine.clanData.clanUsersUpdated.signal()
             |> deliverOnMainQueue).start(next: { [weak self] updatedClanId in
                 guard let self, updatedClanId == clanId else { return }
-                guard self.liveKitBridge != nil, !self.participantRows.isEmpty else { return }
+                guard self.sfuSession != nil, !self.participantRows.isEmpty else { return }
                 self.updateParticipantTilesInPlace()
             })
         ensureClanUsersLoadedForAvatars()
@@ -2409,6 +2541,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             raiseHandButton.tintColor = UIColor.theme.textStrong
             raiseHandButton.backgroundColor = UIColor.theme.tertiary
         }
+        refreshPttRaiseHandTint()
     }
 
     private func lowerRaiseHandIfActive() {
@@ -2555,32 +2688,55 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         }
     }
 
-    private func applyLiveKitBridgeAfterTakeover(
-        _ bridge: VoiceChannelLiveKitBridge,
+    private func wireSessionCallbacks(_ session: MezonSfuSession) {
+        session.onConnectionState = { [weak self] state in
+            self?.handleSfuState(state)
+        }
+        session.onParticipants = { [weak self] list in
+            self?.sfuParticipants = list
+            self?.refreshParticipantRowsFromSession()
+        }
+        session.onRoleChanged = { [weak self] role in
+            self?.applyRole(role)
+        }
+        session.onError = { [weak self] code, _ in
+            self?.handleSfuErrorCode(code)
+        }
+        session.onLocalVideoTrack = { [weak self] _ in
+            self?.refreshParticipantRowsFromSession()
+        }
+        session.onSpeaking = { [weak self] _ in
+            self?.scheduleParticipantStateRefresh()
+        }
+        session.onPushToTalkActive = { [weak self] active in
+            self?.applyPttActive(active)
+        }
+        let tokenContext = context
+        let tokenChannelId = channel.channelID
+        session.tokenProvider = {
+            guard let token = await tokenContext.getToken() else { return nil }
+            return try? await tokenContext.account.network.generateMeetToken(
+                channelId: tokenChannelId,
+                roomName: "\(tokenChannelId)",
+                token: token
+            )
+        }
+    }
+
+    private func applySessionAfterTakeover(
+        _ session: MezonSfuSession,
         joinFlag: Bool,
         leaveFlag: Bool,
         preservedAudioRoute: VoiceChannelPiPPreservedAudioRoute?
     ) {
-        liveKitBridge = bridge
+        sfuSession = session
         didAnnounceMeetJoin = joinFlag
         didAnnounceMeetLeave = leaveFlag
         isMinimizingToPiP = false
-        bridge.onConnectFailed = { [weak self] error in
-            self?.setConnectingOverlayVisible(false)
-            self?.liveKitBridge = nil
-            self?.presentVoiceAlert(
-                title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Voice", comment: ""),
-                message: error.localizedDescription)
-        }
-        bridge.onDisconnected = { [weak self] error in
-            self?.handleLiveKitDisconnected(error: error)
-        }
-        bridge.onRoomParticipantsChanged = { [weak self] in
-            self?.refreshParticipantRowsFromLiveKit()
-        }
-        bridge.onParticipantStateUpdated = { [weak self] in
-            self?.scheduleParticipantStateRefresh()
-        }
+        hasEverConnected = session.isConnected
+        sfuParticipants = session.participants
+        wireSessionCallbacks(session)
+        applyRole(session.role)
         refreshMicButtonIcon()
         refreshCamButtonIcon()
         if let preservedAudioRoute {
@@ -2592,7 +2748,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         } else {
             detectInitialAudioRoute()
         }
-        refreshParticipantRowsFromLiveKit()
+        refreshParticipantRowsFromSession()
         setupCallPiP()
         applyAudioRoute()
         scheduleVoiceRoomDeferredAudioRouteEnforcement()
@@ -2603,12 +2759,82 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         let delays: [TimeInterval] = [0.15, 0.4, 1.0]
         for delay in delays {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                guard let self, self.liveKitBridge != nil else { return }
+                guard let self, self.sfuSession != nil else { return }
                 if self.systemRoutePortMatchesPreferredOutput() == false {
                     self.applyAudioRoute()
                 }
             }
         }
+    }
+
+    private func handleSfuState(_ state: SfuConnectionState) {
+        switch state {
+        case .connected:
+            hasEverConnected = true
+            setConnectingOverlayVisible(false)
+            announceMeetJoinIfNeeded()
+            refreshMicButtonIcon()
+            refreshCamButtonIcon()
+            refreshParticipantRowsFromSession()
+            if callPiPController == nil, !isScreenShareDetailCoveringVoiceRoom {
+                setupCallPiP()
+            }
+        case .disconnected:
+            setConnectingOverlayVisible(true)
+        case .failed:
+            performSfuFinalTeardown(message: hasEverConnected
+                ? NSLocalizedString(
+                    "voiceChannel.disconnectDefault", tableName: nil, bundle: .main,
+                    value: "The connection to the voice room was lost.", comment: "")
+                : nil)
+        case .connecting, .joining, .awaitingOffer:
+            if !hasEverConnected {
+                setConnectingOverlayVisible(true)
+            }
+        }
+    }
+
+    private func handleSfuErrorCode(_ code: String) {
+        _ = code
+    }
+
+    private func applyRole(_ role: SfuRole) {
+        currentRole = role
+        let audience = role == .audience
+        bottomPill.isHidden = audience
+        pttContainer.isHidden = !audience
+        if !audience {
+            setPttPillPressed(false)
+            stopPttPulse()
+        }
+        if #available(iOS 15.0, *) {
+            activeScreenShareExpandedViewController()?.setPttControlVisible(audience)
+        }
+        refreshMicButtonIcon()
+        scheduleParticipantStateRefresh()
+    }
+
+    private func applyPttActive(_ active: Bool) {
+        if !active {
+            setPttPillPressed(false)
+            stopPttPulse()
+        }
+        if #available(iOS 15.0, *) {
+            activeScreenShareExpandedViewController()?.setPttActive(active)
+        }
+        refreshMicButtonIcon()
+        scheduleParticipantStateRefresh()
+    }
+
+    @available(iOS 15.0, *)
+    private func activeScreenShareExpandedViewController() -> ScreenShareExpandedViewController? {
+        if let (_, expanded) = findScreenShareExpandedPresenter() {
+            return expanded
+        }
+        if let retained = screenSharePiPHostRetain as? ScreenShareExpandedViewController {
+            return retained
+        }
+        return findScreenShareExpandedViewControllerInKeyWindowHierarchy()
     }
 
     private func pipPreservedRouteFromCurrentOutput() -> VoiceChannelPiPPreservedAudioRoute {
@@ -2621,12 +2847,12 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
     @discardableResult
     private func resumeVoiceRoomFromPiPOverlayIfNeeded() -> Bool {
-        guard liveKitBridge == nil else { return false }
+        guard sfuSession == nil else { return false }
         let pip = VoiceChannelPiPOverlay.shared
         guard pip.isActive, let pipCh = pip.channel,
               pipCh.channelID == channel.channelID, pipCh.clanID == channel.clanID,
-              let (bridge, joinFlag, leaveFlag, route) = pip.takeOverBridge() else { return false }
-        applyLiveKitBridgeAfterTakeover(bridge, joinFlag: joinFlag, leaveFlag: leaveFlag, preservedAudioRoute: route)
+              let (session, joinFlag, leaveFlag, route) = pip.takeOverSession() else { return false }
+        applySessionAfterTakeover(session, joinFlag: joinFlag, leaveFlag: leaveFlag, preservedAudioRoute: route)
         return true
     }
 
@@ -2725,11 +2951,9 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     private func syncParticipantGridOrderAfterScrollIfNeeded() {
-        guard let bridge = liveKitBridge, let room = bridge.room else { return }
-        let ordered = orderedParticipants(room: room)
-        let descriptors = voiceTileDescriptors(participants: ordered)
-        let keys = descriptors.map(\.rowKey)
-        applyParticipantGridOrdering(orderedKeys: keys)
+        guard sfuSession != nil else { return }
+        let descriptors = voiceTileDescriptors(entries: orderedTileEntries())
+        applyParticipantGridOrdering(orderedKeys: descriptors.map(\.rowKey))
     }
 
     private func applyParticipantGridOrdering(orderedKeys: [String]) {
@@ -2772,7 +2996,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private var isMinimizingToPiP = false
     private var isScreenShareExpandedPresented = false
     private var screenShareExpandedSourceParticipantKey: String?
-    private weak var screenShareExpandedSourceTrack: VideoTrack?
+    private weak var screenShareExpandedSourceTrack: RTCVideoTrack?
     private var screenShareExpandedPresentedAt: Date?
 
     private var isScreenShareDetailCoveringVoiceRoom: Bool {
@@ -2785,7 +3009,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
     func screenShareExpandedDidDismiss() {
         isScreenShareExpandedPresented = false
-        if #available(iOS 15.0, *), callPiPController == nil, liveKitBridge != nil {
+        if #available(iOS 15.0, *), callPiPController == nil, sfuSession != nil {
             setupCallPiP()
         }
     }
@@ -2796,59 +3020,21 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         screenShareExpandedPresentedAt = nil
     }
 
-    private func participant(forSourceParticipantKey key: String, room: Room) -> Participant? {
-        if participantRowKey(room.localParticipant) == key { return room.localParticipant }
-        for r in room.remoteParticipants.values {
-            if participantRowKey(r) == key { return r }
-        }
-        return nil
-    }
-
-    private func resolveScreenShareVideoPublication(_ p: Participant) -> TrackPublication? {
-        if let pub = p.firstScreenSharePublication { return pub }
-        return p.videoTracks.first(where: { $0.name == Track.screenShareVideoName })
-    }
-
-    private func participantHasLiveScreenShareVideoAttached(_ p: Participant) -> Bool {
-        p.trackPublications.values.contains { pub in
-            guard pub.kind == .video, pub.track != nil else { return false }
-            if pub.source == .screenShareVideo { return true }
-            return pub.name == Track.screenShareVideoName
-        }
-    }
-
     func dismissScreenShareExpandedIfSourceShareEnded() {
         guard let key = screenShareExpandedSourceParticipantKey else { return }
-        guard let bridge = liveKitBridge, let room = bridge.room else { return }
-        guard let p = participant(forSourceParticipantKey: key, room: room) else {
+        guard sfuSession != nil else { return }
+        let entry = orderedTileEntries().first(where: { $0.identity == key })
+        guard let entry else {
             tearDownScreenSharePresentationAndPiP()
             return
         }
         let pastAttachGrace = screenShareExpandedPresentedAt.map { Date().timeIntervalSince($0) >= 2.0 } ?? true
-        if pastAttachGrace, !participantHasLiveScreenShareVideoAttached(p) {
-            tearDownScreenSharePresentationAndPiP()
-            return
-        }
-        if !p.isScreenShareEnabled() {
-            tearDownScreenSharePresentationAndPiP()
-            return
-        }
-        if let pub = resolveScreenShareVideoPublication(p), pub.streamState == .paused {
-            tearDownScreenSharePresentationAndPiP()
-            return
-        }
-        if let rpub = resolveScreenShareVideoPublication(p) as? RemoteTrackPublication,
-           rpub.subscriptionState == .unsubscribed {
-            tearDownScreenSharePresentationAndPiP()
-            return
-        }
-        let current: VideoTrack? = p.firstScreenShareVideoTrack
-            ?? (resolveScreenShareVideoPublication(p).flatMap { $0.track as? VideoTrack })
+        let current = entry.screenTrack
         if pastAttachGrace, current == nil {
             tearDownScreenSharePresentationAndPiP()
             return
         }
-        if let shown = screenShareExpandedSourceTrack, let current, current !== shown {
+        if let shown = screenShareExpandedSourceTrack, let current, current.trackId != shown.trackId {
             tearDownScreenSharePresentationAndPiP()
         }
     }
@@ -2863,16 +3049,14 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     func handoffToPiPForExternalNavigation() {
-        guard !isMinimizingToPiP, !isEndingVoiceRoom, liveKitBridge != nil else { return }
+        guard !isMinimizingToPiP, !isEndingVoiceRoom, sfuSession != nil else { return }
         voiceRoomPerformPiPHandoffIfStillInCall()
     }
 
     @discardableResult
     private func voiceRoomPerformPiPHandoffIfStillInCall() -> Bool {
         if isMinimizingToPiP { return false }
-        liveKitReconnectTask?.cancel()
-        liveKitReconnectTask = nil
-        if let bridge = liveKitBridge {
+        if let session = sfuSession {
             let preservedRoute = pipPreservedRouteFromCurrentOutput()
             applyVoiceChannelPreservedAudioRouteToSession(preservedRoute)
             unbindVoiceReactionSocketForPiP()
@@ -2893,11 +3077,11 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             orderedDescriptorKeys = []
 
             isMinimizingToPiP = true
-            bridge.clearCallbacks()
-            liveKitBridge = nil
+            session.clearCallbacks()
+            sfuSession = nil
 
             VoiceChannelPiPOverlay.shared.show(
-                bridge: bridge,
+                session: session,
                 context: context,
                 channel: channel,
                 parentChannelName: parentChannelName,
@@ -2958,7 +3142,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         if isScreenShareDetailCoveringVoiceRoom { return }
         guard isViewLoaded, view.window == nil else { return }
         if presentedViewController != nil { return }
-        guard liveKitBridge != nil else { return }
+        guard sfuSession != nil else { return }
         voiceRoomPerformPiPHandoffIfStillInCall()
     }
 
@@ -2978,7 +3162,10 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             refreshVoiceAgentButtonAppearance()
         }
         bottomPill.backgroundColor = UIColor.theme.secondary
-        connectingLabel.textColor = .white
+        connectingOverlay.backgroundColor = UIColor.theme.secondary
+        connectingOverlay.layer.borderColor = UIColor.theme.border.cgColor
+        connectingLabel.textColor = UIColor.theme.textDisabled
+        connectingSpinner.color = UIColor.theme.textDisabled
         participantRows.values.forEach { $0.applyTheme() }
         refreshSpeakerRouteUI()
         refreshCamButtonIcon()
@@ -3005,31 +3192,25 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         lowerRaiseHandIfActive()
         dismissVoiceMoreToolsPopover()
         unbindVoiceReactionSocketForPiP()
-        liveKitReconnectTask?.cancel()
-        liveKitReconnectTask = nil
         tearDownCallPiP()
         tearDownScreenSharePresentationAndPiP()
         connectTask?.cancel()
         connectTask = nil
         sendMeetLeaveIfNeeded()
-        let bridge = liveKitBridge
-        liveKitBridge = nil
-        bridge?.clearCallbacks()
+        let session = sfuSession
+        sfuSession = nil
+        session?.clearCallbacks()
         popVoiceRoomOrAlignHomeAfterCrossClanVoice()
-        Task {
-            await bridge?.disconnect()
-        }
+        session?.leave()
     }
 
     @objc private func minimizeToPiP() {
-        guard let bridge = liveKitBridge else { return }
+        guard let session = sfuSession else { return }
         let preservedRoute = pipPreservedRouteFromCurrentOutput()
         applyVoiceChannelPreservedAudioRouteToSession(preservedRoute)
         lowerRaiseHandIfActive()
         dismissVoiceMoreToolsPopover()
         unbindVoiceReactionSocketForPiP()
-        liveKitReconnectTask?.cancel()
-        liveKitReconnectTask = nil
         tearDownCallPiP()
         tearDownScreenSharePresentationAndPiP()
         connectTask?.cancel()
@@ -3041,11 +3222,11 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         participantRows.removeAll()
 
         isMinimizingToPiP = true
-        bridge.clearCallbacks()
-        self.liveKitBridge = nil
+        session.clearCallbacks()
+        self.sfuSession = nil
 
         VoiceChannelPiPOverlay.shared.show(
-            bridge: bridge,
+            session: session,
             context: context,
             channel: channel,
             parentChannelName: parentChannelName,
@@ -3059,9 +3240,10 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     @objc private func micTapped() {
-        guard let bridge = liveKitBridge else { return }
+        guard currentRole == .speaker else { return }
+        guard let session = sfuSession else { return }
+        let currentlyOn = session.micEnabled
         Task { @MainActor in
-            let currentlyOn = bridge.isMicrophoneEnabled()
             if !currentlyOn {
                 let ok = await VoiceChannelMicPermission.requestIfNeeded()
                 if !ok {
@@ -3069,16 +3251,10 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                     return
                 }
             }
-            do {
-                try await bridge.setMicrophoneEnabled(!currentlyOn)
-                self.refreshMicButtonIcon()
-                self.refreshCamButtonIcon()
-                self.refreshParticipantRowsFromLiveKit()
-            } catch {
-                self.presentVoiceAlert(
-                    title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Voice", comment: ""),
-                    message: error.localizedDescription)
-            }
+            session.setMicEnabled(!currentlyOn)
+            self.refreshMicButtonIcon()
+            self.refreshCamButtonIcon()
+            self.refreshParticipantRowsFromSession()
         }
     }
 
@@ -3108,7 +3284,6 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         }
 
         let roomName = "\(channel.channelID)"
-        let meetURL = MezonConfig.meetWebSocketURLString
 
         do {
             let jwt = try await context.account.network.generateMeetToken(
@@ -3128,41 +3303,29 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                 return
             }
 
-            let bridge = VoiceChannelLiveKitBridge()
-            bridge.onConnectFailed = { [weak self] error in
-                self?.setConnectingOverlayVisible(false)
-                self?.liveKitBridge = nil
-                self?.presentVoiceAlert(
-                    title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Voice", comment: ""),
-                    message: error.localizedDescription)
-            }
-            bridge.onDisconnected = { [weak self] error in
-                self?.handleLiveKitDisconnected(error: error)
-            }
-            bridge.onRoomParticipantsChanged = { [weak self] in
-                self?.refreshParticipantRowsFromLiveKit()
-            }
-            bridge.onParticipantStateUpdated = { [weak self] in
-                self?.scheduleParticipantStateRefresh()
-            }
-            liveKitBridge = bridge
-
-            ensureVoiceChannelAudioSessionCategory()
-            try await bridge.connect(url: meetURL, token: jwt)
+            _ = await VoiceChannelMicPermission.requestIfNeeded()
             guard !Task.isCancelled else {
-                await bridge.disconnect()
-                liveKitBridge = nil
                 setConnectingOverlayVisible(false)
                 return
             }
 
+            let session = MezonSfuSession()
+            wireSessionCallbacks(session)
+            sfuSession = session
+
+            ensureVoiceChannelAudioSessionCategory()
+            session.join(
+                channelId: channel.channelID,
+                clanId: channel.clanID,
+                userId: context.currentUser?.id ?? "",
+                token: jwt,
+                role: joinRole
+            )
+
             refreshMicButtonIcon()
             detectInitialAudioRoute()
             refreshCamButtonIcon()
-            announceMeetJoinIfNeeded()
-            refreshParticipantRowsFromLiveKit()
-            setConnectingOverlayVisible(false)
-            setupCallPiP()
+            refreshParticipantRowsFromSession()
         } catch {
             setConnectingOverlayVisible(false)
             if !Task.isCancelled {
@@ -3170,16 +3333,14 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                     title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Voice", comment: ""),
                     message: error.localizedDescription)
             }
-            liveKitBridge = nil
+            sfuSession = nil
         }
     }
 
     private func setConnectingOverlayVisible(_ visible: Bool) {
         connectingOverlay.isHidden = !visible
-        connectingOverlay.isUserInteractionEnabled = false
         if visible {
             connectingSpinner.startAnimating()
-            view.bringSubviewToFront(connectingOverlay)
         } else {
             connectingSpinner.stopAnimating()
         }
@@ -3232,8 +3393,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                 self?.stopCallPiPOnForeground()
             }
         }
-        if let room = liveKitBridge?.room {
-            updateCallPiPContent(room: room)
+        if sfuSession != nil {
+            updateCallPiPContent()
         }
     }
 
@@ -3285,7 +3446,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         }
         pip?.delegate = nil
         callPiPController = nil
-        callPiPVideoView.track = nil
+        callPiPVideoView.attach(track: nil)
         callPiPVideoView.removeFromSuperview()
         callPiPSourceView?.removeFromSuperview()
         callPiPSourceView = nil
@@ -3293,11 +3454,11 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     private func refreshMicButtonIcon() {
-        guard let bridge = liveKitBridge else {
+        guard let session = sfuSession else {
             setMicButtonIcon(muted: true)
             return
         }
-        setMicButtonIcon(muted: !bridge.isMicrophoneEnabled())
+        setMicButtonIcon(muted: !(session.micEnabled || session.pttActive))
     }
 
     private func setMicButtonIcon(muted: Bool) {
@@ -3342,58 +3503,52 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     private func updateParticipantTilesInPlace() {
-        guard let bridge = liveKitBridge, let room = bridge.room else { return }
-        let allParticipants: [Participant] = [room.localParticipant] + Array(room.remoteParticipants.values)
-        var participantByKey: [String: Participant] = [:]
-        for p in allParticipants {
-            let key = participantRowKey(p)
-            if !key.isEmpty { participantByKey[key] = p }
+        guard sfuSession != nil else { return }
+        let entries = orderedTileEntries()
+        var entryByKey: [String: VoiceTileEntry] = [:]
+        for entry in entries {
+            entryByKey[entry.identity] = entry
         }
         for (rowKey, row) in participantRows {
             let baseKey = rowKey.components(separatedBy: "|").first ?? rowKey
-            guard let p = participantByKey[baseKey] else { continue }
-            let isLocal = p is LocalParticipant
+            guard let entry = entryByKey[baseKey] else { continue }
             let isScreen = rowKey.hasSuffix("|screen")
-            let display = resolveDisplayName(participant: p)
-            let videoTrack: VideoTrack?
+            let display = resolveDisplayName(identityKey: entry.identity, isLocal: entry.isLocal)
+            let username = resolveUsername(identityKey: entry.identity, isLocal: entry.isLocal)
+            let videoTrack: RTCVideoTrack?
             let mirrorVideo: Bool
             let speaking: Bool
             if isScreen {
-                videoTrack = p.firstScreenShareVideoTrack
+                videoTrack = entry.screenTrack
                 mirrorVideo = false
                 speaking = false
             } else {
-                videoTrack = p.firstCameraVideoTrack
-                mirrorVideo = isLocal && bridge.currentCameraCapturePosition() == .front
-                speaking = p.isSpeaking
+                videoTrack = entry.cameraTrack
+                mirrorVideo = entry.isLocal && entry.mirror
+                speaking = entry.speaking
             }
-            let username = resolveUsername(p)
             row.configure(
                 username: username,
                 displayName: display,
-                micOn: p.isMicrophoneEnabled(),
+                micOn: entry.micOn,
                 speaking: speaking,
-                avatarURL: resolveAvatarURL(identityKey: baseKey, participant: p),
+                avatarURL: resolveAvatarURL(identityKey: entry.identity),
                 videoTrack: videoTrack,
-                mirrorVideo: mirrorVideo
+                mirrorVideo: mirrorVideo,
+                isAudience: entry.isAudience
             )
-            applyParticipantRowCallbacks(rowKey: rowKey, row: row, participant: p, displayName: display)
+            applyParticipantRowCallbacks(rowKey: rowKey, row: row, entry: entry, displayName: display)
         }
         refreshMicButtonIcon()
-        if let room = bridge.room {
-            let ordered = orderedParticipants(room: room)
-            let descriptors = voiceTileDescriptors(participants: ordered)
-            applyParticipantGridOrdering(orderedKeys: descriptors.map(\.rowKey))
-            updateCallPiPContent(room: room)
-        }
+        applyParticipantGridOrdering(orderedKeys: voiceTileDescriptors(entries: entries).map(\.rowKey))
+        updateCallPiPContent()
         dismissScreenShareExpandedIfSourceShareEnded()
-        syncVoiceAgentToggleFromRoomState()
     }
 
-    private func refreshParticipantRowsFromLiveKit() {
-        guard let bridge = liveKitBridge, let room = bridge.room else { return }
-        let ordered = orderedParticipants(room: room)
-        let descriptors = voiceTileDescriptors(participants: ordered)
+    private func refreshParticipantRowsFromSession() {
+        guard sfuSession != nil else { return }
+        let entries = orderedTileEntries()
+        let descriptors = voiceTileDescriptors(entries: entries)
         var orderedKeys: [String] = []
         for d in descriptors {
             orderedKeys.append(d.rowKey)
@@ -3401,36 +3556,35 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                 participantRows[d.rowKey] = VoiceParticipantRowView(identityKey: d.rowKey, tileKind: d.kind)
             }
             guard let row = participantRows[d.rowKey] else { continue }
-            let p = d.participant
-            let isLocal = p is LocalParticipant
-            let baseKey = participantRowKey(p)
-            let display = resolveDisplayName(participant: p)
-            let avatarURL = resolveAvatarURL(identityKey: baseKey, participant: p)
-            let videoTrack: VideoTrack?
+            let entry = d.entry
+            let display = resolveDisplayName(identityKey: entry.identity, isLocal: entry.isLocal)
+            let username = resolveUsername(identityKey: entry.identity, isLocal: entry.isLocal)
+            let avatarURL = resolveAvatarURL(identityKey: entry.identity)
+            let videoTrack: RTCVideoTrack?
             let mirrorVideo: Bool
             let speaking: Bool
             switch d.kind {
             case .screenShare:
-                videoTrack = p.firstScreenShareVideoTrack
+                videoTrack = entry.screenTrack
                 mirrorVideo = false
                 speaking = false
             case .mainVideo:
-                videoTrack = p.firstCameraVideoTrack
-                mirrorVideo = isLocal && bridge.currentCameraCapturePosition() == .front
-                speaking = p.isSpeaking
+                videoTrack = entry.cameraTrack
+                mirrorVideo = entry.isLocal && entry.mirror
+                speaking = entry.speaking
             }
-            let username = resolveUsername(p)
             row.configure(
                 username: username,
                 displayName: display,
-                micOn: p.isMicrophoneEnabled(),
+                micOn: entry.micOn,
                 speaking: speaking,
                 avatarURL: avatarURL,
                 videoTrack: videoTrack,
-                mirrorVideo: mirrorVideo
+                mirrorVideo: mirrorVideo,
+                isAudience: entry.isAudience
             )
             row.applyTheme()
-            applyParticipantRowCallbacks(rowKey: d.rowKey, row: row, participant: p, displayName: display)
+            applyParticipantRowCallbacks(rowKey: d.rowKey, row: row, entry: entry, displayName: display)
         }
         let nextKeys = Set(orderedKeys)
         let stale = participantRows.keys.filter { !nextKeys.contains($0) }
@@ -3440,48 +3594,35 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             participantRows.removeValue(forKey: k)
         }
         applyParticipantGridOrdering(orderedKeys: orderedKeys)
-        updateCallPiPContent(room: room)
+        updateCallPiPContent()
         dismissScreenShareExpandedIfSourceShareEnded()
-        syncVoiceAgentToggleFromRoomState()
     }
 
-    private func updateCallPiPContent(room: Room) {
+    private func updateCallPiPContent() {
         guard let contentVC = callPiPContentVC, let root = contentVC.view else { return }
-        let local = room.localParticipant
-        let remotes = Array(room.remoteParticipants.values)
-        var pipTrack: VideoTrack?
+        let entries = orderedTileEntries()
+        var pipTrack: RTCVideoTrack?
         var pipMirror = false
-        for r in remotes {
-            if let t = r.firstScreenShareVideoTrack {
-                pipTrack = t
-                pipMirror = false
-                break
-            }
-        }
-        if pipTrack == nil, let t = local.firstScreenShareVideoTrack {
-            pipTrack = t
-            pipMirror = false
-        }
-        if pipTrack == nil, let t = local.firstCameraVideoTrack {
-            pipTrack = t
-            pipMirror = liveKitBridge?.currentCameraCapturePosition() == .front
+        if let remoteShare = entries.first(where: { !$0.isLocal && $0.screenTrack != nil }) {
+            pipTrack = remoteShare.screenTrack
+        } else if let localEntry = entries.first(where: { $0.isLocal }), let cam = localEntry.cameraTrack {
+            pipTrack = cam
+            pipMirror = localEntry.mirror
         }
         if let pipTrack {
-            callPiPVideoView.mirrorMode = pipMirror ? .auto : .off
-            if callPiPVideoView.track !== pipTrack {
-                callPiPVideoView.track = pipTrack
-            }
+            callPiPVideoView.isMirrored = pipMirror
+            callPiPVideoView.attach(track: pipTrack)
             callPiPVideoView.isHidden = false
             callPiPVideoView.alpha = 1
             voiceCallSystemPiPSetChromeHidden(root, hidden: true)
         } else {
             callPiPVideoView.isHidden = true
-            callPiPVideoView.track = nil
+            callPiPVideoView.attach(track: nil)
             callPiPVideoView.alpha = 0
             voiceCallSystemPiPSetChromeHidden(root, hidden: false)
         }
         guard let statusLabel = root.viewWithTag(VoiceCallSystemPiPViewTag.status) as? UILabel else { return }
-        let remoteCount = room.remoteParticipants.count
+        let remoteCount = sfuParticipants.count
         if remoteCount == 0 {
             statusLabel.text = NSLocalizedString("voiceChannel.pipStatus", tableName: nil, bundle: .main, value: "You're alone on the call", comment: "")
         } else {
@@ -3551,75 +3692,76 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         }
     }
 
-    private func voiceTileDescriptors(participants: [Participant]) -> [VoiceParticipantTileDescriptor] {
+    private func orderedTileEntries() -> [VoiceTileEntry] {
+        guard let session = sfuSession else { return [] }
+        var entries: [VoiceTileEntry] = []
+        let localId = context.currentUser?.id ?? ""
+        entries.append(VoiceTileEntry(
+            identity: localId,
+            isLocal: true,
+            micOn: session.micEnabled || session.pttActive,
+            speaking: session.speakingIds.contains(localId),
+            cameraTrack: session.cameraEnabled ? session.localCameraTrack : nil,
+            screenTrack: nil,
+            mirror: session.cameraPosition == .front,
+            isAudience: currentRole == .audience
+        ))
+        for p in sfuParticipants {
+            let identity = p.userId ?? p.id
+            if identity.isEmpty || identity == localId { continue }
+            entries.append(VoiceTileEntry(
+                identity: identity,
+                isLocal: false,
+                micOn: !p.muted,
+                speaking: session.speakingIds.contains(identity),
+                cameraTrack: p.cameraActive ? p.video : nil,
+                screenTrack: p.screenActive ? p.screen : nil,
+                mirror: false,
+                isAudience: p.role == .audience
+            ))
+        }
+        entries.sort { a, b in
+            let pa = tileSortPriority(a)
+            let pb = tileSortPriority(b)
+            if pa != pb { return pa < pb }
+            let na = resolveDisplayName(identityKey: a.identity, isLocal: a.isLocal)
+            let nb = resolveDisplayName(identityKey: b.identity, isLocal: b.isLocal)
+            return na.localizedCaseInsensitiveCompare(nb) == .orderedAscending
+        }
+        return entries
+    }
+
+    private func tileSortPriority(_ entry: VoiceTileEntry) -> Int {
+        if entry.screenTrack != nil { return 0 }
+        if entry.micOn { return 1 }
+        if entry.cameraTrack != nil { return 2 }
+        if entry.isLocal { return 3 }
+        return 4
+    }
+
+    private func voiceTileDescriptors(entries: [VoiceTileEntry]) -> [VoiceParticipantTileDescriptor] {
         var screens: [VoiceParticipantTileDescriptor] = []
         var mains: [VoiceParticipantTileDescriptor] = []
-        for p in participants {
-            let base = participantRowKey(p)
-            if base.isEmpty { continue }
-            if p.firstScreenShareVideoTrack != nil {
-                screens.append(VoiceParticipantTileDescriptor(rowKey: "\(base)|screen", participant: p, kind: .screenShare))
+        for entry in entries {
+            if entry.identity.isEmpty { continue }
+            if entry.screenTrack != nil {
+                screens.append(VoiceParticipantTileDescriptor(rowKey: "\(entry.identity)|screen", entry: entry, kind: .screenShare))
             }
-            mains.append(VoiceParticipantTileDescriptor(rowKey: "\(base)|main", participant: p, kind: .mainVideo))
+            mains.append(VoiceParticipantTileDescriptor(rowKey: "\(entry.identity)|main", entry: entry, kind: .mainVideo))
         }
         return screens + mains
     }
 
-    private func participantRowKey(_ p: Participant) -> String {
-        if let id = p.identity?.stringValue, !id.isEmpty { return id }
-        if let sid = p.sid { return String(describing: sid) }
-        return ""
+    private func resolveDisplayName(identityKey: String, isLocal: Bool) -> String {
+        voiceChannelResolveDisplayName(context: context, clanId: channel.clanID, identityKey: identityKey, isLocal: isLocal)
     }
 
-    private func participantSortPriority(_ p: Participant, isLocal: Bool) -> Int {
-        if p.firstScreenShareVideoTrack != nil { return 0 }
-        if p.isMicrophoneEnabled() { return 1 }
-        if p.firstCameraVideoTrack != nil { return 2 }
-        if isLocal { return 3 }
-        return 4
+    private func resolveUsername(identityKey: String, isLocal: Bool) -> String {
+        voiceChannelResolveUsername(context: context, clanId: channel.clanID, identityKey: identityKey, isLocal: isLocal)
     }
 
-    private func orderedParticipants(room: Room) -> [Participant] {
-        let local = room.localParticipant
-        var all: [(Participant, Bool)] = [(local, true)]
-        for r in room.remoteParticipants.values {
-            all.append((r, false))
-        }
-        all.sort { a, b in
-            let pa = participantSortPriority(a.0, isLocal: a.1)
-            let pb = participantSortPriority(b.0, isLocal: b.1)
-            if pa != pb { return pa < pb }
-            let na = a.0.name ?? a.0.identity?.stringValue ?? ""
-            let nb = b.0.name ?? b.0.identity?.stringValue ?? ""
-            return na.localizedCaseInsensitiveCompare(nb) == .orderedAscending
-        }
-        return all.map(\.0)
-    }
-
-    private func resolveDisplayName(participant: Participant) -> String {
-        voiceChannelResolveDisplayName(context: context, clanId: channel.clanID, participant: participant)
-    }
-
-    private func resolveUsername(_ participant: Participant) -> String {
-        voiceChannelResolveUsername(context: context, clanId: channel.clanID, participant: participant)
-    }
-
-    private func resolveAvatarURL(identityKey: String, participant: Participant) -> String? {
-        if participant.kind == .agent {
-            return kVoiceKomuAgentDefaultAvatarURL
-        }
-        return voiceChannelResolveAvatarURL(context: context, clanId: channel.clanID, identityKey: identityKey)
-    }
-
-    private func syncVoiceAgentToggleFromRoomState() {
-        guard !isAgentToggleLoading, !agentToggleButton.isHidden else { return }
-        guard let room = liveKitBridge?.room else { return }
-        let all: [Participant] = [room.localParticipant] + Array(room.remoteParticipants.values)
-        let hasAgent = all.contains { $0.kind == .agent }
-        if hasAgent, !voiceAgentEnabled {
-            voiceAgentEnabled = true
-            refreshVoiceAgentButtonAppearance()
-        }
+    private func resolveAvatarURL(identityKey: String) -> String? {
+        voiceChannelResolveAvatarURL(context: context, clanId: channel.clanID, identityKey: identityKey)
     }
 
     private enum AudioOutputMode {
@@ -3631,7 +3773,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private var currentAudioOutput: AudioOutputMode = .earpiece
 
     private func scheduleVoiceChannelAudioRecoveryAfterExternalCall() {
-        guard liveKitBridge != nil else { return }
+        guard sfuSession != nil else { return }
         pendingCallKitAudioRecoveryWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
             self?.recoverVoiceChannelAudioAfterExternalCall()
@@ -3641,20 +3783,20 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     private func recoverVoiceChannelAudioAfterExternalCall() {
-        guard let bridge = liveKitBridge, bridge.room != nil else { return }
+        guard sfuSession != nil else { return }
         ensureVoiceChannelAudioSessionCategory()
         applyAudioRoute()
-        let rtc = LKRTCAudioSession.sharedInstance()
+        let rtc = RTCAudioSession.sharedInstance()
         rtc.lockForConfiguration()
         rtc.isAudioEnabled = true
         rtc.unlockForConfiguration()
     }
 
     private func ensureVoiceChannelAudioSessionCategory() {
-        let rtc = LKRTCAudioSession.sharedInstance()
+        let rtc = RTCAudioSession.sharedInstance()
         rtc.lockForConfiguration()
         defer { rtc.unlockForConfiguration() }
-        let cfg = LKRTCAudioSessionConfiguration.webRTC()
+        let cfg = RTCAudioSessionConfiguration.webRTC()
         cfg.category = AVAudioSession.Category.playAndRecord.rawValue
         let shouldMix = VoiceChannelAudioPreferences.mixWithOthersEnabled
         cfg.mode = (shouldMix || currentAudioOutput == .speaker
@@ -3663,7 +3805,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         cfg.categoryOptions = currentAudioOutput == .speaker
             ? voiceChannelSpeakerCategoryOptions()
             : voiceChannelEarpieceCategoryOptions()
-        LKRTCAudioSessionConfiguration.setWebRTC(cfg)
+        RTCAudioSessionConfiguration.setWebRTC(cfg)
         do {
             try rtc.setConfiguration(cfg, active: true)
         } catch {
@@ -3674,29 +3816,23 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         let session = AVAudioSession.sharedInstance()
         guard let port = session.currentRoute.outputs.first?.portType else {
             currentAudioOutput = .earpiece
-            AudioManager.shared.isSpeakerOutputPreferred = false
             return
         }
         switch port {
         case .builtInSpeaker:
             currentAudioOutput = .speaker
-            AudioManager.shared.isSpeakerOutputPreferred = true
         case .bluetoothA2DP, .bluetoothHFP, .bluetoothLE:
             currentAudioOutput = .bluetooth
-            AudioManager.shared.isSpeakerOutputPreferred = false
         case .headphones, .headsetMic:
             currentAudioOutput = .earpiece
-            AudioManager.shared.isSpeakerOutputPreferred = false
         case .builtInReceiver:
             currentAudioOutput = .earpiece
-            AudioManager.shared.isSpeakerOutputPreferred = false
         default:
             if Self.audioRouteHasBluetooth(session) {
                 currentAudioOutput = .bluetooth
             } else {
                 currentAudioOutput = .earpiece
             }
-            AudioManager.shared.isSpeakerOutputPreferred = false
         }
     }
 
@@ -3797,9 +3933,9 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     @objc private func cameraBarTapped() {
-        guard let bridge = liveKitBridge else { return }
+        guard let session = sfuSession else { return }
+        let currentlyOn = session.cameraEnabled
         Task { @MainActor in
-            let currentlyOn = bridge.isCameraEnabled()
             if !currentlyOn {
                 let ok = await VoiceChannelCameraPermission.requestIfNeeded()
                 if !ok {
@@ -3807,35 +3943,24 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                     return
                 }
             }
-            do {
-                try await bridge.setCameraEnabled(!currentlyOn)
-                self.refreshCamButtonIcon()
-                self.refreshParticipantRowsFromLiveKit()
-            } catch {
-                self.presentVoiceAlert(
-                    title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Voice", comment: ""),
-                    message: error.localizedDescription)
-            }
+            session.setCameraEnabled(!currentlyOn)
+            self.refreshCamButtonIcon()
+            self.refreshParticipantRowsFromSession()
         }
     }
 
     @objc private func switchCameraTapped() {
-        guard let bridge = liveKitBridge, bridge.isCameraEnabled() else { return }
-        Task { @MainActor in
-            do {
-                try await bridge.switchCameraPosition()
-                self.refreshParticipantRowsFromLiveKit()
-            } catch {
-            }
-        }
+        guard let session = sfuSession, session.cameraEnabled else { return }
+        session.switchCamera()
+        refreshParticipantRowsFromSession()
     }
 
     private func refreshCamButtonIcon() {
-        guard let bridge = liveKitBridge else {
+        guard let session = sfuSession else {
             setCamButtonIcon(cameraOn: false)
             return
         }
-        setCamButtonIcon(cameraOn: bridge.isCameraEnabled())
+        setCamButtonIcon(cameraOn: session.cameraEnabled)
     }
 
     private func setCamButtonIcon(cameraOn: Bool) {
@@ -3845,137 +3970,37 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         cameraSwitchButton.isHidden = !cameraOn
     }
 
-    private func performLiveKitFinalTeardown(error: LiveKitError?) {
+    private func performSfuFinalTeardown(message: String?) {
         isEndingVoiceRoom = true
         tearDownCallPiP()
         tearDownScreenSharePresentationAndPiP()
 
-        if error?.type == .roomDeleted {
-            context.engine.clanData.applyVoiceEnded(clanId: channel.clanID, channelId: channel.channelID)
-        }
-
         connectTask?.cancel()
         connectTask = nil
-        liveKitReconnectTask?.cancel()
-        liveKitReconnectTask = nil
         participantStateRefreshWorkItem?.cancel()
         participantStateRefreshWorkItem = nil
         participantOrderRebuildWorkItem?.cancel()
         participantOrderRebuildWorkItem = nil
 
-        let bridge = liveKitBridge
-        liveKitBridge = nil
-        bridge?.clearCallbacks()
+        let session = sfuSession
+        sfuSession = nil
+        session?.clearCallbacks()
+        session?.leave()
 
         setConnectingOverlayVisible(false)
         sendMeetLeaveIfNeeded()
 
         guard navigationController?.topViewController === self else { return }
 
-        if let lk = error {
-            switch lk.type {
-            case .participantRemoved, .duplicateIdentity, .roomDeleted:
-                let message = Self.disconnectMessage(for: lk.type)
-                presentVoiceAlert(
-                    title: NSLocalizedString("voiceChannel.disconnectTitle", tableName: nil, bundle: .main, value: "Voice call ended", comment: ""),
-                    message: message
-                ) { [weak self] in
-                    self?.popVoiceRoomOrAlignHomeAfterCrossClanVoice()
-                }
-            case .cancelled:
-                popVoiceRoomOrAlignHomeAfterCrossClanVoice()
-            default:
-                presentVoiceAlert(
-                    title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Voice", comment: ""),
-                    message: lk.localizedDescription
-                ) { [weak self] in
-                    self?.popVoiceRoomOrAlignHomeAfterCrossClanVoice()
-                }
+        if let message {
+            presentVoiceAlert(
+                title: NSLocalizedString("voiceChannel.disconnectTitle", tableName: nil, bundle: .main, value: "Voice call ended", comment: ""),
+                message: message
+            ) { [weak self] in
+                self?.popVoiceRoomOrAlignHomeAfterCrossClanVoice()
             }
         } else {
             popVoiceRoomOrAlignHomeAfterCrossClanVoice()
-        }
-    }
-
-    private func handleLiveKitDisconnected(error: LiveKitError?) {
-        guard liveKitBridge != nil else { return }
-
-        if liveKitDisconnectIsFatal(error) {
-            performLiveKitFinalTeardown(error: error)
-            return
-        }
-
-        tearDownCallPiP()
-        tearDownScreenSharePresentationAndPiP()
-
-
-        connectTask?.cancel()
-        connectTask = nil
-
-        liveKitReconnectTask?.cancel()
-        liveKitReconnectTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.executeMainLiveKitReconnect()
-        }
-        setConnectingOverlayVisible(true)
-    }
-
-    private func executeMainLiveKitReconnect() async {
-        let meetURL = MezonConfig.meetWebSocketURLString
-        let roomName = "\(channel.channelID)"
-        for attempt in 1...Self.liveKitManualReconnectMax {
-            guard liveKitBridge != nil else { return }
-            let delaySec = attempt == 1 ? 0.4 : min(Double(attempt) * 1.2, 12.0)
-            try? await Task.sleep(nanoseconds: UInt64(delaySec * 1_000_000_000))
-            if Task.isCancelled { return }
-            guard let bridge = liveKitBridge else { return }
-            await context.waitForSessionReady()
-            if Task.isCancelled { return }
-            guard let token = await context.getToken() else {
-                performLiveKitFinalTeardown(error: nil)
-                return
-            }
-            do {
-                let jwt = try await context.account.network.generateMeetToken(
-                    channelId: channel.channelID,
-                    roomName: roomName,
-                    token: token
-                )
-                guard !jwt.isEmpty else { continue }
-                try await bridge.connect(url: meetURL, token: jwt)
-                if Task.isCancelled { return }
-                setConnectingOverlayVisible(false)
-                refreshMicButtonIcon()
-                applyAudioRoute()
-                refreshCamButtonIcon()
-                refreshParticipantRowsFromLiveKit()
-                setupCallPiP()
-                liveKitReconnectTask = nil
-                return
-            } catch {
-            }
-        }
-        performLiveKitFinalTeardown(error: nil)
-    }
-
-    private static func disconnectMessage(for type: LiveKitErrorType) -> String {
-        switch type {
-        case .participantRemoved:
-            return NSLocalizedString(
-                "voiceChannel.disconnectRemoved", tableName: nil, bundle: .main,
-                value: "You were removed from the voice channel.", comment: "")
-        case .duplicateIdentity:
-            return NSLocalizedString(
-                "voiceChannel.disconnectDuplicate", tableName: nil, bundle: .main,
-                value: "This account joined the call from another device.", comment: "")
-        case .roomDeleted:
-            return NSLocalizedString(
-                "voiceChannel.disconnectRoomDeleted", tableName: nil, bundle: .main,
-                value: "The voice room was closed.", comment: "")
-        default:
-            return NSLocalizedString(
-                "voiceChannel.disconnectDefault", tableName: nil, bundle: .main,
-                value: "The connection to the voice room was lost.", comment: "")
         }
     }
 
@@ -4085,43 +4110,45 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         return false
     }
 
-    private func applyParticipantRowCallbacks(rowKey: String, row: VoiceParticipantRowView, participant: Participant, displayName: String) {
+    private func applyParticipantRowCallbacks(rowKey: String, row: VoiceParticipantRowView, entry: VoiceTileEntry, displayName: String) {
         if rowKey.hasSuffix("|screen") {
             row.onMainTileLongPress = nil
-            let sourceKey = participantRowKey(participant)
+            let sourceKey = entry.identity
             row.onExpandScreenShare = { [weak self] in
-                guard let self, let track = participant.firstScreenShareVideoTrack else { return }
+                guard let self else { return }
+                let current = self.orderedTileEntries().first(where: { $0.identity == sourceKey })
+                guard let track = current?.screenTrack else { return }
                 self.presentScreenShareExpanded(track: track, displayName: displayName, sourceParticipantKey: sourceKey)
             }
             return
         }
         row.onExpandScreenShare = nil
-        if participant is LocalParticipant {
+        if entry.isLocal {
             row.onMainTileLongPress = nil
         } else {
+            let identity = entry.identity
             row.onMainTileLongPress = { [weak self] in
-                self?.presentParticipantShortProfile(for: participant)
+                self?.presentParticipantShortProfile(identityKey: identity)
             }
         }
     }
 
-    private func presentParticipantShortProfile(for participant: Participant) {
+    private func presentParticipantShortProfile(identityKey idKey: String) {
         if VoiceChannelPiPOverlay.shared.isActive { return }
-        guard liveKitBridge?.room != nil else { return }
-        let idKey = participant.identity?.stringValue ?? ""
+        guard sfuSession != nil else { return }
         guard !idKey.isEmpty else { return }
         let cu = voiceChannelFindClanUser(context: context, clanId: channel.clanID, identityKey: idKey)
         if voiceParticipantIsSelf(identityKey: idKey, clanUser: cu) { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
             await self.prefetchVoiceChannelPermissions()
-            guard self.liveKitBridge?.room != nil else { return }
-            let micOn = participant.isMicrophoneEnabled()
+            guard self.sfuSession != nil else { return }
+            let micOn = self.orderedTileEntries().first(where: { $0.identity == idKey })?.micOn ?? false
             let subtitle = voiceChannelShortProfileSubtitleLine(cu: cu, identityFallback: idKey)
-            let display = self.resolveDisplayName(participant: participant)
+            let display = self.resolveDisplayName(identityKey: idKey, isLocal: false)
             let avatarURL = voiceChannelResolveAvatarURL(context: self.context, clanId: self.channel.clanID, identityKey: idKey)
             let canManage = self.voiceChannelCanManageVoice()
-            let roomName = "\(self.channel.channelID)"
+            let participantUserId = Int64(idKey) ?? cu?.user.id ?? 0
 
             var apiUser = Mezon_Api_User()
             if let cu {
@@ -4153,8 +4180,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                         try await self.context.account.network.muteMezonMeetParticipant(
                             clanId: self.channel.clanID,
                             channelId: self.channel.channelID,
-                            roomName: roomName,
-                            username: idKey,
+                            userId: participantUserId,
                             token: token
                         )
                     },
@@ -4169,8 +4195,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                         try await self.context.account.network.removeMezonMeetParticipant(
                             clanId: self.channel.clanID,
                             channelId: self.channel.channelID,
-                            roomName: roomName,
-                            username: idKey,
+                            userId: participantUserId,
                             token: token
                         )
                     }
@@ -4251,7 +4276,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         present(ac, animated: true)
     }
 
-    private func presentScreenShareExpanded(track: VideoTrack, displayName: String, sourceParticipantKey: String) {
+    private func presentScreenShareExpanded(track: RTCVideoTrack, displayName: String, sourceParticipantKey: String) {
         tearDownScreenSharePresentationAndPiP()
         guard #available(iOS 15.0, *) else { return }
         tearDownCallPiP()
@@ -4261,6 +4286,13 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         unlockOrientationForScreenShareDetail()
         let vc = ScreenShareExpandedViewController(track: track, displayName: displayName)
         vc.pipHost = self
+        vc.showsPttControl = currentRole == .audience
+        vc.onPttPress = { [weak self] in
+            self?.sfuSession?.pttPress()
+        }
+        vc.onPttRelease = { [weak self] in
+            self?.sfuSession?.pttRelease()
+        }
         vc.modalPresentationStyle = .fullScreen
         isScreenShareExpandedPresented = true
         present(vc, animated: true)
@@ -4365,7 +4397,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             }
         }
         screenSharePiPHostRetain = nil
-        if didTearDownExpanded, #available(iOS 15.0, *), callPiPController == nil, liveKitBridge != nil {
+        if didTearDownExpanded, #available(iOS 15.0, *), callPiPController == nil, sfuSession != nil {
             setupCallPiP()
         }
     }
@@ -4531,13 +4563,14 @@ private final class VoiceParticipantRowView: UIView {
     var onMainTileLongPress: (() -> Void)?
     private let tileKind: VoiceParticipantTileKind
     private let card = UIView()
-    private let videoView = VideoView()
+    private let videoView = PeerCallVideoRenderView()
     private let avatarView = UIImageView()
     private let textAvatar = TextAvatarView(username: "", size: 50, fontSize: 20)
     private let expandButton = UIButton(type: .system)
     private let badgeContainer = UIView()
     private let badgeIcon = UIImageView()
     private let badgeLabel = UILabel()
+    private let audienceTag = UILabel()
     private let soundReactionCorner = UIView()
     private let soundReactionIcon = UIImageView()
     private var soundReactionCornerVisible = false
@@ -4547,7 +4580,7 @@ private final class VoiceParticipantRowView: UIView {
     private var soundReactionTrailingToCard: NSLayoutConstraint?
     private var soundReactionTrailingToRaiseHand: NSLayoutConstraint?
     private var lastAvatarURL: String?
-    private var lastTileVisualState: (username: String, displayName: String, micOn: Bool, speaking: Bool, mirrorVideo: Bool, track: VideoTrack?, avatarURL: String?)?
+    private var lastTileVisualState: (username: String, displayName: String, micOn: Bool, speaking: Bool, mirrorVideo: Bool, track: RTCVideoTrack?, avatarURL: String?, isAudience: Bool)?
     private var badgeMicOn = true
     private var layoutMetrics = VoiceParticipantTileLayoutMetrics.fallback
     private var avatarWidthConstraint: NSLayoutConstraint!
@@ -4578,12 +4611,21 @@ private final class VoiceParticipantRowView: UIView {
         card.layer.borderWidth = 1
 
         videoView.translatesAutoresizingMaskIntoConstraints = false
-        videoView.layoutMode = .fill
-        videoView.isPinchToZoomEnabled = false
+        videoView.renderContentMode = tileKind == .screenShare ? .fit : .fill
         videoView.isUserInteractionEnabled = false
         videoView.layer.cornerRadius = layoutMetrics.cardCornerRadius
         videoView.clipsToBounds = true
         videoView.isHidden = true
+
+        audienceTag.translatesAutoresizingMaskIntoConstraints = false
+        audienceTag.text = NSLocalizedString("voiceChannel.audienceTag", tableName: nil, bundle: .main, value: "Audience", comment: "")
+        audienceTag.font = .systemFont(ofSize: 10, weight: .bold)
+        audienceTag.textColor = .white
+        audienceTag.textAlignment = .center
+        audienceTag.backgroundColor = UIColor.black.withAlphaComponent(0.6)
+        audienceTag.layer.cornerRadius = 10
+        audienceTag.clipsToBounds = true
+        audienceTag.isHidden = true
 
         textAvatar.translatesAutoresizingMaskIntoConstraints = false
 
@@ -4650,6 +4692,15 @@ private final class VoiceParticipantRowView: UIView {
         card.addSubview(badgeContainer)
         card.addSubview(soundReactionCorner)
         card.addSubview(raiseHandCorner)
+        if tileKind == .mainVideo {
+            card.addSubview(audienceTag)
+            NSLayoutConstraint.activate([
+                audienceTag.topAnchor.constraint(equalTo: card.topAnchor, constant: 8),
+                audienceTag.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 8),
+                audienceTag.heightAnchor.constraint(equalToConstant: 20),
+                audienceTag.widthAnchor.constraint(greaterThanOrEqualToConstant: 58),
+            ])
+        }
         badgeContainer.addSubview(badgeIcon)
         badgeContainer.addSubview(badgeLabel)
 
@@ -4810,11 +4861,11 @@ private final class VoiceParticipantRowView: UIView {
     }
 
     deinit {
-        videoView.track = nil
+        videoView.attach(track: nil)
     }
 
     func prepareForRemoval() {
-        videoView.track = nil
+        videoView.attach(track: nil)
         setSoundReactionCornerVisible(false)
         setRaiseHandCornerVisible(false)
         lastAvatarURL = nil
@@ -4896,8 +4947,9 @@ private final class VoiceParticipantRowView: UIView {
         micOn: Bool,
         speaking: Bool,
         avatarURL: String?,
-        videoTrack: VideoTrack?,
-        mirrorVideo: Bool
+        videoTrack: RTCVideoTrack?,
+        mirrorVideo: Bool,
+        isAudience: Bool = false
     ) {
         let usernameChanged = lastTileVisualState?.username != username
         if let s = lastTileVisualState,
@@ -4907,7 +4959,8 @@ private final class VoiceParticipantRowView: UIView {
            s.speaking == speaking,
            s.mirrorVideo == mirrorVideo,
            s.track === videoTrack,
-           s.avatarURL == avatarURL {
+           s.avatarURL == avatarURL,
+           s.isAudience == isAudience {
             return
         }
         badgeMicOn = micOn
@@ -4918,17 +4971,16 @@ private final class VoiceParticipantRowView: UIView {
             badgeLabel.text = "\(displayName) Share Screen"
         }
         refreshBadgeSymbols()
+        audienceTag.isHidden = !(isAudience && tileKind == .mainVideo)
 
         if let track = videoTrack {
             textAvatar.isHidden = true
-            videoView.mirrorMode = mirrorVideo ? .auto : .off
-            if videoView.track !== track {
-                videoView.track = track
-            }
+            videoView.isMirrored = mirrorVideo
+            videoView.attach(track: track)
             videoView.isHidden = false
         } else {
             videoView.isHidden = true
-            videoView.track = nil
+            videoView.attach(track: nil)
             textAvatar.isHidden = false
         }
 
@@ -4964,6 +5016,6 @@ private final class VoiceParticipantRowView: UIView {
                 textAvatar.configure(username: username, fontSize: layoutMetrics.initialFontSize)
             }
         }
-        lastTileVisualState = (username, displayName, micOn, speaking, mirrorVideo, videoTrack, avatarURL)
+        lastTileVisualState = (username, displayName, micOn, speaking, mirrorVideo, videoTrack, avatarURL, isAudience)
     }
 }

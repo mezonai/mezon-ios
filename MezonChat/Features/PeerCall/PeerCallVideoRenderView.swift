@@ -1,14 +1,18 @@
 import AVFoundation
-import LiveKit
-import LiveKitWebRTC
+import WebRTC
 import MetalKit
 import UIKit
 
 final class PeerCallVideoRenderView: UIView {
 
-    private let mtlVideoView: LKRTCMTLVideoView
+    enum RenderContentMode {
+        case fit
+        case fill
+    }
+
+    private let mtlVideoView: RTCMTLVideoView
     private let renderSurface: PeerCallSampleBufferRenderSurface
-    private var attachedTrack: LKRTCVideoTrack?
+    private var attachedTrack: RTCVideoTrack?
 
     var isMirrored: Bool = false {
         didSet {
@@ -17,8 +21,18 @@ final class PeerCallVideoRenderView: UIView {
         }
     }
 
+    var renderContentMode: RenderContentMode = .fit {
+        didSet {
+            let fill = renderContentMode == .fill
+            mtlVideoView.videoContentMode = fill ? .scaleAspectFill : .scaleAspectFit
+            mtlVideoView.contentMode = fill ? .scaleAspectFill : .scaleAspectFit
+            renderSurface.setVideoGravity(fill ? .resizeAspectFill : .resizeAspect)
+            configureEmbeddedMTKViewIfPresent()
+        }
+    }
+
     override init(frame: CGRect) {
-        mtlVideoView = LKRTCMTLVideoView(frame: .zero)
+        mtlVideoView = RTCMTLVideoView(frame: .zero)
         renderSurface = PeerCallSampleBufferRenderSurface(frame: .zero)
         super.init(frame: frame)
         mtlVideoView.translatesAutoresizingMaskIntoConstraints = false
@@ -58,11 +72,11 @@ final class PeerCallVideoRenderView: UIView {
         guard let mtk = mtlVideoView.subviews.compactMap({ $0 as? MTKView }).first else { return }
         mtk.preferredFramesPerSecond = 60
         mtk.isPaused = false
-        mtk.contentMode = .scaleAspectFit
+        mtk.contentMode = renderContentMode == .fill ? .scaleAspectFill : .scaleAspectFit
         mtk.contentScaleFactor = contentScaleFactor
     }
 
-    func attach(track: LKRTCVideoTrack?) {
+    func attach(track: RTCVideoTrack?) {
         guard let track else {
             attachedTrack?.remove(renderSurface)
             attachedTrack?.remove(mtlVideoView)
@@ -135,11 +149,47 @@ final class PeerCallVideoRenderView: UIView {
     }
 }
 
-private final class PeerCallSampleBufferRenderSurface: UIView, LKRTCVideoRenderer {
+private extension CMSampleBuffer {
+    static func from(_ pixelBuffer: CVPixelBuffer) -> CMSampleBuffer? {
+        var formatDescription: CMVideoFormatDescription?
+        CMVideoFormatDescriptionCreateForImageBuffer(
+            allocator: kCFAllocatorDefault,
+            imageBuffer: pixelBuffer,
+            formatDescriptionOut: &formatDescription
+        )
+        guard let formatDescription else { return nil }
+        var timing = CMSampleTimingInfo(
+            duration: .invalid,
+            presentationTimeStamp: CMClockGetTime(CMClockGetHostTimeClock()),
+            decodeTimeStamp: .invalid
+        )
+        var sampleBuffer: CMSampleBuffer?
+        CMSampleBufferCreateReadyWithImageBuffer(
+            allocator: kCFAllocatorDefault,
+            imageBuffer: pixelBuffer,
+            formatDescription: formatDescription,
+            sampleTiming: &timing,
+            sampleBufferOut: &sampleBuffer
+        )
+        guard let sampleBuffer else { return nil }
+        if let attachmentsArray = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: true),
+           CFArrayGetCount(attachmentsArray) > 0 {
+            let attachments = unsafeBitCast(CFArrayGetValueAtIndex(attachmentsArray, 0), to: CFMutableDictionary.self)
+            CFDictionarySetValue(
+                attachments,
+                Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque(),
+                Unmanaged.passUnretained(kCFBooleanTrue).toOpaque()
+            )
+        }
+        return sampleBuffer
+    }
+}
+
+private final class PeerCallSampleBufferRenderSurface: UIView, RTCVideoRenderer {
 
     private let displayLayer = AVSampleBufferDisplayLayer()
     private var mirrored = false
-    private var videoRotation: LKRTCVideoRotation = ._0
+    private var videoRotation: RTCVideoRotation = ._0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -161,6 +211,10 @@ private final class PeerCallSampleBufferRenderSurface: UIView, LKRTCVideoRendere
         setNeedsLayout()
     }
 
+    func setVideoGravity(_ gravity: AVLayerVideoGravity) {
+        displayLayer.videoGravity = gravity
+    }
+
     func flushContent() {
         displayLayer.flushAndRemoveImage()
     }
@@ -178,7 +232,7 @@ private final class PeerCallSampleBufferRenderSurface: UIView, LKRTCVideoRendere
 
     func setSize(_: CGSize) {}
 
-    func renderFrame(_ frame: LKRTCVideoFrame?) {
+    func renderFrame(_ frame: RTCVideoFrame?) {
         guard let frame else { return }
         guard let pixelBuffer = Self.extractPixelBuffer(frame: frame) else { return }
         guard let sampleBuffer = CMSampleBuffer.from(pixelBuffer) else { return }
@@ -197,7 +251,7 @@ private final class PeerCallSampleBufferRenderSurface: UIView, LKRTCVideoRendere
         }
     }
 
-    private func transform(for rotation: LKRTCVideoRotation) -> CATransform3D {
+    private func transform(for rotation: RTCVideoRotation) -> CATransform3D {
         switch rotation {
         case ._0:
             CATransform3DIdentity
@@ -212,22 +266,22 @@ private final class PeerCallSampleBufferRenderSurface: UIView, LKRTCVideoRendere
         }
     }
 
-    private static func extractPixelBuffer(frame: LKRTCVideoFrame) -> CVPixelBuffer? {
-        if let cv = frame.buffer as? LKRTCCVPixelBuffer {
+    private static func extractPixelBuffer(frame: RTCVideoFrame) -> CVPixelBuffer? {
+        if let cv = frame.buffer as? RTCCVPixelBuffer {
             return pixelBuffer(fromCVBuffer: cv, frame: frame)
         }
-        if let i420 = frame.buffer as? LKRTCI420Buffer {
+        if let i420 = frame.buffer as? RTCI420Buffer {
             return pixelBuffer(fromI420: i420)
         }
         let converted = frame.buffer.toI420()
-        if let i420 = converted as? LKRTCI420Buffer {
+        if let i420 = converted as? RTCI420Buffer {
             return pixelBuffer(fromI420: i420)
         }
         let i420Frame = frame.newI420()
         return extractPixelBuffer(frame: i420Frame)
     }
 
-    private static func pixelBuffer(fromCVBuffer cv: LKRTCCVPixelBuffer, frame: LKRTCVideoFrame) -> CVPixelBuffer? {
+    private static func pixelBuffer(fromCVBuffer cv: RTCCVPixelBuffer, frame: RTCVideoFrame) -> CVPixelBuffer? {
         let pb = cv.pixelBuffer
         if !cv.requiresCropping(), !cv.requiresScaling(toWidth: frame.width, height: frame.height) {
             return pb
@@ -256,7 +310,10 @@ private final class PeerCallSampleBufferRenderSurface: UIView, LKRTCVideoRendere
         }
     }
 
-    private static func pixelBuffer(fromI420 i420: LKRTCI420Buffer) -> CVPixelBuffer? {
+    private static func pixelBuffer(fromI420 i420: RTCI420Buffer) -> CVPixelBuffer? {
+        let width = Int(i420.width)
+        let height = Int(i420.height)
+        guard width > 0, height > 0 else { return nil }
         let options: [String: Any] = [
             kCVPixelBufferCGImageCompatibilityKey as String: true,
             kCVPixelBufferCGBitmapContextCompatibilityKey as String: true,
@@ -265,68 +322,42 @@ private final class PeerCallSampleBufferRenderSurface: UIView, LKRTCVideoRendere
         var output: CVPixelBuffer?
         let status = CVPixelBufferCreate(
             kCFAllocatorDefault,
-            Int(i420.width),
-            Int(i420.height),
-            kCVPixelFormatType_32BGRA,
+            width,
+            height,
+            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
             options as CFDictionary,
             &output
         )
         guard status == kCVReturnSuccess, let output else { return nil }
         CVPixelBufferLockBaseAddress(output, CVPixelBufferLockFlags(rawValue: 0))
-        let pixelFormat = CVPixelBufferGetPixelFormatType(output)
-        if pixelFormat == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
-            || pixelFormat == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
-        {
-            let dstY = CVPixelBufferGetBaseAddressOfPlane(output, 0)
-            let dstYStride = CVPixelBufferGetBytesPerRowOfPlane(output, 0)
-            let dstUV = CVPixelBufferGetBaseAddressOfPlane(output, 1)
-            let dstUVStride = CVPixelBufferGetBytesPerRowOfPlane(output, 1)
-            LKRTCYUVHelper.i420(
-                toNV12: i420.dataY,
-                srcStrideY: i420.strideY,
-                srcU: i420.dataU,
-                srcStrideU: i420.strideU,
-                srcV: i420.dataV,
-                srcStrideV: i420.strideV,
-                dstY: dstY,
-                dstStrideY: Int32(dstYStride),
-                dstUV: dstUV,
-                dstStrideUV: Int32(dstUVStride),
-                width: i420.width,
-                height: i420.height
-            )
-        } else {
-            let dst = CVPixelBufferGetBaseAddress(output)
-            let bytesPerRow = CVPixelBufferGetBytesPerRow(output)
-            if pixelFormat == kCVPixelFormatType_32BGRA {
-                LKRTCYUVHelper.i420(
-                    toARGB: i420.dataY,
-                    srcStrideY: i420.strideY,
-                    srcU: i420.dataU,
-                    srcStrideU: i420.strideU,
-                    srcV: i420.dataV,
-                    srcStrideV: i420.strideV,
-                    dstARGB: dst,
-                    dstStrideARGB: Int32(bytesPerRow),
-                    width: i420.width,
-                    height: i420.height
-                )
-            } else if pixelFormat == kCVPixelFormatType_32ARGB {
-                LKRTCYUVHelper.i420(
-                    toBGRA: i420.dataY,
-                    srcStrideY: i420.strideY,
-                    srcU: i420.dataU,
-                    srcStrideU: i420.strideU,
-                    srcV: i420.dataV,
-                    srcStrideV: i420.strideV,
-                    dstBGRA: dst,
-                    dstStrideBGRA: Int32(bytesPerRow),
-                    width: i420.width,
-                    height: i420.height
-                )
+        defer { CVPixelBufferUnlockBaseAddress(output, CVPixelBufferLockFlags(rawValue: 0)) }
+        guard let dstYBase = CVPixelBufferGetBaseAddressOfPlane(output, 0),
+              let dstUVBase = CVPixelBufferGetBaseAddressOfPlane(output, 1)
+        else { return nil }
+        let dstYStride = CVPixelBufferGetBytesPerRowOfPlane(output, 0)
+        let dstUVStride = CVPixelBufferGetBytesPerRowOfPlane(output, 1)
+        let dstY = dstYBase.assumingMemoryBound(to: UInt8.self)
+        let dstUV = dstUVBase.assumingMemoryBound(to: UInt8.self)
+        let srcY = i420.dataY
+        let srcU = i420.dataU
+        let srcV = i420.dataV
+        let srcYStride = Int(i420.strideY)
+        let srcUStride = Int(i420.strideU)
+        let srcVStride = Int(i420.strideV)
+        for row in 0..<height {
+            memcpy(dstY + row * dstYStride, srcY + row * srcYStride, width)
+        }
+        let chromaWidth = (width + 1) / 2
+        let chromaHeight = (height + 1) / 2
+        for row in 0..<chromaHeight {
+            let uRow = srcU + row * srcUStride
+            let vRow = srcV + row * srcVStride
+            let uvRow = dstUV + row * dstUVStride
+            for col in 0..<chromaWidth {
+                uvRow[col * 2] = uRow[col]
+                uvRow[col * 2 + 1] = vRow[col]
             }
         }
-        CVPixelBufferUnlockBaseAddress(output, CVPixelBufferLockFlags(rawValue: 0))
         return output
     }
 }

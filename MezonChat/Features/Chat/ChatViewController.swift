@@ -5313,7 +5313,7 @@ final class ChatViewController: ViewController {
         }
     }
 
-    private func pushVoiceChannelRoomFromChat(channel: Mezon_Api_ChannelDescription) {
+    private func pushVoiceChannelRoomFromChat(channel: Mezon_Api_ChannelDescription, role: SfuRole = .speaker) {
         guard let nav = navigationController else { return }
         let ch = channel
         let ctx = context
@@ -5355,6 +5355,7 @@ final class ChatViewController: ViewController {
             context: ctx,
             channel: ch,
             parentChannelName: parentName,
+            joinRole: role,
             voiceChannelCrossClanExitAlignClanId: nil
         )
         pushNav.pushViewController(vc, animated: true)
@@ -5396,9 +5397,9 @@ final class ChatViewController: ViewController {
                 )
                 nav.pushViewController(chatVC, animated: true)
             },
-            onJoinVoice: { [weak self] in
+            onJoinVoice: { [weak self] role in
                 guard let self else { return }
-                self.pushVoiceChannelRoomFromChat(channel: channel)
+                self.pushVoiceChannelRoomFromChat(channel: channel, role: role)
             },
             onInvite: {}
         )
@@ -5461,7 +5462,7 @@ final class ChatViewController: ViewController {
                 )
                 nav.pushViewController(chatVC, animated: true)
             },
-            onJoinVoice: { [weak self] in
+            onJoinVoice: { [weak self] _ in
                 guard let self else { return }
                 self.pushStreamingRoomFromChat(channel: channel)
             },

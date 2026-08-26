@@ -1,6 +1,6 @@
 import AVFoundation
 import Foundation
-import LiveKitWebRTC
+import WebRTC
 
 @MainActor
 final class StreamingWebRTCSession: NSObject {
@@ -11,18 +11,18 @@ final class StreamingWebRTCSession: NSObject {
 
     private(set) var activeStreamChannelId: Int64?
     private(set) var isStreaming = false
-    private(set) var remoteVideoTrack: LKRTCVideoTrack?
-    private(set) var remoteAudioTrack: LKRTCAudioTrack?
+    private(set) var remoteVideoTrack: RTCVideoTrack?
+    private(set) var remoteAudioTrack: RTCAudioTrack?
 
     var isRemoteVideoStream: Bool { remoteVideoTrack != nil }
 
     var onStreamingStateChanged: (() -> Void)?
-    var onRemoteVideoTrackChanged: ((LKRTCVideoTrack?) -> Void)?
+    var onRemoteVideoTrackChanged: ((RTCVideoTrack?) -> Void)?
 
     private var webSocketTask: URLSessionWebSocketTask?
     private var urlSession: URLSession?
-    private var peerConnection: LKRTCPeerConnection?
-    private var peerFactory: LKRTCPeerConnectionFactory?
+    private var peerConnection: RTCPeerConnection?
+    private var peerFactory: RTCPeerConnectionFactory?
     private var pendingClanId: Int64 = 0
     private var pendingChannelId: Int64 = 0
     private var pendingStreamId: Int64 = 0
@@ -63,7 +63,7 @@ final class StreamingWebRTCSession: NSObject {
         let pc = Self.makePeerConnection(factory: factory, delegate: self)
         peerConnection = pc
 
-        let audioInit = LKRTCRtpTransceiverInit()
+        let audioInit = RTCRtpTransceiverInit()
         audioInit.direction = .recvOnly
         pc.addTransceiver(of: .audio, init: audioInit)
 
@@ -108,9 +108,9 @@ final class StreamingWebRTCSession: NSObject {
         }
     }
 
-    private static func createOffer(on pc: LKRTCPeerConnection) async throws -> LKRTCSessionDescription {
+    private static func createOffer(on pc: RTCPeerConnection) async throws -> RTCSessionDescription {
         try await withCheckedThrowingContinuation { continuation in
-            let constraints = LKRTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+            let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
             pc.offer(for: constraints) { sdp, error in
                 if let error {
                     continuation.resume(throwing: error)
@@ -123,7 +123,7 @@ final class StreamingWebRTCSession: NSObject {
         }
     }
 
-    private static func setLocalDescription(_ description: LKRTCSessionDescription, on pc: LKRTCPeerConnection) async throws {
+    private static func setLocalDescription(_ description: RTCSessionDescription, on pc: RTCPeerConnection) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             pc.setLocalDescription(description) { error in
                 if let error {
@@ -165,11 +165,11 @@ final class StreamingWebRTCSession: NSObject {
 
     private static func ensureSSL() {
         guard !sslInitialized else { return }
-        LKRTCInitializeSSL()
+        RTCInitializeSSL()
         sslInitialized = true
     }
 
-    private func attachRemoteAudioTrack(_ track: LKRTCAudioTrack?) {
+    private func attachRemoteAudioTrack(_ track: RTCAudioTrack?) {
         remoteAudioTrack = track
         guard let track else {
             return
@@ -177,7 +177,7 @@ final class StreamingWebRTCSession: NSObject {
         track.isEnabled = true
     }
 
-    private func setRemoteVideoTrack(_ track: LKRTCVideoTrack?) {
+    private func setRemoteVideoTrack(_ track: RTCVideoTrack?) {
         guard remoteVideoTrack !== track else { return }
         remoteVideoTrack = track
         if let track {
@@ -197,11 +197,11 @@ final class StreamingWebRTCSession: NSObject {
     }
 
     private func configureWebRTCAudioForPlayback() {
-        let rtc = LKRTCAudioSession.sharedInstance()
+        let rtc = RTCAudioSession.sharedInstance()
         rtc.useManualAudio = true
         rtc.lockForConfiguration()
         defer { rtc.unlockForConfiguration() }
-        let cfg = LKRTCAudioSessionConfiguration.webRTC()
+        let cfg = RTCAudioSessionConfiguration.webRTC()
         cfg.category = AVAudioSession.Category.playback.rawValue
         cfg.mode = AVAudioSession.Mode.moviePlayback.rawValue
         cfg.categoryOptions = [.mixWithOthers, .allowBluetooth, .allowBluetoothA2DP, .allowAirPlay]
@@ -213,7 +213,7 @@ final class StreamingWebRTCSession: NSObject {
     }
 
     private func deactivateWebRTCAudio() {
-        let rtc = LKRTCAudioSession.sharedInstance()
+        let rtc = RTCAudioSession.sharedInstance()
         rtc.lockForConfiguration()
         defer { rtc.unlockForConfiguration() }
         rtc.isAudioEnabled = false
@@ -229,22 +229,22 @@ final class StreamingWebRTCSession: NSObject {
         }
     }
 
-    private static func makePeerConnectionFactory() -> LKRTCPeerConnectionFactory {
-        let enc = LKRTCDefaultVideoEncoderFactory()
-        let dec = LKRTCDefaultVideoDecoderFactory()
-        return LKRTCPeerConnectionFactory(encoderFactory: enc, decoderFactory: dec)
+    private static func makePeerConnectionFactory() -> RTCPeerConnectionFactory {
+        let enc = RTCDefaultVideoEncoderFactory()
+        let dec = RTCDefaultVideoDecoderFactory()
+        return RTCPeerConnectionFactory(encoderFactory: enc, decoderFactory: dec)
     }
 
     private static func makePeerConnection(
-        factory: LKRTCPeerConnectionFactory,
-        delegate: LKRTCPeerConnectionDelegate
-    ) -> LKRTCPeerConnection {
-        let config = LKRTCConfiguration()
+        factory: RTCPeerConnectionFactory,
+        delegate: RTCPeerConnectionDelegate
+    ) -> RTCPeerConnection {
+        let config = RTCConfiguration()
         config.sdpSemantics = .unifiedPlan
         config.iceServers = [
-            LKRTCIceServer(urlStrings: ["stun:stun.l.google.com:19302"], username: nil, credential: nil),
+            RTCIceServer(urlStrings: ["stun:stun.l.google.com:19302"], username: nil, credential: nil),
         ]
-        let constraints = LKRTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+        let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
         return factory.peerConnection(with: config, constraints: constraints, delegate: delegate)!
     }
 
@@ -259,7 +259,7 @@ final class StreamingWebRTCSession: NSObject {
         return components?.url
     }
 
-    private static func sessionDescriptionPayload(_ description: LKRTCSessionDescription) -> [String: String] {
+    private static func sessionDescriptionPayload(_ description: RTCSessionDescription) -> [String: String] {
         [
             "type": description.type.canonicalString,
             "sdp": description.sdp,
@@ -351,7 +351,7 @@ final class StreamingWebRTCSession: NSObject {
             return
         }
         if let sdp = json["Value"] as? String {
-            let answer = LKRTCSessionDescription(type: .answer, sdp: sdp)
+            let answer = RTCSessionDescription(type: .answer, sdp: sdp)
             pc.setRemoteDescription(answer) { [weak self] error in
                 if error == nil {
                     Task { @MainActor [weak self] in
@@ -363,7 +363,7 @@ final class StreamingWebRTCSession: NSObject {
         }
         if let payload = json["Value"] as? [String: Any],
            let sdp = payload["sdp"] as? String {
-            let answer = LKRTCSessionDescription(type: .answer, sdp: sdp)
+            let answer = RTCSessionDescription(type: .answer, sdp: sdp)
             pc.setRemoteDescription(answer) { [weak self] error in
                 if error == nil {
                     Task { @MainActor [weak self] in
@@ -392,29 +392,29 @@ final class StreamingWebRTCSession: NSObject {
         }
     }
 
-    private func handleRemoteTrack(_ track: LKRTCMediaStreamTrack) {
-        if let video = track as? LKRTCVideoTrack {
+    private func handleRemoteTrack(_ track: RTCMediaStreamTrack) {
+        if let video = track as? RTCVideoTrack {
             setRemoteVideoTrack(video)
             return
         }
-        if let audio = track as? LKRTCAudioTrack {
+        if let audio = track as? RTCAudioTrack {
             attachRemoteAudioTrack(audio)
             return
         }
     }
 
-    private static func iceCandidate(from json: [String: Any]) -> LKRTCIceCandidate? {
+    private static func iceCandidate(from json: [String: Any]) -> RTCIceCandidate? {
         guard let sdp = json["candidate"] as? String else { return nil }
         let sdpMid = json["sdpMid"] as? String
         let sdpMLineIndex = json["sdpMLineIndex"] as? Int32 ?? (json["sdpMLineIndex"] as? Int).map { Int32($0) } ?? 0
-        return LKRTCIceCandidate(sdp: sdp, sdpMLineIndex: sdpMLineIndex, sdpMid: sdpMid)
+        return RTCIceCandidate(sdp: sdp, sdpMLineIndex: sdpMLineIndex, sdpMid: sdpMid)
     }
 }
 
-extension StreamingWebRTCSession: LKRTCPeerConnectionDelegate {
-    nonisolated func peerConnection(_: LKRTCPeerConnection, didChange _: LKRTCSignalingState) {}
+extension StreamingWebRTCSession: RTCPeerConnectionDelegate {
+    nonisolated func peerConnection(_: RTCPeerConnection, didChange _: RTCSignalingState) {}
 
-    nonisolated func peerConnection(_: LKRTCPeerConnection, didAdd stream: LKRTCMediaStream) {
+    nonisolated func peerConnection(_: RTCPeerConnection, didAdd stream: RTCMediaStream) {
         Task { @MainActor [weak self] in
             guard let self else { return }
             for track in stream.audioTracks {
@@ -426,15 +426,15 @@ extension StreamingWebRTCSession: LKRTCPeerConnectionDelegate {
         }
     }
 
-    nonisolated func peerConnection(_: LKRTCPeerConnection, didRemove _: LKRTCMediaStream) {}
+    nonisolated func peerConnection(_: RTCPeerConnection, didRemove _: RTCMediaStream) {}
 
-    nonisolated func peerConnectionShouldNegotiate(_: LKRTCPeerConnection) {}
+    nonisolated func peerConnectionShouldNegotiate(_: RTCPeerConnection) {}
 
-    nonisolated func peerConnection(_: LKRTCPeerConnection, didChange state: LKRTCIceConnectionState) {
+    nonisolated func peerConnection(_: RTCPeerConnection, didChange state: RTCIceConnectionState) {
         if state == .connected || state == .completed {
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                let rtc = LKRTCAudioSession.sharedInstance()
+                let rtc = RTCAudioSession.sharedInstance()
                 rtc.lockForConfiguration()
                 rtc.isAudioEnabled = true
                 rtc.unlockForConfiguration()
@@ -443,9 +443,9 @@ extension StreamingWebRTCSession: LKRTCPeerConnectionDelegate {
         }
     }
 
-    nonisolated func peerConnection(_: LKRTCPeerConnection, didChange _: LKRTCIceGatheringState) {}
+    nonisolated func peerConnection(_: RTCPeerConnection, didChange _: RTCIceGatheringState) {}
 
-    nonisolated func peerConnection(_: LKRTCPeerConnection, didGenerate candidate: LKRTCIceCandidate) {
+    nonisolated func peerConnection(_: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
         guard !candidate.sdp.isEmpty else { return }
         let payload: [String: Any] = [
             "candidate": candidate.sdp,
@@ -460,20 +460,20 @@ extension StreamingWebRTCSession: LKRTCPeerConnectionDelegate {
         }
     }
 
-    nonisolated func peerConnection(_: LKRTCPeerConnection, didRemove _: [LKRTCIceCandidate]) {}
+    nonisolated func peerConnection(_: RTCPeerConnection, didRemove _: [RTCIceCandidate]) {}
 
-    nonisolated func peerConnection(_: LKRTCPeerConnection, didOpen _: LKRTCDataChannel) {}
+    nonisolated func peerConnection(_: RTCPeerConnection, didOpen _: RTCDataChannel) {}
 
-    nonisolated func peerConnection(_: LKRTCPeerConnection, didAdd rtpReceiver: LKRTCRtpReceiver, streams _: [LKRTCMediaStream]) {
+    nonisolated func peerConnection(_: RTCPeerConnection, didAdd rtpReceiver: RTCRtpReceiver, streams _: [RTCMediaStream]) {
         Task { @MainActor [weak self] in
             guard let self, let track = rtpReceiver.track else { return }
             self.handleRemoteTrack(track)
         }
     }
 
-    nonisolated func peerConnection(_: LKRTCPeerConnection, didRemove _: LKRTCRtpReceiver) {}
+    nonisolated func peerConnection(_: RTCPeerConnection, didRemove _: RTCRtpReceiver) {}
 
-    nonisolated func peerConnection(_: LKRTCPeerConnection, didStartReceivingOn transceiver: LKRTCRtpTransceiver) {
+    nonisolated func peerConnection(_: RTCPeerConnection, didStartReceivingOn transceiver: RTCRtpTransceiver) {
         Task { @MainActor [weak self] in
             guard let self, let track = transceiver.receiver.track else { return }
             self.handleRemoteTrack(track)
@@ -481,7 +481,7 @@ extension StreamingWebRTCSession: LKRTCPeerConnectionDelegate {
     }
 }
 
-private extension LKRTCSdpType {
+private extension RTCSdpType {
     var canonicalString: String {
         switch self {
         case .offer: return "offer"
