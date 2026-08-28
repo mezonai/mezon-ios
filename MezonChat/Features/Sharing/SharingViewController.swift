@@ -1584,17 +1584,11 @@ final class SharingViewController: UIViewController {
                     let resolvedFilename = !filename.isEmpty
                         ? filename
                         : (!remoteFilename.isEmpty ? remoteFilename : "video.mp4")
-                    let filetype = existingVideo.filetype.hasPrefix("video/")
-                        ? existingVideo.filetype
-                        : SendMessageInputViewController.mimeType(
-                            for: (resolvedFilename as NSString).pathExtension.lowercased()
-                        )
-
                     var attachment = Mezon_Api_MessageAttachment()
                     attachment.url = url
                     attachment.thumbnail = existingVideo.thumbnail
                     attachment.filename = resolvedFilename
-                    attachment.filetype = filetype
+                    attachment.filetype = "video"
                     attachment.size = Int32(clamping: max(existingVideo.size, 0))
                     attachment.width = Int32(clamping: max(existingVideo.width, 0))
                     attachment.height = Int32(clamping: max(existingVideo.height, 0))

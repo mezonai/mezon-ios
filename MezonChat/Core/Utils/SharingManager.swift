@@ -5,7 +5,6 @@ final class SharingManager {
 
     static let shared = SharingManager()
 
-    private let appGroupIdentifier = "group.mezon.mobile"
     private let sharedKey = "mezon.mobile.sharing"
 
     private init() {}
@@ -43,7 +42,9 @@ final class SharingManager {
     }
 
     func loadSharedContent(type: String) -> SharedContent? {
-        guard let userDefaults = UserDefaults(suiteName: appGroupIdentifier) else { return nil }
+        guard let userDefaults = UserDefaults(
+            suiteName: ExistingVideoSharePayload.appGroupIdentifier
+        ) else { return nil }
 
         defer {
             userDefaults.removeObject(forKey: sharedKey)
@@ -82,7 +83,9 @@ final class SharingManager {
     }
 
     func hasPendingSharedContent() -> Bool {
-        guard let userDefaults = UserDefaults(suiteName: appGroupIdentifier) else { return false }
+        guard let userDefaults = UserDefaults(
+            suiteName: ExistingVideoSharePayload.appGroupIdentifier
+        ) else { return false }
         return userDefaults.object(forKey: sharedKey) != nil
     }
 

@@ -4,21 +4,7 @@ import AsyncDisplayKit
 import Photos
 import AVFoundation
 
-private struct GalleryVideoSharePayload: Codable {
-    static let internalScheme = "mezon-video-share"
-    static let appGroupIdentifier = "group.mezon.mobile"
-    static let tokenKeyPrefix = "mezon.video-share.token."
-    static let tokenLifetime: TimeInterval = 10 * 60
-
-    let url: String
-    let thumbnail: String
-    let filename: String
-    let filetype: String
-    let size: Int64
-    let width: Int
-    let height: Int
-    let durationSeconds: Int
-
+private extension ExistingVideoSharePayload {
     init?(item: GalleryItemInfo) {
         let source = (item.sourceURL ?? item.url).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !source.isEmpty, let sourceURL = URL(string: source) else { return nil }
@@ -32,16 +18,19 @@ private struct GalleryVideoSharePayload: Codable {
             ? metadataFilename
             : (!remoteFilename.isEmpty ? remoteFilename : "video.\(fallbackExtension)")
 
-        url = source
-        thumbnail = metadata?.thumbnail ?? ""
-        filename = (candidateFilename as NSString).pathExtension.isEmpty
+        let filename = (candidateFilename as NSString).pathExtension.isEmpty
             ? "\(candidateFilename).\(fallbackExtension)"
             : candidateFilename
-        filetype = Self.resolvedMimeType(metadata?.filetype, pathExtension: fallbackExtension)
-        size = max(metadata?.size ?? 0, 0)
-        width = max(Int(item.pixelSize?.width ?? 0), 0)
-        height = max(Int(item.pixelSize?.height ?? 0), 0)
-        durationSeconds = max(metadata?.durationSeconds ?? 0, 0)
+        self.init(
+            url: source,
+            thumbnail: metadata?.thumbnail ?? "",
+            filename: filename,
+            filetype: Self.resolvedMimeType(metadata?.filetype, pathExtension: fallbackExtension),
+            size: max(metadata?.size ?? 0, 0),
+            width: max(Int(item.pixelSize?.width ?? 0), 0),
+            height: max(Int(item.pixelSize?.height ?? 0), 0),
+            durationSeconds: max(metadata?.durationSeconds ?? 0, 0)
+        )
     }
 
     private static func resolvedMimeType(_ raw: String?, pathExtension: String) -> String {
@@ -63,11 +52,6 @@ private struct GalleryVideoSharePayload: Codable {
     }
 }
 
-private struct GalleryVideoShareTokenRecord: Codable {
-    let createdAt: TimeInterval
-    let payload: GalleryVideoSharePayload
-}
-
 private enum GalleryVideoSharePreparationError: Error {
     case unavailable
 }
@@ -76,9 +60,8 @@ private final class GalleryVideoActivityItemProvider: UIActivityItemProvider {
     private static let mezonActivityIdentifier = "mezon.mobile.mezonsharing"
     private static let shareCacheMaxBytes: Int64 = 512 * 1024 * 1024
 
-    private let payload: GalleryVideoSharePayload
+    private let payload: ExistingVideoSharePayload
     private let sourceURL: URL
-    private let failurePlaceholderURL: URL
     private let stateLock = NSLock()
     private var activeDownloadTask: URLSessionDownloadTask?
     private var downloadedURL: URL?
@@ -90,12 +73,12 @@ private final class GalleryVideoActivityItemProvider: UIActivityItemProvider {
     var preparationFailedHandler: ((Error, @escaping () -> Void) -> Void)?
     var photoLibrarySaveHandler: (() -> Void)?
 
-    init(payload: GalleryVideoSharePayload) {
+    init?(payload: ExistingVideoSharePayload) {
+        guard let sourceURL = URL(string: payload.url) else { return nil }
         let placeholderURL = FileManager.default.temporaryDirectory
             .appendingPathComponent((payload.filename as NSString).lastPathComponent)
         self.payload = payload
-        self.sourceURL = URL(string: payload.url)!
-        self.failurePlaceholderURL = placeholderURL
+        self.sourceURL = sourceURL
         super.init(placeholderItem: placeholderURL as NSURL)
     }
 
@@ -118,8 +101,9 @@ private final class GalleryVideoActivityItemProvider: UIActivityItemProvider {
         case .success(let fileURL):
             return fileURL as NSURL
         case .failure(let error):
+            cancel()
             notifyPreparationFailedAndWait(error: error)
-            return failurePlaceholderURL as NSURL
+            return NSNull()
         }
     }
 
@@ -165,21 +149,21 @@ private final class GalleryVideoActivityItemProvider: UIActivityItemProvider {
             try? FileManager.default.removeItem(at: fileURL)
         }
         if let tokenKey,
-           let defaults = UserDefaults(suiteName: GalleryVideoSharePayload.appGroupIdentifier) {
+           let defaults = UserDefaults(suiteName: ExistingVideoSharePayload.appGroupIdentifier) {
             defaults.removeObject(forKey: tokenKey)
             defaults.synchronize()
         }
     }
 
     private func makeInternalMarkerURL() -> URL? {
-        guard let defaults = UserDefaults(suiteName: GalleryVideoSharePayload.appGroupIdentifier) else {
+        guard let defaults = UserDefaults(suiteName: ExistingVideoSharePayload.appGroupIdentifier) else {
             return nil
         }
         removeExpiredInternalTokens(from: defaults)
 
         let token = UUID().uuidString.lowercased()
-        let key = GalleryVideoSharePayload.tokenKeyPrefix + token
-        let record = GalleryVideoShareTokenRecord(
+        let key = ExistingVideoSharePayload.tokenKeyPrefix + token
+        let record = ExistingVideoShareTokenRecord(
             createdAt: Date().timeIntervalSince1970,
             payload: payload
         )
@@ -188,7 +172,7 @@ private final class GalleryVideoActivityItemProvider: UIActivityItemProvider {
         defaults.synchronize()
 
         var components = URLComponents()
-        components.scheme = GalleryVideoSharePayload.internalScheme
+        components.scheme = ExistingVideoSharePayload.internalScheme
         components.host = "attachment"
         components.queryItems = [URLQueryItem(name: "token", value: token)]
         guard let markerURL = components.url else {
@@ -205,11 +189,11 @@ private final class GalleryVideoActivityItemProvider: UIActivityItemProvider {
     private func removeExpiredInternalTokens(from defaults: UserDefaults) {
         let now = Date().timeIntervalSince1970
         for (key, value) in defaults.dictionaryRepresentation()
-        where key.hasPrefix(GalleryVideoSharePayload.tokenKeyPrefix) {
+        where key.hasPrefix(ExistingVideoSharePayload.tokenKeyPrefix) {
             guard let data = value as? Data,
-                  let record = try? JSONDecoder().decode(GalleryVideoShareTokenRecord.self, from: data),
+                  let record = try? JSONDecoder().decode(ExistingVideoShareTokenRecord.self, from: data),
                   record.createdAt <= now,
-                  now - record.createdAt <= GalleryVideoSharePayload.tokenLifetime else {
+                  now - record.createdAt <= ExistingVideoSharePayload.tokenLifetime else {
                 defaults.removeObject(forKey: key)
                 continue
             }
@@ -1208,8 +1192,9 @@ final class GalleryController: UIViewController {
             let item = self.items[self.pagingNode.centralItemIndex]
             var shareItems: [Any] = []
             var videoProvider: GalleryVideoActivityItemProvider?
-            if item.isVideo, let payload = GalleryVideoSharePayload(item: item) {
-                let provider = GalleryVideoActivityItemProvider(payload: payload)
+            if item.isVideo,
+               let payload = ExistingVideoSharePayload(item: item),
+               let provider = GalleryVideoActivityItemProvider(payload: payload) {
                 videoProvider = provider
                 shareItems.append(provider)
             } else if let node = self.pagingNode.currentItemNode() as? ChatImageGalleryItemNode,

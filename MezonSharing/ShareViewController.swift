@@ -6,7 +6,6 @@ class ShareViewController: UIViewController {
 
     private let shareProtocol = "mezon.mobile.sharing"
     private let sharedKey = "mezon.mobile.sharing"
-    private let appGroupIdentifier = "group.mezon.mobile"
 
     private var sharedMedia: [SharedMediaFile] = []
     private var sharedText: [String] = []
@@ -263,7 +262,7 @@ class ShareViewController: UIViewController {
 
     private func saveAndRedirect() {
 
-        guard let userDefaults = UserDefaults(suiteName: appGroupIdentifier) else {
+        guard let userDefaults = UserDefaults(suiteName: ExistingVideoSharePayload.appGroupIdentifier) else {
             dismissWithError(message: "Cannot access shared storage")
             return
         }
@@ -309,7 +308,9 @@ class ShareViewController: UIViewController {
     }
 
     private func sharedContainerURL() -> URL? {
-        let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier)
+        let url = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: ExistingVideoSharePayload.appGroupIdentifier
+        )
         return url
     }
 
@@ -318,7 +319,7 @@ class ShareViewController: UIViewController {
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let token = components.queryItems?.first(where: { $0.name == "token" })?.value,
               UUID(uuidString: token) != nil,
-              let defaults = UserDefaults(suiteName: appGroupIdentifier)
+              let defaults = UserDefaults(suiteName: ExistingVideoSharePayload.appGroupIdentifier)
         else { return nil }
 
         let key = ExistingVideoSharePayload.tokenKeyPrefix + token.lowercased()
@@ -478,26 +479,6 @@ struct SharedMediaFile: Codable {
     var type: SharedMediaType
     var width: CGFloat?
     var height: CGFloat?
-}
-
-struct ExistingVideoSharePayload: Codable {
-    static let internalScheme = "mezon-video-share"
-    static let tokenKeyPrefix = "mezon.video-share.token."
-    static let tokenLifetime: TimeInterval = 10 * 60
-
-    var url: String
-    var thumbnail: String
-    var filename: String
-    var filetype: String
-    var size: Int64
-    var width: Int
-    var height: Int
-    var durationSeconds: Int
-}
-
-private struct ExistingVideoShareTokenRecord: Codable {
-    let createdAt: TimeInterval
-    let payload: ExistingVideoSharePayload
 }
 
 enum SharedMediaType: Int, Codable {

@@ -105,7 +105,7 @@ final class VLCVideoPlayerNode: ASDisplayNode {
         
         let bottomConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .regular)
         bottomPlayPauseButton.setImage(UIImage(systemName: "play.fill", withConfiguration: bottomConfig), for: .normal)
-        installSafeWhiteTint(on: bottomPlayPauseButton.imageNode)
+        bottomPlayPauseButton.imageNode.installSafeWhiteTint()
         bottomPlayPauseButton.addTarget(self, action: #selector(playPauseTapped), forControlEvents: .touchUpInside)
         
         self.timeSlider.minimumTrackTintColor = .white
@@ -173,19 +173,9 @@ final class VLCVideoPlayerNode: ASDisplayNode {
         let config = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .bold)
         let image = UIImage(systemName: iconName, withConfiguration: config)
         button.setImage(image, for: .normal)
-        installSafeWhiteTint(on: button.imageNode)
+        button.imageNode.installSafeWhiteTint()
         button.backgroundColor = UIColor.black.withAlphaComponent(0.35)
         button.clipsToBounds = true
-    }
-
-    private func installSafeWhiteTint(on imageNode: ASImageNode) {
-        let tintBlock = ASImageNodeTintColorModificationBlock(.white)
-        imageNode.imageModificationBlock = { image, traitCollection in
-            let size = image.size
-            guard size.width.isFinite, size.height.isFinite,
-                  size.width > 0, size.height > 0, image.scale > 0 else { return nil }
-            return tintBlock(image, traitCollection)
-        }
     }
     
     private func setupVLCPlayer(url: URL) {
