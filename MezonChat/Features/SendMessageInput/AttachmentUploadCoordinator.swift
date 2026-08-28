@@ -133,7 +133,7 @@ final class AttachmentUploadCoordinator {
 
     private static let maxConcurrentUploads = 4
     private static let presignEditBatchSize = 4
-    private static let presignSendFirstMinCount = 4
+    private static let presignSendFirstMinCount = 1
     private static let progressNotificationBucketCount = 20
     private static let presignFinishSyncDelayNanos: UInt64 = 500_000_000
     private static let multipartMaxParallelParts = 3
@@ -407,7 +407,6 @@ final class AttachmentUploadCoordinator {
 
         let sendFirst = attachments.count >= Self.presignSendFirstMinCount
         if sendFirst {
-            print("[MezonPresign] send-first mode count=\(attachments.count) localId=\(session.params.localId)")
             guard let sendToken = await context.getToken() else {
                 finalizeAllFailed(session, context: context)
                 return
@@ -431,7 +430,6 @@ final class AttachmentUploadCoordinator {
             return
         }
 
-        print("[MezonPresign] upload-first mode count=\(attachments.count) localId=\(session.params.localId)")
         session.usesPresignSync = false
         guard let uploadToken = await context.getToken() else {
             finalizeAllFailed(session, context: context)
@@ -442,7 +440,6 @@ final class AttachmentUploadCoordinator {
         await retryFailedUploads(session, context: context)
 
         let uploaded = uploadedAttachments(session)
-        print("[MezonPresign] uploads finished uploaded=\(uploaded.count)/\(attachments.count) localId=\(session.params.localId)")
         guard !uploaded.isEmpty || session.params.hasText else {
             finalizeAllFailed(session, context: context)
             return
@@ -453,7 +450,6 @@ final class AttachmentUploadCoordinator {
         }
         await sendMessage(session, context: context, token: postUploadToken, attachments: uploaded, includePresignFinish: false)
         guard !session.aborted else { return }
-        print("[MezonPresign] message sent after uploads messageId=\(session.serverMessageId) localId=\(session.params.localId)")
         await finalizeIfComplete(session, context: context)
     }
 
@@ -984,7 +980,7 @@ final class AttachmentUploadCoordinator {
                 var att = Mezon_Api_MessageAttachment()
                 att.filename = file.filename
                 att.url = cdnURL
-                att.filetype = file.filetype
+                att.filetype = AttachmentTypeClassifier.uploadType(for: file.filetype)
                 att.size = Int32(size)
                 session.fileTracks.append(FileUploadTrack(
                     file: file, presignKey: presignKey, attachment: att, pending: pending))
@@ -1038,22 +1034,19 @@ final class AttachmentUploadCoordinator {
             of: "[^a-zA-Z0-9._-]", with: "_", options: .regularExpression)
         let isVideo = filetype.hasPrefix("video/")
         let progressKey = fileURL.path
-        print("[MezonUpload] reserveOneImage file=\(originalFilename) ext=\(ext) filetype=\(filetype) isVideo=\(isVideo)")
 
         do {
             var att = Mezon_Api_MessageAttachment()
             att.filename = originalFilename
-            att.filetype = filetype
+            att.filetype = AttachmentTypeClassifier.uploadType(for: filetype)
             att.width = Int32(width)
             att.height = Int32(height)
             var pendingUploads: [PendingMinIOUpload] = []
 
             if isVideo {
                 guard let size = await Self.fileSize(of: fileURL) else {
-                    print("[MezonUpload] video fileSize=nil file=\(originalFilename)")
                     return false
                 }
-                print("[MezonUpload] video size=\(size)B (~\(size / 1024 / 1024)MB) thresholdMB=\(AttachmentUploader.minMultipartFileSize / 1024 / 1024) willMultipart=\(size >= AttachmentUploader.minMultipartFileSize)")
                 let (cdnURL, filePending) = try await reserveFileBody(
                     fileURL: fileURL, filename: sanitized, filetype: filetype, size: size,
                     width: width, height: height, context: context, token: token)
@@ -1076,7 +1069,7 @@ final class AttachmentUploadCoordinator {
                     width: width, height: height, token: token)
                 let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
                 att.filename = payload.filename
-                att.filetype = payload.filetype
+                att.filetype = AttachmentTypeClassifier.uploadType(for: payload.filetype)
                 att.url = cdnURL
                 att.size = Int32(payload.data.count)
                 pendingUploads.append(PendingMinIOUpload(
@@ -1112,14 +1105,12 @@ final class AttachmentUploadCoordinator {
         token: String
     ) async throws -> (cdnURL: String, pending: PendingMinIOUpload) {
         let progressKey = fileURL.path
-        print("[MezonUpload] reserveFileBody file=\(filename) size=\(size)B (~\(size / 1024 / 1024)MB) thresholdMB=\(AttachmentUploader.minMultipartFileSize / 1024 / 1024) multipart=\(size >= AttachmentUploader.minMultipartFileSize)")
         if size >= AttachmentUploader.minMultipartFileSize {
             do {
                 let partCount = max(1, Int((Double(size) / Double(AttachmentUploader.partSize)).rounded(.up)))
                 let start = try await context.account.network.multipartUploadAttachmentFileStart(
                     filename: filename, filetype: filetype, size: size,
                     width: width, height: height, partCount: partCount, token: token)
-                print("[MezonUpload] multipartStart partCount=\(partCount) urls=\(start.urls.count) uploadId=\(start.uploadID.isEmpty ? "EMPTY" : "ok") serverFilename=\(start.filename)")
                 let serverFilename = start.filename.isEmpty ? filename : start.filename
                 let cdnURL = "\(MezonConfig.baseImgURL)/\(serverFilename)"
                 if start.urls.count > 1, !start.uploadID.isEmpty {

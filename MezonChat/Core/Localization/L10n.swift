@@ -131,6 +131,7 @@ enum L10n {
         static let logOut         = "common.logOut"
         static let deleteAccount  = "common.deleteAccount"
         static let refresh        = "common.refresh"
+        static let retry          = "common.retry"
         static let close          = "common.close"
         static let goBack         = "common.goBack"
         static let copy           = "common.copy"
@@ -296,6 +297,13 @@ enum L10n {
         static let myQRCode = "qrScanner.myQRCode"
         static let qrProfile = "qrScanner.qrProfile"
         static let qrTransfer = "qrScanner.qrTransfer"
+        static let profileBadge = "qrScanner.profileBadge"
+        static let transferBadge = "qrScanner.transferBadge"
+        static let verifiedByMezon = "qrScanner.verifiedByMezon"
+        static let centerImage = "qrScanner.centerImage"
+        static let chooseCenterImage = "qrScanner.chooseCenterImage"
+        static let useProfileAvatar = "qrScanner.useProfileAvatar"
+        static let useMezonLogo = "qrScanner.useMezonLogo"
         static let poweredBy = "qrScanner.poweredBy"
         static let shareWithOthers = "qrScanner.shareWithOthers"
         static let scanProfileHelp = "qrScanner.scanProfileHelp"
@@ -1202,7 +1210,11 @@ enum L10n {
     enum ChannelDetail {
         static let members = "channelDetail.members"
         static let media   = "channelDetail.media"
+        static let images  = "channelDetail.images"
+        static let videos  = "channelDetail.videos"
         static let files   = "channelDetail.files"
+        static let docs    = "channelDetail.docs"
+        static let audios  = "channelDetail.audios"
         static let pins    = "channelDetail.pins"
         static let canvas  = "channelDetail.canvas"
         static let online  = "channelDetail.online"
@@ -1258,6 +1270,7 @@ enum L10n {
         static let addByHintFormat    = "friendRequest.addByHintFormat"
         static let addBySending       = "friendRequest.addBySending"
         static let addBySubmit        = "friendRequest.addBySubmit"
+        static let addByGenericError  = "friendRequest.addByGenericError"
         static let toastSelfAddError  = "friendRequest.toastSelfAddError"
         static let toastBlockedError  = "friendRequest.toastBlockedError"
         static let toastAlreadyFriend = "friendRequest.toastAlreadyFriend"
@@ -1425,6 +1438,7 @@ extension L10n {
         "common.logOut":        "Log Out",
         "common.deleteAccount": "Delete Account",
         "common.refresh":       "Refresh",
+        "common.retry":         "Retry",
         "common.close":         "Close",
         "common.goBack":        "Go Back",
         "common.copy":          "Copy",
@@ -1999,8 +2013,8 @@ extension L10n {
         "threadList.joinedThreads": "joined threads",
         "threadList.otherActiveThread": "other active thread",
         "threadList.otherActiveThreads": "other active threads",
-        "threadList.olderThread": "older thread",
-        "threadList.olderThreads": "older threads",
+        "threadList.olderThread": "archived thread",
+        "threadList.olderThreads": "archived threads",
         "threadList.searchThread": "search result",
         "threadList.searchThreads": "search results",
         "threadList.createThreadSoon": "Create thread is not available here yet.",
@@ -2252,6 +2266,7 @@ extension L10n {
         "friendRequest.addByHintFormat": "By the way, your username is %@",
         "friendRequest.addBySending": "Sending...",
         "friendRequest.addBySubmit": "Send Friend Request",
+        "friendRequest.addByGenericError": "Couldn't send friend request. Please try again.",
         "friendRequest.toastSelfAddError": "Hmm, that didn't work. Double-check that the username is correct",
         "friendRequest.toastBlockedError": "You have blocked this user. Please unblock them before sending a friend request.",
         "friendRequest.toastAlreadyFriend": "You're already friends with that user!",
@@ -2451,6 +2466,13 @@ extension L10n {
         "qrScanner.myQRCode": "My QR Code",
         "qrScanner.qrProfile": "QR Profile",
         "qrScanner.qrTransfer": "QR Transfer",
+        "qrScanner.profileBadge": "PROFILE QR",
+        "qrScanner.transferBadge": "TRANSFER QR",
+        "qrScanner.verifiedByMezon": "VERIFIED BY MEZON",
+        "qrScanner.centerImage": "QR center image",
+        "qrScanner.chooseCenterImage": "Choose from device",
+        "qrScanner.useProfileAvatar": "Use profile avatar",
+        "qrScanner.useMezonLogo": "Use Mezon logo",
         "qrScanner.poweredBy": "Powered by Mezon",
         "qrScanner.shareWithOthers": "Share with others",
         "qrScanner.scanProfileHelp": "Scan this QR code to chat with me or view my profile",
@@ -2485,7 +2507,11 @@ extension L10n {
 
         "channelDetail.members": "Members",
         "channelDetail.media":   "Media",
+        "channelDetail.images":  "Images",
+        "channelDetail.videos":  "Videos",
         "channelDetail.files":   "Files",
+        "channelDetail.docs":    "Docs",
+        "channelDetail.audios":  "Audios",
         "channelDetail.pins":    "Pins",
         "channelDetail.canvas":  "Canvas",
         "channelDetail.online":  "Online",
@@ -2675,6 +2701,7 @@ extension L10n {
         "common.logOut":        "Đăng xuất",
         "common.deleteAccount": "Xóa tài khoản",
         "common.refresh":       "Làm mới",
+        "common.retry":         "Thử lại",
         "common.close":         "Đóng",
         "common.goBack":        "Quay lại",
         "common.copy":          "Sao chép",
@@ -3503,6 +3530,7 @@ extension L10n {
         "friendRequest.addByHintFormat": "À nhân tiện, tên người dùng của bạn là %@",
         "friendRequest.addBySending": "Đang gửi...",
         "friendRequest.addBySubmit": "Gửi yêu cầu kết bạn",
+        "friendRequest.addByGenericError": "Không thể gửi lời mời kết bạn. Vui lòng thử lại.",
         "friendRequest.toastSelfAddError": "Hmm, có lỗi xảy ra. Vui lòng kiểm tra lại tên người dùng có đúng không",
         "friendRequest.toastBlockedError": "Bạn đã chặn người dùng này. Vui lòng bỏ chặn để gửi lời mời kết bạn.",
         "friendRequest.toastAlreadyFriend": "Bạn đã là bạn bè với người dùng này!",
@@ -3702,6 +3730,13 @@ extension L10n {
         "qrScanner.myQRCode": "Mã QR của tôi",
         "qrScanner.qrProfile": "Mã QR Hồ sơ",
         "qrScanner.qrTransfer": "Mã QR chuyển khoản",
+        "qrScanner.profileBadge": "PROFILE QR",
+        "qrScanner.transferBadge": "TRANSFER QR",
+        "qrScanner.verifiedByMezon": "ĐƯỢC XÁC MINH BỞI MEZON",
+        "qrScanner.centerImage": "Ảnh giữa mã QR",
+        "qrScanner.chooseCenterImage": "Chọn ảnh từ thiết bị",
+        "qrScanner.useProfileAvatar": "Dùng avatar cá nhân",
+        "qrScanner.useMezonLogo": "Dùng logo Mezon",
         "qrScanner.poweredBy": "Được cung cấp bởi Mezon",
         "qrScanner.shareWithOthers": "Chia sẻ với mọi người",
         "qrScanner.scanProfileHelp": "Quét mã QR này để trò chuyện với tôi hoặc xem hồ sơ của tôi",
@@ -3737,7 +3772,11 @@ extension L10n {
 
         "channelDetail.members": "Thành viên",
         "channelDetail.media":   "Phương tiện",
+        "channelDetail.images":  "Hình ảnh",
+        "channelDetail.videos":  "Video",
         "channelDetail.files":   "Tệp",
+        "channelDetail.docs":    "Tài liệu",
+        "channelDetail.audios":  "Âm thanh",
         "channelDetail.pins":    "Ghim",
         "channelDetail.canvas":  "Canvas",
         "channelDetail.online":  "Trực tuyến",

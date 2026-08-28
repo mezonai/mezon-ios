@@ -31,23 +31,23 @@ struct ParsedAttachment: Equatable {
     var uploadShowsPercent: Bool = false
 
     var isImage: Bool {
-        filetype.hasPrefix("image/") || filetype == "sticker"
+        AttachmentTypeClassifier.isImage(filetype) || AttachmentTypeClassifier.isSticker(filetype)
             || ["jpg", "jpeg", "png", "gif", "webp", "heic"].contains(fileExtension)
             || ["jpg", "jpeg", "png", "gif", "webp", "heic"].contains(urlExtension)
     }
 
     var isVideo: Bool {
-        filetype.hasPrefix("video/") 
+        AttachmentTypeClassifier.isVideo(filetype)
             || ["mp4", "mov", "m4v", "webm", "mkv", "avi", "flv", "wmv", "ogv", "ogg", "3gp", "3g2", "mpg", "mpeg", "ts", "vob"].contains(fileExtension)
             || ["mp4", "mov", "m4v", "webm", "mkv", "avi", "flv", "wmv", "ogv", "ogg", "3gp", "3g2", "mpg", "mpeg", "ts", "vob"].contains(urlExtension)
     }
 
-    var isSticker: Bool { filetype == "sticker" }
+    var isSticker: Bool { AttachmentTypeClassifier.isSticker(filetype) }
 
     var isMedia: Bool { isImage || isVideo }
 
     var isAudio: Bool {
-        if filetype.hasPrefix("audio/") { return true }
+        if AttachmentTypeClassifier.isAudio(filetype) { return true }
         return ["mp3", "m4a", "aac", "wav", "ogg", "flac", "opus"].contains(fileExtension)
             || ["mp3", "m4a", "aac", "wav", "ogg", "flac", "opus"].contains(urlExtension)
     }
@@ -537,6 +537,7 @@ final class ChatViewController: ViewController {
     private var pendingScrollToBottom = false
     private var lastMarkedAsReadMessageId: Int64?
     private var pendingMarkAsRead = false
+    private var didMarkChannelAsReadForCurrentAppearance = false
     private var nextFetchPrefersHTTPFirst = false
     private var isCatchingUpAfterReconnect = false
     private var reconnectCatchUpTask: Task<Void, Never>?
@@ -598,12 +599,6 @@ final class ChatViewController: ViewController {
     }()
 
     private var messagesNode: ChatContainerNode { displayNode as! ChatContainerNode }
-
-    private func scrollDebugLog(_ message: @autoclosure () -> String) {
-#if DEBUG
-        print("[ChatScroll][channel=\(channel.channelID)] \(message())")
-#endif
-    }
 
     var pendingJumpToMessageId: String?
 
@@ -1353,11 +1348,13 @@ final class ChatViewController: ViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        didMarkChannelAsReadForCurrentAppearance = false
         if topicId == 0 {
             context.currentClanId = clanId
             context.currentChannel = channel
             ActiveChannelTracker.currentChannelId = channel.channelID
         }
+        markChannelAsReadOnEntryIfPossible()
         refreshMemberOnboardingMissionBar()
         if wasCoveredByPushedController {
             wasCoveredByPushedController = false
@@ -1723,6 +1720,7 @@ final class ChatViewController: ViewController {
         if newLastId != oldLastId { lastFetchedNewerMessageId = nil }
         schedulePendingSendingFeedbackRefreshIfNeeded()
         needsReloadPipe.putNext(())
+        markChannelAsReadOnEntryIfPossible()
 
         if let jumpId = pendingJumpToMessageId {
             pendingJumpToMessageId = nil
@@ -1732,7 +1730,7 @@ final class ChatViewController: ViewController {
         } else if pendingScrollToBottom && !v.isEmpty {
             pendingScrollToBottom = false
             DispatchQueue.main.async { [weak self] in
-                self?.forceScrollToBottom(reason: "pendingScrollToBottom")
+                self?.forceScrollToBottom()
             }
         }
     }
@@ -2230,9 +2228,18 @@ final class ChatViewController: ViewController {
         metadataOnlyPipe.putNext(())
     }
 
-    private func markChannelAsRead() {
-        guard !messages.isEmpty else { return }
+    private func markChannelAsReadOnEntryIfPossible() {
+        guard !didMarkChannelAsReadForCurrentAppearance else { return }
+        guard topicId == 0, pendingJumpToMessageId == nil else { return }
+        guard viewIfLoaded?.window != nil,
+              UIApplication.shared.applicationState == .active else { return }
+        guard newestServerMessageId() != nil
+            || channel.hasLastSentMessage && channel.lastSentMessage.id != 0 else { return }
+        didMarkChannelAsReadForCurrentAppearance = true
+        markChannelAsRead()
+    }
 
+    private func markChannelAsRead() {
         var latestServerMessageId: Int64?
         for display in messages.reversed() where !display.isWelcome {
             if let id = Int64(display.message.id), id != 0 {
@@ -2329,10 +2336,6 @@ final class ChatViewController: ViewController {
         let wasAtBottom = messagesNode.isAtBottom
         let visibleMessageAnchor = wasAtBottom ? nil : messagesNode.captureVisibleMessageAnchor()
         let initialUserScrollGeneration = messagesNode.userScrollGeneration
-        scrollDebugLog(
-            "catchUp start offset=\(messagesNode.visibleContentOffsetDebugDescription) "
-                + "wasAtBottom=\(wasAtBottom) anchor=\(visibleMessageAnchor?.messageId ?? "nil")"
-        )
         if !wasAtBottom {
             shouldScrollToBottom = false
         }
@@ -2349,7 +2352,6 @@ final class ChatViewController: ViewController {
                 && messagesNode.userScrollGeneration == initialUserScrollGeneration
 
             if canRestorePosition, let visibleMessageAnchor {
-                scrollDebugLog("catchUp finish action=restore anchor=\(visibleMessageAnchor.messageId)")
                 messagesNode.listView.addAfterTransactionsCompleted { [weak self] in
                     guard let self,
                           self.messagesNode.userScrollGeneration == initialUserScrollGeneration else {
@@ -2358,21 +2360,15 @@ final class ChatViewController: ViewController {
                     self.messagesNode.restoreVisibleMessageAnchor(visibleMessageAnchor)
                 }
             } else if reachedPresent, wasAtBottom, canRestorePosition {
-                scrollDebugLog("catchUp finish action=bottom")
                 messagesNode.listView.addAfterTransactionsCompleted { [weak self] in
                     guard let self,
                           self.messagesNode.userScrollGeneration == initialUserScrollGeneration else {
                         return
                     }
-                    self.forceScrollToBottom(reason: "catchUpAtBottom") {
+                    self.forceScrollToBottom {
                         self.markChannelAsRead()
                     }
                 }
-            } else {
-                scrollDebugLog(
-                    "catchUp finish action=none reachedPresent=\(reachedPresent) "
-                        + "wasAtBottom=\(wasAtBottom) canRestore=\(canRestorePosition)"
-                )
             }
         }
 
@@ -2561,12 +2557,25 @@ final class ChatViewController: ViewController {
         }
     }
 
+    private static func oldestServerMessageId(in messages: [ChatMessageDisplay]) -> Int64? {
+        for item in messages where !item.isWelcome {
+            if let id = Int64(item.message.id), id != 0 { return id }
+        }
+        return nil
+    }
+
+    private static func newestServerMessageId(in messages: [ChatMessageDisplay]) -> Int64? {
+        for item in messages.reversed() where !item.isWelcome {
+            if let id = Int64(item.message.id), id != 0 { return id }
+        }
+        return nil
+    }
+
     func fetchOlderMessages() {
         guard hasMoreOlder, !isLoadingMore else { return }
         guard messages.count >= 10 else { return }
 
-        guard let oldest = messages.first(where: { !$0.isWelcome }),
-              let msgId = Int64(oldest.message.id), msgId != 0 else {
+        guard let msgId = Self.oldestServerMessageId(in: messages) else {
             setHasMoreOlder(false)
             return
         }
@@ -2605,7 +2614,7 @@ final class ChatViewController: ViewController {
     func fetchNewerMessages() {
         guard hasMoreNewer, !isLoadingNewer else { return }
         guard messages.count >= 10 else { return }
-        guard let newest = messages.last, let msgId = Int64(newest.message.id) else { return }
+        guard let msgId = Self.newestServerMessageId(in: messages) else { return }
 
         guard msgId != lastFetchedNewerMessageId else { return }
         lastFetchedNewerMessageId = msgId
@@ -4671,9 +4680,8 @@ final class ChatViewController: ViewController {
         }
     }
 
-    private func forceScrollToBottom(reason: String, completion: (() -> Void)? = nil) {
+    private func forceScrollToBottom(completion: (() -> Void)? = nil) {
         guard !messages.isEmpty else { return }
-        scrollDebugLog("forceScrollToBottom reason=\(reason)")
         messagesNode.listView.transaction(
             deleteIndices: [],
             insertIndicesAndItems: [],
@@ -4689,7 +4697,6 @@ final class ChatViewController: ViewController {
         guard messagesNode.pendingJumpMessageId == nil else { return }
         guard !messagesNode.didAutoScrollForNewMessages else { return }
         guard shouldScrollToBottom, !messages.isEmpty else { return }
-        scrollDebugLog("scrollToBottomIfNeeded action=bottom")
         messagesNode.listView.transaction(
             deleteIndices: [],
             insertIndicesAndItems: [],
@@ -6408,9 +6415,9 @@ final class ChatViewController: ViewController {
     }
 
     private static func isVisualChannelAttachment(_ attachment: Mezon_Api_ChannelAttachment) -> Bool {
-        let filetype = attachment.filetype.lowercased()
-        if filetype == "sticker" || attachment.url.contains("/stickers") { return false }
-        if filetype.hasPrefix("image/") || filetype.hasPrefix("video/") { return true }
+        if AttachmentTypeClassifier.isSticker(attachment.filetype) || attachment.url.contains("/stickers") { return false }
+        if AttachmentTypeClassifier.isImage(attachment.filetype)
+            || AttachmentTypeClassifier.isVideo(attachment.filetype) { return true }
         let filenameExtension = (attachment.filename as NSString).pathExtension.lowercased()
         let urlExtension = URL(string: attachment.url)?.pathExtension.lowercased() ?? ""
         let imageExtensions: Set<String> = ["jpg", "jpeg", "png", "gif", "webp", "heic"]
@@ -6422,8 +6429,7 @@ final class ChatViewController: ViewController {
     }
 
     private static func isVideoChannelAttachment(_ attachment: Mezon_Api_ChannelAttachment) -> Bool {
-        let filetype = attachment.filetype.lowercased()
-        if filetype.hasPrefix("video/") { return true }
+        if AttachmentTypeClassifier.isVideo(attachment.filetype) { return true }
         let filenameExtension = (attachment.filename as NSString).pathExtension.lowercased()
         let urlExtension = URL(string: attachment.url)?.pathExtension.lowercased() ?? ""
         return ["mp4", "mov", "m4v", "webm"].contains(filenameExtension)

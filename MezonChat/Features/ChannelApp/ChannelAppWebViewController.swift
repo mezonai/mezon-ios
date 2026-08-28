@@ -21,6 +21,11 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
     private var chromeHeaderExpanded = true
     private var chromeAutoHideTask: Task<Void, Never>?
 
+    private let errorContainer = UIView()
+    private let errorLabel = UILabel()
+    private let retryButton = UIButton(type: .system)
+    private let loadingSpinner = UIActivityIndicatorView(style: .large)
+
     init(pageURL: URL, appTitle: String) {
         self.pageURL = pageURL
         self.appTitle = appTitle
@@ -113,6 +118,7 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
         setupHeader()
         setupRevealChromeButton()
         embedWebView()
+        setupErrorView()
         updateChromeTypography()
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleThemeChange), name: ThemeManager.didChangeNotification, object: nil)
@@ -197,6 +203,15 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
         if let wv = webView {
             transition.updateFrame(view: wv, frame: webFrame)
         }
+        if errorContainer.superview != nil {
+            transition.updateFrame(view: errorContainer, frame: webFrame)
+        }
+        if loadingSpinner.superview != nil {
+            loadingSpinner.center = CGPoint(x: webFrame.midX, y: webFrame.midY)
+            if loadingSpinner.isAnimating {
+                view.bringSubviewToFront(loadingSpinner)
+            }
+        }
 
         let revealSize: CGFloat = 44
         let defaultRevealCenter = CGPoint(
@@ -215,6 +230,9 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
         transition.updateFrame(view: revealChromeButton, frame: revealFrame)
         revealChromeButton.isHidden = chromeHeaderExpanded
         view.bringSubviewToFront(webView ?? headerBar)
+        if !errorContainer.isHidden {
+            view.bringSubviewToFront(errorContainer)
+        }
         if chromeHeaderExpanded {
             view.bringSubviewToFront(headerBar)
         } else {
@@ -281,8 +299,16 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
 
             titleLabel.centerXAnchor.constraint(equalTo: headerBar.centerXAnchor),
             titleLabel.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
-            titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: backButton.trailingAnchor, constant: 8),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: collapseChromeButton.leadingAnchor, constant: -8),
+            {
+                let c = titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: backButton.trailingAnchor, constant: 8)
+                c.priority = UILayoutPriority(999)
+                return c
+            }(),
+            {
+                let c = titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: collapseChromeButton.leadingAnchor, constant: -8)
+                c.priority = UILayoutPriority(999)
+                return c
+            }(),
 
             headerSeparator.leadingAnchor.constraint(equalTo: headerBar.leadingAnchor),
             headerSeparator.trailingAnchor.constraint(equalTo: headerBar.trailingAnchor),
@@ -360,6 +386,7 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
         webView?.backgroundColor = UIColor.theme.primary
         webView?.scrollView.backgroundColor = UIColor.theme.primary
         applyNavHeaderTheme()
+        applyErrorViewTheme()
     }
 
     private func applyNavHeaderTheme() {
@@ -386,7 +413,7 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
 
     private func embedWebView() {
         let config = WKWebViewConfiguration()
-        config.websiteDataStore = .nonPersistent()
+        config.websiteDataStore = .default()
         if #available(iOS 14.0, *) {
             config.defaultWebpagePreferences.allowsContentJavaScript = true
         } else {
@@ -419,7 +446,17 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
         view.addSubview(wv)
 
         webView = wv
+
+        loadingSpinner.hidesWhenStopped = true
+        loadingSpinner.translatesAutoresizingMaskIntoConstraints = true
+        view.addSubview(loadingSpinner)
+        loadingSpinner.startAnimating()
+
         wv.load(URLRequest(url: pageURL))
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        loadingSpinner.stopAnimating()
     }
 
     func webView(
@@ -432,15 +469,94 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
             return
         }
         let scheme = targetURL.scheme?.lowercased() ?? ""
-        if scheme == "about" || scheme == "blob" {
+        if scheme == "about" || scheme == "blob" || scheme == "https" {
             decisionHandler(.allow)
             return
         }
-        if (scheme == "https" || scheme == "http"),
-           targetURL.host?.lowercased() == pageURL.host?.lowercased() {
-            decisionHandler(.allow)
-        } else {
-            decisionHandler(.cancel)
+        if UIApplication.shared.canOpenURL(targetURL) {
+            UIApplication.shared.open(targetURL)
         }
+        decisionHandler(.cancel)
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        didFailProvisionalNavigation navigation: WKNavigation!,
+        withError error: Error
+    ) {
+        handleLoadFailure(error)
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        handleLoadFailure(error)
+    }
+
+    private func handleLoadFailure(_ error: Error) {
+        let nsError = error as NSError
+        if nsError.code == NSURLErrorCancelled { return }
+        if nsError.code == 102 { return }
+        showLoadError()
+    }
+
+    private func setupErrorView() {
+        errorContainer.isHidden = true
+        errorContainer.translatesAutoresizingMaskIntoConstraints = true
+        errorContainer.backgroundColor = UIColor.theme.primary
+
+        errorLabel.translatesAutoresizingMaskIntoConstraints = false
+        errorLabel.text = L(L10n.ChannelApp.unavailable)
+        errorLabel.font = .systemFont(ofSize: 15)
+        errorLabel.textAlignment = .center
+        errorLabel.numberOfLines = 0
+
+        retryButton.translatesAutoresizingMaskIntoConstraints = false
+        retryButton.setTitle(L(L10n.Common.retry), for: .normal)
+        retryButton.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
+        retryButton.contentEdgeInsets = UIEdgeInsets(top: 10, left: 28, bottom: 10, right: 28)
+        retryButton.layer.cornerRadius = 20
+        retryButton.clipsToBounds = true
+        retryButton.addTarget(self, action: #selector(retryTapped), for: .touchUpInside)
+
+        errorContainer.addSubview(errorLabel)
+        errorContainer.addSubview(retryButton)
+        view.addSubview(errorContainer)
+
+        NSLayoutConstraint.activate([
+            errorLabel.centerXAnchor.constraint(equalTo: errorContainer.centerXAnchor),
+            errorLabel.centerYAnchor.constraint(equalTo: errorContainer.centerYAnchor, constant: -30),
+            errorLabel.leadingAnchor.constraint(greaterThanOrEqualTo: errorContainer.leadingAnchor, constant: 32),
+            errorLabel.trailingAnchor.constraint(lessThanOrEqualTo: errorContainer.trailingAnchor, constant: -32),
+
+            retryButton.centerXAnchor.constraint(equalTo: errorContainer.centerXAnchor),
+            retryButton.topAnchor.constraint(equalTo: errorLabel.bottomAnchor, constant: 20),
+        ])
+        applyErrorViewTheme()
+    }
+
+    private func applyErrorViewTheme() {
+        let t = UIColor.theme
+        errorContainer.backgroundColor = t.primary
+        errorLabel.textColor = t.textStrong
+        retryButton.setTitleColor(.white, for: .normal)
+        retryButton.backgroundColor = UIColor(rgb: 0x5865F2)
+    }
+
+    private func showLoadError() {
+        loadingSpinner.stopAnimating()
+        errorContainer.isHidden = false
+        view.bringSubviewToFront(errorContainer)
+        showChromeHeader(animated: true)
+        chromeAutoHideTask?.cancel()
+        chromeAutoHideTask = nil
+        if chromeHeaderExpanded {
+            view.bringSubviewToFront(headerBar)
+        }
+    }
+
+    @objc private func retryTapped() {
+        errorContainer.isHidden = true
+        loadingSpinner.startAnimating()
+        view.bringSubviewToFront(loadingSpinner)
+        webView?.load(URLRequest(url: pageURL))
     }
 }

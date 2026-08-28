@@ -1209,6 +1209,9 @@ final class MessageBubbleNode: ASDisplayNode {
             interaction.onMediaRetryTapped?(index, display)
             return
         }
+        if index >= 0, index < media.count, media[index].isSticker {
+            return
+        }
         if let onMediaTapped = interaction.onMediaTapped {
             let previewImage = mediaContentNode?.displayImage(at: index)
             onMediaTapped(index, media, display, previewImage)

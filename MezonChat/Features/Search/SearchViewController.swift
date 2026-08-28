@@ -57,6 +57,7 @@ final class SearchViewController: ViewController {
     private var activeTab: SearchTab = .members
 
     private var allMembers: [Mezon_Api_User] = []
+    private var friendMembers: [Mezon_Api_User] = []
     private var filteredMembers: [Mezon_Api_User] = []
     private var clanNicks: [Int64: String] = [:]
     private var clanAvatars: [Int64: String] = [:]
@@ -152,7 +153,7 @@ final class SearchViewController: ViewController {
     required init(coder aDecoder: NSCoder) { fatalError() }
 
     override func loadDisplayNode() {
-        var hiddenTabs: Set<SearchTab> = isChannelScoped ? [.channels] : []
+        var hiddenTabs: Set<SearchTab> = isChannelScoped ? [.channels] : [.messages]
         let isDM = clanId == 0
         if isDM {
             hiddenTabs.insert(.members)
@@ -204,6 +205,9 @@ final class SearchViewController: ViewController {
     private var channelMemberIds: Set<Int64>?
 
     private func loadInitialData() {
+        friendMembers = context.engine.friendsData.allFriends()
+            .filter { $0.state == EStateFriend.friend.rawValue && $0.hasUser && $0.user.id != 0 }
+            .map { $0.user }
         let clanUsersCache = context.engine.clanData.getClanUsers(clanId: clanId)
         let allUsersCache = context.engine.clanData.getAllUserClans()
         let allChCache = context.engine.clanData.getAllChannelsByUser()
@@ -405,12 +409,18 @@ final class SearchViewController: ViewController {
         }
     }
 
-    private func filterMembersByChannel() {
+    private func searchableMembers() -> [Mezon_Api_User] {
         if let memberIds = channelMemberIds {
-            filteredMembers = allMembers.filter { memberIds.contains($0.id) }
-        } else {
-            filteredMembers = allMembers
+            return allMembers.filter { memberIds.contains($0.id) }
         }
+        if isChannelScoped {
+            return allMembers
+        }
+        return Self.uniqueUsers(allMembers + friendMembers)
+    }
+
+    private func filterMembersByChannel() {
+        filteredMembers = searchableMembers()
     }
 
     private static func buildClanNicks(from clanUsers: [Mezon_Api_ClanUserList.ClanUser], into map: inout [Int64: String], avatars: inout [Int64: String]) {
@@ -538,12 +548,7 @@ final class SearchViewController: ViewController {
     private func performSearch() {
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
-        let baseMemberList: [Mezon_Api_User]
-        if let memberIds = channelMemberIds {
-            baseMemberList = allMembers.filter { memberIds.contains($0.id) }
-        } else {
-            baseMemberList = allMembers
-        }
+        let baseMemberList: [Mezon_Api_User] = searchableMembers()
 
         if query.isEmpty {
             filteredMembers = baseMemberList

@@ -1655,7 +1655,7 @@ final class SharingViewController: UIViewController {
                     var att = Mezon_Api_MessageAttachment()
                     att.filename = filename
                     att.url = uploaded.cdnURL
-                    att.filetype = filetype
+                    att.filetype = AttachmentTypeClassifier.uploadType(for: filetype)
                     att.size = Int32(fileSize)
                     if width > 0 { att.width = Int32(width) }
                     if height > 0 { att.height = Int32(height) }

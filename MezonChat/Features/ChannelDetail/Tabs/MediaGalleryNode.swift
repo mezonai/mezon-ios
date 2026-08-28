@@ -1,6 +1,19 @@
 import AsyncDisplayKit
 import UIKit
 
+private enum ChannelMediaType: String {
+    case image
+    case video
+}
+
+private struct ChannelMediaState {
+    var attachments: [Mezon_Api_ChannelAttachment] = []
+    var didLoad = false
+    var fetchCompleted = false
+    var isLoadingMore = false
+    var hasMore = true
+}
+
 @MainActor
 final class MediaGalleryNode: ASDisplayNode {
 
@@ -8,13 +21,12 @@ final class MediaGalleryNode: ASDisplayNode {
     private let clanId: Int64
     private let channelId: Int64
     private let channelType: Int32
-    private var attachments: [Mezon_Api_ChannelAttachment] = []
-    private var didLoadMedia = false
-    private var mediaFetchCompleted = false
-    private var isLoadingMore = false
-    private var hasMoreMedia = true
+    private var mediaStateByType: [ChannelMediaType: ChannelMediaState] = [:]
+    private var selectedMediaType: ChannelMediaType = .image
     private let mediaPageLimit: Int32 = 50
 
+    private let mediaTypeControl: UISegmentedControl
+    private let mediaTypeControlNode: ASDisplayNode
     private let collectionNode: ASCollectionNode
     private let loadingHostNode: ASDisplayNode
     private let emptyStateNode: MediaEmptyStateNode
@@ -36,6 +48,12 @@ final class MediaGalleryNode: ASDisplayNode {
         layout.itemSize = CGSize(width: provisionalSide, height: provisionalSide)
         self.flowLayout = layout
 
+        let mediaTypeControl = UISegmentedControl(items: [
+            L(L10n.ChannelDetail.images),
+            L(L10n.ChannelDetail.videos),
+        ])
+        self.mediaTypeControl = mediaTypeControl
+        self.mediaTypeControlNode = ASDisplayNode(viewBlock: { mediaTypeControl })
         self.collectionNode = ASCollectionNode(collectionViewLayout: layout)
 
         self.loadingHostNode = ASDisplayNode(viewBlock: {
@@ -51,6 +69,17 @@ final class MediaGalleryNode: ASDisplayNode {
         super.init()
         self.automaticallyManagesSubnodes = true
 
+        mediaTypeControl.selectedSegmentIndex = 0
+        mediaTypeControl.addTarget(
+            self, action: #selector(mediaTypeChanged(_:)), for: .valueChanged)
+        mediaTypeControl.selectedSegmentTintColor = UIColor.theme.bgViolet
+        mediaTypeControl.backgroundColor = UIColor.theme.secondary
+        let segmentFont = UIFont.systemFont(ofSize: 14.sf, weight: .semibold)
+        mediaTypeControl.setTitleTextAttributes(
+            [.font: segmentFont, .foregroundColor: UIColor.theme.text], for: .normal)
+        mediaTypeControl.setTitleTextAttributes(
+            [.font: segmentFont, .foregroundColor: UIColor.white], for: .selected)
+        mediaTypeControlNode.style.height = ASDimension(unit: .points, value: 40.sf)
         loadingHostNode.style.preferredSize = CGSize(width: 44, height: 44)
         overlayBackdropNode.style.flexGrow = 1
 
@@ -61,35 +90,63 @@ final class MediaGalleryNode: ASDisplayNode {
     }
 
     func loadTabDataIfNeeded() {
-        guard !didLoadMedia else { return }
-        didLoadMedia = true
-        fetchMedia()
+        loadMediaIfNeeded(for: .image)
     }
 
-    private func fetchMedia() {
+    private var attachments: [Mezon_Api_ChannelAttachment] {
+        mediaState(for: selectedMediaType).attachments
+    }
+
+    private func mediaState(for mediaType: ChannelMediaType) -> ChannelMediaState {
+        mediaStateByType[mediaType] ?? ChannelMediaState()
+    }
+
+    private func loadMediaIfNeeded(for mediaType: ChannelMediaType) {
+        var state = mediaState(for: mediaType)
+        guard !state.didLoad else { return }
+        state.didLoad = true
+        state.fetchCompleted = false
+        mediaStateByType[mediaType] = state
+        if selectedMediaType == mediaType {
+            setNeedsLayout()
+        }
+        fetchMedia(mediaType)
+    }
+
+    private func fetchMedia(_ mediaType: ChannelMediaType) {
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
                 let token = await context.getToken() ?? ""
-                let res = try await self.requestAttachments(before: 0, token: token)
+                let res = try await self.requestAttachments(
+                    before: 0, token: token, mediaType: mediaType)
                 let raw = res.attachments
-                self.hasMoreMedia = raw.count >= Int(self.mediaPageLimit)
-                let visual = raw
-                    .filter { Self.isVisualAttachment($0) }
+                var state = self.mediaState(for: mediaType)
+                state.hasMore = raw.count >= Int(self.mediaPageLimit)
+                state.attachments = raw
+                    .filter { Self.isAttachment($0, matching: mediaType) }
                     .sorted { $0.createTimeSeconds > $1.createTimeSeconds }
-                self.attachments = visual
+                state.fetchCompleted = true
+                self.mediaStateByType[mediaType] = state
 
-                await self.collectionNode.reloadData()
-                self.mediaFetchCompleted = true
-                self.setNeedsLayout()
+                if self.selectedMediaType == mediaType {
+                    await self.collectionNode.reloadData()
+                    self.setNeedsLayout()
+                }
             } catch {
-                self.mediaFetchCompleted = true
-                self.setNeedsLayout()
+                var state = self.mediaState(for: mediaType)
+                state.fetchCompleted = true
+                self.mediaStateByType[mediaType] = state
+                if self.selectedMediaType == mediaType {
+                    self.setNeedsLayout()
+                }
             }
         }
     }
 
-    private func requestAttachments(before: UInt32, token: String) async throws
+    private func requestAttachments(
+        before: UInt32, token: String, mediaType: ChannelMediaType
+    ) async throws
         -> Mezon_Api_ChannelAttachmentList
     {
         let targetClanId =
@@ -98,7 +155,7 @@ final class MediaGalleryNode: ASDisplayNode {
         return try await context.account.network.listChannelAttachments(
             clanId: targetClanId,
             channelId: channelId,
-            fileType: "image",
+            fileType: mediaType.rawValue,
             limit: mediaPageLimit,
             before: before,
             token: token
@@ -106,31 +163,43 @@ final class MediaGalleryNode: ASDisplayNode {
     }
 
     private func loadMoreMediaIfNeeded() {
-        guard mediaFetchCompleted, hasMoreMedia, !isLoadingMore,
-            let oldest = attachments.last, oldest.createTimeSeconds > 0
+        let mediaType = selectedMediaType
+        var state = mediaState(for: mediaType)
+        guard state.fetchCompleted, state.hasMore, !state.isLoadingMore,
+            let oldest = state.attachments.last, oldest.createTimeSeconds > 0
         else { return }
-        isLoadingMore = true
+        state.isLoadingMore = true
+        mediaStateByType[mediaType] = state
         let before = oldest.createTimeSeconds
         Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.isLoadingMore = false }
+            defer {
+                var state = self.mediaState(for: mediaType)
+                state.isLoadingMore = false
+                self.mediaStateByType[mediaType] = state
+            }
             do {
                 let token = await self.context.getToken() ?? ""
-                let res = try await self.requestAttachments(before: before, token: token)
+                let res = try await self.requestAttachments(
+                    before: before, token: token, mediaType: mediaType)
                 let raw = res.attachments
-                self.hasMoreMedia = raw.count >= Int(self.mediaPageLimit)
-                let existingKeys = Set(self.attachments.map { Self.dedupKey($0) })
+                var state = self.mediaState(for: mediaType)
+                state.hasMore = raw.count >= Int(self.mediaPageLimit)
+                let existingKeys = Set(state.attachments.map { Self.dedupKey($0) })
                 let newItems = raw
-                    .filter { Self.isVisualAttachment($0) }
+                    .filter { Self.isAttachment($0, matching: mediaType) }
                     .filter { !existingKeys.contains(Self.dedupKey($0)) }
                     .sorted { $0.createTimeSeconds > $1.createTimeSeconds }
                 guard !newItems.isEmpty else {
-                    self.hasMoreMedia = false
+                    state.hasMore = false
+                    self.mediaStateByType[mediaType] = state
                     return
                 }
-                let startIndex = self.attachments.count
-                self.attachments.append(contentsOf: newItems)
-                let indexPaths = (startIndex..<self.attachments.count).map {
+                let startIndex = state.attachments.count
+                state.attachments.append(contentsOf: newItems)
+                self.mediaStateByType[mediaType] = state
+                guard self.selectedMediaType == mediaType else { return }
+                let indexPaths = (startIndex..<state.attachments.count).map {
                     IndexPath(item: $0, section: 0)
                 }
                 self.collectionNode.performBatch(
@@ -147,25 +216,19 @@ final class MediaGalleryNode: ASDisplayNode {
         att.id != 0 ? "id:\(att.id)" : "url:\(att.url)"
     }
 
-    private static func isVisualAttachment(_ att: Mezon_Api_ChannelAttachment) -> Bool {
-        let ft = att.filetype.lowercased()
-        if ft.contains("audio") || ft.hasPrefix("audio/") { return false }
-        if ft.hasPrefix("image/") || ft.hasPrefix("video/") { return true }
-        if ft.isEmpty {
-            let ext = (att.filename as NSString).pathExtension.lowercased()
-            if ["mp3", "m4a", "wav", "aac", "ogg", "flac"].contains(ext) { return false }
-            return true
+    private static func isAttachment(
+        _ att: Mezon_Api_ChannelAttachment, matching mediaType: ChannelMediaType
+    ) -> Bool {
+        let url = att.url.trimmingCharacters(in: .whitespacesAndNewlines)
+        if url.isEmpty || url.lowercased().contains("/stickers") { return false }
+        switch mediaType {
+        case .image: return AttachmentTypeClassifier.isImage(att.filetype)
+        case .video: return AttachmentTypeClassifier.isVideo(att.filetype)
         }
-        return false
     }
 
     private static func isVideo(_ att: Mezon_Api_ChannelAttachment) -> Bool {
-        let filetype = att.filetype.lowercased()
-        if filetype.hasPrefix("video/") { return true }
-        let filenameExtension = (att.filename as NSString).pathExtension.lowercased()
-        let urlExtension = URL(string: att.url)?.pathExtension.lowercased() ?? ""
-        return ["mp4", "mov", "m4v", "webm"].contains(filenameExtension)
-            || ["mp4", "mov", "m4v", "webm"].contains(urlExtension)
+        AttachmentTypeClassifier.isVideo(att.filetype)
     }
 
     private func gridItemSide(collectionWidth: CGFloat) -> CGFloat {
@@ -173,6 +236,16 @@ final class MediaGalleryNode: ASDisplayNode {
         let spacing = flowLayout.minimumInteritemSpacing
         let inner = max(0, collectionWidth - spacing * (columns - 1))
         return max(1, floor(inner / columns))
+    }
+
+    @objc private func mediaTypeChanged(_ control: UISegmentedControl) {
+        let mediaType: ChannelMediaType = control.selectedSegmentIndex == 1 ? .video : .image
+        guard mediaType != selectedMediaType else { return }
+        selectedMediaType = mediaType
+        collectionNode.view.setContentOffset(.zero, animated: false)
+        collectionNode.reloadData()
+        setNeedsLayout()
+        loadMediaIfNeeded(for: mediaType)
     }
 
     override func layout() {
@@ -267,21 +340,37 @@ final class MediaGalleryNode: ASDisplayNode {
         collectionNode.style.flexGrow = 1
         collectionNode.style.flexShrink = 1
 
-        let showLoading = didLoadMedia && !mediaFetchCompleted
-        let showEmpty = mediaFetchCompleted && attachments.isEmpty
+        let state = mediaState(for: selectedMediaType)
+        let showLoading = state.didLoad && !state.fetchCompleted
+        let showEmpty = state.fetchCompleted && state.attachments.isEmpty
+        let contentSpec: ASLayoutSpec
         if showLoading {
-            return ASOverlayLayoutSpec(
+            contentSpec = ASOverlayLayoutSpec(
                 child: collectionNode,
                 overlay: mediaOverlaySpec(centering: loadingHostNode)
             )
-        }
-        if showEmpty {
-            return ASOverlayLayoutSpec(
+        } else if showEmpty {
+            contentSpec = ASOverlayLayoutSpec(
                 child: collectionNode,
                 overlay: mediaOverlaySpec(centering: emptyStateNode)
             )
+        } else {
+            contentSpec = ASWrapperLayoutSpec(layoutElement: collectionNode)
         }
-        return ASWrapperLayoutSpec(layoutElement: collectionNode)
+        contentSpec.style.flexGrow = 1
+        contentSpec.style.flexShrink = 1
+
+        let mediaTypeInset = ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 8.sf, left: 8.sw, bottom: 8.sf, right: 8.sw),
+            child: mediaTypeControlNode
+        )
+        return ASStackLayoutSpec(
+            direction: .vertical,
+            spacing: 0,
+            justifyContent: .start,
+            alignItems: .stretch,
+            children: [mediaTypeInset, contentSpec]
+        )
     }
 
     private func mediaOverlaySpec(centering content: ASLayoutElement) -> ASLayoutSpec {

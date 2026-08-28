@@ -2,6 +2,10 @@ import AsyncDisplayKit
 import Combine
 import UIKit
 
+enum NotificationTabCategory {
+    static let topic: Int32 = 4
+}
+
 enum NotificationItem {
     case notification(NotificationRecord)
     case topic(TopicRecord)
@@ -260,6 +264,7 @@ final class NotificationItemCell: UITableViewCell {
     static let reuseId = "NotificationItemCell"
 
     private let avatarSize: CGFloat = 36
+    private static let avatarTargetPixelSize = 120
 
     private let avatarView: UIImageView = {
         let iv = UIImageView()
@@ -323,10 +328,12 @@ final class NotificationItemCell: UITableViewCell {
         return v
     }()
 
-    private var imageTask: URLSessionDataTask?
     private let avatarSkeleton = UIView()
     private var previewConstraints: [NSLayoutConstraint] = []
     private var titleToSeparatorConstraint: NSLayoutConstraint?
+    private var avatarLoadGeneration: UInt = 0
+    private var configuredAvatarURLString: String?
+    private var isAvatarLoadInFlight = false
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -445,44 +452,19 @@ final class NotificationItemCell: UITableViewCell {
         contentLabel.text = body.isEmpty ? nil : item.content
         setPreviewBlockVisible(!body.isEmpty)
 
-        let avatarURLStr = item.avatarURL
-        imageTask?.cancel()
-        imageTask = nil
-        stopAvatarSkeleton()
-
         let avatarSeed = item.avatarPlaceholderSeed
-        avatarView.backgroundColor = UIColor.avatarColor(for: avatarSeed)
         avatarPlaceholder.text =
             avatarSeed.first.map { String($0).uppercased() } ?? "N"
 
-        if !avatarURLStr.isEmpty, avatarURLStr != "default",
-           let url = URL(string: avatarURLStr) {
-            let proxied = ImgproxyURL.avatarProxyURL(from: url.absoluteString, width: 100, height: 100)
-            if let cached = ImageCache.shared.cachedImage(forURL: proxied) {
-                avatarView.image = cached
-                avatarView.backgroundColor = .clear
-                avatarPlaceholder.isHidden = true
-            } else {
-                avatarView.image = nil
-                avatarView.backgroundColor = .clear
-                avatarPlaceholder.isHidden = true
-                startAvatarSkeleton()
-                imageTask = ImageCache.shared.loadImage(urlString: proxied) { [weak self] img in
-                    guard let self else { return }
-                    self.stopAvatarSkeleton()
-                    if let img {
-                        self.avatarView.image = img
-                        self.avatarView.backgroundColor = .clear
-                        self.avatarPlaceholder.isHidden = true
-                    } else {
-                        self.avatarView.backgroundColor = UIColor.avatarColor(for: avatarSeed)
-                        self.avatarPlaceholder.isHidden = false
-                    }
-                }
-            }
+        let rawAvatarURL = item.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !rawAvatarURL.isEmpty, rawAvatarURL != "default" {
+            let avatarURL = ImgproxyURL.absoluteResourceURL(from: rawAvatarURL)
+            loadAvatar(sourceURL: avatarURL, placeholderSeed: avatarSeed)
         } else {
-            avatarView.image = nil
-            avatarPlaceholder.isHidden = false
+            avatarLoadGeneration += 1
+            configuredAvatarURLString = nil
+            isAvatarLoadInFlight = false
+            showAvatarPlaceholder(seed: avatarSeed)
         }
 
         let date = Date(timeIntervalSince1970: TimeInterval(item.createTimeSeconds))
@@ -506,12 +488,130 @@ final class NotificationItemCell: UITableViewCell {
         avatarPlaceholder.textColor = .white
     }
 
+    private func loadAvatar(sourceURL: String, placeholderSeed: String) {
+        if configuredAvatarURLString == sourceURL,
+           isAvatarLoadInFlight || avatarView.image != nil {
+            return
+        }
+
+        configuredAvatarURLString = sourceURL
+        avatarLoadGeneration += 1
+        let generation = avatarLoadGeneration
+        let proxiedURL = ImgproxyURL.avatarProxyURL(from: sourceURL, width: 100, height: 100)
+        let previewURL = ImgproxyURL.avatarPreviewProxyURL(
+            from: sourceURL,
+            width: 100,
+            height: 100
+        )
+
+        if let cached = ImageCache.shared.memoryOptimizedAvatar(
+            forURL: proxiedURL,
+            targetPixelSize: Self.avatarTargetPixelSize
+        ) ?? ImageCache.shared.memoryOptimizedAvatar(
+            forURL: sourceURL,
+            targetPixelSize: Self.avatarTargetPixelSize
+        ) {
+            isAvatarLoadInFlight = false
+            showAvatarImage(cached)
+            return
+        }
+
+        avatarView.stopAnimating()
+        avatarView.image = nil
+        avatarView.backgroundColor = .clear
+        avatarPlaceholder.isHidden = true
+        isAvatarLoadInFlight = true
+        startAvatarSkeleton()
+
+        let showPreview: (UIImage) -> Void = { [weak self] image in
+            guard let self,
+                  generation == self.avatarLoadGeneration,
+                  self.isAvatarLoadInFlight else { return }
+            self.showAvatarImage(image)
+        }
+        let hasRawDiskCache = ImageCache.shared.hasOptimizedAvatarDiskCache(
+            forURL: sourceURL,
+            targetPixelSize: Self.avatarTargetPixelSize
+        )
+        if !hasRawDiskCache, previewURL != proxiedURL {
+            if let preview = ImageCache.shared.memoryImage(forKey: previewURL) {
+                showPreview(preview)
+            } else {
+                ImageCache.shared.loadImage(urlString: previewURL) { image in
+                    guard let image else { return }
+                    showPreview(image)
+                }
+            }
+        }
+
+        let loadRawAvatar: () -> Void = {
+            ImageCache.shared.loadOptimizedAvatar(
+                urlString: sourceURL,
+                targetPixelSize: Self.avatarTargetPixelSize,
+                preview: showPreview
+            ) { [weak self] image in
+                guard let self, generation == self.avatarLoadGeneration else { return }
+                self.isAvatarLoadInFlight = false
+                if let image {
+                    self.showAvatarImage(image)
+                } else {
+                    self.showAvatarPlaceholder(seed: placeholderSeed)
+                }
+            }
+        }
+        if hasRawDiskCache {
+            loadRawAvatar()
+            return
+        }
+
+        ImageCache.shared.loadOptimizedAvatar(
+            urlString: proxiedURL,
+            targetPixelSize: Self.avatarTargetPixelSize,
+            preview: showPreview
+        ) { [weak self] image in
+            if let image {
+                guard let self, generation == self.avatarLoadGeneration else { return }
+                self.isAvatarLoadInFlight = false
+                self.showAvatarImage(image)
+            } else if proxiedURL != sourceURL {
+                loadRawAvatar()
+            } else {
+                guard let self, generation == self.avatarLoadGeneration else { return }
+                self.isAvatarLoadInFlight = false
+                self.showAvatarPlaceholder(seed: placeholderSeed)
+            }
+        }
+    }
+
+    private func showAvatarImage(_ image: UIImage) {
+        stopAvatarSkeleton()
+        avatarView.stopAnimating()
+        avatarView.image = image
+        avatarView.backgroundColor = .clear
+        avatarPlaceholder.isHidden = true
+        if (image.images?.count ?? 0) > 1 {
+            avatarView.startAnimating()
+        }
+    }
+
+    private func showAvatarPlaceholder(seed: String) {
+        stopAvatarSkeleton()
+        avatarView.stopAnimating()
+        avatarView.image = nil
+        avatarView.backgroundColor = UIColor.avatarColor(for: seed)
+        avatarPlaceholder.isHidden = false
+    }
+
     override func prepareForReuse() {
         super.prepareForReuse()
-        imageTask?.cancel()
-        imageTask = nil
+        avatarLoadGeneration += 1
+        configuredAvatarURLString = nil
+        isAvatarLoadInFlight = false
         stopAvatarSkeleton()
+        avatarView.stopAnimating()
         avatarView.image = nil
+        avatarView.backgroundColor = .clear
+        avatarPlaceholder.isHidden = false
         avatarPlaceholder.text = nil
     }
 }
@@ -578,7 +678,7 @@ final class NotificationsContainerNode: ASDisplayNode {
     private let tabs: [TabInfo] = [
         TabInfo(title: L(L10n.Notifications.mentions), tag: 1, iconName: "Notifications/mentions"),
         TabInfo(title: L(L10n.Notifications.messages), tag: 2, iconName: "Notifications/messages"),
-        TabInfo(title: L(L10n.Notifications.topic), tag: 4, iconName: "Notifications/topic"),
+        TabInfo(title: L(L10n.Notifications.topic), tag: NotificationTabCategory.topic, iconName: "Notifications/topic"),
         TabInfo(title: L(L10n.Notifications.forYou), tag: 3, iconName: "Notifications/forYou"),
     ]
     private var selectedTabIndex: Int = 0
@@ -594,6 +694,7 @@ final class NotificationsContainerNode: ASDisplayNode {
             (signal |> deliverOnMainQueue).start(next: { [weak self] newState in
                 guard let self else { return }
                 self.state = newState
+                self.prefetchAvatarImages(for: Array(newState.items.prefix(16)))
                 self.tableView.reloadData()
                 let isEmpty =
                     newState.items.isEmpty && !newState.isLoading && newState.hasLoaded
@@ -653,6 +754,7 @@ final class NotificationsContainerNode: ASDisplayNode {
             NotificationItemCell.self, forCellReuseIdentifier: NotificationItemCell.reuseId)
         tableView.dataSource = self
         tableView.delegate = self
+        tableView.prefetchDataSource = self
 
 
         emptyImageView.image = UIImage(named: "Notifications/emptyNotifications")
@@ -890,10 +992,63 @@ final class NotificationsContainerNode: ASDisplayNode {
         updateTabStyles()
         tableView.reloadData()
     }
+
+    private func prefetchAvatarImages(for items: [NotificationItem]) {
+        for item in items {
+            let rawAvatarURL = item.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !rawAvatarURL.isEmpty, rawAvatarURL != "default" else { continue }
+            let sourceURL = ImgproxyURL.absoluteResourceURL(from: rawAvatarURL)
+            guard !sourceURL.isEmpty else { continue }
+
+            let proxiedURL = ImgproxyURL.avatarProxyURL(
+                from: sourceURL,
+                width: 100,
+                height: 100
+            )
+            let previewURL = ImgproxyURL.avatarPreviewProxyURL(
+                from: sourceURL,
+                width: 100,
+                height: 100
+            )
+            let targetPixelSize = 120
+            let hasRawDiskCache = ImageCache.shared.hasOptimizedAvatarDiskCache(
+                forURL: sourceURL,
+                targetPixelSize: targetPixelSize
+            )
+
+            if !hasRawDiskCache,
+               previewURL != proxiedURL,
+               ImageCache.shared.memoryImage(forKey: previewURL) == nil {
+                ImageCache.shared.loadImage(urlString: previewURL) { _ in }
+            }
+
+            let cached = ImageCache.shared.memoryOptimizedAvatar(
+                forURL: proxiedURL,
+                targetPixelSize: targetPixelSize
+            ) ?? ImageCache.shared.memoryOptimizedAvatar(
+                forURL: sourceURL,
+                targetPixelSize: targetPixelSize
+            )
+            guard cached == nil else { continue }
+
+            let loadURL = hasRawDiskCache ? sourceURL : proxiedURL
+            ImageCache.shared.loadOptimizedAvatar(
+                urlString: loadURL,
+                targetPixelSize: targetPixelSize
+            ) { image in
+                guard image == nil, loadURL != sourceURL else { return }
+                ImageCache.shared.loadOptimizedAvatar(
+                    urlString: sourceURL,
+                    targetPixelSize: targetPixelSize
+                ) { _ in }
+            }
+        }
+    }
 }
 
 
-extension NotificationsContainerNode: UITableViewDataSource, UITableViewDelegate {
+extension NotificationsContainerNode: UITableViewDataSource, UITableViewDelegate,
+    UITableViewDataSourcePrefetching {
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         state.items.count
@@ -911,6 +1066,14 @@ extension NotificationsContainerNode: UITableViewDataSource, UITableViewDelegate
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         interaction.onItemSelected(state.items[indexPath.row])
+    }
+
+    func tableView(_ tableView: UITableView, prefetchRowsAt indexPaths: [IndexPath]) {
+        let items = indexPaths.compactMap { indexPath -> NotificationItem? in
+            guard indexPath.row >= 0, indexPath.row < state.items.count else { return nil }
+            return state.items[indexPath.row]
+        }
+        prefetchAvatarImages(for: items)
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {

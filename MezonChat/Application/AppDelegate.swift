@@ -537,24 +537,34 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
 
         Task { @MainActor in
             let suppressPeerCallToast = WebRTCCallManager.shared.isPeerCallDetailScreenActive
-            guard !isViewingChannel, !suppressPeerCallToast else { return }
-            Toast.notification(title: title, message: body) {
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    let isFriendRequestNotification = Self.isFriendRequestNotification(notification: notification)
-                    if isFriendRequestNotification {
-                        Self.navigateToFriendRequests()
-                        return
+            if !isViewingChannel, !suppressPeerCallToast {
+                Toast.notification(title: title, message: body) {
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self else { return }
+                        let isFriendRequestNotification = Self.isFriendRequestNotification(notification: notification)
+                        if isFriendRequestNotification {
+                            Self.navigateToFriendRequests()
+                            return
+                        }
+                        if !isDM, let clanId, let clanIdInt = Int64(clanId), clanIdInt != 0 {
+                            self.accountContext?.currentClanId = clanIdInt
+                        }
+                        Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM)
                     }
-                    if !isDM, let clanId, let clanIdInt = Int64(clanId), clanIdInt != 0 {
-                        self.accountContext?.currentClanId = clanIdInt
-                    }
-                    Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM)
                 }
             }
+            completionHandler(Self.foregroundNotificationOptionsRespectingActiveCall())
         }
+    }
 
-        completionHandler([.badge, .sound])
+    @MainActor
+    private static func foregroundNotificationOptionsRespectingActiveCall() -> UNNotificationPresentationOptions {
+        let inVoiceCall = VoiceChannelPiPOverlay.shared.isActive || VoiceChannelRoomViewController.hasLiveVoiceCall
+        let inPeerCall = WebRTCCallManager.shared.signalingSession != nil
+        if inVoiceCall || inPeerCall {
+            return [.badge]
+        }
+        return [.badge, .sound]
     }
 
     func userNotificationCenter(

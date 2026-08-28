@@ -5,7 +5,6 @@ import Foundation
 import LiveKitWebRTC
 import PushKit
 import UIKit
-import os
 
 private final class VoIPPushCompletionGate {
     private var consumed = false
@@ -37,7 +36,10 @@ final class CallKitManager: NSObject {
 
     private let pushRegistry = PKPushRegistry(queue: .main)
     private var provider: CXProvider?
-    private var silentReportProvider: CXProvider?
+    private var complianceCallUUIDs: Set<UUID> = []
+    private let complianceCallUUIDsLock = NSLock()
+    private var transientComplianceProviders: [CXProvider] = []
+    private var mainProviderNeedsReassert = false
     private let callController = CXCallController()
     private let payloadValiditySeconds: TimeInterval = 120
     private let recentlyEndedRetention: TimeInterval = 45
@@ -75,63 +77,6 @@ final class CallKitManager: NSObject {
 
     private(set) var voipToken: String?
 
-    private static let unifiedCallKitOSLog = OSLog(subsystem: "chat.mezon.voip", category: "CallKit")
-
-    private static let unifiedCallKitMirrorOSLog = OSLog(
-        subsystem: Bundle.main.bundleIdentifier ?? "MezonChat",
-        category: "VoIPCallKit"
-    )
-
-    private static let voipInstantSubsystemOSLog = OSLog(subsystem: "chat.mezon.voip", category: "Instant")
-
-    private static let voipInstantMirrorOSLog = OSLog(
-        subsystem: Bundle.main.bundleIdentifier ?? "MezonChat",
-        category: "VoIPInstant"
-    )
-
-    private static func emitCallKitUnifiedDebug(_ message: String) {
-        print("[CallKitDebug] \(message)")
-        NSLog("[CallKitDebug][chat.mezon.voip] %@", message)
-        os_log("%{public}@", log: unifiedCallKitOSLog, type: .default, message as NSString as CVarArg)
-        os_log("%{public}@", log: unifiedCallKitMirrorOSLog, type: .default, message as NSString as CVarArg)
-    }
-
-    private static let voipInstantDateFormatter: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f
-    }()
-
-    private static func voipInstantFlushPrint(_ message: String) {
-        let stamp = voipInstantDateFormatter.string(from: Date())
-        let line = "[VoIP-INSTANT \(stamp)] \(message)"
-        print(line)
-        NSLog("%@", line)
-        os_log("%{public}@", log: voipInstantSubsystemOSLog, type: .default, line as NSString as CVarArg)
-        os_log("%{public}@", log: voipInstantMirrorOSLog, type: .default, line as NSString as CVarArg)
-        if let data = (line + "\n").data(using: .utf8) {
-            FileHandle.standardOutput.write(data)
-            FileHandle.standardError.write(data)
-        }
-        fflush(__stdoutp)
-        fflush(__stderrp)
-    }
-
-    private static func voipInstantPrintPayload(_ dictionaryPayload: [AnyHashable: Any]) {
-        let jsonObj = NSDictionary(dictionary: dictionaryPayload)
-        if JSONSerialization.isValidJSONObject(jsonObj),
-           let data = try? JSONSerialization.data(withJSONObject: jsonObj, options: [.sortedKeys]),
-           let s = String(data: data, encoding: .utf8) {
-            voipInstantFlushPrint("payload JSON \(s)")
-        } else {
-            voipInstantFlushPrint("payload non-json-safe \(dictionaryPayload)")
-        }
-    }
-
-    private func callKitUnifiedDebug(_ message: String) {
-        Self.emitCallKitUnifiedDebug(message)
-    }
-
     private override init() {
         super.init()
     }
@@ -145,38 +90,73 @@ final class CallKitManager: NSObject {
         pushRegistry.desiredPushTypes = [.voIP]
 
         ensureProviderConfigured()
-        Self.emitCallKitUnifiedDebug(
-            "CallKitManager.configure() unifiedSubsystem=chat.mezon.voip mirrorSubsystem=\(Bundle.main.bundleIdentifier ?? "nil") categoryMirror=VoIPCallKit"
-        )
+    }
+
+    private static func makeProviderConfiguration(forCompliance: Bool) -> CXProviderConfiguration {
+        let config = CXProviderConfiguration(localizedName: "Mezon")
+        config.supportsVideo = true
+        config.maximumCallsPerCallGroup = 1
+        config.maximumCallGroups = 1
+        config.supportedHandleTypes = [.generic]
+        config.ringtoneSound = forCompliance ? "mezon_callkit_silent.caf" : nil
+        config.includesCallsInRecents = false
+        return config
     }
 
     private func ensureProviderConfigured() {
         guard provider == nil else { return }
-        let config = CXProviderConfiguration(localizedName: "Mezon")
-        config.supportsVideo = true
-        config.maximumCallsPerCallGroup = 1
-        config.maximumCallGroups = 1
-        config.supportedHandleTypes = [.generic]
-        config.ringtoneSound = nil
-        config.includesCallsInRecents = false
-
-        let prov = CXProvider(configuration: config)
+        let prov = CXProvider(configuration: Self.makeProviderConfiguration(forCompliance: false))
         prov.setDelegate(self, queue: nil)
         provider = prov
     }
 
-    private func ensureSilentReportProviderConfigured() {
-        guard silentReportProvider == nil else { return }
-        let config = CXProviderConfiguration(localizedName: "Mezon")
-        config.supportsVideo = true
-        config.maximumCallsPerCallGroup = 1
-        config.maximumCallGroups = 1
-        config.supportedHandleTypes = [.generic]
-        config.ringtoneSound = "mezon_callkit_silent.caf"
-        config.includesCallsInRecents = false
-        let prov = CXProvider(configuration: config)
+    private func makeTransientSilentComplianceProvider() -> CXProvider {
+        let prov = CXProvider(configuration: Self.makeProviderConfiguration(forCompliance: true))
         prov.setDelegate(self, queue: nil)
-        silentReportProvider = prov
+        transientComplianceProviders.append(prov)
+        mainProviderNeedsReassert = true
+        return prov
+    }
+
+    private func scheduleComplianceProviderInvalidation(_ prov: CXProvider) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            prov.invalidate()
+            self?.transientComplianceProviders.removeAll { $0 === prov }
+        }
+    }
+
+    private func reassertMainProviderIfNeeded() {
+        ensureProviderConfigured()
+        guard mainProviderNeedsReassert else { return }
+        mainProviderNeedsReassert = false
+        let old = provider
+        provider = nil
+        ensureProviderConfigured()
+        old?.invalidate()
+    }
+
+    private func markComplianceCall(_ uuid: UUID) {
+        complianceCallUUIDsLock.lock()
+        complianceCallUUIDs.insert(uuid)
+        complianceCallUUIDsLock.unlock()
+    }
+
+    private func unmarkComplianceCall(_ uuid: UUID) {
+        complianceCallUUIDsLock.lock()
+        complianceCallUUIDs.remove(uuid)
+        complianceCallUUIDsLock.unlock()
+    }
+
+    private func isComplianceCall(_ uuid: UUID) -> Bool {
+        complianceCallUUIDsLock.lock()
+        defer { complianceCallUUIDsLock.unlock() }
+        return complianceCallUUIDs.contains(uuid)
+    }
+
+    private func clearComplianceCalls() {
+        complianceCallUUIDsLock.lock()
+        complianceCallUUIDs.removeAll()
+        complianceCallUUIDsLock.unlock()
     }
 
     func requestEndActiveVoIPCallIfNeeded() {
@@ -185,23 +165,14 @@ final class CallKitManager: NSObject {
         guard let uuidString = UserDefaults.standard.string(forKey: DefaultsKeys.activeCallUUID),
               let uuid = UUID(uuidString: uuidString)
         else {
-            callKitUnifiedDebug("requestEndActiveVoIPCallIfNeeded -> no activeCallUUID, skipping CXEndCallAction (raw=\(UserDefaults.standard.string(forKey: DefaultsKeys.activeCallUUID) ?? "nil"))")
             return
         }
-        callKitUnifiedDebug("requestEndActiveVoIPCallIfNeeded -> force provider.reportCall + submitting CXEndCallAction uuid=\(uuid.uuidString)")
         if let provider {
             provider.reportCall(with: uuid, endedAt: Date(), reason: .remoteEnded)
-        } else {
-            callKitUnifiedDebug("requestEndActiveVoIPCallIfNeeded -> provider is NIL, skipping force reportCall")
         }
         let action = CXEndCallAction(call: uuid)
         let tx = CXTransaction(action: action)
-        callController.request(tx) { [weak self] error in
-            if let error {
-                self?.callKitUnifiedDebug("CXEndCallAction request callback ERROR uuid=\(uuid.uuidString) error=\(error.localizedDescription) ns=\((error as NSError).domain)/\((error as NSError).code)")
-            } else {
-                self?.callKitUnifiedDebug("CXEndCallAction request callback SUCCESS uuid=\(uuid.uuidString) (provider delegate may follow)")
-            }
+        callController.request(tx) { _ in
             Self.clearStoredIncomingPayload()
         }
     }
@@ -209,63 +180,15 @@ final class CallKitManager: NSObject {
     @discardableResult
     private func endStoredActiveCallViaProvider(reason: CXCallEndedReason) -> Bool {
         guard let provider else {
-            callKitUnifiedDebug("endStoredActiveCallViaProvider -> provider is NIL, cannot reportCall")
             return false
         }
         guard let uuidString = UserDefaults.standard.string(forKey: DefaultsKeys.activeCallUUID),
               let uuid = UUID(uuidString: uuidString)
         else {
-            callKitUnifiedDebug("endStoredActiveCallViaProvider -> no activeCallUUID in UserDefaults (raw=\(UserDefaults.standard.string(forKey: DefaultsKeys.activeCallUUID) ?? "nil"))")
             return false
         }
-        callKitUnifiedDebug("endStoredActiveCallViaProvider -> provider.reportCall uuid=\(uuid.uuidString) reason=\(reasonDescription(reason))")
         provider.reportCall(with: uuid, endedAt: Date(), reason: reason)
-        callKitUnifiedDebug("endStoredActiveCallViaProvider -> provider.reportCall returned (sync void), assuming dispatched OK")
         return true
-    }
-
-    private func reasonDescription(_ reason: CXCallEndedReason) -> String {
-        switch reason {
-        case .failed: return "failed"
-        case .remoteEnded: return "remoteEnded"
-        case .unanswered: return "unanswered"
-        case .answeredElsewhere: return "answeredElsewhere"
-        case .declinedElsewhere: return "declinedElsewhere"
-        @unknown default: return "unknown(\(reason.rawValue))"
-        }
-    }
-
-    private func dumpVoIPState(tag: String) {
-        let providerOK = provider != nil
-        let activeUUID = UserDefaults.standard.string(forKey: DefaultsKeys.activeCallUUID) ?? "nil"
-        let payloadKeys: String
-        if let info = UserDefaults.standard.dictionary(forKey: DefaultsKeys.notificationPayload) {
-            payloadKeys = info.map { "\($0.key)=\(describeValue($0.value))" }.sorted().joined(separator: ", ")
-        } else {
-            payloadKeys = "nil"
-        }
-        let lastRinged: String
-        lastRingedCallLock.lock()
-        if let last = lastRingedCall {
-            lastRinged = "(channelId=\(last.channelId), callerId=\(last.callerId), ageSec=\(String(format: "%.2f", Date().timeIntervalSince(last.at))))"
-        } else {
-            lastRinged = "nil"
-        }
-        lastRingedCallLock.unlock()
-        let recentlyEnded: String
-        recentlyEndedLock.lock()
-        recentlyEnded = recentlyEndedAt.map { "(ch=\($0.key.channelId), caller=\($0.key.callerId), ageSec=\(String(format: "%.2f", Date().timeIntervalSince($0.value))))" }.sorted().joined(separator: " | ")
-        recentlyEndedLock.unlock()
-        callKitUnifiedDebug("STATE@\(tag) providerOK=\(providerOK) activeCallUUID=\(activeUUID) storedPayload={\(payloadKeys)} lastRingedCall=\(lastRinged) recentlyEnded=[\(recentlyEnded.isEmpty ? "empty" : recentlyEnded)]")
-    }
-
-    private func describeValue(_ any: Any) -> String {
-        if let s = any as? String {
-            if s.count > 80 { return "\"\(s.prefix(60))...[+\(s.count - 60)more]\"" }
-            return "\"\(s)\""
-        }
-        if let n = any as? NSNumber { return n.stringValue }
-        return "\(any)"
     }
 
     private func hasStoredActiveVoIPCallUUID() -> Bool {
@@ -277,6 +200,12 @@ final class CallKitManager: NSObject {
         let hasUUID = hasStoredActiveVoIPCallUUID()
         let hasPayload = UserDefaults.standard.dictionary(forKey: DefaultsKeys.notificationPayload) != nil
         return hasUUID && !hasPayload
+    }
+
+    func currentRingingOfferSentAtMs() -> Int64? {
+        guard hasStoredActiveVoIPCallUUID(), !wasAnsweredLocallyForVoIPCallKit() else { return nil }
+        guard let info = UserDefaults.standard.dictionary(forKey: DefaultsKeys.notificationPayload) else { return nil }
+        return IncomingPeerCallPayloadParser.offerCreatedAtMs(pushJsonData: info["pushJsonData"] as? String)
     }
 
     private func markRecentlyEnded(channelId: Int64, callerId: Int64) {
@@ -315,6 +244,14 @@ final class CallKitManager: NSObject {
         lastRingedCall = LastRingedCall(channelId: channelId, callerId: callerId, at: Date())
         lastRingedCallLock.unlock()
         clearPushDedupFor(channelId: channelId, callerId: callerId)
+        clearRecentlyEndedFor(channelId: channelId, callerId: callerId)
+    }
+
+    private func clearRecentlyEndedFor(channelId: Int64, callerId: Int64) {
+        let key = RecentlyEndedKey(channelId: channelId, callerId: callerId)
+        recentlyEndedLock.lock()
+        recentlyEndedAt.removeValue(forKey: key)
+        recentlyEndedLock.unlock()
     }
 
     private func clearPushDedupFor(channelId: Int64, callerId: Int64) {
@@ -385,9 +322,11 @@ final class CallKitManager: NSObject {
     }
 
     @MainActor
-    func endRingingCallIfMatching(channelId: Int64, callerId: Int64, remoteIsConnected: Bool = false) {
+    func endRingingCallIfMatching(channelId: Int64, callerId: Int64, remoteIsConnected: Bool = false, cancelSentAtMs: Int64? = nil) {
         guard channelId != 0 else {
-            callKitUnifiedDebug("endRingingCallIfMatching ignored zero channelId=\(channelId) callerId=\(callerId) remoteIsConnected=\(remoteIsConnected)")
+            return
+        }
+        if let c = cancelSentAtMs, let r = currentRingingOfferSentAtMs(), c < r {
             return
         }
         let storedChannelId: Int64
@@ -402,31 +341,22 @@ final class CallKitManager: NSObject {
             storedCallerId = snap.callerId
             source = "quitSnapshot"
         } else {
-            callKitUnifiedDebug("endRingingCallIfMatching no stored payload/snapshot for channelId=\(channelId) callerId=\(callerId) remoteIsConnected=\(remoteIsConnected) -> noop")
             return
         }
         let myId = Self.resolveLocalUserIdForVoIP(fallbackReceiverId: 0) ?? 0
         let channelMatches = storedChannelId == channelId
         let callerMatches = (callerId == 0) || (storedCallerId == callerId) || (myId != 0 && callerId == myId)
         guard channelMatches, callerMatches else {
-            callKitUnifiedDebug("endRingingCallIfMatching mismatch source=\(source) stored=(\(storedChannelId),\(storedCallerId)) incoming=(\(channelId),\(callerId)) myId=\(myId) remoteIsConnected=\(remoteIsConnected) -> noop")
             return
         }
         if remoteIsConnected && wasAnsweredLocallyForVoIPCallKit() {
-            callKitUnifiedDebug("endRingingCallIfMatching skip source=\(source) (remoteIsConnected=true && answeredLocally) -> leaving active call alone")
             return
         }
-        callKitUnifiedDebug("endRingingCallIfMatching matched source=\(source) channelId=\(channelId) callerId=\(callerId) storedCallerId=\(storedCallerId) remoteIsConnected=\(remoteIsConnected)")
-        dumpVoIPState(tag: "endRingingCallIfMatching.entry")
         markRecentlyEnded(channelId: storedChannelId, callerId: storedCallerId)
         let reason: CXCallEndedReason = remoteIsConnected ? .answeredElsewhere : .remoteEnded
-        let endedExisting = endStoredActiveCallViaProvider(reason: reason)
+        endStoredActiveCallViaProvider(reason: reason)
         requestEndActiveVoIPCallIfNeeded()
-        if !endedExisting {
-            callKitUnifiedDebug("endRingingCallIfMatching endStoredActiveCallViaProvider returned false -> relying on CXCallController fallback")
-        }
         Self.clearStoredIncomingPayload()
-        dumpVoIPState(tag: "endRingingCallIfMatching.exit")
     }
 
     private static func clearVoipQuitSnapshotStorage() {
@@ -500,9 +430,6 @@ final class CallKitManager: NSObject {
     }
 
     private static func clearStoredIncomingPayload() {
-        let priorUUID = UserDefaults.standard.string(forKey: DefaultsKeys.activeCallUUID) ?? "nil"
-        let hadPayload = UserDefaults.standard.dictionary(forKey: DefaultsKeys.notificationPayload) != nil
-        Self.emitCallKitUnifiedDebug("clearStoredIncomingPayload priorActiveCallUUID=\(priorUUID) hadPayload=\(hadPayload)")
         VoIPMinimalCallBootstrap.clearMinimalChromeFlagOnly()
         clearVoipQuitSnapshotStorage()
         UserDefaults.standard.removeObject(forKey: DefaultsKeys.notificationPayload)
@@ -522,7 +449,6 @@ final class CallKitManager: NSObject {
         UserDefaults.standard.set(callUUID.uuidString, forKey: DefaultsKeys.activeCallUUID)
         UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: DefaultsKeys.notificationTimestamp)
         UserDefaults.standard.synchronize()
-        callKitUnifiedDebug("storeIncomingUserInfo stored activeCallUUID=\(callUUID.uuidString) infoKeys=\(dict.keys.sorted())")
         let wantsMinimalChrome = UIApplication.shared.applicationState != .active
         VoIPMinimalCallBootstrap.activateForIncomingVoIPStoredPayload(wantsMinimalChrome: wantsMinimalChrome)
         if wantsMinimalChrome {
@@ -544,28 +470,18 @@ final class CallKitManager: NSObject {
 
     private func handleVoIPDictionary(_ payloadDict: [AnyHashable: Any], completion: @escaping () -> Void) {
         let myId = Self.resolveLocalUserIdForVoIP(fallbackReceiverId: 0) ?? 0
-        callKitUnifiedDebug("handleVoIPDictionary START myId=\(myId) payload.keys=\(payloadDict.keys)")
         guard let offerValue = payloadDict["offer"] else {
-            callKitUnifiedDebug("handleVoIPDictionary MISSING 'offer' key -> reportAndEndPlaceholderCall(.failed). full payload=\(payloadDict)")
             reportAndEndPlaceholderCall(reason: .failed, pushCompletion: completion)
             return
         }
-        callKitUnifiedDebug("handleVoIPDictionary 'offer' value type=\(type(of: offerValue))")
 
         guard let inner = parseOfferInner(offerValue) else {
-            callKitUnifiedDebug("handleVoIPDictionary cannot parse 'offer' value -> reportAndEndPlaceholderCall(.failed). rawOfferValue=\(describeValue(offerValue))")
             reportAndEndPlaceholderCall(reason: .failed, pushCompletion: completion)
             return
         }
-        callKitUnifiedDebug("handleVoIPDictionary parsed inner.keys=\(inner.keys.sorted())")
-        for (k, v) in inner.sorted(by: { $0.key < $1.key }) {
-            callKitUnifiedDebug("  inner[\(k)] = \(describeValue(v))")
-        }
-
         let offerStr = inner["offer"] as? String ?? ""
         let originalCancelChannelId = int64(inner["channelId"]) ?? 0
         let originalCancelCallerId = int64(inner["callerId"]) ?? 0
-        callKitUnifiedDebug("handleVoIPDictionary offer=\"\(offerStr.count > 60 ? String(offerStr.prefix(60)) + "...[+\(offerStr.count-60)]" : offerStr)\" channelId=\(originalCancelChannelId) callerId=\(originalCancelCallerId)")
         var cancelChannelId = originalCancelChannelId
         var cancelCallerId = originalCancelCallerId
         if offerStr == "CANCEL_CALL" {
@@ -573,17 +489,14 @@ final class CallKitManager: NSObject {
                 if let info = UserDefaults.standard.dictionary(forKey: DefaultsKeys.notificationPayload) {
                     if cancelChannelId == 0 { cancelChannelId = int64(info["channelId"]) ?? 0 }
                     if cancelCallerId == 0 { cancelCallerId = int64(info["callerId"]) ?? 0 }
-                    callKitUnifiedDebug("CANCEL_CALL fallback IDs from storedPayload channelId=\(cancelChannelId) callerId=\(cancelCallerId)")
                 } else if let snap = Self.readVoipQuitSnapshot() {
                     if cancelChannelId == 0 { cancelChannelId = snap.channelId }
                     if cancelCallerId == 0 { cancelCallerId = snap.callerId }
-                    callKitUnifiedDebug("CANCEL_CALL fallback IDs from quitSnapshot channelId=\(cancelChannelId) callerId=\(cancelCallerId)")
                 }
             }
             if (cancelChannelId == 0 || cancelCallerId == 0), let last = recentlyRingedCallIds() {
                 if cancelChannelId == 0 { cancelChannelId = last.channelId }
                 if cancelCallerId == 0 { cancelCallerId = last.callerId }
-                callKitUnifiedDebug("CANCEL_CALL fallback IDs from lastRingedCall channelId=\(cancelChannelId) callerId=\(cancelCallerId)")
             }
             let cancelHadOriginalIds = (originalCancelChannelId != 0 && originalCancelCallerId != 0)
             let isSelfEcho = (myId != 0 && cancelCallerId == myId)
@@ -593,50 +506,37 @@ final class CallKitManager: NSObject {
             let remoteIsConnected = (inner["isConnected"] as? Bool)
                 ?? ((inner["isConnected"] as? NSNumber)?.boolValue ?? false)
             let answeredLocally = wasAnsweredLocallyForVoIPCallKit()
-            callKitUnifiedDebug("CANCEL_CALL evaluating channelId=\(cancelChannelId) callerId=\(cancelCallerId) cancelHadOriginalIds=\(cancelHadOriginalIds) isSelfEcho=\(isSelfEcho) hadStoredUUID=\(hadStoredUUID) alreadyEndedRecently=\(alreadyEndedRecently) anyRecentEnd=\(anyRecentEnd) remoteIsConnected=\(remoteIsConnected) answeredLocally=\(answeredLocally)")
-
-            dumpVoIPState(tag: "CANCEL_CALL.beforeAction")
+            let cancelSentAtMs = IncomingPeerCallPayloadParser.sentAtMs(fromInnerDict: inner)
+            let cancelPredatesCurrentRing: Bool = {
+                guard let c = cancelSentAtMs, let r = currentRingingOfferSentAtMs() else { return false }
+                return c < r
+            }()
 
             if remoteIsConnected && answeredLocally {
-                callKitUnifiedDebug("CANCEL_CALL action=NOOP_ANSWERED_HERE (remoteIsConnected=true && answeredLocally) -> leaving active call alone")
-            } else if remoteIsConnected && hadStoredUUID && !alreadyEndedRecently {
-                callKitUnifiedDebug("CANCEL_CALL action=END_RINGING_ANSWERED_ELSEWHERE (remoteIsConnected=true, still ringing locally)")
-                let endedExisting = endStoredActiveCallViaProvider(reason: .answeredElsewhere)
+            } else if remoteIsConnected && hadStoredUUID && !alreadyEndedRecently && !cancelPredatesCurrentRing {
+                endStoredActiveCallViaProvider(reason: .answeredElsewhere)
                 requestEndActiveVoIPCallIfNeeded()
-                if endedExisting {
-                    callKitUnifiedDebug("CANCEL_CALL endedExisting=true via provider + CXCallController -> ended ringing CallKit (.answeredElsewhere)")
-                } else {
-                    callKitUnifiedDebug("CANCEL_CALL endStoredActiveCallViaProvider returned false -> relying on CXCallController fallback")
-                }
                 markRecentlyEnded(channelId: cancelChannelId, callerId: cancelCallerId)
                 Self.clearStoredIncomingPayload()
-                dumpVoIPState(tag: "CANCEL_CALL.afterEnd")
-            } else if hadStoredUUID && !alreadyEndedRecently {
-                callKitUnifiedDebug("CANCEL_CALL action=END_ACTIVE_RINGING (hadStoredUUID && !alreadyEndedRecently, remoteIsConnected=\(remoteIsConnected))")
-                let endedExisting = endStoredActiveCallViaProvider(reason: .remoteEnded)
+            } else if hadStoredUUID && !alreadyEndedRecently && !cancelPredatesCurrentRing {
+                endStoredActiveCallViaProvider(reason: .remoteEnded)
                 requestEndActiveVoIPCallIfNeeded()
-                if endedExisting {
-                    callKitUnifiedDebug("CANCEL_CALL endedExisting=true via provider + CXCallController -> ended ringing CallKit ✓ (isSelfEcho=\(isSelfEcho))")
-                } else {
-                    callKitUnifiedDebug("CANCEL_CALL endStoredActiveCallViaProvider returned false -> relying on CXCallController fallback")
-                }
                 markRecentlyEnded(channelId: cancelChannelId, callerId: cancelCallerId)
                 Self.clearStoredIncomingPayload()
-                dumpVoIPState(tag: "CANCEL_CALL.afterEnd")
             } else if !hadStoredUUID {
-                callKitUnifiedDebug("CANCEL_CALL action=NOOP_NO_STORED_UUID -> immediate-ended VoIP compliance only")
                 markRecentlyEnded(channelId: cancelChannelId, callerId: cancelCallerId)
-            } else {
-                callKitUnifiedDebug("CANCEL_CALL action=NOOP_ALREADY_ENDED -> immediate-ended VoIP compliance only")
             }
 
             if remoteIsConnected {
-                callKitUnifiedDebug("CANCEL_CALL remoteIsConnected -> skip VoIPCompliance reportNewIncomingCall, completion only")
-                completion()
+                reportImmediateEndedIncomingForVoIPCompliance(
+                    localizedCallerName: Self.callKitComplianceDisplayLabel,
+                    remoteHandleValue: Self.callKitComplianceDisplayLabel,
+                    requiresVideoUpdate: false,
+                    pushCompletion: completion
+                )
                 return
             }
 
-            callKitUnifiedDebug("CANCEL_CALL -> reportImmediateEndedIncomingForVoIPCompliance(PushKit compliance)")
             reportImmediateEndedIncomingForVoIPCompliance(
                 localizedCallerName: Self.callKitComplianceDisplayLabel,
                 remoteHandleValue: Self.callKitComplianceDisplayLabel,
@@ -647,7 +547,6 @@ final class CallKitManager: NSObject {
         }
 
         guard !offerStr.isEmpty else {
-            callKitUnifiedDebug("handleVoIPDictionary EMPTY offerStr after parse -> reportAndEndPlaceholderCall(.failed)")
             reportAndEndPlaceholderCall(reason: .failed, pushCompletion: completion)
             return
         }
@@ -658,7 +557,6 @@ final class CallKitManager: NSObject {
         let receiverId = int64(inner["receiverId"]) ?? 0
 
         guard channelId != 0, callerId != 0 else {
-            callKitUnifiedDebug("handleVoIPDictionary OFFER branch reject zero ids channelId=\(channelId) callerId=\(callerId) receiverId=\(receiverId) inner.keys=\(inner.keys.sorted()) -> reportAndEndPlaceholderCall(.failed)")
             reportAndEndPlaceholderCall(reason: .failed, pushCompletion: completion)
             return
         }
@@ -673,9 +571,7 @@ final class CallKitManager: NSObject {
         let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
         let sentAtMsOpt = IncomingPeerCallPayloadParser.offerCreatedAtMs(pushJsonData: innerJsonForFreshness)
         let staleReason: String? = {
-            guard let sentAtMs = sentAtMsOpt else {
-                return "missing sentAt/createAt"
-            }
+            guard let sentAtMs = sentAtMsOpt else { return nil }
             let ageMs = nowMs - sentAtMs
             if ageMs > PeerCallIncomingFreshness.maxOfferAgeMs {
                 return "ageMs=\(ageMs) > windowMs=\(PeerCallIncomingFreshness.maxOfferAgeMs) (sentAt=\(sentAtMs) now=\(nowMs))"
@@ -683,23 +579,20 @@ final class CallKitManager: NSObject {
             return nil
         }()
         if let staleReason {
-            callKitUnifiedDebug(
-                "OFFER push STALE \(staleReason) -> early return, no CallKit report at all"
-            )
             markRecentlyEnded(channelId: channelId, callerId: callerId)
-            completion()
+            reportImmediateEndedIncomingForVoIPCompliance(
+                localizedCallerName: callerName,
+                remoteHandleValue: callerId != 0 ? "\(callerId)" : callerName,
+                requiresVideoUpdate: false,
+                pushCompletion: completion
+            )
             return
         }
-        if let sentAtMs = sentAtMsOpt {
-            callKitUnifiedDebug("OFFER push fresh ageMs=\(nowMs - sentAtMs) (within \(PeerCallIncomingFreshness.maxOfferAgeMs)ms window)")
-        }
-
         let isSelfEcho = (myId != 0 && callerId == myId)
         let isDuplicateOfferPush = offerWasSeenRecently(offerStr)
+        _ = storedUserInfoIfFresh()
         let hadStoredUUID = hasStoredActiveVoIPCallUUID()
-        callKitUnifiedDebug("OFFER push evaluating channelId=\(channelId) callerId=\(callerId) isSelfEcho=\(isSelfEcho) isDuplicateOfferPush=\(isDuplicateOfferPush) hadStoredUUID=\(hadStoredUUID)")
         if isSelfEcho {
-            callKitUnifiedDebug("OFFER push isSelfEcho -> reportImmediateEndedCompliance (PushKit)")
             reportImmediateEndedIncomingForVoIPCompliance(
                 localizedCallerName: callerName,
                 remoteHandleValue: callerId != 0 ? "\(callerId)" : callerName,
@@ -709,7 +602,6 @@ final class CallKitManager: NSObject {
             return
         }
         if isDuplicateOfferPush {
-            callKitUnifiedDebug("OFFER push duplicate offer SDP within \(offerDedupWindow)s -> immediate-ended compliance ring already shown")
             reportImmediateEndedIncomingForVoIPCompliance(
                 localizedCallerName: callerName,
                 remoteHandleValue: callerId != 0 ? "\(callerId)" : callerName,
@@ -719,7 +611,6 @@ final class CallKitManager: NSObject {
             return
         }
         if hadStoredUUID {
-            callKitUnifiedDebug("OFFER push but CallKit already active -> immediate-ended compliance (no second ring UI churn)")
             reportImmediateEndedIncomingForVoIPCompliance(
                 localizedCallerName: callerName,
                 remoteHandleValue: callerId != 0 ? "\(callerId)" : callerName,
@@ -737,6 +628,26 @@ final class CallKitManager: NSObject {
             return ""
         }()
 
+        presentIncomingCallRing(
+            channelId: channelId,
+            callerId: callerId,
+            receiverId: receiverId,
+            callerName: callerName,
+            offerStr: offerStr,
+            pushJsonData: pushJsonData,
+            completion: completion
+        )
+    }
+
+    private func presentIncomingCallRing(
+        channelId: Int64,
+        callerId: Int64,
+        receiverId: Int64,
+        callerName: String,
+        offerStr: String,
+        pushJsonData: String,
+        completion: (() -> Void)?
+    ) {
         let userInfo: [AnyHashable: Any] = [
             "channelId": NSNumber(value: channelId),
             "callerId": NSNumber(value: callerId),
@@ -745,13 +656,8 @@ final class CallKitManager: NSObject {
             "pushJsonData": pushJsonData,
         ]
 
-        let hasVideo = false
-
-        if provider == nil {
-            ensureProviderConfigured()
-        }
+        reassertMainProviderIfNeeded()
         guard let provider else {
-            callKitUnifiedDebug("handleVoIPDictionary provider nil after ensureProviderConfigured -> placeholder failed + prepareIncomingCallFromVoIPUserInfo if myId")
             reportAndEndPlaceholderCall(reason: .failed, pushCompletion: completion)
             if let myId = Self.resolveLocalUserIdForVoIP(fallbackReceiverId: receiverId) {
                 Task { @MainActor in
@@ -777,28 +683,77 @@ final class CallKitManager: NSObject {
         }
 
         let callUUID = UUID()
-        callKitUnifiedDebug("reportNewIncomingCall (ringing) channelId=\(channelId) callerId=\(callerId) uuid=\(callUUID.uuidString) name=\"\(callerName)\"")
         setLastRingedCall(channelId: channelId, callerId: callerId)
         storeIncomingUserInfo(userInfo, callUUID: callUUID)
 
         let update = CXCallUpdate()
         update.remoteHandle = CXHandle(type: .generic, value: callerId != 0 ? "\(callerId)" : callerName)
         update.localizedCallerName = callerName
-        update.hasVideo = hasVideo
+        update.hasVideo = false
         update.supportsHolding = false
         update.supportsDTMF = false
         update.supportsGrouping = false
         update.supportsUngrouping = false
 
-        let gate = VoIPPushCompletionGate(completion)
+        let gate = VoIPPushCompletionGate(completion ?? {})
         provider.reportNewIncomingCall(with: callUUID, update: update) { [weak self] error in
             if let error {
-                self?.callKitUnifiedDebug("reportNewIncomingCall (ringing) ERROR uuid=\(callUUID.uuidString) error=\(error.localizedDescription) ns=\((error as NSError).domain)/\((error as NSError).code) -> clearStored")
                 Self.clearStoredIncomingPayload()
             } else {
-                self?.callKitUnifiedDebug("reportNewIncomingCall (ringing) OK uuid=\(callUUID.uuidString) -> CallKit UI should now ring")
+                self?.scheduleUnansweredRingFailsafe(callUUID: callUUID, channelId: channelId, callerId: callerId)
             }
             gate.consume()
+        }
+    }
+
+    @MainActor
+    func ringIncomingFromSocketOfferIfNeeded(
+        channelId: Int64,
+        callerId: Int64,
+        receiverId: Int64,
+        compressedOffer: String
+    ) {
+        let offerStr = compressedOffer.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard channelId != 0, callerId != 0, !offerStr.isEmpty else { return }
+        guard let myId = Self.resolveLocalUserIdForVoIP(fallbackReceiverId: receiverId), callerId != myId else { return }
+        guard receiverId == myId || receiverId == 0 else { return }
+        guard WebRTCCallManager.shared.signalingSession == nil else { return }
+        guard WebRTCCallManager.shared.hasPendingIncomingSocketOffer(channelId: channelId, callerId: callerId) else { return }
+        _ = storedUserInfoIfFresh()
+        guard !hasStoredActiveVoIPCallUUID() else { return }
+        guard !offerWasSeenRecently(offerStr) else { return }
+        let display = IncomingPeerCallPayloadParser.callerDisplayFromCompressedOffer(offerStr)
+        let callerName: String = {
+            if let n = display.name, !n.isEmpty { return n }
+            return "Incoming call"
+        }()
+        presentIncomingCallRing(
+            channelId: channelId,
+            callerId: callerId,
+            receiverId: receiverId,
+            callerName: callerName,
+            offerStr: offerStr,
+            pushJsonData: "",
+            completion: nil
+        )
+    }
+
+    private func scheduleUnansweredRingFailsafe(callUUID: UUID, channelId: Int64, callerId: Int64) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 75) { [weak self] in
+            self?.endRingIfStillUnanswered(callUUID: callUUID, channelId: channelId, callerId: callerId)
+        }
+    }
+
+    private func endRingIfStillUnanswered(callUUID: UUID, channelId: Int64, callerId: Int64) {
+        guard let stored = UserDefaults.standard.string(forKey: DefaultsKeys.activeCallUUID),
+              stored == callUUID.uuidString,
+              !wasAnsweredLocallyForVoIPCallKit()
+        else { return }
+        markRecentlyEnded(channelId: channelId, callerId: callerId)
+        provider?.reportCall(with: callUUID, endedAt: Date(), reason: .unanswered)
+        Self.clearStoredIncomingPayload()
+        Task { @MainActor in
+            WebRTCCallManager.shared.abandonIncomingPresentation()
         }
     }
 
@@ -855,14 +810,9 @@ final class CallKitManager: NSObject {
         requiresVideoUpdate: Bool,
         pushCompletion: @escaping () -> Void
     ) {
-        ensureSilentReportProviderConfigured()
-        guard let rp = silentReportProvider else {
-            callKitUnifiedDebug("reportImmediateEndedIncomingForVoIPCompliance NO_SILENT_PROVIDER -> pushCompletion only")
-            pushCompletion()
-            return
-        }
+        let rp = makeTransientSilentComplianceProvider()
         let ephemeralUUID = UUID()
-        callKitUnifiedDebug("reportImmediateEndedIncomingForVoIPCompliance ephemeralUUID=\(ephemeralUUID.uuidString) name=\"\(localizedCallerName)\" handle=\"\(remoteHandleValue)\"")
+        markComplianceCall(ephemeralUUID)
         let update = CXCallUpdate()
         update.remoteHandle = CXHandle(type: .generic, value: remoteHandleValue)
         update.localizedCallerName = localizedCallerName
@@ -872,26 +822,24 @@ final class CallKitManager: NSObject {
         update.supportsGrouping = false
         update.supportsUngrouping = false
         rp.reportNewIncomingCall(with: ephemeralUUID, update: update) { [weak self] error in
-            if let error {
-                self?.callKitUnifiedDebug("reportImmediateEndedIncomingForVoIPCompliance reportNewIncomingCall ERROR uuid=\(ephemeralUUID.uuidString) error=\(error.localizedDescription) ns=\((error as NSError).domain)/\((error as NSError).code)")
-            } else {
-                self?.callKitUnifiedDebug("reportImmediateEndedIncomingForVoIPCompliance reportNewIncomingCall OK uuid=\(ephemeralUUID.uuidString) -> reportCall(.failed)")
+            if error == nil {
                 rp.reportCall(with: ephemeralUUID, endedAt: Date(), reason: .failed)
             }
+            self?.unmarkComplianceCall(ephemeralUUID)
+            DispatchQueue.main.async {
+                self?.scheduleComplianceProviderInvalidation(rp)
+            }
             pushCompletion()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            rp.reportCall(with: ephemeralUUID, endedAt: Date(), reason: .failed)
         }
     }
 
     private func reportAndEndPlaceholderCall(reason: CXCallEndedReason, pushCompletion: (() -> Void)? = nil) {
-        callKitUnifiedDebug("reportAndEndPlaceholderCall reason=\(reasonDescription(reason)) (placeholder CallKit will flash briefly)")
-        ensureSilentReportProviderConfigured()
-        guard let rp = silentReportProvider else {
-            callKitUnifiedDebug("reportAndEndPlaceholderCall NO_SILENT_PROVIDER -> pushCompletion only")
-            pushCompletion?()
-            return
-        }
+        let rp = makeTransientSilentComplianceProvider()
         let placeholderUUID = UUID()
-        callKitUnifiedDebug("reportAndEndPlaceholderCall placeholderUUID=\(placeholderUUID.uuidString)")
+        markComplianceCall(placeholderUUID)
         let alreadyEndedAt = Date(timeIntervalSinceNow: -2)
         let update = CXCallUpdate()
         update.remoteHandle = CXHandle(type: .generic, value: Self.callKitComplianceDisplayLabel)
@@ -901,15 +849,18 @@ final class CallKitManager: NSObject {
         update.supportsDTMF = false
         update.supportsGrouping = false
         update.supportsUngrouping = false
-        let reasonLabel = reasonDescription(reason)
         rp.reportNewIncomingCall(with: placeholderUUID, update: update) { [weak self] error in
-            if let error {
-                self?.callKitUnifiedDebug("reportAndEndPlaceholderCall reportNewIncomingCall ERROR uuid=\(placeholderUUID.uuidString) error=\(error.localizedDescription) ns=\((error as NSError).domain)/\((error as NSError).code)")
-            } else {
-                self?.callKitUnifiedDebug("reportAndEndPlaceholderCall reportNewIncomingCall OK uuid=\(placeholderUUID.uuidString) -> reportCall(reason=\(reasonLabel))")
+            if error == nil {
                 rp.reportCall(with: placeholderUUID, endedAt: alreadyEndedAt, reason: reason)
             }
+            self?.unmarkComplianceCall(placeholderUUID)
+            DispatchQueue.main.async {
+                self?.scheduleComplianceProviderInvalidation(rp)
+            }
             pushCompletion?()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            rp.reportCall(with: placeholderUUID, endedAt: alreadyEndedAt, reason: reason)
         }
     }
 }
@@ -933,30 +884,11 @@ extension CallKitManager: PKPushRegistryDelegate {
         for type: PKPushType,
         completion: @escaping () -> Void
     ) {
-        Self.voipInstantFlushPrint("didReceiveIncomingPush ENTRY type=\(type.rawValue)")
-        Self.voipInstantPrintPayload(payload.dictionaryPayload)
-        let appState: String = {
-            switch UIApplication.shared.applicationState {
-            case .active: return "active"
-            case .inactive: return "inactive"
-            case .background: return "background"
-            @unknown default: return "unknown"
-            }
-        }()
-        callKitUnifiedDebug("=====================================================")
-        callKitUnifiedDebug("pushRegistry didReceiveIncomingPush type=\(type.rawValue) appState=\(appState)")
-        callKitUnifiedDebug("RAW payload.dictionaryPayload keys=\(payload.dictionaryPayload.keys)")
-        for (k, v) in payload.dictionaryPayload {
-            callKitUnifiedDebug("  payload[\(k)] = \(describeValue(v))")
-        }
-        dumpVoIPState(tag: "pushReceived")
         guard type == .voIP else {
-            callKitUnifiedDebug("pushRegistry type != .voIP -> placeholder failed")
             reportAndEndPlaceholderCall(reason: .failed, pushCompletion: completion)
             return
         }
         ensureProviderConfigured()
-        callKitUnifiedDebug("pushRegistry providerConfigured=\(provider != nil), handing off to handleVoIPDictionary")
         handleVoIPDictionary(payload.dictionaryPayload, completion: completion)
     }
 }
@@ -964,27 +896,20 @@ extension CallKitManager: PKPushRegistryDelegate {
 extension CallKitManager: CXProviderDelegate {
 
     func providerDidReset(_ resetProvider: CXProvider) {
-        if resetProvider === provider {
-            callKitUnifiedDebug("providerDidReset MAIN -> clearStoredIncomingPayload")
-            Task { @MainActor in
-                WebRTCCallManager.shared.endActivePeerCallFromCallKitAction()
-            }
-            Self.clearStoredIncomingPayload()
-        } else if resetProvider === silentReportProvider {
-            callKitUnifiedDebug("providerDidReset SILENT_REPORT provider cleared")
-            silentReportProvider = nil
+        guard resetProvider === provider else { return }
+        clearComplianceCalls()
+        Task { @MainActor in
+            WebRTCCallManager.shared.endActivePeerCallFromCallKitAction()
         }
+        Self.clearStoredIncomingPayload()
     }
 
     func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
-        callKitUnifiedDebug("CXAnswerCallAction received uuid=\(action.callUUID.uuidString)")
-        if provider === silentReportProvider {
-            callKitUnifiedDebug("CXAnswerCallAction silentReportProvider -> fulfill only")
+        if isComplianceCall(action.callUUID) {
             action.fulfill()
             return
         }
         guard let info = storedUserInfoIfFresh() else {
-            callKitUnifiedDebug("CXAnswerCallAction no stored payload -> abandonIncomingPresentation + fulfill")
             Task { @MainActor in
                 WebRTCCallManager.shared.abandonIncomingPresentation()
                 action.fulfill()
@@ -1025,13 +950,10 @@ extension CallKitManager: CXProviderDelegate {
     }
 
     func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
-        callKitUnifiedDebug("CXEndCallAction received uuid=\(action.callUUID.uuidString) (CallKit invoked our end-action delegate)")
-        if provider === silentReportProvider {
+        if isComplianceCall(action.callUUID) {
             action.fulfill()
-            callKitUnifiedDebug("CXEndCallAction silentReportProvider -> fulfill only")
             return
         }
-        dumpVoIPState(tag: "CXEndCallAction.entry")
         markRecentlyEndedFromStoredPayloadIfPossible()
         markRecentlyEndedFromQuitSnapshotIfPossible()
         forwardQuitToCallerFromStoredVoIPIfNeeded()
@@ -1041,7 +963,6 @@ extension CallKitManager: CXProviderDelegate {
             Self.clearStoredIncomingPayload()
         }
         action.fulfill()
-        callKitUnifiedDebug("CXEndCallAction fulfilled uuid=\(action.callUUID.uuidString)")
     }
 
     func provider(_ provider: CXProvider, perform action: CXStartCallAction) {
@@ -1057,8 +978,7 @@ extension CallKitManager: CXProviderDelegate {
     }
 
     func provider(_ provider: CXProvider, timedOutPerforming action: CXAction) {
-        callKitUnifiedDebug("CXProvider timedOutPerforming action=\(type(of: action))")
-        if provider === silentReportProvider {
+        if let callAction = action as? CXCallAction, isComplianceCall(callAction.callUUID) {
             return
         }
         markRecentlyEndedFromStoredPayloadIfPossible()
@@ -1084,7 +1004,6 @@ extension CallKitManager: CXProviderDelegate {
     }
 
     func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
-        callKitUnifiedDebug("CXProvider didActivate audioSession")
         let rtc = LKRTCAudioSession.sharedInstance()
         rtc.audioSessionDidActivate(audioSession)
         rtc.isAudioEnabled = true
@@ -1092,7 +1011,6 @@ extension CallKitManager: CXProviderDelegate {
     }
 
     func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
-        callKitUnifiedDebug("CXProvider didDeactivate audioSession")
         let rtc = LKRTCAudioSession.sharedInstance()
         rtc.isAudioEnabled = false
         rtc.audioSessionDidDeactivate(audioSession)

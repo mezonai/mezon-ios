@@ -51,14 +51,15 @@ enum ImgproxyURL {
         from sourceURL: String,
         width: Int,
         height: Int,
-        resizeType: String = "fit"
+        resizeType: String = "fit",
+        forceProxy: Bool = false
     ) -> String {
         let resolvedSourceURL = secureURLString(from: sourceURL)
         guard !resolvedSourceURL.isEmpty else { return resolvedSourceURL }
         guard cdnHosts.contains(where: { resolvedSourceURL.contains($0) }) else {
             return resolvedSourceURL
         }
-        if shouldSkipProxy(resolvedSourceURL) {
+        if !forceProxy && shouldSkipProxy(resolvedSourceURL) {
             return resolvedSourceURL
         }
         let w = max(1, width)
@@ -115,6 +116,20 @@ enum ImgproxyURL {
         return "\(proxyBase)/\(processingOptions)/plain/\(encodedSource)@webp"
     }
 
+    static func avatarPreviewProxyURL(from sourceURL: String, width: Int = 100, height: Int = 100) -> String {
+        let s = secureURLString(from: sourceURL)
+        guard !s.isEmpty else { return s }
+        if s.contains("imgproxy.mezon") || s.contains("imgproxy.komu") {
+            return s
+        }
+        guard s.hasPrefix("http://") || s.hasPrefix("https://") else { return s }
+        guard cdnHosts.contains(where: { s.contains($0) }) else { return s }
+        let w = max(1, width)
+        let h = max(1, height)
+        let processingOptions = "rs:fit:\(w):\(h):1/mb:2097152"
+        let encodedSource = s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s
+        return "\(proxyBase)/\(processingOptions)/plain/\(encodedSource)@png"
+    }
 
     static func createEmoji(from sourceURL: String, width: Int, height: Int, resizeType: String = "fit") -> String {
         let resolvedSourceURL = secureURLString(from: sourceURL)

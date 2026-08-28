@@ -18,7 +18,6 @@ final class AddFriendByUsernameViewController: ViewController {
 
     private var query: String = ""
     private var isSending: Bool = false
-    private var friendByUsername: [String: Mezon_Api_Friend] = [:]
     private var isNodeReady = false
     private var didPlayAppearAnimation = false
 
@@ -77,6 +76,7 @@ final class AddFriendByUsernameViewController: ViewController {
             size: layout.size,
             safeTop: safeTop,
             bottomInset: layout.intrinsicInsets.bottom,
+            keyboardHeight: layout.inputHeight ?? 0,
             transition: transition
         )
     }
@@ -161,54 +161,21 @@ final class AddFriendByUsernameViewController: ViewController {
             defer { self.setIsSending(false) }
 
             guard let token = await self.context.getToken() else { return }
-            let myUsername = self.context.currentUser?.username ?? ""
-
-            if !myUsername.isEmpty, normalized.caseInsensitiveCompare(myUsername) == .orderedSame {
-                Toast.error(L(L10n.FriendRequest.toastSelfAddError), title: "")
-                return
-            }
-
-            await self.ensureFriendLookup(token: token)
-            if let existing = self.friendByUsername[normalized.lowercased()] {
-                switch existing.state {
-                case EStateFriend.block.rawValue:
-                    Toast.error(L(L10n.FriendRequest.toastBlockedError), title: "")
-                    return
-                case EStateFriend.friend.rawValue:
-                    Toast.error(L(L10n.FriendRequest.toastAlreadyFriend), title: "")
-                    return
-                case EStateFriend.otherPending.rawValue:
-                    Toast.error(L(L10n.FriendRequest.toastWaitAccept), title: "")
-                    return
-                case EStateFriend.myPending.rawValue:
-                    Toast.error(L(L10n.FriendRequest.toastIncomingReq), title: "")
-                    return
-                default:
-                    break
-                }
-            }
 
             do {
                 try await self.context.account.network.addFriends(usernames: [normalized], token: token)
                 self.query = ""
-                self.friendByUsername.removeAll()
                 self.needsReloadPipe.putNext(())
                 await self.context.engine.friendsData.refreshFromNetwork(token: token, force: true)
                 Toast.success(L(L10n.FriendRequest.toastSendSuccess))
             } catch {
-                Toast.error(L(L10n.FriendRequest.toastSelfAddError), title: "")
+                if case let MezonError.httpError(_, message) = error, !message.isEmpty {
+                    Toast.error(message, title: "")
+                } else {
+                    Toast.error(L(L10n.FriendRequest.addByGenericError), title: "")
+                }
             }
         }
-    }
-
-    @MainActor
-    private func ensureFriendLookup(token: String) async {
-        var map = context.engine.friendsData.lookupByUsername()
-        if map.isEmpty {
-            await context.engine.friendsData.refreshFromNetwork(token: token, force: true)
-            map = context.engine.friendsData.lookupByUsername()
-        }
-        friendByUsername = map
     }
 }
 
@@ -232,7 +199,7 @@ private final class AddFriendByUsernameContainerNode: ASDisplayNode, ASEditableT
     private let submitButton = ASButtonNode()
 
     private var state = AddFriendByUsernameState(query: "", isSending: false, currentUsername: "")
-    private var validLayout: (size: CGSize, safeTop: CGFloat, bottomInset: CGFloat)?
+    private var validLayout: (size: CGSize, safeTop: CGFloat, bottomInset: CGFloat, keyboardHeight: CGFloat)?
 
     init(signal: Signal<AddFriendByUsernameState, NoError>, interaction: AddFriendByUsernameInteraction) {
         self.interaction = interaction
@@ -295,9 +262,9 @@ private final class AddFriendByUsernameContainerNode: ASDisplayNode, ASEditableT
         }
     }
 
-    func updateLayout(size: CGSize, safeTop: CGFloat, bottomInset: CGFloat, transition: ContainedViewLayoutTransition) {
+    func updateLayout(size: CGSize, safeTop: CGFloat, bottomInset: CGFloat, keyboardHeight: CGFloat, transition: ContainedViewLayoutTransition) {
         let top = isNodeLoaded ? max(safeTop, view.safeAreaInsets.top) : safeTop
-        validLayout = (size, top, bottomInset)
+        validLayout = (size, top, bottomInset, keyboardHeight)
         applyLayout(transition: transition)
     }
 
@@ -379,7 +346,7 @@ private final class AddFriendByUsernameContainerNode: ASDisplayNode, ASEditableT
     }
 
     private func applyLayout(transition: ContainedViewLayoutTransition) {
-        guard let (size, safeTop, bottomInset) = validLayout else { return }
+        guard let (size, safeTop, bottomInset, keyboardHeight) = validLayout else { return }
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -424,7 +391,8 @@ private final class AddFriendByUsernameContainerNode: ASDisplayNode, ASEditableT
         transition.updateFrame(node: hintNode, frame: CGRect(x: sideInset, y: hintY, width: size.width - sideInset * 2, height: hintSize.height))
 
         let buttonHeight: CGFloat = 48.sh
-        let buttonY = size.height - bottomInset - buttonHeight - 20.sh
+        let effectiveBottomInset = max(bottomInset, keyboardHeight)
+        let buttonY = size.height - effectiveBottomInset - buttonHeight - 20.sh
         transition.updateFrame(node: submitButton, frame: CGRect(x: sideInset, y: buttonY, width: size.width - sideInset * 2, height: buttonHeight))
     }
 

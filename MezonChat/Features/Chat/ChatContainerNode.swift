@@ -487,9 +487,6 @@ final class ChatContainerNode: ASDisplayNode {
         let newIds = buildIds(from: state)
 
         if !committedMessageIds.isEmpty, committedMessageIds == newIds {
-#if DEBUG
-            print("[ChatScroll] reloadAllItems update-in-place count=\(newIds.count)")
-#endif
             let updateItems = items.enumerated().map { index, item in
                 ListViewUpdateItem(
                     index: index,
@@ -522,9 +519,6 @@ final class ChatContainerNode: ASDisplayNode {
                 directionHint: .Down
             )
         }
-#if DEBUG
-        print("[ChatScroll] reloadAllItems full-reload old=\(committedMessageIds.count) new=\(newIds.count) anchor=\(visibleMessageAnchor?.messageId ?? "nil")")
-#endif
 
         var deleteItems: [ListViewDeleteItem] = []
         for i in (0..<committedMessageIds.count).reversed() {
@@ -670,9 +664,6 @@ final class ChatContainerNode: ASDisplayNode {
 
         var scrollToItem: ListViewScrollToItem?
         if hasNewAtBottom && !isLoadMoreResult && !new.hasMoreNewer && (isAtBottom || newestMessageIsMe) {
-#if DEBUG
-            print("[ChatScroll] applyTransition auto-bottom isAtBottom=\(isAtBottom) newestIsMe=\(newestMessageIsMe)")
-#endif
             didAutoScrollForNewMessages = true
             scrollToItem = ListViewScrollToItem(index: 0, position: .top(0), animated: true, curve: .Spring(duration: 0.3), directionHint: .Up)
         }

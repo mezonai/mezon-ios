@@ -705,7 +705,6 @@ final class MezonRootController: NavigationController {
                 let categoryDescs = (try? await categoriesTask) ?? []
                 let favoriteIds = Set((try? await favoritesTask) ?? [])
                 let channels = try await channelsTask
-                NSLog("[ChannelList] MezonRoot listChannelDescs clanId=%lld count=%d cats=%d", clanId, channels.count, categoryDescs.count)
                 guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
                 if channels.isEmpty {
                     if let homeVC = self.homeController, homeVC.channelListVC.clanId == clanId {

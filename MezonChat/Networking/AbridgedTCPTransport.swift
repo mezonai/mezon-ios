@@ -4,7 +4,7 @@ import Network
 final class AbridgedTCPTransport {
 
     var onOpen: (() -> Void)?
-    var onClose: ((_ wasClean: Bool) -> Void)?
+    var onClose: ((_ wasClean: Bool, _ error: Error?) -> Void)?
     var onError: ((Error) -> Void)?
     var onEvents: (([AbridgedParsedEvent]) -> Void)?
 
@@ -145,7 +145,7 @@ final class AbridgedTCPTransport {
         if let error {
             onError?(error)
         }
-        onClose?(wasClean)
+        onClose?(wasClean, error)
         onOpen = nil
         onClose = nil
         onError = nil
