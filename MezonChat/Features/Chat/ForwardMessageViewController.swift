@@ -416,10 +416,15 @@ final class ForwardMessageViewController: UIViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(langChanged), name: LanguageManager.didChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(themeChanged), name: ThemeManager.didChangeNotification, object: nil)
         setupUI()
-        applyThemeStrings()
-        loadDestinations()
+        if #available(iOS 13.0, *) {
+            applyThemeStrings()
+        }
+        if #available(iOS 13.0, *) {
+            loadDestinations()
+        }
     }
 
+    @available(iOS 13.0, *)
     private func applyThemeStrings() {
         titleLbl.text = L(L10n.Forward.screenTitle)
         searchField.attributedPlaceholder = NSAttributedString(
@@ -436,13 +441,17 @@ final class ForwardMessageViewController: UIViewController {
     }
 
     @objc private func langChanged() {
-        applyThemeStrings()
+        if #available(iOS 13.0, *) {
+            applyThemeStrings()
+        }
     }
 
     @objc private func themeChanged() {
-        applyTheme()
-        applyThemeStrings()
-        tableView.reloadData()
+        if #available(iOS 13.0, *) {
+            applyTheme()
+            applyThemeStrings()
+            tableView.reloadData()
+        }
     }
 
     private func applyTheme() {
@@ -463,15 +472,15 @@ final class ForwardMessageViewController: UIViewController {
     }
 
     private func setupUI() {
-        let cc = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
-        closeButton.setImage(UIImage(systemName: "xmark", withConfiguration: cc), for: .normal)
+        let cc = MezonSymbolConfiguration(pointSize: 18, weight: .medium)
+        closeButton.setImage(UIImage.mezonSystemImage("xmark", withConfiguration: cc), for: .normal)
         closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
 
         titleLbl.font = .systemFont(ofSize: 20, weight: .bold)
         titleLbl.textAlignment = .center
 
         searchWrap.layer.cornerRadius = 20
-        searchIcon.image = UIImage(systemName: "magnifyingglass")
+        searchIcon.image = UIImage.mezonSystemImage("magnifyingglass")
         searchField.borderStyle = .none
         searchField.backgroundColor = .clear
         searchField.font = .systemFont(ofSize: 15)
@@ -497,9 +506,9 @@ final class ForwardMessageViewController: UIViewController {
 
         sendBtn.layer.cornerRadius = 20
         sendBtn.clipsToBounds = true
-        let sendCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        let sendCfg = MezonSymbolConfiguration(pointSize: 16, weight: .medium)
         let sendImg = UIImage(named: "Chat/SendMessageIcon")?.withRenderingMode(.alwaysTemplate)
-            ?? UIImage(systemName: "paperplane.fill", withConfiguration: sendCfg)
+            ?? UIImage.mezonSystemImage("paperplane.fill", withConfiguration: sendCfg)
         sendBtn.setImage(sendImg, for: .normal)
         sendBtn.imageView?.contentMode = .scaleAspectFit
         let iconInset: CGFloat = 9
@@ -725,6 +734,7 @@ final class ForwardMessageViewController: UIViewController {
         return (clanID, channelClanName)
     }
 
+    @available(iOS 13.0, *)
     private func loadDestinations() {
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -912,6 +922,7 @@ final class ForwardMessageViewController: UIViewController {
         filteredItems
     }
 
+    @available(iOS 13.0, *)
     private func updatePreviewLabel() {
         guard let first = messagesToForward.first else {
             previewAttLbl.text = ""
@@ -1024,83 +1035,85 @@ final class ForwardMessageViewController: UIViewController {
     }
 
     @objc private func sendTapped() {
-        guard !isSending, !selectedIDs.isEmpty else { return }
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard let tok = await context.getToken() else {
-                Toast.error(L(L10n.Sharing.sessionExpired))
-                return
-            }
-            let selectedChannels = selectedIDs.compactMap { self.channelMap[$0] }
-            if selectedChannels.isEmpty {
-                return
-            }
-            let extraRaw = ForwardOutgoing.sanitizedComment(commentField.text ?? "")
-            if ForwardOutgoing.commentContentJSON(trimmed: extraRaw) == nil, !extraRaw.isEmpty {
-                Toast.error(L(L10n.Forward.commentTooLong))
-                return
-            }
-            isSending = true
-            defer { self.isSending = false }
-            do {
-                for dest in selectedChannels {
-                    let cid = forwardClanId(for: dest)
-                    let mid = forwardingMode(for: dest)
-                    let pub = isPublicDestination(dest)
-                    let avatar = context.currentUser?.avatarURL?.absoluteString ?? ""
-                    for msg in messagesToForward {
-                        let contentStr = ForwardOutgoing.contentJSONString(for: msg)
-                        let mentions = ForwardOutgoing.mentions(
-                            record: msg,
-                            destinationChannelID: dest.channelID,
-                            forwardFromChannelID: forwardFromChannelID
-                        )
-                        let atts = ForwardOutgoing.attachments(for: msg, fallback: attachmentHints[msg.id] ?? [])
-                        _ = try await context.account.network.sendChannelMessage(
-                            clanId: cid,
-                            channelId: dest.channelID,
-                            mode: mid,
-                            isPublic: pub,
-                            content: contentStr,
-                            mentions: mentions,
-                            attachments: atts,
-                            references: [],
-                            anonymous: false,
-                            mentionEveryone: false,
-                            avatar: avatar,
-                            topicId: 0,
-                            code: msg.code,
-                            token: tok
-                        )
-                    }
-                    if let cJSON = ForwardOutgoing.commentContentJSON(trimmed: extraRaw), !extraRaw.isEmpty {
-                        _ = try await context.account.network.sendChannelMessage(
-                            clanId: cid,
-                            channelId: dest.channelID,
-                            mode: mid,
-                            isPublic: pub,
-                            content: cJSON,
-                            mentions: [],
-                            attachments: [],
-                            references: [],
-                            anonymous: false,
-                            mentionEveryone: false,
-                            avatar: avatar,
-                            topicId: 0,
-                            code: 0,
-                            token: tok
-                        )
-                    }
+        if #available(iOS 13.0, *) {
+            guard !isSending, !selectedIDs.isEmpty else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard let tok = await context.getToken() else {
+                    Toast.error(L(L10n.Sharing.sessionExpired))
+                    return
                 }
-                Toast.success(L(L10n.Forward.success))
-                dismiss(animated: true)
-            } catch {
-                SentryLogger.capture(error, extras: [
-                    "where": "ForwardMessage",
-                    "messageCount": messagesToForward.count,
-                    "destinationCount": selectedChannels.count,
-                ])
-                Toast.error(L(L10n.Sharing.errorTitle))
+                let selectedChannels = selectedIDs.compactMap { self.channelMap[$0] }
+                if selectedChannels.isEmpty {
+                    return
+                }
+                let extraRaw = ForwardOutgoing.sanitizedComment(commentField.text ?? "")
+                if ForwardOutgoing.commentContentJSON(trimmed: extraRaw) == nil, !extraRaw.isEmpty {
+                    Toast.error(L(L10n.Forward.commentTooLong))
+                    return
+                }
+                isSending = true
+                defer { self.isSending = false }
+                do {
+                    for dest in selectedChannels {
+                        let cid = forwardClanId(for: dest)
+                        let mid = forwardingMode(for: dest)
+                        let pub = isPublicDestination(dest)
+                        let avatar = context.currentUser?.avatarURL?.absoluteString ?? ""
+                        for msg in messagesToForward {
+                            let contentStr = ForwardOutgoing.contentJSONString(for: msg)
+                            let mentions = ForwardOutgoing.mentions(
+                                record: msg,
+                                destinationChannelID: dest.channelID,
+                                forwardFromChannelID: forwardFromChannelID
+                            )
+                            let atts = ForwardOutgoing.attachments(for: msg, fallback: attachmentHints[msg.id] ?? [])
+                            _ = try await context.account.network.sendChannelMessage(
+                                clanId: cid,
+                                channelId: dest.channelID,
+                                mode: mid,
+                                isPublic: pub,
+                                content: contentStr,
+                                mentions: mentions,
+                                attachments: atts,
+                                references: [],
+                                anonymous: false,
+                                mentionEveryone: false,
+                                avatar: avatar,
+                                topicId: 0,
+                                code: msg.code,
+                                token: tok
+                            )
+                        }
+                        if let cJSON = ForwardOutgoing.commentContentJSON(trimmed: extraRaw), !extraRaw.isEmpty {
+                            _ = try await context.account.network.sendChannelMessage(
+                                clanId: cid,
+                                channelId: dest.channelID,
+                                mode: mid,
+                                isPublic: pub,
+                                content: cJSON,
+                                mentions: [],
+                                attachments: [],
+                                references: [],
+                                anonymous: false,
+                                mentionEveryone: false,
+                                avatar: avatar,
+                                topicId: 0,
+                                code: 0,
+                                token: tok
+                            )
+                        }
+                    }
+                    Toast.success(L(L10n.Forward.success))
+                    dismiss(animated: true)
+                } catch {
+                    SentryLogger.capture(error, extras: [
+                        "where": "ForwardMessage",
+                        "messageCount": messagesToForward.count,
+                        "destinationCount": selectedChannels.count,
+                    ])
+                    Toast.error(L(L10n.Sharing.errorTitle))
+                }
             }
         }
     }

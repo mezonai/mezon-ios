@@ -77,7 +77,7 @@ final class FriendRequestContainerNode: ASDisplayNode {
 
     private func setupHeader() {
         let t = UIColor.theme
-        let chevronImg = UIImage(systemName: "chevron.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .semibold))
+        let chevronImg = UIImage.mezonSystemImage("chevron.left", withConfiguration: MezonSymbolConfiguration(pointSize: 16.sf, weight: .semibold))
         backButton.setImage(chevronImg, for: .normal)
         backButton.tintColor = t.textStrong
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
@@ -103,7 +103,7 @@ final class FriendRequestContainerNode: ASDisplayNode {
         searchPillLabel.textColor = t.textStrong
         searchPillLabel.numberOfLines = 1
 
-        let chevronImg = UIImage(systemName: "chevron.right", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12.sf, weight: .medium))
+        let chevronImg = UIImage.mezonSystemImage("chevron.right", withConfiguration: MezonSymbolConfiguration(pointSize: 12.sf, weight: .medium))
         searchPillChevron.image = chevronImg
         searchPillChevron.tintColor = t.textStrong
         searchPillChevron.contentMode = .scaleAspectFit
@@ -433,14 +433,14 @@ final class FriendRequestItemNode: ASCellNode, ASNetworkImageNodeDelegate {
             ]
         )
 
-        let xImg = UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12.sf, weight: .medium))?
+        let xImg = UIImage.mezonSystemImage("xmark", withConfiguration: MezonSymbolConfiguration(pointSize: 12.sf, weight: .medium))?
             .withRenderingMode(.alwaysTemplate)
         rejectButton.setImage(xImg, for: .normal)
         rejectButton.tintColor = t.textStrong
         rejectButton.style.preferredSize = CGSize(width: 32.swh, height: 32.swh)
         rejectButton.addTarget(self, action: #selector(rejectTapped), forControlEvents: .touchUpInside)
 
-        let checkImg = UIImage(systemName: "checkmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf, weight: .bold))?
+        let checkImg = UIImage.mezonSystemImage("checkmark", withConfiguration: MezonSymbolConfiguration(pointSize: 14.sf, weight: .bold))?
             .withRenderingMode(.alwaysTemplate)
         acceptButton.setImage(checkImg, for: .normal)
         acceptButton.tintColor = UIColor.white

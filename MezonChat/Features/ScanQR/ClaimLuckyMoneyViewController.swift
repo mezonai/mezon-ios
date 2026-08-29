@@ -1,7 +1,6 @@
 import UIKit
 import QuartzCore
 
-@MainActor
 final class ClaimLuckyMoneyViewController: BaseViewController {
 
     private let context: AccountContext
@@ -15,7 +14,7 @@ final class ClaimLuckyMoneyViewController: BaseViewController {
     private let contentView = UIView()
     private let stateStack = UIStackView()
 
-    private let loadingIndicator = UIActivityIndicatorView(style: .large)
+    private let loadingIndicator = UIActivityIndicatorView.mezonLarge()
     private let loadingTitleLabel = UILabel()
     private let loadingSubtitleLabel = UILabel()
 
@@ -32,7 +31,7 @@ final class ClaimLuckyMoneyViewController: BaseViewController {
     private let dateRowValue = UILabel()
     private let claimButton = UIButton(type: .system)
     private let successDoneButton = UIButton(type: .system)
-    private let claimSpinner = UIActivityIndicatorView(style: .medium)
+    private let claimSpinner = UIActivityIndicatorView.mezonMedium()
 
     private var previewData: MmnRedEnvelopeClaimAmountData?
     private var isClaiming = false
@@ -49,7 +48,9 @@ final class ClaimLuckyMoneyViewController: BaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         showState(.loading)
-        Task { await loadPreview() }
+        if #available(iOS 13.0, *) {
+            Task { await loadPreview() }
+        }
     }
 
     override func applyTheme() {
@@ -83,7 +84,7 @@ final class ClaimLuckyMoneyViewController: BaseViewController {
         headerView.addSubview(backButton)
         headerView.addSubview(titleLabel)
 
-        let backImg = UIImage(systemName: "chevron.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium))
+        let backImg = UIImage.mezonSystemImage("chevron.left", withConfiguration: MezonSymbolConfiguration(pointSize: 18, weight: .medium))
         backButton.setImage(backImg, for: .normal)
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
 
@@ -122,7 +123,7 @@ final class ClaimLuckyMoneyViewController: BaseViewController {
         errorCloseButton.heightAnchor.constraint(equalToConstant: 50).isActive = true
 
         successCheck.translatesAutoresizingMaskIntoConstraints = false
-        successCheck.image = UIImage(systemName: "checkmark.circle.fill")?.withRenderingMode(.alwaysTemplate)
+        successCheck.image = UIImage.mezonSystemImage("checkmark.circle.fill")?.withRenderingMode(.alwaysTemplate)
         successCheck.tintColor = UIColor(red: 34/255, green: 197/255, blue: 94/255, alpha: 1)
         successCheck.contentMode = .scaleAspectFit
         successTitleLabel.font = .systemFont(ofSize: 22, weight: .bold)
@@ -228,7 +229,7 @@ final class ClaimLuckyMoneyViewController: BaseViewController {
             loadingIndicator.stopAnimating()
             errorTitleLabel.text = L(L10n.QRScanner.luckyMoneyClaimFailed)
             errorSubtitleLabel.text = msg
-            let icon = UIImageView(image: UIImage(systemName: "xmark.circle.fill"))
+            let icon = UIImageView(image: UIImage.mezonSystemImage("xmark.circle.fill"))
             icon.translatesAutoresizingMaskIntoConstraints = false
             icon.tintColor = UIColor(red: 239/255, green: 68/255, blue: 68/255, alpha: 1)
             icon.contentMode = .scaleAspectFit
@@ -403,7 +404,7 @@ final class ClaimLuckyMoneyViewController: BaseViewController {
             c.spinRange = 4
             c.scale = 0.07
             c.scaleRange = 0.04
-            c.contents = UIImage(systemName: "circle.fill")?.withTintColor(color, renderingMode: .alwaysOriginal).cgImage
+            c.contents = UIImage.mezonSystemImage("circle.fill")?.mezonTinted(color, renderingMode: .alwaysOriginal).cgImage
             c.color = color.cgColor
             return c
         }
@@ -432,6 +433,8 @@ final class ClaimLuckyMoneyViewController: BaseViewController {
         confettiLayer = nil
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func loadPreview() async {
         guard let uid = context.currentUser?.id, !uid.isEmpty else {
             showState(.error(L(L10n.QRScanner.luckyMoneyWalletNotReady)))
@@ -457,23 +460,25 @@ final class ClaimLuckyMoneyViewController: BaseViewController {
     }
 
     @objc private func claimTapped() {
-        guard !isClaiming, let d = previewData, let uid = context.currentUser?.id, !uid.isEmpty else { return }
-        setClaimBusy(true)
-        Task {
-            do {
-                try await MmnRedEnvelopeClient.claimRedEnvelope(
-                    luckyMoneyId: luckyMoneyId,
-                    splitMoneyId: d.split_money_id,
-                    userId: uid
-                )
-                await MainActor.run {
-                    setClaimBusy(false)
-                    showState(.claimed(d))
-                }
-            } catch {
-                await MainActor.run {
-                    setClaimBusy(false)
-                    showState(.error(error.localizedDescription))
+        if #available(iOS 13.0, *) {
+            guard !isClaiming, let d = previewData, let uid = context.currentUser?.id, !uid.isEmpty else { return }
+            setClaimBusy(true)
+            Task {
+                do {
+                    try await MmnRedEnvelopeClient.claimRedEnvelope(
+                        luckyMoneyId: luckyMoneyId,
+                        splitMoneyId: d.split_money_id,
+                        userId: uid
+                    )
+                    await MainActor.run {
+                        setClaimBusy(false)
+                        showState(.claimed(d))
+                    }
+                } catch {
+                    await MainActor.run {
+                        setClaimBusy(false)
+                        showState(.error(error.localizedDescription))
+                    }
                 }
             }
         }

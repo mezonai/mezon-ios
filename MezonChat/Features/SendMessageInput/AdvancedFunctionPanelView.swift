@@ -215,9 +215,9 @@ final class AdvancedFunctionPanelView: UIView, UIGestureRecognizerDelegate {
         iconContainer.clipsToBounds = true
         iconContainer.translatesAutoresizingMaskIntoConstraints = false
 
-        let iconConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
+        let iconConfig = MezonSymbolConfiguration(pointSize: 18, weight: .medium)
         let iconImage = UIImage(named: action.systemIcon)?.withRenderingMode(.alwaysTemplate)
-            ?? UIImage(systemName: action.systemIcon, withConfiguration: iconConfig)
+            ?? UIImage.mezonSystemImage(action.systemIcon, withConfiguration: iconConfig)
         let iconImageView = UIImageView(image: iconImage)
         iconImageView.tintColor = .white
         iconImageView.contentMode = .scaleAspectFit
@@ -354,7 +354,7 @@ final class ShareContactPickerViewController: ViewController, UITableViewDataSou
     private let context: AccountContext
     private var allFriends: [Mezon_Api_Friend] = []
     private var filteredFriends: [Mezon_Api_Friend] = []
-    private var refreshTask: Task<Void, Never>?
+    private var refreshTask: CancelHandle?
 
     private let headerView = UIView()
     private let backButton = UIButton(type: .system)
@@ -385,7 +385,9 @@ final class ShareContactPickerViewController: ViewController, UITableViewDataSou
         setupTable()
         setupEmptyState()
         reloadFriendsFromCache()
-        refreshFriends()
+        if #available(iOS 13.0, *) {
+            refreshFriends()
+        }
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -400,7 +402,7 @@ final class ShareContactPickerViewController: ViewController, UITableViewDataSou
 
         backButton.translatesAutoresizingMaskIntoConstraints = false
         backButton.tintColor = UIColor.theme.textStrong
-        backButton.setImage(UIImage(systemName: "chevron.left"), for: .normal)
+        backButton.setImage(UIImage.mezonSystemImage("chevron.left"), for: .normal)
         backButton.imageView?.contentMode = .scaleAspectFit
         backButton.addTarget(self, action: #selector(backPressed), for: .touchUpInside)
         headerView.addSubview(backButton)
@@ -437,7 +439,7 @@ final class ShareContactPickerViewController: ViewController, UITableViewDataSou
         view.addSubview(searchContainer)
 
         searchIcon.translatesAutoresizingMaskIntoConstraints = false
-        searchIcon.image = UIImage(systemName: "magnifyingglass")
+        searchIcon.image = UIImage.mezonSystemImage("magnifyingglass")
         searchIcon.tintColor = UIColor.theme.textDisabled
         searchIcon.contentMode = .scaleAspectFit
         searchContainer.addSubview(searchIcon)
@@ -523,11 +525,14 @@ final class ShareContactPickerViewController: ViewController, UITableViewDataSou
     }
 
     private func refreshFriends() {
-        refreshTask?.cancel()
-        refreshTask = Task { @MainActor [weak self] in
-            guard let self, let token = await self.context.getToken() else { return }
-            await self.context.engine.friendsData.refreshFromNetwork(token: token)
-            self.reloadFriendsFromCache()
+        if #available(iOS 13.0, *) {
+            refreshTask?.cancel()
+            let refreshTaskWork = Task { @MainActor [weak self] in
+                guard let self, let token = await self.context.getToken() else { return }
+                await self.context.engine.friendsData.refreshFromNetwork(token: token)
+                self.reloadFriendsFromCache()
+            }
+            refreshTask = CancelHandle { refreshTaskWork.cancel() }
         }
     }
 
@@ -636,7 +641,7 @@ private final class ShareContactPickerCell: UITableViewCell {
         usernameLabel.numberOfLines = 1
         contentView.addSubview(usernameLabel)
 
-        let chevron = UIImageView(image: UIImage(systemName: "chevron.right"))
+        let chevron = UIImageView(image: UIImage.mezonSystemImage("chevron.right"))
         chevron.translatesAutoresizingMaskIntoConstraints = false
         chevron.tintColor = UIColor.theme.textDisabled
         chevron.contentMode = .scaleAspectFit

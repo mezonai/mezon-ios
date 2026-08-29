@@ -98,7 +98,9 @@ final class GalleryPagingNode: ASDisplayNode, UIScrollViewDelegate {
             scrollView.layoutIfNeeded()
         }
 
-        loadVisibleItems(size: currentSize, navigationBarHeight: 0)
+        if #available(iOS 13.0, *) {
+            loadVisibleItems(size: currentSize, navigationBarHeight: 0)
+        }
     }
 
     func setCentralItemIndex(_ index: Int, animated: Bool) {
@@ -111,7 +113,9 @@ final class GalleryPagingNode: ASDisplayNode, UIScrollViewDelegate {
         let targetOffset = CGPoint(x: CGFloat(targetIndex) * currentSize.width, y: 0)
         scrollView.setContentOffset(targetOffset, animated: animated)
         if !animated {
-            updateCentralIndex()
+            if #available(iOS 13.0, *) {
+                updateCentralIndex()
+            }
         }
     }
 
@@ -127,7 +131,9 @@ final class GalleryPagingNode: ASDisplayNode, UIScrollViewDelegate {
             hasPerformedInitialLayout = true
         }
 
-        loadVisibleItems(size: size, navigationBarHeight: navigationBarHeight)
+        if #available(iOS 13.0, *) {
+            loadVisibleItems(size: size, navigationBarHeight: navigationBarHeight)
+        }
     }
 
     private func loadVisibleItems(size: CGSize, navigationBarHeight: CGFloat) {
@@ -167,11 +173,15 @@ final class GalleryPagingNode: ASDisplayNode, UIScrollViewDelegate {
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
-        updateCentralIndex()
+        if #available(iOS 13.0, *) {
+            updateCentralIndex()
+        }
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
-        updateCentralIndex()
+        if #available(iOS 13.0, *) {
+            updateCentralIndex()
+        }
     }
 
     private func updateCentralIndex() {

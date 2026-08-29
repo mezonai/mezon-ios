@@ -1,6 +1,5 @@
 import UIKit
 
-@MainActor
 final class ChannelPermissionRowCell: UITableViewCell {
 
     static let reuseId = "ChannelPermissionRowCell"
@@ -48,7 +47,7 @@ final class ChannelPermissionRowCell: UITableViewCell {
         avatarInitials.textAlignment = .center
 
         roleIconView.contentMode = .scaleAspectFit
-        roleIconView.image = UIImage(systemName: "shield.lefthalf.filled")?.withRenderingMode(.alwaysTemplate)
+        roleIconView.image = UIImage.mezonSystemImage("shield.lefthalf.filled")?.withRenderingMode(.alwaysTemplate)
         roleIconView.isHidden = true
 
         nameLabel.font = .systemFont(ofSize: 14.sf, weight: .semibold)
@@ -59,7 +58,7 @@ final class ChannelPermissionRowCell: UITableViewCell {
         subLabel.textColor = UIColor.theme.textDisabled
         subLabel.numberOfLines = 1
 
-        ownerIcon.image = UIImage(systemName: "crown.fill")?.withRenderingMode(.alwaysTemplate)
+        ownerIcon.image = UIImage.mezonSystemImage("crown.fill")?.withRenderingMode(.alwaysTemplate)
         ownerIcon.tintColor = UIColor.systemYellow
         ownerIcon.contentMode = .scaleAspectFit
         ownerIcon.isHidden = true
@@ -70,7 +69,7 @@ final class ChannelPermissionRowCell: UITableViewCell {
         checkboxView.contentMode = .scaleAspectFit
         checkboxView.isHidden = true
 
-        chevron.image = UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate)
+        chevron.image = UIImage.mezonSystemImage("chevron.right")?.withRenderingMode(.alwaysTemplate)
         chevron.tintColor = UIColor.theme.textDisabled
         chevron.contentMode = .scaleAspectFit
         chevron.isHidden = true
@@ -205,7 +204,7 @@ final class ChannelPermissionRowCell: UITableViewCell {
         case .removeButton(let enabled):
             trailingButton.isHidden = false
             trailingButton.setImage(
-                UIImage(systemName: "xmark.circle.fill")?.withRenderingMode(.alwaysTemplate),
+                UIImage.mezonSystemImage("xmark.circle.fill")?.withRenderingMode(.alwaysTemplate),
                 for: .normal
             )
             trailingButton.tintColor = enabled ? UIColor.theme.text : UIColor.theme.textDisabled
@@ -213,7 +212,7 @@ final class ChannelPermissionRowCell: UITableViewCell {
         case .checkbox(let checked):
             checkboxView.isHidden = false
             let symbol = checked ? "checkmark.circle.fill" : "circle"
-            checkboxView.image = UIImage(systemName: symbol)?.withRenderingMode(.alwaysTemplate)
+            checkboxView.image = UIImage.mezonSystemImage(symbol)?.withRenderingMode(.alwaysTemplate)
             checkboxView.tintColor = checked ? UIColor.theme.bgViolet : UIColor.theme.textDisabled
         }
     }

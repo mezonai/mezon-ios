@@ -13,7 +13,7 @@ final class GalleryController: UIViewController {
 
     private var items: [GalleryItemInfo]
     private let initialIndex: Int
-    private let channelItemsLoader: (() async -> [GalleryItemInfo])?
+    private let channelItemsLoader: ((@escaping ([GalleryItemInfo]) -> Void) -> Void)?
 
     private let containerNode: ASDisplayNode
     private let backgroundNode: ASDisplayNode
@@ -41,11 +41,11 @@ final class GalleryController: UIViewController {
     private var videoSaveProgressObservation: NSKeyValueObservation?
     private let videoSaveBackdrop = UIView()
     private let videoSavePanel = UIView()
-    private let videoSaveSpinner = UIActivityIndicatorView(style: .large)
+    private let videoSaveSpinner = UIActivityIndicatorView.mezonLarge()
     private let videoSaveLabel = UILabel()
     private let videoSaveProgressView = UIProgressView(progressViewStyle: .default)
 
-    init(items: [GalleryItemInfo], initialIndex: Int, channelItemsLoader: (() async -> [GalleryItemInfo])? = nil) {
+    init(items: [GalleryItemInfo], initialIndex: Int, channelItemsLoader: ((@escaping ([GalleryItemInfo]) -> Void) -> Void)? = nil) {
         self.items = items
         self.initialIndex = max(0, min(initialIndex, items.count - 1))
         self.channelItemsLoader = channelItemsLoader
@@ -346,8 +346,8 @@ final class GalleryController: UIViewController {
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
 
-        let backConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
-        backButton.setImage(UIImage(systemName: "chevron.left", withConfiguration: backConfig), for: .normal)
+        let backConfig = MezonSymbolConfiguration(pointSize: 18, weight: .medium)
+        backButton.setImage(UIImage.mezonSystemImage("chevron.left", withConfiguration: backConfig), for: .normal)
         backButton.tintColor = .white
         backButton.translatesAutoresizingMaskIntoConstraints = false
         backButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
@@ -370,8 +370,8 @@ final class GalleryController: UIViewController {
         dateLabel.translatesAutoresizingMaskIntoConstraints = false
         headerView.addSubview(dateLabel)
 
-        let moreConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
-        moreButton.setImage(UIImage(systemName: "ellipsis", withConfiguration: moreConfig), for: .normal)
+        let moreConfig = MezonSymbolConfiguration(pointSize: 18, weight: .medium)
+        moreButton.setImage(UIImage.mezonSystemImage("ellipsis", withConfiguration: moreConfig), for: .normal)
         moreButton.tintColor = .white
         moreButton.translatesAutoresizingMaskIntoConstraints = false
         moreButton.addTarget(self, action: #selector(moreTapped), for: .touchUpInside)
@@ -537,9 +537,8 @@ final class GalleryController: UIViewController {
 
     private func loadChannelItemsIfNeeded() {
         guard let channelItemsLoader else { return }
-        Task { [weak self] in
-            let loadedItems = await channelItemsLoader()
-            await MainActor.run {
+        channelItemsLoader { [weak self] loadedItems in
+            DispatchQueue.main.async {
                 self?.applyLoadedChannelItems(loadedItems)
             }
         }
@@ -996,9 +995,9 @@ private final class GalleryThumbnailCell: UICollectionViewCell {
         playOverlayView.isHidden = true
         contentView.addSubview(playOverlayView)
 
-        let playConfig = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
-        playIconView.image = UIImage(systemName: "play.fill", withConfiguration: playConfig)?
-            .withTintColor(.white, renderingMode: .alwaysOriginal)
+        let playConfig = MezonSymbolConfiguration(pointSize: 16, weight: .semibold)
+        playIconView.image = UIImage.mezonSystemImage("play.fill", withConfiguration: playConfig)?
+            .mezonTinted(.white, renderingMode: .alwaysOriginal)
         playIconView.contentMode = .scaleAspectFit
         playIconView.translatesAutoresizingMaskIntoConstraints = false
         playOverlayView.addSubview(playIconView)
@@ -1117,7 +1116,7 @@ extension GalleryController: UIGestureRecognizerDelegate {
 
     private static func anonymousAvatarCompositeImage(raw: UIImage, tint: UIColor) -> UIImage {
         let tinted = raw.withRenderingMode(.alwaysTemplate)
-            .withTintColor(tint, renderingMode: .alwaysOriginal)
+            .mezonTinted(tint, renderingMode: .alwaysOriginal)
         let iconMax = CGSize(width: 22, height: 22)
         let canvas = CGSize(width: 40, height: 40)
         let format = UIGraphicsImageRendererFormat()

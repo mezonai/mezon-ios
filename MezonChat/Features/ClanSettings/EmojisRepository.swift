@@ -1,6 +1,5 @@
 import Foundation
 
-@MainActor
 final class EmojisRepository {
     static let maxSlots = 250
 
@@ -27,6 +26,8 @@ final class EmojisRepository {
         emojiCount(clanId: clanId) >= Self.maxSlots
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     func updateEmoji(id: Int64, clanId: Int64, shortname: String) async throws {
         var req = Mezon_Api_ClanEmojiUpdateRequest()
         req.id = id
@@ -43,6 +44,8 @@ final class EmojisRepository {
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     func deleteEmoji(id: Int64, clanId: Int64, shortname: String) async throws {
         var req = Mezon_Api_ClanEmojiDeleteRequest()
         req.id = id
@@ -58,6 +61,7 @@ final class EmojisRepository {
         }
     }
 
+    @available(iOS 13.0, *)
     func addEmoji(
         clanId: Int64,
         source: String,

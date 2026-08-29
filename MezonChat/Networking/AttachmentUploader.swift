@@ -88,6 +88,7 @@ final class AttachmentUploader {
         stateLock.lock(); skipMultipartForSession = true; stateLock.unlock()
     }
 
+    @available(iOS 13.0, *)
     func uploadFile(
         fileURL: URL,
         filename: String,
@@ -128,6 +129,7 @@ final class AttachmentUploader {
             preferHTTPFirst: preferHTTPFirst, preReserved: preReserved, network: network)
     }
 
+    @available(iOS 13.0, *)
     private func uploadSinglePut(
         fileURL: URL,
         filename: String,
@@ -161,6 +163,7 @@ final class AttachmentUploader {
             cdnURL: "\(MezonConfig.baseImgURL)/\(info.filename)")
     }
 
+    @available(iOS 13.0, *)
     private func uploadMultipart(
         fileURL: URL,
         filename: String,
@@ -254,9 +257,9 @@ final class AttachmentUploader {
 
     private static func readChunk(fileURL: URL, offset: Int, length: Int) throws -> Data {
         let handle = try FileHandle(forReadingFrom: fileURL)
-        defer { try? handle.close() }
+        defer { handle.closeFile() }
         if offset > 0 {
-            try handle.seek(toOffset: UInt64(offset))
+            handle.seek(toFileOffset: UInt64(offset))
         }
         return handle.readData(ofLength: length)
     }
@@ -314,6 +317,7 @@ final class MinIOStreamingUploader: NSObject, URLSessionTaskDelegate {
     }
 
     @discardableResult
+    @available(iOS 13.0, *)
     func put(
         url: String,
         fileURL: URL,
@@ -356,6 +360,7 @@ final class MinIOStreamingUploader: NSObject, URLSessionTaskDelegate {
     }
 
     @discardableResult
+    @available(iOS 13.0, *)
     func putData(
         url: String,
         data: Data,

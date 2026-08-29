@@ -15,14 +15,14 @@ final class CreatePollAnswerTextField: UITextField {
             } else {
                 emojiImageView.isHidden = true
                 emojiImageView.reset()
-                emojiBtn.setImage(UIImage(systemName: "face.smiling"), for: .normal)
+                emojiBtn.setImage(UIImage.mezonSystemImage("face.smiling"), for: .normal)
             }
         }
     }
     
     lazy var emojiBtn: UIButton = {
         let btn = UIButton(type: .system)
-        btn.setImage(UIImage(systemName: "face.smiling"), for: .normal)
+        btn.setImage(UIImage.mezonSystemImage("face.smiling"), for: .normal)
         btn.tintColor = UIColor.theme.iconSecondary
         btn.addTarget(self, action: #selector(emojiBtnTapped), for: .touchUpInside)
         return btn
@@ -37,7 +37,7 @@ final class CreatePollAnswerTextField: UITextField {
     
     lazy var removeBtn: UIButton = {
         let btn = UIButton(type: .system)
-        btn.setImage(UIImage(systemName: "trash"), for: .normal)
+        btn.setImage(UIImage.mezonSystemImage("trash"), for: .normal)
         btn.tintColor = UIColor.theme.iconSecondary
         btn.addTarget(self, action: #selector(removeBtnTapped), for: .touchUpInside)
         return btn
@@ -223,7 +223,7 @@ final class CreatePollViewController: BaseViewController {
         v.addSubview(lbl)
         self.durationValueLabel = lbl
         
-        let arrow = UIImageView(image: UIImage(systemName: "chevron.down"))
+        let arrow = UIImageView(image: UIImage.mezonSystemImage("chevron.down"))
         arrow.translatesAutoresizingMaskIntoConstraints = false
         arrow.tintColor = UIColor.theme.iconSecondary
         v.addSubview(arrow)
@@ -334,7 +334,7 @@ final class CreatePollViewController: BaseViewController {
         headerView.addSubview(backButton)
         headerView.addSubview(titleLabel)
         
-        let backImg = UIImage(systemName: "chevron.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium))
+        let backImg = UIImage.mezonSystemImage("chevron.left", withConfiguration: MezonSymbolConfiguration(pointSize: 18, weight: .medium))
         backButton.setImage(backImg, for: .normal)
         backButton.tintColor = .mezonTextStrong
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
@@ -611,54 +611,56 @@ final class CreatePollViewController: BaseViewController {
     }
 
     @objc private func handlePost() {
-        let validAnswers = answers.enumerated().filter { !$1.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        guard let questionText = questionTextView.text, !questionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        guard validAnswers.count >= 2 else { return }
+        if #available(iOS 13.0, *) {
+            let validAnswers = answers.enumerated().filter { !$1.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            guard let questionText = questionTextView.text, !questionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            guard validAnswers.count >= 2 else { return }
         
-        let formattedAnswers: [String] = validAnswers.map { idx, answer in
-            let text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let emojiId = answerEmojiIds[idx] {
-                return "[e:\(emojiId)] \(text)"
+            let formattedAnswers: [String] = validAnswers.map { idx, answer in
+                let text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let emojiId = answerEmojiIds[idx] {
+                    return "[e:\(emojiId)] \(text)"
+                }
+                return text
             }
-            return text
-        }
         
-        let type: Mezon_Api_PollType = allowMultiple ? .multiple : .single
+            let type: Mezon_Api_PollType = allowMultiple ? .multiple : .single
         
-        postButton.isEnabled = false
-        postButton.setTitle(L(L10n.Common.loading), for: .normal)
+            postButton.isEnabled = false
+            postButton.setTitle(L(L10n.Common.loading), for: .normal)
         
-        Task { @MainActor in
-            guard let token = await self.context.getToken() else {
-                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
-                self.postButton.isEnabled = true
-                self.postButton.setTitle(L(L10n.CreatePoll.postButton), for: .normal)
-                return
-            }
-            do {
-                let response = try await self.context.account.network.createPoll(
-                    channelId: self.channelId,
-                    clanId: self.clanId,
-                    question: questionText.trimmingCharacters(in: .whitespacesAndNewlines),
-                    answers: formattedAnswers,
-                    expireHours: durationHours,
-                    type: type,
-                    token: token
-                )
-                ClanOnboardingChannelCache.markSendMessageOnboardingProgressIfNeeded(
-                    context: self.context,
-                    postbox: self.context.account.postbox,
-                    clanId: self.clanId,
-                    channelId: self.channelId,
-                    messageId: response.messageID,
-                    messageCode: MezonConstants.MessageCode.poll.rawValue,
-                    anonymous: false
-                )
-                self.navigationController?.popViewController(animated: true)
-            } catch {
-                Toast.error(error.localizedDescription)
-                self.postButton.isEnabled = true
-                self.postButton.setTitle(L(L10n.CreatePoll.postButton), for: .normal)
+            Task { @MainActor in
+                guard let token = await self.context.getToken() else {
+                    Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                    self.postButton.isEnabled = true
+                    self.postButton.setTitle(L(L10n.CreatePoll.postButton), for: .normal)
+                    return
+                }
+                do {
+                    let response = try await self.context.account.network.createPoll(
+                        channelId: self.channelId,
+                        clanId: self.clanId,
+                        question: questionText.trimmingCharacters(in: .whitespacesAndNewlines),
+                        answers: formattedAnswers,
+                        expireHours: durationHours,
+                        type: type,
+                        token: token
+                    )
+                    ClanOnboardingChannelCache.markSendMessageOnboardingProgressIfNeeded(
+                        context: self.context,
+                        postbox: self.context.account.postbox,
+                        clanId: self.clanId,
+                        channelId: self.channelId,
+                        messageId: response.messageID,
+                        messageCode: MezonConstants.MessageCode.poll.rawValue,
+                        anonymous: false
+                    )
+                    self.navigationController?.popViewController(animated: true)
+                } catch {
+                    Toast.error(error.localizedDescription)
+                    self.postButton.isEnabled = true
+                    self.postButton.setTitle(L(L10n.CreatePoll.postButton), for: .normal)
+                }
             }
         }
     }

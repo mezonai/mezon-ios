@@ -135,7 +135,7 @@ final class WebhookSelectChannelViewController: BaseViewController {
         button.addTarget(self, action: #selector(handleChannelTap(_:)), for: .touchUpInside)
 
         let iconName = channel.channelListIconAssetName()
-        let hashIcon = UIImageView(image: (UIImage(named: iconName) ?? UIImage(systemName: iconName))?.withRenderingMode(.alwaysTemplate))
+        let hashIcon = UIImageView(image: (UIImage(named: iconName) ?? UIImage.mezonSystemImage(iconName))?.withRenderingMode(.alwaysTemplate))
         hashIcon.tintColor = UIColor.theme.textDisabled
         hashIcon.contentMode = .scaleAspectFit
         button.addSubview(hashIcon)
@@ -161,7 +161,7 @@ final class WebhookSelectChannelViewController: BaseViewController {
         ])
         
         if channel.channelID == currentChannelId {
-            let checkIcon = UIImageView(image: UIImage(systemName: "checkmark")?.withRenderingMode(.alwaysTemplate))
+            let checkIcon = UIImageView(image: UIImage.mezonSystemImage("checkmark")?.withRenderingMode(.alwaysTemplate))
             checkIcon.tintColor = UIColor.theme.bgViolet
             button.addSubview(checkIcon)
             checkIcon.translatesAutoresizingMaskIntoConstraints = false

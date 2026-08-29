@@ -40,14 +40,14 @@ final class QRScannerContainerNode: ASDisplayNode {
         scannerOverlay.isLayerBacked = true
         scannerOverlay.isUserInteractionEnabled = false
 
-        let arrowConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
-        closeButton.setImage(UIImage(systemName: "arrow.left", withConfiguration: arrowConfig)?.withTintColor(.white, renderingMode: .alwaysTemplate), for: .normal)
+        let arrowConfig = MezonSymbolConfiguration(pointSize: 18, weight: .medium)
+        closeButton.setImage(UIImage.mezonSystemImage("arrow.left", withConfiguration: arrowConfig)?.mezonTinted(.white, renderingMode: .alwaysTemplate), for: .normal)
         closeButton.tintColor = .white
 
-        flashButton.setImage(UIImage(systemName: "flashlight.off.fill")?.withTintColor(.white, renderingMode: .alwaysTemplate), for: .normal)
+        flashButton.setImage(UIImage.mezonSystemImage("flashlight.off.fill")?.mezonTinted(.white, renderingMode: .alwaysTemplate), for: .normal)
         flashButton.tintColor = .white
 
-        mezonLogoIcon.image = UIImage(named: "Setting/LogoMezon")?.withTintColor(.white, renderingMode: .alwaysTemplate)
+        mezonLogoIcon.image = UIImage(named: "Setting/LogoMezon")?.mezonTinted(.white, renderingMode: .alwaysTemplate)
         mezonLogoIcon.contentMode = .scaleAspectFit
         
         titleLabel.attributedText = NSAttributedString(
@@ -68,8 +68,8 @@ final class QRScannerContainerNode: ASDisplayNode {
                 .paragraphStyle: paragraphStyle
             ])
 
-        let photoConfig = UIImage.SymbolConfiguration(pointSize: 16)
-        galleryButton.setImage(UIImage(systemName: "photo.on.rectangle", withConfiguration: photoConfig)?.withTintColor(.white, renderingMode: .alwaysTemplate), for: .normal)
+        let photoConfig = MezonSymbolConfiguration(pointSize: 16)
+        galleryButton.setImage(UIImage.mezonSystemImage("photo.on.rectangle", withConfiguration: photoConfig)?.mezonTinted(.white, renderingMode: .alwaysTemplate), for: .normal)
         galleryButton.setTitle(L(L10n.QRScanner.chooseFromGallery), with: .systemFont(ofSize: 14, weight: .regular), with: .white, for: .normal)
         galleryButton.imageAlignment = .beginning
         galleryButton.contentMode = .center
@@ -92,7 +92,7 @@ final class QRScannerContainerNode: ASDisplayNode {
         myQRCodeCardNode.addSubnode(fakeQRImageNode)
 
         cameraPermissionGateContainer.backgroundColor = UIColor.black.withAlphaComponent(0.88)
-        cameraPermissionIconNode.image = UIImage(systemName: "camera.slash.fill")?.withTintColor(.white, renderingMode: .alwaysTemplate)
+        cameraPermissionIconNode.image = UIImage.mezonSystemImage("camera.slash.fill")?.mezonTinted(.white, renderingMode: .alwaysTemplate)
         cameraPermissionIconNode.contentMode = .scaleAspectFit
 
         let gateTitlePara = NSMutableParagraphStyle()
@@ -165,7 +165,7 @@ final class QRScannerContainerNode: ASDisplayNode {
 
     func updateFlashButton(isOn: Bool) {
         let color: UIColor = isOn ? .mezonPrimary : .white
-        flashButton.setImage(UIImage(systemName: isOn ? "flashlight.on.fill" : "flashlight.off.fill")?.withTintColor(color, renderingMode: .alwaysTemplate), for: .normal)
+        flashButton.setImage(UIImage.mezonSystemImage(isOn ? "flashlight.on.fill" : "flashlight.off.fill")?.mezonTinted(color, renderingMode: .alwaysTemplate), for: .normal)
         flashButton.tintColor = color
     }
 

@@ -1,6 +1,5 @@
 import UIKit
 
-@MainActor
 final class RoleColorPickerSheetController: UIViewController {
 
     private let initialColor: String?
@@ -123,8 +122,8 @@ final class RoleColorPickerSheetController: UIViewController {
     }
 
     private func swatchCheckmarkImage() -> UIImage? {
-        UIImage(systemName: "checkmark")?
-            .withConfiguration(UIImage.SymbolConfiguration(pointSize: 14.sf, weight: .bold))
+        UIImage.mezonSystemImage("checkmark")?
+            .mezonWithConfiguration(MezonSymbolConfiguration(pointSize: 14.sf, weight: .bold))?
             .withRenderingMode(.alwaysTemplate)
     }
 

@@ -9,9 +9,9 @@ final class VerifyPhoneOTPViewController: BaseViewController {
     private let headerView = UIView()
     private let backButton: UIButton = {
         let btn = UIButton(type: .system)
-        let img = UIImage(
-            systemName: "chevron.left",
-            withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
+        let img = UIImage.mezonSystemImage(
+            "chevron.left",
+            withConfiguration: MezonSymbolConfiguration(pointSize: 18, weight: .medium)
         )
         btn.setImage(img, for: .normal)
         btn.translatesAutoresizingMaskIntoConstraints = false
@@ -53,7 +53,7 @@ final class VerifyPhoneOTPViewController: BaseViewController {
     }()
 
     private let loadingIndicator: UIActivityIndicatorView = {
-        let ai = UIActivityIndicatorView(style: .medium)
+        let ai = UIActivityIndicatorView.mezonMedium()
         ai.hidesWhenStopped = true
         ai.translatesAutoresizingMaskIntoConstraints = false
         return ai
@@ -195,34 +195,39 @@ final class VerifyPhoneOTPViewController: BaseViewController {
     }
 
     @objc private func otpFieldChanged(_ field: UITextField) {
-        if isError { isError = false }
+        if #available(iOS 13.0, *) {
+            if isError { isError = false }
 
-        let text = field.text ?? ""
-        if text.count > 1 {
-            field.text = String(text.prefix(1))
-        }
+            let text = field.text ?? ""
+            if text.count > 1 {
+                field.text = String(text.prefix(1))
+            }
 
-        updateOTPFieldBorders()
-        updateVerifyButtonState()
+            updateOTPFieldBorders()
+            updateVerifyButtonState()
 
-        if !text.isEmpty, field.tag < 5 {
-            otpFields[field.tag + 1].becomeFirstResponder()
-        }
+            if !text.isEmpty, field.tag < 5 {
+                otpFields[field.tag + 1].becomeFirstResponder()
+            }
 
-        if isValidOTP {
-            handleVerify(otpCode)
+            if isValidOTP {
+                handleVerify(otpCode)
+            }
         }
     }
 
     @objc private func verifyTapped() {
-        guard isValidOTP else { return }
-        handleVerify(otpCode)
+        if #available(iOS 13.0, *) {
+            guard isValidOTP else { return }
+            handleVerify(otpCode)
+        }
     }
 
     @objc private func backTapped() {
         navigationController?.popViewController(animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func handleVerify(_ otp: String) {
         setLoading(true)
 
@@ -295,7 +300,9 @@ extension VerifyPhoneOTPViewController: UITextFieldDelegate {
             updateOTPFieldBorders()
             updateVerifyButtonState()
             if isValidOTP {
-                handleVerify(otpCode)
+                if #available(iOS 13.0, *) {
+                    handleVerify(otpCode)
+                }
             }
             return false
         }

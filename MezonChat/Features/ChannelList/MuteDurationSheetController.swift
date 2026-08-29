@@ -100,8 +100,8 @@ final class MuteDurationViewController: ViewController {
         let backBtn = UIButton(type: .system)
         backBtn.translatesAutoresizingMaskIntoConstraints = false
         backBtn.setImage(
-            UIImage(systemName: "chevron.left")?.withConfiguration(
-                UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)),
+            UIImage.mezonSystemImage("chevron.left")?.mezonWithConfiguration(
+                MezonSymbolConfiguration(pointSize: 18, weight: .medium)),
             for: .normal)
         backBtn.tintColor = .mezonTextStrong
         backBtn.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
@@ -262,7 +262,7 @@ final class MuteDurationViewController: ViewController {
         container.addSubview(label)
 
         let chevron = UIImageView()
-        chevron.image = UIImage(systemName: "chevron.right", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold))
+        chevron.image = UIImage.mezonSystemImage("chevron.right", withConfiguration: MezonSymbolConfiguration(pointSize: 13, weight: .semibold))
         chevron.tintColor = .mezonTextPrimary
         chevron.contentMode = .scaleAspectFit
         chevron.translatesAutoresizingMaskIntoConstraints = false

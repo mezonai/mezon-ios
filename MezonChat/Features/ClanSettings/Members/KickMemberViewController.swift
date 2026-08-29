@@ -64,7 +64,7 @@ final class KickMemberViewController: BaseViewController {
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
 
-        closeButton.setImage(UIImage(systemName: "xmark")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        closeButton.setImage(UIImage.mezonSystemImage("xmark")?.withRenderingMode(.alwaysTemplate), for: .normal)
         closeButton.tintColor = UIColor.theme.textStrong
         closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         closeButton.translatesAutoresizingMaskIntoConstraints = false
@@ -216,37 +216,39 @@ final class KickMemberViewController: BaseViewController {
     }
 
     @objc private func kickConfirmed() {
-        guard !isSubmitting else { return }
-        isSubmitting = true
-        updateKickButton()
+        if #available(iOS 13.0, *) {
+            guard !isSubmitting else { return }
+            isSubmitting = true
+            updateKickButton()
 
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                guard let token = await self.context.getToken() else {
-                    throw RolesRepositoryError.notAuthenticated
-                }
-                try await self.context.engine.account.network.removeClanUsers(
-                    clanId: self.clanId,
-                    userIds: [self.member.userId],
-                    token: token
-                )
-                self.context.account.postbox.writeSync { tx in
-                    let existingMembers = tx.getClanMembers(clanId: self.clanId)
-                    let filtered = existingMembers.filter { $0.userId != self.member.userId }
-                    tx.updateClanMembers(filtered, clanId: self.clanId)
-                }
-                self.context.engine.clanData.clanUsersUpdated.putNext(self.clanId)
-                await MainActor.run {
-                    Toast.success(L(L10n.ClanSetting.Members.kickSuccess))
-                    self.onKickCompleted?()
-                    self.dismiss(animated: true)
-                }
-            } catch {
-                await MainActor.run {
-                    self.isSubmitting = false
-                    self.updateKickButton()
-                    Toast.error(L(L10n.ClanSetting.Members.kickFailed))
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    guard let token = await self.context.getToken() else {
+                        throw RolesRepositoryError.notAuthenticated
+                    }
+                    try await self.context.engine.account.network.removeClanUsers(
+                        clanId: self.clanId,
+                        userIds: [self.member.userId],
+                        token: token
+                    )
+                    self.context.account.postbox.writeSync { tx in
+                        let existingMembers = tx.getClanMembers(clanId: self.clanId)
+                        let filtered = existingMembers.filter { $0.userId != self.member.userId }
+                        tx.updateClanMembers(filtered, clanId: self.clanId)
+                    }
+                    self.context.engine.clanData.clanUsersUpdated.putNext(self.clanId)
+                    await MainActor.run {
+                        Toast.success(L(L10n.ClanSetting.Members.kickSuccess))
+                        self.onKickCompleted?()
+                        self.dismiss(animated: true)
+                    }
+                } catch {
+                    await MainActor.run {
+                        self.isSubmitting = false
+                        self.updateKickButton()
+                        Toast.error(L(L10n.ClanSetting.Members.kickFailed))
+                    }
                 }
             }
         }

@@ -139,7 +139,7 @@ final class FileItemNode: ASDisplayNode {
             let s = ASDisplayNode()
             s.isUserInteractionEnabled = false
             s.setViewBlock {
-                let indicator = UIActivityIndicatorView(style: .medium)
+                let indicator = UIActivityIndicatorView.mezonMedium()
                 indicator.color = UIColor.theme.text
                 indicator.startAnimating()
                 return indicator
@@ -186,9 +186,9 @@ final class FileItemNode: ASDisplayNode {
         bgNode.cornerRadius = 8
         addSubnode(bgNode)
 
-        let iconConfig = UIImage.SymbolConfiguration(pointSize: 22, weight: .medium)
-        iconNode.image = UIImage(systemName: Self.iconName(for: attachment), withConfiguration: iconConfig)?
-            .withTintColor(.systemIndigo, renderingMode: .alwaysOriginal)
+        let iconConfig = MezonSymbolConfiguration(pointSize: 22, weight: .medium)
+        iconNode.image = UIImage.mezonSystemImage(Self.iconName(for: attachment), withConfiguration: iconConfig)?
+            .mezonTinted(.mezonCompatSystemIndigo, renderingMode: .alwaysOriginal)
         iconNode.contentMode = .scaleAspectFit
         addSubnode(iconNode)
 

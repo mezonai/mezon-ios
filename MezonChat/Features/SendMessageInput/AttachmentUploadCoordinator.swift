@@ -283,7 +283,7 @@ final class AttachmentUploadCoordinator {
 
     // MARK: - Public API
 
-    @MainActor
+    @available(iOS 13.0, *)
     func startImageSend(
         context: AccountContext,
         params: ImageSendParams,
@@ -320,7 +320,7 @@ final class AttachmentUploadCoordinator {
         }
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     func retry(context: AccountContext, messageId: String, itemIndex: Int) {
         guard let session = session(forKey: messageId) else { return }
         if session.aborted || session.serverMessageId == 0 {
@@ -352,7 +352,7 @@ final class AttachmentUploadCoordinator {
 
     // MARK: - Orchestration
 
-    @MainActor
+    @available(iOS 13.0, *)
     private func runWithBackgroundTask(_ body: @MainActor () async -> Void) async {
         var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
         backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "MezonAttachmentUpload") {
@@ -370,7 +370,7 @@ final class AttachmentUploadCoordinator {
         await body()
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     private func runUploads(
         _ session: ImageUploadSession,
         context: AccountContext,
@@ -454,19 +454,19 @@ final class AttachmentUploadCoordinator {
     }
 
     @MainActor
+    @available(iOS 13.0, *)
     private func prepareSendToken(context: AccountContext) async -> String? {
         _ = await context.account.socket.waitForConnected(timeoutNanoseconds: 3_000_000_000)
         return await context.getToken()
     }
 
-    @MainActor
     private func allAttachmentsReserved(_ session: ImageUploadSession) -> Bool {
         let imagesReady = session.items.allSatisfy { $0.reservedAttachment != nil }
         let filesReady = session.fileTracks.count == session.params.files.count
         return imagesReady && filesReady
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     private func reserveAttachments(
         _ session: ImageUploadSession,
         context: AccountContext,
@@ -489,7 +489,7 @@ final class AttachmentUploadCoordinator {
         }
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     private func retryFailedUploads(
         _ session: ImageUploadSession,
         context: AccountContext
@@ -546,6 +546,7 @@ final class AttachmentUploadCoordinator {
     }
 
     @MainActor
+    @available(iOS 13.0, *)
     private func finalizeIfComplete(_ session: ImageUploadSession, context: AccountContext) async {
         guard !session.aborted else { return }
         let allResolved = session.items.allSatisfy { !$0.state.isUploading }
@@ -554,7 +555,7 @@ final class AttachmentUploadCoordinator {
         finalizeSuccessIfNeeded(session, context: context)
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     private func sendMessage(
         _ session: ImageUploadSession,
         context: AccountContext,
@@ -652,7 +653,6 @@ final class AttachmentUploadCoordinator {
         }
     }
 
-    @MainActor
     private func finalizeSuccessIfNeeded(
         _ session: ImageUploadSession,
         context: AccountContext
@@ -670,7 +670,6 @@ final class AttachmentUploadCoordinator {
         }
     }
 
-    @MainActor
     private func finalizeAllFailed(_ session: ImageUploadSession, context: AccountContext) {
         session.finished = true
         let id = session.serverMessageId != 0 ? "\(session.serverMessageId)" : session.params.localId
@@ -678,7 +677,6 @@ final class AttachmentUploadCoordinator {
         nudge(session, context: context)
     }
 
-    @MainActor
     private func writeFinalAttachments(
         _ session: ImageUploadSession,
         context: AccountContext,
@@ -716,7 +714,6 @@ final class AttachmentUploadCoordinator {
         }
     }
 
-    @MainActor
     private func resolveCreateTimeSeconds(
         _ session: ImageUploadSession,
         context: AccountContext
@@ -733,7 +730,6 @@ final class AttachmentUploadCoordinator {
         return session.serverCreateTimeSeconds
     }
 
-    @MainActor
     private func writeMessageContent(
         _ session: ImageUploadSession,
         context: AccountContext,
@@ -765,13 +761,12 @@ final class AttachmentUploadCoordinator {
         }
     }
 
-    @MainActor
     private func markPresignFinished(_ session: ImageUploadSession, key: String) {
         guard !key.isEmpty, !session.presignFinishedKeys.contains(key) else { return }
         session.presignFinishedKeys.append(key)
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     private func maybeSyncPresignFinish(
         _ session: ImageUploadSession,
         context: AccountContext,
@@ -796,7 +791,7 @@ final class AttachmentUploadCoordinator {
         await updatePresignFinishContent(session, context: context, token: token, isFinal: forceFlush)
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     private func flushAllPresignFinish(
         _ session: ImageUploadSession,
         context: AccountContext
@@ -812,7 +807,7 @@ final class AttachmentUploadCoordinator {
         }
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     func resendFailedSession(context: AccountContext, messageId: String) -> Bool {
         guard let session = session(forKey: messageId) else { return false }
         guard session.aborted || session.serverMessageId == 0 else { return false }
@@ -845,7 +840,6 @@ final class AttachmentUploadCoordinator {
         return true
     }
 
-    @MainActor
     private func mentionsForPresignSync(
         _ session: ImageUploadSession,
         context: AccountContext
@@ -862,7 +856,7 @@ final class AttachmentUploadCoordinator {
         return p.mentionList
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     private func updatePresignFinishContent(
         _ session: ImageUploadSession,
         context: AccountContext,
@@ -955,6 +949,7 @@ final class AttachmentUploadCoordinator {
     }
 
     @MainActor
+    @available(iOS 13.0, *)
     private func reserveFiles(_ session: ImageUploadSession, context: AccountContext, token: String) async {
         for file in session.params.files {
             guard FileManager.default.fileExists(atPath: file.url.path),
@@ -994,6 +989,7 @@ final class AttachmentUploadCoordinator {
     }
 
     @MainActor
+    @available(iOS 13.0, *)
     private func reserveImages(_ session: ImageUploadSession, context: AccountContext, token: String) async {
         var nextIndex = 0
         await withTaskGroup(of: (Int, Bool).self) { group in
@@ -1016,7 +1012,7 @@ final class AttachmentUploadCoordinator {
         }
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     private func reserveOneImage(
         _ item: ImageUploadItem,
         context: AccountContext,
@@ -1093,7 +1089,7 @@ final class AttachmentUploadCoordinator {
         }
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     private func reserveFileBody(
         fileURL: URL,
         filename: String,
@@ -1142,7 +1138,7 @@ final class AttachmentUploadCoordinator {
             progressKey: progressKey, cacheImage: nil))
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     private func reserveVideoThumbnail(
         _ thumbnail: UIImage,
         originalFilename: String,
@@ -1176,6 +1172,7 @@ final class AttachmentUploadCoordinator {
     // MARK: - Execute uploads
 
     @MainActor
+    @available(iOS 13.0, *)
     private func executeFileUploads(_ session: ImageUploadSession, context: AccountContext, token: String) async {
         for track in session.fileTracks where track.state.isUploading {
             let ok = await executePendingUpload(track.pending, context: context)
@@ -1194,6 +1191,7 @@ final class AttachmentUploadCoordinator {
     }
 
     @MainActor
+    @available(iOS 13.0, *)
     private func executeImageUploads(_ session: ImageUploadSession, context: AccountContext, token: String) async {
         var nextIndex = 0
         await withTaskGroup(of: (Int, Bool).self) { group in
@@ -1231,6 +1229,7 @@ final class AttachmentUploadCoordinator {
     }
 
     @MainActor
+    @available(iOS 13.0, *)
     private func executeImageUpload(_ item: ImageUploadItem, context: AccountContext) async -> Bool {
         guard item.reservedAttachment != nil else { return false }
         for pending in item.pendingUploads {
@@ -1242,7 +1241,7 @@ final class AttachmentUploadCoordinator {
         return true
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     private func executePendingUpload(
         _ pending: PendingMinIOUpload,
         context: AccountContext
@@ -1256,7 +1255,7 @@ final class AttachmentUploadCoordinator {
         return false
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     private func performPendingUpload(
         _ pending: PendingMinIOUpload,
         context: AccountContext
@@ -1324,7 +1323,7 @@ final class AttachmentUploadCoordinator {
         }
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     private func performMultipartUpload(
         _ plan: MultipartPlan,
         context: AccountContext,
@@ -1384,9 +1383,9 @@ final class AttachmentUploadCoordinator {
 
     private static func readChunk(fileURL: URL, offset: Int, length: Int) throws -> Data {
         let handle = try FileHandle(forReadingFrom: fileURL)
-        defer { try? handle.close() }
+        defer { handle.closeFile() }
         if offset > 0 {
-            try handle.seek(toOffset: UInt64(offset))
+            handle.seek(toFileOffset: UInt64(offset))
         }
         return handle.readData(ofLength: length)
     }
@@ -1401,6 +1400,7 @@ final class AttachmentUploadCoordinator {
         let filename: String
     }
 
+    @available(iOS 13.0, *)
     private nonisolated static func imageUploadPayload(
         image: UIImage, fileURL: URL, filetype: String, filename: String, isGif: Bool
     ) async -> ImageUploadPayload? {
@@ -1415,12 +1415,14 @@ final class AttachmentUploadCoordinator {
         }.value
     }
 
+    @available(iOS 13.0, *)
     private nonisolated static func fileSize(of url: URL) async -> Int? {
         await Task.detached(priority: .utility) {
             (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber
         }.value?.intValue
     }
 
+    @available(iOS 13.0, *)
     private nonisolated static func encodeJPEG(_ image: UIImage, quality: CGFloat) async -> Data? {
         await Task.detached(priority: .utility) { image.jpegData(compressionQuality: quality) }.value
     }
@@ -1457,7 +1459,6 @@ final class AttachmentUploadCoordinator {
         }
     }
 
-    @MainActor
     private func nudge(_ session: ImageUploadSession, context: AccountContext) {
         let serverKey = "\(session.serverMessageId)"
         let localId = session.params.localId
@@ -1470,7 +1471,6 @@ final class AttachmentUploadCoordinator {
         }
     }
 
-    @MainActor
     private func clearDocumentPlaceholders(_ session: ImageUploadSession) {
         guard !session.params.files.isEmpty else { return }
         ParsedAttachment.pendingDocumentPlaceholders.removeValue(forKey: session.params.localId)

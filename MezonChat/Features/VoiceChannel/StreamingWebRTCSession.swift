@@ -2,7 +2,7 @@ import AVFoundation
 import Foundation
 import WebRTC
 
-@MainActor
+@available(iOS 13.0, *)
 final class StreamingWebRTCSession: NSObject {
 
     static let shared = StreamingWebRTCSession()
@@ -27,8 +27,8 @@ final class StreamingWebRTCSession: NSObject {
     private var pendingChannelId: Int64 = 0
     private var pendingStreamId: Int64 = 0
     private var pendingUserId: String = ""
-    private var receiveLoopTask: Task<Void, Never>?
-    private var availabilityPollTask: Task<Void, Never>?
+    private var receiveLoopTask: CancelHandle?
+    private var availabilityPollTask: CancelHandle?
     private var hasSubscribedToStream = false
 
     private static let availabilityPollIntervalNanos: UInt64 = 3_000_000_000
@@ -37,6 +37,8 @@ final class StreamingWebRTCSession: NSObject {
         super.init()
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     func join(
         clanId: Int64,
         channelId: Int64,
@@ -75,9 +77,10 @@ final class StreamingWebRTCSession: NSObject {
         let task = session.webSocketTask(with: wsURL)
         webSocketTask = task
         task.resume()
-        receiveLoopTask = Task { [weak self] in
+        let receiveLoopTaskWork = Task { [weak self] in
             await self?.receiveMessages(from: task)
         }
+        receiveLoopTask = CancelHandle { receiveLoopTaskWork.cancel() }
 
         do {
             let offer = try await Self.createOffer(on: pc)
@@ -96,9 +99,11 @@ final class StreamingWebRTCSession: NSObject {
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func startAvailabilityPolling() {
         availabilityPollTask?.cancel()
-        availabilityPollTask = Task { [weak self] in
+        let availabilityPollTaskWork = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: Self.availabilityPollIntervalNanos)
                 guard !Task.isCancelled, let self else { return }
@@ -106,8 +111,11 @@ final class StreamingWebRTCSession: NSObject {
                 self.sendJSON(["Key": "get_channels"])
             }
         }
+        availabilityPollTask = CancelHandle { availabilityPollTaskWork.cancel() }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private static func createOffer(on pc: RTCPeerConnection) async throws -> RTCSessionDescription {
         try await withCheckedThrowingContinuation { continuation in
             let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
@@ -123,6 +131,8 @@ final class StreamingWebRTCSession: NSObject {
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private static func setLocalDescription(_ description: RTCSessionDescription, on pc: RTCPeerConnection) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             pc.setLocalDescription(description) { error in
@@ -274,6 +284,8 @@ final class StreamingWebRTCSession: NSObject {
         webSocketTask?.send(.string(text)) { _ in }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func receiveMessages(from task: URLSessionWebSocketTask) async {
         while !Task.isCancelled {
             do {
@@ -346,6 +358,7 @@ final class StreamingWebRTCSession: NSObject {
         setStreaming(true)
     }
 
+    @available(iOS 13.0, *)
     private func handleAnswerMessage(_ json: [String: Any]) {
         guard let pc = peerConnection else {
             return
@@ -411,9 +424,11 @@ final class StreamingWebRTCSession: NSObject {
     }
 }
 
+@available(iOS 13.0, *)
 extension StreamingWebRTCSession: RTCPeerConnectionDelegate {
     nonisolated func peerConnection(_: RTCPeerConnection, didChange _: RTCSignalingState) {}
 
+    @available(iOS 13.0, *)
     nonisolated func peerConnection(_: RTCPeerConnection, didAdd stream: RTCMediaStream) {
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -430,6 +445,7 @@ extension StreamingWebRTCSession: RTCPeerConnectionDelegate {
 
     nonisolated func peerConnectionShouldNegotiate(_: RTCPeerConnection) {}
 
+    @available(iOS 13.0, *)
     nonisolated func peerConnection(_: RTCPeerConnection, didChange state: RTCIceConnectionState) {
         if state == .connected || state == .completed {
             Task { @MainActor [weak self] in
@@ -445,6 +461,7 @@ extension StreamingWebRTCSession: RTCPeerConnectionDelegate {
 
     nonisolated func peerConnection(_: RTCPeerConnection, didChange _: RTCIceGatheringState) {}
 
+    @available(iOS 13.0, *)
     nonisolated func peerConnection(_: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
         guard !candidate.sdp.isEmpty else { return }
         let payload: [String: Any] = [
@@ -464,6 +481,7 @@ extension StreamingWebRTCSession: RTCPeerConnectionDelegate {
 
     nonisolated func peerConnection(_: RTCPeerConnection, didOpen _: RTCDataChannel) {}
 
+    @available(iOS 13.0, *)
     nonisolated func peerConnection(_: RTCPeerConnection, didAdd rtpReceiver: RTCRtpReceiver, streams _: [RTCMediaStream]) {
         Task { @MainActor [weak self] in
             guard let self, let track = rtpReceiver.track else { return }
@@ -473,6 +491,7 @@ extension StreamingWebRTCSession: RTCPeerConnectionDelegate {
 
     nonisolated func peerConnection(_: RTCPeerConnection, didRemove _: RTCRtpReceiver) {}
 
+    @available(iOS 13.0, *)
     nonisolated func peerConnection(_: RTCPeerConnection, didStartReceivingOn transceiver: RTCRtpTransceiver) {
         Task { @MainActor [weak self] in
             guard let self, let track = transceiver.receiver.track else { return }

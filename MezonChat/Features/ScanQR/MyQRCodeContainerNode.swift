@@ -2,7 +2,6 @@ import AsyncDisplayKit
 import Foundation
 import UIKit
 
-@MainActor
 final class MyQRCodeContainerNode: ASDisplayNode, ASNetworkImageNodeDelegate {
 
     private enum CenterImageSelection {
@@ -136,7 +135,7 @@ final class MyQRCodeContainerNode: ASDisplayNode, ASNetworkImageNodeDelegate {
         cardNode.shadowOpacity = 1
 
         editCenterImageButton.setImage(
-            UIImage(systemName: "pencil")?.withRenderingMode(.alwaysTemplate), for: .normal)
+            UIImage.mezonSystemImage("pencil")?.withRenderingMode(.alwaysTemplate), for: .normal)
         editCenterImageButton.backgroundColor = .white
         editCenterImageButton.cornerRadius = 20.swh
         editCenterImageButton.tintColor = Style.actionBlue
@@ -187,7 +186,7 @@ final class MyQRCodeContainerNode: ASDisplayNode, ASNetworkImageNodeDelegate {
         qrLogoNode.delegate = self
         qrLogoFallbackNode.cornerRadius = 8.swh
 
-        verifiedIconNode.image = UIImage(systemName: "checkmark.seal.fill")?
+        verifiedIconNode.image = UIImage.mezonSystemImage("checkmark.seal.fill")?
             .withRenderingMode(.alwaysTemplate)
         verifiedIconNode.tintColor = Style.actionBlue
         verifiedIconNode.contentMode = .scaleAspectFit
@@ -218,7 +217,7 @@ final class MyQRCodeContainerNode: ASDisplayNode, ASNetworkImageNodeDelegate {
 
     private func configureActionButton(_ button: ASButtonNode, systemName: String) {
         button.setImage(
-            UIImage(systemName: systemName)?.withRenderingMode(.alwaysTemplate), for: .normal)
+            UIImage.mezonSystemImage(systemName)?.withRenderingMode(.alwaysTemplate), for: .normal)
         button.backgroundColor = .white
         button.cornerRadius = 8.swh
         button.tintColor = Style.actionBlue

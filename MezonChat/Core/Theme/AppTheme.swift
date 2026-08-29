@@ -103,7 +103,10 @@ enum AppTheme: String, CaseIterable {
         case .light, .sunrise:
             return false
         case .system:
-            return UITraitCollection.current.userInterfaceStyle == .dark
+            if #available(iOS 13.0, *) {
+                return mezonSystemPrefersDarkMode()
+            }
+            return false
         case .dark, .redDark, .purpleHaze, .abyssDark, .sunset:
             return true
         }

@@ -53,7 +53,7 @@ final class CheckboxComponent: Component {
             titleLabel.sizeToFit()
 
             let iconName = component.isChecked ? "checkmark.square.fill" : "square"
-            iconView.image = UIImage(systemName: iconName)
+            iconView.image = UIImage.mezonSystemImage(iconName)
             iconView.tintColor = component.isChecked ? UIColor(hex: 0x2e22ff) : attrs.textDisabled
 
             let iconSize: CGFloat = 24
@@ -438,7 +438,7 @@ final class SubmitButtonComponent: Component {
 
     final class View: UIView {
         private let button = UIButton(type: .custom)
-        private let spinner = UIActivityIndicatorView(style: .medium)
+        private let spinner = UIActivityIndicatorView.mezonMedium()
         private var action: (() -> Void)?
 
         private let gradientLayer: CAGradientLayer = {

@@ -166,18 +166,18 @@ final class ChannelOnboardingBannerCellNode: ASCellNode {
 
     private static func bannerIcon() -> UIImage? {
         let pointSize: CGFloat = isPad ? 13 : 14.sf
-        let config = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .semibold)
-        if let image = UIImage(systemName: "sparkles", withConfiguration: config) {
-            return image.withTintColor(.white, renderingMode: .alwaysOriginal)
+        let config = MezonSymbolConfiguration(pointSize: pointSize, weight: .semibold)
+        if let image = UIImage.mezonSystemImage("sparkles", withConfiguration: config) {
+            return image.mezonTinted(.white, renderingMode: .alwaysOriginal)
         }
-        return UIImage(systemName: "star.fill", withConfiguration: config)?
-            .withTintColor(.white, renderingMode: .alwaysOriginal)
+        return UIImage.mezonSystemImage("star.fill", withConfiguration: config)?
+            .mezonTinted(.white, renderingMode: .alwaysOriginal)
     }
 
     private static func chevronImage() -> UIImage? {
-        let config = UIImage.SymbolConfiguration(pointSize: 12.sf, weight: .semibold)
-        return UIImage(systemName: "chevron.right", withConfiguration: config)?
-            .withTintColor(UIColor.theme.text, renderingMode: .alwaysOriginal)
+        let config = MezonSymbolConfiguration(pointSize: 12.sf, weight: .semibold)
+        return UIImage.mezonSystemImage("chevron.right", withConfiguration: config)?
+            .mezonTinted(UIColor.theme.text, renderingMode: .alwaysOriginal)
     }
 
     private static func titleAttributes(_ text: String) -> NSAttributedString {

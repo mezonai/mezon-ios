@@ -51,7 +51,7 @@ final class ProfileSettingViewController: BaseViewController {
 
     private let closeButton: UIButton = {
         let btn = UIButton(type: .system)
-        let img = UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold))
+        let img = UIImage.mezonSystemImage("xmark", withConfiguration: MezonSymbolConfiguration(pointSize: 16, weight: .semibold))
         btn.setImage(img, for: .normal)
         btn.translatesAutoresizingMaskIntoConstraints = false
         return btn
@@ -145,7 +145,7 @@ final class ProfileSettingViewController: BaseViewController {
         return l
     }()
     private let avatarSpinner: UIActivityIndicatorView = {
-        let s = UIActivityIndicatorView(style: .medium)
+        let s = UIActivityIndicatorView.mezonMedium()
         s.hidesWhenStopped = true
         s.translatesAutoresizingMaskIntoConstraints = false
         return s
@@ -196,7 +196,7 @@ final class ProfileSettingViewController: BaseViewController {
     }()
     private let displayNameClearButton: UIButton = {
         let btn = UIButton(type: .system)
-        let img = UIImage(systemName: "xmark.circle.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16))
+        let img = UIImage.mezonSystemImage("xmark.circle.fill", withConfiguration: MezonSymbolConfiguration(pointSize: 16))
         btn.setImage(img, for: .normal)
         btn.tintColor = .mezonTextPrimary
         btn.translatesAutoresizingMaskIntoConstraints = false
@@ -257,7 +257,7 @@ final class ProfileSettingViewController: BaseViewController {
         return l
     }()
     private let clanSelectorChevron: UIImageView = {
-        let iv = UIImageView(image: UIImage(systemName: "chevron.right", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)))
+        let iv = UIImageView(image: UIImage.mezonSystemImage("chevron.right", withConfiguration: MezonSymbolConfiguration(pointSize: 12, weight: .semibold)))
         iv.contentMode = .scaleAspectFit
         iv.translatesAutoresizingMaskIntoConstraints = false
         return iv
@@ -341,14 +341,14 @@ final class ProfileSettingViewController: BaseViewController {
         return iv
     }()
     private let dmIconSpinner: UIActivityIndicatorView = {
-        let s = UIActivityIndicatorView(style: .medium)
+        let s = UIActivityIndicatorView.mezonMedium()
         s.hidesWhenStopped = true
         s.translatesAutoresizingMaskIntoConstraints = false
         return s
     }()
     private let dmIconRemoveButton: UIButton = {
         let btn = UIButton(type: .system)
-        let img = UIImage(systemName: "xmark.circle.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .bold))
+        let img = UIImage.mezonSystemImage("xmark.circle.fill", withConfiguration: MezonSymbolConfiguration(pointSize: 16, weight: .bold))
         btn.setImage(img, for: .normal)
         btn.tintColor = .systemRed
         btn.backgroundColor = .white
@@ -366,7 +366,7 @@ final class ProfileSettingViewController: BaseViewController {
         v.translatesAutoresizingMaskIntoConstraints = false
         return v
     }()
-    private let spinner = UIActivityIndicatorView(style: .large)
+    private let spinner = UIActivityIndicatorView.mezonLarge()
 
     init(context: AccountContext, initialTab: ProfileSettingTab = .userProfile) {
         self.context = context
@@ -467,7 +467,9 @@ final class ProfileSettingViewController: BaseViewController {
 
         registerKeyboardNotifications()
         currentTab = initialTab
-        loadInitialData()
+        if #available(iOS 13.0, *) {
+            loadInitialData()
+        }
     }
 
     override func applyTheme() {
@@ -777,6 +779,7 @@ final class ProfileSettingViewController: BaseViewController {
         ])
     }
 
+    @available(iOS 13.0, *)
     private func loadInitialData() {
         guard let user = context.currentUser else { return }
         userName = user.username
@@ -795,6 +798,7 @@ final class ProfileSettingViewController: BaseViewController {
         switchToTab(currentTab, animated: false)
     }
 
+    @available(iOS 13.0, *)
     private func loadDmLogo() {
         if let cachedData = context.account.postbox.getPreferenceData(key: PreferencesKeys.account),
            let cachedAccount = try? Mezon_Api_Account(serializedData: cachedData),
@@ -815,6 +819,7 @@ final class ProfileSettingViewController: BaseViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func loadClans() {
         Task { @MainActor in
             guard let token = await context.getToken() else { return }
@@ -832,6 +837,7 @@ final class ProfileSettingViewController: BaseViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func loadClanProfile() async {
         guard let clan = selectedClan,
               let token = await context.getToken() else { return }
@@ -1087,15 +1093,18 @@ final class ProfileSettingViewController: BaseViewController {
     }
 
     @objc private func saveTapped() {
-        guard !isUploading else { return }
-        view.endEditing(true)
-        if currentTab == .userProfile {
-            saveUserProfile()
-        } else {
-            saveClanProfile()
+        if #available(iOS 13.0, *) {
+            guard !isUploading else { return }
+            view.endEditing(true)
+            if currentTab == .userProfile {
+                saveUserProfile()
+            } else {
+                saveClanProfile()
+            }
         }
     }
 
+    @available(iOS 13.0, *)
     private func saveUserProfile() {
         Task { @MainActor in
             guard let token = await context.getToken() else { return }
@@ -1136,6 +1145,7 @@ final class ProfileSettingViewController: BaseViewController {
 
     private static let kTypeNickname: Int32 = 4
 
+    @available(iOS 13.0, *)
     private func saveClanProfile() {
         Task { @MainActor in
             guard let clan = selectedClan,
@@ -1326,6 +1336,7 @@ final class ProfileSettingViewController: BaseViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func handlePickedImage(_ image: UIImage, data: Data) {
         let maxBytes: Int
         switch pendingAvatarTarget {
@@ -1347,6 +1358,7 @@ final class ProfileSettingViewController: BaseViewController {
         uploadImage(image: image, data: data, target: pendingAvatarTarget)
     }
 
+    @available(iOS 13.0, *)
     private func uploadImage(image: UIImage, data: Data, target: AvatarTarget) {
         isUploading = true
 
@@ -1482,7 +1494,9 @@ final class ProfileSettingViewController: BaseViewController {
     }
 
     @objc private func clanSelectorTapped() {
-        showClanPicker()
+        if #available(iOS 13.0, *) {
+            showClanPicker()
+        }
     }
     
     @objc private func createClanTapped() {
@@ -1495,6 +1509,7 @@ final class ProfileSettingViewController: BaseViewController {
         present(vc, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func showClanPicker() {
         guard !clans.isEmpty else { return }
         let sheet = ClanPickerSheetViewController(
@@ -1507,6 +1522,7 @@ final class ProfileSettingViewController: BaseViewController {
         present(sheet, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func didSelectClan(_ clan: Mezon_Api_ClanDesc) {
         selectedClan = clan
         isDuplicateNickname = false
@@ -1584,26 +1600,28 @@ extension ProfileSettingViewController: PHPickerViewControllerDelegate {
 
 extension ProfileSettingViewController: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
     func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
-        picker.dismiss(animated: true)
+        if #available(iOS 13.0, *) {
+            picker.dismiss(animated: true)
         
-        let maxBytes = self.pendingAvatarTarget == .dmIcon ? kMaxDMIconBytes : kMaxAvatarBytes
+            let maxBytes = self.pendingAvatarTarget == .dmIcon ? kMaxDMIconBytes : kMaxAvatarBytes
         
-        if let url = info[.imageURL] as? URL,
-           let attr = try? FileManager.default.attributesOfItem(atPath: url.path),
-           let size = attr[.size] as? NSNumber {
-            if size.intValue > maxBytes {
-                if maxBytes == kMaxAvatarBytes {
-                    Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge10MB))
-                } else {
-                    Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge1MB))
+            if let url = info[.imageURL] as? URL,
+               let attr = try? FileManager.default.attributesOfItem(atPath: url.path),
+               let size = attr[.size] as? NSNumber {
+                if size.intValue > maxBytes {
+                    if maxBytes == kMaxAvatarBytes {
+                        Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge10MB))
+                    } else {
+                        Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge1MB))
+                    }
+                    return
                 }
-                return
             }
-        }
         
-        guard let image = info[.originalImage] as? UIImage else { return }
-        let jpegData = image.jpegData(compressionQuality: 1.0) ?? Data()
-        handlePickedImage(image, data: jpegData)
+            guard let image = info[.originalImage] as? UIImage else { return }
+            let jpegData = image.jpegData(compressionQuality: 1.0) ?? Data()
+            handlePickedImage(image, data: jpegData)
+        }
     }
 
     func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {

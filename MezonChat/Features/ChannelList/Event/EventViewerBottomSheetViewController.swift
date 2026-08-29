@@ -131,8 +131,8 @@ enum EventDisplayHelper {
     static func configureInterestButton(_ button: UIButton, isInterested: Bool) {
         let title = isInterested ? L(L10n.EventMenu.itemUninterested) : L(L10n.EventMenu.itemInterested)
         let iconName = isInterested ? "bell.slash" : "bell"
-        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 13, weight: .medium)
-        let image = UIImage(systemName: iconName, withConfiguration: symbolConfig)?
+        let symbolConfig = MezonSymbolConfiguration(pointSize: 13, weight: .medium)
+        let image = UIImage.mezonSystemImage(iconName, withConfiguration: symbolConfig)?
             .withRenderingMode(.alwaysTemplate)
         let textColor = UIColor.theme.textStrong
         button.setTitle(title, for: .normal)
@@ -176,7 +176,7 @@ final class EventViewerBottomSheetViewController: UIViewController {
     private let scrollView = UIScrollView()
     private let contentStack = UIStackView()
     private let headerTitleLabel = UILabel()
-    private let loadingIndicator = UIActivityIndicatorView(style: .medium)
+    private let loadingIndicator = UIActivityIndicatorView.mezonMedium()
     private let loadingRow = UIView()
     private let listStack = UIStackView()
     private let emptyStateView = UIView()
@@ -212,12 +212,18 @@ final class EventViewerBottomSheetViewController: UIViewController {
         configureSheet()
         buildContent()
         applyTheme()
-        reloadEvents()
-        fetchEvents()
+        if #available(iOS 13.0, *) {
+            reloadEvents()
+        }
+        if #available(iOS 13.0, *) {
+            fetchEvents()
+        }
         eventsDisposable = context.engine.clanData.clanEventsUpdated.signal().start(next: { [weak self] updatedClanId in
             guard let self, updatedClanId == self.clanId else { return }
             self.loadedEvents = self.context.engine.clanData.getClanEvents(clanId: self.clanId)?.events ?? []
-            self.reloadEvents()
+            if #available(iOS 13.0, *) {
+                self.reloadEvents()
+            }
         })
         NotificationCenter.default.addObserver(
             self,
@@ -228,8 +234,10 @@ final class EventViewerBottomSheetViewController: UIViewController {
     }
 
     @objc private func themeDidChange() {
-        applyTheme()
-        reloadEvents()
+        if #available(iOS 13.0, *) {
+            applyTheme()
+            reloadEvents()
+        }
     }
 
     private func configureSheet() {
@@ -414,6 +422,7 @@ final class EventViewerBottomSheetViewController: UIViewController {
         )
     }
 
+    @available(iOS 13.0, *)
     private func reloadEvents() {
         let events = filteredEvents()
         headerTitleLabel.text = EventDisplayHelper.headerTitle(count: events.count)
@@ -459,6 +468,7 @@ final class EventViewerBottomSheetViewController: UIViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func makeEventRow(_ event: Mezon_Api_EventManagement) -> UIView {
         let voiceChannelLabel = channels.first(where: { $0.channelID == event.channelVoiceID })?.channelLabel
         let textChannelLabel = channels.first(where: { $0.channelID == event.channelID })?.channelLabel
@@ -483,6 +493,7 @@ final class EventViewerBottomSheetViewController: UIViewController {
         return row
     }
 
+    @available(iOS 13.0, *)
     private func toggleEventInterest(_ event: Mezon_Api_EventManagement) {
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -519,6 +530,7 @@ final class EventViewerBottomSheetViewController: UIViewController {
         present(vc, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func fetchEvents() {
         guard !isFetching else { return }
         isFetching = true
@@ -711,7 +723,7 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
         countStack.axis = .horizontal
         countStack.spacing = 4
         countStack.alignment = .center
-        let groupIcon = UIImageView(image: UIImage(systemName: "person.2.fill"))
+        let groupIcon = UIImageView(image: UIImage.mezonSystemImage("person.2.fill"))
         groupIcon.tintColor = UIColor.theme.text
         groupIcon.contentMode = .scaleAspectFit
         groupIcon.translatesAutoresizingMaskIntoConstraints = false
@@ -792,13 +804,13 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
     private func makeLocationRow() -> UIView? {
         if !event.address.isEmpty {
             return inlineIconRow(
-                icon: UIImage(systemName: "mappin.and.ellipse"),
+                icon: UIImage.mezonSystemImage("mappin.and.ellipse"),
                 text: event.address
             )
         }
         guard event.channelVoiceID != 0 || voiceChannelLabel != nil else { return nil }
         let label = voiceChannelLabel ?? L(L10n.EventMenu.privateRoom)
-        return inlineIconRow(icon: UIImage(systemName: "speaker.wave.2.fill"), text: label)
+        return inlineIconRow(icon: UIImage.mezonSystemImage("speaker.wave.2.fill"), text: label)
     }
 
     private func inlineIconRow(icon: UIImage?, text: String) -> UIView {
@@ -836,13 +848,13 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
             ? creator?.clanAvatar
             : creator?.userAvatarURL
         guard let raw, !raw.isEmpty else {
-            imageView.image = UIImage(systemName: "person.circle.fill")
+            imageView.image = UIImage.mezonSystemImage("person.circle.fill")
             imageView.tintColor = UIColor.theme.textDisabled
             return
         }
         let proxied = ImgproxyURL.avatarProxyURL(from: raw, width: 56, height: 56)
         ImageCache.shared.loadImage(urlString: proxied) { image in
-            imageView.image = image ?? UIImage(systemName: "person.circle.fill")
+            imageView.image = image ?? UIImage.mezonSystemImage("person.circle.fill")
         }
     }
 

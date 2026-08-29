@@ -43,7 +43,9 @@ class KeyboardManager {
 
     var surfaces: [KeyboardSurface] = [] {
         didSet {
-            self.updateSurfaces(oldValue)
+            if #available(iOS 13.0, *) {
+                self.updateSurfaces(oldValue)
+            }
         }
     }
 

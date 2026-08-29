@@ -91,11 +91,13 @@ final class ProfileViewController: ViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         profileNode.updateContent()
-        Task {
-            await context.refreshAccountProfile()
-            await context.fetchCurrentUserStatus()
-            if let token = await context.getTokenPreferringCachedSkipSessionReadyWait() {
-                await context.engine.friendsData.refreshFromNetwork(token: token)
+        if #available(iOS 13.0, *) {
+            Task {
+                await context.refreshAccountProfile()
+                await context.fetchCurrentUserStatus()
+                if let token = await context.getTokenPreferringCachedSkipSessionReadyWait() {
+                    await context.engine.friendsData.refreshFromNetwork(token: token)
+                }
             }
         }
     }

@@ -75,7 +75,7 @@ final class UpdateUsernameViewController: BaseViewController, AuthScreenStatusBa
     }()
 
     private lazy var loadingIndicator: UIActivityIndicatorView = {
-        let ai = UIActivityIndicatorView(style: .medium)
+        let ai = UIActivityIndicatorView.mezonMedium()
         ai.hidesWhenStopped = true
         ai.color = .white
         ai.translatesAutoresizingMaskIntoConstraints = false
@@ -208,7 +208,9 @@ final class UpdateUsernameViewController: BaseViewController, AuthScreenStatusBa
             return !self.isLoading && !Self.sanitizeUsername(self.nameField.text ?? "").isEmpty
         }
         disposables.add((filtered |> deliverOnMainQueue).start(next: { [weak self] in
-            Task { await self?.submitUsername() }
+            if #available(iOS 13.0, *) {
+                Task { await self?.submitUsername() }
+            }
         }))
     }
 
@@ -268,24 +270,27 @@ final class UpdateUsernameViewController: BaseViewController, AuthScreenStatusBa
     }
 
     @objc private func skipTapped() {
-        view.endEditing(true)
-        if let nav = navigationController, let login = nav.viewControllers.first(where: { $0 is LoginViewController }) {
-            SessionStore.clear()
-            MandatoryUsernamePendingStore.clearPending()
-            context.account.network.resetProtoBaseURLToDefault()
-            nav.popToViewController(login, animated: true)
-            return
-        }
-        let ctx = context
-        dismiss(animated: true)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            Task { @MainActor in
-                ctx.account.network.resetProtoBaseURLToDefault()
-                ctx.logout()
+        if #available(iOS 13.0, *) {
+            view.endEditing(true)
+            if let nav = navigationController, let login = nav.viewControllers.first(where: { $0 is LoginViewController }) {
+                SessionStore.clear()
+                MandatoryUsernamePendingStore.clearPending()
+                context.account.network.resetProtoBaseURLToDefault()
+                nav.popToViewController(login, animated: true)
+                return
+            }
+            let ctx = context
+            dismiss(animated: true)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                Task { @MainActor in
+                    ctx.account.network.resetProtoBaseURLToDefault()
+                    ctx.logout()
+                }
             }
         }
     }
 
+    @available(iOS 13.0, *)
     @MainActor private func submitUsername() async {
         let sanitized = Self.sanitizeUsername(nameField.text ?? "")
         guard !sanitized.isEmpty else { return }

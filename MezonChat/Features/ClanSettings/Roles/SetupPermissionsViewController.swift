@@ -1,7 +1,6 @@
 import UIKit
 import AsyncDisplayKit
 
-@MainActor
 final class SetupPermissionsViewController: BaseViewController {
 
     enum Mode {
@@ -111,7 +110,7 @@ final class SetupPermissionsViewController: BaseViewController {
         view.addSubview(headerView)
 
         backButton.setImage(
-            UIImage(systemName: isEditMode ? "chevron.left" : "xmark")?
+            UIImage.mezonSystemImage(isEditMode ? "chevron.left" : "xmark")?
                 .withRenderingMode(.alwaysTemplate),
             for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
@@ -189,7 +188,7 @@ final class SetupPermissionsViewController: BaseViewController {
         searchContainer.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(searchContainer)
 
-        let icon = UIImageView(image: UIImage(systemName: "magnifyingglass")?.withRenderingMode(.alwaysTemplate))
+        let icon = UIImageView(image: UIImage.mezonSystemImage("magnifyingglass")?.withRenderingMode(.alwaysTemplate))
         icon.tintColor = UIColor.theme.textDisabled
         icon.contentMode = .scaleAspectFit
         icon.translatesAutoresizingMaskIntoConstraints = false
@@ -415,56 +414,60 @@ final class SetupPermissionsViewController: BaseViewController {
     }
 
     @objc private func saveTapped() {
-        let add = Array(selectedIDs.subtracting(originalSelectedIDs))
-        let remove = Array(originalSelectedIDs.subtracting(selectedIDs))
-        guard !add.isEmpty || !remove.isEmpty else { return }
+        if #available(iOS 13.0, *) {
+            let add = Array(selectedIDs.subtracting(originalSelectedIDs))
+            let remove = Array(originalSelectedIDs.subtracting(selectedIDs))
+            guard !add.isEmpty || !remove.isEmpty else { return }
 
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await self.repository.updateRole(
-                    roleId: self.roleId,
-                    clanId: self.clanId,
-                    title: nil,
-                    color: nil,
-                    roleIcon: nil,
-                    addUserIds: [],
-                    activePermissionIds: add,
-                    removeUserIds: [],
-                    removePermissionIds: remove
-                )
-                Toast.success(L(L10n.ClanRoles.saved))
-                self.originalSelectedIDs = self.selectedIDs
-                self.refreshSaveButton()
-                self.navigationController?.popViewController(animated: true)
-            } catch {
-                Toast.error(L(L10n.ClanRoles.failed))
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    try await self.repository.updateRole(
+                        roleId: self.roleId,
+                        clanId: self.clanId,
+                        title: nil,
+                        color: nil,
+                        roleIcon: nil,
+                        addUserIds: [],
+                        activePermissionIds: add,
+                        removeUserIds: [],
+                        removePermissionIds: remove
+                    )
+                    Toast.success(L(L10n.ClanRoles.saved))
+                    self.originalSelectedIDs = self.selectedIDs
+                    self.refreshSaveButton()
+                    self.navigationController?.popViewController(animated: true)
+                } catch {
+                    Toast.error(L(L10n.ClanRoles.failed))
+                }
             }
         }
     }
 
     @objc private func nextTapped() {
-        let add = Array(selectedIDs.subtracting(originalSelectedIDs))
-        let remove = Array(originalSelectedIDs.subtracting(selectedIDs))
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await self.repository.updateRole(
-                    roleId: self.roleId,
-                    clanId: self.clanId,
-                    title: nil,
-                    color: nil,
-                    roleIcon: nil,
-                    addUserIds: [],
-                    activePermissionIds: add,
-                    removeUserIds: [],
-                    removePermissionIds: remove
-                )
-                let next = SetupMembersViewController(
-                    context: self.context, clanId: self.clanId, mode: .wizard(roleId: self.roleId))
-                self.navigationController?.pushViewController(next, animated: true)
-            } catch {
-                Toast.error(L(L10n.ClanRoles.failed))
+        if #available(iOS 13.0, *) {
+            let add = Array(selectedIDs.subtracting(originalSelectedIDs))
+            let remove = Array(originalSelectedIDs.subtracting(selectedIDs))
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    try await self.repository.updateRole(
+                        roleId: self.roleId,
+                        clanId: self.clanId,
+                        title: nil,
+                        color: nil,
+                        roleIcon: nil,
+                        addUserIds: [],
+                        activePermissionIds: add,
+                        removeUserIds: [],
+                        removePermissionIds: remove
+                    )
+                    let next = SetupMembersViewController(
+                        context: self.context, clanId: self.clanId, mode: .wizard(roleId: self.roleId))
+                    self.navigationController?.pushViewController(next, animated: true)
+                } catch {
+                    Toast.error(L(L10n.ClanRoles.failed))
+                }
             }
         }
     }
@@ -587,7 +590,7 @@ private final class PermissionRowCell: UITableViewCell {
         descriptionLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         descriptionLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        lockIcon.image = UIImage(systemName: "lock.fill")?.withRenderingMode(.alwaysTemplate)
+        lockIcon.image = UIImage.mezonSystemImage("lock.fill")?.withRenderingMode(.alwaysTemplate)
         lockIcon.tintColor = UIColor.theme.textDisabled
         lockIcon.contentMode = .scaleAspectFit
         lockIcon.isHidden = true

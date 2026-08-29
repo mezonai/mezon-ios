@@ -5,11 +5,13 @@ enum SessionExpiredModal {
     static func show(onLoginAgain: @escaping () -> Void) {
         Toast.isSessionInvalid = true
         DispatchQueue.main.async {
-            SessionExpiredModalManager.shared.present(onLoginAgain: onLoginAgain)
+            if #available(iOS 13.0, *) {
+                SessionExpiredModalManager.shared.present(onLoginAgain: onLoginAgain)
+            }
         }
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     static func removeOverlayIfPresented() {
         SessionExpiredModalManager.shared.removeOverlayImmediately()
     }
@@ -37,6 +39,7 @@ private final class SessionExpiredRootViewController: UIViewController {
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .all }
 }
 
+@available(iOS 13.0, *)
 private final class SessionExpiredModalManager: NSObject, UIGestureRecognizerDelegate {
 
     static let shared = SessionExpiredModalManager()
@@ -54,6 +57,7 @@ private final class SessionExpiredModalManager: NSObject, UIGestureRecognizerDel
         tearDownWindow()
     }
 
+    @available(iOS 13.0, *)
     func present(onLoginAgain: @escaping () -> Void) {
         tearDownWindow()
 
@@ -159,6 +163,7 @@ private final class SessionExpiredModalManager: NSObject, UIGestureRecognizerDel
         contentView = nil
     }
 
+    @available(iOS 13.0, *)
     private var activeScene: UIWindowScene? {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         return scenes.first(where: { $0.activationState == .foregroundActive })

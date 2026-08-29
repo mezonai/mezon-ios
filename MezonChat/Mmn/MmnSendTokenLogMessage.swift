@@ -1,9 +1,9 @@
 import Foundation
 
-@MainActor
 enum MmnSendTokenLogMessage {
     private static let giveCoffeeDisplayAmount = "10000"
 
+    @available(iOS 13.0, *)
     static func sendGiveCoffeeTransferLog(
         context: AccountContext,
         receiverUserId: Int64
@@ -16,6 +16,7 @@ enum MmnSendTokenLogMessage {
         )
     }
 
+    @available(iOS 13.0, *)
     static func sendAfterUserIdTransferIfNeeded(
         context: AccountContext,
         payload: TransferQRPayload,
@@ -31,6 +32,7 @@ enum MmnSendTokenLogMessage {
         }
     }
 
+    @available(iOS 13.0, *)
     private static func send(
         context: AccountContext,
         receiverUserId: Int64,

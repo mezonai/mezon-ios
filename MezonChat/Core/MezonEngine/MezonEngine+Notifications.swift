@@ -3,7 +3,6 @@ import SwiftProtobuf
 
 extension MezonEngine {
 
-    @MainActor
     final class Notifications {
         private let engine: MezonEngine
         private var network: MezonHTTPClient { engine.account.network }
@@ -11,6 +10,7 @@ extension MezonEngine {
 
         init(engine: MezonEngine) { self.engine = engine }
 
+        @available(iOS 13.0, *)
         func listNotifications(
             clanId: Int64, category: Int32, notificationId: Int64 = 0, token: String
         ) async throws {

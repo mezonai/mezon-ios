@@ -112,7 +112,7 @@ final class IconRowComponent: Component {
         required init?(coder: NSCoder) { fatalError() }
 
         func update(component: IconRowComponent, availableSize: CGSize) -> CGSize {
-            iconView.image = UIImage(systemName: component.icon)
+            iconView.image = UIImage.mezonSystemImage(component.icon)
             iconView.tintColor = component.iconColor
             label.text = component.title
             label.textColor = component.textColor
@@ -125,7 +125,7 @@ final class IconRowComponent: Component {
             iconView.frame = CGRect(x: 0, y: (height - iconSize) / 2, width: iconSize, height: iconSize)
 
             if let trailing = component.trailingIcon {
-                trailingView.image = UIImage(systemName: trailing)
+                trailingView.image = UIImage.mezonSystemImage(trailing)
                 trailingView.tintColor = component.trailingIconColor ?? component.iconColor
                 trailingView.isHidden = false
                 let trailSize: CGFloat = 16

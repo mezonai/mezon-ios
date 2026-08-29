@@ -86,7 +86,7 @@ private final class WindowRootViewControllerView: UIView {
     }
 }
 
-private final class WindowRootViewController: UIViewController, UIWindowSceneDelegate, StatusBarStyleUpdatable {
+private final class WindowRootViewController: UIViewController, StatusBarStyleUpdatable {
     private var voiceOverStatusObserver: AnyObject?
     private var registeredForPreviewing = false
 
@@ -246,6 +246,10 @@ private final class WindowRootViewController: UIViewController, UIWindowSceneDel
     override public func present(_ viewControllerToPresent: UIViewController, animated flag: Bool, completion: (() -> Void)? = nil) {
         super.present(viewControllerToPresent, animated: flag, completion: completion)
     }
+}
+
+@available(iOS 13.0, *)
+extension WindowRootViewController: UIWindowSceneDelegate {
 }
 
 private final class NativeWindow: UIWindow, WindowHost {

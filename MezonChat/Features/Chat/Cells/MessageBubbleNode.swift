@@ -182,8 +182,8 @@ final class MessageBubbleNode: ASDisplayNode {
         }
         if display.showForwardHeader {
             let icon = ASImageNode()
-            let sym = UIImage(systemName: "arrowshape.turn.up.right")
-                ?? UIImage(systemName: "arrow.turn.up.right")
+            let sym = UIImage.mezonSystemImage("arrowshape.turn.up.right")
+                ?? UIImage.mezonSystemImage("arrow.turn.up.right")
             icon.image = sym?.withRenderingMode(.alwaysTemplate)
             icon.tintColor = UIColor.theme.textDisabled
             icon.contentMode = .scaleAspectFit
@@ -216,7 +216,7 @@ final class MessageBubbleNode: ASDisplayNode {
             ephemeralBorderNode.backgroundColor = UIColor.theme.bgViolet
             ephemeralHighlightNode.addSubnode(ephemeralBorderNode)
 
-            ephemeralIndicatorIconNode.image = UIImage(systemName: "eye.slash")?.withRenderingMode(.alwaysTemplate)
+            ephemeralIndicatorIconNode.image = UIImage.mezonSystemImage("eye.slash")?.withRenderingMode(.alwaysTemplate)
             ephemeralIndicatorIconNode.tintColor = UIColor.theme.textDisabled
             ephemeralIndicatorIconNode.contentMode = .scaleAspectFit
             ephemeralIndicatorNode.addSubnode(ephemeralIndicatorIconNode)
@@ -1077,7 +1077,7 @@ final class MessageBubbleNode: ASDisplayNode {
 
     private static func anonymousAvatarCompositeImage(raw: UIImage, tint: UIColor) -> UIImage {
         let tinted = raw.withRenderingMode(.alwaysTemplate)
-            .withTintColor(tint, renderingMode: .alwaysOriginal)
+            .mezonTinted(tint, renderingMode: .alwaysOriginal)
         let iconMax = CGSize(width: anonymousIconWidth, height: anonymousIconHeight)
         let canvas = CGSize(width: avatarSize, height: avatarSize)
         let format = UIGraphicsImageRendererFormat()
@@ -2154,8 +2154,8 @@ private final class MessageShareContactActionButtonNode: ASDisplayNode {
         automaticallyManagesSubnodes = false
         addSubnode(backgroundNode)
 
-        iconNode.image = UIImage(systemName: systemIcon)?
-            .withConfiguration(UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold))
+        iconNode.image = UIImage.mezonSystemImage(systemIcon)?
+            .mezonWithConfiguration(MezonSymbolConfiguration(pointSize: 18, weight: .semibold))?
             .withRenderingMode(.alwaysTemplate)
         iconNode.contentMode = .scaleAspectFit
         addSubnode(iconNode)

@@ -13,7 +13,7 @@ final class FriendRequestViewController: ViewController {
     private let needsReloadPipe = ValuePipe<Void>()
 
     private(set) var receivedRequests: [Mezon_Api_Friend] = []
-    private var refreshTask: Task<Void, Never>?
+    private var refreshTask: CancelHandle?
     private var inFlightActionUserIds: Set<Int64> = []
 
     private var friendRequestNode: FriendRequestContainerNode { displayNode as! FriendRequestContainerNode }
@@ -40,10 +40,14 @@ final class FriendRequestViewController: ViewController {
                 }
             },
             onAcceptFriend: { [weak self] friend in
-                self?.acceptFriend(friend)
+                if #available(iOS 13.0, *) {
+                    self?.acceptFriend(friend)
+                }
             },
             onRejectFriend: { [weak self] friend in
-                self?.rejectFriend(friend)
+                if #available(iOS 13.0, *) {
+                    self?.rejectFriend(friend)
+                }
             }
         )
         displayNode = FriendRequestContainerNode(signal: stateSignal(), interaction: interaction)
@@ -60,7 +64,9 @@ final class FriendRequestViewController: ViewController {
             )
         }
         syncFromGlobalFriendState()
-        refreshFromNetwork()
+        if #available(iOS 13.0, *) {
+            refreshFromNetwork()
+        }
     }
 
     private var friendsUpdatedDisposable: Disposable?
@@ -149,15 +155,18 @@ final class FriendRequestViewController: ViewController {
         setReceivedRequests(context.engine.friendsData.pendingIncomingFriends())
     }
 
+    @available(iOS 13.0, *)
     private func refreshFromNetwork(force: Bool = false) {
         refreshTask?.cancel()
-        refreshTask = Task { @MainActor [weak self] in
+        let refreshTaskWork = Task { @MainActor [weak self] in
             guard let self else { return }
             guard let token = await self.context.getToken() else { return }
             await self.context.engine.friendsData.refreshFromNetwork(token: token, force: force)
         }
+        refreshTask = CancelHandle { refreshTaskWork.cancel() }
     }
 
+    @available(iOS 13.0, *)
     private func acceptFriend(_ friend: Mezon_Api_Friend) {
         guard friend.hasUser else { return }
         let userId = friend.user.id
@@ -183,6 +192,7 @@ final class FriendRequestViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func rejectFriend(_ friend: Mezon_Api_Friend) {
         guard friend.hasUser else { return }
         let userId = friend.user.id

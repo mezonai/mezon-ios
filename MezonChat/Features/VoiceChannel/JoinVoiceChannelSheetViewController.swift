@@ -132,9 +132,9 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         iconView.contentMode = .scaleAspectFit
         iconView.isUserInteractionEnabled = false
         iconView.image = kind == .streaming
-            ? (UIImage(named: "Channel/channelStream") ?? UIImage(systemName: "dot.radiowaves.left.and.right"))?
+            ? (UIImage(named: "Channel/channelStream") ?? UIImage.mezonSystemImage("dot.radiowaves.left.and.right"))?
                 .withRenderingMode(.alwaysTemplate)
-            : (UIImage(named: "Chat/SpeakerIcon") ?? UIImage(systemName: "speaker.wave.2.fill"))?
+            : (UIImage(named: "Chat/SpeakerIcon") ?? UIImage.mezonSystemImage("speaker.wave.2.fill"))?
                 .withRenderingMode(.alwaysTemplate)
         iconView.tintColor = UIColor.theme.textStrong
 
@@ -364,16 +364,16 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
     private func buildSplitJoinControl() {
         splitJoinContainer.translatesAutoresizingMaskIntoConstraints = false
         splitJoinContainer.layer.cornerRadius = 25
-        splitJoinContainer.layer.cornerCurve = .continuous
+        splitJoinContainer.layer.setMezonCornerCurveContinuous()
         splitJoinContainer.clipsToBounds = true
 
         splitJoinDivider.translatesAutoresizingMaskIntoConstraints = false
         splitJoinDivider.backgroundColor = UIColor.black.withAlphaComponent(0.2)
 
         roleDropdownButton.translatesAutoresizingMaskIntoConstraints = false
-        let chevronCfg = UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
+        let chevronCfg = MezonSymbolConfiguration(pointSize: 13, weight: .semibold)
         roleDropdownButton.setImage(
-            UIImage(systemName: "chevron.down", withConfiguration: chevronCfg)?.withRenderingMode(.alwaysTemplate),
+            UIImage.mezonSystemImage("chevron.down", withConfiguration: chevronCfg)?.withRenderingMode(.alwaysTemplate),
             for: .normal)
         roleDropdownButton.tintColor = .white
         roleDropdownButton.addTarget(self, action: #selector(roleDropdownTapped), for: .touchUpInside)
@@ -434,7 +434,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         panel.translatesAutoresizingMaskIntoConstraints = false
         panel.backgroundColor = UIColor.theme.tertiary
         panel.layer.cornerRadius = 14
-        panel.layer.cornerCurve = .continuous
+        panel.layer.setMezonCornerCurveContinuous()
         panel.layer.borderWidth = 1
         panel.layer.borderColor = UIColor.theme.border.cgColor
         panel.layer.shadowColor = UIColor.black.cgColor
@@ -524,8 +524,8 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
 
         let check = UIImageView()
         check.translatesAutoresizingMaskIntoConstraints = false
-        let checkCfg = UIImage.SymbolConfiguration(pointSize: 13, weight: .bold)
-        check.image = UIImage(systemName: "checkmark", withConfiguration: checkCfg)?.withRenderingMode(.alwaysTemplate)
+        let checkCfg = MezonSymbolConfiguration(pointSize: 13, weight: .bold)
+        check.image = UIImage.mezonSystemImage("checkmark", withConfiguration: checkCfg)?.withRenderingMode(.alwaysTemplate)
         check.tintColor = Self.joinVoiceGreen
         check.isHidden = !selected
         check.isUserInteractionEnabled = false
@@ -576,7 +576,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         button.translatesAutoresizingMaskIntoConstraints = false
         button.backgroundColor = UIColor.theme.tertiary
         button.layer.cornerRadius = 22
-        let img = UIImage(systemName: systemImage, withConfiguration: UIImage.SymbolConfiguration(pointSize: pointSize, weight: .medium))
+        let img = UIImage.mezonSystemImage(systemImage, withConfiguration: MezonSymbolConfiguration(pointSize: pointSize, weight: .medium))
         button.setImage(img?.withRenderingMode(.alwaysTemplate), for: .normal)
         button.tintColor = UIColor.theme.textStrong
         button.imageView?.contentMode = .scaleAspectFit
@@ -743,7 +743,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
     private func joinVoiceButtonCapsuleStyle(_ button: UIButton, height: CGFloat) {
         let r = height / 2
         button.layer.cornerRadius = r
-        button.layer.cornerCurve = .continuous
+        button.layer.setMezonCornerCurveContinuous()
         button.clipsToBounds = true
     }
 }

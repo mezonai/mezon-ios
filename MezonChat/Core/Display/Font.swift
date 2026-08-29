@@ -186,15 +186,17 @@ public struct Font {
                    kMonospacedNumbersSelector]
                 ]])
             }
-            switch design {
-                case .serif:
-                    updatedDescriptor = updatedDescriptor?.withDesign(.serif)
-                case .monospace:
-                    updatedDescriptor = updatedDescriptor?.withDesign(.monospaced)
-                case .round:
-                    updatedDescriptor = updatedDescriptor?.withDesign(.rounded)
-                default:
-                    updatedDescriptor = updatedDescriptor?.withDesign(.default)
+            if #available(iOS 13.0, *) {
+                switch design {
+                    case .serif:
+                        updatedDescriptor = updatedDescriptor?.withDesign(.serif)
+                    case .monospace:
+                        updatedDescriptor = updatedDescriptor?.withDesign(.monospaced)
+                    case .round:
+                        updatedDescriptor = updatedDescriptor?.withDesign(.rounded)
+                    default:
+                        updatedDescriptor = updatedDescriptor?.withDesign(.default)
+                }
             }
             if #available(iOS 14.0, *) {
                 if weight != .regular {

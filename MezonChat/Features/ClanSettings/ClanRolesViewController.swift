@@ -16,7 +16,7 @@ final class ClanRolesViewController: BaseViewController {
     private var canManage: Bool = false
 
     private lazy var tableView: UITableView = {
-        let t = UITableView(frame: .zero, style: .insetGrouped)
+        let t = UITableView.mezonInsetGrouped()
         t.backgroundColor = .mezonSecondary
         t.dataSource = self
         t.delegate = self
@@ -87,7 +87,7 @@ final class ClanRolesViewController: BaseViewController {
         view.addSubview(headerView)
 
         backButton.setImage(
-            UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate),
+            UIImage.mezonSystemImage("chevron.left")?.withRenderingMode(.alwaysTemplate),
             for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
@@ -98,7 +98,7 @@ final class ClanRolesViewController: BaseViewController {
         headerTitleLabel.textAlignment = .center
 
         addButton.setImage(
-            UIImage(systemName: "plus")?.withRenderingMode(.alwaysTemplate),
+            UIImage.mezonSystemImage("plus")?.withRenderingMode(.alwaysTemplate),
             for: .normal)
         addButton.tintColor = UIColor.theme.textStrong
         addButton.addTarget(self, action: #selector(addRoleTapped), for: .touchUpInside)
@@ -143,8 +143,10 @@ final class ClanRolesViewController: BaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         reloadData()
-        Task { [weak self] in
-            await self?.repository.refresh(clanId: self?.resolvedClanId ?? 0)
+        if #available(iOS 13.0, *) {
+            Task { [weak self] in
+                await self?.repository.refresh(clanId: self?.resolvedClanId ?? 0)
+            }
         }
     }
 
@@ -386,13 +388,13 @@ private final class ClanRoleCell: UITableViewCell {
         subtitleLabel.numberOfLines = 1
         subtitleLabel.lineBreakMode = .byTruncatingTail
 
-        lockIcon.image = UIImage(systemName: "lock.fill")?.withRenderingMode(.alwaysTemplate)
+        lockIcon.image = UIImage.mezonSystemImage("lock.fill")?.withRenderingMode(.alwaysTemplate)
         lockIcon.tintColor = UIColor.theme.textDisabled
         lockIcon.contentMode = .scaleAspectFit
         lockIcon.isHidden = true
         lockIcon.setContentCompressionResistancePriority(.required, for: .horizontal)
 
-        chevron.image = UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate)
+        chevron.image = UIImage.mezonSystemImage("chevron.right")?.withRenderingMode(.alwaysTemplate)
         chevron.tintColor = UIColor.theme.textDisabled
         chevron.contentMode = .scaleAspectFit
         chevron.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -454,7 +456,7 @@ private final class ClanRoleCell: UITableViewCell {
         titleLabel.textAlignment = .natural
         titleLabel.numberOfLines = 1
         subtitleLabel.isHidden = false
-        iconView.image = UIImage(systemName: "person.3.fill")?.withRenderingMode(.alwaysTemplate)
+        iconView.image = UIImage.mezonSystemImage("person.3.fill")?.withRenderingMode(.alwaysTemplate)
         iconView.tintColor = .mezonTextPrimary
         iconView.isHidden = false
         roleIconView.isHidden = true
@@ -474,7 +476,7 @@ private final class ClanRoleCell: UITableViewCell {
         titleLabel.textAlignment = .natural
         titleLabel.numberOfLines = 1
         subtitleLabel.isHidden = false
-        iconView.image = UIImage(systemName: "shield.lefthalf.filled")?.withRenderingMode(.alwaysTemplate)
+        iconView.image = UIImage.mezonSystemImage("shield.lefthalf.filled")?.withRenderingMode(.alwaysTemplate)
         let roleColor = RoleColors.uiColor(forRole: role)
         iconView.tintColor = roleColor
         colorIndicator.backgroundColor = roleColor

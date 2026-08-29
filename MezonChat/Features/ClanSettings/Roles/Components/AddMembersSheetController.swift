@@ -1,6 +1,5 @@
 import UIKit
 
-@MainActor
 final class AddMembersSheetController: UIViewController {
 
     private let candidates: [ClanMemberRecord]
@@ -113,7 +112,7 @@ final class AddMembersSheetController: UIViewController {
         searchContainer.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(searchContainer)
 
-        let icon = UIImageView(image: UIImage(systemName: "magnifyingglass")?.withRenderingMode(.alwaysTemplate))
+        let icon = UIImageView(image: UIImage.mezonSystemImage("magnifyingglass")?.withRenderingMode(.alwaysTemplate))
         icon.tintColor = UIColor.theme.textDisabled
         icon.contentMode = .scaleAspectFit
         icon.translatesAutoresizingMaskIntoConstraints = false

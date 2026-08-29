@@ -114,7 +114,9 @@ final class NavigationTransitionCoordinator {
 
             if screenCornerRadius > 0.0 {
                 self.topNodeInitialParameters = (topNode.clipsToBounds, topNode.cornerRadius)
-                topNode.layer.cornerCurve = .continuous
+                if #available(iOS 13.0, *) {
+                    topNode.layer.setMezonCornerCurveContinuous()
+                }
                 topNode.clipsToBounds = true
                 topNode.cornerRadius = screenCornerRadius
             }
@@ -338,7 +340,9 @@ final class NavigationTransitionCoordinator {
         guard let (clipsToBounds, cornerRadius) = self.topNodeInitialParameters else {
             return
         }
-        self.topNode.layer.cornerCurve = .circular
+        if #available(iOS 13.0, *) {
+            self.topNode.layer.setMezonCornerCurveCircular()
+        }
         self.topNode.clipsToBounds = clipsToBounds
         self.topNode.cornerRadius = cornerRadius
     }

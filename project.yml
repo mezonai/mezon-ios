@@ -36,7 +36,7 @@ packages:
 options:
   bundleIdPrefix: mezon
   deploymentTarget:
-    iOS: "13.0"
+    iOS: "12.0"
   defaultConfig: Debug
   xcodeVersion: "16.0"
   createIntermediateGroups: true
@@ -56,7 +56,7 @@ targets:
   MezonChat:
     type: application
     platform: iOS
-    deploymentTarget: "13.0"
+    deploymentTarget: "12.0"
     configFiles:
       Debug: Pods/Target Support Files/Pods-MezonChat/Pods-MezonChat.debug.xcconfig
       Release: Pods/Target Support Files/Pods-MezonChat/Pods-MezonChat.release.xcconfig
@@ -119,7 +119,7 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SWIFT_OBJC_BRIDGING_HEADER: "MezonChat/MezonChat-Bridging-Header.h"
         OTHER_SWIFT_FLAGS: "$(inherited) -Xfrontend -disable-target-os-checking"
-        OTHER_LDFLAGS: "$(inherited)"
+        OTHER_LDFLAGS: "$(inherited) -weak_framework CryptoKit -weak_framework Combine -weak_framework UniformTypeIdentifiers -weak_framework CoreHaptics"
         HEADER_SEARCH_PATHS: "$(inherited) $(SRCROOT)/MezonChat/Core/SSignalKit/SSignalKit/Source $(SRCROOT)/MezonChat/Core/Display $(SRCROOT)/MezonChat/Core/Display/UIKitRuntimeUtils $(SRCROOT)/MezonChat/Core/Display/ObjCRuntimeUtils $(SRCROOT)/MezonChat/Core/Display/AppBundle"
       configs:
         Debug:
@@ -186,7 +186,7 @@ targets:
   NotificationService:
     type: app-extension
     platform: iOS
-    deploymentTarget: "13.0"
+    deploymentTarget: "12.0"
     sources:
       - path: NotificationService
     settings:
@@ -207,7 +207,7 @@ targets:
   MezonSharing:
     type: app-extension
     platform: iOS
-    deploymentTarget: "13.0"
+    deploymentTarget: "12.0"
     sources:
       - path: MezonSharing
     settings:

@@ -1,6 +1,5 @@
 import Foundation
 
-@MainActor
 final class SessionRefreshManager {
 
     static let shared = SessionRefreshManager()
@@ -10,7 +9,8 @@ final class SessionRefreshManager {
 
     private var lastRefreshToken: String = ""
     private var failCount: Int = 0
-    private var activeTask: Task<MezonSession, Error>?
+    private var activeRefreshHandle: CancelHandle?
+    private var activeRefreshWaiters: [(Result<MezonSession, Error>) -> Void] = []
     private var lastSuccessfulRefresh: (at: Date, session: MezonSession)?
     private let minSuccessfulRefreshInterval: TimeInterval = 2.0
     private var lastFailedRefresh: (at: Date, error: Error)?
@@ -39,14 +39,37 @@ final class SessionRefreshManager {
         return false
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     func awaitInflightRefresh() async {
-        guard let active = activeTask else { return }
-        _ = try? await active.value
+        guard activeRefreshHandle != nil else { return }
+        _ = await withCheckedContinuation { (continuation: CheckedContinuation<Result<MezonSession, Error>, Never>) in
+            activeRefreshWaiters.append { continuation.resume(returning: $0) }
+        }
     }
 
+    private func flushRefreshWaiters(_ result: Result<MezonSession, Error>) {
+        let waiters = activeRefreshWaiters
+        activeRefreshWaiters.removeAll()
+        for waiter in waiters { waiter(result) }
+    }
+
+    private func flushRefreshWaitersCancelled() {
+        if #available(iOS 13.0, *) {
+            flushRefreshWaiters(.failure(CancellationError()))
+        } else {
+            flushRefreshWaiters(.failure(SessionError.noSession))
+        }
+    }
+
+    @available(iOS 13.0, *)
+    @MainActor
     func refresh(session: MezonSession) async throws -> MezonSession {
-        if let active = activeTask {
-            return try await active.value
+        if activeRefreshHandle != nil {
+            let result = await withCheckedContinuation { (continuation: CheckedContinuation<Result<MezonSession, Error>, Never>) in
+                activeRefreshWaiters.append { continuation.resume(returning: $0) }
+            }
+            return try result.get()
         }
         if let recent = lastSuccessfulRefresh,
            Date().timeIntervalSince(recent.at) < minSuccessfulRefreshInterval,
@@ -61,13 +84,21 @@ final class SessionRefreshManager {
             guard let self else { throw SessionError.notInitialized }
             return try await self.doRefresh(session: session)
         }
-        activeTask = task
-        defer {
-            activeTask = nil
+        activeRefreshHandle = CancelHandle { task.cancel() }
+        do {
+            let value = try await task.value
+            activeRefreshHandle = nil
+            flushRefreshWaiters(.success(value))
+            return value
+        } catch {
+            activeRefreshHandle = nil
+            flushRefreshWaiters(.failure(error))
+            throw error
         }
-        return try await task.value
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func doRefresh(session: MezonSession) async throws -> MezonSession {
         let newSession: MezonSession
         do {
@@ -107,6 +138,11 @@ final class SessionRefreshManager {
         onExpired: @escaping () -> Void,
         onReady: @escaping () -> Void
     ) {
+        guard #available(iOS 13.0, *) else {
+            legacyRefreshOnAppLaunch(
+                session: session, onSuccess: onSuccess, onExpired: onExpired, onReady: onReady)
+            return
+        }
         Task { @MainActor in
             var onReadyCalled = false
             func safeOnReady() {
@@ -153,11 +189,82 @@ final class SessionRefreshManager {
         }
     }
 
+    /// Signal-based launch refresh for iOS 12, where Swift Concurrency is unavailable.
+    private func legacyRefreshOnAppLaunch(
+        session: MezonSession,
+        onSuccess: @escaping (MezonSession) -> Void,
+        onExpired: @escaping () -> Void,
+        onReady: @escaping () -> Void
+    ) {
+        var readyCalled = false
+        func safeOnReady() {
+            guard !readyCalled else { return }
+            readyCalled = true
+            onReady()
+        }
+
+        let timeoutItem = DispatchWorkItem { safeOnReady() }
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Double(launchRefreshTimeout) / 1_000_000_000,
+            execute: timeoutItem
+        )
+
+        var retriesLeft = maxAppLaunchRetries
+        var attempt: (() -> Void)?
+        attempt = { [weak self] in
+            guard let self else { timeoutItem.cancel(); safeOnReady(); return }
+            let request = MezonHTTPClient.shared.signalSessionRefresh(refreshToken: session.refreshToken)
+            _ = (request |> deliverOnMainQueue).start(
+                next: { newSession in
+                    timeoutItem.cancel()
+                    let merged = SessionStore.applyIdTokenFallback(
+                        newSession.mergedPreservingLocalCredentials(from: session))
+                    self.lastRefreshToken = merged.refreshToken
+                    self.failCount = 0
+                    self.lastSuccessfulRefresh = (Date(), merged)
+                    self.lastFailedRefresh = nil
+                    onSuccess(merged)
+                    safeOnReady()
+                    attempt = nil
+                },
+                error: { error in
+                    if self.isDefinitiveAuthFailure(error) {
+                        if self.lastRefreshToken == session.refreshToken {
+                            self.failCount += 1
+                        } else {
+                            self.lastRefreshToken = session.refreshToken
+                            self.failCount = 1
+                        }
+                        if self.failCount >= self.maxRetriesSameToken {
+                            timeoutItem.cancel()
+                            safeOnReady()
+                            attempt = nil
+                            guard NetworkMonitor.shared.isConnected else { return }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { onExpired() }
+                            return
+                        }
+                    }
+                    retriesLeft -= 1
+                    if retriesLeft <= 0 {
+                        timeoutItem.cancel()
+                        safeOnReady()
+                        attempt = nil
+                        return
+                    }
+                    let delay = Double(self.maxAppLaunchRetries - retriesLeft)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { attempt?() }
+                }
+            )
+        }
+        attempt?()
+    }
+
     func reset() {
-        activeTask?.cancel()
+        activeRefreshHandle?.cancel()
+        activeRefreshHandle = nil
+        flushRefreshWaitersCancelled()
         lastRefreshToken = ""
         failCount = 0
-        activeTask = nil
         lastSuccessfulRefresh = nil
         lastFailedRefresh = nil
     }

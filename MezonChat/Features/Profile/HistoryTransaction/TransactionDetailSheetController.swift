@@ -21,9 +21,12 @@ final class TransactionDetailSheetController: BaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
-        fetchDetail()
+        if #available(iOS 13.0, *) {
+            fetchDetail()
+        }
     }
     
+    @available(iOS 13.0, *)
     private func fetchDetail() {
         Task { @MainActor in
             do {
@@ -76,7 +79,7 @@ final class TransactionDetailSheetController: BaseViewController {
         headerContainer.addSubview(titleLabel)
         
         let closeButton = UIButton(type: .system)
-        closeButton.setImage(UIImage(systemName: "xmark"), for: .normal)
+        closeButton.setImage(UIImage.mezonSystemImage("xmark"), for: .normal)
         closeButton.tintColor = UIColor.theme.text
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
@@ -148,7 +151,7 @@ final class TransactionDetailSheetController: BaseViewController {
         let txIdTitle = createLabel(text: L(L10n.Profile.historyTransactionId).replacingOccurrences(of: ":", with: ""), isTitle: true)
         txIdHeader.addArrangedSubview(txIdTitle)
         
-        let copyIcon = UIImageView(image: UIImage(systemName: "square.on.square"))
+        let copyIcon = UIImageView(image: UIImage.mezonSystemImage("square.on.square"))
         copyIcon.tintColor = UIColor.theme.text
         copyIcon.contentMode = .scaleAspectFit
         copyIcon.translatesAutoresizingMaskIntoConstraints = false

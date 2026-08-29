@@ -1,7 +1,6 @@
 import Foundation
 import SwiftProtobuf
 
-@MainActor
 final class RolePermissionService {
 
     struct UserHighestRole {
@@ -24,7 +23,7 @@ final class RolePermissionService {
     private let engine: MezonEngine
     private let userIdProvider: () -> String?
     private let currentClanIdProvider: () -> Int64
-    private let tokenProvider: () async -> String?
+    private let tokenProvider: (@escaping (String?) -> Void) -> Void
 
     private struct ClanRolesCache {
         let clanId: Int64
@@ -44,7 +43,7 @@ final class RolePermissionService {
         engine: MezonEngine,
         userIdProvider: @escaping () -> String?,
         currentClanIdProvider: @escaping () -> Int64,
-        tokenProvider: @escaping () async -> String?
+        tokenProvider: @escaping (@escaping (String?) -> Void) -> Void
     ) {
         self.engine = engine
         self.userIdProvider = userIdProvider
@@ -53,6 +52,7 @@ final class RolePermissionService {
     }
 
     func start() {
+        assert(Thread.isMainThread)
         rolesSubscriptionDisposable?.dispose()
         rolesSubscriptionDisposable = (engine.clanData.clanRolesUpdated.signal()
             |> deliverOnMainQueue).start(next: { [weak self] _ in
@@ -82,6 +82,7 @@ final class RolePermissionService {
     }
 
     func stop() {
+        assert(Thread.isMainThread)
         rolesSubscriptionDisposable?.dispose()
         rolesSubscriptionDisposable = nil
         socketDisposable?.dispose()
@@ -89,6 +90,7 @@ final class RolePermissionService {
     }
 
     func resetForLogout() {
+        assert(Thread.isMainThread)
         stop()
         cachedClanRoles = nil
         channelPermissionsCache.removeAll()
@@ -116,18 +118,18 @@ final class RolePermissionService {
     private func refreshRolesIfNeeded() {
         let clanId = currentClanIdProvider()
         guard clanId != 0 else { return }
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard let token = await self.tokenProvider() else { return }
-            do {
-                let response = try await self.engine.account.network.listRoles(clanId: clanId, token: token)
+        tokenProvider { [weak self] token in
+            guard let self, let token else { return }
+            let request = self.engine.account.network.signalListRoles(clanId: clanId, token: token)
+            _ = (request |> deliverOnMainQueue).start(next: { [weak self] response in
+                guard let self else { return }
                 if let data = try? response.serializedData() {
                     self.engine.account.postbox.setPreferenceData(
                         key: PreferencesKeys.clanRoles(clanId: clanId), value: data)
                 }
                 self.invalidateRolesCache()
                 self.engine.clanData.clanRolesUpdated.putNext(clanId)
-            } catch {}
+            })
         }
     }
 
@@ -321,17 +323,21 @@ final class RolePermissionService {
     }
 
     func ensureChannelPermissions(clanId: Int64, channelId: Int64, force: Bool = false) {
+        assert(Thread.isMainThread)
         guard clanId != 0, channelId != 0 else { return }
         if !force && channelPermissionsCache[channelId] != nil { return }
         if pendingChannelPermissionFetch.contains(channelId) { return }
         pendingChannelPermissionFetch.insert(channelId)
-        Task { @MainActor [weak self] in
+        tokenProvider { [weak self] token in
             guard let self else { return }
-            defer { self.pendingChannelPermissionFetch.remove(channelId) }
-            guard let token = await self.tokenProvider() else { return }
-            do {
-                let response = try await self.engine.account.network.listUserPermissionInChannel(
-                    clanId: clanId, channelId: channelId, token: token)
+            guard let token else {
+                self.clearPendingChannelFetch(channelId)
+                return
+            }
+            let request = self.engine.account.network.signalListUserPermissionInChannel(
+                clanId: clanId, channelId: channelId, token: token)
+            _ = (request |> deliverOnMainQueue).start(next: { [weak self] response in
+                guard let self else { return }
                 let perms = response.permissions.permissions
                 self.applyChannelPermissions(channelId: channelId, permissions: perms)
 
@@ -339,11 +345,26 @@ final class RolePermissionService {
                 self.engine.account.postbox.write { tx in
                     tx.updateChannelPermissions(records, channelId: channelId)
                 }
-            } catch {}
+            }, error: { [weak self] _ in
+                self?.clearPendingChannelFetch(channelId)
+            }, completed: { [weak self] in
+                self?.clearPendingChannelFetch(channelId)
+            })
+        }
+    }
+
+    private func clearPendingChannelFetch(_ channelId: Int64) {
+        if Thread.isMainThread {
+            pendingChannelPermissionFetch.remove(channelId)
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                self?.pendingChannelPermissionFetch.remove(channelId)
+            }
         }
     }
 
     func applyChannelPermissions(channelId: Int64, permissions: [Mezon_Api_Permission]) {
+        assert(Thread.isMainThread)
         var result = ChannelOverriddenPermissions.empty
         for perm in permissions {
             let slug = slugForLookup(perm.slug)

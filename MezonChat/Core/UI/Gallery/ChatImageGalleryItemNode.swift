@@ -36,7 +36,7 @@ final class ChatImageGalleryItemNode: ZoomableContentGalleryItemNode {
             return v
         })
         self.spinnerNode = ASDisplayNode(viewBlock: {
-            let spinner = UIActivityIndicatorView(style: .large)
+            let spinner = UIActivityIndicatorView.mezonLarge()
             spinner.color = .white
             spinner.startAnimating()
             return spinner

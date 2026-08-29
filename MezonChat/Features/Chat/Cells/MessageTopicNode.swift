@@ -48,7 +48,7 @@ final class MessageTopicNode: ASDisplayNode {
         )
         repliesLabel.maximumNumberOfLines = 1
 
-        chevronNode.image = UIImage(systemName: "chevron.right", withConfiguration: UIImage.SymbolConfiguration(pointSize: 10.sf, weight: .semibold))
+        chevronNode.image = UIImage.mezonSystemImage("chevron.right", withConfiguration: MezonSymbolConfiguration(pointSize: 10.sf, weight: .semibold))
         chevronNode.tintColor = t.textDisabled
         chevronNode.contentMode = .scaleAspectFit
     }

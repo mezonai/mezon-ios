@@ -149,7 +149,9 @@ final class MessageLocationNode: ASDisplayNode {
         let options = MKMapSnapshotter.Options()
         options.region = region
         options.size = CGSize(width: 320 * UIScreen.main.scale, height: Self.mapHeight * UIScreen.main.scale)
-        options.traitCollection = UITraitCollection(userInterfaceStyle: .dark)
+        if #available(iOS 13.0, *) {
+            options.traitCollection = UITraitCollection(userInterfaceStyle: .dark)
+        }
 
         let snapshotter = MKMapSnapshotter(options: options)
         snapshotter.start { [weak self] snapshot, error in

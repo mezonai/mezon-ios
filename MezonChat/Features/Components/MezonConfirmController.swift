@@ -36,13 +36,11 @@ struct MezonConfirmConfiguration {
 }
 
 enum MezonConfirm {
-    @MainActor
     static func present(from presenter: UIViewController, configuration: MezonConfirmConfiguration) {
         let vc = MezonConfirmController(configuration: configuration)
         presenter.present(vc, animated: true)
     }
 
-    @MainActor
     static func present(
         from presenter: UIViewController,
         title: String,
@@ -72,7 +70,6 @@ enum MezonConfirm {
     }
 }
 
-@MainActor
 final class MezonConfirmController: UIViewController {
 
     private let configuration: MezonConfirmConfiguration

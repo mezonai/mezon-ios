@@ -61,7 +61,7 @@ final class TransferOwnershipViewController: BaseViewController {
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
 
-        backButton.setImage(UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        backButton.setImage(UIImage.mezonSystemImage("chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
         backButton.translatesAutoresizingMaskIntoConstraints = false
@@ -133,7 +133,7 @@ final class TransferOwnershipViewController: BaseViewController {
         let myAvatar = createAvatarView(url: myAvatarUrl, username: myUsername)
         avatarStack.addArrangedSubview(myAvatar)
 
-        let arrowView = UIImageView(image: UIImage(systemName: "arrow.right")?.withRenderingMode(.alwaysTemplate))
+        let arrowView = UIImageView(image: UIImage.mezonSystemImage("arrow.right")?.withRenderingMode(.alwaysTemplate))
         arrowView.tintColor = UIColor.theme.textDisabled
         arrowView.contentMode = .scaleAspectFit
         arrowView.translatesAutoresizingMaskIntoConstraints = false
@@ -147,7 +147,7 @@ final class TransferOwnershipViewController: BaseViewController {
         targetAvatar.translatesAutoresizingMaskIntoConstraints = false
         targetContainer.addSubview(targetAvatar)
 
-        let crownView = UIImageView(image: UIImage(systemName: "crown.fill")?.withRenderingMode(.alwaysTemplate))
+        let crownView = UIImageView(image: UIImage.mezonSystemImage("crown.fill")?.withRenderingMode(.alwaysTemplate))
         crownView.tintColor = UIColor.systemYellow
         crownView.contentMode = .scaleAspectFit
         crownView.translatesAutoresizingMaskIntoConstraints = false
@@ -262,7 +262,7 @@ final class TransferOwnershipViewController: BaseViewController {
         checkBox.translatesAutoresizingMaskIntoConstraints = false
         ackView.addSubview(checkBox)
 
-        let checkmark = UIImageView(image: UIImage(systemName: "checkmark")?.withRenderingMode(.alwaysTemplate))
+        let checkmark = UIImageView(image: UIImage.mezonSystemImage("checkmark")?.withRenderingMode(.alwaysTemplate))
         checkmark.tintColor = .white
         checkmark.contentMode = .scaleAspectFit
         checkmark.isHidden = true
@@ -363,50 +363,52 @@ final class TransferOwnershipViewController: BaseViewController {
     }
 
     @objc private func transferTapped() {
-        guard isAcknowledged, !isSubmitting else { return }
-        isSubmitting = true
-        updateTransferButton()
+        if #available(iOS 13.0, *) {
+            guard isAcknowledged, !isSubmitting else { return }
+            isSubmitting = true
+            updateTransferButton()
 
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                guard let token = await self.context.getToken() else {
-                    throw RolesRepositoryError.notAuthenticated
-                }
-                try await self.context.engine.account.network.transferClanOwnership(
-                    clanId: self.clanId,
-                    newOwnerId: self.targetMember.userId,
-                    token: token
-                )
-                self.context.account.postbox.writeSync { tx in
-                    if let clan = tx.getClan(id: self.clanId) {
-                        let updatedClan = ClanRecord(
-                            id: clan.id,
-                            name: clan.name,
-                            icon: clan.icon,
-                            ownerId: String(self.targetMember.userId),
-                            data: clan.data
-                        )
-                        tx.updateClans([updatedClan])
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    guard let token = await self.context.getToken() else {
+                        throw RolesRepositoryError.notAuthenticated
                     }
-                }
-                await MainActor.run {
-                    Toast.success(L(L10n.ClanSetting.Members.transferSuccess))
-                    if let nav = self.navigationController {
-                        if let index = nav.viewControllers.firstIndex(where: { $0 is ClanSettingsViewController }), index > 0 {
-                            nav.popToViewController(nav.viewControllers[index - 1], animated: true)
-                        } else {
-                            nav.popToRootViewController(animated: true)
+                    try await self.context.engine.account.network.transferClanOwnership(
+                        clanId: self.clanId,
+                        newOwnerId: self.targetMember.userId,
+                        token: token
+                    )
+                    self.context.account.postbox.writeSync { tx in
+                        if let clan = tx.getClan(id: self.clanId) {
+                            let updatedClan = ClanRecord(
+                                id: clan.id,
+                                name: clan.name,
+                                icon: clan.icon,
+                                ownerId: String(self.targetMember.userId),
+                                data: clan.data
+                            )
+                            tx.updateClans([updatedClan])
                         }
-                    } else {
-                        self.dismiss(animated: true)
                     }
-                }
-            } catch {
-                await MainActor.run {
-                    self.isSubmitting = false
-                    self.updateTransferButton()
-                    Toast.error(L(L10n.ClanSetting.Members.transferFailed))
+                    await MainActor.run {
+                        Toast.success(L(L10n.ClanSetting.Members.transferSuccess))
+                        if let nav = self.navigationController {
+                            if let index = nav.viewControllers.firstIndex(where: { $0 is ClanSettingsViewController }), index > 0 {
+                                nav.popToViewController(nav.viewControllers[index - 1], animated: true)
+                            } else {
+                                nav.popToRootViewController(animated: true)
+                            }
+                        } else {
+                            self.dismiss(animated: true)
+                        }
+                    }
+                } catch {
+                    await MainActor.run {
+                        self.isSubmitting = false
+                        self.updateTransferButton()
+                        Toast.error(L(L10n.ClanSetting.Members.transferFailed))
+                    }
                 }
             }
         }

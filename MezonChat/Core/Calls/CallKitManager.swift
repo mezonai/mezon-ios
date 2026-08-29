@@ -326,7 +326,6 @@ final class CallKitManager: NSObject {
         Self.clearVoipQuitSnapshotStorage()
     }
 
-    @MainActor
     func endRingingCallIfMatching(channelId: Int64, callerId: Int64, remoteIsConnected: Bool = false, cancelSentAtMs: Int64? = nil) {
         guard channelId != 0 else {
             return
@@ -403,6 +402,7 @@ final class CallKitManager: NSObject {
         UserDefaults.standard.synchronize()
     }
 
+    @available(iOS 13.0, *)
     private func forwardQuitToCallerFromStoredVoIPIfNeeded() {
         let channelId: Int64
         let callerId: Int64
@@ -473,6 +473,7 @@ final class CallKitManager: NSObject {
         return UserDefaults.standard.dictionary(forKey: DefaultsKeys.notificationPayload)
     }
 
+    @available(iOS 13.0, *)
     private func handleVoIPDictionary(_ payloadDict: [AnyHashable: Any], completion: @escaping () -> Void) {
         let myId = Self.resolveLocalUserIdForVoIP(fallbackReceiverId: 0) ?? 0
         guard let offerValue = payloadDict["offer"] else {
@@ -644,6 +645,7 @@ final class CallKitManager: NSObject {
         )
     }
 
+    @available(iOS 13.0, *)
     private func presentIncomingCallRing(
         channelId: Int64,
         callerId: Int64,
@@ -711,7 +713,7 @@ final class CallKitManager: NSObject {
         }
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     func ringIncomingFromSocketOfferIfNeeded(
         channelId: Int64,
         callerId: Int64,
@@ -743,12 +745,14 @@ final class CallKitManager: NSObject {
         )
     }
 
+    @available(iOS 13.0, *)
     private func scheduleUnansweredRingFailsafe(callUUID: UUID, channelId: Int64, callerId: Int64) {
         DispatchQueue.main.asyncAfter(deadline: .now() + 75) { [weak self] in
             self?.endRingIfStillUnanswered(callUUID: callUUID, channelId: channelId, callerId: callerId)
         }
     }
 
+    @available(iOS 13.0, *)
     private func endRingIfStillUnanswered(callUUID: UUID, channelId: Int64, callerId: Int64) {
         guard let stored = UserDefaults.standard.string(forKey: DefaultsKeys.activeCallUUID),
               stored == callUUID.uuidString,
@@ -762,7 +766,7 @@ final class CallKitManager: NSObject {
         }
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     private static func startConnectivityPreWarm() {
         if let ctx = VoIPAnswerAccountBridge.context {
             Task { @MainActor in
@@ -894,80 +898,88 @@ extension CallKitManager: PKPushRegistryDelegate {
             return
         }
         ensureProviderConfigured()
-        handleVoIPDictionary(payload.dictionaryPayload, completion: completion)
+        if #available(iOS 13.0, *) {
+            handleVoIPDictionary(payload.dictionaryPayload, completion: completion)
+        }
     }
 }
 
 extension CallKitManager: CXProviderDelegate {
 
     func providerDidReset(_ resetProvider: CXProvider) {
-        guard resetProvider === provider else { return }
-        clearComplianceCalls()
-        Task { @MainActor in
-            WebRTCCallManager.shared.endActivePeerCallFromCallKitAction()
+        if #available(iOS 13.0, *) {
+            guard resetProvider === provider else { return }
+            clearComplianceCalls()
+            Task { @MainActor in
+                WebRTCCallManager.shared.endActivePeerCallFromCallKitAction()
+            }
+            Self.clearStoredIncomingPayload()
         }
-        Self.clearStoredIncomingPayload()
     }
 
     func provider(_ provider: CXProvider, perform action: CXAnswerCallAction) {
-        if isComplianceCall(action.callUUID) {
-            action.fulfill()
-            return
-        }
-        guard let info = storedUserInfoIfFresh() else {
-            Task { @MainActor in
-                WebRTCCallManager.shared.abandonIncomingPresentation()
+        if #available(iOS 13.0, *) {
+            if isComplianceCall(action.callUUID) {
                 action.fulfill()
+                return
             }
-            return
-        }
-        let fallback = int64(info["receiverId"]) ?? 0
-        guard let myId = Self.resolveLocalUserIdForVoIP(fallbackReceiverId: fallback) else {
-            action.fulfill()
-            return
-        }
-        let payload = info
-        persistVoipQuitSnapshotFromIncomingPayload(payload)
-        invalidateStoredVoIPPayloadOnly()
-        preconfigureAudioSessionForIncomingAnswer()
-        action.fulfill(withDateConnected: Date())
-        Task { @MainActor in
-            var bgId = UIBackgroundTaskIdentifier.invalid
-            bgId = UIApplication.shared.beginBackgroundTask(withName: "mezon.voip.answer") {
-                UIApplication.shared.endBackgroundTask(bgId)
-                bgId = .invalid
+            guard let info = storedUserInfoIfFresh() else {
+                Task { @MainActor in
+                    WebRTCCallManager.shared.abandonIncomingPresentation()
+                    action.fulfill()
+                }
+                return
             }
-            defer {
-                if bgId != .invalid {
+            let fallback = int64(info["receiverId"]) ?? 0
+            guard let myId = Self.resolveLocalUserIdForVoIP(fallbackReceiverId: fallback) else {
+                action.fulfill()
+                return
+            }
+            let payload = info
+            persistVoipQuitSnapshotFromIncomingPayload(payload)
+            invalidateStoredVoIPPayloadOnly()
+            preconfigureAudioSessionForIncomingAnswer()
+            action.fulfill(withDateConnected: Date())
+            Task { @MainActor in
+                var bgId = UIBackgroundTaskIdentifier.invalid
+                bgId = UIApplication.shared.beginBackgroundTask(withName: "mezon.voip.answer") {
                     UIApplication.shared.endBackgroundTask(bgId)
                     bgId = .invalid
                 }
-            }
-            WebRTCCallManager.shared.prepareIncomingCallFromVoIPUserInfo(payload, currentUserId: myId)
-            var prepared = false
-            if let ctx = VoIPAnswerAccountBridge.context {
-                prepared = await ctx.prepareForVoIPAnswerConnectivity()
-            }
-            if !prepared, let tok = SessionStore.load()?.token, !MezonSocket.shared.isConnected {
-                MezonSocket.shared.connect(token: tok, wsHostOverride: nil)
+                defer {
+                    if bgId != .invalid {
+                        UIApplication.shared.endBackgroundTask(bgId)
+                        bgId = .invalid
+                    }
+                }
+                WebRTCCallManager.shared.prepareIncomingCallFromVoIPUserInfo(payload, currentUserId: myId)
+                var prepared = false
+                if let ctx = VoIPAnswerAccountBridge.context {
+                    prepared = await ctx.prepareForVoIPAnswerConnectivity()
+                }
+                if !prepared, let tok = SessionStore.load()?.token, !MezonSocket.shared.isConnected {
+                    MezonSocket.shared.connect(token: tok, wsHostOverride: nil)
+                }
             }
         }
     }
 
     func provider(_ provider: CXProvider, perform action: CXEndCallAction) {
-        if isComplianceCall(action.callUUID) {
+        if #available(iOS 13.0, *) {
+            if isComplianceCall(action.callUUID) {
+                action.fulfill()
+                return
+            }
+            markRecentlyEndedFromStoredPayloadIfPossible()
+            markRecentlyEndedFromQuitSnapshotIfPossible()
+            forwardQuitToCallerFromStoredVoIPIfNeeded()
+            Task { @MainActor in
+                WebRTCCallManager.shared.endActivePeerCallFromCallKitAction()
+                WebRTCCallManager.shared.abandonIncomingPresentation()
+                Self.clearStoredIncomingPayload()
+            }
             action.fulfill()
-            return
         }
-        markRecentlyEndedFromStoredPayloadIfPossible()
-        markRecentlyEndedFromQuitSnapshotIfPossible()
-        forwardQuitToCallerFromStoredVoIPIfNeeded()
-        Task { @MainActor in
-            WebRTCCallManager.shared.endActivePeerCallFromCallKitAction()
-            WebRTCCallManager.shared.abandonIncomingPresentation()
-            Self.clearStoredIncomingPayload()
-        }
-        action.fulfill()
     }
 
     func provider(_ provider: CXProvider, perform action: CXStartCallAction) {
@@ -983,16 +995,18 @@ extension CallKitManager: CXProviderDelegate {
     }
 
     func provider(_ provider: CXProvider, timedOutPerforming action: CXAction) {
-        if let callAction = action as? CXCallAction, isComplianceCall(callAction.callUUID) {
-            return
-        }
-        markRecentlyEndedFromStoredPayloadIfPossible()
-        markRecentlyEndedFromQuitSnapshotIfPossible()
-        forwardQuitToCallerFromStoredVoIPIfNeeded()
-        Task { @MainActor in
-            WebRTCCallManager.shared.endActivePeerCallFromCallKitAction()
-            WebRTCCallManager.shared.abandonIncomingPresentation()
-            Self.clearStoredIncomingPayload()
+        if #available(iOS 13.0, *) {
+            if let callAction = action as? CXCallAction, isComplianceCall(callAction.callUUID) {
+                return
+            }
+            markRecentlyEndedFromStoredPayloadIfPossible()
+            markRecentlyEndedFromQuitSnapshotIfPossible()
+            forwardQuitToCallerFromStoredVoIPIfNeeded()
+            Task { @MainActor in
+                WebRTCCallManager.shared.endActivePeerCallFromCallKitAction()
+                WebRTCCallManager.shared.abandonIncomingPresentation()
+                Self.clearStoredIncomingPayload()
+            }
         }
     }
 

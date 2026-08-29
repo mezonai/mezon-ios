@@ -577,10 +577,10 @@ enum RichTextBuilder {
 
     static func hashtagIconAttachment(named assetName: String, tint: UIColor, font: UIFont) -> NSTextAttachment? {
         let side = max(ceil(font.capHeight), 12)
-        let raw = UIImage(named: assetName) ?? UIImage(systemName: "speaker.wave.2.fill")
+        let raw = UIImage(named: assetName) ?? UIImage.mezonSystemImage("speaker.wave.2.fill")
         guard let base = raw else { return nil }
         let tpl = base.withRenderingMode(.alwaysTemplate)
-        let colored = tpl.withTintColor(tint, renderingMode: .alwaysOriginal)
+        let colored = tpl.mezonTinted(tint, renderingMode: .alwaysOriginal)
         let att = NSTextAttachment()
         att.image = colored
         let y = (font.capHeight - side) / 2 + font.descender * 0.35

@@ -69,7 +69,7 @@ private final class MediaUploadingOverlayNode: ASDisplayNode {
             spinner.setViewBlock {
                 let container = UIView()
                 container.backgroundColor = .clear
-                let indicator = UIActivityIndicatorView(style: .medium)
+                let indicator = UIActivityIndicatorView.mezonMedium()
                 indicator.color = .white
                 indicator.translatesAutoresizingMaskIntoConstraints = false
                 container.addSubview(indicator)
@@ -214,9 +214,9 @@ private final class MediaPlaceholderNode: ASDisplayNode {
         clipsToBounds = true
         backgroundColor = UIColor(white: 0.18, alpha: 1)
         automaticallyManagesSubnodes = true
-        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 28, weight: .thin)
-        iconNode.image = UIImage(systemName: "photo", withConfiguration: symbolConfig)?
-            .withTintColor(UIColor(white: 0.55, alpha: 1), renderingMode: .alwaysOriginal)
+        let symbolConfig = MezonSymbolConfiguration(pointSize: 28, weight: .thin)
+        iconNode.image = UIImage.mezonSystemImage("photo", withConfiguration: symbolConfig)?
+            .mezonTinted(UIColor(white: 0.55, alpha: 1), renderingMode: .alwaysOriginal)
         iconNode.contentMode = .scaleAspectFit
         iconNode.style.preferredSize = CGSize(width: 36, height: 36)
     }
@@ -1155,9 +1155,9 @@ final class MessageMediaContentNode: ASDisplayNode {
         overlay.isUserInteractionEnabled = false
 
         let icon = ASImageNode()
-        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 30, weight: .semibold)
-        if let sfImage = UIImage(systemName: "arrow.clockwise.circle.fill", withConfiguration: symbolConfig)?
-            .withTintColor(.white, renderingMode: .alwaysOriginal) {
+        let symbolConfig = MezonSymbolConfiguration(pointSize: 30, weight: .semibold)
+        if let sfImage = UIImage.mezonSystemImage("arrow.clockwise.circle.fill", withConfiguration: symbolConfig)?
+            .mezonTinted(.white, renderingMode: .alwaysOriginal) {
             icon.image = sfImage
         }
         icon.contentMode = .scaleAspectFit
@@ -1179,8 +1179,8 @@ final class MessageMediaContentNode: ASDisplayNode {
         container.isUserInteractionEnabled = false
 
         let playIcon = ASImageNode()
-        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
-        if let sfImage = UIImage(systemName: "play.fill", withConfiguration: symbolConfig)?.withTintColor(.white, renderingMode: .alwaysOriginal) {
+        let symbolConfig = MezonSymbolConfiguration(pointSize: 18, weight: .medium)
+        if let sfImage = UIImage.mezonSystemImage("play.fill", withConfiguration: symbolConfig)?.mezonTinted(.white, renderingMode: .alwaysOriginal) {
             let renderer = UIGraphicsImageRenderer(size: CGSize(width: 22, height: 22))
             playIcon.image = renderer.image { ctx in
                 let rect = CGRect(origin: .zero, size: CGSize(width: 22, height: 22))

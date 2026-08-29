@@ -1,6 +1,5 @@
 import UIKit
 
-@MainActor
 final class AdvancedPermissionOverridesViewController: BaseViewController {
 
     enum Target {
@@ -52,7 +51,7 @@ final class AdvancedPermissionOverridesViewController: BaseViewController {
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
 
-        backButton.setImage(UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        backButton.setImage(UIImage.mezonSystemImage("chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
         backButton.addTarget(self, action: #selector(handleBack), for: .touchUpInside)
 
@@ -131,7 +130,9 @@ final class AdvancedPermissionOverridesViewController: BaseViewController {
             currentValues[p.id] = .none
         }
         tableView.reloadData()
-        Task { [weak self] in await self?.loadCurrentOverrides() }
+        if #available(iOS 13.0, *) {
+            Task { [weak self] in await self?.loadCurrentOverrides() }
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -139,6 +140,8 @@ final class AdvancedPermissionOverridesViewController: BaseViewController {
         navigationController?.setNavigationBarHidden(true, animated: animated)
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func loadCurrentOverrides() async {
         let roleId: Int64 = {
             if case .role(let id, _) = target { return id }
@@ -189,41 +192,43 @@ final class AdvancedPermissionOverridesViewController: BaseViewController {
     }
 
     @objc private func handleSave() {
-        guard originValues != currentValues else { return }
-        let updates: [(Int64, String, ChannelPermissionsRepository.PermissionStatus)] = permissions.map { p in
-            (p.id, p.slug, currentValues[p.id] ?? .none)
-        }
-        let roleId: Int64 = {
-            if case .role(let id, _) = target { return id }
-            return 0
-        }()
-        let userId: Int64 = {
-            if case .member(let id, _) = target { return id }
-            return 0
-        }()
-        let roleLabel: String = {
-            switch target {
-            case .role(_, let title): return title
-            case .member: return ""
+        if #available(iOS 13.0, *) {
+            guard originValues != currentValues else { return }
+            let updates: [(Int64, String, ChannelPermissionsRepository.PermissionStatus)] = permissions.map { p in
+                (p.id, p.slug, currentValues[p.id] ?? .none)
             }
-        }()
-        Task { [weak self] in
-            guard let self else { return }
-            guard !updates.isEmpty else { return }
-            do {
-                try await self.repository.setPermissionOverrides(
-                    clanId: self.clanId,
-                    channelId: self.channelId,
-                    roleId: roleId,
-                    userId: userId,
-                    roleLabel: roleLabel,
-                    permissionUpdates: updates
-                )
-                self.originValues = self.currentValues
-                self.refreshSaveButton()
-                Toast.success(L(L10n.ChannelPermission.toastSuccess))
-            } catch {
-                Toast.error(L(L10n.ChannelPermission.toastFailed))
+            let roleId: Int64 = {
+                if case .role(let id, _) = target { return id }
+                return 0
+            }()
+            let userId: Int64 = {
+                if case .member(let id, _) = target { return id }
+                return 0
+            }()
+            let roleLabel: String = {
+                switch target {
+                case .role(_, let title): return title
+                case .member: return ""
+                }
+            }()
+            Task { [weak self] in
+                guard let self else { return }
+                guard !updates.isEmpty else { return }
+                do {
+                    try await self.repository.setPermissionOverrides(
+                        clanId: self.clanId,
+                        channelId: self.channelId,
+                        roleId: roleId,
+                        userId: userId,
+                        roleLabel: roleLabel,
+                        permissionUpdates: updates
+                    )
+                    self.originValues = self.currentValues
+                    self.refreshSaveButton()
+                    Toast.success(L(L10n.ChannelPermission.toastSuccess))
+                } catch {
+                    Toast.error(L(L10n.ChannelPermission.toastFailed))
+                }
             }
         }
     }
@@ -253,7 +258,6 @@ extension AdvancedPermissionOverridesViewController: UITableViewDataSource, UITa
     }
 }
 
-@MainActor
 private final class PermissionTriToggleCell: UITableViewCell {
 
     static let reuseId = "PermissionTriToggleCell"
@@ -366,8 +370,8 @@ private final class PermissionTriToggleCell: UITableViewCell {
     }
 
     private func setupSegmentButton(_ b: UIButton, systemName: String, pointSize: CGFloat) {
-        let cfg = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .semibold)
-        b.setImage(UIImage(systemName: systemName, withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate), for: .normal)
+        let cfg = MezonSymbolConfiguration(pointSize: pointSize, weight: .semibold)
+        b.setImage(UIImage.mezonSystemImage(systemName, withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate), for: .normal)
         b.translatesAutoresizingMaskIntoConstraints = false
     }
 

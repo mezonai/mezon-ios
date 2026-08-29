@@ -11,7 +11,7 @@ final class SettingsViewController: BaseViewController {
     private let headerView = UIView()
     private let backButton: UIButton = {
         let btn = UIButton(type: .system)
-        let img = UIImage(systemName: "chevron.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium))
+        let img = UIImage.mezonSystemImage("chevron.left", withConfiguration: MezonSymbolConfiguration(pointSize: 18, weight: .medium))
         btn.setImage(img, for: .normal)
         btn.translatesAutoresizingMaskIntoConstraints = false
         return btn
@@ -208,7 +208,7 @@ final class SettingsViewController: BaseViewController {
     }()
 
     private let searchIconView: UIImageView = {
-        let iv = UIImageView(image: UIImage(systemName: "magnifyingglass"))
+        let iv = UIImageView(image: UIImage.mezonSystemImage("magnifyingglass"))
         iv.translatesAutoresizingMaskIntoConstraints = false
         return iv
     }()
@@ -391,7 +391,7 @@ final class SettingsViewController: BaseViewController {
 
         switch row.action {
         case .navigate:
-            let chevron = UIImageView(image: UIImage(systemName: "chevron.right", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)))
+            let chevron = UIImageView(image: UIImage.mezonSystemImage("chevron.right", withConfiguration: MezonSymbolConfiguration(pointSize: 13, weight: .semibold)))
             chevron.tintColor = .mezonTextPrimary
             chevron.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(chevron)
@@ -422,7 +422,7 @@ final class SettingsViewController: BaseViewController {
             detailLabel.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(detailLabel)
 
-            let chevron = UIImageView(image: UIImage(systemName: "chevron.right", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)))
+            let chevron = UIImageView(image: UIImage.mezonSystemImage("chevron.right", withConfiguration: MezonSymbolConfiguration(pointSize: 13, weight: .semibold)))
             chevron.tintColor = .mezonTextPrimary
             chevron.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(chevron)

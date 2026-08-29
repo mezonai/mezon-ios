@@ -106,8 +106,8 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         scrubberBarNode.addSubnode(currentTimeLabel)
         scrubberBarNode.addSubnode(durationLabel)
 
-        let bottomConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .regular)
-        bottomPlayPauseButton.setImage(UIImage(systemName: "play.fill", withConfiguration: bottomConfig), for: .normal)
+        let bottomConfig = MezonSymbolConfiguration(pointSize: 18, weight: .regular)
+        bottomPlayPauseButton.setImage(UIImage.mezonSystemImage("play.fill", withConfiguration: bottomConfig), for: .normal)
         bottomPlayPauseButton.imageNode.imageModificationBlock = ASImageNodeTintColorModificationBlock(.white)
         bottomPlayPauseButton.addTarget(self, action: #selector(playPauseTapped), forControlEvents: .touchUpInside)
 
@@ -151,8 +151,8 @@ final class MezonVideoPlayerNode: ASDisplayNode {
 
 
     private func setupCenterButton(_ button: ASButtonNode, iconName: String, pointSize: CGFloat) {
-        let config = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .bold)
-        let image = UIImage(systemName: iconName, withConfiguration: config)
+        let config = MezonSymbolConfiguration(pointSize: pointSize, weight: .bold)
+        let image = UIImage.mezonSystemImage(iconName, withConfiguration: config)
         button.setImage(image, for: .normal)
         button.imageNode.imageModificationBlock = ASImageNodeTintColorModificationBlock(.white)
         button.backgroundColor = UIColor.black.withAlphaComponent(0.35)
@@ -228,9 +228,9 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         overlayNode.automaticallyManagesSubnodes = true
         
         let iconNode = ASImageNode()
-        let config = UIImage.SymbolConfiguration(pointSize: 48, weight: .regular)
-        iconNode.image = UIImage(systemName: "exclamationmark.triangle", withConfiguration: config)?
-            .withTintColor(.white, renderingMode: .alwaysOriginal)
+        let config = MezonSymbolConfiguration(pointSize: 48, weight: .regular)
+        iconNode.image = UIImage.mezonSystemImage("exclamationmark.triangle", withConfiguration: config)?
+            .mezonTinted(.white, renderingMode: .alwaysOriginal)
         iconNode.contentMode = .scaleAspectFit
         
         let titleNode = ASTextNode()
@@ -443,14 +443,14 @@ final class MezonVideoPlayerNode: ASDisplayNode {
 
     private func updatePlayPauseIcons(isPlaying: Bool) {
 
-        let centerConfig = UIImage.SymbolConfiguration(pointSize: 44, weight: .bold)
+        let centerConfig = MezonSymbolConfiguration(pointSize: 44, weight: .bold)
         let centerIconName = isPlaying ? "pause.fill" : "play.fill"
-        centerPlayPauseButton.setImage(UIImage(systemName: centerIconName, withConfiguration: centerConfig), for: .normal)
+        centerPlayPauseButton.setImage(UIImage.mezonSystemImage(centerIconName, withConfiguration: centerConfig), for: .normal)
 
 
-        let bottomConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .regular)
+        let bottomConfig = MezonSymbolConfiguration(pointSize: 18, weight: .regular)
         let bottomIconName = isPlaying ? "pause.fill" : "play.fill"
-        bottomPlayPauseButton.setImage(UIImage(systemName: bottomIconName, withConfiguration: bottomConfig), for: .normal)
+        bottomPlayPauseButton.setImage(UIImage.mezonSystemImage(bottomIconName, withConfiguration: bottomConfig), for: .normal)
     }
 
     private func formatTime(_ seconds: Double) -> String {

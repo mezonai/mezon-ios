@@ -23,7 +23,6 @@ enum ClanStickerNameValidator {
     }
 }
 
-@MainActor
 final class StickersRepository {
     static let maxSlots = 250
 
@@ -50,6 +49,8 @@ final class StickersRepository {
         stickerCount(clanId: clanId) >= Self.maxSlots
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     func updateSticker(id: Int64, clanId: Int64, source: String, shortname: String, category: String) async throws {
         var req = Mezon_Api_ClanStickerUpdateByIdRequest()
         req.id = id
@@ -96,6 +97,8 @@ final class StickersRepository {
         return merged
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     func deleteSticker(id: Int64, clanId: Int64, shortname: String) async throws {
         var req = Mezon_Api_ClanStickerDeleteRequest()
         req.id = id
@@ -111,6 +114,7 @@ final class StickersRepository {
         }
     }
 
+    @available(iOS 13.0, *)
     func addSticker(
         clanId: Int64,
         source: String,

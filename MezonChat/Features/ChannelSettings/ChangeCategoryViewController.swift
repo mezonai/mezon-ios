@@ -56,7 +56,7 @@ final class ChangeCategoryViewController: BaseViewController {
 
         let backBtn = UIButton(type: .system)
         backBtn.setImage(
-            UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate),
+            UIImage.mezonSystemImage("chevron.left")?.withRenderingMode(.alwaysTemplate),
             for: .normal
         )
         backBtn.tintColor = t.textStrong
@@ -111,13 +111,15 @@ final class ChangeCategoryViewController: BaseViewController {
 
         updateHeaderLabel()
 
-        activityIndicator = UIActivityIndicatorView(style: .medium)
+        activityIndicator = UIActivityIndicatorView.mezonMedium()
         activityIndicator.color = t.textDisabled
         activityIndicator.hidesWhenStopped = true
         stackView.addArrangedSubview(activityIndicator)
         activityIndicator.startAnimating()
 
-        fetchCategories()
+        if #available(iOS 13.0, *) {
+            fetchCategories()
+        }
     }
 
     private func updateHeaderLabel() {
@@ -136,6 +138,7 @@ final class ChangeCategoryViewController: BaseViewController {
         buildCategoryRows()
     }
 
+    @available(iOS 13.0, *)
     private func fetchCategories() {
         let postbox = context.account.postbox
         let key = PreferencesKeys.channelListMeta(clanId: clanId)
@@ -168,6 +171,7 @@ final class ChangeCategoryViewController: BaseViewController {
         fetchCategoriesFromAPI()
     }
 
+    @available(iOS 13.0, *)
     private func fetchCategoriesFromAPI() {
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -280,10 +284,13 @@ final class ChangeCategoryViewController: BaseViewController {
     }
 
     @objc private func handleCategoryTap(_ sender: CategoryRowButton) {
-        guard let category = sender.category else { return }
-        showMoveConfirmation(category: category)
+        if #available(iOS 13.0, *) {
+            guard let category = sender.category else { return }
+            showMoveConfirmation(category: category)
+        }
     }
 
+    @available(iOS 13.0, *)
     private func showMoveConfirmation(category: Mezon_Api_CategoryDesc) {
         let confirmTitle = L(L10n.ChannelSetting.changeCategory)
         let confirmMessage = L(L10n.ChannelSetting.changeCategoryConfirmContent)
@@ -305,6 +312,7 @@ final class ChangeCategoryViewController: BaseViewController {
         present(alert, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func moveChannelToCategory(_ category: Mezon_Api_CategoryDesc) {
         Task { @MainActor [weak self] in
             guard let self else { return }

@@ -41,7 +41,7 @@ final class CreateClanEntryViewController: BaseViewController {
     private let headerView = UIView()
     private let backButton: UIButton = {
         let btn = UIButton(type: .system)
-        let img = UIImage(systemName: "chevron.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium))
+        let img = UIImage.mezonSystemImage("chevron.left", withConfiguration: MezonSymbolConfiguration(pointSize: 18, weight: .medium))
         btn.setImage(img, for: .normal)
         btn.translatesAutoresizingMaskIntoConstraints = false
         return btn
@@ -162,7 +162,7 @@ final class CreateClanEntryViewController: BaseViewController {
         row.heightAnchor.constraint(equalToConstant: 52.sh).isActive = true
         row.addTarget(self, action: #selector(rowTapped(_:)), for: .touchUpInside)
 
-        let iconView = UIImageView(image: UIImage(systemName: iconName))
+        let iconView = UIImageView(image: UIImage.mezonSystemImage(iconName))
         iconView.tintColor = iconTint
         iconView.contentMode = .scaleAspectFit
         iconView.translatesAutoresizingMaskIntoConstraints = false

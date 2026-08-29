@@ -36,7 +36,9 @@ final class InstallClanViewController: UIViewController {
         view.backgroundColor = UIColor.theme.primary
         setupUI()
         updateInstallButtonState()
-        fetchAppDetail()
+        if #available(iOS 13.0, *) {
+            fetchAppDetail()
+        }
     }
 
     private func setupUI() {
@@ -85,7 +87,7 @@ final class InstallClanViewController: UIViewController {
         clanPickerButton.setTitle("Select a clan", for: .normal)
         clanPickerButton.addTarget(self, action: #selector(handleSelectClan), for: .touchUpInside)
 
-        let chevron = UIImageView(image: UIImage(systemName: "chevron.down"))
+        let chevron = UIImageView(image: UIImage.mezonSystemImage("chevron.down"))
         chevron.translatesAutoresizingMaskIntoConstraints = false
         chevron.tintColor = UIColor.theme.textDisabled
         chevron.contentMode = .scaleAspectFit
@@ -165,6 +167,7 @@ final class InstallClanViewController: UIViewController {
         ])
     }
 
+    @available(iOS 13.0, *)
     private func fetchAppDetail() {
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -237,21 +240,23 @@ final class InstallClanViewController: UIViewController {
     }
 
     @objc private func handleInstall() {
-        guard let clan = selectedClan else { return }
-        installButton.isEnabled = false
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard let token = await self.context.getToken() else {
-                self.updateInstallButtonState()
-                return
-            }
-            do {
-                try await self.context.account.network.addAppToClan(appId: self.appId, clanId: clan.clanID, token: token)
-                Toast.success("App installed successfully")
-                self.dismiss(animated: true)
-            } catch {
-                Toast.error(error.localizedDescription)
-                self.updateInstallButtonState()
+        if #available(iOS 13.0, *) {
+            guard let clan = selectedClan else { return }
+            installButton.isEnabled = false
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard let token = await self.context.getToken() else {
+                    self.updateInstallButtonState()
+                    return
+                }
+                do {
+                    try await self.context.account.network.addAppToClan(appId: self.appId, clanId: clan.clanID, token: token)
+                    Toast.success("App installed successfully")
+                    self.dismiss(animated: true)
+                } catch {
+                    Toast.error(error.localizedDescription)
+                    self.updateInstallButtonState()
+                }
             }
         }
     }

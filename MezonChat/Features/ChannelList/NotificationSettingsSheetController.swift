@@ -52,7 +52,9 @@ final class NotificationSettingsSheetController: ViewController {
             selectedType: selectedType,
             defaultLabel: defaultLabel,
             onSelect: { [weak self] type in
-                self?.handleSelection(type)
+                if #available(iOS 13.0, *) {
+                    self?.handleSelection(type)
+                }
             },
             onDismiss: { [weak self] in
                 self?.dismissSheet()
@@ -60,7 +62,9 @@ final class NotificationSettingsSheetController: ViewController {
         )
         displayNodeDidLoad()
         setupSocketListener()
-        fetchSetting()
+        if #available(iOS 13.0, *) {
+            fetchSetting()
+        }
     }
     
     private func setupSocketListener() {
@@ -98,6 +102,7 @@ final class NotificationSettingsSheetController: ViewController {
         }
     }
     
+    @available(iOS 13.0, *)
     private func fetchSetting() {
         Task { @MainActor in
             guard let token = await context.getToken() else { return }
@@ -118,6 +123,7 @@ final class NotificationSettingsSheetController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func handleSelection(_ type: ChannelNotificationType) {
         guard type != selectedType else {
             dismissSheet()

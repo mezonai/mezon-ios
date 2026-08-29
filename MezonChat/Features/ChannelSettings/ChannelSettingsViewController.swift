@@ -79,13 +79,17 @@ final class ChannelSettingsViewController: BaseViewController {
                 self?.navigationController?.popViewController(animated: true)
             },
             onSave: { [weak self] name, topic in
-                self?.saveSettings(name: name, topic: topic)
+                if #available(iOS 13.0, *) {
+                    self?.saveSettings(name: name, topic: topic)
+                }
             },
             onPermissionsTap: { [weak self] in
                 self?.openChannelPermissions()
             },
             onDeleteTap: { [weak self] in
-                self?.presentDeleteChannelConfirm()
+                if #available(iOS 13.0, *) {
+                    self?.presentDeleteChannelConfirm()
+                }
             },
             onChangeCategoryTap: { [weak self] in
                 self?.openChangeCategory()
@@ -102,6 +106,7 @@ final class ChannelSettingsViewController: BaseViewController {
         )
     }
 
+    @available(iOS 13.0, *)
     private func presentDeleteChannelConfirm() {
         let isThread = channelType == MezonConstants.ChannelType.thread.rawValue
         let title = isThread ? L(L10n.ChannelAction.deleteThread) : L(L10n.Channel.delete)
@@ -119,6 +124,7 @@ final class ChannelSettingsViewController: BaseViewController {
         self.present(alert, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func handleDeleteChannel() {
         settingsNode.setDeleteButtonEnabled(false)
         Task { @MainActor in
@@ -210,6 +216,7 @@ final class ChannelSettingsViewController: BaseViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func saveSettings(name: String, topic: String) {
         Task {
             do {

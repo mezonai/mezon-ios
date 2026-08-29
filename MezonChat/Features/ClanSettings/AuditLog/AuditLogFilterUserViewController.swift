@@ -1,6 +1,5 @@
 import UIKit
 
-@MainActor
 final class AuditLogFilterUserViewController: BaseViewController {
     
     private let context: AccountContext
@@ -34,7 +33,9 @@ final class AuditLogFilterUserViewController: BaseViewController {
         setupHeader()
         setupSearchBar()
         setupTableView()
-        fetchMembers()
+        if #available(iOS 13.0, *) {
+            fetchMembers()
+        }
     }
     
     private func setupHeader() {
@@ -46,7 +47,7 @@ final class AuditLogFilterUserViewController: BaseViewController {
         titleLabel.textColor = UIColor.theme.textStrong
         titleLabel.textAlignment = .center
         
-        closeButton.setImage(UIImage(systemName: "xmark")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        closeButton.setImage(UIImage.mezonSystemImage("xmark")?.withRenderingMode(.alwaysTemplate), for: .normal)
         closeButton.tintColor = UIColor.theme.textStrong
         closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         
@@ -80,10 +81,10 @@ final class AuditLogFilterUserViewController: BaseViewController {
         searchBar.backgroundColor = UIColor.theme.secondary
         searchBar.layer.cornerRadius = 16
         searchBar.layer.masksToBounds = true
-        searchBar.searchTextField.backgroundColor = .clear
-        searchBar.searchTextField.textColor = UIColor.theme.textStrong
+        searchBar.mezonSearchTextField?.backgroundColor = .clear
+        searchBar.mezonSearchTextField?.textColor = UIColor.theme.textStrong
         
-        searchBar.searchTextField.attributedPlaceholder = NSAttributedString(
+        searchBar.mezonSearchTextField?.attributedPlaceholder = NSAttributedString(
             string: L(L10n.Common.search),
             attributes: [
                 .foregroundColor: UIColor.theme.textDisabled,
@@ -91,12 +92,12 @@ final class AuditLogFilterUserViewController: BaseViewController {
             ]
         )
         
-        if let leftIconView = searchBar.searchTextField.leftView as? UIImageView {
+        if let leftIconView = searchBar.mezonSearchTextField?.leftView as? UIImageView {
             leftIconView.image = leftIconView.image?.withRenderingMode(.alwaysTemplate)
             leftIconView.tintColor = UIColor.theme.textDisabled
         }
         
-        if let rightButton = searchBar.searchTextField.value(forKey: "clearButton") as? UIButton {
+        if let rightButton = searchBar.mezonSearchTextField?.value(forKey: "clearButton") as? UIButton {
             rightButton.setImage(rightButton.imageView?.image?.withRenderingMode(.alwaysTemplate), for: .normal)
             rightButton.tintColor = UIColor.theme.textDisabled
         }
@@ -133,6 +134,7 @@ final class AuditLogFilterUserViewController: BaseViewController {
         ])
     }
     
+    @available(iOS 13.0, *)
     private func fetchMembers() {
         Task {
             let members = context.account.postbox.read { $0.getClanMembers(clanId: clanId) }

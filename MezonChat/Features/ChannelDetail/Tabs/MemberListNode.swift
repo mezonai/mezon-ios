@@ -1,7 +1,6 @@
 import AsyncDisplayKit
 import UIKit
 
-@MainActor
 final class MemberListNode: ASDisplayNode {
 
     private let context: AccountContext
@@ -93,6 +92,7 @@ final class MemberListNode: ASDisplayNode {
         tableNode.view.allowsSelection = true
     }
 
+    @available(iOS 13.0, *)
     func loadTabDataIfNeeded() {
         guard !didStartMemberLoading else { return }
         didStartMemberLoading = true
@@ -209,6 +209,7 @@ final class MemberListNode: ASDisplayNode {
         )
     }
 
+    @available(iOS 13.0, *)
     private func refreshClanMembersForAvatarsIfNeeded(userIds: [Int64] = []) {
         guard clanId > 0, !didRequestClanMemberRefreshForAvatars else { return }
         let needsRefresh = context.account.postbox.read { tx in
@@ -246,11 +247,12 @@ final class MemberListNode: ASDisplayNode {
         }
     }
 
+    @available(iOS 13.0, *)
     private func fetchMembersIfNeeded() {
         let isDMOrGroup =
             channelType == MezonConstants.ChannelType.dm.rawValue
             || channelType == MezonConstants.ChannelType.group.rawValue
-        Task {
+        Task { @MainActor in
             guard channelId > 0 else { return }
             let token = await context.getToken() ?? ""
             if isDMOrGroup {
@@ -340,6 +342,8 @@ final class MemberListNode: ASDisplayNode {
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func applyClanMembersFallback(token: String) async throws {
         let clanRes = try await context.account.network.listClanUsers(clanId: clanId, token: token)
         if clanRes.clanUsers.isEmpty {
@@ -661,8 +665,16 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
             guard isCurrentGroupCreator, !isCurrentUser else { return nil }
             let label = !user.displayName.isEmpty ? user.displayName : user.username
             let removedId = user.id
-            return MemberProfileGroupAction(confirmUserLabel: label, onRemove: { [weak self] in
-                try await self?.removeMemberFromGroup(userId: removedId)
+            return MemberProfileGroupAction(confirmUserLabel: label, onRemove: { [weak self] completion in
+                guard #available(iOS 13.0, *) else { completion(nil); return }
+                Task { @MainActor in
+                    do {
+                        try await self?.removeMemberFromGroup(userId: removedId)
+                        completion(nil)
+                    } catch {
+                        completion(error)
+                    }
+                }
             })
         }()
 
@@ -683,23 +695,25 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                 guard let self, let host else { return }
                 let displayName = user.displayName.isEmpty ? (dmChannel.channelLabel.isEmpty ? user.username : dmChannel.channelLabel) : user.displayName
                 let avatarURL = user.avatarURL.isEmpty ? dmChannel.avatars.first : user.avatarURL
-                PeerCallLogMessage.sendStartCallLog(
-                    context: self.context,
-                    channel: dmChannel,
-                    isVideoCall: false
-                )
-                let callVC = PeerCallViewController(
-                    context: self.context,
-                    remoteUserName: displayName,
-                    remoteAvatarURL: avatarURL,
-                    remoteUserId: user.id,
-                    channelId: dmChannel.channelID,
-                    isVideo: false
-                )
-                if let nav = host.navigationController {
-                    nav.pushViewController(callVC, animated: true)
-                } else {
-                    host.present(callVC, animated: true)
+                if #available(iOS 13.0, *) {
+                    PeerCallLogMessage.sendStartCallLog(
+                        context: self.context,
+                        channel: dmChannel,
+                        isVideoCall: false
+                    )
+                    let callVC = PeerCallViewController(
+                        context: self.context,
+                        remoteUserName: displayName,
+                        remoteAvatarURL: avatarURL,
+                        remoteUserId: user.id,
+                        channelId: dmChannel.channelID,
+                        isVideo: false
+                    )
+                    if let nav = host.navigationController {
+                        nav.pushViewController(callVC, animated: true)
+                    } else {
+                        host.present(callVC, animated: true)
+                    }
                 }
             },
             onTransferFunds: { [weak self, weak host] payload in
@@ -719,6 +733,8 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
         return myId == channelDescription.creatorID
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func removeMemberFromGroup(userId: Int64) async throws {
         guard let token = await context.getToken() else {
             throw NSError(
@@ -736,47 +752,51 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
     }
 
     private func handleHeaderActionTapped(tableNode: ASTableNode) {
-        guard let host = tableNode.view.findHostingViewController() else { return }
-        guard channelType == MezonConstants.ChannelType.group.rawValue else { return }
-        let memberSnapshot = currentGroupMemberSnapshot()
-        let vc = NewGroupDMViewController(
-            context: context,
-            existingGroupChannel: channelDescription,
-            existingMemberIds: memberSnapshot.ids,
-            existingMemberCount: memberSnapshot.count,
-            onMembersAdded: { [weak self] updated in
-                let expectedCount: Int? = updated.memberCount > 0 ? Int(updated.memberCount) : nil
-                self?.refreshGroupMembersAfterAdd(expectedMemberCount: expectedCount)
-            }
-        )
-        host.navigationController?.pushViewController(vc, animated: true)
+        if #available(iOS 13.0, *) {
+            guard let host = tableNode.view.findHostingViewController() else { return }
+            guard channelType == MezonConstants.ChannelType.group.rawValue else { return }
+            let memberSnapshot = currentGroupMemberSnapshot()
+            let vc = NewGroupDMViewController(
+                context: context,
+                existingGroupChannel: channelDescription,
+                existingMemberIds: memberSnapshot.ids,
+                existingMemberCount: memberSnapshot.count,
+                onMembersAdded: { [weak self] updated in
+                    let expectedCount: Int? = updated.memberCount > 0 ? Int(updated.memberCount) : nil
+                    self?.refreshGroupMembersAfterAdd(expectedMemberCount: expectedCount)
+                }
+            )
+            host.navigationController?.pushViewController(vc, animated: true)
+        }
     }
 
     private func refreshGroupMembersAfterAdd(expectedMemberCount: Int?) {
-        guard channelType == MezonConstants.ChannelType.group.rawValue else { return }
-        let channelId = self.channelId
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
-            for attempt in 0..<3 {
-                if attempt > 0 {
-                    try? await Task.sleep(nanoseconds: 500_000_000)
-                }
-                do {
-                    let response = try await self.context.account.network.listChannelUsersUC(
-                        channelId: channelId,
-                        limit: 500,
-                        token: token
-                    )
-                    guard !response.userIds.isEmpty else { continue }
-                    self.applyGroupMemberList(response)
-                    self.refreshClanMembersForAvatarsIfNeeded(userIds: response.userIds)
-                    if let expectedMemberCount {
-                        if Set(response.userIds).count >= expectedMemberCount { return }
-                    } else {
-                        return
+        if #available(iOS 13.0, *) {
+            guard channelType == MezonConstants.ChannelType.group.rawValue else { return }
+            let channelId = self.channelId
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
+                for attempt in 0..<3 {
+                    if attempt > 0 {
+                        try? await Task.sleep(nanoseconds: 500_000_000)
                     }
-                } catch {
+                    do {
+                        let response = try await self.context.account.network.listChannelUsersUC(
+                            channelId: channelId,
+                            limit: 500,
+                            token: token
+                        )
+                        guard !response.userIds.isEmpty else { continue }
+                        self.applyGroupMemberList(response)
+                        self.refreshClanMembersForAvatarsIfNeeded(userIds: response.userIds)
+                        if let expectedMemberCount {
+                            if Set(response.userIds).count >= expectedMemberCount { return }
+                        } else {
+                            return
+                        }
+                    } catch {
+                    }
                 }
             }
         }
@@ -892,9 +912,9 @@ private final class ActionButtonCellNode: ASCellNode {
         iconBackgroundNode.clipsToBounds = true
         iconBackgroundNode.style.preferredSize = CGSize(width: iconCircle, height: iconCircle)
 
-        let config = UIImage.SymbolConfiguration(pointSize: 20.sf, weight: .semibold)
-        iconNode.image = UIImage(systemName: iconName, withConfiguration: config)?
-            .withTintColor(.white, renderingMode: .alwaysOriginal)
+        let config = MezonSymbolConfiguration(pointSize: 20.sf, weight: .semibold)
+        iconNode.image = UIImage.mezonSystemImage(iconName, withConfiguration: config)?
+            .mezonTinted(.white, renderingMode: .alwaysOriginal)
         iconNode.contentMode = .scaleAspectFit
 
         titleNode.attributedText = NSAttributedString(
@@ -905,7 +925,7 @@ private final class ActionButtonCellNode: ASCellNode {
             ]
         )
 
-        arrowNode.image = UIImage(systemName: "chevron.right")?.withTintColor(
+        arrowNode.image = UIImage.mezonSystemImage("chevron.right")?.mezonTinted(
             t.text.withAlphaComponent(0.55), renderingMode: .alwaysOriginal)
         arrowNode.style.preferredSize = CGSize(width: 14.sf, height: 14.sf)
     }
@@ -1025,12 +1045,12 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
 
         self.updateUI(displayName: displayName, avatarUrl: avatarUrl, isOnline: false, status: 0)
 
-        Task { @MainActor in
-            observeProfile()
+        DispatchQueue.main.async { [weak self] in
+            self?.observeProfile()
         }
     }
 
-    @MainActor private func observeProfile() {
+    private func observeProfile() {
         let signal: Signal<ProfileView, NoError> = context.account.postbox.profileView(
             userId: String(userId))
         disposables.add(

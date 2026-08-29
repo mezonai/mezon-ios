@@ -27,7 +27,7 @@ final class FriendListViewController: ViewController {
     private(set) var receivedRequestCount: Int = 0
     private(set) var sentRequestCount: Int = 0
     private(set) var searchText: String = ""
-    private var refreshTask: Task<Void, Never>?
+    private var refreshTask: CancelHandle?
     private var searchDebounceWorkItem: DispatchWorkItem?
     private var friendsUpdatedDisposable: Disposable?
     private var lastStateSignature: String?
@@ -42,7 +42,9 @@ final class FriendListViewController: ViewController {
     required init(coder aDecoder: NSCoder) { fatalError() }
 
     override func loadDisplayNode() {
-        syncFromGlobalFriendState()
+        if #available(iOS 13.0, *) {
+            syncFromGlobalFriendState()
+        }
 
         let interaction = FriendListInteraction(
             onBackTapped: { [weak self] in
@@ -66,7 +68,9 @@ final class FriendListViewController: ViewController {
                 self?.handleCallFriend(friend)
             },
             onMessageFriend: { [weak self] friend in
-                self?.handleMessageFriend(friend)
+                if #available(iOS 13.0, *) {
+                    self?.handleMessageFriend(friend)
+                }
             },
             onShowProfile: { [weak self] friend in
                 self?.showMemberProfile(friend)
@@ -74,7 +78,9 @@ final class FriendListViewController: ViewController {
         )
         let node = FriendListContainerNode(signal: stateSignal(), interaction: interaction)
         node.onSearchTextChanged = { [weak self] text in
-            self?.handleSearchTextChanged(text)
+            if #available(iOS 13.0, *) {
+                self?.handleSearchTextChanged(text)
+            }
         }
         displayNode = node
     }
@@ -89,8 +95,12 @@ final class FriendListViewController: ViewController {
                 transition: .immediate
             )
         }
-        syncFromGlobalFriendState()
-        refreshFromNetwork()
+        if #available(iOS 13.0, *) {
+            syncFromGlobalFriendState()
+        }
+        if #available(iOS 13.0, *) {
+            refreshFromNetwork()
+        }
     }
 
     override func viewDidLoad() {
@@ -99,9 +109,13 @@ final class FriendListViewController: ViewController {
 
         friendsUpdatedDisposable = (context.engine.friendsData.friendsUpdated.signal()
             |> deliverOnMainQueue).start(next: { [weak self] _ in
-                self?.syncFromGlobalFriendState()
+                if #available(iOS 13.0, *) {
+                    self?.syncFromGlobalFriendState()
+                }
             })
-        syncFromGlobalFriendState()
+        if #available(iOS 13.0, *) {
+            syncFromGlobalFriendState()
+        }
     }
 
     deinit {
@@ -156,6 +170,7 @@ final class FriendListViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func syncFromGlobalFriendState() {
         let allFriendsRaw = context.engine.friendsData.allFriends()
         allFriends = allFriendsRaw.filter { $0.state == EStateFriend.friend.rawValue }
@@ -164,6 +179,7 @@ final class FriendListViewController: ViewController {
         applyFilter()
     }
 
+    @available(iOS 13.0, *)
     private func applyFilter() {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         if query.isEmpty {
@@ -210,6 +226,7 @@ final class FriendListViewController: ViewController {
             .sorted { $0.character < $1.character }
     }
 
+    @available(iOS 13.0, *)
     private func handleSearchTextChanged(_ text: String) {
         searchDebounceWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
@@ -221,15 +238,18 @@ final class FriendListViewController: ViewController {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
     }
 
+    @available(iOS 13.0, *)
     private func refreshFromNetwork() {
         refreshTask?.cancel()
-        refreshTask = Task { @MainActor [weak self] in
+        let refreshTaskWork = Task { @MainActor [weak self] in
             guard let self else { return }
             guard let token = await self.context.getToken() else { return }
             await self.context.engine.friendsData.refreshFromNetwork(token: token)
         }
+        refreshTask = CancelHandle { refreshTaskWork.cancel() }
     }
 
+    @available(iOS 13.0, *)
     private func handleMessageFriend(_ friend: Mezon_Api_Friend) {
         guard friend.hasUser else { return }
         Task { @MainActor [weak self] in
@@ -264,6 +284,7 @@ final class FriendListViewController: ViewController {
     private func handleCallFriend(_ friend: Mezon_Api_Friend) {
     }
 
+    @available(iOS 13.0, *)
     private func makeStateSignature() -> String {
         let normalizedSearch = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         var parts: [String] = []

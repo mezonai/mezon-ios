@@ -556,10 +556,10 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
                         image = UIImage(systemName: icon, withConfiguration: UIImage.SymbolConfiguration.preferringMulticolor())?.withRenderingMode(.alwaysOriginal)
                     }
                 } else {
-                    image = UIImage(systemName: icon)?.withRenderingMode(.alwaysOriginal)
+                    image = UIImage.mezonSystemImage(icon)?.withRenderingMode(.alwaysOriginal)
                 }
             } else {
-                image = UIImage(systemName: icon)
+                image = UIImage.mezonSystemImage(icon)
             }
             let iv = UIImageView(image: image)
             iv.contentMode = .scaleAspectFit
@@ -637,7 +637,7 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
                     ? loadedImage?.withRenderingMode(.alwaysOriginal)
                     : loadedImage?.withRenderingMode(.alwaysTemplate)
             } else {
-                iconView.image = UIImage(systemName: name)
+                iconView.image = UIImage.mezonSystemImage(name)
             }
         }
         iconView.contentMode = .scaleAspectFit

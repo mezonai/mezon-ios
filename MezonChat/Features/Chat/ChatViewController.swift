@@ -402,7 +402,9 @@ final class ChatViewController: ViewController {
         didSet {
             guard topicId != oldValue else { return }
             if isViewLoaded {
-                syncChannelToComposer()
+                if #available(iOS 13.0, *) {
+                    syncChannelToComposer()
+                }
             }
         }
     }
@@ -508,7 +510,9 @@ final class ChatViewController: ViewController {
             self.sendInputViewController.focusTextInput()
         }
         v.onActionTapped = { [weak self] item in
-            self?.handleAdvanceAction(item)
+            if #available(iOS 13.0, *) {
+                self?.handleAdvanceAction(item)
+            }
         }
         v.onHeightChanged = { [weak self] newHeight in
             self?.updateAdvancePanelOverlayHeight(newHeight)
@@ -540,7 +544,9 @@ final class ChatViewController: ViewController {
     private var didMarkChannelAsReadForCurrentAppearance = false
     private var nextFetchPrefersHTTPFirst = false
     private var isCatchingUpAfterReconnect = false
-    private var reconnectCatchUpTask: Task<Void, Never>?
+    private var reconnectCatchUpTask: CancelHandle?
+    /// Giu chinh `Task` de cho no ket thuc; `Any?` vi type nay phai dung duoc tren iOS 12.
+    private var reconnectCatchUpTaskBox: Any?
     private var readyToLoadMore = false
     private var hasPerformedInitialUnreadScroll = false
     private var pendingSendingFeedbackBeganAtByMessageId: [String: Date] = [:]
@@ -563,7 +569,7 @@ final class ChatViewController: ViewController {
     private lazy var memberOnboardingMissionBarView: MemberOnboardingChatMissionBarView = {
         let bar = MemberOnboardingChatMissionBarView()
         bar.isHidden = true
-        bar.onTap = { [weak self] in self?.handleMemberOnboardingMissionBarTap() }
+        bar.onTap = { [weak self] in if #available(iOS 13.0, *) { self?.handleMemberOnboardingMissionBarTap() } }
         return bar
     }()
     private var memberOnboardingMissionBarDidInitialLayout = false
@@ -643,20 +649,28 @@ final class ChatViewController: ViewController {
                 self.navigationController?.pushViewController(searchVC, animated: true)
             },
             onCallTapped: { [weak self] in
-                self?.startCall()
+                if #available(iOS 13.0, *) {
+                    self?.startCall()
+                }
             },
             onVideoCallTapped: { [weak self] in
-                self?.startVideoCall()
+                if #available(iOS 13.0, *) {
+                    self?.startVideoCall()
+                }
             },
             onHistoryTapped: { },
             onMenuTapped: { },
             onScrolledNearTop: { [weak self] in
                 guard let self, !self.isJumping, self.readyToLoadMore, self.hasMoreOlder, !self.isLoadingMore else { return }
-                self.fetchOlderMessages()
+                if #available(iOS 13.0, *) {
+                    self.fetchOlderMessages()
+                }
             },
             onScrolledNearBottom: { [weak self] in
                 guard let self, !self.isJumping, self.readyToLoadMore, self.hasMoreNewer, !self.isLoadingNewer else { return }
-                self.fetchNewerMessages()
+                if #available(iOS 13.0, *) {
+                    self.fetchNewerMessages()
+                }
             },
             onScrolledToBottom: { [weak self] atBottom in
                 guard let self else { return }
@@ -669,9 +683,11 @@ final class ChatViewController: ViewController {
                     self.markChannelAsRead()
                 }
             },
-            onJumpToPresent: { [weak self] in self?.jumpToPresent() },
+            onJumpToPresent: { [weak self] in if #available(iOS 13.0, *) { self?.jumpToPresent() } },
             onMentionTapped: { [weak self] mentionId in
-                self?.showMemberProfileById(mentionId)
+                if #available(iOS 13.0, *) {
+                    self?.showMemberProfileById(mentionId)
+                }
             },
             onHashtagTapped: { [weak self] info in
                 guard let self else { return }
@@ -686,7 +702,9 @@ final class ChatViewController: ViewController {
                     ch.clanID = resolvedClan
                 }
                 self.view.endEditing(true)
-                self.presentJoinVoiceSheet(for: ch)
+                if #available(iOS 13.0, *) {
+                    self.presentJoinVoiceSheet(for: ch)
+                }
                 return
             }
             if var ch = ch0, ch.type == MezonConstants.ChannelType.streaming.rawValue {
@@ -694,10 +712,14 @@ final class ChatViewController: ViewController {
                     ch.clanID = resolvedClan
                 }
                 self.view.endEditing(true)
-                self.presentJoinStreamSheet(for: ch)
+                if #available(iOS 13.0, *) {
+                    self.presentJoinStreamSheet(for: ch)
+                }
                 return
             }
-            AppDelegate.navigateToChannel(channelId: info.channelId, clanId: "\(resolvedClan)")
+            if #available(iOS 13.0, *) {
+                AppDelegate.navigateToChannel(channelId: info.channelId, clanId: "\(resolvedClan)")
+            }
             },
             hashtagChannelIsAccessible: { [weak self] channelId, clanIdOpt in
                 guard let self else { return false }
@@ -713,34 +735,52 @@ final class ChatViewController: ViewController {
                 return false
             },
             onMessageLongPressed: { [weak self] display in
-                self?.showMessageActions(display)
+                if #available(iOS 13.0, *) {
+                    self?.showMessageActions(display)
+                }
             },
             onReplyTapped: { [weak self] messageId in
-                self?.jumpToMessage(id: messageId)
+                if #available(iOS 13.0, *) {
+                    self?.jumpToMessage(id: messageId)
+                }
             },
             onTopicTapped: { [weak self] topicData in
                 self?.openTopicDiscussion(topicData: topicData)
             },
             onReactionTapped: { [weak self] reaction, display in
-                self?.handleEmojiReaction(emojiId: reaction.emojiId, shortname: reaction.emoji, display: display)
+                if #available(iOS 13.0, *) {
+                    self?.handleEmojiReaction(emojiId: reaction.emojiId, shortname: reaction.emoji, display: display)
+                }
             },
             onReactionDetailRequested: { [weak self] reaction, display in
-                self?.presentReactionDetailSheet(initialReaction: reaction, display: display)
+                if #available(iOS 13.0, *) {
+                    self?.presentReactionDetailSheet(initialReaction: reaction, display: display)
+                }
             },
             onAddReactionTapped: { [weak self] display in
-                self?.presentReactionEmojiPicker(for: display)
+                if #available(iOS 13.0, *) {
+                    self?.presentReactionEmojiPicker(for: display)
+                }
             },
             onAvatarTapped: { [weak self] display in
-                self?.showMemberProfile(display)
+                if #available(iOS 13.0, *) {
+                    self?.showMemberProfile(display)
+                }
             },
             onShareContactProfileTapped: { [weak self] data in
-                self?.showShareContactProfile(data)
+                if #available(iOS 13.0, *) {
+                    self?.showShareContactProfile(data)
+                }
             },
             onShareContactMessageTapped: { [weak self] data in
-                self?.openShareContactDirectMessage(data)
+                if #available(iOS 13.0, *) {
+                    self?.openShareContactDirectMessage(data)
+                }
             },
             onShareContactCallTapped: { [weak self] data in
-                self?.startShareContactCall(data)
+                if #available(iOS 13.0, *) {
+                    self?.startShareContactCall(data)
+                }
             },
             isShareContactCallBlocked: { [weak self] data in
                 self?.isShareContactCallBlocked(data) ?? false
@@ -758,12 +798,14 @@ final class ChatViewController: ViewController {
                     completion(nil)
                     return
                 }
-                Task {
-                    do {
-                        let info = try await self.context.engine.clanData.getInviteInfo(code: code, token: token)
-                        await MainActor.run { completion(info) }
-                    } catch {
-                        await MainActor.run { completion(nil) }
+                if #available(iOS 13.0, *) {
+                    Task {
+                        do {
+                            let info = try await self.context.engine.clanData.getInviteInfo(code: code, token: token)
+                            await MainActor.run { completion(info) }
+                        } catch {
+                            await MainActor.run { completion(nil) }
+                        }
                     }
                 }
             },
@@ -783,18 +825,20 @@ final class ChatViewController: ViewController {
                     return
                 }
                 if ClanCreationLimit.showLimitToastIfNeeded(context: self.context) { return }
-                Task {
-                    let clanId = await ClanInviteJoiner.join(context: self.context, code: code, clanId: info.clan_id.flatMap(Int64.init))
-                    await MainActor.run {
-                        guard let clanId else {
-                            Toast.error(L(L10n.Error.somethingWentWrong))
-                            return
+                if #available(iOS 13.0, *) {
+                    Task {
+                        let clanId = await ClanInviteJoiner.join(context: self.context, code: code, clanId: info.clan_id.flatMap(Int64.init))
+                        await MainActor.run {
+                            guard let clanId else {
+                                Toast.error(L(L10n.Error.somethingWentWrong))
+                                return
+                            }
+                            NotificationCenter.default.post(
+                                name: .mezonQRSelectClan,
+                                object: nil,
+                                userInfo: ["clanId": "\(clanId)"]
+                            )
                         }
-                        NotificationCenter.default.post(
-                            name: .mezonQRSelectClan,
-                            object: nil,
-                            userInfo: ["clanId": "\(clanId)"]
-                        )
                     }
                 }
             },
@@ -806,16 +850,22 @@ final class ChatViewController: ViewController {
             onSystemPinMessageTapped: { [weak self] display in
                 guard let self else { return }
                 guard let ref = display.replyRef, ref.messageRefID != 0 else { return }
-                self.jumpToMessage(id: "\(ref.messageRefID)")
+                if #available(iOS 13.0, *) {
+                    self.jumpToMessage(id: "\(ref.messageRefID)")
+                }
             },
             onSystemThreadTapped: { [weak self] threadChannelId, threadLabel in
-                self?.openThreadFromSystemMessage(threadChannelId: threadChannelId, threadLabel: threadLabel)
+                if #available(iOS 13.0, *) {
+                    self?.openThreadFromSystemMessage(threadChannelId: threadChannelId, threadLabel: threadLabel)
+                }
             },
             onSystemAllThreadsTapped: { [weak self] in
                 self?.openThreadListFromChat()
             },
             onSystemWaveWelcomeTapped: { [weak self] display in
-                self?.sendInputViewController.sendWaveWelcome(replyingTo: display)
+                if #available(iOS 13.0, *) {
+                    self?.sendInputViewController.sendWaveWelcome(replyingTo: display)
+                }
             },
             isSystemThreadDeleted: { [weak self] threadId in
                 guard let self, !threadId.isEmpty else { return false }
@@ -832,22 +882,24 @@ final class ChatViewController: ViewController {
                     completion(nil)
                     return
                 }
-                Task {
-                    do {
-                        let response = try await self.context.account.network.votePoll(
-                            pollId: pollData.id,
-                            messageId: Int64(messageId) ?? 0,
-                            channelId: Int64(channelId) ?? 0,
-                            answerIndices: answerIndices,
-                            token: token
-                        )
-                        await MainActor.run {
-                            completion(response.myAnswerIndices)
-                        }
-                    } catch {
-                        await MainActor.run {
-                            Toast.error(error.localizedDescription)
-                            completion(nil)
+                if #available(iOS 13.0, *) {
+                    Task {
+                        do {
+                            let response = try await self.context.account.network.votePoll(
+                                pollId: pollData.id,
+                                messageId: Int64(messageId) ?? 0,
+                                channelId: Int64(channelId) ?? 0,
+                                answerIndices: answerIndices,
+                                token: token
+                            )
+                            await MainActor.run {
+                                completion(response.myAnswerIndices)
+                            }
+                        } catch {
+                            await MainActor.run {
+                                Toast.error(error.localizedDescription)
+                                completion(nil)
+                            }
                         }
                     }
                 }
@@ -882,49 +934,51 @@ final class ChatViewController: ViewController {
                 )
                 self.present(detailVC, animated: false)
 
-                Task {
-                    do {
-                        let response = try await self.context.account.network.getPoll(
-                            pollId: pollData.id,
-                            messageId: Int64(messageId) ?? 0,
-                            channelId: Int64(channelId) ?? 0,
-                            token: token
-                        )
-                        let allClanMembers: [ClanMemberRecord] = self.clanId != 0
-                            ? self.context.account.postbox.read { $0.getClanMembers(clanId: self.clanId) }
-                            : []
-                        let clanMembersMap = Dictionary(allClanMembers.map { ($0.userId, $0) }, uniquingKeysWith: { first, _ in first })
+                if #available(iOS 13.0, *) {
+                    Task {
+                        do {
+                            let response = try await self.context.account.network.getPoll(
+                                pollId: pollData.id,
+                                messageId: Int64(messageId) ?? 0,
+                                channelId: Int64(channelId) ?? 0,
+                                token: token
+                            )
+                            let allClanMembers: [ClanMemberRecord] = self.clanId != 0
+                                ? self.context.account.postbox.read { $0.getClanMembers(clanId: self.clanId) }
+                                : []
+                            let clanMembersMap = Dictionary(allClanMembers.map { ($0.userId, $0) }, uniquingKeysWith: { first, _ in first })
                         
-                        var votersByOption: [Int: [PollVoter]] = [:]
-                        for detail in response.voterDetails {
-                            let voters = detail.userIds.map { userId in
-                                let profile = self.context.account.postbox.read { $0.getProfile(userId: "\(userId)") }
-                                let clanMember = clanMembersMap[userId]
+                            var votersByOption: [Int: [PollVoter]] = [:]
+                            for detail in response.voterDetails {
+                                let voters = detail.userIds.map { userId in
+                                    let profile = self.context.account.postbox.read { $0.getProfile(userId: "\(userId)") }
+                                    let clanMember = clanMembersMap[userId]
                                 
-                                let displayName: String
-                                if let clanNick = clanMember?.clanNick, !clanNick.isEmpty {
-                                    displayName = clanNick
-                                } else {
-                                    displayName = profile?.displayName ?? profile?.username ?? "User"
+                                    let displayName: String
+                                    if let clanNick = clanMember?.clanNick, !clanNick.isEmpty {
+                                        displayName = clanNick
+                                    } else {
+                                        displayName = profile?.displayName ?? profile?.username ?? "User"
+                                    }
+                                
+                                    let avatar = clanMember?.resolvedAvatarURL(fallbackProfileAvatar: profile?.avatarUrl) ?? profile?.avatarUrl ?? ""
+                                
+                                    return PollVoter(
+                                        id: "\(userId)",
+                                        displayName: displayName,
+                                        username: profile?.username ?? clanMember?.username ?? "",
+                                        avatar: avatar
+                                    )
                                 }
-                                
-                                let avatar = clanMember?.resolvedAvatarURL(fallbackProfileAvatar: profile?.avatarUrl) ?? profile?.avatarUrl ?? ""
-                                
-                                return PollVoter(
-                                    id: "\(userId)",
-                                    displayName: displayName,
-                                    username: profile?.username ?? clanMember?.username ?? "",
-                                    avatar: avatar
-                                )
+                                votersByOption[Int(detail.answerIndex)] = voters
                             }
-                            votersByOption[Int(detail.answerIndex)] = voters
-                        }
-                        await MainActor.run {
-                            detailVC.updateVoters(votersByOption)
-                        }
-                    } catch {
-                        await MainActor.run {
-                            Toast.error(error.localizedDescription)
+                            await MainActor.run {
+                                detailVC.updateVoters(votersByOption)
+                            }
+                        } catch {
+                            await MainActor.run {
+                                Toast.error(error.localizedDescription)
+                            }
                         }
                     }
                 }
@@ -932,9 +986,13 @@ final class ChatViewController: ViewController {
             onCallLogCallBackTapped: { [weak self] callLog in
                 guard let self else { return }
                 if callLog.isVideo {
-                    self.startVideoCall()
+                    if #available(iOS 13.0, *) {
+                        self.startVideoCall()
+                    }
                 } else {
-                    self.startCall()
+                    if #available(iOS 13.0, *) {
+                        self.startCall()
+                    }
                 }
             },
             isGroupDMChat: { [weak self] in
@@ -963,17 +1021,21 @@ final class ChatViewController: ViewController {
             onEmbedButtonClicked: nil
         )
         interaction.onMediaTapped = { [weak self] index, media, display, previewImage in
-            self?.presentMessageMediaGallery(
-                index: index,
-                media: media,
-                display: display,
-                previewImage: previewImage
-            )
+            if #available(iOS 13.0, *) {
+                self?.presentMessageMediaGallery(
+                    index: index,
+                    media: media,
+                    display: display,
+                    previewImage: previewImage
+                )
+            }
         }
         interaction.onMediaRetryTapped = { [weak self] index, display in
             guard let self else { return }
-            AttachmentUploadCoordinator.shared.retry(
-                context: self.context, messageId: display.message.id, itemIndex: index)
+            if #available(iOS 13.0, *) {
+                AttachmentUploadCoordinator.shared.retry(
+                    context: self.context, messageId: display.message.id, itemIndex: index)
+            }
         }
         interaction.onMessagesReloaded = { [weak self] in
             guard let self else { return }
@@ -991,7 +1053,9 @@ final class ChatViewController: ViewController {
         }
         interaction.onEmbedButtonClicked = { [weak self] (button: ParsedEmbedButton, messageId: String, display: ChatMessageDisplay) in
             guard let self else { return }
-            self.handleEmbedButtonClicked(button: button, messageId: messageId, display: display)
+            if #available(iOS 13.0, *) {
+                self.handleEmbedButtonClicked(button: button, messageId: messageId, display: display)
+            }
         }
         
         displayNode = ChatContainerNode(
@@ -1004,10 +1068,14 @@ final class ChatViewController: ViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         messagesNode.applyTheme()
-        setupInputBar()
+        if #available(iOS 13.0, *) {
+            setupInputBar()
+        }
         configureAnonymousComposerAndAdvancePanel()
         locationManager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
-        start()
+        if #available(iOS 13.0, *) {
+            start()
+        }
         
         NotificationCenter.default.addObserver(
             self,
@@ -1038,67 +1106,74 @@ final class ChatViewController: ViewController {
     }
 
     @objc private func handleChannelMetadataChanged(_ notification: Notification) {
-        guard let cid = Self.userInfoInt64(notification.userInfo?["channelId"]), cid == channel.channelID else { return }
-        let typeWasUnknown = channel.type == 0
-        var updatedChannel: Mezon_Api_ChannelDescription?
-        if clanId != 0 {
-            if let notifyClan = Self.userInfoInt64(notification.userInfo?["clanId"]), notifyClan != clanId {
-                return
-            }
-            if let cached = context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channel.channelID) {
+        if #available(iOS 13.0, *) {
+            guard let cid = Self.userInfoInt64(notification.userInfo?["channelId"]), cid == channel.channelID else { return }
+            let typeWasUnknown = channel.type == 0
+            var updatedChannel: Mezon_Api_ChannelDescription?
+            if clanId != 0 {
+                if let notifyClan = Self.userInfoInt64(notification.userInfo?["clanId"]), notifyClan != clanId {
+                    return
+                }
+                if let cached = context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channel.channelID) {
+                    updatedChannel = cached
+                }
+            } else if let cached = context.account.postbox.getDMChannelDescription(channelId: channel.channelID) {
                 updatedChannel = cached
             }
-        } else if let cached = context.account.postbox.getDMChannelDescription(channelId: channel.channelID) {
-            updatedChannel = cached
-        }
 
-        if let updatedChannel {
-            channel = updatedChannel
-            if !updatedChannel.channelLabel.isEmpty {
-                setChannelLabel(updatedChannel.channelLabel)
+            if let updatedChannel {
+                channel = updatedChannel
+                if !updatedChannel.channelLabel.isEmpty {
+                    setChannelLabel(updatedChannel.channelLabel)
+                }
+                sendInputViewController.channel = updatedChannel
+                syncChannelToComposer()
+                if typeWasUnknown && updatedChannel.type != 0 {
+                    rejoinChatIfChannelMetadataChanged()
+                }
             }
-            sendInputViewController.channel = updatedChannel
-            syncChannelToComposer()
-            if typeWasUnknown && updatedChannel.type != 0 {
-                rejoinChatIfChannelMetadataChanged()
-            }
+            metadataOnlyPipe.putNext(())
         }
-        metadataOnlyPipe.putNext(())
     }
 
     @objc private func handleNetworkStatusChanged(_ notification: Notification) {
-        let connected = (notification.userInfo?["isConnected"] as? Bool) ?? NetworkMonitor.shared.isConnected
-        guard connected else { return }
-        guard !hasCompletedInitialFetch else { return }
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            var token = await self.context.getTokenPreferringCachedSkipSessionReadyWait()
-            if token == nil {
-                await self.context.waitForSessionReady()
-                token = await self.context.getToken()
+        if #available(iOS 13.0, *) {
+            let connected = (notification.userInfo?["isConnected"] as? Bool) ?? NetworkMonitor.shared.isConnected
+            guard connected else { return }
+            guard !hasCompletedInitialFetch else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                var token = await self.context.getTokenPreferringCachedSkipSessionReadyWait()
+                if token == nil {
+                    await self.context.waitForSessionReady()
+                    token = await self.context.getToken()
+                }
+                guard let token else {
+                    self.setIsLoading(false)
+                    return
+                }
+                self.hasCompletedInitialFetch = true
+                self.fetchMessages(token: token)
             }
-            guard let token else {
-                self.setIsLoading(false)
-                return
-            }
-            self.hasCompletedInitialFetch = true
-            self.fetchMessages(token: token)
         }
     }
     
     @objc private func handleEphemeralMessageReceived(_ notification: Notification) {
-        guard let messageCode = notification.userInfo?["messageCode"] as? Int64 else { return }
-        guard let channelId = notification.userInfo?["channelId"] as? Int64 else { return }
-        guard channelId == channel.channelID else { return }
-        let userInfo = notification.userInfo
+        if #available(iOS 13.0, *) {
+            guard let messageCode = notification.userInfo?["messageCode"] as? Int64 else { return }
+            guard let channelId = notification.userInfo?["channelId"] as? Int64 else { return }
+            guard channelId == channel.channelID else { return }
+            let userInfo = notification.userInfo
 
-        let work = { [weak self] in
-            guard let self else { return }
-            self.processMessageNotification(messageCode: messageCode, userInfo: userInfo)
+            let work = { [weak self] in
+                guard let self else { return }
+                self.processMessageNotification(messageCode: messageCode, userInfo: userInfo)
+            }
+            if Thread.isMainThread { work() } else { DispatchQueue.main.async(execute: work) }
         }
-        if Thread.isMainThread { work() } else { DispatchQueue.main.async(execute: work) }
     }
 
+    @available(iOS 13.0, *)
     private func processMessageNotification(messageCode: Int64, userInfo: [AnyHashable: Any]?) {
 
         if messageCode == 1 {
@@ -1358,14 +1433,18 @@ final class ChatViewController: ViewController {
         refreshMemberOnboardingMissionBar()
         if wasCoveredByPushedController {
             wasCoveredByPushedController = false
-            reloadDisplaysWithCurrentPins()
+            if #available(iOS 13.0, *) {
+                reloadDisplaysWithCurrentPins()
+            }
             if isViewLoaded {
                 messagesNode.forceUpdateAllMessageItems()
             }
             if needsRefreshAfterTopicDiscussion, topicId == 0 {
                 needsRefreshAfterTopicDiscussion = false
                 markNextFetchPrefersHTTPFirst()
-                fetchMessages()
+                if #available(iOS 13.0, *) {
+                    fetchMessages()
+                }
             }
         }
         let hasComposerFR = sendInputViewController.view.findFirstResponder() != nil
@@ -1500,21 +1579,24 @@ final class ChatViewController: ViewController {
     }
 
     @objc private func handleAttachmentUploadSlotStateChanged(_ notification: Notification) {
-        guard let messageId = notification.userInfo?["messageId"] as? String, !messageId.isEmpty else { return }
-        pendingUploadRefreshMessageIds.insert(messageId)
-        guard !uploadRefreshFlushScheduled else { return }
-        uploadRefreshFlushScheduled = true
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.uploadRefreshFlushScheduled = false
-            let ids = self.pendingUploadRefreshMessageIds
-            self.pendingUploadRefreshMessageIds.removeAll()
-            for id in ids {
-                self.refreshUploadingMessageDisplay(messageId: id)
+        if #available(iOS 13.0, *) {
+            guard let messageId = notification.userInfo?["messageId"] as? String, !messageId.isEmpty else { return }
+            pendingUploadRefreshMessageIds.insert(messageId)
+            guard !uploadRefreshFlushScheduled else { return }
+            uploadRefreshFlushScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.uploadRefreshFlushScheduled = false
+                let ids = self.pendingUploadRefreshMessageIds
+                self.pendingUploadRefreshMessageIds.removeAll()
+                for id in ids {
+                    self.refreshUploadingMessageDisplay(messageId: id)
+                }
             }
         }
     }
 
+    @available(iOS 13.0, *)
     private func refreshUploadingMessageDisplay(messageId: String) {
         let channelIdStr = storageChannelId
         guard let record = context.account.postbox.read({ tx in
@@ -1540,60 +1622,69 @@ final class ChatViewController: ViewController {
     }
 
     @objc private func handleChannelPinsNeedRefresh(_ notification: Notification) {
-        let eventClan = Self.int64FromTypingUserInfo(notification.userInfo?["clanId"]) ?? 0
-        let eventChannel = Self.int64FromTypingUserInfo(notification.userInfo?["channelId"]) ?? 0
-        guard eventChannel == channel.channelID else { return }
-        guard eventClan == clanId || eventClan == pinApiClanId() else { return }
+        if #available(iOS 13.0, *) {
+            let eventClan = Self.int64FromTypingUserInfo(notification.userInfo?["clanId"]) ?? 0
+            let eventChannel = Self.int64FromTypingUserInfo(notification.userInfo?["channelId"]) ?? 0
+            guard eventChannel == channel.channelID else { return }
+            guard eventClan == clanId || eventClan == pinApiClanId() else { return }
 
-        if let pinnedMid = Self.int64FromTypingUserInfo(notification.userInfo?["pinnedMessageId"]), pinnedMid != 0 {
-            pinnedMessageIds.insert("\(pinnedMid)")
-            syncPinnedStateToPostbox()
-            reloadDisplaysWithCurrentPins()
-            return
-        }
-        if let unpinnedMid = Self.int64FromTypingUserInfo(notification.userInfo?["unpinnedMessageId"]), unpinnedMid != 0 {
-            pinnedMessageIds = Set(pinnedMessageIds.filter { k in
-                guard let v = Int64(k.trimmingCharacters(in: .whitespacesAndNewlines)) else { return true }
-                return v != unpinnedMid
-            })
-            for k in Array(pinServerIdByMessageId.keys) {
-                if Int64(k.trimmingCharacters(in: .whitespacesAndNewlines)) == unpinnedMid {
-                    pinServerIdByMessageId.removeValue(forKey: k)
-                }
+            if let pinnedMid = Self.int64FromTypingUserInfo(notification.userInfo?["pinnedMessageId"]), pinnedMid != 0 {
+                pinnedMessageIds.insert("\(pinnedMid)")
+                syncPinnedStateToPostbox()
+                reloadDisplaysWithCurrentPins()
+                return
             }
-            syncPinnedStateToPostbox()
-            reloadDisplaysWithCurrentPins()
-            return
-        }
+            if let unpinnedMid = Self.int64FromTypingUserInfo(notification.userInfo?["unpinnedMessageId"]), unpinnedMid != 0 {
+                pinnedMessageIds = Set(pinnedMessageIds.filter { k in
+                    guard let v = Int64(k.trimmingCharacters(in: .whitespacesAndNewlines)) else { return true }
+                    return v != unpinnedMid
+                })
+                for k in Array(pinServerIdByMessageId.keys) {
+                    if Int64(k.trimmingCharacters(in: .whitespacesAndNewlines)) == unpinnedMid {
+                        pinServerIdByMessageId.removeValue(forKey: k)
+                    }
+                }
+                syncPinnedStateToPostbox()
+                reloadDisplaysWithCurrentPins()
+                return
+            }
 
-        refreshPinnedMessagesFromServer()
+            refreshPinnedMessagesFromServer()
+        }
     }
 
     @objc private func handleSocketReconnected(_ notification: Notification) {
-        guard let isConnected = notification.userInfo?["isConnected"] as? Bool, isConnected else { return }
-        if pendingMarkAsRead {
-            markChannelAsRead()
-        }
-        let previousCatchUp = reconnectCatchUpTask
-        previousCatchUp?.cancel()
-        reconnectCatchUpTask = Task { @MainActor [weak self] in
-            _ = await previousCatchUp?.value
-            guard let self, !Task.isCancelled else { return }
-            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
-            await self.joinChatAndWaitUntilSent()
-            self.refreshPinnedMessagesFromServer()
-            if self.newestServerMessageId() == nil {
-                self.fetchMessages(token: token)
-            } else {
-                await self.catchUpMessagesAfterReconnect(token: token)
+        if #available(iOS 13.0, *) {
+            guard let isConnected = notification.userInfo?["isConnected"] as? Bool, isConnected else { return }
+            if pendingMarkAsRead {
+                markChannelAsRead()
             }
-            if !self.hasCompletedInitialFetch {
-                self.hasCompletedInitialFetch = true
-                self.fetchNotificationSetting(token: token)
-                self.fetchChannelPermissions(token: token)
-                self.fetchChannelMembers(token: token)
-                self.checkBanStatus(token: token)
+            let previousCatchUp = reconnectCatchUpTask
+            let previousCatchUpBox = reconnectCatchUpTaskBox
+            previousCatchUp?.cancel()
+            let reconnectCatchUpTaskWork = Task { @MainActor [weak self] in
+                if let previous = previousCatchUpBox as? Task<Void, Never> {
+                    _ = await previous.value
+                }
+                guard let self, !Task.isCancelled else { return }
+                guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
+                await self.joinChatAndWaitUntilSent()
+                self.refreshPinnedMessagesFromServer()
+                if self.newestServerMessageId() == nil {
+                    self.fetchMessages(token: token)
+                } else {
+                    await self.catchUpMessagesAfterReconnect(token: token)
+                }
+                if !self.hasCompletedInitialFetch {
+                    self.hasCompletedInitialFetch = true
+                    self.fetchNotificationSetting(token: token)
+                    self.fetchChannelPermissions(token: token)
+                    self.fetchChannelMembers(token: token)
+                    self.checkBanStatus(token: token)
+                }
             }
+            reconnectCatchUpTask = CancelHandle { reconnectCatchUpTaskWork.cancel() }
+            reconnectCatchUpTaskBox = reconnectCatchUpTaskWork
         }
     }
 
@@ -1691,6 +1782,7 @@ final class ChatViewController: ViewController {
         NotificationCenter.default.removeObserver(self)
     }
 
+    @available(iOS 13.0, *)
     private func bindMessageHistoryView() {
         messageHistoryDisposable?.dispose()
         let channelIdStr = storageChannelId
@@ -1706,6 +1798,7 @@ final class ChatViewController: ViewController {
             })
     }
 
+    @available(iOS 13.0, *)
     private func setMessages(_ v: [ChatMessageDisplay]) {
         let oldFirstId = messages.first(where: { !$0.isWelcome })?.id
         let oldLastId = messages.last?.id
@@ -1745,6 +1838,7 @@ final class ChatViewController: ViewController {
         return beganAt
     }
 
+    @available(iOS 13.0, *)
     private func schedulePendingSendingFeedbackRefreshIfNeeded() {
         sendingFeedbackRefreshWorkItem?.cancel()
         sendingFeedbackRefreshWorkItem = nil
@@ -1766,6 +1860,7 @@ final class ChatViewController: ViewController {
         DispatchQueue.main.asyncAfter(deadline: .now() + nextDelay + 0.02, execute: workItem)
     }
 
+    @available(iOS 13.0, *)
     private func reloadDisplaysForPendingSendingFeedback() {
         let channelIdStr = storageChannelId
         let rows = context.account.postbox.read { tx in
@@ -1808,6 +1903,7 @@ final class ChatViewController: ViewController {
         2_400_000_000
     ]
 
+    @available(iOS 13.0, *)
     func start() {
         if topicId == 0 {
             context.currentClanId = clanId
@@ -1924,6 +2020,7 @@ final class ChatViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func startBadgeCountLastSeenRefresh() {
         guard channel.channelID != 0, !didApplyBadgeLastSeen else { return }
 
@@ -1950,6 +2047,7 @@ final class ChatViewController: ViewController {
     }
 
     @MainActor
+    @available(iOS 13.0, *)
     private func applyLastSeenFromBadgeCountNetwork(token: String) async {
         guard !didApplyBadgeLastSeen else { return }
         guard channel.channelID != 0 else { return }
@@ -1964,7 +2062,6 @@ final class ChatViewController: ViewController {
         }
     }
 
-    @MainActor
     private func applyLastSeen(from desc: Mezon_Api_ChannelDescription) {
         guard desc.hasLastSeenMessage, desc.lastSeenMessage.id != 0 else { return }
         let newSeenId = "\(desc.lastSeenMessage.id)"
@@ -1977,6 +2074,7 @@ final class ChatViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func resolveChannelLabelFromCache() {
         if clanId == 0 {
             if let cached = context.account.postbox.getDMChannelDescription(channelId: channel.channelID) {
@@ -2013,12 +2111,14 @@ final class ChatViewController: ViewController {
         )
     }
 
+    @available(iOS 13.0, *)
     private func completeChannelHydrationAfterMetadataUpgrade() {
         ensureParentChannelMetaSubscription()
         fetchChannelMembers()
         metadataOnlyPipe.putNext(())
     }
 
+    @available(iOS 13.0, *)
     private func resolveChannelLabelFromNetwork(token: String) {
         guard channel.channelLabel.isEmpty || channel.type == 0 else { return }
         Task { @MainActor [weak self] in
@@ -2094,6 +2194,7 @@ final class ChatViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func tryResolveLabelFromPostbox() -> Bool {
         let typeWasUnknown = channel.type == 0
         if clanId == 0 {
@@ -2120,11 +2221,13 @@ final class ChatViewController: ViewController {
         return false
     }
 
+    @available(iOS 13.0, *)
     private func rejoinChatIfChannelMetadataChanged() {
         guard context.account.socket.isConnected else { return }
         joinChat()
     }
 
+    @available(iOS 13.0, *)
     private func syncChannelToComposer() {
         sendInputViewController.syncStoredDraftIdentity(channel: channel, topicId: topicId)
     }
@@ -2164,6 +2267,7 @@ final class ChatViewController: ViewController {
     func onLeave() {
         reconnectCatchUpTask?.cancel()
         reconnectCatchUpTask = nil
+        reconnectCatchUpTaskBox = nil
         clearRemoteTypingState()
         context.currentChannel = nil
         ActiveChannelTracker.currentChannelId = 0
@@ -2171,6 +2275,7 @@ final class ChatViewController: ViewController {
         stateDisposables.dispose()
     }
 
+    @available(iOS 13.0, *)
     func handleBroughtForwardFromNotificationDeepLink() {
         prepareForNotificationNavigation()
         lastMarkedAsReadMessageId = nil
@@ -2178,9 +2283,12 @@ final class ChatViewController: ViewController {
             markChannelAsRead()
         }
         let previousCatchUp = reconnectCatchUpTask
+        let previousCatchUpBox = reconnectCatchUpTaskBox
         previousCatchUp?.cancel()
-        reconnectCatchUpTask = Task { @MainActor [weak self] in
-            _ = await previousCatchUp?.value
+        let reconnectCatchUpTaskWork = Task { @MainActor [weak self] in
+            if let previous = previousCatchUpBox as? Task<Void, Never> {
+                _ = await previous.value
+            }
             guard let self, !Task.isCancelled else { return }
             guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
             await self.joinChatAndWaitUntilSent()
@@ -2190,6 +2298,8 @@ final class ChatViewController: ViewController {
                 await self.catchUpMessagesAfterReconnect(token: token)
             }
         }
+        reconnectCatchUpTask = CancelHandle { reconnectCatchUpTaskWork.cancel() }
+        reconnectCatchUpTaskBox = reconnectCatchUpTaskWork
     }
 
     func prepareForNotificationNavigation() {
@@ -2203,6 +2313,7 @@ final class ChatViewController: ViewController {
         nextFetchPrefersHTTPFirst = true
     }
 
+    @available(iOS 13.0, *)
     func applyMergedChannelDescriptionFromChannelListLoadIfNeeded(
         _ full: Mezon_Api_ChannelDescription?,
         parentChannelName: String? = nil
@@ -2324,6 +2435,7 @@ final class ChatViewController: ViewController {
         }.first
     }
 
+    @available(iOS 13.0, *)
     private func catchUpMessagesAfterReconnect(token: String) async {
         guard !isCatchingUpAfterReconnect else { return }
         guard pendingJumpToMessageId == nil else { return }
@@ -2443,6 +2555,7 @@ final class ChatViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     func fetchMessages(token: String? = nil) {
         if pendingJumpToMessageId != nil { return }
         let hadCachedMessages = !messages.isEmpty
@@ -2571,6 +2684,7 @@ final class ChatViewController: ViewController {
         return nil
     }
 
+    @available(iOS 13.0, *)
     func fetchOlderMessages() {
         guard hasMoreOlder, !isLoadingMore else { return }
         guard messages.count >= 10 else { return }
@@ -2611,6 +2725,7 @@ final class ChatViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     func fetchNewerMessages() {
         guard hasMoreNewer, !isLoadingNewer else { return }
         guard messages.count >= 10 else { return }
@@ -2653,6 +2768,7 @@ final class ChatViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func jumpToPresent() {
         shouldScrollToBottom = true
         pendingScrollToBottom = true
@@ -2693,6 +2809,7 @@ final class ChatViewController: ViewController {
     }
 
 
+    @available(iOS 13.0, *)
     private func fetchNotificationSetting(token: String? = nil) {
         let channelId = channel.channelID
         Task { @MainActor in
@@ -2721,6 +2838,7 @@ final class ChatViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func fetchChannelMembers(token: String? = nil) {
         let channelId = channel.channelID
         let channelType: Int32 = clanId == 0
@@ -2817,6 +2935,7 @@ final class ChatViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func checkBanStatus(token: String? = nil) {
         let channelId = channel.channelID
         let isPublic = clanId != 0 && channel.parentID == 0 && channel.channelPrivate == 0
@@ -3044,6 +3163,7 @@ final class ChatViewController: ViewController {
         return false
     }
 
+    @available(iOS 13.0, *)
     private func cachedSenderProfilesBySenderId(senderIds: Set<String>) -> [String: (avatar: String?, username: String)] {
         var out: [String: (avatar: String?, username: String)] = [:]
         let clan = clanId
@@ -3160,6 +3280,7 @@ final class ChatViewController: ViewController {
         return result
     }
 
+    @available(iOS 13.0, *)
     private func buildDisplayMessages(from records: [MessageRecord]) -> [ChatMessageDisplay] {
         let currentUserId = context.currentUser?.id
         let validRecords = records.filter { !$0.id.isEmpty && !$0.channelId.isEmpty }
@@ -3876,6 +3997,7 @@ final class ChatViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func waitForSocketConnected() async {
         if context.account.socket.isConnected { return }
         for _ in 0..<50 {
@@ -3941,6 +4063,7 @@ final class ChatViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func reloadDisplaysWithCurrentPins() {
         let channelIdStr = storageChannelId
         let rows = context.account.postbox.read { tx in
@@ -3949,6 +4072,7 @@ final class ChatViewController: ViewController {
         setMessages(buildDisplayMessages(from: rows))
     }
 
+    @available(iOS 13.0, *)
     private func fetchPinListFromServerAndApply() async {
         guard channel.channelID != 0 else { return }
         guard let token = await context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
@@ -3963,6 +4087,7 @@ final class ChatViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func refreshPinnedMessagesFromServer() {
         guard channel.channelID != 0 else { return }
         Task { @MainActor [weak self] in
@@ -3972,12 +4097,14 @@ final class ChatViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func joinChat() {
         Task { @MainActor [weak self] in
             await self?.joinChatAndWaitUntilSent()
         }
     }
 
+    @available(iOS 13.0, *)
     private func joinChatAndWaitUntilSent() async {
         guard context.account.socket.isConnected else { return }
         let targetClanId = clanId
@@ -4004,6 +4131,7 @@ final class ChatViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func setupInputBar() {
         remoteTypingStripView.addSubview(remoteTypingLabel)
         view.addSubview(remoteTypingStripView)
@@ -4115,6 +4243,7 @@ final class ChatViewController: ViewController {
         memberOnboardingMissionBarVisible = true
     }
 
+    @available(iOS 13.0, *)
     private func handleMemberOnboardingMissionBarTap() {
         guard clanId != 0 else { return }
         let state = MemberOnboardingProgress.compute(context: context, clanId: clanId)
@@ -4358,6 +4487,7 @@ final class ChatViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func handleAdvanceAction(_ item: AdvancedFunctionItem) {
         switch item.id {
         case "pickFiles":
@@ -4409,6 +4539,7 @@ final class ChatViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func navigateToShareContact() {
         dismissComposerOverlaysForNavigation()
 
@@ -4450,6 +4581,7 @@ final class ChatViewController: ViewController {
         navigationController?.pushViewController(vc, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func handleSendLocation() {
         dismissComposerOverlaysForNavigation()
         DispatchQueue.main.async { [weak self] in
@@ -4457,6 +4589,7 @@ final class ChatViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func beginLocationAuthorizationFlow() {
         let status: CLAuthorizationStatus
         if #available(iOS 14.0, *) {
@@ -4512,6 +4645,7 @@ final class ChatViewController: ViewController {
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.locationFetchTimeout, execute: work)
     }
 
+    @available(iOS 13.0, *)
     private func fetchLocationAndShowConfirm() {
         if let cached = recentCachedCoordinate(from: locationManager) {
             showLocationConfirm(coordinate: cached)
@@ -4528,6 +4662,7 @@ final class ChatViewController: ViewController {
         locationManager.requestLocation()
     }
 
+    @available(iOS 13.0, *)
     private func handleLocationAuthorizationStatus(_ status: CLAuthorizationStatus, manager: CLLocationManager) {
         guard isWaitingForLocationAuthorization else { return }
         guard status != .notDetermined else { return }
@@ -4552,6 +4687,7 @@ final class ChatViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func showLocationConfirm(coordinate: CLLocationCoordinate2D) {
         let label = channelLabel.isEmpty ? "this channel" : channelLabel
         let confirmVC = ShareLocationConfirmViewController(coordinate: coordinate, channelLabel: label)
@@ -4590,6 +4726,7 @@ final class ChatViewController: ViewController {
         presenter.present(alert, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func handleBuzzMessage() {
         let buzzVC = BuzzMessageViewController()
         buzzVC.onSend = { [weak self] text in
@@ -4609,10 +4746,12 @@ final class ChatViewController: ViewController {
 
     @objc private func dismissKeyboard() { view.endEditing(true) }
 
+    @available(iOS 13.0, *)
     func jumpToMessageFromChannelDetail(messageId: String) {
         jumpToMessage(id: messageId)
     }
 
+    @available(iOS 13.0, *)
     private func jumpToMessage(id messageId: String) {
         shouldScrollToBottom = false
         isJumping = true
@@ -4750,6 +4889,7 @@ final class ChatViewController: ViewController {
         navigationController?.pushViewController(topicVC, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func configurePendingTopicCreationIfNeeded() {
         guard pendingTopicCreationMessageId != nil else { return }
         sendInputViewController.primarySendActionOverride = { [weak self] in
@@ -4757,6 +4897,7 @@ final class ChatViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func performPendingTopicCreationAndSend() {
         guard let messageId = pendingTopicCreationMessageId else {
             sendInputViewController.send()
@@ -4818,6 +4959,7 @@ final class ChatViewController: ViewController {
     private static let threadListFetchPageLimit: Int32 = 50
     private static let threadListFetchMaxPages: Int32 = 40
 
+    @available(iOS 13.0, *)
     private func openThreadFromSystemMessage(threadChannelId: Int64, threadLabel: String?) {
         guard clanId != 0, threadChannelId != 0 else { return }
         let parentChannelId = systemThreadParentChannelId()
@@ -4866,6 +5008,7 @@ final class ChatViewController: ViewController {
         return channel.channelID
     }
 
+    @available(iOS 13.0, *)
     private func resolveThreadChannelForSystemNavigation(
         threadChannelId: Int64,
         parentChannelId: Int64,
@@ -4933,6 +5076,7 @@ final class ChatViewController: ViewController {
         return nil
     }
 
+    @available(iOS 13.0, *)
     private func findThreadInPaginatedList(
         threadChannelId: Int64,
         parentChannelId: Int64,
@@ -5287,6 +5431,7 @@ final class ChatViewController: ViewController {
             value: encodeChannelIdPreference(channel.channelID))
     }
 
+    @available(iOS 13.0, *)
     private func alignContextWithVoiceChannelClan(for channel: Mezon_Api_ChannelDescription) {
         let targetClan = effectiveClanIdForVoiceChannel(channel)
         persistSelectedChannelForVoice(channel)
@@ -5313,6 +5458,7 @@ final class ChatViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func pushVoiceChannelRoomFromChat(channel: Mezon_Api_ChannelDescription, role: SfuRole = .speaker) {
         guard let nav = navigationController else { return }
         let ch = channel
@@ -5361,6 +5507,7 @@ final class ChatViewController: ViewController {
         pushNav.pushViewController(vc, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func presentJoinVoiceSheet(for channel: Mezon_Api_ChannelDescription) {
         view.endEditing(true)
         let title = channel.channelLabel.isEmpty
@@ -5427,6 +5574,7 @@ final class ChatViewController: ViewController {
         CATransaction.commit()
     }
 
+    @available(iOS 13.0, *)
     private func presentJoinStreamSheet(for channel: Mezon_Api_ChannelDescription) {
         view.endEditing(true)
         let title = channel.channelLabel.isEmpty
@@ -5492,6 +5640,7 @@ final class ChatViewController: ViewController {
         CATransaction.commit()
     }
 
+    @available(iOS 13.0, *)
     private func pushStreamingRoomFromChat(channel: Mezon_Api_ChannelDescription) {
         alignContextWithVoiceChannelClan(for: channel)
         guard let nav = navigationController else { return }
@@ -5558,6 +5707,7 @@ final class ChatViewController: ViewController {
     }
 
 
+    @available(iOS 13.0, *)
     private func handleEmbedButtonClicked(button: ParsedEmbedButton, messageId: String, display: ChatMessageDisplay) {
         
         if let urlStr = button.url, let url = URL(string: urlStr) {
@@ -5593,6 +5743,7 @@ final class ChatViewController: ViewController {
         updateMessagesWithEphemeral()
     }
 
+    @available(iOS 13.0, *)
     private func showMemberProfile(_ display: ChatMessageDisplay) {
         guard !display.isAnonymousSender else { return }
         let senderId = display.message.senderId
@@ -5659,6 +5810,7 @@ final class ChatViewController: ViewController {
         sheet.animateIn()
     }
 
+    @available(iOS 13.0, *)
     private func showMemberProfileById(_ userId: String) {
         guard let userIdInt = Int64(userId) else { return }
         let isCurrentUser = userId == context.currentUser?.id
@@ -5732,6 +5884,7 @@ final class ChatViewController: ViewController {
         sheet.animateIn()
     }
 
+    @available(iOS 13.0, *)
     private func showShareContactProfile(_ data: ShareContactData) {
         guard let userId = data.userIdInt else { return }
         let isCurrentUser = "\(userId)" == context.currentUser?.id
@@ -5759,6 +5912,7 @@ final class ChatViewController: ViewController {
         sheet.animateIn()
     }
 
+    @available(iOS 13.0, *)
     private func apiUserForShareContact(_ data: ShareContactData) -> Mezon_Api_User {
         let userId = data.userIdInt ?? 0
         var user = Mezon_Api_User()
@@ -5787,6 +5941,7 @@ final class ChatViewController: ViewController {
         return user
     }
 
+    @available(iOS 13.0, *)
     private func openShareContactDirectMessage(_ data: ShareContactData) {
         loadOrCreateShareContactDirectMessage(data) { [weak self] channel in
             guard let self else { return }
@@ -5796,6 +5951,7 @@ final class ChatViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func startDirectMessageCall(channel: Mezon_Api_ChannelDescription, user: Mezon_Api_User) {
         guard user.id != (Int64(context.currentUser?.id ?? "") ?? 0) else {
             Toast.error("Cannot call yourself")
@@ -5821,6 +5977,7 @@ final class ChatViewController: ViewController {
         pushPeerCallScreen(callVC)
     }
 
+    @available(iOS 13.0, *)
     private func startShareContactCall(_ data: ShareContactData) {
         guard data.userId != context.currentUser?.id else {
             Toast.error("Cannot call yourself")
@@ -5854,6 +6011,7 @@ final class ChatViewController: ViewController {
         return context.engine.friendsData.blockedUserIds().contains(userId)
     }
 
+    @available(iOS 13.0, *)
     private func loadOrCreateShareContactDirectMessage(
         _ data: ShareContactData,
         completion: @escaping (Mezon_Api_ChannelDescription) -> Void
@@ -5934,6 +6092,7 @@ final class ChatViewController: ViewController {
         )
     }
 
+    @available(iOS 13.0, *)
     private func showMessageActions(_ display: ChatMessageDisplay) {
         view.endEditing(true)
         let display = displayWithLivePinState(display)
@@ -6136,6 +6295,7 @@ final class ChatViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func writeMessageReaction(
         display: ChatMessageDisplay,
         emojiId: String,
@@ -6211,6 +6371,7 @@ final class ChatViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func handleEmojiReaction(emojiId: String, shortname: String, display: ChatMessageDisplay) {
         writeMessageReaction(display: display, emojiId: emojiId, shortname: shortname, count: 1, actionDelete: false)
     }
@@ -6222,6 +6383,7 @@ final class ChatViewController: ViewController {
         return v.findFirstResponder() != nil
     }
 
+    @available(iOS 13.0, *)
     private func presentReactionEmojiPicker(for display: ChatMessageDisplay) {
         view.endEditing(true)
         let sheet = ReactionEmojiPickerSheetController(engine: context.engine) { [weak self] emojiId, shortname in
@@ -6235,6 +6397,7 @@ final class ChatViewController: ViewController {
         sheet.animateIn()
     }
 
+    @available(iOS 13.0, *)
     private func presentReactionDetailSheet(initialReaction: ParsedReaction, display: ChatMessageDisplay) {
         view.endEditing(true)
         let sheet = MessageReactionDetailSheetController(
@@ -6252,6 +6415,7 @@ final class ChatViewController: ViewController {
         sheet.animateIn()
     }
 
+    @available(iOS 13.0, *)
     private func presentMessageMediaGallery(
         index: Int,
         media: [ParsedAttachment],
@@ -6271,9 +6435,11 @@ final class ChatViewController: ViewController {
         let gallery = GalleryController(
             items: galleryItems,
             initialIndex: initialIndex,
-            channelItemsLoader: { [weak self] in
-                guard let self else { return [] }
-                return await self.loadChannelGalleryItems(around: display)
+            channelItemsLoader: { [weak self] completion in
+                guard let self else { completion([]); return }
+                Task { @MainActor in
+                    completion(await self.loadChannelGalleryItems(around: display))
+                }
             }
         )
         present(gallery, animated: true)
@@ -6310,6 +6476,7 @@ final class ChatViewController: ViewController {
         )
     }
 
+    @available(iOS 13.0, *)
     private func loadChannelGalleryItems(around display: ChatMessageDisplay) async -> [GalleryItemInfo] {
         guard let token = await context.getToken() else { return [] }
         let channelType = channel.type != 0
@@ -6350,6 +6517,7 @@ final class ChatViewController: ViewController {
         return Array(visualItems.reversed())
     }
 
+    @available(iOS 13.0, *)
     private func requestChannelGalleryAttachments(
         clanId: Int64,
         token: String,
@@ -6625,6 +6793,7 @@ final class ChatViewController: ViewController {
         Toast.comingSoonLine(line)
     }
 
+    @available(iOS 13.0, *)
     private func handleMessageAction(_ action: MessageAction, display: ChatMessageDisplay) {
         switch action {
         case .reply:
@@ -6686,6 +6855,7 @@ final class ChatViewController: ViewController {
     private static let giveCoffeeEmojiId: String = "7280417126303261185"
     private static let giveCoffeeShortname: String = ":coffee:"
 
+    @available(iOS 13.0, *)
     private func runGiveACoffeeIfPossible(display: ChatMessageDisplay) {
         guard isSenderCurrentUser(senderId: display.message.senderId, currentUserId: context.currentUser?.id) == false else { return }
         let mid = display.message.id.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -6697,6 +6867,7 @@ final class ChatViewController: ViewController {
     }
 
     @MainActor
+    @available(iOS 13.0, *)
     private func performGiveACoffeeTransfer(display: ChatMessageDisplay) async {
         let ch = display.message.channelId
         let cl = display.message.clanId ?? "0"
@@ -6741,6 +6912,7 @@ final class ChatViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func showDeleteMessageConfirm(display: ChatMessageDisplay) {
         let alert = UIAlertController(
             title: L(L10n.MessageAction.deleteMessage),
@@ -6761,6 +6933,7 @@ final class ChatViewController: ViewController {
         presenter.present(alert, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func performDeleteMessage(display: ChatMessageDisplay) {
         let msgId = display.message.id
         guard let msgIdInt = Int64(msgId) else { return }
@@ -6793,6 +6966,7 @@ final class ChatViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func showPinMessageConfirm(display: ChatMessageDisplay) {
         let alert = UIAlertController(
             title: L(L10n.MessageAction.pinMessage),
@@ -6813,6 +6987,7 @@ final class ChatViewController: ViewController {
         presenter.present(alert, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func showUnpinMessageConfirm(display: ChatMessageDisplay) {
         let alert = UIAlertController(
             title: L(L10n.MessageAction.unpinMessage),
@@ -6833,6 +7008,7 @@ final class ChatViewController: ViewController {
         presenter.present(alert, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func performPinMessage(display: ChatMessageDisplay) {
         guard let msgId = Int64(display.message.id) else { return }
 
@@ -6859,6 +7035,7 @@ final class ChatViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func performUnpinMessage(display: ChatMessageDisplay) {
         guard let msgId = Int64(display.message.id) else { return }
         let idNorm = display.message.id.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -6922,6 +7099,7 @@ final class ChatViewController: ViewController {
         return syn
     }
 
+    @available(iOS 13.0, *)
     private func tryResolveChannelAppViaNetwork(hint: Mezon_Api_ChannelAppResponse) async -> Mezon_Api_ChannelAppResponse? {
         guard let token = await context.getTokenPreferringCachedSkipSessionReadyWait() else { return nil }
         do {
@@ -6934,6 +7112,7 @@ final class ChatViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func openChannelAppFromHotbar() {
         view.endEditing(true)
         emojiPicker.setVisible(false, collapsedHeight: 0)
@@ -7021,15 +7200,20 @@ extension ChatViewController: CLLocationManagerDelegate {
         } else {
             status = CLLocationManager.authorizationStatus()
         }
-        handleLocationAuthorizationStatus(status, manager: manager)
+        if #available(iOS 13.0, *) {
+            handleLocationAuthorizationStatus(status, manager: manager)
+        }
     }
 
     func locationManager(_ manager: CLLocationManager, didChangeAuthorization status: CLAuthorizationStatus) {
         if #available(iOS 14.0, *) { return }
-        handleLocationAuthorizationStatus(status, manager: manager)
+        if #available(iOS 13.0, *) {
+            handleLocationAuthorizationStatus(status, manager: manager)
+        }
     }
 }
 
+@available(iOS 13.0, *)
 extension ChatViewController {
 
     fileprivate static func apiUserForMemberProfile(from clanUser: Mezon_Api_ClanUserList.ClanUser) -> Mezon_Api_User {
@@ -7043,6 +7227,7 @@ extension ChatViewController {
         return u
     }
 
+    @available(iOS 13.0, *)
     func startCall() {
         guard clanId == 0 else { return }
         guard channel.type == MezonConstants.ChannelType.dm.rawValue else { return }
@@ -7070,6 +7255,7 @@ extension ChatViewController {
         pushPeerCallScreen(callVC)
     }
 
+    @available(iOS 13.0, *)
     func startVideoCall() {
         guard clanId == 0 else { return }
         guard channel.type == MezonConstants.ChannelType.dm.rawValue else { return }

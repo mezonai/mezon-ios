@@ -1,6 +1,5 @@
 import UIKit
 
-@MainActor
 final class ProfileAddStatusViewController: UIViewController {
 
     private let context: AccountContext
@@ -66,7 +65,7 @@ final class ProfileAddStatusViewController: UIViewController {
         view.backgroundColor = .mezonSecondaryBackground
 
         navigationItem.leftBarButtonItem = UIBarButtonItem(
-            image: UIImage(systemName: "xmark"),
+            image: UIImage.mezonSystemImage("xmark"),
             style: .plain,
             target: self,
             action: #selector(closeTapped)
@@ -193,22 +192,24 @@ final class ProfileAddStatusViewController: UIViewController {
     }
 
     @objc private func saveTapped() {
-        let raw = textView.text ?? ""
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count <= Self.maxStatusLength else {
-            Toast.error(L(L10n.Profile.statusTooLong))
-            return
-        }
+        if #available(iOS 13.0, *) {
+            let raw = textView.text ?? ""
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed.count <= Self.maxStatusLength else {
+                Toast.error(L(L10n.Profile.statusTooLong))
+                return
+            }
 
-        let (minutes, noClear) = Self.minutesAndNoClear(forSelectedDuration: selectedDurationValue)
+            let (minutes, noClear) = Self.minutesAndNoClear(forSelectedDuration: selectedDurationValue)
 
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            do {
-                try await self.context.submitCustomStatus(text: trimmed, minutes: minutes, noClear: noClear)
-                self.dismiss(animated: true)
-            } catch {
-                Toast.error(L(L10n.Profile.statusUpdateFailed))
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                do {
+                    try await self.context.submitCustomStatus(text: trimmed, minutes: minutes, noClear: noClear)
+                    self.dismiss(animated: true)
+                } catch {
+                    Toast.error(L(L10n.Profile.statusUpdateFailed))
+                }
             }
         }
     }

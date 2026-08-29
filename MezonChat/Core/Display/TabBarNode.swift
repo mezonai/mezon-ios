@@ -146,8 +146,13 @@ final class TabBarItemNode: ASDisplayNode {
         let icon = selected ? (item.selectedImage ?? item.image) : item.image
         primaryIconNode.image = icon?.withRenderingMode(.alwaysTemplate)
         let currentTheme = ThemeManager.shared.current
-        let isWhiteTheme = currentTheme == .light
-            || (currentTheme == .system && UITraitCollection.current.userInterfaceStyle == .light)
+        let systemIsLight: Bool
+        if #available(iOS 13.0, *) {
+            systemIsLight = !mezonSystemPrefersDarkMode()
+        } else {
+            systemIsLight = true
+        }
+        let isWhiteTheme = currentTheme == .light || (currentTheme == .system && systemIsLight)
         let primaryTint: UIColor
         if isWhiteTheme {
             primaryTint = selected ? UIColor(hex: 0xC0C8F2) : UIColor(hex: 0xCECECE)

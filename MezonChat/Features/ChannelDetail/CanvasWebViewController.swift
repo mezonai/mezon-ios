@@ -2,7 +2,6 @@ import AsyncDisplayKit
 import UIKit
 import WebKit
 
-@MainActor
 final class CanvasWebViewController: ViewController, WKNavigationDelegate {
 
     private let pageURL: URL
@@ -41,7 +40,9 @@ final class CanvasWebViewController: ViewController, WKNavigationDelegate {
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleThemeChange), name: ThemeManager.didChangeNotification, object: nil)
 
-        Task { await embedWebViewIfPossible() }
+        if #available(iOS 13.0, *) {
+            Task { await embedWebViewIfPossible() }
+        }
     }
 
     deinit {
@@ -108,8 +109,8 @@ final class CanvasWebViewController: ViewController, WKNavigationDelegate {
         backButton.tintColor = t.textStrong
         headerSeparator.backgroundColor = t.border
         backButton.setImage(
-            UIImage(systemName: "chevron.left")?.withConfiguration(
-                UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)),
+            UIImage.mezonSystemImage("chevron.left")?.mezonWithConfiguration(
+                MezonSymbolConfiguration(pointSize: 20, weight: .semibold)),
             for: .normal)
     }
 
@@ -117,6 +118,8 @@ final class CanvasWebViewController: ViewController, WKNavigationDelegate {
         navigationController?.popViewController(animated: true)
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func embedWebViewIfPossible() async {
         guard let context = accountContext else { return }
         await context.waitForSessionReady()

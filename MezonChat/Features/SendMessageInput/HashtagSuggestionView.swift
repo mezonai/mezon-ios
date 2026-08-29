@@ -130,7 +130,7 @@ private final class HashtagSuggestionCell: UITableViewCell {
         subLabel.text = sub.uppercased()
         
         let iconName = channel.channelListIconAssetName()
-        iconView.image = (UIImage(named: iconName) ?? UIImage(systemName: iconName))?.withRenderingMode(.alwaysTemplate)
+        iconView.image = (UIImage(named: iconName) ?? UIImage.mezonSystemImage(iconName))?.withRenderingMode(.alwaysTemplate)
     }
 }
 

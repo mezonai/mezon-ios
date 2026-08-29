@@ -144,8 +144,8 @@ final class ProfileSheetCustomStatusCell: UITableViewCell {
         clearBtn.isHidden = !showClear
         clearBtn.removeTarget(nil, action: nil, for: .allEvents)
         if showClear {
-            let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-            clearBtn.setImage(UIImage(systemName: "xmark.circle.fill", withConfiguration: cfg), for: .normal)
+            let cfg = MezonSymbolConfiguration(pointSize: 16, weight: .regular)
+            clearBtn.setImage(UIImage.mezonSystemImage("xmark.circle.fill", withConfiguration: cfg), for: .normal)
             clearBtn.tintColor = .mezonTextPrimary
             clearBtn.addTarget(clearTarget, action: clearAction, for: .touchUpInside)
         } else {

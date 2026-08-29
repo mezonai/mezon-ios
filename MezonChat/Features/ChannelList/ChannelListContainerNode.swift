@@ -57,7 +57,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         case .dark, .light:
             return true
         case .system:
-            let effective = UITraitCollection.current.userInterfaceStyle == .dark ? AppTheme.dark : AppTheme.light
+            let effective = mezonSystemPrefersDarkMode() ? AppTheme.dark : AppTheme.light
             switch effective {
             case .dark, .light:
                 return true
@@ -2933,7 +2933,7 @@ final class ChannelListHeaderView: UIView {
         searchIcon.tintColor = t.textDisabled
         searchLabel.textColor = t.textDisabled
         let currentTheme = ThemeManager.shared.current
-        let effectiveTheme = currentTheme == .system ? (UITraitCollection.current.userInterfaceStyle == .dark ? AppTheme.dark : AppTheme.light) : currentTheme
+        let effectiveTheme = currentTheme == .system ? (mezonSystemPrefersDarkMode() ? AppTheme.dark : AppTheme.light) : currentTheme
         qrButton.setImage(UIImage(named: "Profile/ScanQR")?.withRenderingMode(.alwaysTemplate), for: .normal)
         if effectiveTheme == .light || effectiveTheme == .sunrise {
             qrButton.tintColor = UIColor(hexString: "#ff6b6f76")

@@ -56,7 +56,10 @@ public final class PresentationContext {
             case .White:
                 return (.lightContent, false)
             case .Black:
-                return (.darkContent, false)
+                if #available(iOS 13.0, *) {
+                    return (.darkContent, false)
+                }
+                return (.default, false)
             }
         }
         return nil

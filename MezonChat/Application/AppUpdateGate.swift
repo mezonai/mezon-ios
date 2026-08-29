@@ -1,6 +1,5 @@
 import UIKit
 
-@MainActor
 enum AppUpdateGate {
     private static let appStoreID = "6502750046"
     private static let defaultCountryCode = "vn"
@@ -17,6 +16,8 @@ enum AppUpdateGate {
         return URLSession(configuration: config)
     }()
 
+    @available(iOS 13.0, *)
+    @MainActor
     static func scheduleVersionCheckIfNeeded(mainWindow: Window1?) {
         guard !didScheduleCheck else { return }
         didScheduleCheck = true
@@ -25,6 +26,8 @@ enum AppUpdateGate {
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     static func scheduleVersionCheckOnForegroundIfNeeded(mainWindow: Window1?) {
         guard !didPresentUpdateSheet else { return }
         if let lastCheckTime, Date().timeIntervalSince(lastCheckTime) < foregroundRecheckInterval {
@@ -33,6 +36,8 @@ enum AppUpdateGate {
         Task { await performCheck(mainWindow: mainWindow) }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private static func performCheck(mainWindow: Window1?) async {
         guard !didPresentUpdateSheet else { return }
         guard let mainWindow else { return }
@@ -54,6 +59,8 @@ enum AppUpdateGate {
         didPresentUpdateSheet = true
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private static func fetchAppStoreVersion() async -> (String, URL)? {
         await fetchLookupDefault()
     }
@@ -65,6 +72,8 @@ enum AppUpdateGate {
         return Locale.current.regionCode?.lowercased() ?? defaultCountryCode
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private static func fetchLookupDefault() async -> (String, URL)? {
         var components = URLComponents(string: "https://itunes.apple.com/lookup")!
         let country = lookupCountryCode()
@@ -109,7 +118,6 @@ private struct ITunesLookupResult: Decodable {
     let trackViewUrl: String
 }
 
-@MainActor
 private final class AppUpdateRequiredSheetViewController: UIViewController {
     private let storeURL: URL
     private let remoteVersion: String
@@ -143,7 +151,7 @@ private final class AppUpdateRequiredSheetViewController: UIViewController {
         iconContainer.layer.cornerRadius = 40
         iconContainer.translatesAutoresizingMaskIntoConstraints = false
 
-        iconView.image = UIImage(systemName: "arrow.down.circle.fill")
+        iconView.image = UIImage.mezonSystemImage("arrow.down.circle.fill")
         iconView.contentMode = .scaleAspectFit
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconContainer.addSubview(iconView)

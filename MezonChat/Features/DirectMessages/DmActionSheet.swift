@@ -418,7 +418,7 @@ private final class DmActionSheetNode: ASDisplayNode, UIGestureRecognizerDelegat
            menuContext.avatarURL.isEmpty || menuContext.avatarURL.contains("avatar-group.png") {
             avatar.showImageMode()
             avatar.backgroundColor = .groupDMDefaultAvatar
-            let groupIcon = UIImageView(image: UIImage(systemName: "person.2.fill"))
+            let groupIcon = UIImageView(image: UIImage.mezonSystemImage("person.2.fill"))
             groupIcon.tintColor = .white
             groupIcon.contentMode = .scaleAspectFit
             groupIcon.frame = CGRect(x: (avatarSize - 24) / 2, y: (avatarSize - 24) / 2, width: 24, height: 24)
@@ -511,7 +511,7 @@ private final class DmActionSheetNode: ASDisplayNode, UIGestureRecognizerDelegat
                 icon.image = base.withRenderingMode(.alwaysOriginal)
             }
         } else if case .leaveOrDeleteGroup = action {
-            icon.image = UIImage(systemName: "rectangle.portrait.and.arrow.right", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18.sf))
+            icon.image = UIImage.mezonSystemImage("rectangle.portrait.and.arrow.right", withConfiguration: MezonSymbolConfiguration(pointSize: 18.sf))
             icon.tintColor = .mezonError
         }
         v.addSubview(icon)

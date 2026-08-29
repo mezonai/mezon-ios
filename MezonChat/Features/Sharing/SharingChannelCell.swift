@@ -95,7 +95,7 @@ final class SharingChannelCell: UITableViewCell {
     }()
 
     private let checkmarkView: UIImageView = {
-        let iv = UIImageView(image: UIImage(systemName: "checkmark.circle.fill"))
+        let iv = UIImageView(image: UIImage.mezonSystemImage("checkmark.circle.fill"))
         iv.translatesAutoresizingMaskIntoConstraints = false
         iv.tintColor = UIColor(red: 0.34, green: 0.54, blue: 0.95, alpha: 1.0)
         iv.contentMode = .scaleAspectFit
@@ -255,7 +255,7 @@ final class SharingChannelCell: UITableViewCell {
         } else if isGroup {
             avatarPlaceholder.isHidden = true
             channelIconView.isHidden = false
-            channelIconView.image = UIImage(systemName: "person.2.fill")?.withRenderingMode(.alwaysTemplate)
+            channelIconView.image = UIImage.mezonSystemImage("person.2.fill")?.withRenderingMode(.alwaysTemplate)
             channelIconView.tintColor = theme.iconSecondary
             let groupAv = ch?.channelAvatar ?? item.channelAvatar
             if !groupAv.isEmpty, !groupAv.contains("avatar-group.png") {
@@ -280,7 +280,7 @@ final class SharingChannelCell: UITableViewCell {
                     ageRestricted: item.ageRestricted
                 )
             }
-            channelIconView.image = (UIImage(named: iconName) ?? UIImage(systemName: "number"))?.withRenderingMode(.alwaysTemplate)
+            channelIconView.image = (UIImage(named: iconName) ?? UIImage.mezonSystemImage("number"))?.withRenderingMode(.alwaysTemplate)
             channelIconView.tintColor = theme.channelNormal
             avatarView.backgroundColor = theme.tertiary
         }

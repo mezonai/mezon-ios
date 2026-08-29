@@ -1,7 +1,6 @@
 import Foundation
 import SwiftProtobuf
 
-@MainActor
 final class RolesRepository {
 
     private let context: AccountContext
@@ -49,6 +48,8 @@ final class RolesRepository {
 
     // MARK: - Mutations
 
+    @available(iOS 13.0, *)
+    @MainActor
     func refresh(clanId: Int64) async {
         guard clanId != 0 else { return }
         guard let token = await context.getToken() else { return }
@@ -64,6 +65,7 @@ final class RolesRepository {
     }
 
     @discardableResult
+    @available(iOS 13.0, *)
     func createRole(
         clanId: Int64,
         title: String,
@@ -92,6 +94,7 @@ final class RolesRepository {
         return role
     }
 
+    @available(iOS 13.0, *)
     func updateRole(
         roleId: Int64,
         clanId: Int64,
@@ -136,6 +139,8 @@ final class RolesRepository {
         )
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     func fetchRoleMembers(roleId: Int64, clanId: Int64) async {
         guard roleId != 0, let token = await context.getToken() else { return }
         do {
@@ -166,6 +171,8 @@ final class RolesRepository {
         )
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     func deleteRole(roleId: Int64, clanId: Int64) async throws {
         guard let token = await context.getToken() else {
             throw RolesRepositoryError.notAuthenticated

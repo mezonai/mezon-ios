@@ -164,22 +164,26 @@ final class MmnClient: Sendable {
         baseURL = MezonConfig.mmnAPIURL
     }
 
+    @available(iOS 13.0, *)
     func getAccountByUserId(_ userId: String) async throws -> WalletDetail {
         let address = Self.addressFromUserId(userId)
         let w: WalletDetail = try await jsonRPC(method: "account.getaccount", params: ["address": address])
         return w
     }
 
+    @available(iOS 13.0, *)
     func getCurrentNonce(address: String, tag: String = "pending") async throws -> MmnGetCurrentNonceResult {
         let r: MmnGetCurrentNonceResult = try await jsonRPC(method: "account.getcurrentnonce", params: ["address": address, "tag": tag])
         return r
     }
 
+    @available(iOS 13.0, *)
     func addTx(signed: [String: Any]) async throws -> MmnAddTxResult {
         let r: MmnAddTxResult = try await jsonRPC(method: "tx.addtx", params: signed)
         return r
     }
 
+    @available(iOS 13.0, *)
     func getTransactionDetail(hash: String) async throws -> MmnTransaction {
         var indexerURLString = baseURL.absoluteString.replacingOccurrences(of: "mmn-api", with: "indexer-api")
         if !indexerURLString.hasSuffix("/") { indexerURLString += "/" }
@@ -205,6 +209,7 @@ final class MmnClient: Sendable {
         return r.data.transaction
     }
 
+    @available(iOS 13.0, *)
     func getTransactionHistory(address: String, filter: String, timeStamp: String? = nil, lastHash: String? = nil) async throws -> [MmnTransaction] {
         var indexerURLString = baseURL.absoluteString.replacingOccurrences(of: "mmn-api", with: "indexer-api")
         if !indexerURLString.hasSuffix("/") { indexerURLString += "/" }
@@ -249,6 +254,8 @@ final class MmnClient: Sendable {
         return res.data ?? []
     }
 
+    @available(iOS 13.0, *)
+
     static func addressFromUserId(_ userId: String) -> String {
         let hash = SHA256.hash(data: Data(userId.utf8))
         return MmnBase58.encode(Data(hash))
@@ -264,6 +271,7 @@ final class MmnClient: Sendable {
         let message: String?
     }
 
+    @available(iOS 13.0, *)
     private func jsonRPC<T: Decodable>(method: String, params: [String: Any]) async throws -> T {
         var request = URLRequest(url: baseURL)
         request.httpMethod = "POST"

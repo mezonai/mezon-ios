@@ -994,10 +994,10 @@ final class ChannelListViewController: ViewController {
 
     override func loadDisplayNode() {
         let interaction = ChannelListInteraction(
-            onSelectChannel: { [weak self] ch in self?.handleChannelTap(ch) },
-            onLongPressChannel: { [weak self] ch in self?.presentChannelActionSheet(ch) },
+            onSelectChannel: { [weak self] ch in if #available(iOS 13.0, *) { self?.handleChannelTap(ch) } },
+            onLongPressChannel: { [weak self] ch in if #available(iOS 13.0, *) { self?.presentChannelActionSheet(ch) } },
             onToggleCollapse: { [weak self] id in self?.toggleCollapse(categoryId: id) },
-            onRefresh: { [weak self] in self?.fetchChannels() },
+            onRefresh: { [weak self] in if #available(iOS 13.0, *) { self?.fetchChannels() } },
             onPresentSettings: { [weak self] in self?.presentSettings() },
             onInviteClan: { [weak self] in self?.presentInviteClanSheet() },
             onCreateCategory: { [weak self] in self?.presentCreateCategory() },
@@ -1009,16 +1009,16 @@ final class ChannelListViewController: ViewController {
                 guard let self, self.clanId != 0 else { return false }
                 return self.context.rolePermissions.isClanOwner(clanId: self.clanId)
             },
-            onLeaveClan: { [weak self] in self?.presentLeaveClanConfirm() },
-            onDeleteClan: { [weak self] in self?.presentDeleteClanConfirm() },
+            onLeaveClan: { [weak self] in if #available(iOS 13.0, *) { self?.presentLeaveClanConfirm() } },
+            onDeleteClan: { [weak self] in if #available(iOS 13.0, *) { self?.presentDeleteClanConfirm() } },
             onSearchTapped: { [weak self] in self?.searchTappedPipe.putNext(()) },
             onQRTapped: { [weak self] in
                 guard let self else { return }
                 let vc = QRScannerViewController(context: self.context)
                 self.enclosingNavigationController?.pushViewController(vc, animated: true)
             },
-            onEventTapped: { [weak self] in self?.presentEventBottomSheet() },
-            onSelectChannelApp: { [weak self] app in self?.openChannelApp(app) },
+            onEventTapped: { [weak self] in if #available(iOS 13.0, *) { self?.presentEventBottomSheet() } },
+            onSelectChannelApp: { [weak self] app in if #available(iOS 13.0, *) { self?.openChannelApp(app) } },
             onClearCurrentChannelSelection: { [weak self] in self?.clearCurrentChannelSelection() },
             isShowEmptyCategoriesEnabled: { [weak self] in
                 guard let self, self.clanId != 0 else { return false }
@@ -1026,9 +1026,9 @@ final class ChannelListViewController: ViewController {
             },
             onToggleShowEmptyCategories: { [weak self] value in self?.setShowEmptyCategories(value) },
             onLongPressCategory: { [weak self] category in self?.presentCategoryActionSheet(category) },
-            onBecameVisible: { [weak self] in self?.reconcileChannelListDataIfNeeded() },
-            onOnboardingBannerTapped: { [weak self] in self?.presentOnboardingBottomSheet() },
-            onClanSwitchChannelListApplied: { [weak self] in self?.prepareOnboardingStateForClanSwitch() }
+            onBecameVisible: { [weak self] in if #available(iOS 13.0, *) { self?.reconcileChannelListDataIfNeeded() } },
+            onOnboardingBannerTapped: { [weak self] in if #available(iOS 13.0, *) { self?.presentOnboardingBottomSheet() } },
+            onClanSwitchChannelListApplied: { [weak self] in if #available(iOS 13.0, *) { self?.prepareOnboardingStateForClanSwitch() } }
         )
         let initialClan = effectiveClanIdForChannelAppsHydration()
         let initialApps = initialClan != 0 ? channelAppsRawFromCache(clanId: initialClan) : []
@@ -1046,7 +1046,9 @@ final class ChannelListViewController: ViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         refreshShowEmptyCategoriesPreferenceFromCache()
-        reconcileChannelListDataIfNeeded()
+        if #available(iOS 13.0, *) {
+            reconcileChannelListDataIfNeeded()
+        }
     }
 
     override func viewDidLoad() {
@@ -1057,22 +1059,30 @@ final class ChannelListViewController: ViewController {
             if earlyClanId != 0, let payload = resolveChannelCachePayloadForDisplay(clanId: earlyClanId) {
                 clanId = earlyClanId
                 showEmptyCategoriesEnabled = loadShowEmptyCategoriesPreference(clanId: earlyClanId)
-                applyResolvedChannelCachePayload(clanId: earlyClanId, channels: payload.channels, meta: payload.meta, layoutOrdered: payload.layoutOrdered)
+                if #available(iOS 13.0, *) {
+                    applyResolvedChannelCachePayload(clanId: earlyClanId, channels: payload.channels, meta: payload.meta, layoutOrdered: payload.layoutOrdered)
+                }
                 cancelDeferredSkeletonReveal()
                 needsReloadPipe.putNext(())
                 refreshMemberOnboardingState()
-                scheduleAuthoritativeNetworkReconcileIfNeeded(reason: "viewDidLoadEarlyCache")
+                if #available(iOS 13.0, *) {
+                    scheduleAuthoritativeNetworkReconcileIfNeeded(reason: "viewDidLoadEarlyCache")
+                }
             }
         }
         hydrateChannelAppsFromCacheForEffectiveClan()
         if clanId != 0, NetworkMonitor.shared.isConnected {
-            fetchChannelAppsInBackground()
+            if #available(iOS 13.0, *) {
+                fetchChannelAppsInBackground()
+            }
         }
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.context.waitForSessionReady()
-            guard self.clanId != 0, self.allChannels.isEmpty else { return }
-            self.reconcileChannelListDataIfNeeded()
+        if #available(iOS 13.0, *) {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.context.waitForSessionReady()
+                guard self.clanId != 0, self.allChannels.isEmpty else { return }
+                self.reconcileChannelListDataIfNeeded()
+            }
         }
         NotificationCenter.default.addObserver(self, selector: #selector(handleThemeChange), name: ThemeManager.didChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelMarkedAsRead(_:)), name: Notification.Name("MezonChannelMarkedAsRead"), object: nil)
@@ -1097,9 +1107,11 @@ final class ChannelListViewController: ViewController {
     }
 
     @objc private func handleAccountCurrentUserDidChangeForOnboarding(_ notification: Notification) {
-        guard clanId != 0 else { return }
-        guard memberOnboardingFetchedClanId != clanId else { return }
-        scheduleMemberOnboardingDataFetch()
+        if #available(iOS 13.0, *) {
+            guard clanId != 0 else { return }
+            guard memberOnboardingFetchedClanId != clanId else { return }
+            scheduleMemberOnboardingDataFetch()
+        }
     }
 
     @objc private func handleMemberOnboardingDidUpdate(_ notification: Notification) {
@@ -1109,31 +1121,33 @@ final class ChannelListViewController: ViewController {
     }
 
     @objc private func handleChannelDescriptionDidUpdate(_ notification: Notification) {
-        guard let gid = notification.userInfo?["clanId"] as? Int64 else { return }
-        guard gid == clanId, clanId != 0 else { return }
-        if let channelId = notification.userInfo?["channelId"] as? Int64,
-           let idx = allChannels.firstIndex(where: { $0.channelID == channelId }),
-           let data = context.account.postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId)),
-           let updated = decodeChannelList(data).first(where: { $0.channelID == channelId }) {
-            allChannels[idx] = updated
-            let cats = applyCategoriesAfterFetch(
-                mergedChannels: allChannels,
-                categoryDescs: channelListCategoryDescs,
-                favoriteIds: channelListFavoriteIds
-            )
-            categories = cats
-            categoriesPipe.putNext(categories)
-            needsReloadPipe.putNext(())
+        if #available(iOS 13.0, *) {
+            guard let gid = notification.userInfo?["clanId"] as? Int64 else { return }
+            guard gid == clanId, clanId != 0 else { return }
+            if let channelId = notification.userInfo?["channelId"] as? Int64,
+               let idx = allChannels.firstIndex(where: { $0.channelID == channelId }),
+               let data = context.account.postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId)),
+               let updated = decodeChannelList(data).first(where: { $0.channelID == channelId }) {
+                allChannels[idx] = updated
+                let cats = applyCategoriesAfterFetch(
+                    mergedChannels: allChannels,
+                    categoryDescs: channelListCategoryDescs,
+                    favoriteIds: channelListFavoriteIds
+                )
+                categories = cats
+                categoriesPipe.putNext(categories)
+                needsReloadPipe.putNext(())
+                refreshOnboardingState()
+                scheduleMemberOnboardingDataFetch()
+                return
+            }
+            if NetworkMonitor.shared.isConnected {
+                lastChannelFetchAtByClanId.removeValue(forKey: clanId)
+                scheduleChannelListNetworkFetch(allowEmptyChannelAppsOverwrite: false)
+            }
             refreshOnboardingState()
             scheduleMemberOnboardingDataFetch()
-            return
         }
-        if NetworkMonitor.shared.isConnected {
-            lastChannelFetchAtByClanId.removeValue(forKey: clanId)
-            scheduleChannelListNetworkFetch(allowEmptyChannelAppsOverwrite: false)
-        }
-        refreshOnboardingState()
-        scheduleMemberOnboardingDataFetch()
     }
 
     @objc private func handleChannelDeletedLocally(_ notification: Notification) {
@@ -1170,40 +1184,42 @@ final class ChannelListViewController: ViewController {
     }
 
     @objc private func handleUserChannelAddedFromSocket(_ notification: Notification) {
-        guard let gid = notification.userInfo?["clanId"] as? Int64 else { return }
-        guard gid == clanId, clanId != 0 else { return }
-        if let ch = notification.userInfo?["channel"] as? Mezon_Api_ChannelDescription,
-           ch.parentID != 0 {
-            insertJoinedThreadIntoCategoriesSnapshotIfNeeded(ch)
-        }
-        if let ch = notification.userInfo?["channel"] as? Mezon_Api_ChannelDescription {
-            var merged = allChannels
-            if let idx = merged.firstIndex(where: { $0.channelID == ch.channelID }) {
-                merged[idx] = ch
-            } else {
-                merged.append(ch)
+        if #available(iOS 13.0, *) {
+            guard let gid = notification.userInfo?["clanId"] as? Int64 else { return }
+            guard gid == clanId, clanId != 0 else { return }
+            if let ch = notification.userInfo?["channel"] as? Mezon_Api_ChannelDescription,
+               ch.parentID != 0 {
+                insertJoinedThreadIntoCategoriesSnapshotIfNeeded(ch)
             }
-            allChannels = preservePendingMentionUnread(in: merged, clanId: clanId)
-            let cats = applyCategoriesAfterFetch(
-                mergedChannels: allChannels,
-                categoryDescs: channelListCategoryDescs,
-                favoriteIds: channelListFavoriteIds
-            )
-            categories = cats
-            categoriesPipe.putNext(categories)
-            persistFullChannelListCache(
-                clanId: clanId,
-                channels: allChannels,
-                categoryDescs: channelListCategoryDescs,
-                favoriteIds: channelListFavoriteIds,
-                categories: cats
-            )
-        } else if NetworkMonitor.shared.isConnected {
-            lastChannelFetchAtByClanId.removeValue(forKey: clanId)
-            fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: false)
+            if let ch = notification.userInfo?["channel"] as? Mezon_Api_ChannelDescription {
+                var merged = allChannels
+                if let idx = merged.firstIndex(where: { $0.channelID == ch.channelID }) {
+                    merged[idx] = ch
+                } else {
+                    merged.append(ch)
+                }
+                allChannels = preservePendingMentionUnread(in: merged, clanId: clanId)
+                let cats = applyCategoriesAfterFetch(
+                    mergedChannels: allChannels,
+                    categoryDescs: channelListCategoryDescs,
+                    favoriteIds: channelListFavoriteIds
+                )
+                categories = cats
+                categoriesPipe.putNext(categories)
+                persistFullChannelListCache(
+                    clanId: clanId,
+                    channels: allChannels,
+                    categoryDescs: channelListCategoryDescs,
+                    favoriteIds: channelListFavoriteIds,
+                    categories: cats
+                )
+            } else if NetworkMonitor.shared.isConnected {
+                lastChannelFetchAtByClanId.removeValue(forKey: clanId)
+                fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: false)
+            }
+            syncSelectedChannelFromStoredPreferences()
+            needsReloadPipe.putNext(())
         }
-        syncSelectedChannelFromStoredPreferences()
-        needsReloadPipe.putNext(())
     }
 
     private func insertJoinedThreadIntoCategoriesSnapshotIfNeeded(_ thread: Mezon_Api_ChannelDescription) {
@@ -1262,43 +1278,52 @@ final class ChannelListViewController: ViewController {
     }
 
     @objc private func handleNetworkStatusChanged(_ notification: Notification) {
-        let connected = (notification.userInfo?["isConnected"] as? Bool) ?? NetworkMonitor.shared.isConnected
-        guard connected, clanId != 0 else { return }
-        refreshChannelListAfterConnectivityRestored()
+        if #available(iOS 13.0, *) {
+            let connected = (notification.userInfo?["isConnected"] as? Bool) ?? NetworkMonitor.shared.isConnected
+            guard connected, clanId != 0 else { return }
+            refreshChannelListAfterConnectivityRestored()
+        }
     }
 
     @objc private func handleJoinedClanForChannelBadges(_ notification: Notification) {
-        guard let joinedClan = notification.userInfo?["clanId"] as? Int64 else { return }
-        guard joinedClan == clanId, joinedClan != 0 else { return }
-        if let last = lastBadgeCountFetchAtByClanId[joinedClan],
-           Date().timeIntervalSince(last) < badgeCountFetchCooldown {
-            return
-        }
-        Task { @MainActor in
-            await self.applyChannelBadgeCounts(clanId: joinedClan)
+        if #available(iOS 13.0, *) {
+            guard let joinedClan = notification.userInfo?["clanId"] as? Int64 else { return }
+            guard joinedClan == clanId, joinedClan != 0 else { return }
+            if let last = lastBadgeCountFetchAtByClanId[joinedClan],
+               Date().timeIntervalSince(last) < badgeCountFetchCooldown {
+                return
+            }
+            Task { @MainActor in
+                await self.applyChannelBadgeCounts(clanId: joinedClan)
+            }
         }
     }
 
     @objc private func handleSocketStatusForChannelBadges(_ notification: Notification) {
-        guard let connected = notification.userInfo?["isConnected"] as? Bool, connected else { return }
-        guard clanId != 0 else { return }
-        refreshChannelListAfterConnectivityRestored()
+        if #available(iOS 13.0, *) {
+            guard let connected = notification.userInfo?["isConnected"] as? Bool, connected else { return }
+            guard clanId != 0 else { return }
+            refreshChannelListAfterConnectivityRestored()
+        }
     }
 
     @objc private func handleWillEnterForegroundForChannelBadges() {
-        guard clanId != 0 else { return }
-        if allChannels.isEmpty {
-            if NetworkMonitor.shared.isConnected {
-                scheduleChannelListNetworkFetch(allowEmptyChannelAppsOverwrite: false)
+        if #available(iOS 13.0, *) {
+            guard clanId != 0 else { return }
+            if allChannels.isEmpty {
+                if NetworkMonitor.shared.isConnected {
+                    scheduleChannelListNetworkFetch(allowEmptyChannelAppsOverwrite: false)
+                }
+                return
             }
-            return
-        }
-        Task { @MainActor [weak self] in
-            guard let self, self.clanId != 0 else { return }
-            await self.applyChannelBadgeCounts(clanId: self.clanId)
+            Task { @MainActor [weak self] in
+                guard let self, self.clanId != 0 else { return }
+                await self.applyChannelBadgeCounts(clanId: self.clanId)
+            }
         }
     }
 
+    @available(iOS 13.0, *)
     private func refreshChannelListAfterConnectivityRestored() {
         guard clanId != 0 else { return }
         if allChannels.isEmpty {
@@ -1337,13 +1362,14 @@ final class ChannelListViewController: ViewController {
         return true
     }
 
-    private var inflightBadgeCountTask: [Int64: Task<[Mezon_Api_ChannelDescription]?, Never>] = [:]
+    private var inflightBadgeCountHandle: [Int64: CancelHandle] = [:]
+    private var badgeCountWaitersByClanId: [Int64: [([Mezon_Api_ChannelDescription]?) -> Void]] = [:]
     private var lastBadgeCountFetchAtByClanId: [Int64: Date] = [:]
     private var badgeCountEmptyRetryCountByClanId: [Int64: Int] = [:]
     private let badgeCountFetchCooldown: TimeInterval = 5.0
     private let maxBadgeCountEmptyRetries = 3
 
-    @MainActor
+    @available(iOS 13.0, *)
     private func fetchMergedChannelsWithBadgeCounts(
         base: [Mezon_Api_ChannelDescription],
         clanId: Int64,
@@ -1352,8 +1378,10 @@ final class ChannelListViewController: ViewController {
         guard clanId != 0 else { return base }
         guard clanId == self.clanId else { return base }
 
-        if !force, let inflight = inflightBadgeCountTask[clanId] {
-            let rows = await inflight.value
+        if !force, inflightBadgeCountHandle[clanId] != nil {
+            let rows = await withCheckedContinuation { (continuation: CheckedContinuation<[Mezon_Api_ChannelDescription]?, Never>) in
+                badgeCountWaitersByClanId[clanId, default: []].append { continuation.resume(returning: $0) }
+            }
             guard isCurrentSessionAlive else { return base }
             guard clanId == self.clanId else { return base }
             return mergeBadgeFetchResult(rows, base: base, clanId: clanId)
@@ -1376,16 +1404,22 @@ final class ChannelListViewController: ViewController {
                 return nil
             }
         }
-        inflightBadgeCountTask[clanId] = task
+        inflightBadgeCountHandle[clanId] = CancelHandle { task.cancel() }
         let rows = await task.value
-        inflightBadgeCountTask[clanId] = nil
+        inflightBadgeCountHandle[clanId] = nil
+        flushBadgeCountWaiters(clanId: clanId, rows: rows)
 
         guard isCurrentSessionAlive else { return base }
         guard clanId == self.clanId else { return base }
         return mergeBadgeFetchResult(rows, base: base, clanId: clanId)
     }
 
-    @MainActor
+    private func flushBadgeCountWaiters(clanId: Int64, rows: [Mezon_Api_ChannelDescription]?) {
+        let waiters = badgeCountWaitersByClanId.removeValue(forKey: clanId) ?? []
+        for waiter in waiters { waiter(rows) }
+    }
+
+    @available(iOS 13.0, *)
     private func mergeBadgeFetchResult(
         _ rows: [Mezon_Api_ChannelDescription]?,
         base: [Mezon_Api_ChannelDescription],
@@ -1405,7 +1439,7 @@ final class ChannelListViewController: ViewController {
         return preservePendingMentionUnread(in: merged, clanId: clanId)
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     private func scheduleBadgeCountRetryIfNeeded(clanId: Int64) {
         guard clanId != 0 else { return }
         let attempts = badgeCountEmptyRetryCountByClanId[clanId, default: 0]
@@ -1419,6 +1453,7 @@ final class ChannelListViewController: ViewController {
     }
 
     @MainActor
+    @available(iOS 13.0, *)
     private func applyChannelBadgeCounts(clanId: Int64, force: Bool = false, emitReload: Bool = true) async {
         guard clanId != 0 else { return }
         guard clanId == self.clanId else { return }
@@ -1462,6 +1497,7 @@ final class ChannelListViewController: ViewController {
         channelListNode.updateLayout(layout: layout, transition: transition)
     }
 
+    @available(iOS 13.0, *)
     func configure(clanId: Int64, clanName: String, logoURL: String? = nil, bannerURL: String? = nil, memberCount: Int = 0, isCommunity: Bool = false) {
         let headerConfiguration = HeaderConfiguration(
             clanId: clanId,
@@ -1522,6 +1558,7 @@ final class ChannelListViewController: ViewController {
         load(clanId: clanId, clanName: clanName)
     }
 
+    @available(iOS 13.0, *)
     func updateMemberCount(_ count: Int) {
         sidebarMemberCount = count
         channelListNode.updateMemberCount(count)
@@ -1547,6 +1584,7 @@ final class ChannelListViewController: ViewController {
         )
     }
 
+    @available(iOS 13.0, *)
     private func prepareOnboardingStateForClanSwitch() {
         guard clanId != 0 else { return }
         let state = currentOnboardingState()
@@ -1560,6 +1598,7 @@ final class ChannelListViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func refreshOnboardingState() {
         guard clanId != 0 else { return }
         if !(lastOnboardingState == .hidden && !ClanOnboardingProgress.isEligible(context: context, clanId: clanId)) {
@@ -1594,6 +1633,7 @@ final class ChannelListViewController: ViewController {
     private var lastMemberOnboardingFetchAtByClanId: [Int64: Date] = [:]
     private let onboardingCacheTTL: TimeInterval = 300
 
+    @available(iOS 13.0, *)
     private func scheduleMemberOnboardingDataFetch() {
         guard clanId != 0, !memberOnboardingFetchInFlight else { return }
         let clanId = self.clanId
@@ -1613,6 +1653,7 @@ final class ChannelListViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func scheduleOnboardingMemberCountRefresh() {
         guard clanId != 0 else { return }
         if let cachedCount = context.engine.clanData.getClanUsers(clanId: clanId)?.clanUsers.count,
@@ -1649,6 +1690,7 @@ final class ChannelListViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func presentOnboardingBottomSheet() {
         refreshOnboardingState()
         if lastOnboardingState.isVisible {
@@ -1658,6 +1700,7 @@ final class ChannelListViewController: ViewController {
         presentMemberOnboardingBottomSheet()
     }
 
+    @available(iOS 13.0, *)
     private func presentCreatorOnboardingBottomSheet() {
         let onboardingState = lastOnboardingState
         guard onboardingState.isVisible else { return }
@@ -1699,6 +1742,7 @@ final class ChannelListViewController: ViewController {
         present(vc, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func presentMemberOnboardingBottomSheet() {
         let state = lastMemberOnboardingState
         guard state.isVisible else { return }
@@ -1736,6 +1780,7 @@ final class ChannelListViewController: ViewController {
         ), animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func handleMemberOnboardingMission(
         _ mission: MemberOnboardingMission,
         at index: Int,
@@ -1752,6 +1797,7 @@ final class ChannelListViewController: ViewController {
         )
     }
 
+    @available(iOS 13.0, *)
     private func memberOnboardingChannelNavigation() -> MemberOnboardingChannelNavigation {
         MemberOnboardingChannelNavigation(
             openChat: { [weak self] channel in
@@ -1783,6 +1829,7 @@ final class ChannelListViewController: ViewController {
         enclosingNavigationController?.pushViewController(createVc, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func handleOnboardingSendMessage(welcomeChannelId: Int64) {
         guard welcomeChannelId != 0 else { return }
         if let channel = allChannels.first(where: { $0.channelID == welcomeChannelId }) {
@@ -1838,14 +1885,17 @@ final class ChannelListViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func presentLeaveClanConfirm() {
         presentClanRemovalConfirm(isLeaveClan: true)
     }
 
+    @available(iOS 13.0, *)
     private func presentDeleteClanConfirm() {
         presentClanRemovalConfirm(isLeaveClan: false)
     }
 
+    @available(iOS 13.0, *)
     private func presentClanRemovalConfirm(isLeaveClan: Bool) {
         guard clanId != 0 else { return }
         guard let presenter = topModalPresenter() else { return }
@@ -1871,6 +1921,7 @@ final class ChannelListViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func handleLeaveClan() {
         guard clanId != 0 else { return }
         guard let userId = Int64(context.account.id) else {
@@ -1897,6 +1948,7 @@ final class ChannelListViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func handleDeleteClan() {
         guard clanId != 0 else { return }
         let removedClanId = clanId
@@ -1917,9 +1969,12 @@ final class ChannelListViewController: ViewController {
 
     private func finishClanRemoval(removedClanId: Int64) {
         popToHomeIfNeeded()
-        homeViewController()?.clanListVC.removeClanAndSelectNext(removedClanId: removedClanId)
+        if #available(iOS 13.0, *) {
+            homeViewController()?.clanListVC.removeClanAndSelectNext(removedClanId: removedClanId)
+        }
     }
 
+    @available(iOS 13.0, *)
     private func presentEventBottomSheet() {
         guard clanId != 0 else { return }
         let vc = EventViewerBottomSheetViewController(
@@ -2029,6 +2084,7 @@ final class ChannelListViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func presentChannelActionSheet(_ channel: Mezon_Api_ChannelDescription) {
         let (isMuted, welcomeChannelId): (Bool, Int64?) = context.account.postbox.read { tx in
             let muted: Bool = {
@@ -2122,6 +2178,7 @@ final class ChannelListViewController: ViewController {
         fetchNotificationSettingForBottomsheet(channelId: channel.channelID)
     }
     
+    @available(iOS 13.0, *)
     private func fetchNotificationSettingForBottomsheet(channelId: Int64) {
         Task { @MainActor in
             let startEpoch = context.sessionEpoch
@@ -2144,6 +2201,7 @@ final class ChannelListViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func handleMarkAsRead(_ channel: Mezon_Api_ChannelDescription) {
         Task { @MainActor in
             guard let token = await context.getToken() else { return }
@@ -2160,6 +2218,7 @@ final class ChannelListViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func handleMarkFavorite(_ channel: Mezon_Api_ChannelDescription) {
         Task { @MainActor in
             guard let token = await context.getToken() else { return }
@@ -2184,6 +2243,7 @@ final class ChannelListViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func handleUnmarkFavorite(_ channel: Mezon_Api_ChannelDescription) {
         Task { @MainActor in
             guard let token = await context.getToken() else { return }
@@ -2217,15 +2277,20 @@ final class ChannelListViewController: ViewController {
             context: self.context,
             isThread: isThread
         ) { [weak self] duration in
-            self?.handleMuteChannel(channel, muteTimeSeconds: duration.seconds)
+            if #available(iOS 13.0, *) {
+                self?.handleMuteChannel(channel, muteTimeSeconds: duration.seconds)
+            }
         }
         self.enclosingNavigationController?.pushViewController(vc)
     }
 
     private func handleMuteChannel(_ channel: Mezon_Api_ChannelDescription, mute: Bool) {
-        handleMuteChannel(channel, muteTimeSeconds: 0)
+        if #available(iOS 13.0, *) {
+            handleMuteChannel(channel, muteTimeSeconds: 0)
+        }
     }
 
+    @available(iOS 13.0, *)
     private func handleMuteChannel(_ channel: Mezon_Api_ChannelDescription, muteTimeSeconds: Int32) {
         ChannelMuteHelper.setMuteChannel(
             context: context,
@@ -2259,6 +2324,7 @@ final class ChannelListViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func presentDeleteChannelConfirm(_ channel: Mezon_Api_ChannelDescription) {
         let isThread = channel.type == MezonConstants.ChannelType.thread.rawValue
         let title = isThread ? L(L10n.ChannelAction.deleteThread) : L(L10n.Channel.delete)
@@ -2280,6 +2346,7 @@ final class ChannelListViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func presentLeaveThreadConfirm(_ channel: Mezon_Api_ChannelDescription) {
         let title = L(L10n.ChannelAction.leaveThread)
         let message = L(L10n.ChannelAction.leaveThreadConfirm)
@@ -2316,6 +2383,7 @@ final class ChannelListViewController: ViewController {
         needsReloadPipe.putNext(())
     }
 
+    @available(iOS 13.0, *)
     private func handleDeleteChannel(_ channel: Mezon_Api_ChannelDescription) {
         Task { @MainActor in
             guard let token = await context.getToken() else { return }
@@ -2332,6 +2400,7 @@ final class ChannelListViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func handleLeaveThread(_ channel: Mezon_Api_ChannelDescription) {
         Task { @MainActor in
             guard let token = await context.getToken() else { return }
@@ -2363,8 +2432,13 @@ final class ChannelListViewController: ViewController {
         self.enclosingNavigationController?.pushViewController(vc, animated: true)
     }
 
-    func refresh() { fetchChannels() }
+    func refresh() {
+        if #available(iOS 13.0, *) {
+            fetchChannels()
+        }
+    }
 
+    @available(iOS 13.0, *)
     func fetchChannels() {
         guard clanId != 0 else { return }
         if !allChannels.isEmpty || !categories.isEmpty {
@@ -2389,129 +2463,133 @@ final class ChannelListViewController: ViewController {
     }
 
     @objc private func handleNewMessageReceived(_ notification: Notification) {
-        let rawChannelId = notification.userInfo?["channelId"]
-        let rawClanId = notification.userInfo?["clanId"]
+        if #available(iOS 13.0, *) {
+            let rawChannelId = notification.userInfo?["channelId"]
+            let rawClanId = notification.userInfo?["clanId"]
 
-        guard let channelId = Self.int64UserInfo(rawChannelId),
-              let clanId = Self.int64UserInfo(rawClanId) else { return }
+            guard let channelId = Self.int64UserInfo(rawChannelId),
+                  let clanId = Self.int64UserInfo(rawClanId) else { return }
 
-        let senderId: String? = {
-            let v = notification.userInfo?["senderId"]
-            if let s = v as? String { return s }
-            if let n = v as? Int64 { return String(n) }
-            if let n = v as? Int { return String(n) }
-            if let n = v as? NSNumber { return n.stringValue }
-            return nil
-        }()
-        guard let senderId else { return }
+            let senderId: String? = {
+                let v = notification.userInfo?["senderId"]
+                if let s = v as? String { return s }
+                if let n = v as? Int64 { return String(n) }
+                if let n = v as? Int { return String(n) }
+                if let n = v as? NSNumber { return n.stringValue }
+                return nil
+            }()
+            guard let senderId else { return }
 
-        let ts: UInt32
-        if let t = notification.userInfo?["timestampSeconds"] as? UInt32 { ts = t }
-        else if let t = notification.userInfo?["timestampSeconds"] as? Int { ts = UInt32(clamping: t) }
-        else { ts = UInt32(Date().timeIntervalSince1970) }
+            let ts: UInt32
+            if let t = notification.userInfo?["timestampSeconds"] as? UInt32 { ts = t }
+            else if let t = notification.userInfo?["timestampSeconds"] as? Int { ts = UInt32(clamping: t) }
+            else { ts = UInt32(Date().timeIntervalSince1970) }
 
-        guard clanId == self.clanId, clanId != 0 else { return }
-        guard senderId != context.currentUser?.id else { return }
+            guard clanId == self.clanId, clanId != 0 else { return }
+            guard senderId != context.currentUser?.id else { return }
 
-        let apiMessage: Mezon_Api_ChannelMessage? = (notification.userInfo?["serializedChannelMessage"] as? Data).flatMap { try? Mezon_Api_ChannelMessage(serializedBytes: $0) }
-        var topicId = Self.int64UserInfo(notification.userInfo?["topicId"]) ?? 0
-        if let m = apiMessage, topicId == 0, m.topicID != 0 { topicId = m.topicID }
-        if topicId != 0 {
-            if ActiveChannelTracker.currentChannelId == topicId { return }
-        } else {
-            if ActiveChannelTracker.currentChannelId == channelId { return }
-        }
-
-        var updated = false
-        for i in 0..<allChannels.count {
-            if allChannels[i].channelID == channelId {
-                var header = allChannels[i].lastSentMessage
-                header.timestampSeconds = ts
-                allChannels[i].lastSentMessage = header
-                updated = true
+            let apiMessage: Mezon_Api_ChannelMessage? = (notification.userInfo?["serializedChannelMessage"] as? Data).flatMap { try? Mezon_Api_ChannelMessage(serializedBytes: $0) }
+            var topicId = Self.int64UserInfo(notification.userInfo?["topicId"]) ?? 0
+            if let m = apiMessage, topicId == 0, m.topicID != 0 { topicId = m.topicID }
+            if topicId != 0 {
+                if ActiveChannelTracker.currentChannelId == topicId { return }
+            } else {
+                if ActiveChannelTracker.currentChannelId == channelId { return }
             }
-        }
 
-        if topicId != 0 {
+            var updated = false
             for i in 0..<allChannels.count {
-                if allChannels[i].channelID == topicId {
+                if allChannels[i].channelID == channelId {
                     var header = allChannels[i].lastSentMessage
                     header.timestampSeconds = ts
                     allChannels[i].lastSentMessage = header
                     updated = true
                 }
             }
-        }
 
-        if let apiMessage {
-            let currentUserId = context.currentUser?.id
-            let roleIds = ClanListViewController.getCurrentUserRoleIds(context: context)
-            let isMentioned = ClanListViewController.checkMessageMentionsUser(
-                apiMessage,
-                currentUserId: currentUserId,
-                currentUserRoleIds: roleIds
-            )
-            if isMentioned, apiMessage.messageID != 0 {
-                if topicId != 0 {
-                    let parentId = parentChannelIdForThreadBadge(topicId: topicId, messageChannelId: channelId)
-                    if applyMentionEventUnreadIfNeeded(
-                        clanId: clanId, messageId: apiMessage.messageID, parentChannelId: parentId, threadChannelId: topicId, ts: ts
-                    ) { updated = true }
-                } else {
-                    if applyMentionEventUnreadIfNeeded(
-                        clanId: clanId, messageId: apiMessage.messageID, parentChannelId: channelId, threadChannelId: nil, ts: ts
-                    ) { updated = true }
+            if topicId != 0 {
+                for i in 0..<allChannels.count {
+                    if allChannels[i].channelID == topicId {
+                        var header = allChannels[i].lastSentMessage
+                        header.timestampSeconds = ts
+                        allChannels[i].lastSentMessage = header
+                        updated = true
+                    }
                 }
             }
-        }
 
-        guard updated else { return }
-        rebuildAndReload()
+            if let apiMessage {
+                let currentUserId = context.currentUser?.id
+                let roleIds = ClanListViewController.getCurrentUserRoleIds(context: context)
+                let isMentioned = ClanListViewController.checkMessageMentionsUser(
+                    apiMessage,
+                    currentUserId: currentUserId,
+                    currentUserRoleIds: roleIds
+                )
+                if isMentioned, apiMessage.messageID != 0 {
+                    if topicId != 0 {
+                        let parentId = parentChannelIdForThreadBadge(topicId: topicId, messageChannelId: channelId)
+                        if applyMentionEventUnreadIfNeeded(
+                            clanId: clanId, messageId: apiMessage.messageID, parentChannelId: parentId, threadChannelId: topicId, ts: ts
+                        ) { updated = true }
+                    } else {
+                        if applyMentionEventUnreadIfNeeded(
+                            clanId: clanId, messageId: apiMessage.messageID, parentChannelId: channelId, threadChannelId: nil, ts: ts
+                        ) { updated = true }
+                    }
+                }
+            }
+
+            guard updated else { return }
+            rebuildAndReload()
+        }
     }
 
     @objc private func handleMentionReceived(_ notification: Notification) {
-        guard let channelId = Self.int64UserInfo(notification.userInfo?["channelId"]),
-              let clanId = Self.int64UserInfo(notification.userInfo?["clanId"]) else { return }
-        guard clanId == self.clanId, clanId != 0 else { return }
-        let isParentOfTopic = notification.userInfo?["isParentOfTopic"] as? Bool == true
-        let messageId = notification.userInfo?["messageId"] as? String ?? ""
-        let ts = notification.userInfo?["timestampSeconds"]
-        let tsU32: UInt32? = {
-            if let t = ts as? UInt32 { return t }
-            if let t = ts as? Int { return UInt32(clamping: t) }
-            if let t = ts as? NSNumber { return t.uint32Value }
-            return nil
-        }()
-        if !messageId.isEmpty, messageId != "0", let mid = Int64(messageId), mid != 0 {
-            var updated = false
-            let topicFromNoti = Self.int64UserInfo(notification.userInfo?["topicId"]) ?? 0
-            if topicFromNoti != 0 {
-                let parentId = isParentOfTopic
-                    ? channelId
-                    : parentChannelIdForThreadBadge(topicId: topicFromNoti, messageChannelId: channelId)
-                if applyMentionEventUnreadIfNeeded(
-                    clanId: clanId, messageId: mid, parentChannelId: parentId, threadChannelId: topicFromNoti, ts: tsU32
-                ) { updated = true }
-            } else {
-                if applyMentionEventUnreadIfNeeded(
-                    clanId: clanId, messageId: mid, parentChannelId: channelId, threadChannelId: nil, ts: tsU32
-                ) { updated = true }
+        if #available(iOS 13.0, *) {
+            guard let channelId = Self.int64UserInfo(notification.userInfo?["channelId"]),
+                  let clanId = Self.int64UserInfo(notification.userInfo?["clanId"]) else { return }
+            guard clanId == self.clanId, clanId != 0 else { return }
+            let isParentOfTopic = notification.userInfo?["isParentOfTopic"] as? Bool == true
+            let messageId = notification.userInfo?["messageId"] as? String ?? ""
+            let ts = notification.userInfo?["timestampSeconds"]
+            let tsU32: UInt32? = {
+                if let t = ts as? UInt32 { return t }
+                if let t = ts as? Int { return UInt32(clamping: t) }
+                if let t = ts as? NSNumber { return t.uint32Value }
+                return nil
+            }()
+            if !messageId.isEmpty, messageId != "0", let mid = Int64(messageId), mid != 0 {
+                var updated = false
+                let topicFromNoti = Self.int64UserInfo(notification.userInfo?["topicId"]) ?? 0
+                if topicFromNoti != 0 {
+                    let parentId = isParentOfTopic
+                        ? channelId
+                        : parentChannelIdForThreadBadge(topicId: topicFromNoti, messageChannelId: channelId)
+                    if applyMentionEventUnreadIfNeeded(
+                        clanId: clanId, messageId: mid, parentChannelId: parentId, threadChannelId: topicFromNoti, ts: tsU32
+                    ) { updated = true }
+                } else {
+                    if applyMentionEventUnreadIfNeeded(
+                        clanId: clanId, messageId: mid, parentChannelId: channelId, threadChannelId: nil, ts: tsU32
+                    ) { updated = true }
+                }
+                if updated { rebuildAndReload() }
+                return
             }
-            if updated { rebuildAndReload() }
-            return
-        }
-        if hasRecentMentionSentinel(clanId: clanId, channelId: channelId, ts: tsU32) { return }
-        let dedupKey: String
-        if !messageId.isEmpty, messageId != "0" {
-            dedupKey = "\(channelId)_\(messageId)"
-        } else {
-            dedupKey = "\(channelId)_\(ts ?? 0)"
-        }
-        guard !processedBadgeKeys.contains(dedupKey) else { return }
-        processedBadgeKeys.insert(dedupKey)
-        if processedBadgeKeys.count > 1500 { processedBadgeKeys.removeAll() }
-        if bumpMentionUnread(clanId: clanId, channelId: channelId) {
-            rebuildAndReload()
+            if hasRecentMentionSentinel(clanId: clanId, channelId: channelId, ts: tsU32) { return }
+            let dedupKey: String
+            if !messageId.isEmpty, messageId != "0" {
+                dedupKey = "\(channelId)_\(messageId)"
+            } else {
+                dedupKey = "\(channelId)_\(ts ?? 0)"
+            }
+            guard !processedBadgeKeys.contains(dedupKey) else { return }
+            processedBadgeKeys.insert(dedupKey)
+            if processedBadgeKeys.count > 1500 { processedBadgeKeys.removeAll() }
+            if bumpMentionUnread(clanId: clanId, channelId: channelId) {
+                rebuildAndReload()
+            }
         }
     }
 
@@ -2581,7 +2659,7 @@ final class ChannelListViewController: ViewController {
         return filterCategoriesToKnownChannels(ordered, channels: mergedChannels)
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     private func applyNetworkChannelListResult(
         clanId: Int64,
         channels: [Mezon_Api_ChannelDescription],
@@ -2642,6 +2720,7 @@ final class ChannelListViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func scheduleCategoryDescsRefreshIfNeeded() {
         guard clanId != 0, NetworkMonitor.shared.isConnected else { return }
         let hasUnnamedCategory = categories.contains(where: {
@@ -2686,6 +2765,7 @@ final class ChannelListViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func rebuildAndReload() {
         let cats = applyCategoriesAfterFetch(
             mergedChannels: allChannels,
@@ -2711,33 +2791,35 @@ final class ChannelListViewController: ViewController {
     }
 
     @objc private func handleChannelMarkedAsRead(_ notification: Notification) {
-        guard let channelId = Self.int64UserInfo(notification.userInfo?["channelId"]) else { return }
-        let notificationClanId = Self.int64UserInfo(notification.userInfo?["clanId"]) ?? clanId
-        guard notificationClanId == 0 || notificationClanId == clanId else { return }
-        clearPendingMentionUnreadFloor(clanId: notificationClanId == 0 ? clanId : notificationClanId, channelId: channelId)
-        let now = UInt32(Date().timeIntervalSince1970)
-        var didClearUnreadState = false
-        for i in 0..<allChannels.count {
-            if allChannels[i].channelID == channelId {
-                let ch = allChannels[i]
-                if ch.countMessUnread != 0
-                    || (ch.hasLastSentMessage
-                        && ch.lastSeenMessage.timestampSeconds < ch.lastSentMessage.timestampSeconds) {
-                    didClearUnreadState = true
+        if #available(iOS 13.0, *) {
+            guard let channelId = Self.int64UserInfo(notification.userInfo?["channelId"]) else { return }
+            let notificationClanId = Self.int64UserInfo(notification.userInfo?["clanId"]) ?? clanId
+            guard notificationClanId == 0 || notificationClanId == clanId else { return }
+            clearPendingMentionUnreadFloor(clanId: notificationClanId == 0 ? clanId : notificationClanId, channelId: channelId)
+            let now = UInt32(Date().timeIntervalSince1970)
+            var didClearUnreadState = false
+            for i in 0..<allChannels.count {
+                if allChannels[i].channelID == channelId {
+                    let ch = allChannels[i]
+                    if ch.countMessUnread != 0
+                        || (ch.hasLastSentMessage
+                            && ch.lastSeenMessage.timestampSeconds < ch.lastSentMessage.timestampSeconds) {
+                        didClearUnreadState = true
+                    }
+                    allChannels[i].countMessUnread = 0
+                    allChannels[i].lastSeenMessage.timestampSeconds = now
                 }
-                allChannels[i].countMessUnread = 0
-                allChannels[i].lastSeenMessage.timestampSeconds = now
             }
-        }
-        rebuildAndReload()
-        if didClearUnreadState, clanId != 0 {
-            persistFullChannelListCache(
-                clanId: clanId,
-                channels: allChannels,
-                categoryDescs: channelListCategoryDescs,
-                favoriteIds: channelListFavoriteIds,
-                categories: categories
-            )
+            rebuildAndReload()
+            if didClearUnreadState, clanId != 0 {
+                persistFullChannelListCache(
+                    clanId: clanId,
+                    channels: allChannels,
+                    categoryDescs: channelListCategoryDescs,
+                    favoriteIds: channelListFavoriteIds,
+                    categories: categories
+                )
+            }
         }
     }
 
@@ -2792,6 +2874,7 @@ final class ChannelListViewController: ViewController {
         needsReloadPipe.putNext(())
     }
 
+    @available(iOS 13.0, *)
     func load(clanId: Int64, clanName: String) {
         if clanId != self.clanId {
             fetchDisposable.set(nil)
@@ -2849,6 +2932,7 @@ final class ChannelListViewController: ViewController {
         scheduleMemberOnboardingDataFetch()
     }
 
+    @available(iOS 13.0, *)
     private func scheduleAuthoritativeNetworkReconcileIfNeeded(reason: String) {
         guard clanId != 0 else { return }
         guard needsAuthoritativeNetworkReconcile else {
@@ -2862,6 +2946,7 @@ final class ChannelListViewController: ViewController {
         fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: false, force: true)
     }
 
+    @available(iOS 13.0, *)
     private func scheduleChannelListNetworkFetch(allowEmptyChannelAppsOverwrite: Bool) {
         guard clanId != 0 else { return }
         if inflightChannelFetchClanId == clanId {
@@ -2893,6 +2978,7 @@ final class ChannelListViewController: ViewController {
         return allChannels.isEmpty
     }
 
+    @available(iOS 13.0, *)
     private func reconcileChannelListDataIfNeeded() {
         guard channelListNeedsFetch else { return }
         guard NetworkMonitor.shared.isConnected else { return }
@@ -2900,6 +2986,7 @@ final class ChannelListViewController: ViewController {
         scheduleChannelListNetworkFetch(allowEmptyChannelAppsOverwrite: false)
     }
 
+    @available(iOS 13.0, *)
     private func fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: Bool = false, force: Bool = false) {
         guard clanId != 0 else {
             cancelDeferredSkeletonReveal()
@@ -3062,6 +3149,7 @@ final class ChannelListViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func scheduleEmptyChannelRetryIfNeeded(clanId: Int64) {
         guard clanId != 0, clanId == self.clanId, self.allChannels.isEmpty,
               NetworkMonitor.shared.isConnected else { return }
@@ -3097,6 +3185,7 @@ final class ChannelListViewController: ViewController {
         needsReloadPipe.putNext(())
     }
 
+    @available(iOS 13.0, *)
     private func handleChannelTap(_ channel: Mezon_Api_ChannelDescription) {
         if channel.type == MezonConstants.ChannelType.mezonVoice.rawValue {
             presentJoinVoiceSheet(for: channel)
@@ -3143,13 +3232,13 @@ final class ChannelListViewController: ViewController {
         if let root = view.window?.rootViewController {
             return root.mezon_findDeepestNavigationController()
         }
-        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else { return nil }
-        for w in scene.windows where !w.isHidden {
+        for w in mezonApplicationWindows() where !w.isHidden {
             if let nav = w.rootViewController?.mezon_findDeepestNavigationController() { return nav }
         }
         return nil
     }
 
+    @available(iOS 13.0, *)
     private func openChannelApp(_ app: Mezon_Api_ChannelAppResponse) {
         guard app.appID != 0, !app.appURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             Toast.error("App unavailable")
@@ -3264,6 +3353,7 @@ final class ChannelListViewController: ViewController {
         completion()
     }
 
+    @available(iOS 13.0, *)
     private func presentJoinVoiceSheet(
         for channel: Mezon_Api_ChannelDescription,
         from presenter: UIViewController? = nil,
@@ -3279,6 +3369,7 @@ final class ChannelListViewController: ViewController {
         )
     }
 
+    @available(iOS 13.0, *)
     private func presentJoinStreamSheet(
         for channel: Mezon_Api_ChannelDescription,
         from presenter: UIViewController? = nil,
@@ -3294,6 +3385,7 @@ final class ChannelListViewController: ViewController {
         )
     }
 
+    @available(iOS 13.0, *)
     private func presentJoinMediaSheet(
         for channel: Mezon_Api_ChannelDescription,
         kind: JoinChannelSheetKind,
@@ -3404,6 +3496,7 @@ final class ChannelListViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func pushVoiceChannelRoom(for channel: Mezon_Api_ChannelDescription, role: SfuRole = .speaker) {
         select(channel: channel)
         guard let nav = enclosingNavigationController else { return }
@@ -3439,6 +3532,7 @@ final class ChannelListViewController: ViewController {
         nav.pushViewController(vc, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func pushStreamingRoom(for channel: Mezon_Api_ChannelDescription) {
         let streamChannel = enrichedStreamChannel(channel)
         select(channel: streamChannel)
@@ -3544,6 +3638,7 @@ final class ChannelListViewController: ViewController {
         needsReloadPipe.putNext(())
     }
 
+    @available(iOS 13.0, *)
     func updateChannels(_ channels: [Mezon_Api_ChannelDescription]) {
         let resolvedChannels: [Mezon_Api_ChannelDescription]
         if channels.isEmpty {
@@ -3570,6 +3665,7 @@ final class ChannelListViewController: ViewController {
         )
     }
 
+    @available(iOS 13.0, *)
     func ingestNotificationChannelData(
         channels: [Mezon_Api_ChannelDescription],
         categoryDescs: [Mezon_Api_CategoryDesc],
@@ -3697,6 +3793,7 @@ final class ChannelListViewController: ViewController {
         let favoriteChannelIds: Set<Int64>
     }
 
+    @available(iOS 13.0, *)
     private func channelListSignal(clanId: Int64) -> Signal<ChannelListFetchPayload, ChannelFetchError> {
         let context = self.context
         return Signal { subscriber in
@@ -3750,6 +3847,7 @@ final class ChannelListViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     nonisolated private static func listCategoryDescsOrEmpty(network: MezonHTTPClient, clanId: Int64, token: String) async -> [Mezon_Api_CategoryDesc] {
         do {
             return try await network.listCategoryDescs(clanId: clanId, token: token)
@@ -3758,6 +3856,7 @@ final class ChannelListViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     nonisolated private static func listFavoriteChannelIdsOrEmpty(network: MezonHTTPClient, clanId: Int64, token: String) async -> [Int64] {
         do {
             return try await network.listFavoriteChannelIds(clanId: clanId, token: token)
@@ -3835,10 +3934,12 @@ final class ChannelListViewController: ViewController {
     private var lastChannelAppsFetchAtByClanId: [Int64: Date] = [:]
     private let channelAppsCacheTTL: TimeInterval = 300
 
+    @available(iOS 13.0, *)
     private func fetchChannelAppsInBackground() {
         fetchChannelApps(allowEmptyOverwrite: false)
     }
 
+    @available(iOS 13.0, *)
     private func fetchChannelApps(allowEmptyOverwrite _: Bool = false) {
         guard clanId != 0 else { return }
         let clanId = self.clanId
@@ -3992,6 +4093,7 @@ final class ChannelListViewController: ViewController {
     }
 
     @discardableResult
+    @available(iOS 13.0, *)
     private func recoverChannelListDisplayFromCache() -> Bool {
         guard clanId != 0, allChannels.isEmpty else { return false }
         guard let payload = readChannelCachePayloadIfAvailable(clanId: clanId), !payload.channels.isEmpty else { return false }
@@ -4054,6 +4156,7 @@ final class ChannelListViewController: ViewController {
             || channel.type == MezonConstants.ChannelType.group.rawValue
     }
 
+    @available(iOS 13.0, *)
     private func applyResolvedChannelCachePayload(
         clanId: Int64,
         channels: [Mezon_Api_ChannelDescription],
@@ -4083,6 +4186,7 @@ final class ChannelListViewController: ViewController {
         needsReloadPipe.putNext(())
     }
 
+    @available(iOS 13.0, *)
     private func applyCategoriesForCurrentChannels(
         channels: [Mezon_Api_ChannelDescription],
         clanId: Int64
@@ -4149,6 +4253,7 @@ final class ChannelListViewController: ViewController {
         return decodeCategoriesSnapshot(blob)
     }
 
+    @available(iOS 13.0, *)
     private func applyCategoriesFromCache(
         clanId: Int64,
         cachedChannels: [Mezon_Api_ChannelDescription],
@@ -4206,6 +4311,7 @@ final class ChannelListViewController: ViewController {
 
     private var orphanCategoryRefetchScheduled = false
 
+    @available(iOS 13.0, *)
     private func scheduleChannelListRefetchIfOrphanCategory() {
         guard clanId != 0, NetworkMonitor.shared.isConnected else { return }
         guard needsOrphanCategoryRepair() else { return }
@@ -4326,10 +4432,12 @@ final class ChannelListViewController: ViewController {
         (channels, readChannelListMetaFromCache(clanId: clanId))
     }
 
+    @available(iOS 13.0, *)
     private func resolveAuthTokenPreferringUnexpiredSessionStore() async -> String? {
         await context.getTokenPreferringCachedSkipSessionReadyWait()
     }
 
+    @available(iOS 13.0, *)
     private func applyChannelCachePayload(channels: [Mezon_Api_ChannelDescription], meta: ChannelListCachedMeta?) {
         guard clanId != 0 else { return }
         applyResolvedChannelCachePayload(clanId: clanId, channels: channels, meta: meta)

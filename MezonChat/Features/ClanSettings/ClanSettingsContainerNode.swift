@@ -174,7 +174,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
 
         let closeBtn = UIButton(type: .system)
         closeBtn.setImage(
-            UIImage(systemName: "xmark")?.withRenderingMode(.alwaysTemplate), for: .normal)
+            UIImage.mezonSystemImage("xmark")?.withRenderingMode(.alwaysTemplate), for: .normal)
         closeBtn.tintColor = UIColor.theme.textStrong
         closeBtn.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         v.addSubview(closeBtn)
@@ -237,8 +237,8 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         nameLabel.textAlignment = .center
         v.addSubview(nameLabel)
 
-        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 10.sf, weight: .bold)
-        removeAvatarBtn.setImage(UIImage(systemName: "xmark", withConfiguration: symbolConfig), for: .normal)
+        let symbolConfig = MezonSymbolConfiguration(pointSize: 10.sf, weight: .bold)
+        removeAvatarBtn.setImage(UIImage.mezonSystemImage("xmark", withConfiguration: symbolConfig), for: .normal)
         removeAvatarBtn.tintColor = .white
         removeAvatarBtn.backgroundColor = .systemRed
         removeAvatarBtn.layer.cornerRadius = 12.swh
@@ -408,7 +408,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         v.addSubview(title)
 
         let chevron = UIImageView(
-            image: UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate))
+            image: UIImage.mezonSystemImage("chevron.right")?.withRenderingMode(.alwaysTemplate))
         chevron.tintColor = UIColor.theme.textDisabled
         chevron.contentMode = .scaleAspectFit
         v.addSubview(chevron)

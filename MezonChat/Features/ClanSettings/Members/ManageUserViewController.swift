@@ -67,7 +67,7 @@ final class ManageUserViewController: BaseViewController {
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
 
-        backButton.setImage(UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        backButton.setImage(UIImage.mezonSystemImage("chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
         backButton.translatesAutoresizingMaskIntoConstraints = false
@@ -336,7 +336,7 @@ final class ManageUserViewController: BaseViewController {
         v.addSubview(checkBox)
 
         if isSelected {
-            let checkmark = UIImageView(image: UIImage(systemName: "checkmark")?.withRenderingMode(.alwaysTemplate))
+            let checkmark = UIImageView(image: UIImage.mezonSystemImage("checkmark")?.withRenderingMode(.alwaysTemplate))
             checkmark.tintColor = .white
             checkmark.contentMode = .scaleAspectFit
             checkmark.translatesAutoresizingMaskIntoConstraints = false
@@ -483,7 +483,7 @@ final class ManageUserViewController: BaseViewController {
         var iconImage = UIImage(named: iconName)?.withRenderingMode(.alwaysTemplate)
         if iconImage == nil {
             let symbolName = iconName.contains("Transfer") ? "arrow.right.arrow.left" : "person.fill.xmark"
-            iconImage = UIImage(systemName: symbolName)?.withRenderingMode(.alwaysTemplate)
+            iconImage = UIImage.mezonSystemImage(symbolName)?.withRenderingMode(.alwaysTemplate)
         }
         let icon = UIImageView(image: iconImage)
         icon.tintColor = .systemRed
@@ -533,54 +533,56 @@ final class ManageUserViewController: BaseViewController {
     }
 
     @objc private func roleCheckboxTapped(_ sender: UIButton) {
-        guard !isLoading else { return }
-        let roleId = Int64(sender.tag)
-        let isCurrentlySelected = selectedRoleIds.contains(roleId)
+        if #available(iOS 13.0, *) {
+            guard !isLoading else { return }
+            let roleId = Int64(sender.tag)
+            let isCurrentlySelected = selectedRoleIds.contains(roleId)
 
-        isLoading = true
+            isLoading = true
 
-        if isCurrentlySelected {
-            selectedRoleIds.remove(roleId)
-        } else {
-            selectedRoleIds.insert(roleId)
-        }
+            if isCurrentlySelected {
+                selectedRoleIds.remove(roleId)
+            } else {
+                selectedRoleIds.insert(roleId)
+            }
 
-        buildContent()
+            buildContent()
 
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                _ = self.repository.role(roleId: roleId, clanId: self.clanId)
-                if isCurrentlySelected {
-                    try await self.repository.updateRole(
-                        roleId: roleId, clanId: self.clanId,
-                        title: nil, color: nil, roleIcon: nil,
-                        addUserIds: [], activePermissionIds: [],
-                        removeUserIds: [self.member.userId], removePermissionIds: []
-                    )
-                } else {
-                    try await self.repository.updateRole(
-                        roleId: roleId, clanId: self.clanId,
-                        title: nil, color: nil, roleIcon: nil,
-                        addUserIds: [self.member.userId], activePermissionIds: [],
-                        removeUserIds: [], removePermissionIds: []
-                    )
-                }
-                await MainActor.run {
-                    self.isLoading = false
-                    Toast.success(L(L10n.ClanRoles.saved))
-                    self.buildContent()
-                }
-            } catch {
-                await MainActor.run {
-                    self.isLoading = false
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    _ = self.repository.role(roleId: roleId, clanId: self.clanId)
                     if isCurrentlySelected {
-                        self.selectedRoleIds.insert(roleId)
+                        try await self.repository.updateRole(
+                            roleId: roleId, clanId: self.clanId,
+                            title: nil, color: nil, roleIcon: nil,
+                            addUserIds: [], activePermissionIds: [],
+                            removeUserIds: [self.member.userId], removePermissionIds: []
+                        )
                     } else {
-                        self.selectedRoleIds.remove(roleId)
+                        try await self.repository.updateRole(
+                            roleId: roleId, clanId: self.clanId,
+                            title: nil, color: nil, roleIcon: nil,
+                            addUserIds: [self.member.userId], activePermissionIds: [],
+                            removeUserIds: [], removePermissionIds: []
+                        )
                     }
-                    Toast.error(L(L10n.ClanRoles.failed))
-                    self.buildContent()
+                    await MainActor.run {
+                        self.isLoading = false
+                        Toast.success(L(L10n.ClanRoles.saved))
+                        self.buildContent()
+                    }
+                } catch {
+                    await MainActor.run {
+                        self.isLoading = false
+                        if isCurrentlySelected {
+                            self.selectedRoleIds.insert(roleId)
+                        } else {
+                            self.selectedRoleIds.remove(roleId)
+                        }
+                        Toast.error(L(L10n.ClanRoles.failed))
+                        self.buildContent()
+                    }
                 }
             }
         }

@@ -3,7 +3,6 @@ import SwiftProtobuf
 
 extension MezonEngine {
 
-    @MainActor
     final class Peers {
         private let engine: MezonEngine
         private var postbox: Postbox { engine.account.postbox }

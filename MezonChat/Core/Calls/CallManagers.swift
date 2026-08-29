@@ -5,7 +5,7 @@ enum PeerCallIncomingFreshness {
     static let maxOfferAgeMs: Int64 = 60_000
 }
 
-@MainActor
+@available(iOS 13.0, *)
 final class WebRTCCallManager {
     static let shared = WebRTCCallManager()
     private init() {}
@@ -80,6 +80,7 @@ final class WebRTCCallManager {
         pendingIncomingPeerCallUserInfo = nil
     }
 
+    @available(iOS 13.0, *)
     func preWarmIncomingPeerCallIfNeeded(
         channelId: Int64,
         callerId: Int64,
@@ -365,6 +366,7 @@ final class WebRTCCallManager {
         deliverSignaling(msg, currentUserId: currentUserId)
     }
 
+    @available(iOS 13.0, *)
     private func deliverSignaling(_ msg: Mezon_Realtime_WebrtcSignalingFwd, currentUserId: Int64) {
 
         if msg.dataType == WebRTCSignalingDataType.sdpOffer,
@@ -661,7 +663,6 @@ enum PeerCallEndReason {
     case remoteReject
 }
 
-@MainActor
 enum PeerCallLogMessage {
 
     private struct OutgoingEntry {
@@ -673,6 +674,7 @@ enum PeerCallLogMessage {
 
     private static var outgoingByChannelId: [Int64: OutgoingEntry] = [:]
 
+    @available(iOS 13.0, *)
     static func sendStartCallLog(
         context: AccountContext,
         channel: Mezon_Api_ChannelDescription,
@@ -699,6 +701,7 @@ enum PeerCallLogMessage {
         }
     }
 
+    @available(iOS 13.0, *)
     static func updateCallLogForOutgoing(
         channelId: Int64,
         reason: PeerCallEndReason,
@@ -752,6 +755,7 @@ enum PeerCallLogMessage {
         return MezonConstants.ChannelStreamMode.dm.rawValue
     }
 
+    @available(iOS 13.0, *)
     private static func sendStartCallLogAndReturnAck(
         context: AccountContext,
         channel: Mezon_Api_ChannelDescription,
@@ -800,6 +804,7 @@ enum PeerCallLogMessage {
         }
     }
 
+    @available(iOS 13.0, *)
     private static func updateMessage(
         context: AccountContext,
         channelId: Int64,

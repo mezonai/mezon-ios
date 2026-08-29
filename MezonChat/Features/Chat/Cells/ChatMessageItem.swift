@@ -190,8 +190,8 @@ final class ChatMessageItemNode: ListViewItemNode, UIGestureRecognizerDelegate {
 
     private func showSwipeReplyIcon() {
         let icon = UIImageView()
-        let config = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
-        icon.image = UIImage(systemName: "arrowshape.turn.up.left.fill", withConfiguration: config)
+        let config = MezonSymbolConfiguration(pointSize: 20, weight: .medium)
+        icon.image = UIImage.mezonSystemImage("arrowshape.turn.up.left.fill", withConfiguration: config)
         icon.tintColor = UIColor.theme.textDisabled
         icon.alpha = 0
         icon.frame = CGRect(x: bounds.width - 40, y: bounds.height / 2 - 15, width: 30, height: 30)

@@ -17,7 +17,7 @@ final class DmListItemCell: UITableViewCell {
     }()
 
     private let groupIconView: UIImageView = {
-        let iv = UIImageView(image: UIImage(systemName: "person.2.fill"))
+        let iv = UIImageView(image: UIImage.mezonSystemImage("person.2.fill"))
         iv.translatesAutoresizingMaskIntoConstraints = false
         iv.contentMode = .scaleAspectFit
         iv.tintColor = .mezonTextSecondary

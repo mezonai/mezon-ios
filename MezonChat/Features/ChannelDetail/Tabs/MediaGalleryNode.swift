@@ -14,7 +14,6 @@ private struct ChannelMediaState {
     var hasMore = true
 }
 
-@MainActor
 final class MediaGalleryNode: ASDisplayNode {
 
     private let context: AccountContext
@@ -57,7 +56,7 @@ final class MediaGalleryNode: ASDisplayNode {
         self.collectionNode = ASCollectionNode(collectionViewLayout: layout)
 
         self.loadingHostNode = ASDisplayNode(viewBlock: {
-            let v = UIActivityIndicatorView(style: .large)
+            let v = UIActivityIndicatorView.mezonLarge()
             v.color = UIColor.theme.textStrong
             v.startAnimating()
             return v
@@ -72,7 +71,9 @@ final class MediaGalleryNode: ASDisplayNode {
         mediaTypeControl.selectedSegmentIndex = 0
         mediaTypeControl.addTarget(
             self, action: #selector(mediaTypeChanged(_:)), for: .valueChanged)
-        mediaTypeControl.selectedSegmentTintColor = UIColor.theme.bgViolet
+        if #available(iOS 13.0, *) {
+            mediaTypeControl.selectedSegmentTintColor = UIColor.theme.bgViolet
+        }
         mediaTypeControl.backgroundColor = UIColor.theme.secondary
         let segmentFont = UIFont.systemFont(ofSize: 14.sf, weight: .semibold)
         mediaTypeControl.setTitleTextAttributes(
@@ -89,6 +90,7 @@ final class MediaGalleryNode: ASDisplayNode {
         collectionNode.view.contentInsetAdjustmentBehavior = .never
     }
 
+    @available(iOS 13.0, *)
     func loadTabDataIfNeeded() {
         loadMediaIfNeeded(for: .image)
     }
@@ -101,6 +103,7 @@ final class MediaGalleryNode: ASDisplayNode {
         mediaStateByType[mediaType] ?? ChannelMediaState()
     }
 
+    @available(iOS 13.0, *)
     private func loadMediaIfNeeded(for mediaType: ChannelMediaType) {
         var state = mediaState(for: mediaType)
         guard !state.didLoad else { return }
@@ -113,6 +116,7 @@ final class MediaGalleryNode: ASDisplayNode {
         fetchMedia(mediaType)
     }
 
+    @available(iOS 13.0, *)
     private func fetchMedia(_ mediaType: ChannelMediaType) {
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -144,6 +148,7 @@ final class MediaGalleryNode: ASDisplayNode {
         }
     }
 
+    @available(iOS 13.0, *)
     private func requestAttachments(
         before: UInt32, token: String, mediaType: ChannelMediaType
     ) async throws
@@ -162,6 +167,7 @@ final class MediaGalleryNode: ASDisplayNode {
         )
     }
 
+    @available(iOS 13.0, *)
     private func loadMoreMediaIfNeeded() {
         let mediaType = selectedMediaType
         var state = mediaState(for: mediaType)
@@ -239,13 +245,15 @@ final class MediaGalleryNode: ASDisplayNode {
     }
 
     @objc private func mediaTypeChanged(_ control: UISegmentedControl) {
-        let mediaType: ChannelMediaType = control.selectedSegmentIndex == 1 ? .video : .image
-        guard mediaType != selectedMediaType else { return }
-        selectedMediaType = mediaType
-        collectionNode.view.setContentOffset(.zero, animated: false)
-        collectionNode.reloadData()
-        setNeedsLayout()
-        loadMediaIfNeeded(for: mediaType)
+        if #available(iOS 13.0, *) {
+            let mediaType: ChannelMediaType = control.selectedSegmentIndex == 1 ? .video : .image
+            guard mediaType != selectedMediaType else { return }
+            selectedMediaType = mediaType
+            collectionNode.view.setContentOffset(.zero, animated: false)
+            collectionNode.reloadData()
+            setNeedsLayout()
+            loadMediaIfNeeded(for: mediaType)
+        }
     }
 
     override func layout() {
@@ -386,9 +394,9 @@ private final class MediaEmptyStateNode: ASDisplayNode {
         super.init()
         automaticallyManagesSubnodes = true
 
-        let cfg = UIImage.SymbolConfiguration(pointSize: 36.sf, weight: .medium)
-        iconNode.image = UIImage(systemName: "photo.on.rectangle.angled", withConfiguration: cfg)?
-            .withTintColor(UIColor.theme.textDisabled, renderingMode: .alwaysOriginal)
+        let cfg = MezonSymbolConfiguration(pointSize: 36.sf, weight: .medium)
+        iconNode.image = UIImage.mezonSystemImage("photo.on.rectangle.angled", withConfiguration: cfg)?
+            .mezonTinted(UIColor.theme.textDisabled, renderingMode: .alwaysOriginal)
         iconNode.contentMode = .scaleAspectFit
         iconNode.style.preferredSize = CGSize(width: 48.sf, height: 48.sf)
 
@@ -426,12 +434,14 @@ extension MediaGalleryNode: ASCollectionDataSource, ASCollectionDelegate {
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        let offset = scrollView.contentOffset.y
-        let contentHeight = scrollView.contentSize.height
-        let frameHeight = scrollView.frame.height
-        guard contentHeight > frameHeight else { return }
-        if offset > contentHeight - frameHeight * 1.5 {
-            loadMoreMediaIfNeeded()
+        if #available(iOS 13.0, *) {
+            let offset = scrollView.contentOffset.y
+            let contentHeight = scrollView.contentSize.height
+            let frameHeight = scrollView.frame.height
+            guard contentHeight > frameHeight else { return }
+            if offset > contentHeight - frameHeight * 1.5 {
+                loadMoreMediaIfNeeded()
+            }
         }
     }
 
@@ -560,9 +570,9 @@ private final class MediaPlayOverlayNode: ASDisplayNode {
         automaticallyManagesSubnodes = true
         isUserInteractionEnabled = false
         backgroundColor = UIColor.black.withAlphaComponent(0.45)
-        let cfg = UIImage.SymbolConfiguration(pointSize: 22, weight: .semibold)
-        iconNode.image = UIImage(systemName: "play.fill", withConfiguration: cfg)?
-            .withTintColor(.white, renderingMode: .alwaysOriginal)
+        let cfg = MezonSymbolConfiguration(pointSize: 22, weight: .semibold)
+        iconNode.image = UIImage.mezonSystemImage("play.fill", withConfiguration: cfg)?
+            .mezonTinted(.white, renderingMode: .alwaysOriginal)
         iconNode.contentMode = .scaleAspectFit
         iconNode.style.preferredSize = CGSize(width: 28, height: 28)
     }

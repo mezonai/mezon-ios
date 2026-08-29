@@ -173,7 +173,7 @@ final class ClanStickersViewController: BaseViewController {
         view.addSubview(headerView)
 
         backButton.setImage(
-            UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate),
+            UIImage.mezonSystemImage("chevron.left")?.withRenderingMode(.alwaysTemplate),
             for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
@@ -220,7 +220,9 @@ final class ClanStickersViewController: BaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         reloadData()
-        fetchClanMembersIfNeeded()
+        if #available(iOS 13.0, *) {
+            fetchClanMembersIfNeeded()
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -359,11 +361,13 @@ final class ClanStickersViewController: BaseViewController {
     }
 
     @objc private func addStickerTapped() {
-        let picker = UIImagePickerController()
-        picker.delegate = self
-        picker.sourceType = .photoLibrary
-        picker.allowsEditing = true
-        present(picker, animated: true)
+        if #available(iOS 13.0, *) {
+            let picker = UIImagePickerController()
+            picker.delegate = self
+            picker.sourceType = .photoLibrary
+            picker.allowsEditing = true
+            present(picker, animated: true)
+        }
     }
 
     private func reloadData() {
@@ -381,6 +385,7 @@ final class ClanStickersViewController: BaseViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func fetchClanMembersIfNeeded() {
         guard clanMembers.isEmpty else { return }
         Task {
@@ -416,6 +421,7 @@ final class ClanStickersViewController: BaseViewController {
         return true
     }
 
+    @available(iOS 13.0, *)
     private func commitShortnameChange(
         for sticker: CachedClanStickerRecord,
         newName: String,
@@ -453,6 +459,7 @@ final class ClanStickersViewController: BaseViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func deleteSticker(_ sticker: CachedClanStickerRecord) {
         guard canEdit(sticker) else { return }
         MezonConfirm.present(
@@ -524,10 +531,14 @@ extension ClanStickersViewController: UITableViewDataSource, UITableViewDelegate
                 done(false)
                 return
             }
-            self.commitShortnameChange(for: current, newName: newName, completion: done)
+            if #available(iOS 13.0, *) {
+                self.commitShortnameChange(for: current, newName: newName, completion: done)
+            }
         }
         cell.onDelete = { [weak self] in
-            self?.deleteSticker(sticker)
+            if #available(iOS 13.0, *) {
+                self?.deleteSticker(sticker)
+            }
         }
         cell.onSwipeOpened = { [weak self, weak cell] in
             guard let self, let cell, self.openSwipeCell !== cell else { return }
@@ -578,18 +589,21 @@ extension ClanStickersViewController: UIImagePickerControllerDelegate, UINavigat
     }
 
     private func presentStickerPreview(image: UIImage, picked: PickedStickerImage) {
-        let preview = ClanStickerPreviewViewController(image: image)
-        preview.onConfirm = { [weak self, weak preview] shortname, isForSale in
-            guard let self else { return }
-            let trimmed = ClanStickerNameValidator.normalized(shortname)
-            guard self.validateShortname(trimmed) else { return }
-            preview?.dismiss(animated: true) {
-                Task { await self.uploadSticker(image: image, picked: picked, shortname: trimmed, isForSale: isForSale) }
+        if #available(iOS 13.0, *) {
+            let preview = ClanStickerPreviewViewController(image: image)
+            preview.onConfirm = { [weak self, weak preview] shortname, isForSale in
+                guard let self else { return }
+                let trimmed = ClanStickerNameValidator.normalized(shortname)
+                guard self.validateShortname(trimmed) else { return }
+                preview?.dismiss(animated: true) {
+                    Task { await self.uploadSticker(image: image, picked: picked, shortname: trimmed, isForSale: isForSale) }
+                }
             }
+            present(preview, animated: true)
         }
-        present(preview, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func uploadSticker(image: UIImage, picked: PickedStickerImage, shortname: String, isForSale: Bool) async {
         if repository.isAtUploadLimit(clanId: clanId) {
             return

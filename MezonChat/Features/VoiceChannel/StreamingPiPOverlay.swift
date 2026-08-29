@@ -1,7 +1,7 @@
 import UIKit
 import WebRTC
 
-@MainActor
+@available(iOS 13.0, *)
 final class StreamingPiPOverlay: NSObject {
 
     static let shared = StreamingPiPOverlay()
@@ -142,8 +142,10 @@ final class StreamingPiPOverlay: NSObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in
-                self?.applyPiPChromeTheme()
+            if #available(iOS 13.0, *) {
+                Task { @MainActor in
+                    self?.applyPiPChromeTheme()
+                }
             }
         }
     }
@@ -166,8 +168,9 @@ final class StreamingPiPOverlay: NSObject {
 
         badgeLabel.text = channel.channelLabel
 
-        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
-        guard let scene else { return }
+        guard #available(iOS 13.0, *),
+              let scene = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene }).first else { return }
 
         let w = StreamingPiPPassthroughWindow(windowScene: scene)
         w.windowLevel = .statusBar + 1
@@ -175,11 +178,11 @@ final class StreamingPiPOverlay: NSObject {
         w.isUserInteractionEnabled = true
         switch ThemeManager.shared.current {
         case .light, .sunrise:
-            w.overrideUserInterfaceStyle = .light
+            w.setMezonOverrideUserInterfaceStyle(.light)
         case .dark, .redDark, .purpleHaze, .abyssDark, .sunset:
-            w.overrideUserInterfaceStyle = .dark
+            w.setMezonOverrideUserInterfaceStyle(.dark)
         case .system:
-            w.overrideUserInterfaceStyle = .unspecified
+            w.setMezonOverrideUserInterfaceStyle(.unspecified)
         }
         w.pipView = pipView
 
@@ -289,6 +292,7 @@ final class StreamingPiPOverlay: NSObject {
         return resolved
     }
 
+    @available(iOS 13.0, *)
     private func fetchRemoteChannelAvatarIfNeeded() {
         guard !didFetchRemoteChannel else { return }
         guard let channel, let context else { return }
@@ -396,7 +400,9 @@ final class StreamingPiPOverlay: NSObject {
     }
 
     private func findVisibleNavigationController() -> NavigationController? {
-        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else { return nil }
+        guard #available(iOS 13.0, *),
+              let scene = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene }).first else { return nil }
         for window in scene.windows where !window.isHidden && window !== pipWindow {
             if let nav = findNavigationControllerInViewHierarchy(window) {
                 return nav

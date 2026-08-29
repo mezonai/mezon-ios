@@ -23,7 +23,6 @@ private struct ChannelFilesState {
     var loadFailed = false
 }
 
-@MainActor
 final class FileListNode: ASDisplayNode {
 
     private let context: AccountContext
@@ -54,7 +53,7 @@ final class FileListNode: ASDisplayNode {
         self.filesTypeControl = filesTypeControl
         self.filesTypeControlNode = ASDisplayNode(viewBlock: { filesTypeControl })
         self.loadingNode = ASDisplayNode(viewBlock: {
-            let v = UIActivityIndicatorView(style: .large)
+            let v = UIActivityIndicatorView.mezonLarge()
             v.color = UIColor.theme.text
             v.startAnimating()
             return v
@@ -66,7 +65,9 @@ final class FileListNode: ASDisplayNode {
         filesTypeControl.selectedSegmentIndex = 0
         filesTypeControl.addTarget(
             self, action: #selector(filesTypeChanged(_:)), for: .valueChanged)
-        filesTypeControl.selectedSegmentTintColor = UIColor.theme.bgViolet
+        if #available(iOS 13.0, *) {
+            filesTypeControl.selectedSegmentTintColor = UIColor.theme.bgViolet
+        }
         filesTypeControl.backgroundColor = UIColor.theme.secondary
         let segmentFont = UIFont.systemFont(ofSize: 14.sf, weight: .semibold)
         filesTypeControl.setTitleTextAttributes(
@@ -106,21 +107,24 @@ final class FileListNode: ASDisplayNode {
     }
 
     @objc private func handleMessageChanged(_ notification: Notification) {
-        let notiChannelId = Self.notificationInt64(notification.userInfo?["channelId"]) ?? 0
-        let notiTopicId = Self.notificationInt64(notification.userInfo?["topicId"]) ?? 0
+        if #available(iOS 13.0, *) {
+            let notiChannelId = Self.notificationInt64(notification.userInfo?["channelId"]) ?? 0
+            let notiTopicId = Self.notificationInt64(notification.userInfo?["topicId"]) ?? 0
         
-        if notification.name == Notification.Name("MezonChannelMarkedAsRead") {
-            let fromSelf = notification.userInfo?["fromSelf"] as? Bool ?? false
-            if !fromSelf { return }
-        }
+            if notification.name == Notification.Name("MezonChannelMarkedAsRead") {
+                let fromSelf = notification.userInfo?["fromSelf"] as? Bool ?? false
+                if !fromSelf { return }
+            }
         
-        if notiChannelId == self.channelId || (notiTopicId != 0 && notiTopicId == self.channelId) {
-            DispatchQueue.main.async {
-                self.refreshFilesAfterMessageChange()
+            if notiChannelId == self.channelId || (notiTopicId != 0 && notiTopicId == self.channelId) {
+                DispatchQueue.main.async {
+                    self.refreshFilesAfterMessageChange()
+                }
             }
         }
     }
 
+    @available(iOS 13.0, *)
     func loadTabDataIfNeeded() {
         loadFilesIfNeeded(for: selectedFilesType)
     }
@@ -148,13 +152,15 @@ final class FileListNode: ASDisplayNode {
     }
 
     @objc private func filesTypeChanged(_ control: UISegmentedControl) {
-        let filesType: ChannelFilesType = control.selectedSegmentIndex == 1 ? .audio : .doc
-        guard filesType != selectedFilesType else { return }
-        selectedFilesType = filesType
-        tableNode.view.setContentOffset(.zero, animated: false)
-        rebuildSectionsAndReload()
-        loadFilesIfNeeded(for: filesType)
-        setNeedsLayout()
+        if #available(iOS 13.0, *) {
+            let filesType: ChannelFilesType = control.selectedSegmentIndex == 1 ? .audio : .doc
+            guard filesType != selectedFilesType else { return }
+            selectedFilesType = filesType
+            tableNode.view.setContentOffset(.zero, animated: false)
+            rebuildSectionsAndReload()
+            loadFilesIfNeeded(for: filesType)
+            setNeedsLayout()
+        }
     }
 
     private func installSearchHeader() {
@@ -179,7 +185,7 @@ final class FileListNode: ASDisplayNode {
         )
 
         let icon = UIImageView(
-            image: UIImage(systemName: "magnifyingglass")?.withTintColor(
+            image: UIImage.mezonSystemImage("magnifyingglass")?.mezonTinted(
                 t.text, renderingMode: .alwaysOriginal))
         icon.contentMode = .scaleAspectFit
         let leftWrap = UIView(frame: CGRect(x: 0, y: 0, width: 36, height: 36))
@@ -220,12 +226,14 @@ final class FileListNode: ASDisplayNode {
         }
     }
 
+    @available(iOS 13.0, *)
     private func loadFilesIfNeeded(for filesType: ChannelFilesType) {
         let state = filesState(for: filesType)
         guard !state.didLoad, !state.isFetching else { return }
         fetchFiles(for: filesType)
     }
 
+    @available(iOS 13.0, *)
     private func refreshFilesAfterMessageChange() {
         for filesType in ChannelFilesType.allCases where filesType != selectedFilesType {
             var state = filesState(for: filesType)
@@ -247,6 +255,7 @@ final class FileListNode: ASDisplayNode {
         fetchFiles(for: selectedFilesType, showLoading: false)
     }
 
+    @available(iOS 13.0, *)
     private func fetchFiles(for filesType: ChannelFilesType, showLoading: Bool = true) {
         var state = filesState(for: filesType)
         guard !state.isFetching else { return }
@@ -586,7 +595,7 @@ private final class FileDocumentCellNode: ASCellNode {
         card.cornerRadius = 8
 
         let iconName = Self.sfSymbol(for: attachment.filetype)
-        iconNode.image = UIImage(systemName: iconName)?.withTintColor(
+        iconNode.image = UIImage.mezonSystemImage(iconName)?.mezonTinted(
             t.text, renderingMode: .alwaysOriginal)
         iconNode.contentMode = .scaleAspectFit
         iconNode.style.preferredSize = CGSize(width: 34, height: 34)

@@ -38,8 +38,8 @@ final class MezonRootController: NavigationController {
             return (custom, selected ?? custom)
         }
         return (
-            UIImage(systemName: systemFallback),
-            UIImage(systemName: systemFallbackSelected ?? systemFallback.replacingOccurrences(of: ".fill", with: "") + ".fill")
+            UIImage.mezonSystemImage(systemFallback),
+            UIImage.mezonSystemImage(systemFallbackSelected ?? systemFallback.replacingOccurrences(of: ".fill", with: "") + ".fill")
         )
     }
 
@@ -111,10 +111,18 @@ final class MezonRootController: NavigationController {
 
         NotificationCenter.default.addObserver(self, selector: #selector(evaluateMandatoryUsernamePendingIfNeeded), name: .mezonAccountCurrentUserDidChange, object: nil)
 
-        bootstrapGlobalFriendState()
-        processPendingNavigation()
-        processPendingFriendRequestNavigation()
-        processPendingDeepLink()
+        if #available(iOS 13.0, *) {
+            bootstrapGlobalFriendState()
+        }
+        if #available(iOS 13.0, *) {
+            processPendingNavigation()
+        }
+        if #available(iOS 13.0, *) {
+            processPendingFriendRequestNavigation()
+        }
+        if #available(iOS 13.0, *) {
+            processPendingDeepLink()
+        }
         checkPendingSharedContentOnLaunch()
 
         DispatchQueue.main.async { [weak self] in
@@ -140,14 +148,16 @@ final class MezonRootController: NavigationController {
         viewControllers.contains(where: { $0 is UpdateUsernameViewController })
     }
 
+    @available(iOS 13.0, *)
     private func bootstrapGlobalFriendState() {
-        context.engine.friendsData.start(tokenProvider: { [weak self] in
-            guard let self else { return nil }
-            return await self.context.getToken()
+        context.engine.friendsData.start(tokenProvider: { [weak self] completion in
+            guard let self else { completion(nil); return }
+            Task { @MainActor in completion(await self.context.getToken()) }
         })
         directMessagesController?.prefetchInitialDataOnAppLaunch()
     }
 
+    @available(iOS 13.0, *)
     private func processPendingNavigation() {
         guard var pending = AppDelegate.pendingNavigation else { return }
         AppDelegate.pendingNavigation = nil
@@ -173,6 +183,7 @@ final class MezonRootController: NavigationController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func processPendingFriendRequestNavigation() {
         guard var pending = AppDelegate.pendingFriendRequestNavigation else { return }
         AppDelegate.pendingFriendRequestNavigation = nil
@@ -198,51 +209,58 @@ final class MezonRootController: NavigationController {
     }
 
     @objc private func handleQRNavigateToDM(_ notification: Notification) {
-        guard let channelIdStr = notification.userInfo?["channelId"] as? String else { return }
-        navigateToDM(channelIdStr: channelIdStr)
+        if #available(iOS 13.0, *) {
+            guard let channelIdStr = notification.userInfo?["channelId"] as? String else { return }
+            navigateToDM(channelIdStr: channelIdStr)
+        }
     }
 
     @objc private func handleNavigateToChannel(_ notification: Notification) {
-        guard let channelIdStr = notification.userInfo?["channelId"] as? String else { return }
-        AppDelegate.recordNavigationInstanceHandled(userInfo: notification.userInfo)
-        let clanIdStr = notification.userInfo?["clanId"] as? String
-        let isDM = notification.userInfo?["isDM"] as? Bool ?? false
+        if #available(iOS 13.0, *) {
+            guard let channelIdStr = notification.userInfo?["channelId"] as? String else { return }
+            AppDelegate.recordNavigationInstanceHandled(userInfo: notification.userInfo)
+            let clanIdStr = notification.userInfo?["clanId"] as? String
+            let isDM = notification.userInfo?["isDM"] as? Bool ?? false
 
-        AppDelegate.pendingNavigation = nil
+            AppDelegate.pendingNavigation = nil
 
-        handoffActiveVoiceRoomToPiPBeforeNavigation()
+            handoffActiveVoiceRoomToPiPBeforeNavigation()
 
-        if !isDM, let clanId = clanIdStr.flatMap({ Int64($0) }), clanId != 0 {
-            context.currentClanId = clanId
-        }
+            if !isDM, let clanId = clanIdStr.flatMap({ Int64($0) }), clanId != 0 {
+                context.currentClanId = clanId
+            }
 
-        context.account.socket.ensureFreshConnection()
+            context.account.socket.ensureFreshConnection()
 
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.awaitSessionReadyBounded()
-            if isDM {
-                self.navigateToDM(channelIdStr: channelIdStr)
-            } else {
-                self.navigateToChannel(channelIdStr: channelIdStr, clanIdStr: clanIdStr)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.awaitSessionReadyBounded()
+                if isDM {
+                    self.navigateToDM(channelIdStr: channelIdStr)
+                } else {
+                    self.navigateToChannel(channelIdStr: channelIdStr, clanIdStr: clanIdStr)
+                }
             }
         }
     }
 
     @objc private func handleNavigateToFriendRequests(_ notification: Notification) {
-        AppDelegate.recordFriendRequestNavigationInstanceHandled(userInfo: notification.userInfo)
-        AppDelegate.pendingFriendRequestNavigation = nil
+        if #available(iOS 13.0, *) {
+            AppDelegate.recordFriendRequestNavigationInstanceHandled(userInfo: notification.userInfo)
+            AppDelegate.pendingFriendRequestNavigation = nil
 
-        handoffActiveVoiceRoomToPiPBeforeNavigation()
-        context.account.socket.ensureFreshConnection()
+            handoffActiveVoiceRoomToPiPBeforeNavigation()
+            context.account.socket.ensureFreshConnection()
 
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            await self.awaitSessionReadyBounded()
-            self.navigateToFriendRequests()
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.awaitSessionReadyBounded()
+                self.navigateToFriendRequests()
+            }
         }
     }
 
+    @available(iOS 13.0, *)
     private func navigateToFriendRequests() {
         rootTabController?.selectedIndex = 1
 
@@ -258,6 +276,7 @@ final class MezonRootController: NavigationController {
         refreshFriendRequestsForNotificationTap()
     }
 
+    @available(iOS 13.0, *)
     private func refreshFriendRequestsForNotificationTap() {
         Task { @MainActor [weak self] in
             guard let self, let token = await self.context.getToken() else { return }
@@ -265,11 +284,13 @@ final class MezonRootController: NavigationController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func handoffActiveVoiceRoomToPiPBeforeNavigation() {
         guard let voiceRoom = viewControllers.compactMap({ $0 as? VoiceChannelRoomViewController }).first else { return }
         voiceRoom.handoffToPiPForExternalNavigation()
     }
 
+    @available(iOS 13.0, *)
     private func awaitSessionReadyBounded(timeoutNanoseconds: UInt64 = 5_000_000_000) async {
         await withTaskGroup(of: Void.self) { group in
             group.addTask { @MainActor [weak self] in
@@ -283,6 +304,7 @@ final class MezonRootController: NavigationController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func bringChatForChannelToFrontIfOnStack(channelIdInt: Int64, clanIdStr: String?) -> Bool {
         guard let existing = viewControllers.compactMap({ $0 as? ChatViewController }).first(where: { $0.channel.channelID == channelIdInt }) else {
             return false
@@ -309,45 +331,48 @@ final class MezonRootController: NavigationController {
     }
 
     @objc private func handleIncomingPeerCall(_ notification: Notification) {
-        guard let payload = IncomingPeerCallPayload(userInfo: notification.userInfo) else {
-            return
-        }
-        let myId: Int64? = {
-            if let s = context.currentUser?.id, let v = Int64(s) { return v }
-            if let s = SessionStore.load()?.userId, let v = Int64(s) { return v }
-            return nil
-        }()
-        guard let myId else {
-            return
-        }
-        guard payload.receiverId == myId || payload.receiverId == 0 else {
-            return
-        }
-        if WebRTCCallManager.shared.discardStaleIncomingPeerPayloadIfNeeded(payload) {
-            return
-        }
-        switch peerCallIncomingPresentHost() {
-        case .noHost:
-            stashIncomingPeerCallAndScheduleFlush(notification.userInfo ?? [:])
-            return
-        case .alreadyShowing:
-            WebRTCCallManager.shared.clearPendingIncomingPeerCallPresentation()
-            return
-        case .ready:
-            let skipRing = (notification.userInfo?["mezonSkipIncomingRingingUI"] as? Bool) == true
-            let display = IncomingPeerCallPayloadParser.callerDisplay(for: payload, skipDecompressOffer: skipRing)
-            let vc = PeerCallViewController(
-                context: context,
-                incoming: payload,
-                remoteDisplayName: display.name,
-                remoteAvatarURL: display.avatar,
-                skipIncomingRingingUI: skipRing
-            )
-            pushPeerCallOnSelf(vc, animated: !skipRing)
-            WebRTCCallManager.shared.clearPendingIncomingPeerCallPresentation()
+        if #available(iOS 13.0, *) {
+            guard let payload = IncomingPeerCallPayload(userInfo: notification.userInfo) else {
+                return
+            }
+            let myId: Int64? = {
+                if let s = context.currentUser?.id, let v = Int64(s) { return v }
+                if let s = SessionStore.load()?.userId, let v = Int64(s) { return v }
+                return nil
+            }()
+            guard let myId else {
+                return
+            }
+            guard payload.receiverId == myId || payload.receiverId == 0 else {
+                return
+            }
+            if WebRTCCallManager.shared.discardStaleIncomingPeerPayloadIfNeeded(payload) {
+                return
+            }
+            switch peerCallIncomingPresentHost() {
+            case .noHost:
+                stashIncomingPeerCallAndScheduleFlush(notification.userInfo ?? [:])
+                return
+            case .alreadyShowing:
+                WebRTCCallManager.shared.clearPendingIncomingPeerCallPresentation()
+                return
+            case .ready:
+                let skipRing = (notification.userInfo?["mezonSkipIncomingRingingUI"] as? Bool) == true
+                let display = IncomingPeerCallPayloadParser.callerDisplay(for: payload, skipDecompressOffer: skipRing)
+                let vc = PeerCallViewController(
+                    context: context,
+                    incoming: payload,
+                    remoteDisplayName: display.name,
+                    remoteAvatarURL: display.avatar,
+                    skipIncomingRingingUI: skipRing
+                )
+                pushPeerCallOnSelf(vc, animated: !skipRing)
+                WebRTCCallManager.shared.clearPendingIncomingPeerCallPresentation()
+            }
         }
     }
 
+    @available(iOS 13.0, *)
     private func pushPeerCallOnSelf(_ vc: PeerCallViewController, animated: Bool) {
         let push: () -> Void = { [weak self] in
             self?.pushViewController(vc, animated: animated)
@@ -359,6 +384,7 @@ final class MezonRootController: NavigationController {
         }
     }
 
+    @available(iOS 13.0, *)
     func flushPendingIncomingPeerCallIfNeeded() {
         guard WebRTCCallManager.shared.peekPendingIncomingPeerCallPresentation() != nil else { return }
         switch peerCallIncomingPresentHost() {
@@ -377,6 +403,7 @@ final class MezonRootController: NavigationController {
         case ready(UIViewController)
     }
 
+    @available(iOS 13.0, *)
     private func stashIncomingPeerCallAndScheduleFlush(_ userInfo: [AnyHashable: Any]) {
         WebRTCCallManager.shared.stashIncomingPeerCallPresentation(userInfo)
         DispatchQueue.main.async { [weak self] in
@@ -390,6 +417,9 @@ final class MezonRootController: NavigationController {
     }
 
     private func peerCallApplicationModalRootViewController() -> UIViewController? {
+        guard #available(iOS 13.0, *) else {
+            return mezonKeyWindow()?.rootViewController
+        }
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .filter { $0.session.role == .windowApplication }
             .filter { [.foregroundActive, .foregroundInactive].contains($0.activationState) }
@@ -415,6 +445,7 @@ final class MezonRootController: NavigationController {
         return nil
     }
 
+    @available(iOS 13.0, *)
     private func peerCallIncomingPresentHost() -> PeerCallIncomingPresentHost {
         guard let root = peerCallApplicationModalRootViewController() else {
             return .noHost
@@ -432,9 +463,12 @@ final class MezonRootController: NavigationController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        flushPendingIncomingPeerCallIfNeeded()
+        if #available(iOS 13.0, *) {
+            flushPendingIncomingPeerCallIfNeeded()
+        }
     }
 
+    @available(iOS 13.0, *)
     private func navigateToDM(channelIdStr: String) {
         guard let channelIdInt = Int64(channelIdStr) else { return }
         rootTabController?.selectedIndex = 1
@@ -515,6 +549,7 @@ final class MezonRootController: NavigationController {
         return false
     }
 
+    @available(iOS 13.0, *)
     private func navigateToChannel(channelIdStr: String, clanIdStr: String?) {
         guard let channelIdInt = Int64(channelIdStr) else { return }
         let notificationClanId: Int64? = clanIdStr.flatMap { Int64($0) }
@@ -659,6 +694,7 @@ final class MezonRootController: NavigationController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func switchClanIfNeeded(homeVC: HomeViewController, toClanId: Int64) {
         guard toClanId != 0, toClanId != homeVC.clanListVC.selectedClanId else { return }
         if let clan = homeVC.clanListVC.clans.first(where: { $0.clanID == toClanId }) {
@@ -691,6 +727,7 @@ final class MezonRootController: NavigationController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func fetchClanChannelsInBackground(clanId: Int64, selectChannelId: Int64? = nil) {
         guard clanId != 0 else { return }
         Task { @MainActor [weak self] in
@@ -755,7 +792,9 @@ final class MezonRootController: NavigationController {
 
     @objc private func handleSharedContent(_ notification: Notification) {
         let type = notification.userInfo?["type"] as? String ?? "unknown"
-        presentSharingUI(type: type)
+        if #available(iOS 13.0, *) {
+            presentSharingUI(type: type)
+        }
     }
 
     private func checkPendingSharedContentOnLaunch() {
@@ -763,10 +802,13 @@ final class MezonRootController: NavigationController {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
             guard let self else { return }
             guard SharingManager.shared.hasPendingSharedContent() else { return }
-            self.presentSharingUI(type: "unknown")
+            if #available(iOS 13.0, *) {
+                self.presentSharingUI(type: "unknown")
+            }
         }
     }
 
+    @available(iOS 13.0, *)
     private func presentSharingUI(type: String) {
         guard let content = SharingManager.shared.loadSharedContent(type: type) else {
             return
@@ -832,6 +874,7 @@ final class MezonRootController: NavigationController {
         completion(resolvedSharePresentationAnchor(from: root))
     }
 
+    @available(iOS 13.0, *)
     private func presentSharingViewController(
         _ sharingVC: SharingViewController,
         on anchor: UIViewController
@@ -867,16 +910,20 @@ final class MezonRootController: NavigationController {
 
     // MARK: - Deep links
 
+    @available(iOS 13.0, *)
     private func processPendingDeepLink() {
         guard let route = DeepLinkRouter.consumePending() else { return }
         scheduleDeepLink(route)
     }
 
     @objc private func handleDeepLink() {
-        guard let route = DeepLinkRouter.consumePending() else { return }
-        scheduleDeepLink(route)
+        if #available(iOS 13.0, *) {
+            guard let route = DeepLinkRouter.consumePending() else { return }
+            scheduleDeepLink(route)
+        }
     }
 
+    @available(iOS 13.0, *)
     private func scheduleDeepLink(_ route: DeepLinkRoute) {
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -894,6 +941,7 @@ final class MezonRootController: NavigationController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func performDeepLink(_ route: DeepLinkRoute) {
         switch route {
         case let .channelApp(channelId, clanId, _, _):
@@ -916,6 +964,7 @@ final class MezonRootController: NavigationController {
         presentDeepLinkOverlay(vc)
     }
 
+    @available(iOS 13.0, *)
     private func handleDeepLinkLogin(loginId: String) {
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -971,6 +1020,7 @@ final class MezonRootController: NavigationController {
         presenter.present(controller, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func handleDeepLinkChannelApp(channelId: String, clanId: String?) {
         guard let channelIdInt = Int64(channelId) else { return }
         Task { @MainActor [weak self] in
@@ -1007,6 +1057,7 @@ final class MezonRootController: NavigationController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func handleDeepLinkInvite(code: String) {
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -1049,6 +1100,7 @@ final class MezonRootController: NavigationController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func handleDeepLinkChat(username: String, data: String?) {
         guard let data, let profile = DeepLinkRouter.decodeProfileData(data) else {
             return
@@ -1087,23 +1139,27 @@ final class MezonRootController: NavigationController {
     }
 
     static func makeNavTheme(theme: AppTheme? = nil) -> NavigationControllerTheme {
-        let actualTheme = theme ?? ThemeManager.shared.current
-        let isDark = actualTheme.usesLightStatusBarContent
-        return NavigationControllerTheme(
-            statusBar: isDark ? .white : .black,
-            navigationBar: NavigationBarTheme(
-                overallDarkAppearance: isDark,
-                buttonColor: UIColor.theme.textStrong,
-                disabledButtonColor: UIColor.theme.textDisabled,
-                primaryTextColor: UIColor.theme.textStrong,
-                backgroundColor: UIColor.theme.secondary,
-                enableBackgroundBlur: false,
-                separatorColor: UIColor.theme.border,
-                badgeBackgroundColor: UIColor.mezonUnreadBadge,
-                badgeStrokeColor: .clear,
-                badgeTextColor: .white
-            ),
-            emptyAreaColor: UIColor.theme.primary
-        )
+        mezonNavigationTheme(theme: theme)
     }
+}
+
+func mezonNavigationTheme(theme: AppTheme? = nil) -> NavigationControllerTheme {
+    let actualTheme = theme ?? ThemeManager.shared.current
+    let isDark = actualTheme.usesLightStatusBarContent
+    return NavigationControllerTheme(
+        statusBar: isDark ? .white : .black,
+        navigationBar: NavigationBarTheme(
+            overallDarkAppearance: isDark,
+            buttonColor: UIColor.theme.textStrong,
+            disabledButtonColor: UIColor.theme.textDisabled,
+            primaryTextColor: UIColor.theme.textStrong,
+            backgroundColor: UIColor.theme.secondary,
+            enableBackgroundBlur: false,
+            separatorColor: UIColor.theme.border,
+            badgeBackgroundColor: UIColor.mezonUnreadBadge,
+            badgeStrokeColor: .clear,
+            badgeTextColor: .white
+        ),
+        emptyAreaColor: UIColor.theme.primary
+    )
 }

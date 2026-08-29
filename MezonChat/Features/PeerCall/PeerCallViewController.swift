@@ -2,7 +2,7 @@ import AVFoundation
 import AsyncDisplayKit
 import UIKit
 
-@MainActor
+@available(iOS 13.0, *)
 final class PeerCallViewController: ViewController {
 
     private enum Entry {
@@ -234,7 +234,7 @@ final class PeerCallViewController: ViewController {
         remoteMutedBanner.setContentHuggingPriority(.required, for: .horizontal)
         remoteMutedBanner.setContentCompressionResistancePriority(.required, for: .vertical)
 
-        remoteMutedIcon.image = UIImage(systemName: "mic.slash.fill")
+        remoteMutedIcon.image = UIImage.mezonSystemImage("mic.slash.fill")
         remoteMutedIcon.contentMode = .scaleAspectFit
         remoteMutedIcon.setContentHuggingPriority(.required, for: .horizontal)
 
@@ -275,7 +275,7 @@ final class PeerCallViewController: ViewController {
         speakerCaption.font = .systemFont(ofSize: 12, weight: .semibold)
 
         configureFooterCircle(endButton, side: 54)
-        endButton.setImage(UIImage(systemName: "phone.down.fill"), for: .normal)
+        endButton.setImage(UIImage.mezonSystemImage("phone.down.fill"), for: .normal)
         endButton.addTarget(self, action: #selector(endTapped), for: .touchUpInside)
 
         endCaption.font = .systemFont(ofSize: 12, weight: .semibold)
@@ -1259,7 +1259,7 @@ final class PeerCallViewController: ViewController {
         } else {
             spkName = Self.peerCallFooterSpeakerSymbol(speakerRouteOn: speakerRouteOn, session: av)
         }
-        speakerButton.setImage(UIImage(systemName: spkName), for: .normal)
+        speakerButton.setImage(UIImage.mezonSystemImage(spkName), for: .normal)
         let spkrTitle = PeerCallLocalizedStrings.actionSpeaker
         speakerCaption.text = spkrTitle
         speakerButton.accessibilityLabel = spkrTitle
@@ -1274,7 +1274,7 @@ final class PeerCallViewController: ViewController {
             micButton.backgroundColor = dimFill
             micButton.tintColor = inactiveTint
         }
-        micButton.setImage(UIImage(systemName: localMicOn ? "mic.fill" : "mic.slash.fill"), for: .normal)
+        micButton.setImage(UIImage.mezonSystemImage(localMicOn ? "mic.fill" : "mic.slash.fill"), for: .normal)
     }
 
     private static let peerCallEndAccent = UIColor(red: 220 / 255, green: 38 / 255, blue: 38 / 255, alpha: 1)
@@ -1319,7 +1319,7 @@ final class PeerCallViewController: ViewController {
             headerVideoButton.backgroundColor = dimFill
             headerVideoButton.tintColor = theme.text
         }
-        let img = localCameraOn ? UIImage(systemName: "video.fill") : UIImage(systemName: "video.slash.fill")
+        let img = localCameraOn ? UIImage.mezonSystemImage("video.fill") : UIImage.mezonSystemImage("video.slash.fill")
         headerVideoButton.setImage(img, for: .normal)
     }
 
@@ -1340,15 +1340,19 @@ final class PeerCallViewController: ViewController {
         b.tintColor = UIColor.theme.text
         b.layer.cornerRadius = 24
         b.clipsToBounds = true
-        b.setImage(UIImage(systemName: symbol), for: .normal)
-        b.imageView?.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
+        b.setImage(UIImage.mezonSystemImage(symbol), for: .normal)
+        if #available(iOS 13.0, *) {
+            b.imageView?.preferredSymbolConfiguration = MezonSymbolConfiguration(pointSize: 18, weight: .semibold).uiKitConfiguration
+        }
     }
 
     private func configureFooterCircle(_ b: UIButton, side: CGFloat) {
         b.translatesAutoresizingMaskIntoConstraints = false
         b.layer.cornerRadius = side / 2
         b.clipsToBounds = true
-        b.imageView?.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 21, weight: .semibold)
+        if #available(iOS 13.0, *) {
+            b.imageView?.preferredSymbolConfiguration = MezonSymbolConfiguration(pointSize: 21, weight: .semibold).uiKitConfiguration
+        }
     }
 
     private func styleCircleButton(_ b: UIButton, tint: UIColor, systemImage: String, diameter: CGFloat = 56) {
@@ -1356,8 +1360,10 @@ final class PeerCallViewController: ViewController {
         b.backgroundColor = .clear
         b.tintColor = tint
         b.layer.cornerRadius = diameter / 2
-        let img = UIImage(systemName: systemImage)
+        let img = UIImage.mezonSystemImage(systemImage)
         b.setImage(img, for: .normal)
-        b.imageView?.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)
+        if #available(iOS 13.0, *) {
+            b.imageView?.preferredSymbolConfiguration = MezonSymbolConfiguration(pointSize: 20, weight: .semibold).uiKitConfiguration
+        }
     }
 }

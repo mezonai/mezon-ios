@@ -3,7 +3,6 @@ import SwiftProtobuf
 
 extension MezonEngine {
 
-    @MainActor
     final class Channels {
         private let engine: MezonEngine
         private var network: MezonHTTPClient { engine.account.network }
@@ -11,10 +10,14 @@ extension MezonEngine {
 
         init(engine: MezonEngine) { self.engine = engine }
 
+        @available(iOS 13.0, *)
+        @MainActor
         func listChannelDescs(clanId: Int64, token: String) async throws -> [Mezon_Api_ChannelDescription] {
             try await network.listChannelDescs(clanId: clanId, token: token)
         }
 
+        @available(iOS 13.0, *)
+        @MainActor
         func listDirectMessageChannels(token: String) async throws -> [Mezon_Api_ChannelDescription] {
             try await network.listDirectMessageChannels(token: token)
         }
@@ -23,6 +26,7 @@ extension MezonEngine {
             postbox.channelListView(clanId: clanId)
         }
 
+        @available(iOS 13.0, *)
         func updateChannelDescription(
             clanId: Int64,
             channelId: Int64,

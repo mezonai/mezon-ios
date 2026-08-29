@@ -3,7 +3,6 @@ import SwiftProtobuf
 
 extension MezonEngine {
 
-    @MainActor
     final class Messages {
         private let engine: MezonEngine
         private var network: MezonHTTPClient { engine.account.network }
@@ -11,6 +10,7 @@ extension MezonEngine {
 
         init(engine: MezonEngine) { self.engine = engine }
 
+        @available(iOS 13.0, *)
         func listChannelMessages(
             clanId: Int64,
             channelId: Int64,
@@ -27,6 +27,7 @@ extension MezonEngine {
             )
         }
 
+        @available(iOS 13.0, *)
         func sendChannelMessage(
             clanId: Int64, channelId: Int64, mode: Int32,
             isPublic: Bool, content: String,

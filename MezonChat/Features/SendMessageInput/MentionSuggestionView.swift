@@ -247,7 +247,7 @@ private final class MentionSuggestionCell: UITableViewCell {
     private func showRolePlaceholder(accent: UIColor) {
         avatarImageView.backgroundColor = .clear
         avatarImageView.contentMode = .scaleAspectFit
-        avatarImageView.image = UIImage(systemName: "shield.fill")?.withRenderingMode(.alwaysTemplate)
+        avatarImageView.image = UIImage.mezonSystemImage("shield.fill")?.withRenderingMode(.alwaysTemplate)
         avatarImageView.tintColor = accent
     }
 

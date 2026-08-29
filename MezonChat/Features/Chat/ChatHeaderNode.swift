@@ -26,7 +26,7 @@ final class ChatHeaderNode: ASDisplayNode {
         automaticallyManagesSubnodes = true
 
         backButtonNode.setImage(
-            UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate),
+            UIImage.mezonSystemImage("chevron.left")?.withRenderingMode(.alwaysTemplate),
             for: .normal
         )
         backButtonNode.addTarget(self, action: #selector(backPressed), forControlEvents: .touchUpInside)
@@ -34,21 +34,21 @@ final class ChatHeaderNode: ASDisplayNode {
         titleContainerNode.automaticallyManagesSubnodes = true
         titleContainerNode.addTarget(self, action: #selector(headerPressed), forControlEvents: .touchUpInside)
         callButtonNode.setImage(
-            UIImage(systemName: "phone.fill")?.withRenderingMode(.alwaysTemplate),
+            UIImage.mezonSystemImage("phone.fill")?.withRenderingMode(.alwaysTemplate),
             for: .normal
         )
         callButtonNode.addTarget(self, action: #selector(callPressed), forControlEvents: .touchUpInside)
         callButtonNode.isHidden = true
 
         videoCallButtonNode.setImage(
-            UIImage(systemName: "video.fill")?.withRenderingMode(.alwaysTemplate),
+            UIImage.mezonSystemImage("video.fill")?.withRenderingMode(.alwaysTemplate),
             for: .normal
         )
         videoCallButtonNode.addTarget(self, action: #selector(videoCallPressed), forControlEvents: .touchUpInside)
         videoCallButtonNode.isHidden = true
 
         searchButtonNode.setImage(
-            UIImage(systemName: "magnifyingglass")?.withRenderingMode(.alwaysTemplate),
+            UIImage.mezonSystemImage("magnifyingglass")?.withRenderingMode(.alwaysTemplate),
             for: .normal
         )
         searchButtonNode.addTarget(self, action: #selector(searchPressed), forControlEvents: .touchUpInside)
@@ -123,7 +123,7 @@ final class ChatHeaderNode: ASDisplayNode {
             channelIconNode.isHidden = false
             callButtonNode.isHidden = true
             videoCallButtonNode.isHidden = true
-            let image = UIImage(named: iconName) ?? UIImage(systemName: iconName)
+            let image = UIImage(named: iconName) ?? UIImage.mezonSystemImage(iconName)
             channelIconNode.image = image?.withRenderingMode(.alwaysTemplate)
             channelIconNode.tintColor = t.textStrong
         }

@@ -2,6 +2,7 @@ import UIKit
 import SwiftProtobuf
 import AVFoundation
 
+@available(iOS 13.0, *)
 final class SharingViewController: UIViewController {
 
     private let context: AccountContext
@@ -26,7 +27,7 @@ final class SharingViewController: UIViewController {
     private var filterTooltipHost: UIView?
     private var filterTooltipPanel: UIView?
     private var isUploading = false
-    private var sendTask: Task<Void, Never>?
+    private var sendTask: CancelHandle?
     private var searchDebounceTimer: Foundation.Timer?
 
     private var uploadProgressByKey: [String: Double] = [:]
@@ -46,8 +47,8 @@ final class SharingViewController: UIViewController {
 
     private let closeButton: UIButton = {
         let b = UIButton(type: .system)
-        let config = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
-        b.setImage(UIImage(systemName: "xmark", withConfiguration: config), for: .normal)
+        let config = MezonSymbolConfiguration(pointSize: 18, weight: .medium)
+        b.setImage(UIImage.mezonSystemImage("xmark", withConfiguration: config), for: .normal)
         b.translatesAutoresizingMaskIntoConstraints = false
         return b
     }()
@@ -69,7 +70,7 @@ final class SharingViewController: UIViewController {
     }()
 
     private let searchIconView: UIImageView = {
-        let iv = UIImageView(image: UIImage(systemName: "magnifyingglass"))
+        let iv = UIImageView(image: UIImage.mezonSystemImage("magnifyingglass"))
         iv.translatesAutoresizingMaskIntoConstraints = false
         iv.contentMode = .scaleAspectFit
         return iv
@@ -87,8 +88,8 @@ final class SharingViewController: UIViewController {
 
     private let searchClearButton: UIButton = {
         let b = UIButton(type: .system)
-        let config = UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
-        b.setImage(UIImage(systemName: "xmark", withConfiguration: config), for: .normal)
+        let config = MezonSymbolConfiguration(pointSize: 12, weight: .semibold)
+        b.setImage(UIImage.mezonSystemImage("xmark", withConfiguration: config), for: .normal)
         b.layer.cornerRadius = 12
         b.translatesAutoresizingMaskIntoConstraints = false
         b.isHidden = true
@@ -126,8 +127,8 @@ final class SharingViewController: UIViewController {
 
     private let filterButton: UIButton = {
         let b = UIButton(type: .system)
-        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-        b.setImage(UIImage(systemName: "slider.horizontal.3", withConfiguration: config), for: .normal)
+        let config = MezonSymbolConfiguration(pointSize: 16, weight: .medium)
+        b.setImage(UIImage.mezonSystemImage("slider.horizontal.3", withConfiguration: config), for: .normal)
         b.translatesAutoresizingMaskIntoConstraints = false
         return b
     }()
@@ -214,8 +215,8 @@ final class SharingViewController: UIViewController {
     private let sendButton: UIButton = {
         let b = UIButton(type: .system)
         b.translatesAutoresizingMaskIntoConstraints = false
-        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .bold)
-        b.setImage(UIImage(systemName: "arrow.up", withConfiguration: config), for: .normal)
+        let config = MezonSymbolConfiguration(pointSize: 16, weight: .bold)
+        b.setImage(UIImage.mezonSystemImage("arrow.up", withConfiguration: config), for: .normal)
         b.layer.cornerRadius = 20
         b.isEnabled = false
         b.alpha = 1.0
@@ -240,7 +241,7 @@ final class SharingViewController: UIViewController {
     }()
 
     private let activityIndicator: UIActivityIndicatorView = {
-        let ai = UIActivityIndicatorView(style: .medium)
+        let ai = UIActivityIndicatorView.mezonMedium()
         ai.translatesAutoresizingMaskIntoConstraints = false
         ai.hidesWhenStopped = true
         return ai
@@ -704,8 +705,8 @@ final class SharingViewController: UIViewController {
             row.tag = spec.0.rawValue
             row.frame = CGRect(x: 0, y: contentY, width: targetWidth, height: rowH)
             let isRowSelected = spec.0 == suggestionFilter
-            let iconWeight: UIImage.SymbolWeight = isRowSelected ? .semibold : .medium
-            let sym = UIImage(systemName: spec.1, withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: iconWeight))
+            let iconWeight: UIFont.Weight = isRowSelected ? .semibold : .medium
+            let sym = UIImage.mezonSystemImage(spec.1, withConfiguration: MezonSymbolConfiguration(pointSize: 16, weight: iconWeight))
             row.setImage(sym, for: .normal)
             row.tintColor = t.iconSecondary
             let titleFont = UIFont.systemFont(ofSize: 14, weight: isRowSelected ? .semibold : .regular)
@@ -720,7 +721,7 @@ final class SharingViewController: UIViewController {
             row.titleEdgeInsets = UIEdgeInsets(top: 0, left: 10, bottom: 0, right: 0)
             row.backgroundColor = isRowSelected ? t.tertiary : .clear
             if isRowSelected {
-                let check = UIImageView(image: UIImage(systemName: "checkmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)))
+                let check = UIImageView(image: UIImage.mezonSystemImage("checkmark", withConfiguration: MezonSymbolConfiguration(pointSize: 13, weight: .semibold)))
                 check.tintColor = t.iconPrimary
                 check.frame = CGRect(x: targetWidth - padX - 17, y: (rowH - 16) / 2, width: 16, height: 16)
                 check.isUserInteractionEnabled = false
@@ -909,7 +910,7 @@ final class SharingViewController: UIViewController {
                     overlay.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor),
                     overlay.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor),
                 ])
-                let playIcon = UIImageView(image: UIImage(systemName: "play.fill"))
+                let playIcon = UIImageView(image: UIImage.mezonSystemImage("play.fill"))
                 playIcon.translatesAutoresizingMaskIntoConstraints = false
                 playIcon.tintColor = .white
                 playIcon.contentMode = .scaleAspectFit
@@ -923,7 +924,7 @@ final class SharingViewController: UIViewController {
 
             case .file:
                 wrapper.backgroundColor = UIColor.theme.tertiary
-                let fileIcon = UIImageView(image: UIImage(systemName: "doc.fill"))
+                let fileIcon = UIImageView(image: UIImage.mezonSystemImage("doc.fill"))
                 fileIcon.translatesAutoresizingMaskIntoConstraints = false
                 fileIcon.tintColor = UIColor.theme.textLink
                 fileIcon.contentMode = .scaleAspectFit
@@ -953,8 +954,8 @@ final class SharingViewController: UIViewController {
 
             let removeBtn = UIButton(type: .system)
             removeBtn.translatesAutoresizingMaskIntoConstraints = false
-            let removeConfig = UIImage.SymbolConfiguration(pointSize: 10, weight: .bold)
-            removeBtn.setImage(UIImage(systemName: "xmark", withConfiguration: removeConfig), for: .normal)
+            let removeConfig = MezonSymbolConfiguration(pointSize: 10, weight: .bold)
+            removeBtn.setImage(UIImage.mezonSystemImage("xmark", withConfiguration: removeConfig), for: .normal)
             removeBtn.tintColor = .white
             removeBtn.backgroundColor = UIColor.black.withAlphaComponent(0.5)
             removeBtn.layer.cornerRadius = 10
@@ -1170,13 +1171,13 @@ final class SharingViewController: UIViewController {
                 self?.selectedAvatarView.image = image
             }
         } else if isGroup {
-            selectedAvatarView.image = UIImage(systemName: "person.2.fill")?.withRenderingMode(.alwaysTemplate)
+            selectedAvatarView.image = UIImage.mezonSystemImage("person.2.fill")?.withRenderingMode(.alwaysTemplate)
             selectedAvatarView.contentMode = .scaleAspectFit
             selectedInitialLabel.isHidden = true
             selectedAvatarView.backgroundColor = SharingChannelCell.groupDefaultAvatarBackground
         } else {
             let iconName = channel.channelListIconAssetName()
-            selectedAvatarView.image = (UIImage(named: iconName) ?? UIImage(systemName: "number"))?.withRenderingMode(.alwaysTemplate)
+            selectedAvatarView.image = (UIImage(named: iconName) ?? UIImage.mezonSystemImage("number"))?.withRenderingMode(.alwaysTemplate)
             selectedAvatarView.contentMode = .scaleAspectFit
             selectedInitialLabel.isHidden = true
             selectedAvatarView.backgroundColor = st.tertiary
@@ -1207,6 +1208,7 @@ final class SharingViewController: UIViewController {
         return (clanID, channelClanName)
     }
 
+    @available(iOS 13.0, *)
     private func loadChannels() {
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -1376,6 +1378,7 @@ final class SharingViewController: UIViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func uploadSharedVideoThumbnail(
         thumbnailURL: URL,
         videoFilename: String,
@@ -1426,6 +1429,7 @@ final class SharingViewController: UIViewController {
         showsUploadProgress = hasLargeFile && uploadTotalBytes > 0
     }
 
+    @available(iOS 13.0, *)
     private func performSend(to channel: Mezon_Api_ChannelDescription) {
         sendTask?.cancel()
         prepareUploadProgress()
@@ -1441,7 +1445,7 @@ final class SharingViewController: UIViewController {
             : L(L10n.Sharing.sending)
         updateSendButton()
 
-        sendTask = Task { @MainActor [weak self] in
+        let sendTaskWork = Task { @MainActor [weak self] in
             guard let self else { return }
             var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
             backgroundTaskID = UIApplication.shared.beginBackgroundTask {
@@ -1630,8 +1634,11 @@ final class SharingViewController: UIViewController {
                 self.showError(self.userFacingShareError(error))
             }
         }
+
+        sendTask = CancelHandle { sendTaskWork.cancel() }
     }
 
+    @available(iOS 13.0, *)
     private func userFacingShareError(_ error: Error) -> String {
         if let sharingError = error as? SharingSendError {
             return sharingError.message
@@ -1686,6 +1693,7 @@ private enum SharingSendError: Error {
     }
 }
 
+@available(iOS 13.0, *)
 extension SharingViewController: UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
@@ -1717,6 +1725,7 @@ extension SharingViewController: UITableViewDelegate {
     }
 }
 
+@available(iOS 13.0, *)
 extension SharingViewController: UITableViewDataSourcePrefetching {
 
     func tableView(_ tableView: UITableView, prefetchRowsAt indexPaths: [IndexPath]) {
@@ -1738,6 +1747,7 @@ extension SharingViewController: UITableViewDataSourcePrefetching {
     }
 }
 
+@available(iOS 13.0, *)
 extension SharingViewController: UITextFieldDelegate {
 
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {

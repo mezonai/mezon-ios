@@ -1,7 +1,6 @@
 import UIKit
 import AsyncDisplayKit
 
-@MainActor
 final class CreateNewRoleViewController: BaseViewController {
 
     private let context: AccountContext
@@ -78,7 +77,7 @@ final class CreateNewRoleViewController: BaseViewController {
         view.addSubview(headerView)
 
         backButton.setImage(
-            UIImage(systemName: "xmark")?.withRenderingMode(.alwaysTemplate),
+            UIImage.mezonSystemImage("xmark")?.withRenderingMode(.alwaysTemplate),
             for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
         backButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
@@ -182,7 +181,7 @@ final class CreateNewRoleViewController: BaseViewController {
         colorIndicator.layer.borderWidth = 1
         colorIndicator.layer.borderColor = UIColor.theme.borderDim.cgColor
 
-        let chevron = UIImageView(image: UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate))
+        let chevron = UIImageView(image: UIImage.mezonSystemImage("chevron.right")?.withRenderingMode(.alwaysTemplate))
         chevron.tintColor = UIColor.theme.textDisabled
         chevron.contentMode = .scaleAspectFit
 
@@ -296,34 +295,36 @@ final class CreateNewRoleViewController: BaseViewController {
     }
 
     @objc private func createTapped() {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !isCreating else { return }
-        isCreating = true
-        refreshCreateButton()
-        inputField.resignFirstResponder()
+        if #available(iOS 13.0, *) {
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, !isCreating else { return }
+            isCreating = true
+            refreshCreateButton()
+            inputField.resignFirstResponder()
 
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                let role = try await self.repository.createRole(
-                    clanId: self.clanId,
-                    title: trimmed,
-                    color: self.selectedColor,
-                    roleIcon: "",
-                    addUserIds: [],
-                    activePermissionIds: []
-                )
-                let next = SetupPermissionsViewController(
-                    context: self.context, clanId: self.clanId,
-                    mode: .wizard(roleId: role.id)
-                )
-                let viewControllers = (self.navigationController?.viewControllers ?? [])
-                    .filter { $0 !== self }
-                self.navigationController?.setViewControllers(viewControllers + [next], animated: true)
-            } catch {
-                Toast.error(L(L10n.ClanRoles.failed))
-                self.isCreating = false
-                self.refreshCreateButton()
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    let role = try await self.repository.createRole(
+                        clanId: self.clanId,
+                        title: trimmed,
+                        color: self.selectedColor,
+                        roleIcon: "",
+                        addUserIds: [],
+                        activePermissionIds: []
+                    )
+                    let next = SetupPermissionsViewController(
+                        context: self.context, clanId: self.clanId,
+                        mode: .wizard(roleId: role.id)
+                    )
+                    let viewControllers = (self.navigationController?.viewControllers ?? [])
+                        .filter { $0 !== self }
+                    self.navigationController?.setViewControllers(viewControllers + [next], animated: true)
+                } catch {
+                    Toast.error(L(L10n.ClanRoles.failed))
+                    self.isCreating = false
+                    self.refreshCreateButton()
+                }
             }
         }
     }

@@ -97,7 +97,6 @@ enum ClanCreationTemplate: Int, CaseIterable {
     }
 }
 
-@MainActor
 enum ClanCreationLimit {
     static let maxClans = 50
 

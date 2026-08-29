@@ -7,7 +7,7 @@ struct MemberOnboardingChannelNavigation {
 }
 
 enum MemberOnboardingChannelRouting {
-    @MainActor
+    @available(iOS 13.0, *)
     static func openChannel(
         channelId: Int64,
         completeVisit: Bool,

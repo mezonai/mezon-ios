@@ -165,12 +165,12 @@ private final class MessageReactionDetailSheetNode: ASDisplayNode, UICollectionV
 
         if #available(iOS 15.0, *) {
             var trashCfg = UIButton.Configuration.plain()
-            trashCfg.image = UIImage(systemName: "trash.fill")
-            trashCfg.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+            trashCfg.image = UIImage.mezonSystemImage("trash.fill")
+            trashCfg.preferredSymbolConfigurationForImage = MezonSymbolConfiguration(pointSize: 16, weight: .medium).uiKitConfiguration
             trashCfg.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8)
             trashButton.configuration = trashCfg
         } else {
-            let trashImg = UIImage(systemName: "trash.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .medium))
+            let trashImg = UIImage.mezonSystemImage("trash.fill", withConfiguration: MezonSymbolConfiguration(pointSize: 16, weight: .medium))
             trashButton.setImage(trashImg, for: .normal)
             trashButton.contentEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
         }
@@ -358,7 +358,7 @@ private final class MessageReactionDetailSheetNode: ASDisplayNode, UICollectionV
             self.performRemoveForCurrentUser(onEmojiId: rx.emojiId)
             done(true)
         }
-        remove.image = UIImage(systemName: "trash.fill")
+        remove.image = UIImage.mezonSystemImage("trash.fill")
         remove.backgroundColor = UIColor.systemRed
         let cfg = UISwipeActionsConfiguration(actions: [remove])
         cfg.performsFirstActionWithFullSwipe = true

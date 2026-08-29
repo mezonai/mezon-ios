@@ -58,14 +58,14 @@ final class FriendListContainerNode: ASDisplayNode {
         return style
     }()
 
-    private func makeSymbolImage(name: String, pointSize: CGFloat, weight: UIImage.SymbolWeight? = nil) -> UIImage? {
-        let config: UIImage.SymbolConfiguration
+    private func makeSymbolImage(name: String, pointSize: CGFloat, weight: UIFont.Weight? = nil) -> UIImage? {
+        let config: MezonSymbolConfiguration
         if let weight {
-            config = UIImage.SymbolConfiguration(pointSize: pointSize, weight: weight)
+            config = MezonSymbolConfiguration(pointSize: pointSize, weight: weight)
         } else {
-            config = UIImage.SymbolConfiguration(pointSize: pointSize)
+            config = MezonSymbolConfiguration(pointSize: pointSize)
         }
-        return UIImage(systemName: name, withConfiguration: config)?.withRenderingMode(.alwaysTemplate)
+        return UIImage.mezonSystemImage(name, withConfiguration: config)?.withRenderingMode(.alwaysTemplate)
     }
 
     init(signal: Signal<FriendListState, NoError>, interaction: FriendListInteraction) {

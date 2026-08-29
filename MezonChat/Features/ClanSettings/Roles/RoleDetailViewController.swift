@@ -1,7 +1,6 @@
 import UIKit
 import AsyncDisplayKit
 
-@MainActor
 final class RoleDetailViewController: BaseViewController {
 
     private let context: AccountContext
@@ -42,7 +41,7 @@ final class RoleDetailViewController: BaseViewController {
     private let iconPreview = UIImageView()
     private let iconRemoveButton = UIButton(type: .system)
     private let iconLockIcon = UIImageView()
-    private let iconUploadSpinner = UIActivityIndicatorView(style: .medium)
+    private let iconUploadSpinner = UIActivityIndicatorView.mezonMedium()
     private var iconLoadTask: URLSessionDataTask?
     private var iconURL: String = ""
     private var isUploadingIcon: Bool = false
@@ -119,9 +118,11 @@ final class RoleDetailViewController: BaseViewController {
         super.viewDidLoad()
         reloadFromStore(resettingDraft: true)
         if let role = role, role.roleUserList.roleUsers.isEmpty, !isEveryone {
-            Task { [weak self] in
-                guard let self else { return }
-                await self.repository.fetchRoleMembers(roleId: self.roleId, clanId: self.clanId)
+            if #available(iOS 13.0, *) {
+                Task { [weak self] in
+                    guard let self else { return }
+                    await self.repository.fetchRoleMembers(roleId: self.roleId, clanId: self.clanId)
+                }
             }
         }
     }
@@ -142,7 +143,7 @@ final class RoleDetailViewController: BaseViewController {
         headerView.translatesAutoresizingMaskIntoConstraints = false
 
         backButton.setImage(
-            UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate),
+            UIImage.mezonSystemImage("chevron.left")?.withRenderingMode(.alwaysTemplate),
             for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
@@ -266,12 +267,12 @@ final class RoleDetailViewController: BaseViewController {
         colorIndicator.layer.borderWidth = 1
         colorIndicator.layer.borderColor = UIColor.theme.borderDim.cgColor
 
-        colorLockIcon.image = UIImage(systemName: "lock.fill")?.withRenderingMode(.alwaysTemplate)
+        colorLockIcon.image = UIImage.mezonSystemImage("lock.fill")?.withRenderingMode(.alwaysTemplate)
         colorLockIcon.tintColor = UIColor.theme.textDisabled
         colorLockIcon.contentMode = .scaleAspectFit
         colorLockIcon.isHidden = true
 
-        let chevron = UIImageView(image: UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate))
+        let chevron = UIImageView(image: UIImage.mezonSystemImage("chevron.right")?.withRenderingMode(.alwaysTemplate))
         chevron.tintColor = UIColor.theme.textDisabled
         chevron.contentMode = .scaleAspectFit
 
@@ -336,16 +337,16 @@ final class RoleDetailViewController: BaseViewController {
         iconPreview.layer.borderColor = UIColor.theme.borderDim.cgColor
         iconPreview.backgroundColor = UIColor.theme.secondary
         iconPreview.tintColor = UIColor.theme.textDisabled
-        iconPreview.image = UIImage(systemName: "photo")?.withRenderingMode(.alwaysTemplate)
+        iconPreview.image = UIImage.mezonSystemImage("photo")?.withRenderingMode(.alwaysTemplate)
 
         iconRemoveButton.setImage(
-            UIImage(systemName: "xmark.circle.fill")?.withRenderingMode(.alwaysTemplate),
+            UIImage.mezonSystemImage("xmark.circle.fill")?.withRenderingMode(.alwaysTemplate),
             for: .normal)
         iconRemoveButton.tintColor = UIColor.systemRed
         iconRemoveButton.isHidden = true
         iconRemoveButton.addTarget(self, action: #selector(removeIconTapped), for: .touchUpInside)
 
-        iconLockIcon.image = UIImage(systemName: "lock.fill")?.withRenderingMode(.alwaysTemplate)
+        iconLockIcon.image = UIImage.mezonSystemImage("lock.fill")?.withRenderingMode(.alwaysTemplate)
         iconLockIcon.tintColor = UIColor.theme.textDisabled
         iconLockIcon.contentMode = .scaleAspectFit
         iconLockIcon.isHidden = true
@@ -353,7 +354,7 @@ final class RoleDetailViewController: BaseViewController {
         iconUploadSpinner.hidesWhenStopped = true
         iconUploadSpinner.color = UIColor.theme.textDisabled
 
-        let chevron = UIImageView(image: UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate))
+        let chevron = UIImageView(image: UIImage.mezonSystemImage("chevron.right")?.withRenderingMode(.alwaysTemplate))
         chevron.tintColor = UIColor.theme.textDisabled
         chevron.contentMode = .scaleAspectFit
 
@@ -420,7 +421,7 @@ final class RoleDetailViewController: BaseViewController {
             label.textColor = .mezonTextPrimary
         }
         for lock in [permissionsLock, membersLock] {
-            lock.image = UIImage(systemName: "lock.fill")?.withRenderingMode(.alwaysTemplate)
+            lock.image = UIImage.mezonSystemImage("lock.fill")?.withRenderingMode(.alwaysTemplate)
             lock.tintColor = UIColor.theme.textDisabled
             lock.contentMode = .scaleAspectFit
             lock.isHidden = true
@@ -475,7 +476,7 @@ final class RoleDetailViewController: BaseViewController {
         row.addSubview(label)
         row.addSubview(lock)
 
-        let chevron = UIImageView(image: UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate))
+        let chevron = UIImageView(image: UIImage.mezonSystemImage("chevron.right")?.withRenderingMode(.alwaysTemplate))
         chevron.tintColor = UIColor.theme.textDisabled
         chevron.contentMode = .scaleAspectFit
         chevron.translatesAutoresizingMaskIntoConstraints = false
@@ -607,34 +608,36 @@ final class RoleDetailViewController: BaseViewController {
     }
 
     @objc private func saveTapped() {
-        guard !isNotChanged() else { return }
-        guard !currentTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        let titleChanged = currentTitle != originalTitle
-        let colorChanged = currentColor != originalColor
-        let titleValue = titleChanged ? currentTitle : nil
-        let colorValue = colorChanged ? currentColor : nil
+        if #available(iOS 13.0, *) {
+            guard !isNotChanged() else { return }
+            guard !currentTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            let titleChanged = currentTitle != originalTitle
+            let colorChanged = currentColor != originalColor
+            let titleValue = titleChanged ? currentTitle : nil
+            let colorValue = colorChanged ? currentColor : nil
 
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await self.repository.updateRole(
-                    roleId: self.roleId,
-                    clanId: self.clanId,
-                    title: titleValue,
-                    color: colorValue,
-                    roleIcon: nil,
-                    addUserIds: [],
-                    activePermissionIds: [],
-                    removeUserIds: [],
-                    removePermissionIds: []
-                )
-                Toast.success(L(L10n.ClanRoles.saved))
-                self.originalTitle = self.currentTitle
-                self.originalColor = self.currentColor
-                self.refreshUI()
-                self.navigationController?.popViewController(animated: true)
-            } catch {
-                Toast.error(L(L10n.ClanRoles.failed))
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    try await self.repository.updateRole(
+                        roleId: self.roleId,
+                        clanId: self.clanId,
+                        title: titleValue,
+                        color: colorValue,
+                        roleIcon: nil,
+                        addUserIds: [],
+                        activePermissionIds: [],
+                        removeUserIds: [],
+                        removePermissionIds: []
+                    )
+                    Toast.success(L(L10n.ClanRoles.saved))
+                    self.originalTitle = self.currentTitle
+                    self.originalColor = self.currentColor
+                    self.refreshUI()
+                    self.navigationController?.popViewController(animated: true)
+                } catch {
+                    Toast.error(L(L10n.ClanRoles.failed))
+                }
             }
         }
     }
@@ -673,17 +676,20 @@ final class RoleDetailViewController: BaseViewController {
     }
 
     @objc private func deleteTapped() {
-        guard canEdit, !isEveryone else { return }
-        MezonConfirm.present(
-            from: self,
-            title: L(L10n.ClanRoles.detailDeleteTitle),
-            content: L(L10n.ClanRoles.detailDeleteMessage),
-            confirmTitle: L(L10n.ClanRoles.detailDeleteConfirm),
-            isDanger: true,
-            onConfirm: { [weak self] in self?.performDelete() }
-        )
+        if #available(iOS 13.0, *) {
+            guard canEdit, !isEveryone else { return }
+            MezonConfirm.present(
+                from: self,
+                title: L(L10n.ClanRoles.detailDeleteTitle),
+                content: L(L10n.ClanRoles.detailDeleteMessage),
+                confirmTitle: L(L10n.ClanRoles.detailDeleteConfirm),
+                isDanger: true,
+                onConfirm: { [weak self] in self?.performDelete() }
+            )
+        }
     }
 
+    @available(iOS 13.0, *)
     private func performDelete() {
         Task { [weak self] in
             guard let self else { return }
@@ -712,7 +718,7 @@ extension RoleDetailViewController: UIImagePickerControllerDelegate, UINavigatio
         iconURL = url
         iconLoadTask?.cancel()
         if url.isEmpty {
-            iconPreview.image = UIImage(systemName: "photo")?.withRenderingMode(.alwaysTemplate)
+            iconPreview.image = UIImage.mezonSystemImage("photo")?.withRenderingMode(.alwaysTemplate)
             iconPreview.tintColor = UIColor.theme.textDisabled
             return
         }
@@ -738,25 +744,27 @@ extension RoleDetailViewController: UIImagePickerControllerDelegate, UINavigatio
     }
 
     @objc fileprivate func removeIconTapped() {
-        guard canEdit, !isUploadingIcon else { return }
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await self.repository.updateRole(
-                    roleId: self.roleId,
-                    clanId: self.clanId,
-                    title: nil,
-                    color: nil,
-                    roleIcon: "",
-                    addUserIds: [],
-                    activePermissionIds: [],
-                    removeUserIds: [],
-                    removePermissionIds: []
-                )
-                self.applyIconURL("")
-                self.refreshUI()
-            } catch {
-                Toast.error(L(L10n.ClanRoles.iconFailed))
+        if #available(iOS 13.0, *) {
+            guard canEdit, !isUploadingIcon else { return }
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    try await self.repository.updateRole(
+                        roleId: self.roleId,
+                        clanId: self.clanId,
+                        title: nil,
+                        color: nil,
+                        roleIcon: "",
+                        addUserIds: [],
+                        activePermissionIds: [],
+                        removeUserIds: [],
+                        removePermissionIds: []
+                    )
+                    self.applyIconURL("")
+                    self.refreshUI()
+                } catch {
+                    Toast.error(L(L10n.ClanRoles.iconFailed))
+                }
             }
         }
     }
@@ -770,13 +778,16 @@ extension RoleDetailViewController: UIImagePickerControllerDelegate, UINavigatio
         guard let image else { return }
         let resized = Self.resizedImage(image, maxSide: 512)
         guard let data = resized.jpegData(compressionQuality: 0.85) else { return }
-        uploadIcon(image: resized, data: data)
+        if #available(iOS 13.0, *) {
+            uploadIcon(image: resized, data: data)
+        }
     }
 
     func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
         picker.dismiss(animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func uploadIcon(image: UIImage, data: Data) {
         isUploadingIcon = true
         refreshUI()

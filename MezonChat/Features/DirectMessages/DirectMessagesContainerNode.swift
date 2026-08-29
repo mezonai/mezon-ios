@@ -148,13 +148,13 @@ final class DirectMessagesContainerNode: ASDisplayNode {
 
         if #available(iOS 15.0, *) {
             var searchCfg = UIButton.Configuration.filled()
-            searchCfg.image = UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf))
+            searchCfg.image = UIImage.mezonSystemImage("magnifyingglass", withConfiguration: MezonSymbolConfiguration(pointSize: 14.sf))
             searchCfg.baseForegroundColor = UIColor.theme.textStrong
             searchCfg.baseBackgroundColor = UIColor.theme.primary
             searchCfg.cornerStyle = .capsule
             searchButton.configuration = searchCfg
         } else {
-            searchButton.setImage(UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf)), for: .normal)
+            searchButton.setImage(UIImage.mezonSystemImage("magnifyingglass", withConfiguration: MezonSymbolConfiguration(pointSize: 14.sf)), for: .normal)
             searchButton.tintColor = UIColor.theme.textStrong
             searchButton.backgroundColor = UIColor.theme.primary
             searchButton.layer.cornerRadius = 16
@@ -169,7 +169,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         createGroupButton.layer.shadowRadius = 10
         createGroupButton.layer.shadowOffset = CGSize(width: 0, height: 4)
         createGroupButton.setImage(
-            UIImage(systemName: "plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18.sf, weight: .semibold)),
+            UIImage.mezonSystemImage("plus", withConfiguration: MezonSymbolConfiguration(pointSize: 18.sf, weight: .semibold)),
             for: .normal
         )
         createGroupButton.accessibilityLabel = L(L10n.DirectMessage.newGroup)
@@ -195,7 +195,9 @@ final class DirectMessagesContainerNode: ASDisplayNode {
             applyLayout(transition: .immediate)
         }
 
-        applyTheme()
+        if #available(iOS 13.0, *) {
+            applyTheme()
+        }
     }
 
     func updateLayout(size: CGSize, safeTop: CGFloat, bottomInset: CGFloat, transition: ContainedViewLayoutTransition) {
@@ -281,6 +283,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         appliedActivityHeaderSize = targetSize
     }
 
+    @available(iOS 13.0, *)
     func applyTheme() {
         let t = UIColor.theme
         backgroundColor = t.secondary
@@ -307,7 +310,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
 
         if #available(iOS 15.0, *) {
             var searchCfg = UIButton.Configuration.filled()
-            searchCfg.image = UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf))
+            searchCfg.image = UIImage.mezonSystemImage("magnifyingglass", withConfiguration: MezonSymbolConfiguration(pointSize: 14.sf))
             searchCfg.baseForegroundColor = UIColor.theme.textStrong
             searchCfg.baseBackgroundColor = UIColor.theme.primary
             searchCfg.cornerStyle = .capsule
@@ -320,7 +323,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         createGroupButton.backgroundColor = UIColor(red: 88/255, green: 101/255, blue: 242/255, alpha: 1.0)
         createGroupButton.tintColor = .white
         createGroupButton.setImage(
-            UIImage(systemName: "plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18.sf, weight: .semibold)),
+            UIImage.mezonSystemImage("plus", withConfiguration: MezonSymbolConfiguration(pointSize: 18.sf, weight: .semibold)),
             for: .normal
         )
         createGroupButton.accessibilityLabel = L(L10n.DirectMessage.newGroup)

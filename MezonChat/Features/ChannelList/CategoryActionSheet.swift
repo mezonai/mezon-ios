@@ -238,7 +238,7 @@ private final class CategoryActionSheetNode: ASDisplayNode, UIGestureRecognizerD
         let v = UIButton(type: .system)
         v.backgroundColor = .clear
         let icon = UIImageView()
-        icon.image = UIImage(systemName: "plus")?.withRenderingMode(.alwaysTemplate)
+        icon.image = UIImage.mezonSystemImage("plus")?.withRenderingMode(.alwaysTemplate)
         icon.tintColor = UIColor.theme.textStrong
         icon.contentMode = .scaleAspectFit
         v.addSubview(icon)

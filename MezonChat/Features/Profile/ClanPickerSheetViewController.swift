@@ -165,8 +165,8 @@ private final class ClanPickerCell: UITableViewCell {
 
         checkView.translatesAutoresizingMaskIntoConstraints = false
         checkView.contentMode = .scaleAspectFit
-        let cfg = UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
-        checkView.image = UIImage(systemName: "checkmark", withConfiguration: cfg)
+        let cfg = MezonSymbolConfiguration(pointSize: 18, weight: .semibold)
+        checkView.image = UIImage.mezonSystemImage("checkmark", withConfiguration: cfg)
 
         contentView.addSubview(placeholderView)
         contentView.addSubview(avatarView)

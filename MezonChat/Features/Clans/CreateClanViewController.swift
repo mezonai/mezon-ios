@@ -72,14 +72,14 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
         let b = UIButton(type: .system)
         b.backgroundColor = UIColor(red: 0.35, green: 0.55, blue: 1, alpha: 1)
         b.layer.cornerRadius = 14.swh
-        b.setImage(UIImage(systemName: "plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14, weight: .bold)), for: .normal)
+        b.setImage(UIImage.mezonSystemImage("plus", withConfiguration: MezonSymbolConfiguration(pointSize: 14, weight: .bold)), for: .normal)
         b.tintColor = .white
         b.translatesAutoresizingMaskIntoConstraints = false
         return b
     }()
 
     private let logoSpinner: UIActivityIndicatorView = {
-        let s = UIActivityIndicatorView(style: .medium)
+        let s = UIActivityIndicatorView.mezonMedium()
         s.hidesWhenStopped = true
         s.translatesAutoresizingMaskIntoConstraints = false
         return s
@@ -106,8 +106,8 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
 
     private let clearNameButton: UIButton = {
         let button = UIButton(type: .system)
-        let configuration = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
-        button.setImage(UIImage(systemName: "xmark.circle.fill", withConfiguration: configuration), for: .normal)
+        let configuration = MezonSymbolConfiguration(pointSize: 16, weight: .semibold)
+        button.setImage(UIImage.mezonSystemImage("xmark.circle.fill", withConfiguration: configuration), for: .normal)
         button.isHidden = true
         button.accessibilityLabel = "Clear clan name"
         button.translatesAutoresizingMaskIntoConstraints = false
@@ -136,7 +136,7 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
 
     private let createButton = UIButton(type: .system)
     private let createSpinner: UIActivityIndicatorView = {
-        let s = UIActivityIndicatorView(style: .medium)
+        let s = UIActivityIndicatorView.mezonMedium()
         s.hidesWhenStopped = true
         s.translatesAutoresizingMaskIntoConstraints = false
         return s
@@ -150,7 +150,7 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
     private let headerView = UIView()
     private let backButton: UIButton = {
         let btn = UIButton(type: .system)
-        let img = UIImage(systemName: "chevron.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium))
+        let img = UIImage.mezonSystemImage("chevron.left", withConfiguration: MezonSymbolConfiguration(pointSize: 18, weight: .medium))
         btn.setImage(img, for: .normal)
         btn.translatesAutoresizingMaskIntoConstraints = false
         return btn
@@ -195,8 +195,8 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
         logoWrap.addSubview(logoAddBadge)
         logoWrap.addSubview(logoSpinner)
 
-        let camCfg = UIImage.SymbolConfiguration(pointSize: 22, weight: .medium)
-        logoCamIcon.image = UIImage(systemName: "camera.fill", withConfiguration: camCfg)
+        let camCfg = MezonSymbolConfiguration(pointSize: 22, weight: .medium)
+        logoCamIcon.image = UIImage.mezonSystemImage("camera.fill", withConfiguration: camCfg)
         logoUploadWord.font = .systemFont(ofSize: 11.sf, weight: .semibold)
         logoUploadWord.text = L(L10n.Clan.uploadWordmark)
         logoCenterStack.addArrangedSubview(logoCamIcon)
@@ -409,97 +409,101 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
     }
 
     @objc private func logoTapped() {
-        guard uploadCount == 0, !isSubmitting else { return }
-        let picker = UIImagePickerController()
-        picker.sourceType = .photoLibrary
-        picker.mediaTypes = ["public.image"]
-        picker.delegate = self
-        present(picker, animated: true)
+        if #available(iOS 13.0, *) {
+            guard uploadCount == 0, !isSubmitting else { return }
+            let picker = UIImagePickerController()
+            picker.sourceType = .photoLibrary
+            picker.mediaTypes = ["public.image"]
+            picker.delegate = self
+            present(picker, animated: true)
+        }
     }
 
     @objc private func createTapped() {
-        guard !isSubmitting, uploadCount == 0 else { return }
-        if ClanCreationLimit.showLimitToastIfNeeded(context: context) { return }
-        let name = (nameField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else {
-            Toast.error(L(L10n.Clan.nameRequired))
-            return
-        }
-        guard ClanCreationNameRules.isValid(name) else {
-            nameErrorLabel.isHidden = false
-            return
-        }
-        nameErrorLabel.isHidden = true
-        Task { @MainActor in
-            guard let token = await context.getToken(), !token.isEmpty else {
-                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+        if #available(iOS 13.0, *) {
+            guard !isSubmitting, uploadCount == 0 else { return }
+            if ClanCreationLimit.showLimitToastIfNeeded(context: context) { return }
+            let name = (nameField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else {
+                Toast.error(L(L10n.Clan.nameRequired))
                 return
             }
-            isSubmitting = true
-            createButton.isEnabled = false
-            nameField.isEnabled = false
-            clearNameButton.isHidden = true
-            createSpinner.startAnimating()
-            createButton.setTitle("", for: .normal)
-
-            do {
-                let isDuplicate = try await context.account.network.checkDuplicateName(
-                    name: name,
-                    type: 0,
-                    conditionId: 0,
-                    token: token
-                )
-                if isDuplicate {
-                    Toast.error(L(L10n.Clan.duplicateName))
-                    resetSubmittingState()
+            guard ClanCreationNameRules.isValid(name) else {
+                nameErrorLabel.isHidden = false
+                return
+            }
+            nameErrorLabel.isHidden = true
+            Task { @MainActor in
+                guard let token = await context.getToken(), !token.isEmpty else {
+                    Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
                     return
                 }
-            } catch {
-                
-            }
+                isSubmitting = true
+                createButton.isEnabled = false
+                nameField.isEnabled = false
+                clearNameButton.isHidden = true
+                createSpinner.startAnimating()
+                createButton.setTitle("", for: .normal)
 
-            do {
-                let desc = try await context.engine.clanData.createClanDesc(
-                    name: name,
-                    logo: logoURL,
-                    banner: "",
-                    token: token
-                )
-                let newId = desc.clanID
-                if let t = creationTemplate {
-                    await context.engine.clanData.applyCreationTemplateChannels(clanId: newId, template: t, token: token)
-                }
-                popCreateFlowAndNotify(clanId: newId)
-            } catch let error as MezonError {
-                if case .httpError(let code, let msg) = error {
-                    var toastMsg = msg
-                    if let data = msg.data(using: .utf8),
-                       let apiErr = try? JSONDecoder().decode(APIError.self, from: data),
-                       let inner = apiErr.message, !inner.isEmpty {
-                        toastMsg = inner
+                do {
+                    let isDuplicate = try await context.account.network.checkDuplicateName(
+                        name: name,
+                        type: 0,
+                        conditionId: 0,
+                        token: token
+                    )
+                    if isDuplicate {
+                        Toast.error(L(L10n.Clan.duplicateName))
+                        resetSubmittingState()
+                        return
                     }
-                    if toastMsg.hasPrefix("HTTP ") {
-                        if let colonIdx = toastMsg.firstIndex(of: ":") {
-                            toastMsg = String(toastMsg[toastMsg.index(after: colonIdx)...]).trimmingCharacters(in: .whitespaces)
-                        } else {
-                            toastMsg = ""
+                } catch {
+                
+                }
+
+                do {
+                    let desc = try await context.engine.clanData.createClanDesc(
+                        name: name,
+                        logo: logoURL,
+                        banner: "",
+                        token: token
+                    )
+                    let newId = desc.clanID
+                    if let t = creationTemplate {
+                        await context.engine.clanData.applyCreationTemplateChannels(clanId: newId, template: t, token: token)
+                    }
+                    popCreateFlowAndNotify(clanId: newId)
+                } catch let error as MezonError {
+                    if case .httpError(let code, let msg) = error {
+                        var toastMsg = msg
+                        if let data = msg.data(using: .utf8),
+                           let apiErr = try? JSONDecoder().decode(APIError.self, from: data),
+                           let inner = apiErr.message, !inner.isEmpty {
+                            toastMsg = inner
                         }
+                        if toastMsg.hasPrefix("HTTP ") {
+                            if let colonIdx = toastMsg.firstIndex(of: ":") {
+                                toastMsg = String(toastMsg[toastMsg.index(after: colonIdx)...]).trimmingCharacters(in: .whitespaces)
+                            } else {
+                                toastMsg = ""
+                            }
+                        }
+                    
+                        if code == 6 || code == 13 || toastMsg.lowercased().contains("exist") {
+                            toastMsg = L(L10n.Clan.duplicateName)
+                        } else if toastMsg.lowercased().contains("valid") {
+                            toastMsg = L(L10n.Clan.invalidName)
+                        } 
+                    
+                        Toast.error(toastMsg)
+                    } else {
+                        Toast.error(error.localizedDescription)
                     }
-                    
-                    if code == 6 || code == 13 || toastMsg.lowercased().contains("exist") {
-                        toastMsg = L(L10n.Clan.duplicateName)
-                    } else if toastMsg.lowercased().contains("valid") {
-                        toastMsg = L(L10n.Clan.invalidName)
-                    } 
-                    
-                    Toast.error(toastMsg)
-                } else {
+                    resetSubmittingState()
+                } catch {
                     Toast.error(error.localizedDescription)
+                    resetSubmittingState()
                 }
-                resetSubmittingState()
-            } catch {
-                Toast.error(error.localizedDescription)
-                resetSubmittingState()
             }
         }
     }
@@ -546,33 +550,35 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
         uploadCount += 1
         logoSpinner.startAnimating()
         logoCenterStack.isHidden = true
-        Task { @MainActor in
-            defer {
-                uploadCount = max(0, uploadCount - 1)
-                logoSpinner.stopAnimating()
-            }
-            guard let token = await context.getToken() else { return }
-            do {
-                let filename = "clan_create_logo_\(Int(Date().timeIntervalSince1970)).jpg"
-                let uploadInfo = try await context.account.network.uploadAttachmentFile(
-                    filename: filename, filetype: "image/jpeg", size: data.count,
-                    width: Int(image.size.width), height: Int(image.size.height), token: token
-                )
-                try await context.account.network.uploadToMinIO(
-                    url: uploadInfo.url, data: data, contentType: "image/jpeg"
-                )
-                let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
-                ImageCache.shared.setImage(image, data: data, forKey: cdnURL)
-                logoURL = cdnURL
-                logoImageView.image = image
-                refreshLogoOverlay()
-            } catch {
-                SentryLogger.capture(error, extras: [
-                    "where": "CreateClan.uploadLogo",
-                    "size": data.count,
-                ])
-                Toast.error(error.localizedDescription)
-                logoCenterStack.isHidden = false
+        if #available(iOS 13.0, *) {
+            Task { @MainActor in
+                defer {
+                    uploadCount = max(0, uploadCount - 1)
+                    logoSpinner.stopAnimating()
+                }
+                guard let token = await context.getToken() else { return }
+                do {
+                    let filename = "clan_create_logo_\(Int(Date().timeIntervalSince1970)).jpg"
+                    let uploadInfo = try await context.account.network.uploadAttachmentFile(
+                        filename: filename, filetype: "image/jpeg", size: data.count,
+                        width: Int(image.size.width), height: Int(image.size.height), token: token
+                    )
+                    try await context.account.network.uploadToMinIO(
+                        url: uploadInfo.url, data: data, contentType: "image/jpeg"
+                    )
+                    let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+                    ImageCache.shared.setImage(image, data: data, forKey: cdnURL)
+                    logoURL = cdnURL
+                    logoImageView.image = image
+                    refreshLogoOverlay()
+                } catch {
+                    SentryLogger.capture(error, extras: [
+                        "where": "CreateClan.uploadLogo",
+                        "size": data.count,
+                    ])
+                    Toast.error(error.localizedDescription)
+                    logoCenterStack.isHidden = false
+                }
             }
         }
     }

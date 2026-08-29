@@ -162,12 +162,16 @@ final class SearchViewController: ViewController {
         displayNode = SearchContainerNode(hiddenTabs: hiddenTabs, channelBadge: scopedChannelLabel, showFilterButton: isChannelScoped && !isDM)
         if isDM {
             searchNode.tabBar.isHidden = true
-            switchTab(.messages)
+            if #available(iOS 13.0, *) {
+                switchTab(.messages)
+            }
         }
         searchNode.searchBar.textField.delegate = self
         searchNode.searchBar.textField.addTarget(self, action: #selector(searchTextChanged(_:)), for: .editingChanged)
         searchNode.tabBar.onTabSelected = { [weak self] tab in
-            self?.switchTab(tab)
+            if #available(iOS 13.0, *) {
+                self?.switchTab(tab)
+            }
         }
         searchNode.tableNode.dataSource = self
         searchNode.tableNode.delegate = self
@@ -175,7 +179,9 @@ final class SearchViewController: ViewController {
             self?.navigationController?.popViewController(animated: true)
         }
         searchNode.searchBar.onFilterTapped = { [weak self] in
-            self?.showFilterTooltip()
+            if #available(iOS 13.0, *) {
+                self?.showFilterTooltip()
+            }
         }
     }
 
@@ -183,7 +189,9 @@ final class SearchViewController: ViewController {
         super.viewDidLoad()
         navigationController?.setNavigationBarHidden(true, animated: false)
         searchNode.applyTheme()
-        loadInitialData()
+        if #available(iOS 13.0, *) {
+            loadInitialData()
+        }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             self?.searchNode.searchBar.textField.becomeFirstResponder()
@@ -204,6 +212,7 @@ final class SearchViewController: ViewController {
 
     private var channelMemberIds: Set<Int64>?
 
+    @available(iOS 13.0, *)
     private func loadInitialData() {
         friendMembers = context.engine.friendsData.allFriends()
             .filter { $0.state == EStateFriend.friend.rawValue && $0.hasUser && $0.user.id != 0 }
@@ -292,6 +301,7 @@ final class SearchViewController: ViewController {
         memberAvatarPrefetchWorkItem?.cancel()
     }
 
+    @available(iOS 13.0, *)
     private func fetchFromAPI() {
         Task { @MainActor in
             guard let token = await context.getToken() else { return }
@@ -345,6 +355,7 @@ final class SearchViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func fetchDMAndGroupChannels() async {
         guard let token = await context.getToken() else { return }
         var existingIds = Set(allChannels.map { $0.channelID })
@@ -366,6 +377,7 @@ final class SearchViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func fetchChannelMembersAndUsers() {
         guard let channelId = scopedChannelId else { return }
         Task { @MainActor in
@@ -545,6 +557,7 @@ final class SearchViewController: ViewController {
         return false
     }
 
+    @available(iOS 13.0, *)
     private func performSearch() {
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
@@ -688,6 +701,7 @@ final class SearchViewController: ViewController {
         groupedMessages = groups
     }
 
+    @available(iOS 13.0, *)
     private func fetchMessages() {
         guard !isLoadingMessages else { return }
         guard let searchableChannelId = scopedChannelId, searchableChannelId != 0 else {
@@ -776,6 +790,7 @@ final class SearchViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func loadMoreMessages() {
         guard hasMoreMessages, !isLoadingMessages else { return }
         messageCurrentPage += 1
@@ -790,7 +805,7 @@ final class SearchViewController: ViewController {
             return
         }
         let footer = UIView(frame: CGRect(x: 0, y: 0, width: tableView.bounds.width, height: 44.sh))
-        let spinner = UIActivityIndicatorView(style: .medium)
+        let spinner = UIActivityIndicatorView.mezonMedium()
         spinner.color = UIColor.theme.iconSecondary
         spinner.translatesAutoresizingMaskIntoConstraints = false
         spinner.startAnimating()
@@ -802,6 +817,7 @@ final class SearchViewController: ViewController {
         tableView.tableFooterView = footer
     }
 
+    @available(iOS 13.0, *)
     private func switchTab(_ tab: SearchTab) {
         activeTab = tab
         searchNode.tabBar.setSelectedTab(tab)
@@ -822,6 +838,7 @@ final class SearchViewController: ViewController {
         )
     }
 
+    @available(iOS 13.0, *)
     private func showFilterTooltip() {
         let tooltip = SearchFilterTooltipView(options: [.from, .mentions]) { [weak self] option in
             self?.selectFilterOption(option)
@@ -829,6 +846,7 @@ final class SearchViewController: ViewController {
         tooltip.showBelow(anchorView: searchNode.searchBar.view, in: view)
     }
 
+    @available(iOS 13.0, *)
     private func selectFilterOption(_ option: SearchFilterOption) {
         activeFilterOption = option
         filterUser = nil
@@ -845,6 +863,7 @@ final class SearchViewController: ViewController {
         searchNode.searchBar.textField.becomeFirstResponder()
     }
 
+    @available(iOS 13.0, *)
     private func selectFilterUser(_ user: Mezon_Api_User) {
         filterUser = user
         isPickingFilterUser = false
@@ -863,6 +882,7 @@ final class SearchViewController: ViewController {
         searchNode.searchBar.textField.becomeFirstResponder()
     }
 
+    @available(iOS 13.0, *)
     private func clearFilter() {
         activeFilterOption = nil
         filterUser = nil
@@ -921,6 +941,7 @@ final class SearchViewController: ViewController {
         alignChannelListSidebarAfterSearchJump(clanId: targetClanId, channelId: channel.channelID)
     }
 
+    @available(iOS 13.0, *)
     private func navigateToMessage(_ doc: Mezon_Api_SearchMessageDocument) {
         guard let channelId = Int64(doc.channelID) else { return }
         let docClanId = Int64(doc.clanID) ?? clanId
@@ -1058,6 +1079,7 @@ final class SearchViewController: ViewController {
         return VoiceMemberDisplay(name: name, username: username, avatarURL: avatar)
     }
 
+    @available(iOS 13.0, *)
     private func presentJoinVoiceSheet(for channel: Mezon_Api_ChannelDescription) {
         let clanIdForChannel = effectiveClanId(for: channel)
         let title = channel.channelLabel.isEmpty
@@ -1126,6 +1148,7 @@ final class SearchViewController: ViewController {
         navigationController?.pushViewController(chatVC, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func presentJoinStreamSheet(for channel: Mezon_Api_ChannelDescription) {
         let clanIdForChannel = effectiveClanId(for: channel)
         let title = channel.channelLabel.isEmpty
@@ -1178,6 +1201,7 @@ final class SearchViewController: ViewController {
         CATransaction.commit()
     }
 
+    @available(iOS 13.0, *)
     private func pushStreamingRoom(for channel: Mezon_Api_ChannelDescription) {
         persistSelectedChannelForVoice(channel)
         context.currentClanId = effectiveClanId(for: channel)
@@ -1244,6 +1268,7 @@ final class SearchViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func pushVoiceChannelRoom(for channel: Mezon_Api_ChannelDescription, role: SfuRole = .speaker) {
         persistSelectedChannelForVoice(channel)
         context.currentClanId = effectiveClanId(for: channel)
@@ -1283,13 +1308,17 @@ extension SearchViewController: UITextFieldDelegate {
         let newText = current.replacingCharacters(in: range, with: string)
 
         if activeFilterOption != nil && string.isEmpty && newText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            clearFilter()
+            if #available(iOS 13.0, *) {
+                clearFilter()
+            }
             if let label = scopedChannelLabel {
                 searchNode.searchBar.setChannelBadge(label)
             }
             textField.text = ""
             searchQuery = ""
-            performSearch()
+            if #available(iOS 13.0, *) {
+                performSearch()
+            }
             return false
         }
 
@@ -1297,15 +1326,19 @@ extension SearchViewController: UITextFieldDelegate {
     }
 
     @objc private func searchTextChanged(_ textField: UITextField) {
-        if textField.markedTextRange != nil { return }
-        searchQuery = textField.text ?? ""
+        if #available(iOS 13.0, *) {
+            if textField.markedTextRange != nil { return }
+            searchQuery = textField.text ?? ""
 
-        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(debouncedSearch), object: nil)
-        perform(#selector(debouncedSearch), with: nil, afterDelay: 0.3)
+            NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(debouncedSearch), object: nil)
+            perform(#selector(debouncedSearch), with: nil, afterDelay: 0.3)
+        }
     }
 
     @objc private func debouncedSearch() {
-        performSearch()
+        if #available(iOS 13.0, *) {
+            performSearch()
+        }
     }
 }
 
@@ -1440,50 +1473,54 @@ extension SearchViewController: ASTableDataSource, ASTableDelegate {
     }
 
     func tableNode(_ tableNode: ASTableNode, didSelectRowAt indexPath: IndexPath) {
-        tableNode.deselectRow(at: indexPath, animated: true)
+        if #available(iOS 13.0, *) {
+            tableNode.deselectRow(at: indexPath, animated: true)
 
-        switch activeTab {
-        case .members:
-            if indexPath.section == dmGroupSection {
-                guard indexPath.row < filteredDMGroups.count else { return }
-                navigateToChannel(filteredDMGroups[indexPath.row])
-                return
-            }
-            guard indexPath.row < filteredMembers.count else { return }
-            if isPickingFilterUser {
-                selectFilterUser(filteredMembers[indexPath.row])
-                return
-            }
-            navigateToMember(filteredMembers[indexPath.row])
+            switch activeTab {
+            case .members:
+                if indexPath.section == dmGroupSection {
+                    guard indexPath.row < filteredDMGroups.count else { return }
+                    navigateToChannel(filteredDMGroups[indexPath.row])
+                    return
+                }
+                guard indexPath.row < filteredMembers.count else { return }
+                if isPickingFilterUser {
+                    selectFilterUser(filteredMembers[indexPath.row])
+                    return
+                }
+                navigateToMember(filteredMembers[indexPath.row])
 
-        case .channels:
-            guard indexPath.row < filteredChannels.count else { return }
-            let channel = filteredChannels[indexPath.row]
-            if channel.type == MezonConstants.ChannelType.mezonVoice.rawValue {
-                presentJoinVoiceSheet(for: channel)
-                return
-            }
-            if channel.type == MezonConstants.ChannelType.streaming.rawValue {
-                presentJoinStreamSheet(for: channel)
-                return
-            }
-            navigateToChannel(channel)
+            case .channels:
+                guard indexPath.row < filteredChannels.count else { return }
+                let channel = filteredChannels[indexPath.row]
+                if channel.type == MezonConstants.ChannelType.mezonVoice.rawValue {
+                    presentJoinVoiceSheet(for: channel)
+                    return
+                }
+                if channel.type == MezonConstants.ChannelType.streaming.rawValue {
+                    presentJoinStreamSheet(for: channel)
+                    return
+                }
+                navigateToChannel(channel)
 
-        case .messages:
-            let section = indexPath.section
-            guard section < groupedMessages.count, indexPath.row < groupedMessages[section].messages.count else { return }
-            navigateToMessage(groupedMessages[section].messages[indexPath.row])
+            case .messages:
+                let section = indexPath.section
+                guard section < groupedMessages.count, indexPath.row < groupedMessages[section].messages.count else { return }
+                navigateToMessage(groupedMessages[section].messages[indexPath.row])
+            }
         }
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        guard activeTab == .messages else { return }
-        let offsetY = scrollView.contentOffset.y
-        let contentHeight = scrollView.contentSize.height
-        let frameHeight = scrollView.frame.height
+        if #available(iOS 13.0, *) {
+            guard activeTab == .messages else { return }
+            let offsetY = scrollView.contentOffset.y
+            let contentHeight = scrollView.contentSize.height
+            let frameHeight = scrollView.frame.height
 
-        if offsetY > contentHeight - frameHeight - 200 {
-            loadMoreMessages()
+            if offsetY > contentHeight - frameHeight - 200 {
+                loadMoreMessages()
+            }
         }
     }
 }
@@ -1505,7 +1542,7 @@ final class SearchContainerNode: ASDisplayNode {
         automaticallyManagesSubnodes = false
 
         backButtonNode.setImage(
-            UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate),
+            UIImage.mezonSystemImage("chevron.left")?.withRenderingMode(.alwaysTemplate),
             for: .normal
         )
         backButtonNode.addTarget(self, action: #selector(backTapped), forControlEvents: .touchUpInside)
@@ -1596,7 +1633,7 @@ final class SearchInputNode: ASDisplayNode {
         self.showFilterButton = showFilterButton
         super.init()
 
-        iconNode.image = UIImage(systemName: "magnifyingglass")?.withRenderingMode(.alwaysTemplate)
+        iconNode.image = UIImage.mezonSystemImage("magnifyingglass")?.withRenderingMode(.alwaysTemplate)
         iconNode.contentMode = .scaleAspectFit
         addSubnode(iconNode)
     }
@@ -1618,7 +1655,7 @@ final class SearchInputNode: ASDisplayNode {
 
         if showFilterButton {
             let btn = UIButton(type: .system)
-            let img = UIImage(systemName: "line.3.horizontal.decrease")?.withRenderingMode(.alwaysTemplate)
+            let img = UIImage.mezonSystemImage("line.3.horizontal.decrease")?.withRenderingMode(.alwaysTemplate)
             btn.setImage(img, for: .normal)
             btn.tintColor = t.textStrong
             btn.addTarget(self, action: #selector(filterTapped), for: .touchUpInside)
@@ -2150,7 +2187,7 @@ final class ChannelSearchCellNode: ASCellNode {
         addSubnode(cardNode)
 
         if isDMOrGroup {
-            let dmIcon = UIImage(systemName: channel.type == MezonConstants.ChannelType.group.rawValue ? "person.2.fill" : "person.fill")
+            let dmIcon = UIImage.mezonSystemImage(channel.type == MezonConstants.ChannelType.group.rawValue ? "person.2.fill" : "person.fill")
             iconImgNode.image = dmIcon?.withRenderingMode(.alwaysTemplate)
             iconImgNode.tintColor = t.channelNormal
             iconImgNode.contentMode = .scaleAspectFit
@@ -2172,7 +2209,7 @@ final class ChannelSearchCellNode: ASCellNode {
                 }
             }
 
-            let image = UIImage(named: iconName) ?? UIImage(systemName: iconName)
+            let image = UIImage(named: iconName) ?? UIImage.mezonSystemImage(iconName)
             iconImgNode.image = image?.withRenderingMode(.alwaysTemplate)
             iconImgNode.tintColor = t.channelNormal
             iconImgNode.contentMode = .scaleAspectFit
@@ -2273,7 +2310,14 @@ final class MessageSearchCellNode: ASCellNode {
         f.formatOptions = [.withInternetDateTime]
         return f
     }()
+    @available(iOS 13.0, *)
     private static let relativeFormatter = RelativeDateTimeFormatter()
+    private static let legacyTimeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .short
+        f.timeStyle = .short
+        return f
+    }()
 
     init(document: Mezon_Api_SearchMessageDocument, clanNick: String? = nil, clanAvatar: String? = nil, isFirst: Bool = false, isLast: Bool = false) {
         self.isFirst = isFirst
@@ -2321,7 +2365,12 @@ final class MessageSearchCellNode: ASCellNode {
         contentNode.truncationMode = .byTruncatingTail
 
         if !document.createTime.isEmpty {
-            let formatted = Self.formatSearchTime(document.createTime)
+            let formatted: String
+            if #available(iOS 13.0, *) {
+                formatted = Self.formatSearchTime(document.createTime)
+            } else {
+                formatted = Self.legacySearchTime(document.createTime)
+            }
             timeNode.attributedText = NSAttributedString(
                 string: formatted,
                 attributes: [.font: UIFont.systemFont(ofSize: 11.sf), .foregroundColor: t.textDisabled]
@@ -2343,7 +2392,7 @@ final class MessageSearchCellNode: ASCellNode {
         format.opaque = false
         return UIGraphicsImageRenderer(size: canvas, format: format).image { _ in
             let tinted = raw.withRenderingMode(.alwaysTemplate)
-                .withTintColor(UIColor.theme.textStrong, renderingMode: .alwaysOriginal)
+                .mezonTinted(UIColor.theme.textStrong, renderingMode: .alwaysOriginal)
             let origin = CGPoint(
                 x: (canvas.width - iconSz.width) / 2,
                 y: (canvas.height - iconSz.height) / 2
@@ -2352,6 +2401,14 @@ final class MessageSearchCellNode: ASCellNode {
         }
     }
 
+    private static func legacySearchTime(_ timeStr: String) -> String {
+        let date = isoFormatter.date(from: timeStr)
+            ?? isoFormatterNoFrac.date(from: timeStr)
+        guard let date else { return timeStr }
+        return legacyTimeFormatter.string(from: date)
+    }
+
+    @available(iOS 13.0, *)
     private static func formatSearchTime(_ timeStr: String) -> String {
         let date = isoFormatter.date(from: timeStr)
             ?? isoFormatterNoFrac.date(from: timeStr)
@@ -2453,7 +2510,7 @@ final class SearchFilterTooltipView: UIView {
         let t = UIColor.theme
         let container = UIView(frame: CGRect(x: 0, y: y, width: 220, height: 48))
 
-        let icon = UIImageView(image: UIImage(systemName: option.iconName)?.withRenderingMode(.alwaysTemplate))
+        let icon = UIImageView(image: UIImage.mezonSystemImage(option.iconName)?.withRenderingMode(.alwaysTemplate))
         icon.tintColor = t.textDisabled
         icon.contentMode = .scaleAspectFit
         icon.frame = CGRect(x: 190, y: 14, width: 20, height: 20)
@@ -2566,7 +2623,7 @@ final class DMGroupSearchCellNode: ASCellNode {
             groupIconNode.isHidden = true
         } else {
             avatarBackplate.backgroundColor = .groupDMDefaultAvatar
-            groupIconNode.image = UIImage(systemName: "person.2.fill")?.withRenderingMode(.alwaysTemplate)
+            groupIconNode.image = UIImage.mezonSystemImage("person.2.fill")?.withRenderingMode(.alwaysTemplate)
             groupIconNode.tintColor = .white
             groupIconNode.contentMode = .scaleAspectFit
             avatarNode.isHidden = true

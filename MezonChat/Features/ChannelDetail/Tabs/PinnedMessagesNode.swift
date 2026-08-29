@@ -3,7 +3,6 @@ import Foundation
 import SwiftProtobuf
 import UIKit
 
-@MainActor
 final class PinnedMessagesNode: ASDisplayNode {
 
     private let context: AccountContext
@@ -51,6 +50,7 @@ final class PinnedMessagesNode: ASDisplayNode {
         )
     }
 
+    @available(iOS 13.0, *)
     func loadTabDataIfNeeded() {
         if !pinsLoadStarted {
             pinsLoadStarted = true
@@ -67,9 +67,11 @@ final class PinnedMessagesNode: ASDisplayNode {
     }
 
     @objc private func handlePinsNeedRefresh(_ notification: Notification) {
-        let eventChannel = Self.notificationInt64(notification.userInfo?["channelId"]) ?? 0
-        guard eventChannel == channelId else { return }
-        refetchPinsFromNetwork()
+        if #available(iOS 13.0, *) {
+            let eventChannel = Self.notificationInt64(notification.userInfo?["channelId"]) ?? 0
+            guard eventChannel == channelId else { return }
+            refetchPinsFromNetwork()
+        }
     }
 
     func applyTheme() {
@@ -79,10 +81,12 @@ final class PinnedMessagesNode: ASDisplayNode {
         tableNode.view.backgroundColor = .clear
     }
 
+    @available(iOS 13.0, *)
     private func fetchPins() {
         refetchPinsFromNetwork()
     }
 
+    @available(iOS 13.0, *)
     private func refetchPinsFromNetwork() {
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -111,6 +115,7 @@ final class PinnedMessagesNode: ASDisplayNode {
         }
     }
 
+    @available(iOS 13.0, *)
     private func enrichPinAttachmentsFromChannelIfNeeded(expectedDataGeneration: UInt64) {
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -162,6 +167,7 @@ final class PinnedMessagesNode: ASDisplayNode {
         return nil
     }
 
+    @available(iOS 13.0, *)
     private func requestUnpin(_ pin: Mezon_Api_PinMessage) {
         guard let presenter = tableNode.view.findHostingViewController() else {
             unpinMessage(pin)
@@ -179,6 +185,7 @@ final class PinnedMessagesNode: ASDisplayNode {
         )
     }
 
+    @available(iOS 13.0, *)
     private func unpinMessage(_ pin: Mezon_Api_PinMessage) {
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -205,6 +212,7 @@ final class PinnedMessagesNode: ASDisplayNode {
         }
     }
 
+    @available(iOS 13.0, *)
     private func jumpToPinnedMessage(_ pin: Mezon_Api_PinMessage) {
         let messageId = "\(pin.messageID)"
         guard let nav = tableNode.view.findHostingViewController()?.navigationController else { return }
@@ -293,7 +301,6 @@ private struct PinRowDisplayItem {
     let avatarURL: String
 }
 
-@MainActor
 extension PinnedMessagesNode: ASTableDataSource {
     func tableNode(_ tableNode: ASTableNode, numberOfRowsInSection section: Int) -> Int {
         let count: Int
@@ -324,20 +331,21 @@ extension PinnedMessagesNode: ASTableDataSource {
                 pin: item.pin,
                 row: item.row,
                 avatarURLString: item.avatarURL,
-                onUnpin: { self?.requestUnpin(item.pin) }
+                onUnpin: { if #available(iOS 13.0, *) { self?.requestUnpin(item.pin) } }
             )
         }
     }
 }
 
-@MainActor
 extension PinnedMessagesNode: ASTableDelegate {
     func tableNode(_ tableNode: ASTableNode, didSelectRowAt indexPath: IndexPath) {
         tableNode.deselectRow(at: indexPath, animated: true)
         guard pinsFetchCompleted, !pinnedMessages.isEmpty, indexPath.row < pinnedMessages.count else {
             return
         }
-        jumpToPinnedMessage(pinnedMessages[indexPath.row])
+        if #available(iOS 13.0, *) {
+            jumpToPinnedMessage(pinnedMessages[indexPath.row])
+        }
     }
 }
 
@@ -490,12 +498,10 @@ private struct PinRowContent {
     let audioAttachments: [ParsedAttachment]
     let fileAttachments: [ParsedAttachment]
 
-    @MainActor
     static func collatedURLCountBeforeExtras(for pin: Mezon_Api_PinMessage, context: AccountContext) -> Int {
         collatedAttachments(for: pin, context: context, attachmentExtras: []).count
     }
 
-    @MainActor
     static func make(from pin: Mezon_Api_PinMessage, context: AccountContext, attachmentExtras: [ParsedAttachment] = []) -> PinRowContent {
         let data = pin.content.data(using: .utf8) ?? Data()
         let parsed = MessageContentParser.parse(data: data, mentionsData: Data())
@@ -616,7 +622,6 @@ private struct PinRowContent {
         value == MezonConstants.shareContactKey || value == "share_contact_key"
     }
 
-    @MainActor
     private static func collatedAttachments(for pin: Mezon_Api_PinMessage, context: AccountContext, attachmentExtras: [ParsedAttachment]) -> [ParsedAttachment] {
         var out: [ParsedAttachment] = []
         var seen = Set<String>()
@@ -702,7 +707,7 @@ private struct PinRowContent {
 
 private final class PinsLoadingCellNode: ASCellNode {
     private let spinnerHost = ASDisplayNode(viewBlock: {
-        let v = UIActivityIndicatorView(style: .medium)
+        let v = UIActivityIndicatorView.mezonMedium()
         v.color = UIColor.theme.textStrong
         v.startAnimating()
         return v
@@ -840,7 +845,7 @@ private final class PinnedMessageCellNode: ASCellNode, ASNetworkImageNodeDelegat
         }
 
         unpinButton.setImage(
-            UIImage(systemName: "xmark.circle.fill")?.withTintColor(
+            UIImage.mezonSystemImage("xmark.circle.fill")?.mezonTinted(
                 t.text.withAlphaComponent(0.75), renderingMode: .alwaysOriginal),
             for: .normal)
         unpinButton.style.preferredSize = CGSize(width: 44, height: 44)

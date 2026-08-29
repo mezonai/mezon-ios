@@ -27,8 +27,10 @@ final class VoiceRecordingOverlayView: UIView {
         let iv = UIImageView()
         iv.translatesAutoresizingMaskIntoConstraints = false
         iv.contentMode = .scaleAspectFit
-        iv.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
-        iv.image = UIImage(systemName: "mic.fill")
+        if #available(iOS 13.0, *) {
+            iv.preferredSymbolConfiguration = MezonSymbolConfiguration(pointSize: 18, weight: .medium).uiKitConfiguration
+        }
+        iv.image = UIImage.mezonSystemImage("mic.fill")
         return iv
     }()
 
@@ -49,8 +51,10 @@ final class VoiceRecordingOverlayView: UIView {
         let iv = UIImageView()
         iv.translatesAutoresizingMaskIntoConstraints = false
         iv.contentMode = .scaleAspectFit
-        iv.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
-        iv.image = UIImage(systemName: "chevron.left")
+        if #available(iOS 13.0, *) {
+            iv.preferredSymbolConfiguration = MezonSymbolConfiguration(pointSize: 16, weight: .semibold).uiKitConfiguration
+        }
+        iv.image = UIImage.mezonSystemImage("chevron.left")
         return iv
     }()
 
@@ -74,8 +78,10 @@ final class VoiceRecordingOverlayView: UIView {
         let iv = UIImageView()
         iv.translatesAutoresizingMaskIntoConstraints = false
         iv.contentMode = .scaleAspectFit
-        iv.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 22, weight: .medium)
-        iv.image = UIImage(systemName: "mic.fill")
+        if #available(iOS 13.0, *) {
+            iv.preferredSymbolConfiguration = MezonSymbolConfiguration(pointSize: 22, weight: .medium).uiKitConfiguration
+        }
+        iv.image = UIImage.mezonSystemImage("mic.fill")
         return iv
     }()
 
@@ -291,16 +297,16 @@ final class VoiceRecordingOverlayView: UIView {
 
     func setSlideCancelledHighlight(_ cancelled: Bool, animated: Bool = true) {
         isSlideCancelHighlighted = cancelled
-        let iconConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
+        let iconConfig = MezonSymbolConfiguration(pointSize: 18, weight: .medium)
         let animations = {
             let t = UIColor.theme
             if cancelled {
-                self.leftMicImageView.image = UIImage(systemName: "trash.fill", withConfiguration: iconConfig)
+                self.leftMicImageView.image = UIImage.mezonSystemImage("trash.fill", withConfiguration: iconConfig)
                 self.leftMicBackdrop.backgroundColor = Self.cancelTrashBackgroundColor
                 self.leftMicImageView.tintColor = .white
                 self.slideLabel.text = "Release to delete"
             } else {
-                self.leftMicImageView.image = UIImage(systemName: "mic.fill", withConfiguration: iconConfig)
+                self.leftMicImageView.image = UIImage.mezonSystemImage("mic.fill", withConfiguration: iconConfig)
                 self.leftMicBackdrop.backgroundColor = t.textStrong.withAlphaComponent(0.35)
                 self.leftMicImageView.tintColor = t.textStrong
                 self.slideLabel.text = "Slide to cancel"

@@ -33,8 +33,8 @@ final class ImageEditorViewController: UIViewController {
     private lazy var closeButton: UIButton = {
         let button = UIButton(type: .system)
         button.translatesAutoresizingMaskIntoConstraints = false
-        let config = UIImage.SymbolConfiguration(pointSize: 17, weight: .bold)
-        button.setImage(UIImage(systemName: "xmark", withConfiguration: config), for: .normal)
+        let config = MezonSymbolConfiguration(pointSize: 17, weight: .bold)
+        button.setImage(UIImage.mezonSystemImage("xmark", withConfiguration: config), for: .normal)
         button.tintColor = .white
         button.backgroundColor = UIColor.black.withAlphaComponent(0.55)
         button.layer.cornerRadius = 22
@@ -59,7 +59,7 @@ final class ImageEditorViewController: UIViewController {
         let button = UIButton(type: .custom)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.setTitle(L(L10n.ImageEditor.send), for: .normal)
-        button.setImage(UIImage(systemName: "paperplane.fill"), for: .normal)
+        button.setImage(UIImage.mezonSystemImage("paperplane.fill"), for: .normal)
         button.backgroundColor = .white
         button.setTitleColor(.black, for: .normal)
         button.tintColor = .black
@@ -85,7 +85,7 @@ final class ImageEditorViewController: UIViewController {
         let button = UIButton(type: .system)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.tintColor = .white
-        button.setImage(UIImage(systemName: "eraser.fill"), for: .normal)
+        button.setImage(UIImage.mezonSystemImage("eraser.fill"), for: .normal)
         button.layer.cornerRadius = 20
         button.addTarget(self, action: #selector(eraserTapped), for: .touchUpInside)
         NSLayoutConstraint.activate([
@@ -106,7 +106,7 @@ final class ImageEditorViewController: UIViewController {
         target.layer.shadowOpacity = 0.3
         target.layer.shadowRadius = 5
         target.isHidden = true
-        let image = UIImageView(image: UIImage(systemName: "trash.fill"))
+        let image = UIImageView(image: UIImage.mezonSystemImage("trash.fill"))
         image.translatesAutoresizingMaskIntoConstraints = false
         image.tintColor = .black
         target.addSubview(image)
@@ -591,7 +591,7 @@ private final class EditorToolButton: UIButton {
         iconLabel.minimumScaleFactor = 0.75
         if let systemImage {
             let attachment = NSTextAttachment()
-            attachment.image = UIImage(systemName: systemImage)?.withTintColor(.white, renderingMode: .alwaysOriginal)
+            attachment.image = UIImage.mezonSystemImage(systemImage)?.mezonTinted(.white, renderingMode: .alwaysOriginal)
             iconLabel.attributedText = NSAttributedString(attachment: attachment)
         }
         caption.text = title

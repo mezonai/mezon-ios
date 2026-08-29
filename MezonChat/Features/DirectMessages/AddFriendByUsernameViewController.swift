@@ -39,7 +39,9 @@ final class AddFriendByUsernameViewController: ViewController {
                 self?.setQuery(text)
             },
             onSubmit: { [weak self] in
-                self?.submitAddFriend()
+                if #available(iOS 13.0, *) {
+                    self?.submitAddFriend()
+                }
             }
         )
         displayNode = AddFriendByUsernameContainerNode(signal: stateSignal(), interaction: interaction)
@@ -151,6 +153,7 @@ final class AddFriendByUsernameViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func submitAddFriend() {
         let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty, !isSending else { return }
@@ -229,9 +232,9 @@ private final class AddFriendByUsernameContainerNode: ASDisplayNode, ASEditableT
         addSubnode(hintNode)
         addSubnode(submitButton)
 
-        let chevronImg = UIImage(
-            systemName: "xmark",
-            withConfiguration: UIImage.SymbolConfiguration(pointSize: 18.sf, weight: .semibold)
+        let chevronImg = UIImage.mezonSystemImage(
+            "xmark",
+            withConfiguration: MezonSymbolConfiguration(pointSize: 18.sf, weight: .semibold)
         )?.withRenderingMode(.alwaysTemplate)
         backButton.setImage(chevronImg, for: .normal)
         backButton.addTarget(self, action: #selector(backTapped), forControlEvents: .touchUpInside)

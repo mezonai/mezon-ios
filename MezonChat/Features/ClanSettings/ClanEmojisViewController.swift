@@ -184,7 +184,7 @@ final class ClanEmojisViewController: BaseViewController {
         view.addSubview(headerView)
 
         backButton.setImage(
-            UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate),
+            UIImage.mezonSystemImage("chevron.left")?.withRenderingMode(.alwaysTemplate),
             for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
@@ -231,7 +231,9 @@ final class ClanEmojisViewController: BaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         loadEmojiData()
-        fetchClanMembersIfNeeded()
+        if #available(iOS 13.0, *) {
+            fetchClanMembersIfNeeded()
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -379,11 +381,13 @@ final class ClanEmojisViewController: BaseViewController {
     }
 
     @objc private func addEmojiTapped() {
-        let picker = UIImagePickerController()
-        picker.delegate = self
-        picker.sourceType = .photoLibrary
-        picker.allowsEditing = true
-        present(picker, animated: true)
+        if #available(iOS 13.0, *) {
+            let picker = UIImagePickerController()
+            picker.delegate = self
+            picker.sourceType = .photoLibrary
+            picker.allowsEditing = true
+            present(picker, animated: true)
+        }
     }
 
     private func loadEmojiData() {
@@ -410,6 +414,7 @@ final class ClanEmojisViewController: BaseViewController {
         refreshEmojiTable()
     }
 
+    @available(iOS 13.0, *)
     private func fetchClanMembersIfNeeded() {
         guard clanMembers.isEmpty else { return }
         Task {
@@ -446,6 +451,7 @@ final class ClanEmojisViewController: BaseViewController {
         return true
     }
 
+    @available(iOS 13.0, *)
     private func commitEmojiNameChange(
         for emoji: CachedClanEmojiRecord,
         innerName: String,
@@ -483,6 +489,7 @@ final class ClanEmojisViewController: BaseViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func deleteEmoji(_ emoji: CachedClanEmojiRecord) {
         guard canEdit(emoji) else { return }
         MezonConfirm.present(
@@ -545,10 +552,14 @@ extension ClanEmojisViewController: UITableViewDataSource, UITableViewDelegate {
                 done(false)
                 return
             }
-            self.commitEmojiNameChange(for: current, innerName: innerName, completion: done)
+            if #available(iOS 13.0, *) {
+                self.commitEmojiNameChange(for: current, innerName: innerName, completion: done)
+            }
         }
         cell.onDelete = { [weak self] in
-            self?.deleteEmoji(emoji)
+            if #available(iOS 13.0, *) {
+                self?.deleteEmoji(emoji)
+            }
         }
         cell.onSwipeOpened = { [weak self, weak cell] in
             guard let self, let cell, self.openSwipeCell !== cell else { return }
@@ -603,19 +614,22 @@ extension ClanEmojisViewController: UIImagePickerControllerDelegate, UINavigatio
     }
 
     private func presentEmojiPreview(image: UIImage, picked: PickedEmojiImage) {
-        let preview = ClanEmojiPreviewViewController(image: image)
-        preview.onConfirm = { [weak self, weak preview] innerName, isForSale in
-            guard let self else { return }
-            let trimmed = ClanStickerNameValidator.normalized(innerName)
-            guard self.validateInnerName(trimmed) else { return }
-            let wrapped = CachedClanEmojiRecord.wrappedShortname(trimmed)
-            preview?.dismiss(animated: true) {
-                Task { await self.uploadEmoji(image: image, picked: picked, shortname: wrapped, isForSale: isForSale) }
+        if #available(iOS 13.0, *) {
+            let preview = ClanEmojiPreviewViewController(image: image)
+            preview.onConfirm = { [weak self, weak preview] innerName, isForSale in
+                guard let self else { return }
+                let trimmed = ClanStickerNameValidator.normalized(innerName)
+                guard self.validateInnerName(trimmed) else { return }
+                let wrapped = CachedClanEmojiRecord.wrappedShortname(trimmed)
+                preview?.dismiss(animated: true) {
+                    Task { await self.uploadEmoji(image: image, picked: picked, shortname: wrapped, isForSale: isForSale) }
+                }
             }
+            present(preview, animated: true)
         }
-        present(preview, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func uploadEmoji(image: UIImage, picked: PickedEmojiImage, shortname: String, isForSale: Bool) async {
         if repository.isAtUploadLimit(clanId: clanId) {
             return

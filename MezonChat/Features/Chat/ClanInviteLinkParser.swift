@@ -42,11 +42,11 @@ enum ClanInviteLinkParser {
     }
 }
 
-@MainActor
 enum ClanChannelDescsGate {
     private static var fetchedClanIds = Set<Int64>()
-    private static var inflight = [Int64: Task<Void, Never>]()
+    private static var inflight = [Int64: CancelHandle]()
 
+    @available(iOS 13.0, *)
     static func ensureFetchedBeforeJoin(
         context: AccountContext,
         clanId: Int64,
@@ -56,7 +56,7 @@ enum ClanChannelDescsGate {
         guard clanId != 0 else { return }
         if !force, fetchedClanIds.contains(clanId) { return }
         if inflight[clanId] == nil {
-            inflight[clanId] = Task { @MainActor in
+            let task = Task { @MainActor in
                 defer { inflight[clanId] = nil }
                 guard let token = await context.getToken(), !token.isEmpty else { return }
                 do {
@@ -64,6 +64,7 @@ enum ClanChannelDescsGate {
                     fetchedClanIds.insert(clanId)
                 } catch {}
             }
+            inflight[clanId] = CancelHandle { task.cancel() }
         }
         let stepNanoseconds: UInt64 = 50_000_000
         var waited: UInt64 = 0
@@ -75,6 +76,7 @@ enum ClanChannelDescsGate {
 }
 
 enum ClanInviteJoiner {
+    @available(iOS 13.0, *)
     static func join(
         context: AccountContext,
         code: String,

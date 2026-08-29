@@ -1,7 +1,6 @@
 import AsyncDisplayKit
 import UIKit
 
-@MainActor
 final class ChannelDetailContainerNode: ASDisplayNode {
 
     private enum AssetTab: Int {
@@ -154,7 +153,7 @@ final class ChannelDetailContainerNode: ASDisplayNode {
 
     private func setupHeader() {
         backButtonNode.setImage(
-            UIImage(systemName: "chevron.left")?.withTintColor(
+            UIImage.mezonSystemImage("chevron.left")?.mezonTinted(
                 UIColor.theme.textStrong, renderingMode: .alwaysOriginal), for: .normal)
         backButtonNode.addTarget(
             self, action: #selector(backPressed), forControlEvents: .touchUpInside)
@@ -163,7 +162,7 @@ final class ChannelDetailContainerNode: ASDisplayNode {
         backButtonNode.contentVerticalAlignment = .center
 
         moreButtonNode.setImage(
-            UIImage(systemName: "ellipsis")?.withTintColor(
+            UIImage.mezonSystemImage("ellipsis")?.mezonTinted(
                 UIColor.theme.textStrong, renderingMode: .alwaysOriginal), for: .normal)
         moreButtonNode.addTarget(
             self, action: #selector(groupOptionsPressed), forControlEvents: .touchUpInside)
@@ -295,12 +294,14 @@ final class ChannelDetailContainerNode: ASDisplayNode {
 
     private func loadDataForTab(at index: Int) {
         guard index >= 0, index < visibleTabs.count else { return }
-        switch visibleTabs[index] {
-        case .members: membersListNode.loadTabDataIfNeeded()
-        case .media: mediaGalleryNode.loadTabDataIfNeeded()
-        case .files: fileListNode.loadTabDataIfNeeded()
-        case .pins: pinnedMessagesNode.loadTabDataIfNeeded()
-        case .canvas: canvasNode.loadTabDataIfNeeded()
+        if #available(iOS 13.0, *) {
+            switch visibleTabs[index] {
+            case .members: membersListNode.loadTabDataIfNeeded()
+            case .media: mediaGalleryNode.loadTabDataIfNeeded()
+            case .files: fileListNode.loadTabDataIfNeeded()
+            case .pins: pinnedMessagesNode.loadTabDataIfNeeded()
+            case .canvas: canvasNode.loadTabDataIfNeeded()
+            }
         }
     }
 
@@ -431,10 +432,10 @@ final class ChannelDetailContainerNode: ASDisplayNode {
         self.backgroundColor = t.primary
         configureChannelHeaderVisuals()
         backButtonNode.setImage(
-            UIImage(systemName: "chevron.left")?.withTintColor(
+            UIImage.mezonSystemImage("chevron.left")?.mezonTinted(
                 t.textStrong, renderingMode: .alwaysOriginal), for: .normal)
         moreButtonNode.setImage(
-            UIImage(systemName: "ellipsis")?.withTintColor(
+            UIImage.mezonSystemImage("ellipsis")?.mezonTinted(
                 t.textStrong, renderingMode: .alwaysOriginal), for: .normal)
         for i in 0..<visibleTabs.count {
             updateTabAppearance(index: i, title: title(for: visibleTabs[i]))

@@ -65,7 +65,7 @@ final class ChannelItemCellNode: ASCellNode {
             if chType == .text && channel.ageRestricted == 1 {
                 iconName = "Channel/channelWarning"
             }
-            let image = UIImage(named: iconName) ?? UIImage(systemName: iconName)
+            let image = UIImage(named: iconName) ?? UIImage.mezonSystemImage(iconName)
             iconImgNode.image = image?.withRenderingMode(.alwaysTemplate)
             iconImgNode.tintColor = iconColor
             iconImgNode.isHidden = false

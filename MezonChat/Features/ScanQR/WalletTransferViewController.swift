@@ -78,7 +78,6 @@ private final class AmountFormattingTextField: UITextField {
     }
 }
 
-@MainActor
 final class WalletTransferViewController: BaseViewController, UIGestureRecognizerDelegate {
 
     private let context: AccountContext
@@ -117,7 +116,7 @@ final class WalletTransferViewController: BaseViewController, UIGestureRecognize
 
     private let bottomBar = UIView()
     private let sendButton = UIButton(type: .system)
-    private let activityIndicator = UIActivityIndicatorView(style: .medium)
+    private let activityIndicator = UIActivityIndicatorView.mezonMedium()
     private var bottomBarBottomConstraint: NSLayoutConstraint?
 
     private var plainAmount: Int64 = 0
@@ -137,7 +136,9 @@ final class WalletTransferViewController: BaseViewController, UIGestureRecognize
         NotificationCenter.default.addObserver(
             self, selector: #selector(keyboardFrameWillChange(_:)),
             name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
-        Task { await loadWalletDetail() }
+        if #available(iOS 13.0, *) {
+            Task { await loadWalletDetail() }
+        }
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -176,7 +177,7 @@ final class WalletTransferViewController: BaseViewController, UIGestureRecognize
         headerView.addSubview(backButton)
         headerView.addSubview(titleLabel)
 
-        let backImg = UIImage(systemName: "chevron.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium))
+        let backImg = UIImage.mezonSystemImage("chevron.left", withConfiguration: MezonSymbolConfiguration(pointSize: 18, weight: .medium))
         backButton.setImage(backImg, for: .normal)
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
         titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
@@ -280,13 +281,13 @@ final class WalletTransferViewController: BaseViewController, UIGestureRecognize
         recipientValueLabel.translatesAutoresizingMaskIntoConstraints = false
         recipientValueLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        let copyIcon = UIImage(systemName: "doc.on.doc")?
-            .withConfiguration(UIImage.SymbolConfiguration(pointSize: 15, weight: .medium))
+        let copyIcon = UIImage.mezonSystemImage("doc.on.doc")?
+            .mezonWithConfiguration(MezonSymbolConfiguration(pointSize: 15, weight: .medium))
         copyButton.setImage(copyIcon, for: .normal)
         copyButton.translatesAutoresizingMaskIntoConstraints = false
         copyButton.addTarget(self, action: #selector(copyAddressTapped), for: .touchUpInside)
 
-        recipientChevron.image = UIImage(systemName: "chevron.down")
+        recipientChevron.image = UIImage.mezonSystemImage("chevron.down")
         recipientChevron.translatesAutoresizingMaskIntoConstraints = false
         recipientChevron.contentMode = .scaleAspectFit
         recipientChevron.setContentHuggingPriority(.required, for: .horizontal)
@@ -343,17 +344,22 @@ final class WalletTransferViewController: BaseViewController, UIGestureRecognize
     private static func styleRecipientPickerNavigation(_ nav: UINavigationController) {
         nav.view.backgroundColor = .mezonPrimary
         nav.navigationBar.isTranslucent = false
-        let appearance = UINavigationBarAppearance()
-        appearance.configureWithOpaqueBackground()
-        appearance.backgroundColor = .mezonPrimary
-        appearance.shadowColor = .clear
-        appearance.titleTextAttributes = [.foregroundColor: UIColor.mezonTextStrong]
-        nav.navigationBar.standardAppearance = appearance
-        if #available(iOS 15.0, *) {
-            nav.navigationBar.scrollEdgeAppearance = appearance
-            nav.navigationBar.compactScrollEdgeAppearance = appearance
+        if #available(iOS 13.0, *) {
+            let appearance = UINavigationBarAppearance()
+            appearance.configureWithOpaqueBackground()
+            appearance.backgroundColor = .mezonPrimary
+            appearance.shadowColor = .clear
+            appearance.titleTextAttributes = [.foregroundColor: UIColor.mezonTextStrong]
+            nav.navigationBar.standardAppearance = appearance
+            if #available(iOS 15.0, *) {
+                nav.navigationBar.scrollEdgeAppearance = appearance
+                nav.navigationBar.compactScrollEdgeAppearance = appearance
+            }
+            nav.navigationBar.compactAppearance = appearance
+        } else {
+            nav.navigationBar.barTintColor = .mezonPrimary
+            nav.navigationBar.titleTextAttributes = [.foregroundColor: UIColor.mezonTextStrong]
         }
-        nav.navigationBar.compactAppearance = appearance
         nav.navigationBar.tintColor = .mezonTextStrong
     }
 
@@ -400,7 +406,7 @@ final class WalletTransferViewController: BaseViewController, UIGestureRecognize
 
         notePlaceholder.translatesAutoresizingMaskIntoConstraints = false
         notePlaceholder.font = .systemFont(ofSize: 14)
-        notePlaceholder.textColor = .placeholderText
+        notePlaceholder.textColor = .mezonCompatPlaceholderText
         notePlaceholder.text = L(L10n.Profile.sendTokenDefaultNote)
 
         noteCounterLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -563,6 +569,8 @@ final class WalletTransferViewController: BaseViewController, UIGestureRecognize
 
     @objc private func dismissKeyboard() { view.endEditing(true) }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func loadWalletDetail() async {
         guard let id = context.currentUser?.id else { return }
         if let w = try? await MmnClient.shared.getAccountByUserId(id) {
@@ -597,35 +605,37 @@ final class WalletTransferViewController: BaseViewController, UIGestureRecognize
     }
 
     @objc private func onSendTapped() {
-        guard !isSending else { return }
+        if #available(iOS 13.0, *) {
+            guard !isSending else { return }
 
-        let hasRecipient = (payload.walletAddress?.isEmpty == false) || (payload.receiverUserId?.isEmpty == false)
-        if !hasRecipient {
-            Toast.error(L(L10n.Profile.sendTokenErrSelectUser))
-            return
-        }
-        if plainAmount <= 0 {
-            Toast.error(L(L10n.Profile.sendTokenErrAmountZero))
-            return
-        }
-        let walletInDong = walletInDongValue()
-        if plainAmount > walletInDong {
-            Toast.error(L(L10n.Profile.sendTokenErrExceedWallet))
-            return
-        }
+            let hasRecipient = (payload.walletAddress?.isEmpty == false) || (payload.receiverUserId?.isEmpty == false)
+            if !hasRecipient {
+                Toast.error(L(L10n.Profile.sendTokenErrSelectUser))
+                return
+            }
+            if plainAmount <= 0 {
+                Toast.error(L(L10n.Profile.sendTokenErrAmountZero))
+                return
+            }
+            let walletInDong = walletInDongValue()
+            if plainAmount > walletInDong {
+                Toast.error(L(L10n.Profile.sendTokenErrExceedWallet))
+                return
+            }
 
-        view.endEditing(true)
-        let recipientShort = recipientShortDisplay()
-        let amountFormatted = MmnMoneyFormat.formatTokenAmount(String(plainAmount)).display
-        let message = String(format: L(L10n.Profile.sendTokenConfirmMessage),
-                             amountFormatted, MmnMoneyFormat.currencySymbol, recipientShort)
-        MezonConfirm.present(
-            from: self,
-            title: L(L10n.Profile.sendTokenConfirmTitle),
-            content: message,
-            confirmTitle: L(L10n.Profile.sendTokenConfirmAction),
-            onConfirm: { [weak self] in self?.performSend() }
-        )
+            view.endEditing(true)
+            let recipientShort = recipientShortDisplay()
+            let amountFormatted = MmnMoneyFormat.formatTokenAmount(String(plainAmount)).display
+            let message = String(format: L(L10n.Profile.sendTokenConfirmMessage),
+                                 amountFormatted, MmnMoneyFormat.currencySymbol, recipientShort)
+            MezonConfirm.present(
+                from: self,
+                title: L(L10n.Profile.sendTokenConfirmTitle),
+                content: message,
+                confirmTitle: L(L10n.Profile.sendTokenConfirmAction),
+                onConfirm: { [weak self] in self?.performSend() }
+            )
+        }
     }
 
     private func recipientShortDisplay() -> String {
@@ -645,44 +655,46 @@ final class WalletTransferViewController: BaseViewController, UIGestureRecognize
     }
 
     private func performSend() {
-        setSending(true)
-        let amountInput = String(plainAmount)
-        let note = (noteField.text ?? "")
-            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        Task {
-            do {
-                let r = try await MmnTransferCoordinator.send(
-                    context: context,
-                    payload: payload,
-                    amountInput: amountInput,
-                    note: note
-                )
-                await MainActor.run { self.setSending(false) }
-                if r.ok == true {
-                    let beforeBalance = self.walletDetail?.balance
-                    await self.loadWalletDetail()
-                    await MainActor.run {
-                        if let b = beforeBalance {
-                            self.applyDeductedBalanceIfServerStale(previousBalance: b, sentInput: amountInput)
+        if #available(iOS 13.0, *) {
+            setSending(true)
+            let amountInput = String(plainAmount)
+            let note = (noteField.text ?? "")
+                .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            Task {
+                do {
+                    let r = try await MmnTransferCoordinator.send(
+                        context: context,
+                        payload: payload,
+                        amountInput: amountInput,
+                        note: note
+                    )
+                    await MainActor.run { self.setSending(false) }
+                    if r.ok == true {
+                        let beforeBalance = self.walletDetail?.balance
+                        await self.loadWalletDetail()
+                        await MainActor.run {
+                            if let b = beforeBalance {
+                                self.applyDeductedBalanceIfServerStale(previousBalance: b, sentInput: amountInput)
+                            }
+                            self.showSuccess(amount: amountInput, note: note)
                         }
-                        self.showSuccess(amount: amountInput, note: note)
-                    }
-                } else {
-                    await MainActor.run { self.showFailure(message: r.error) }
-                }
-            } catch MmnTransferError.walletNotReady {
-                await MainActor.run {
-                    self.setSending(false)
-                    self.showSessionExpired()
-                }
-            } catch let nsErr as NSError {
-                await MainActor.run {
-                    self.setSending(false)
-                    if nsErr.code == 401 {
-                        self.showSessionExpired()
                     } else {
-                        self.showFailure(message: nsErr.localizedDescription)
+                        await MainActor.run { self.showFailure(message: r.error) }
+                    }
+                } catch MmnTransferError.walletNotReady {
+                    await MainActor.run {
+                        self.setSending(false)
+                        self.showSessionExpired()
+                    }
+                } catch let nsErr as NSError {
+                    await MainActor.run {
+                        self.setSending(false)
+                        if nsErr.code == 401 {
+                            self.showSessionExpired()
+                        } else {
+                            self.showFailure(message: nsErr.localizedDescription)
+                        }
                     }
                 }
             }
@@ -876,7 +888,6 @@ private final class TransferRecipientPickerCell: UITableViewCell {
     }
 }
 
-@MainActor
 private final class TransferRecipientPickerViewController: UIViewController, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate {
 
     private let context: AccountContext
@@ -914,7 +925,7 @@ private final class TransferRecipientPickerViewController: UIViewController, UIT
         searchContainer.layer.borderColor = UIColor.mezonTextMuted.cgColor
 
         searchIcon.translatesAutoresizingMaskIntoConstraints = false
-        let mag = UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium))?
+        let mag = UIImage.mezonSystemImage("magnifyingglass", withConfiguration: MezonSymbolConfiguration(pointSize: 18, weight: .medium))?
             .withRenderingMode(.alwaysTemplate)
         searchIcon.image = mag
         searchIcon.tintColor = .mezonTextPrimary
@@ -983,7 +994,9 @@ private final class TransferRecipientPickerViewController: UIViewController, UIT
             tableView.trailingAnchor.constraint(equalTo: listContainer.trailingAnchor),
             tableView.bottomAnchor.constraint(equalTo: listContainer.bottomAnchor),
         ])
-        Task { await loadRecipients() }
+        if #available(iOS 13.0, *) {
+            Task { await loadRecipients() }
+        }
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -1004,6 +1017,8 @@ private final class TransferRecipientPickerViewController: UIViewController, UIT
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func refreshClanMembersIfNeeded(clanId: Int64, token: String) async throws {
         let res = try await context.account.network.listClanUsers(clanId: clanId, token: token)
         guard !res.clanUsers.isEmpty else { return }
@@ -1016,6 +1031,8 @@ private final class TransferRecipientPickerViewController: UIViewController, UIT
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func loadRecipients() async {
         guard let token = await context.getToken(), !token.isEmpty else { return }
         let selfId = context.currentUser?.id ?? ""

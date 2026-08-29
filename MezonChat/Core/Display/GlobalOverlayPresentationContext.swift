@@ -58,6 +58,7 @@ final class GlobalOverlayPresentationContext {
     private var layout: ContainerViewLayout?
 
     private var ready: Bool {
+        guard #available(iOS 13.0, *) else { return false }
         return self.currentPresentationView(underStatusBar: false) != nil && self.layout != nil
     }
 

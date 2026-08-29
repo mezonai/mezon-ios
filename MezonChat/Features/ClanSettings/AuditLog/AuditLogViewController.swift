@@ -1,6 +1,5 @@
 import UIKit
 
-@MainActor
 final class AuditLogViewController: BaseViewController {
 
     private let context: AccountContext
@@ -30,7 +29,7 @@ final class AuditLogViewController: BaseViewController {
     private let emptyView = UIView()
     private let emptyIcon = UIImageView()
     private let emptyLabel = UILabel()
-    private let activityIndicator = UIActivityIndicatorView(style: .medium)
+    private let activityIndicator = UIActivityIndicatorView.mezonMedium()
     
     init(context: AccountContext, clanId: Int64) {
         self.context = context
@@ -53,7 +52,9 @@ final class AuditLogViewController: BaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         fetchMembers()
-        fetchAuditLogs()
+        if #available(iOS 13.0, *) {
+            fetchAuditLogs()
+        }
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -63,8 +64,8 @@ final class AuditLogViewController: BaseViewController {
     
     override func applyTheme() {
         let currentTheme = ThemeManager.shared.current
-        let effectiveTheme = currentTheme == .system ? (UITraitCollection.current.userInterfaceStyle == .dark ? AppTheme.dark : AppTheme.light) : currentTheme
-        self.overrideUserInterfaceStyle = (effectiveTheme == .light || effectiveTheme == .sunrise) ? .light : .dark
+        let effectiveTheme = currentTheme == .system ? (mezonSystemPrefersDarkMode() ? AppTheme.dark : AppTheme.light) : currentTheme
+        view.setMezonOverrideUserInterfaceStyle((effectiveTheme == .light || effectiveTheme == .sunrise) ? .light : .dark)
         view.backgroundColor = UIColor.theme.primary
         titleLabel.textColor = UIColor.theme.textStrong
         backButton.tintColor = UIColor.theme.textStrong
@@ -84,7 +85,7 @@ final class AuditLogViewController: BaseViewController {
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
         
-        backButton.setImage(UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        backButton.setImage(UIImage.mezonSystemImage("chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
         
@@ -98,10 +99,10 @@ final class AuditLogViewController: BaseViewController {
         filterButton.titleLabel?.font = .systemFont(ofSize: 15.sf, weight: .semibold)
         
         if #available(iOS 14.0, *) {
-            let filterUserAction = UIAction(title: L(L10n.AuditLog.filterByUser), image: UIImage(systemName: "person")) { [weak self] _ in
+            let filterUserAction = UIAction(title: L(L10n.AuditLog.filterByUser), image: UIImage.mezonSystemImage("person")) { [weak self] _ in
                 self?.openFilterUser()
             }
-            let filterActionAction = UIAction(title: L(L10n.AuditLog.filterByAction), image: UIImage(systemName: "list.bullet")) { [weak self] _ in
+            let filterActionAction = UIAction(title: L(L10n.AuditLog.filterByAction), image: UIImage.mezonSystemImage("list.bullet")) { [weak self] _ in
                 self?.openFilterAction()
             }
             let menu = UIMenu(title: "", children: [filterUserAction, filterActionAction])
@@ -279,6 +280,7 @@ final class AuditLogViewController: BaseViewController {
         self.members = context.account.postbox.read { $0.getClanMembers(clanId: self.clanId) }
     }
     
+    @available(iOS 13.0, *)
     private func fetchAuditLogs() {
         activityIndicator.startAnimating()
         tableView.isHidden = true
@@ -359,15 +361,19 @@ final class AuditLogViewController: BaseViewController {
     }
     
     @objc private func dateChanged() {
-        selectedDate = datePicker.date
-        fetchAuditLogs()
+        if #available(iOS 13.0, *) {
+            selectedDate = datePicker.date
+            fetchAuditLogs()
+        }
     }
     
     private func openFilterUser() {
         let vc = AuditLogFilterUserViewController(context: context, clanId: clanId, currentUser: selectedUser) { [weak self] user in
             self?.selectedUser = user
             self?.updateFilterSummaryText()
-            self?.fetchAuditLogs()
+            if #available(iOS 13.0, *) {
+                self?.fetchAuditLogs()
+            }
         }
         vc.modalPresentationStyle = .pageSheet
         if #available(iOS 15.0, *) {
@@ -380,7 +386,9 @@ final class AuditLogViewController: BaseViewController {
         let vc = AuditLogFilterActionViewController(context: context, clanId: clanId, currentAction: selectedAction) { [weak self] action in
             self?.selectedAction = action
             self?.updateFilterSummaryText()
-            self?.fetchAuditLogs()
+            if #available(iOS 13.0, *) {
+                self?.fetchAuditLogs()
+            }
         }
         vc.modalPresentationStyle = .pageSheet
         if #available(iOS 15.0, *) {

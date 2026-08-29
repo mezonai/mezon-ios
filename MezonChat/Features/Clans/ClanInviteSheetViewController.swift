@@ -6,7 +6,7 @@ import UIKit
 private final class ClanInviteSearchWrapNode: ASDisplayNode {
     let textField = UITextField()
     let clearButton = UIButton(type: .system)
-    private let iconView = UIImageView(image: UIImage(systemName: "magnifyingglass"))
+    private let iconView = UIImageView(image: UIImage.mezonSystemImage("magnifyingglass"))
 
     override init() {
         super.init()
@@ -27,8 +27,8 @@ private final class ClanInviteSearchWrapNode: ASDisplayNode {
         view.addSubview(textField)
 
         clearButton.setImage(
-            UIImage(systemName: "xmark.circle.fill")?.withConfiguration(
-                UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .regular)
+            UIImage.mezonSystemImage("xmark.circle.fill")?.mezonWithConfiguration(
+                MezonSymbolConfiguration(pointSize: 16.sf, weight: .regular)
             ),
             for: .normal
         )
@@ -97,7 +97,7 @@ private final class ClanInviteActionButtonNode: ASDisplayNode {
             iconNode.image = assetImage.withRenderingMode(.alwaysOriginal)
             iconNode.tintColor = .clear
         } else {
-            let symbol = UIImage(systemName: fallbackSystemIcon)?.withRenderingMode(.alwaysTemplate)
+            let symbol = UIImage.mezonSystemImage(fallbackSystemIcon)?.withRenderingMode(.alwaysTemplate)
             iconNode.image = symbol
             iconNode.tintColor = UIColor.theme.textStrong
         }
@@ -218,7 +218,9 @@ private final class ClanInviteQRCodeViewController: UIViewController {
 
     private func configureSheet() {
         view.backgroundColor = UIColor.theme.primary
-        isModalInPresentation = false
+        if #available(iOS 13.0, *) {
+            isModalInPresentation = false
+        }
         if #available(iOS 15.0, *), let sheet = sheetPresentationController {
             sheet.prefersGrabberVisible = true
             sheet.preferredCornerRadius = 24.swh
@@ -485,8 +487,8 @@ private final class ClanInviteQRCodeViewController: UIViewController {
         accessibilityLabel: String,
         selector: Selector
     ) {
-        let configuration = UIImage.SymbolConfiguration(pointSize: 18.sf, weight: .medium)
-        button.setImage(UIImage(systemName: systemImage, withConfiguration: configuration), for: .normal)
+        let configuration = MezonSymbolConfiguration(pointSize: 18.sf, weight: .medium)
+        button.setImage(UIImage.mezonSystemImage(systemImage, withConfiguration: configuration), for: .normal)
         button.tintColor = UIColor.theme.textStrong
         button.backgroundColor = UIColor.theme.secondary
         button.layer.cornerRadius = 12.swh
@@ -718,7 +720,7 @@ private final class ClanInviteFriendCellNode: ASCellNode {
         self.needsSpinner = isLoading
 
         spinnerWrapNode = ASDisplayNode { () -> UIView in
-            let sp = UIActivityIndicatorView(style: .medium)
+            let sp = UIActivityIndicatorView.mezonMedium()
             sp.hidesWhenStopped = true
             if isLoading {
                 sp.startAnimating()
@@ -754,7 +756,7 @@ private final class ClanInviteFriendCellNode: ASCellNode {
         avatarNode.clipsToBounds = true
         avatarNode.contentMode = .scaleAspectFill
 
-        groupIconNode.image = UIImage(systemName: "person.2.fill")?.withRenderingMode(.alwaysTemplate)
+        groupIconNode.image = UIImage.mezonSystemImage("person.2.fill")?.withRenderingMode(.alwaysTemplate)
         groupIconNode.tintColor = .white
         groupIconNode.contentMode = .scaleAspectFit
 
@@ -901,7 +903,7 @@ private final class ClanInviteSheetContainerNode: ASDisplayNode {
     let listContainerNode = ASDisplayNode()
     let tableNode = ASTableNode(style: .plain)
     let emptyStateNode = ClanInviteEmptyStateNode()
-    let loadingSpinner = UIActivityIndicatorView(style: .medium)
+    let loadingSpinner = UIActivityIndicatorView.mezonMedium()
     let loadingLabel = UILabel()
 
     override init() {
@@ -1119,7 +1121,9 @@ final class ClanInviteSheetViewController: ViewController {
         containerNode.searchWrapNode.textField.addTarget(self, action: #selector(searchChanged), for: .editingChanged)
         containerNode.searchWrapNode.clearButton.addTarget(self, action: #selector(clearSearchTapped), for: .touchUpInside)
         applyTheme()
-        loadData()
+        if #available(iOS 13.0, *) {
+            loadData()
+        }
     }
 
     override func dismiss(animated flag: Bool, completion: (() -> Void)? = nil) {
@@ -1156,6 +1160,7 @@ final class ClanInviteSheetViewController: ViewController {
         containerNode.applyTheme()
     }
 
+    @available(iOS 13.0, *)
     private func loadData() {
         Task { @MainActor in
             guard let token = await context.getToken() else {
@@ -1267,6 +1272,7 @@ final class ClanInviteSheetViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func resolveInviteLink(token: String) async -> String? {
         guard let inviteContext = await resolveInviteContext(token: token) else {
             return nil
@@ -1287,6 +1293,7 @@ final class ClanInviteSheetViewController: ViewController {
         return nil
     }
 
+    @available(iOS 13.0, *)
     private func resolveInviteContext(
         token: String
     ) async -> (channelId: Int64, clanName: String, clanLogoURL: String)? {
@@ -1334,6 +1341,7 @@ final class ClanInviteSheetViewController: ViewController {
         containerNode.loadingLabel.text = nil
     }
 
+    @available(iOS 13.0, *)
     private func updateCellState(for item: FriendItem) {
         Task { @MainActor in
             guard let rowIndex = self.filteredFriends.firstIndex(where: { $0.id == item.id }) else { return }
@@ -1346,6 +1354,7 @@ final class ClanInviteSheetViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func inviteUser(_ item: FriendItem) {
         guard !sentIds.contains(item.id), !sendingIds.contains(item.id) else { return }
         sendingIds.insert(item.id)
@@ -1401,6 +1410,7 @@ final class ClanInviteSheetViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func buildInviteMessagePayload(url: String, token: String) async throws -> [String: Any] {
         let linkLength = url.count
         var mk: [[String: Any]] = [
@@ -1456,6 +1466,7 @@ final class ClanInviteSheetViewController: ViewController {
         dmChannelsByUserId = map
     }
 
+    @available(iOS 13.0, *)
     private func resolveDirectChannel(for userId: Int64, token: String) async throws -> Mezon_Api_ChannelDescription {
         if let cached = dmChannelsByUserId[userId] {
             return cached
@@ -1563,7 +1574,9 @@ extension ClanInviteSheetViewController: ASTableDataSource, ASTableDelegate {
                 isLoading: isLoading
             )
             cell.onInvite = { [weak self] in
-                self?.inviteUser(item)
+                if #available(iOS 13.0, *) {
+                    self?.inviteUser(item)
+                }
             }
             return cell
         }

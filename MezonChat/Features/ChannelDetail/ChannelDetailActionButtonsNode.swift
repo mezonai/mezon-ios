@@ -1,7 +1,6 @@
 import AsyncDisplayKit
 import UIKit
 
-@MainActor
 final class ChannelDetailActionButtonsNode: ASDisplayNode {
 
     private let searchButtonNode = ASButtonNode()
@@ -268,9 +267,9 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
             }
             return resizedOriginalIcon(assetImage)
         }
-        let baseConfig = UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)
-        let symbolImage = UIImage(systemName: fallbackSystemName, withConfiguration: baseConfig)
-        return symbolImage?.withTintColor(fallbackTintColor, renderingMode: .alwaysOriginal)
+        let baseConfig = MezonSymbolConfiguration(pointSize: 20, weight: .semibold)
+        let symbolImage = UIImage.mezonSystemImage(fallbackSystemName, withConfiguration: baseConfig)
+        return symbolImage?.mezonTinted(fallbackTintColor, renderingMode: .alwaysOriginal)
     }
 
     private func resizedOriginalIcon(_ image: UIImage) -> UIImage {

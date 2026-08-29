@@ -17,6 +17,7 @@ enum MmnEd25519PKCS8 {
     }
 }
 
+@available(iOS 13.0, *)
 struct MmnEphemeralKeyPair: Sendable {
     let publicKeyBase58: String
     let privateKeyPkcs8Hex: String
@@ -82,6 +83,7 @@ struct MmnTxMsgForSign: Sendable {
 }
 
 enum MmnTransactionSigner {
+    @available(iOS 13.0, *)
     static func buildSignatureString(serialized: Data, signingKey: Curve25519.Signing.PrivateKey) throws -> String {
         let sig = try signingKey.signature(for: serialized)
         let pubB64 = signingKey.publicKey.rawRepresentation.base64EncodedString()
@@ -89,6 +91,8 @@ enum MmnTransactionSigner {
         let json = "{\"PubKey\":\"\(pubB64)\",\"Sig\":\"\(sigB64)\"}"
         return MmnBase58.encode(Data(json.utf8))
     }
+
+    @available(iOS 13.0, *)
 
     static func buildSignedAddTxBody(tx: MmnTxMsgForSign, signingKey: Curve25519.Signing.PrivateKey) throws -> [String: Any] {
         let line = Data(tx.serializationLine.utf8)

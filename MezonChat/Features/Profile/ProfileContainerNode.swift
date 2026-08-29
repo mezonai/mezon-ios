@@ -1,7 +1,6 @@
 import UIKit
 import AsyncDisplayKit
 
-@MainActor
 final class ProfileContainerNode: ASDisplayNode {
 
     private let fixedHeaderView = UIView()
@@ -66,7 +65,7 @@ final class ProfileContainerNode: ASDisplayNode {
     private let nameTapArea = UIView()
     private let nameLabel = UILabel()
     private let chevronDown: UIImageView = {
-        let iv = UIImageView(image: UIImage(systemName: "chevron.down")?.withConfiguration(UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)))
+        let iv = UIImageView(image: UIImage.mezonSystemImage("chevron.down")?.mezonWithConfiguration(MezonSymbolConfiguration(pointSize: 12, weight: .semibold)))
         iv.tintColor = .mezonTextPrimary
         iv.contentMode = .scaleAspectFit
         return iv
@@ -159,7 +158,7 @@ final class ProfileContainerNode: ASDisplayNode {
     }()
     private let friendsAvatarStack = UIStackView()
     private let friendsChevron: UIImageView = {
-        let iv = UIImageView(image: UIImage(systemName: "chevron.right")?.withConfiguration(UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)))
+        let iv = UIImageView(image: UIImage.mezonSystemImage("chevron.right")?.mezonWithConfiguration(MezonSymbolConfiguration(pointSize: 14, weight: .semibold)))
         iv.tintColor = .mezonTextSecondary
         iv.contentMode = .scaleAspectFit
         return iv
@@ -177,7 +176,7 @@ final class ProfileContainerNode: ASDisplayNode {
     private var friendsBadgeWidthConstraint: NSLayoutConstraint?
 
     private var friendsUpdatedDisposable: Disposable?
-    private var walletFetchTask: Task<Void, Never>?
+    private var walletFetchTask: CancelHandle?
     private var walletDetail: WalletDetail?
     private var currentAvatarLoadKey: String?
 
@@ -194,9 +193,9 @@ final class ProfileContainerNode: ASDisplayNode {
             let rect = CGRect(origin: .zero, size: CGSize(width: size, height: size))
             containerColor.setFill()
             UIBezierPath(roundedRect: rect, cornerRadius: 2).fill()
-            let cfg = UIImage.SymbolConfiguration(pointSize: 12, weight: .bold)
-            if let plus = UIImage(systemName: "plus", withConfiguration: cfg)?
-                .withTintColor(iconColor, renderingMode: .alwaysOriginal) {
+            let cfg = MezonSymbolConfiguration(pointSize: 12, weight: .bold)
+            if let plus = UIImage.mezonSystemImage("plus", withConfiguration: cfg)?
+                .mezonTinted(iconColor, renderingMode: .alwaysOriginal) {
                 let iconSize = plus.size
                 let iconRect = CGRect(
                     x: (size - iconSize.width) / 2,
@@ -336,7 +335,9 @@ final class ProfileContainerNode: ASDisplayNode {
         setupFriendsCard()
         setupCopyCard()
 
-        updateContent()
+        if #available(iOS 13.0, *) {
+            updateContent()
+        }
 
         friendsUpdatedDisposable = (context.engine.friendsData.friendsUpdated.signal()
             |> deliverOnMainQueue).start(next: { [weak self] _ in
@@ -349,12 +350,16 @@ final class ProfileContainerNode: ASDisplayNode {
     }
 
     @objc private func handleCurrentUserDidChange() {
-        updateContent()
+        if #available(iOS 13.0, *) {
+            updateContent()
+        }
     }
 
     @objc private func handleThemeOrLanguageChange() {
-        applyTheme()
-        updateContent()
+        if #available(iOS 13.0, *) {
+            applyTheme()
+            updateContent()
+        }
     }
 
     private func applyTheme() {
@@ -738,7 +743,9 @@ final class ProfileContainerNode: ASDisplayNode {
         usernameLabel.text = user?.username.isEmpty == false ? user!.username : "—"
 
         configureAddStatusButton(user: user)
-        fetchWalletDetail()
+        if #available(iOS 13.0, *) {
+            fetchWalletDetail()
+        }
         transferRow.configure(
             icon: "arrow.up.circle.fill",
             iconImage: Self.profileImage(named: "TransferIcon"),
@@ -755,7 +762,7 @@ final class ProfileContainerNode: ASDisplayNode {
         )
 
         let editIcon = Self.profileImageResized(named: "EditIcon", size: 20)?.withRenderingMode(.alwaysOriginal)
-            ?? UIImage(systemName: "pencil", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf, weight: .semibold))
+            ?? UIImage.mezonSystemImage("pencil", withConfiguration: MezonSymbolConfiguration(pointSize: 14.sf, weight: .semibold))
         if #available(iOS 15.0, *) {
             editProfileButton.configuration?.image = editIcon
             editProfileButton.configuration?.title = L(L10n.Profile.editProfile)
@@ -837,9 +844,10 @@ final class ProfileContainerNode: ASDisplayNode {
         friendsCard.setNeedsLayout()
     }
 
+    @available(iOS 13.0, *)
     private func fetchWalletDetail() {
         walletFetchTask?.cancel()
-        walletFetchTask = Task { @MainActor [weak self] in
+        let walletFetchTaskWork = Task { @MainActor [weak self] in
             guard let self, let userId = context.currentUser?.id, !userId.isEmpty else {
                 self?.walletDetail = nil
                 self?.updateBalanceUI()
@@ -855,6 +863,7 @@ final class ProfileContainerNode: ASDisplayNode {
             }
             self.updateBalanceUI()
         }
+        walletFetchTask = CancelHandle { walletFetchTaskWork.cancel() }
     }
 
     private func updateBalanceUI() {
@@ -1259,8 +1268,8 @@ private final class ProfileIconRow: UIView {
             iconViewWidthConstraint.constant = 22.swh
             labelLeadingConstraint.constant = 12.sw
         } else if let name = icon {
-            let cfg = UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)
-            iconView.image = UIImage(systemName: name, withConfiguration: cfg)
+            let cfg = MezonSymbolConfiguration(pointSize: 16.sf, weight: .medium)
+            iconView.image = UIImage.mezonSystemImage(name, withConfiguration: cfg)
             iconView.tintColor = iconColor
             iconView.isHidden = false
             iconViewWidthConstraint.constant = 22.swh
@@ -1280,7 +1289,7 @@ private final class ProfileIconRow: UIView {
             trailingView.tintColor = .mezonTextStrong
             trailingView.isHidden = false
         } else if let trailing = trailingIcon {
-            trailingView.image = UIImage(systemName: trailing)
+            trailingView.image = UIImage.mezonSystemImage(trailing)
             trailingView.tintColor = .mezonTextStrong
             trailingView.isHidden = false
         } else {

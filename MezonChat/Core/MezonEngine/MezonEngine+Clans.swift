@@ -3,7 +3,6 @@ import SwiftProtobuf
 
 extension MezonEngine {
 
-    @MainActor
     final class Clans {
         private let engine: MezonEngine
         private var network: MezonHTTPClient { engine.account.network }
@@ -11,6 +10,8 @@ extension MezonEngine {
 
         init(engine: MezonEngine) { self.engine = engine }
 
+        @available(iOS 13.0, *)
+        @MainActor
         func listClanDescs(token: String) async throws -> [Mezon_Api_ClanDesc] {
             try await network.listClanDescs(token: token)
         }

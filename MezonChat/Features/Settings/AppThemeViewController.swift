@@ -7,7 +7,7 @@ final class AppThemeViewController: BaseViewController {
     private let headerView = UIView()
     private let backButton: UIButton = {
         let btn = UIButton(type: .system)
-        let img = UIImage(systemName: "chevron.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium))
+        let img = UIImage.mezonSystemImage("chevron.left", withConfiguration: MezonSymbolConfiguration(pointSize: 18, weight: .medium))
         btn.setImage(img, for: .normal)
         btn.translatesAutoresizingMaskIntoConstraints = false
         return btn
@@ -40,7 +40,7 @@ final class AppThemeViewController: BaseViewController {
     private lazy var themeNameLabel: UILabel = {
         let l = UILabel()
         l.font = .systemFont(ofSize: 18.sf, weight: .semibold)
-        l.textColor = .label
+        l.textColor = .mezonCompatLabel
         l.textAlignment = .center
         return l
     }()
@@ -65,7 +65,7 @@ final class AppThemeViewController: BaseViewController {
         let l = UILabel()
         l.text = L(L10n.Theme.canChangeLater)
         l.font = .systemFont(ofSize: 13.sf)
-        l.textColor = .secondaryLabel
+        l.textColor = .mezonCompatSecondaryLabel
         l.textAlignment = .center
         return l
     }()

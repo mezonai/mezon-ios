@@ -274,7 +274,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
             emptyStack.axis = .vertical
             emptyStack.spacing = 8
             emptyStack.alignment = .center
-            let icon = UIImageView(image: UIImage(systemName: "person.2.fill"))
+            let icon = UIImageView(image: UIImage.mezonSystemImage("person.2.fill"))
             icon.tintColor = UIColor.theme.textDisabled
             icon.contentMode = .scaleAspectFit
             icon.translatesAutoresizingMaskIntoConstraints = false
@@ -368,7 +368,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
     private func makeLocationRow() -> UIView? {
         if !event.address.isEmpty {
             return inlineRow(
-                icon: UIImage(systemName: "mappin.and.ellipse"),
+                icon: UIImage.mezonSystemImage("mappin.and.ellipse"),
                 text: event.address
             )
         }
@@ -387,7 +387,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
         row.translatesAutoresizingMaskIntoConstraints = false
         control.addSubview(row)
 
-        let imageView = UIImageView(image: UIImage(systemName: "speaker.wave.2.fill"))
+        let imageView = UIImageView(image: UIImage.mezonSystemImage("speaker.wave.2.fill"))
         imageView.tintColor = UIColor.theme.textStrong
         imageView.contentMode = .scaleAspectFit
         imageView.translatesAutoresizingMaskIntoConstraints = false
@@ -467,22 +467,24 @@ final class EventDetailBottomSheetViewController: UIViewController {
     }
 
     @objc private func interestedTapped() {
-        Task { @MainActor in
-            let userId = currentUserId()
-            guard userId != 0, let token = await context.getToken() else { return }
-            let interested = !isCurrentUserInterested()
-            await context.engine.clanData.setUserEventInterest(
-                clanId: clanId,
-                eventId: event.id,
-                userId: userId,
-                interested: interested,
-                token: token
-            )
-            if let updated = context.engine.clanData.getClanEvents(clanId: clanId)?.events.first(where: { $0.id == event.id }) {
-                event = updated
+        if #available(iOS 13.0, *) {
+            Task { @MainActor in
+                let userId = currentUserId()
+                guard userId != 0, let token = await context.getToken() else { return }
+                let interested = !isCurrentUserInterested()
+                await context.engine.clanData.setUserEventInterest(
+                    clanId: clanId,
+                    eventId: event.id,
+                    userId: userId,
+                    interested: interested,
+                    token: token
+                )
+                if let updated = context.engine.clanData.getClanEvents(clanId: clanId)?.events.first(where: { $0.id == event.id }) {
+                    event = updated
+                }
+                updateInterestedSegmentTitle()
+                rebuildContent()
             }
-            updateInterestedSegmentTitle()
-            rebuildContent()
         }
     }
 
@@ -502,7 +504,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
         case 1: text = L(L10n.EventMenu.detailOnePersonInterested)
         default: text = L(L10n.EventMenu.detailPersonInterested, count)
         }
-        return inlineRow(icon: UIImage(systemName: "bell.fill"), text: text)
+        return inlineRow(icon: UIImage.mezonSystemImage("bell.fill"), text: text)
     }
 
     private func makeCreatorRow() -> UIView {
@@ -598,13 +600,13 @@ final class EventDetailBottomSheetViewController: UIViewController {
             ? member?.clanAvatar
             : member?.userAvatarURL
         guard let raw, !raw.isEmpty else {
-            imageView.image = UIImage(systemName: "person.circle.fill")
+            imageView.image = UIImage.mezonSystemImage("person.circle.fill")
             imageView.tintColor = UIColor.theme.textDisabled
             return
         }
         let proxied = ImgproxyURL.avatarProxyURL(from: raw, width: 80, height: 80)
         ImageCache.shared.loadImage(urlString: proxied) { image in
-            imageView.image = image ?? UIImage(systemName: "person.circle.fill")
+            imageView.image = image ?? UIImage.mezonSystemImage("person.circle.fill")
         }
     }
 }

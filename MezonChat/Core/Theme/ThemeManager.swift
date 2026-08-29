@@ -38,10 +38,13 @@ final class ThemeManager {
     }
 
     var preferredStatusBarStyle: UIStatusBarStyle {
-        return current.usesLightStatusBarContent ? .lightContent : .darkContent
+        if current.usesLightStatusBarContent { return .lightContent }
+        if #available(iOS 13.0, *) { return .darkContent }
+        return .default
     }
 
     func applyStatusBarStyle() {
+        guard #available(iOS 13.0, *) else { return }
         let style = preferredStatusBarStyle
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         for scene in scenes {

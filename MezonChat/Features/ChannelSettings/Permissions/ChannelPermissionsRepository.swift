@@ -1,7 +1,6 @@
 import Foundation
 import SwiftProtobuf
 
-@MainActor
 final class ChannelPermissionsRepository {
 
     enum PermissionStatus: Int {
@@ -144,6 +143,8 @@ final class ChannelPermissionsRepository {
 
     // MARK: - Channel members / roles fetching
 
+    @available(iOS 13.0, *)
+    @MainActor
     func fetchChannelMembers(clanId: Int64, channelId: Int64, channelType: Int32) async -> [Int64] {
         guard let token = await context.getToken() else { return [] }
         do {
@@ -162,6 +163,7 @@ final class ChannelPermissionsRepository {
 
     // MARK: - Mutations
 
+    @available(iOS 13.0, *)
     func changeChannelPrivate(
         clanId: Int64,
         channelId: Int64,
@@ -188,6 +190,8 @@ final class ChannelPermissionsRepository {
         )
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     func removeChannelUser(channelId: Int64, userId: Int64) async throws {
         guard let token = await context.getToken() else { return }
         try await context.engine.account.network.removeChannelUsers(
@@ -197,6 +201,8 @@ final class ChannelPermissionsRepository {
         )
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     func removeChannelRole(channelId: Int64, clanId: Int64, roleId: Int64) async throws {
         guard let token = await context.getToken() else { return }
         try await context.engine.account.network.deleteRoleChannelDesc(
@@ -208,6 +214,8 @@ final class ChannelPermissionsRepository {
         removeLocalRoleChannel(clanId: clanId, roleId: roleId, channelId: channelId)
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     func addChannelMembers(channelId: Int64, userIds: [Int64]) async throws {
         guard !userIds.isEmpty, let token = await context.getToken() else { return }
         try await context.engine.account.network.addChannelUsers(
@@ -217,6 +225,8 @@ final class ChannelPermissionsRepository {
         )
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     func addChannelRoles(channelId: Int64, clanId: Int64, roleIds: [Int64]) async throws {
         guard !roleIds.isEmpty, let token = await context.getToken() else { return }
         try await context.engine.account.network.addRoleChannelDesc(
@@ -231,6 +241,8 @@ final class ChannelPermissionsRepository {
 
     // MARK: - Advanced permissions
 
+    @available(iOS 13.0, *)
+    @MainActor
     func fetchPermissionOverrides(channelId: Int64, roleId: Int64, userId: Int64) async -> [Mezon_Api_PermissionRoleChannel] {
         guard let token = await context.getToken() else { return [] }
         do {
@@ -246,6 +258,7 @@ final class ChannelPermissionsRepository {
         }
     }
 
+    @available(iOS 13.0, *)
     func setPermissionOverrides(
         clanId: Int64,
         channelId: Int64,

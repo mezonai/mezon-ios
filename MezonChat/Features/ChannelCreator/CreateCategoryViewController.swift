@@ -31,7 +31,9 @@ final class CreateCategoryViewController: BaseViewController {
                 self?.navigationController?.popViewController(animated: true)
             },
             onCreate: { [weak self] name in
-                self?.createCategory(name: name)
+                if #available(iOS 13.0, *) {
+                    self?.createCategory(name: name)
+                }
             }
         )
     }
@@ -41,6 +43,7 @@ final class CreateCategoryViewController: BaseViewController {
         createNode.applyTheme()
     }
 
+    @available(iOS 13.0, *)
     private func createCategory(name: String) {
         if existingCategories.contains(where: { $0.categoryName.lowercased() == name.lowercased() }) {
             Toast.error(L(L10n.CategoryCreator.duplicateName))

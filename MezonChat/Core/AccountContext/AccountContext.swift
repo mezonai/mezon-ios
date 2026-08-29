@@ -1,7 +1,6 @@
 import Foundation
 import SwiftProtobuf
 
-@MainActor
 protocol AccountContext: AnyObject {
     var sharedContext: SharedAccountContext { get }
     var account: Account { get }
@@ -23,17 +22,26 @@ protocol AccountContext: AnyObject {
     func login(user: User, session: MezonSession)
     func replaceCurrentSession(user: User, session: MezonSession)
     func logout()
+    @available(iOS 13.0, *)
     func refreshSession() async throws
+    @available(iOS 13.0, *)
     func refreshUserProfile() async
     func recoverFromForeground()
+    @available(iOS 13.0, *)
     func waitForSessionReady() async
+    @available(iOS 13.0, *)
     func getToken() async -> String?
+    @available(iOS 13.0, *)
     func getTokenPreferringCachedSkipSessionReadyWait() async -> String?
     func applyCurrentUser(_ user: User)
+    @available(iOS 13.0, *)
     func refreshAccountProfile() async
     func applyCachedAccountIfAvailable()
+    @available(iOS 13.0, *)
     func updatePresenceStatus(_ status: User.OnlineStatus) async throws
+    @available(iOS 13.0, *)
     func fetchCurrentUserStatus() async
+    @available(iOS 13.0, *)
     func submitCustomStatus(text: String, minutes: Int32, noClear: Bool) async throws
     func clearPersistedSelectedChannelPreference(forClanId clanId: Int64)
 }

@@ -1,7 +1,7 @@
 import Foundation
 
-@MainActor
 enum MmnWalletPreloader {
+    @available(iOS 13.0, *)
     static func fetchAndPersistAfterLogin(session: MezonSession) {
         let userId = session.userId ?? ""
         let idToken = session.idToken ?? ""

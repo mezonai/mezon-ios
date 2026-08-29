@@ -102,14 +102,14 @@ final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyl
     }()
 
     private lazy var loadingIndicator: UIActivityIndicatorView = {
-        let ai = UIActivityIndicatorView(style: .medium)
+        let ai = UIActivityIndicatorView.mezonMedium()
         ai.hidesWhenStopped = true
         ai.color = .white
         ai.translatesAutoresizingMaskIntoConstraints = false
         return ai
     }()
 
-    init(otpContext: OTPContext, context: AccountContext) {
+        init(otpContext: OTPContext, context: AccountContext) {
         self.otpContext = otpContext
         self.context = context
         self.currentReqId = otpContext.reqId
@@ -264,14 +264,84 @@ final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyl
 
     private func bindSubmit() {
         let filtered = submitPipe.signal() |> filter { [weak self] in self?.isSubmitEnabled == true && self?.isLoading == false }
-        disposables.add((filtered |> deliverOnMainQueue).start(next: { [weak self] in Task { await self?.verifyOTP() } }))
+        disposables.add((filtered |> deliverOnMainQueue).start(next: { [weak self] in
+            if #available(iOS 13.0, *) {
+                Task { await self?.verifyOTP() }
+            } else {
+                self?.legacyVerifyOTP()
+            }
+        }))
     }
 
     private func bindResend() {
         let filtered = resendPipe.signal() |> filter { [weak self] in self?.resendCooldown == 0 && self?.isLoading == false }
-        disposables.add((filtered |> deliverOnMainQueue).start(next: { [weak self] in Task { await self?.resendOTP() } }))
+        disposables.add((filtered |> deliverOnMainQueue).start(next: { [weak self] in
+            if #available(iOS 13.0, *) {
+                Task { await self?.resendOTP() }
+            } else {
+                self?.legacyResendOTP()
+            }
+        }))
     }
 
+    private func legacyVerifyOTP() {
+        setIsLoading(true)
+        setErrorMessage(nil)
+        let request = context.account.network.signalConfirmAuthenticateOTP(reqId: currentReqId, otp: otpCode)
+        disposables.add((request |> deliverOnMainQueue).start(next: { [weak self] session in
+            guard let self else { return }
+            self.setIsLoading(false)
+            SessionStore.save(session)
+            self.context.account.network.updateBaseURL(from: session)
+            if session.created {
+                MandatoryUsernamePendingStore.setPending()
+                let vc = UpdateUsernameViewController(
+                    pendingSession: session, context: self.context, otpContext: self.otpContext)
+                self.navigationController?.pushViewController(vc, animated: true)
+            } else {
+                MandatoryUsernamePendingStore.clearPending()
+                let user = User(
+                    id: session.userId ?? UUID().uuidString,
+                    username: session.username ?? self.otpContext.target,
+                    displayName: session.username ?? self.otpContext.target,
+                    avatarURL: nil, status: .online, bio: nil)
+                self.context.login(user: user, session: session)
+            }
+        }, error: { [weak self] _ in
+            self?.setErrorMessage(L(L10n.OTPVerify.otpNotMatch))
+            self?.setIsLoading(false)
+        }))
+    }
+
+    private func legacyResendOTP() {
+        guard resendCooldown == 0 else { return }
+        setIsLoading(true)
+        setErrorMessage(nil)
+        let request: Signal<OTPRequestResponse, MezonError>
+        switch otpContext.type {
+        case .email:
+            request = context.account.network.signalAuthenticateEmailOTPRequest(email: otpContext.target)
+        case .sms:
+            request = context.account.network.signalAuthenticateSMSOTPRequest(phone: otpContext.target)
+        }
+        disposables.add((request |> deliverOnMainQueue).start(next: { [weak self] res in
+            guard let self else { return }
+            self.setIsLoading(false)
+            guard let newReqId = res.reqId else {
+                self.setErrorMessage(L(L10n.OTPVerify.resendFailed))
+                return
+            }
+            self.currentReqId = newReqId
+            self.setOtpCode("")
+            self.clearOTPFields()
+            self.startCooldown()
+        }, error: { [weak self] error in
+            self?.setErrorMessage(error.localizedDescription)
+            self?.setIsLoading(false)
+        }))
+    }
+
+    @available(iOS 13.0, *)
     @MainActor private func verifyOTP() async {
         setIsLoading(true)
         setErrorMessage(nil)
@@ -295,6 +365,7 @@ final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyl
         setIsLoading(false)
     }
 
+    @available(iOS 13.0, *)
     @MainActor private func resendOTP() async {
         guard resendCooldown == 0 else { return }
         setIsLoading(true)

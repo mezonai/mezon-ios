@@ -4,9 +4,17 @@ final class AuditLogItemCell: UITableViewCell {
 
     static let reuseId = "AuditLogItemCell"
     
+    @available(iOS 13.0, *)
     private static let relativeTimeFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
         f.unitsStyle = .abbreviated
+        return f
+    }()
+
+    private static let legacyTimeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .short
+        f.timeStyle = .short
         return f
     }()
 
@@ -116,7 +124,13 @@ final class AuditLogItemCell: UITableViewCell {
         
         actionLabel.attributedText = attributedText
         
-        timeLabel.text = formatTime(seconds: log.timeLogSeconds)
+        if #available(iOS 13.0, *) {
+            timeLabel.text = formatTime(seconds: log.timeLogSeconds)
+        } else {
+            Self.legacyTimeFormatter.locale = LanguageManager.shared.current.locale
+            timeLabel.text = Self.legacyTimeFormatter.string(
+                from: Date(timeIntervalSince1970: TimeInterval(log.timeLogSeconds)))
+        }
         
         separatorView.isHidden = isLast
 
@@ -156,6 +170,7 @@ final class AuditLogItemCell: UITableViewCell {
         avatarView.showPlaceholder()
     }
 
+    @available(iOS 13.0, *)
     private func formatTime(seconds: UInt32) -> String {
         let date = Date(timeIntervalSince1970: TimeInterval(seconds))
         Self.relativeTimeFormatter.locale = LanguageManager.shared.current.locale

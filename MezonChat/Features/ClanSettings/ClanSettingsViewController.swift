@@ -88,10 +88,14 @@ final class ClanSettingsViewController: BaseViewController {
             self.present(vc, animated: true)
         }
         node.onChangeAvatar = { [weak self] in
-            self?.pickAvatarTapped()
+            if #available(iOS 13.0, *) {
+                self?.pickAvatarTapped()
+            }
         }
         node.onRemoveAvatar = { [weak self] in
-            self?.removeAvatarTapped()
+            if #available(iOS 13.0, *) {
+                self?.removeAvatarTapped()
+            }
         }
         node.onSelectMembers = { [weak self] in
             guard let self else { return }
@@ -155,17 +159,20 @@ final class ClanSettingsViewController: BaseViewController {
     }
 
     @objc private func pickAvatarTapped() {
-        guard canShowOverviewSection() else {
-            return
+        if #available(iOS 13.0, *) {
+            guard canShowOverviewSection() else {
+                return
+            }
+            guard UIImagePickerController.isSourceTypeAvailable(.photoLibrary) else { return }
+            let picker = UIImagePickerController()
+            picker.sourceType = .photoLibrary
+            picker.allowsEditing = true
+            picker.delegate = self
+            present(picker, animated: true)
         }
-        guard UIImagePickerController.isSourceTypeAvailable(.photoLibrary) else { return }
-        let picker = UIImagePickerController()
-        picker.sourceType = .photoLibrary
-        picker.allowsEditing = true
-        picker.delegate = self
-        present(picker, animated: true)
     }
 
+    @available(iOS 13.0, *)
     @objc private func removeAvatarTapped() {
         guard canShowOverviewSection() else { return }
         let alert = UIAlertController(title: L(L10n.ClanSetting.Overview.removeAvatarTitle), message: L(L10n.ClanSetting.Overview.removeAvatarMessage), preferredStyle: .alert)
@@ -176,6 +183,7 @@ final class ClanSettingsViewController: BaseViewController {
         present(alert, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func performRemoveAvatar() {
         Task { [weak self] in
             guard let self else { return }
@@ -228,87 +236,89 @@ final class ClanSettingsViewController: BaseViewController {
 
 extension ClanSettingsViewController: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
     func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
-        picker.dismiss(animated: true)
-        guard let image = info[.editedImage] as? UIImage ?? info[.originalImage] as? UIImage else { return }
-        if let url = info[.imageURL] as? URL,
-           let attr = try? FileManager.default.attributesOfItem(atPath: url.path),
-           let fileSize = attr[.size] as? NSNumber {
-            let sizeInMB = Double(fileSize.intValue) / (1024 * 1024)
-            if sizeInMB > 1.0 {
-                Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge1MB))
-                return
-            }
-        } else {
-            if let checkData = image.jpegData(compressionQuality: 1.0) {
-                let sizeInMB = Double(checkData.count) / (1024 * 1024)
+        if #available(iOS 13.0, *) {
+            picker.dismiss(animated: true)
+            guard let image = info[.editedImage] as? UIImage ?? info[.originalImage] as? UIImage else { return }
+            if let url = info[.imageURL] as? URL,
+               let attr = try? FileManager.default.attributesOfItem(atPath: url.path),
+               let fileSize = attr[.size] as? NSNumber {
+                let sizeInMB = Double(fileSize.intValue) / (1024 * 1024)
                 if sizeInMB > 1.0 {
                     Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge1MB))
                     return
                 }
-            }
-        }
-        
-        guard let data = image.jpegData(compressionQuality: 0.8) else { return }
-        
-        Task { [weak self] in
-            guard let self else { return }
-            guard let token = await self.context.getToken() else { return }
-            do {
-                let uploadInfo = try await self.context.account.network.uploadAttachmentFile(
-                    filename: "avatar.jpg",
-                    filetype: "image/jpeg",
-                    size: data.count,
-                    width: Int(image.size.width),
-                    height: Int(image.size.height),
-                    token: token
-                )
-                try await self.context.account.network.uploadToMinIO(
-                    url: uploadInfo.url,
-                    data: data,
-                    contentType: "image/jpeg"
-                )
-                let avatarUrlToSave = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
-                
-                guard let clan = self.context.account.postbox.read({ tx in tx.getClan(id: self.clanId) }) else { return }
-                
-                var req = Mezon_Api_UpdateClanDescRequest()
-                req.clanID = self.clanId
-                req.clanName = clan.name
-                req.preventAnonymous = clan.preventsAnonymousMessages
-                req.logo = SwiftProtobuf.Google_Protobuf_StringValue(avatarUrlToSave)
-                
-                if let d = try? Mezon_Api_ClanDesc(serializedBytes: clan.data) {
-                    req.banner = SwiftProtobuf.Google_Protobuf_StringValue(d.banner)
-                    req.status = d.status
-                    req.isOnboarding = SwiftProtobuf.Google_Protobuf_BoolValue(d.isOnboarding)
-                    req.welcomeChannelID = d.welcomeChannelID
-                    req.onboardingBanner = SwiftProtobuf.Google_Protobuf_StringValue(d.onboardingBanner)
-                    req.isCommunity = SwiftProtobuf.Google_Protobuf_BoolValue(d.isCommunity)
-                    req.communityBanner = SwiftProtobuf.Google_Protobuf_StringValue(d.communityBanner)
-                }
-                
-                try await self.context.account.network.updateClanDesc(request: req, token: token)
-                
-                if var d = try? Mezon_Api_ClanDesc(serializedBytes: clan.data) {
-                    d.logo = avatarUrlToSave
-                    let updatedClan = ClanRecord(
-                        id: clan.id,
-                        name: clan.name,
-                        icon: avatarUrlToSave,
-                        ownerId: clan.ownerId,
-                        data: try d.serializedData()
-                    )
-                    self.context.account.postbox.writeSync { tx in
-                        tx.updateClans([updatedClan])
+            } else {
+                if let checkData = image.jpegData(compressionQuality: 1.0) {
+                    let sizeInMB = Double(checkData.count) / (1024 * 1024)
+                    if sizeInMB > 1.0 {
+                        Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge1MB))
+                        return
                     }
                 }
+            }
+        
+            guard let data = image.jpegData(compressionQuality: 0.8) else { return }
+        
+            Task { [weak self] in
+                guard let self else { return }
+                guard let token = await self.context.getToken() else { return }
+                do {
+                    let uploadInfo = try await self.context.account.network.uploadAttachmentFile(
+                        filename: "avatar.jpg",
+                        filetype: "image/jpeg",
+                        size: data.count,
+                        width: Int(image.size.width),
+                        height: Int(image.size.height),
+                        token: token
+                    )
+                    try await self.context.account.network.uploadToMinIO(
+                        url: uploadInfo.url,
+                        data: data,
+                        contentType: "image/jpeg"
+                    )
+                    let avatarUrlToSave = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
                 
-                await MainActor.run {
-                    self.settingsNode.updateClanDetails(name: clan.name, avatarURL: avatarUrlToSave)
-                    Toast.success(L(L10n.ClanSetting.Overview.saveSuccess))
+                    guard let clan = self.context.account.postbox.read({ tx in tx.getClan(id: self.clanId) }) else { return }
+                
+                    var req = Mezon_Api_UpdateClanDescRequest()
+                    req.clanID = self.clanId
+                    req.clanName = clan.name
+                    req.preventAnonymous = clan.preventsAnonymousMessages
+                    req.logo = SwiftProtobuf.Google_Protobuf_StringValue(avatarUrlToSave)
+                
+                    if let d = try? Mezon_Api_ClanDesc(serializedBytes: clan.data) {
+                        req.banner = SwiftProtobuf.Google_Protobuf_StringValue(d.banner)
+                        req.status = d.status
+                        req.isOnboarding = SwiftProtobuf.Google_Protobuf_BoolValue(d.isOnboarding)
+                        req.welcomeChannelID = d.welcomeChannelID
+                        req.onboardingBanner = SwiftProtobuf.Google_Protobuf_StringValue(d.onboardingBanner)
+                        req.isCommunity = SwiftProtobuf.Google_Protobuf_BoolValue(d.isCommunity)
+                        req.communityBanner = SwiftProtobuf.Google_Protobuf_StringValue(d.communityBanner)
+                    }
+                
+                    try await self.context.account.network.updateClanDesc(request: req, token: token)
+                
+                    if var d = try? Mezon_Api_ClanDesc(serializedBytes: clan.data) {
+                        d.logo = avatarUrlToSave
+                        let updatedClan = ClanRecord(
+                            id: clan.id,
+                            name: clan.name,
+                            icon: avatarUrlToSave,
+                            ownerId: clan.ownerId,
+                            data: try d.serializedData()
+                        )
+                        self.context.account.postbox.writeSync { tx in
+                            tx.updateClans([updatedClan])
+                        }
+                    }
+                
+                    await MainActor.run {
+                        self.settingsNode.updateClanDetails(name: clan.name, avatarURL: avatarUrlToSave)
+                        Toast.success(L(L10n.ClanSetting.Overview.saveSuccess))
+                    }
+                } catch {
+                    await MainActor.run { Toast.error(error.localizedDescription) }
                 }
-            } catch {
-                await MainActor.run { Toast.error(error.localizedDescription) }
             }
         }
     }

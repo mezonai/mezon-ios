@@ -11,7 +11,6 @@ protocol PostboxViewDataItem: MezonEngineDataItem {
 
 extension MezonEngine {
 
-    @MainActor
     final class EngineData {
         struct Item {}
 

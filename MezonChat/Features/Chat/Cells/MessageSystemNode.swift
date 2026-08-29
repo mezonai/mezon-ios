@@ -57,7 +57,7 @@ final class MessageSystemNode: ASDisplayNode {
             roleMentionBgColor: t.darkMossGreen,
             linkColor: t.textLink,
             codeBgColor: t.tertiary,
-            codeFont: UIFont(name: "Menlo", size: 12.sf) ?? .monospacedSystemFont(ofSize: 12.sf, weight: .regular),
+            codeFont: UIFont(name: "Menlo", size: 12.sf) ?? .mezonMonospacedSystemFont(ofSize: 12.sf, weight: .regular),
             boldFont: .systemFont(ofSize: 13.sf, weight: .bold),
             headingFonts: [],
             emojiSize: 16.sf,
@@ -318,7 +318,7 @@ final class MessageSystemNode: ASDisplayNode {
 
     private func configureIcon(code: Int32, theme: ThemeAttributes) {
         let mc = MezonConstants.MessageCode(rawValue: code)
-        let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
+        let config = MezonSymbolConfiguration(pointSize: 14, weight: .semibold)
 
         let iconColor: UIColor
         let iconImage: UIImage?
@@ -326,23 +326,23 @@ final class MessageSystemNode: ASDisplayNode {
         switch mc {
         case .welcome:
             iconImage = UIImage(named: "AuditLog")?.withRenderingMode(.alwaysTemplate)
-                ?? UIImage(systemName: "arrow.forward", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold))
+                ?? UIImage.mezonSystemImage("arrow.forward", withConfiguration: MezonSymbolConfiguration(pointSize: 16, weight: .semibold))
             iconColor = theme.textSuccess
         case .createThread, .deleteThread:
             iconImage = UIImage(named: "Channel/channelThread")
-                ?? UIImage(systemName: "text.bubble.fill", withConfiguration: config)
+                ?? UIImage.mezonSystemImage("text.bubble.fill", withConfiguration: config)
             iconColor = theme.text
         case .createPin:
-            iconImage = UIImage(systemName: "pin.fill", withConfiguration: config)
+            iconImage = UIImage.mezonSystemImage("pin.fill", withConfiguration: config)
             iconColor = theme.text
         case .auditLog:
-            iconImage = UIImage(systemName: "doc.text.magnifyingglass", withConfiguration: config)
+            iconImage = UIImage.mezonSystemImage("doc.text.magnifyingglass", withConfiguration: config)
             iconColor = theme.text
         case .upcomingEvent:
-            iconImage = UIImage(systemName: "calendar", withConfiguration: config)
+            iconImage = UIImage.mezonSystemImage("calendar", withConfiguration: config)
             iconColor = theme.text
         default:
-            iconImage = UIImage(systemName: "info.circle.fill", withConfiguration: config)
+            iconImage = UIImage.mezonSystemImage("info.circle.fill", withConfiguration: config)
             iconColor = theme.text
         }
 

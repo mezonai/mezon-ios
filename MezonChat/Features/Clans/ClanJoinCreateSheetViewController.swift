@@ -9,7 +9,7 @@ final class JoinClanSheetViewController: UIViewController {
     private let fieldContainer = UIView()
     private let textField = UITextField()
     private let primaryButton = UIButton(type: .system)
-    private let activity = UIActivityIndicatorView(style: .medium)
+    private let activity = UIActivityIndicatorView.mezonMedium()
 
     init(context: AccountContext) {
         self.context = context
@@ -31,7 +31,7 @@ final class JoinClanSheetViewController: UIViewController {
         view.addSubview(titleLabel)
 
         closeButton.translatesAutoresizingMaskIntoConstraints = false
-        let xImg = UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold))
+        let xImg = UIImage.mezonSystemImage("xmark", withConfiguration: MezonSymbolConfiguration(pointSize: 15, weight: .semibold))
         closeButton.setImage(xImg, for: .normal)
         closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         view.addSubview(closeButton)
@@ -142,37 +142,39 @@ final class JoinClanSheetViewController: UIViewController {
     }
 
     @objc private func primaryTapped() {
-        guard !activity.isAnimating else { return }
-        guard let code = Self.normalizedInviteCode(from: textField.text ?? "") else {
-            Toast.error(L(L10n.Clan.inviteInvalid))
-            return
-        }
-        Task { @MainActor in
-            guard let token = await context.getToken(), !token.isEmpty else {
-                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+        if #available(iOS 13.0, *) {
+            guard !activity.isAnimating else { return }
+            guard let code = Self.normalizedInviteCode(from: textField.text ?? "") else {
+                Toast.error(L(L10n.Clan.inviteInvalid))
                 return
             }
-            primaryButton.isEnabled = false
-            textField.isEnabled = false
-            activity.startAnimating()
-            do {
-                if let info = try? await context.engine.clanData.getInviteInfo(code: code, token: token),
-                   let cid = info.clan_id.flatMap(Int64.init), cid != 0 {
-                    await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: context, clanId: cid, force: true)
+            Task { @MainActor in
+                guard let token = await context.getToken(), !token.isEmpty else {
+                    Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                    return
                 }
-                let res = try await context.engine.clanData.joinClanWithInvite(code: code, token: token)
-                dismiss(animated: true) {
-                    NotificationCenter.default.post(
-                        name: .mezonQRSelectClan,
-                        object: nil,
-                        userInfo: ["clanId": "\(res.clanID)"]
-                    )
+                primaryButton.isEnabled = false
+                textField.isEnabled = false
+                activity.startAnimating()
+                do {
+                    if let info = try? await context.engine.clanData.getInviteInfo(code: code, token: token),
+                       let cid = info.clan_id.flatMap(Int64.init), cid != 0 {
+                        await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: context, clanId: cid, force: true)
+                    }
+                    let res = try await context.engine.clanData.joinClanWithInvite(code: code, token: token)
+                    dismiss(animated: true) {
+                        NotificationCenter.default.post(
+                            name: .mezonQRSelectClan,
+                            object: nil,
+                            userInfo: ["clanId": "\(res.clanID)"]
+                        )
+                    }
+                } catch {
+                    Toast.error(error.localizedDescription)
+                    primaryButton.isEnabled = true
+                    textField.isEnabled = true
+                    activity.stopAnimating()
                 }
-            } catch {
-                Toast.error(error.localizedDescription)
-                primaryButton.isEnabled = true
-                textField.isEnabled = true
-                activity.stopAnimating()
             }
         }
     }

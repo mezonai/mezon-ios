@@ -32,7 +32,7 @@ final class PollDetailViewController: UIViewController {
     private let rightScrollView = UIScrollView()
     private let rightStackView = UIStackView()
     private let dividerView = UIView()
-    private let loadingIndicator = UIActivityIndicatorView(style: .medium)
+    private let loadingIndicator = UIActivityIndicatorView.mezonMedium()
     private let emptyLabel = UILabel()
 
     private static let blurpleAlpha = UIColor(red: 88/255, green: 101/255, blue: 242/255, alpha: 0.2)
@@ -69,6 +69,7 @@ final class PollDetailViewController: UIViewController {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    @available(iOS 13.0, *)
     func updateVoters(_ voters: [Int: [PollVoter]]) {
         self.votersByOption = voters
         updateRightColumn()
@@ -81,7 +82,9 @@ final class PollDetailViewController: UIViewController {
         setupContainer()
         setupHeader()
         setupBody()
-        updateRightColumn()
+        if #available(iOS 13.0, *) {
+            updateRightColumn()
+        }
     }
 
     private func setupOverlay() {
@@ -126,8 +129,8 @@ final class PollDetailViewController: UIViewController {
         titleLabel.textView.textContainer.maximumNumberOfLines = 2
         titleLabel.textView.textContainer.lineBreakMode = .byTruncatingTail
 
-        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-        closeButton.setImage(UIImage(systemName: "xmark", withConfiguration: config), for: .normal)
+        let config = MezonSymbolConfiguration(pointSize: 16, weight: .medium)
+        closeButton.setImage(UIImage.mezonSystemImage("xmark", withConfiguration: config), for: .normal)
         closeButton.tintColor = t.textStrong
         closeButton.addTarget(self, action: #selector(dismissModal), for: .touchUpInside)
         closeButton.translatesAutoresizingMaskIntoConstraints = false
@@ -320,15 +323,18 @@ final class PollDetailViewController: UIViewController {
     }
 
     @objc private func handleOptionSelect(_ gesture: OptionTapGesture) {
-        selectedIndex = gesture.optionIndex
-        for (i, view) in leftStackView.arrangedSubviews.enumerated() {
-            if i < options.count {
-                view.backgroundColor = options[i].index == selectedIndex ? Self.blurpleAlpha : .clear
+        if #available(iOS 13.0, *) {
+            selectedIndex = gesture.optionIndex
+            for (i, view) in leftStackView.arrangedSubviews.enumerated() {
+                if i < options.count {
+                    view.backgroundColor = options[i].index == selectedIndex ? Self.blurpleAlpha : .clear
+                }
             }
+            updateRightColumn()
         }
-        updateRightColumn()
     }
 
+    @available(iOS 13.0, *)
     private func updateRightColumn() {
         rightStackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
 

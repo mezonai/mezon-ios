@@ -2,7 +2,7 @@ import UIKit
 
 final class SocketStatusBannerView: UIView {
 
-    private let spinner = UIActivityIndicatorView(style: .medium)
+    private let spinner = UIActivityIndicatorView.mezonMedium()
     private let dotView = UIView()
     private let label = UILabel()
 

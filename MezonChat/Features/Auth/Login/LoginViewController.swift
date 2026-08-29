@@ -165,10 +165,80 @@ final class LoginViewController: ViewController, AuthScreenStatusBarStyle {
     private func bindSubmit() {
         let filtered = submitPipe.signal() |> filter { [weak self] in self?.isSubmitEnabled == true && self?.isLoading == false }
         disposables.add((filtered |> deliverOnMainQueue).start(next: { [weak self] in
-            Task { await self?.handleSubmit() }
+            if #available(iOS 13.0, *) {
+                Task { await self?.handleSubmit() }
+            } else {
+                self?.legacySubmit()
+            }
         }))
     }
 
+    private func legacySubmit() {
+        switch mode {
+        case .sms: legacySendSMSOTP()
+        case .emailOTP: legacySendEmailOTP()
+        case .password: legacyLoginWithPassword()
+        }
+    }
+
+    private func legacyLoginWithPassword() {
+        setIsLoading(true)
+        setErrorMessage(nil)
+        let request = context.account.network.signalAuthenticateEmail(
+            email: email.trimmingCharacters(in: .whitespaces), password: password)
+        disposables.add((request |> deliverOnMainQueue).start(next: { [weak self] session in
+            guard let self else { return }
+            self.handleSessionReceived(session)
+            self.setIsLoading(false)
+        }, error: { [weak self] error in
+            self?.setErrorMessage(error.localizedDescription)
+            self?.setIsLoading(false)
+        }))
+    }
+
+    private func legacySendEmailOTP() {
+        guard otpCooldown == 0 else { return }
+        setIsLoading(true)
+        setErrorMessage(nil)
+        let target = email.trimmingCharacters(in: .whitespaces)
+        let request = context.account.network.signalAuthenticateEmailOTPRequest(email: target)
+        disposables.add((request |> deliverOnMainQueue).start(next: { [weak self] res in
+            guard let self else { return }
+            self.setIsLoading(false)
+            guard let reqId = res.reqId else {
+                self.setErrorMessage(L(L10n.OTPVerify.sendOtpError))
+                return
+            }
+            self.startCooldown()
+            self.pushOTPScreen(otpContext: OTPContext(reqId: reqId, target: target, type: .email))
+        }, error: { [weak self] error in
+            self?.setErrorMessage(error.localizedDescription)
+            self?.setIsLoading(false)
+        }))
+    }
+
+    private func legacySendSMSOTP() {
+        guard otpCooldown == 0 else { return }
+        setIsLoading(true)
+        setErrorMessage(nil)
+        let fullPhone = buildFullPhone()
+        let request = context.account.network.signalAuthenticateSMSOTPRequest(phone: fullPhone)
+        disposables.add((request |> deliverOnMainQueue).start(next: { [weak self] res in
+            guard let self else { return }
+            self.setIsLoading(false)
+            guard let reqId = res.reqId else {
+                self.setErrorMessage(L(L10n.OTPVerify.sendOtpError))
+                return
+            }
+            self.startCooldown()
+            self.pushOTPScreen(otpContext: OTPContext(reqId: reqId, target: fullPhone, type: .sms))
+        }, error: { [weak self] error in
+            self?.setErrorMessage(error.localizedDescription)
+            self?.setIsLoading(false)
+        }))
+    }
+
+    @available(iOS 13.0, *)
     @MainActor private func handleSubmit() async {
         switch mode {
         case .sms: await sendSMSOTP()
@@ -177,6 +247,7 @@ final class LoginViewController: ViewController, AuthScreenStatusBarStyle {
         }
     }
 
+    @available(iOS 13.0, *)
     @MainActor private func loginWithPassword() async {
         setIsLoading(true)
         setErrorMessage(nil)
@@ -189,6 +260,7 @@ final class LoginViewController: ViewController, AuthScreenStatusBarStyle {
         setIsLoading(false)
     }
 
+    @available(iOS 13.0, *)
     @MainActor private func sendEmailOTP() async {
         guard otpCooldown == 0 else { return }
         setIsLoading(true)
@@ -204,6 +276,7 @@ final class LoginViewController: ViewController, AuthScreenStatusBarStyle {
         setIsLoading(false)
     }
 
+    @available(iOS 13.0, *)
     @MainActor private func sendSMSOTP() async {
         guard otpCooldown == 0 else { return }
         setIsLoading(true)
@@ -231,9 +304,13 @@ final class LoginViewController: ViewController, AuthScreenStatusBarStyle {
         SessionStore.save(session)
         self.context.account.network.updateBaseURL(from: session)
         let user = User(id: session.userId ?? UUID().uuidString, username: session.username ?? email, displayName: session.username ?? email, avatarURL: nil, status: .online, bio: nil)
-        Task { @MainActor in
+        if #available(iOS 13.0, *) {
+            Task { @MainActor in
+                context.login(user: user, session: session)
+                MmnWalletPreloader.fetchAndPersistAfterLogin(session: session)
+            }
+        } else {
             context.login(user: user, session: session)
-            MmnWalletPreloader.fetchAndPersistAfterLogin(session: session)
         }
     }
 

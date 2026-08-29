@@ -1,7 +1,6 @@
 import Foundation
 import SwiftProtobuf
 
-@MainActor
 final class Account {
     let id: String
     let postbox: Postbox

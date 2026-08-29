@@ -24,7 +24,9 @@ final class CreateChannelViewController: BaseViewController {
                 self?.navigationController?.popViewController(animated: true)
             },
             onCreate: { [weak self] name, type, isPrivate in
-                self?.createChannel(name: name, type: type, isPrivate: isPrivate)
+                if #available(iOS 13.0, *) {
+                    self?.createChannel(name: name, type: type, isPrivate: isPrivate)
+                }
             }
         )
     }
@@ -34,6 +36,7 @@ final class CreateChannelViewController: BaseViewController {
         createNode.applyTheme()
     }
 
+    @available(iOS 13.0, *)
     private func createChannel(name: String, type: Int32, isPrivate: Bool) {
         createNode.setLoading(true)
         Task {

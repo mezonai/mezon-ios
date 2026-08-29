@@ -136,7 +136,7 @@ final class EmbedItemNode: ASDisplayNode {
         if let hex = embed.color, !hex.isEmpty {
             colorBarNode.backgroundColor = UIColor(embedHex: hex)
         } else {
-            colorBarNode.backgroundColor = .systemIndigo
+            colorBarNode.backgroundColor = .mezonCompatSystemIndigo
         }
         colorBarNode.cornerRadius = 2
         addSubnode(colorBarNode)
@@ -693,7 +693,7 @@ final class EmbedSelectFieldNode: ASDisplayNode, EmbedFormInputNode {
         borderWidth = 1
         borderColor = t.border.withAlphaComponent(0.5).cgColor
 
-        chevronNode.image = UIImage(systemName: "chevron.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold))?.withRenderingMode(.alwaysTemplate)
+        chevronNode.image = UIImage.mezonSystemImage("chevron.down", withConfiguration: MezonSymbolConfiguration(pointSize: 12, weight: .semibold))?.withRenderingMode(.alwaysTemplate)
         chevronNode.tintColor = t.textStrong
         chevronNode.contentMode = .scaleAspectFit
         chevronNode.isUserInteractionEnabled = false
@@ -882,7 +882,7 @@ final class EmbedDatePickerFieldNode: ASDisplayNode, EmbedFormInputNode {
         borderWidth = 1
         borderColor = t.border.withAlphaComponent(0.5).cgColor
 
-        chevronNode.image = UIImage(systemName: "chevron.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold))?.withRenderingMode(.alwaysTemplate)
+        chevronNode.image = UIImage.mezonSystemImage("chevron.down", withConfiguration: MezonSymbolConfiguration(pointSize: 12, weight: .semibold))?.withRenderingMode(.alwaysTemplate)
         chevronNode.tintColor = t.textStrong
         chevronNode.contentMode = .scaleAspectFit
         chevronNode.isUserInteractionEnabled = false
@@ -926,37 +926,39 @@ final class EmbedDatePickerFieldNode: ASDisplayNode, EmbedFormInputNode {
         button.titleEdgeInsets = UIEdgeInsets(top: 0, left: 10, bottom: 0, right: 30)
     }
     @objc private func tapped() {
-        guard let vc = findViewController() as? ViewController else { return }
-        let alert = UIAlertController(title: "Select Date", message: "\n\n\n\n\n\n\n\n", preferredStyle: .actionSheet)
-        let picker = UIDatePicker()
-        picker.datePickerMode = .date
-        if #available(iOS 13.4, *) { picker.preferredDatePickerStyle = .wheels }
-        picker.translatesAutoresizingMaskIntoConstraints = false
-        alert.view.addSubview(picker)
-        NSLayoutConstraint.activate([
-            picker.centerXAnchor.constraint(equalTo: alert.view.centerXAnchor),
-            picker.topAnchor.constraint(equalTo: alert.view.topAnchor, constant: 30),
-            picker.widthAnchor.constraint(equalToConstant: 270),
-            picker.heightAnchor.constraint(equalToConstant: 160)
-        ])
-        alert.addAction(UIAlertAction(title: "Done", style: .default, handler: { _ in
-            let df = DateFormatter()
-            df.dateFormat = "yyyy-MM-dd"
-            let str = df.string(from: picker.date)
+        if #available(iOS 13.0, *) {
+            guard let vc = findViewController() as? ViewController else { return }
+            let alert = UIAlertController(title: "Select Date", message: "\n\n\n\n\n\n\n\n", preferredStyle: .actionSheet)
+            let picker = UIDatePicker()
+            picker.datePickerMode = .date
+            if #available(iOS 13.4, *) { picker.preferredDatePickerStyle = .wheels }
+            picker.translatesAutoresizingMaskIntoConstraints = false
+            alert.view.addSubview(picker)
+            NSLayoutConstraint.activate([
+                picker.centerXAnchor.constraint(equalTo: alert.view.centerXAnchor),
+                picker.topAnchor.constraint(equalTo: alert.view.topAnchor, constant: 30),
+                picker.widthAnchor.constraint(equalToConstant: 270),
+                picker.heightAnchor.constraint(equalToConstant: 160)
+            ])
+            alert.addAction(UIAlertAction(title: "Done", style: .default, handler: { _ in
+                let df = DateFormatter()
+                df.dateFormat = "yyyy-MM-dd"
+                let str = df.string(from: picker.date)
             
-            df.dateFormat = "dd/MM/yyyy"
-            let displayStr = df.string(from: picker.date)
+                df.dateFormat = "dd/MM/yyyy"
+                let displayStr = df.string(from: picker.date)
             
-            self.button.setTitle(displayStr, for: .normal)
-            self.button.setTitleColor(UIColor.theme.textStrong, for: .normal)
-            EmbedFormState.shared.setValue(str, forComponent: self.component.id, messageId: self.messageId)
-        }))
-        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
-        if let popover = alert.popoverPresentationController {
-            popover.sourceView = button
-            popover.sourceRect = button.bounds
+                self.button.setTitle(displayStr, for: .normal)
+                self.button.setTitleColor(UIColor.theme.textStrong, for: .normal)
+                EmbedFormState.shared.setValue(str, forComponent: self.component.id, messageId: self.messageId)
+            }))
+            alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+            if let popover = alert.popoverPresentationController {
+                popover.sourceView = button
+                popover.sourceRect = button.bounds
+            }
+            vc.present(alert, animated: true)
         }
-        vc.present(alert, animated: true)
     }
 
     private func formatForDisplay(_ dateString: String) -> String {

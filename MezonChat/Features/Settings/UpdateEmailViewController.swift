@@ -8,9 +8,9 @@ final class UpdateEmailViewController: BaseViewController {
     private let headerView = UIView()
     private let backButton: UIButton = {
         let btn = UIButton(type: .system)
-        let img = UIImage(
-            systemName: "chevron.left",
-            withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
+        let img = UIImage.mezonSystemImage(
+            "chevron.left",
+            withConfiguration: MezonSymbolConfiguration(pointSize: 18, weight: .medium)
         )
         btn.setImage(img, for: .normal)
         btn.translatesAutoresizingMaskIntoConstraints = false
@@ -41,8 +41,8 @@ final class UpdateEmailViewController: BaseViewController {
 
     private let emailIcon: UIImageView = {
         let iv = UIImageView()
-        iv.image = UIImage(systemName: "envelope",
-                           withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .regular))
+        iv.image = UIImage.mezonSystemImage("envelope",
+                           withConfiguration: MezonSymbolConfiguration(pointSize: 18, weight: .regular))
         iv.contentMode = .scaleAspectFit
         iv.translatesAutoresizingMaskIntoConstraints = false
         return iv
@@ -77,7 +77,7 @@ final class UpdateEmailViewController: BaseViewController {
     }()
 
     private let loadingIndicator: UIActivityIndicatorView = {
-        let ai = UIActivityIndicatorView(style: .medium)
+        let ai = UIActivityIndicatorView.mezonMedium()
         ai.hidesWhenStopped = true
         ai.color = .white
         ai.translatesAutoresizingMaskIntoConstraints = false
@@ -251,30 +251,33 @@ final class UpdateEmailViewController: BaseViewController {
     }
 
     @objc private func nextTapped() {
-        let email = (emailTextField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !email.isEmpty, isValidEmail(email) else { return }
+        if #available(iOS 13.0, *) {
+            let email = (emailTextField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !email.isEmpty, isValidEmail(email) else { return }
 
-        if let cachedTime = getCooldownTime(for: email) {
-            let elapsed = Int(Date().timeIntervalSince1970 - cachedTime)
-            let remaining = Self.otpCooldownSeconds - elapsed
-            if remaining > 0 {
-                Toast.error(String(format: L(L10n.EmailSetting.tooFast), remaining))
+            if let cachedTime = getCooldownTime(for: email) {
+                let elapsed = Int(Date().timeIntervalSince1970 - cachedTime)
+                let remaining = Self.otpCooldownSeconds - elapsed
+                if remaining > 0 {
+                    Toast.error(String(format: L(L10n.EmailSetting.tooFast), remaining))
+                    return
+                }
+            }
+
+            if email.lowercased() == currentEmail.lowercased(), !currentEmail.isEmpty {
+                Toast.error(L(L10n.EmailSetting.emailAlreadyLinked))
                 return
             }
-        }
 
-        if email.lowercased() == currentEmail.lowercased(), !currentEmail.isEmpty {
-            Toast.error(L(L10n.EmailSetting.emailAlreadyLinked))
-            return
+            callLinkEmailAPI(email: email)
         }
-
-        callLinkEmailAPI(email: email)
     }
 
     @objc private func backTapped() {
         navigationController?.popViewController(animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func callLinkEmailAPI(email: String) {
         setLoading(true)
 

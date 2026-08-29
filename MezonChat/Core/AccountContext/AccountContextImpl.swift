@@ -32,7 +32,6 @@ final class MessageEchoRegistry {
     }
 }
 
-@MainActor
 final class AccountContextImpl: AccountContext {
 
     let sharedContextImpl: SharedAccountContextImpl
@@ -45,11 +44,22 @@ final class AccountContextImpl: AccountContext {
             engine: self.engine,
             userIdProvider: { [weak self] in self?.currentUser?.id },
             currentClanIdProvider: { [weak self] in self?.currentClanId ?? 0 },
-            tokenProvider: { [weak self] in await self?.getToken() }
+            tokenProvider: { [weak self] completion in
+                guard let self else { completion(nil); return }
+                self.provideBearerToken(completion)
+            }
         )
         service.start()
         return service
     }()
+
+    func provideBearerToken(_ completion: @escaping (String?) -> Void) {
+        if #available(iOS 13.0, *) {
+            Task { @MainActor in completion(await self.getToken()) }
+        } else {
+            completion(nil)
+        }
+    }
 
     private var socketEventsDisposable: Disposable?
     private let isLoggedInPipe = ValuePipe<Bool>()
@@ -61,22 +71,49 @@ final class AccountContextImpl: AccountContext {
     private(set) var sessionEpoch: Int = 1
     private var hasCompletedInitialSetup = false
     private(set) var isSessionReady: Bool = false
-    private var sessionReadyContinuations: [CheckedContinuation<Void, Never>] = []
-    private var activeRefreshTask: Task<Bool, Never>?
-    private var activeBearerRecoveryTask: Task<String?, Never>?
+    private var sessionReadyWaiters: [() -> Void] = []
+    private var activeRefreshHandle: CancelHandle?
+    private var activeRefreshWaiters: [(Bool) -> Void] = []
+    private var activeBearerRecoveryHandle: CancelHandle?
+    private var activeBearerRecoveryWaiters: [(String?) -> Void] = []
     private var didNotifySessionExpired = false
-    private var heavyAccountBootstrapTask: Task<Void, Never>?
+    private var heavyAccountBootstrapHandle: CancelHandle?
+    @available(iOS 13.0, *)
+    @MainActor
     func waitForSessionReady() async {
         if isSessionReady { return }
-        await withCheckedContinuation { continuation in
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             if isSessionReady {
                 continuation.resume()
             } else {
-                sessionReadyContinuations.append(continuation)
+                sessionReadyWaiters.append { continuation.resume() }
             }
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
+    private func awaitInflightRefreshIfAny() async {
+        guard activeRefreshHandle != nil else { return }
+        _ = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            activeRefreshWaiters.append { continuation.resume(returning: $0) }
+        }
+    }
+
+    private func flushRefreshWaiters(_ result: Bool) {
+        let waiters = activeRefreshWaiters
+        activeRefreshWaiters.removeAll()
+        for waiter in waiters { waiter(result) }
+    }
+
+    private func flushBearerRecoveryWaiters(_ token: String?) {
+        let waiters = activeBearerRecoveryWaiters
+        activeBearerRecoveryWaiters.removeAll()
+        for waiter in waiters { waiter(token) }
+    }
+
+    @available(iOS 13.0, *)
+    @MainActor
     private func waitForSessionReadyBounded(maxWaitNanos: UInt64) async {
         guard !isSessionReady else { return }
         let step: UInt64 = 100_000_000
@@ -97,6 +134,8 @@ final class AccountContextImpl: AccountContext {
         sessionEpoch == epoch
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     func refreshAccountProfile() async {
         guard let token = await getToken() else {
             applyCachedAccountIfAvailable()
@@ -113,6 +152,8 @@ final class AccountContextImpl: AccountContext {
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     func updatePresenceStatus(_ status: User.OnlineStatus) async throws {
         guard let token = await getToken() else {
             throw MezonError.socketError("Not authenticated")
@@ -134,6 +175,8 @@ final class AccountContextImpl: AccountContext {
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     func submitCustomStatus(text: String, minutes: Int32, noClear: Bool) async throws {
         guard await getToken() != nil else {
             throw MezonError.socketError("Not authenticated")
@@ -160,6 +203,8 @@ final class AccountContextImpl: AccountContext {
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     func fetchCurrentUserStatus() async {
         guard let token = await getToken() else { return }
         do {
@@ -183,15 +228,17 @@ final class AccountContextImpl: AccountContext {
         return 0
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     func getToken() async -> String? {
         await waitForSessionReady()
         return await resolvedBearerTokenAfterSessionReadyAssumingMarked()
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     func getTokenPreferringCachedSkipSessionReadyWait() async -> String? {
-        if let inflight = activeRefreshTask {
-            _ = await inflight.value
-        }
+        await awaitInflightRefreshIfAny()
         await SessionRefreshManager.shared.awaitInflightRefresh()
 
         if !isSessionReady {
@@ -208,10 +255,10 @@ final class AccountContextImpl: AccountContext {
         return await resolvedBearerTokenAfterSessionReadyAssumingMarked()
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func resolvedBearerTokenAfterSessionReadyAssumingMarked() async -> String? {
-        if let inflight = activeRefreshTask {
-            _ = await inflight.value
-        }
+        await awaitInflightRefreshIfAny()
         if let session, session.isExpired {
             let refreshed = await ensureRefreshed()
             if !refreshed {
@@ -227,42 +274,52 @@ final class AccountContextImpl: AccountContext {
         return session?.token
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func ensureRefreshed() async -> Bool {
-        if let inflight = activeRefreshTask {
-            return await inflight.value
+        if activeRefreshHandle != nil {
+            return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                activeRefreshWaiters.append { continuation.resume(returning: $0) }
+            }
         }
         let task = Task<Bool, Never> { @MainActor in
-            defer {
-                self.activeRefreshTask = nil
-            }
-            for attempt in 1...2 {
-                guard !Task.isCancelled else { return false }
-                do {
-                    try await self.refreshSession()
-                    return true
-                } catch is SessionError {
-                    self.notifySessionExpiredAndStopRecovery()
-                    return false
-                } catch is CancellationError {
-                    return false
-                } catch {
-                    if attempt < 2 {
-                        try? await Task.sleep(nanoseconds: 2_500_000_000)
-                    }
+            let outcome = await self.performSessionRefreshAttempts()
+            self.activeRefreshHandle = nil
+            self.flushRefreshWaiters(outcome)
+            return outcome
+        }
+        activeRefreshHandle = CancelHandle { task.cancel() }
+        return await task.value
+    }
+
+    @available(iOS 13.0, *)
+    @MainActor
+    private func performSessionRefreshAttempts() async -> Bool {
+        for attempt in 1...2 {
+            guard !Task.isCancelled else { return false }
+            do {
+                try await refreshSession()
+                return true
+            } catch is SessionError {
+                notifySessionExpiredAndStopRecovery()
+                return false
+            } catch is CancellationError {
+                return false
+            } catch {
+                if attempt < 2 {
+                    try? await Task.sleep(nanoseconds: 2_500_000_000)
                 }
             }
-            return false
         }
-        activeRefreshTask = task
-        return await task.value
+        return false
     }
 
     private func markSessionReady() {
         guard !isSessionReady else { return }
         isSessionReady = true
-        let continuations = sessionReadyContinuations
-        sessionReadyContinuations.removeAll()
-        for c in continuations { c.resume() }
+        let waiters = sessionReadyWaiters
+        sessionReadyWaiters.removeAll()
+        for waiter in waiters { waiter() }
     }
 
     var currentClanId: Int64 = 0
@@ -282,7 +339,7 @@ final class AccountContextImpl: AccountContext {
         account: Account,
         session: MezonSession?,
         user: User?,
-        onReady: @escaping @MainActor (AccountContextImpl) -> Void
+        onReady: @escaping (AccountContextImpl) -> Void
     ) {
         self.sharedContextImpl = sharedContext
         self.account = account
@@ -293,7 +350,9 @@ final class AccountContextImpl: AccountContext {
         _ = self.rolePermissions
 
         if let session {
-            restoreAndRefreshSession(saved: session, onReady: onReady)
+            if #available(iOS 13.0, *) {
+                restoreAndRefreshSession(saved: session, onReady: onReady)
+            }
         } else {
             markSessionReady()
             onReady(self)
@@ -319,17 +378,19 @@ final class AccountContextImpl: AccountContext {
         markSessionReady()
         rolePermissions.start()
 
-        Task { @MainActor in
-            do {
-                try await refreshSession()
-            } catch {
+        if #available(iOS 13.0, *) {
+            Task { @MainActor in
+                do {
+                    try await refreshSession()
+                } catch {
+                }
+                guard self.isStillCurrentSession(epoch: startEpoch) else { return }
+                if let freshSession = self.session {
+                    applySession(freshSession, user: currentUser, connectSocket: true, fetchAccount: false)
+                    scheduleHeavyAccountBootstrapAfterYield(token: freshSession.token)
+                }
+                self.registerFCMTokenIfNeeded()
             }
-            guard self.isStillCurrentSession(epoch: startEpoch) else { return }
-            if let freshSession = self.session {
-                applySession(freshSession, user: currentUser, connectSocket: true, fetchAccount: false)
-                scheduleHeavyAccountBootstrapAfterYield(token: freshSession.token)
-            }
-            self.registerFCMTokenIfNeeded()
         }
     }
 
@@ -342,26 +403,32 @@ final class AccountContextImpl: AccountContext {
         lastRecoverTime = Date()
         markSessionReady()
         rolePermissions.start()
-        scheduleHeavyAccountBootstrapAfterYield(token: session.token)
-        registerFCMTokenIfNeeded()
+        if #available(iOS 13.0, *) {
+            scheduleHeavyAccountBootstrapAfterYield(token: session.token)
+            registerFCMTokenIfNeeded()
+        }
     }
 
     func logout() {
         sessionEpoch &+= 1
-        heavyAccountBootstrapTask?.cancel()
-        heavyAccountBootstrapTask = nil
-        activeRefreshTask?.cancel()
-        activeRefreshTask = nil
-        activeBearerRecoveryTask?.cancel()
-        activeBearerRecoveryTask = nil
+        heavyAccountBootstrapHandle?.cancel()
+        heavyAccountBootstrapHandle = nil
+        activeRefreshHandle?.cancel()
+        activeRefreshHandle = nil
+        flushRefreshWaiters(false)
+        activeBearerRecoveryHandle?.cancel()
+        activeBearerRecoveryHandle = nil
+        flushBearerRecoveryWaiters(nil)
         didNotifySessionExpired = false
-        fcmRegistrationTask?.cancel()
-        fcmRegistrationTask = nil
+        fcmRegistrationHandle?.cancel()
+        fcmRegistrationHandle = nil
         lastRegisteredFcmKey = nil
         if VoIPAnswerAccountBridge.context === self {
             VoIPAnswerAccountBridge.context = nil
         }
-        SessionExpiredModal.removeOverlayIfPresented()
+        if #available(iOS 13.0, *) {
+            SessionExpiredModal.removeOverlayIfPresented()
+        }
         account.network.bearerUnauthorizedRecovery = nil
         account.network.bearerTokenProvider = nil
         socketEventsDisposable?.dispose()
@@ -370,14 +437,18 @@ final class AccountContextImpl: AccountContext {
         let deviceId = currentUser?.username ?? ""
         account.socket.disconnect()
         if let s = s {
-            Task { try? await engine.auth.sessionLogout(session: s, deviceId: deviceId, platform: "ios") }
+            _ = account.network.signalSessionLogout(
+                session: s, deviceId: deviceId, platform: "ios"
+            ).start()
         }
         engine.friendsData.resetForLogout()
         engine.clanData.resetForLogout()
         rolePermissions.resetForLogout()
         SessionStore.clear()
         MandatoryUsernamePendingStore.clearPending()
-        MmnWalletStore.shared.clear()
+        if #available(iOS 13.0, *) {
+            MmnWalletStore.shared.clear()
+        }
         SessionRefreshManager.shared.reset()
         account.network.resetProtoBaseURLToDefault()
         session = nil
@@ -410,20 +481,22 @@ final class AccountContextImpl: AccountContext {
         hasCompletedInitialSetup = false
     }
 
-    private var fcmRegistrationTask: Task<Void, Never>?
+    private var fcmRegistrationHandle: CancelHandle?
     private var lastRegisteredFcmKey: String?
 
+    @available(iOS 13.0, *)
     func registerFCMDeviceTokenIfNeededExternally() {
         registerFCMTokenIfNeeded()
     }
 
+    @available(iOS 13.0, *)
     private func registerFCMTokenIfNeeded() {
         guard !VoIPMinimalCallBootstrap.isMinimalChromeActive else { return }
-        if let existing = fcmRegistrationTask, !existing.isCancelled { return }
+        if let existing = fcmRegistrationHandle, !existing.isCancelled { return }
         let deviceId = UIDevice.current.identifierForVendor?.uuidString ?? UUID().uuidString
-        fcmRegistrationTask = Task { @MainActor [weak self] in
+        let task = Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.fcmRegistrationTask = nil }
+            defer { self.fcmRegistrationHandle = nil }
             guard let authToken = await self.getToken() else { return }
             let voipToken = CallKitManager.shared.voipToken ?? ""
             let fcmToken: String
@@ -447,8 +520,11 @@ final class AccountContextImpl: AccountContext {
             } catch {
             }
         }
+        fcmRegistrationHandle = CancelHandle { task.cancel() }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     func refreshSession() async throws {
         guard let current = session else {
             throw SessionError.noSession
@@ -462,6 +538,8 @@ final class AccountContextImpl: AccountContext {
         applySession(merged, user: currentUser, connectSocket: false, fetchAccount: false)
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func tokenForSocketReconnect() async throws -> String {
         if let session,
            !session.token.isEmpty,
@@ -475,6 +553,8 @@ final class AccountContextImpl: AccountContext {
         return token
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func recoverBearerTokenAfterUnauthorized(failedToken: String, statusCode: Int) async -> String? {
         if let session,
            !session.token.isEmpty,
@@ -483,20 +563,25 @@ final class AccountContextImpl: AccountContext {
             return session.token
         }
 
-        if let inflight = activeBearerRecoveryTask {
-            return await inflight.value
+        if activeBearerRecoveryHandle != nil {
+            return await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
+                activeBearerRecoveryWaiters.append { continuation.resume(returning: $0) }
+            }
         }
 
         let task = Task<String?, Never> { @MainActor in
+            var recovered: String?
             defer {
-                self.activeBearerRecoveryTask = nil
+                self.activeBearerRecoveryHandle = nil
+                self.flushBearerRecoveryWaiters(recovered)
             }
 
             if let session = self.session,
                !session.token.isEmpty,
                session.token != failedToken,
                !session.isExpired {
-                return session.token
+                recovered = session.token
+                return recovered
             }
 
             do {
@@ -506,7 +591,8 @@ final class AccountContextImpl: AccountContext {
                       refreshed.token != failedToken else {
                     return nil
                 }
-                return refreshed.token
+                recovered = refreshed.token
+                return recovered
             } catch is SessionError {
                 self.notifySessionExpiredAndStopRecovery()
                 return nil
@@ -515,7 +601,7 @@ final class AccountContextImpl: AccountContext {
             }
         }
 
-        activeBearerRecoveryTask = task
+        activeBearerRecoveryHandle = CancelHandle { task.cancel() }
         return await task.value
     }
 
@@ -525,10 +611,12 @@ final class AccountContextImpl: AccountContext {
             return false
         }
         didNotifySessionExpired = true
-        activeRefreshTask?.cancel()
-        activeRefreshTask = nil
-        activeBearerRecoveryTask?.cancel()
-        activeBearerRecoveryTask = nil
+        activeRefreshHandle?.cancel()
+        activeRefreshHandle = nil
+        flushRefreshWaiters(false)
+        activeBearerRecoveryHandle?.cancel()
+        activeBearerRecoveryHandle = nil
+        flushBearerRecoveryWaiters(nil)
         account.network.bearerUnauthorizedRecovery = nil
         account.network.bearerTokenProvider = nil
         account.socket.disconnect()
@@ -560,22 +648,23 @@ final class AccountContextImpl: AccountContext {
         }
         lastRecoverTime = now
 
-        engine.friendsData.scheduleRefreshFromSocket()
+        if #available(iOS 13.0, *) {
+            engine.friendsData.scheduleRefreshFromSocket()
+        }
 
         let needsRefresh = session?.isExpired ?? true
 
-        if needsRefresh {
+        if needsRefresh, #available(iOS 13.0, *) {
             let task = Task<Bool, Never> { @MainActor in
-                defer {
-                    self.activeRefreshTask = nil
-                }
                 let refreshed = await self.refreshSessionWithRetry()
                 if refreshed, let token = self.session?.token {
                     self.account.socket.connect(token: token, wsHostOverride: nil)
                 }
+                self.activeRefreshHandle = nil
+                self.flushRefreshWaiters(refreshed)
                 return refreshed
             }
-            activeRefreshTask = task
+            activeRefreshHandle = CancelHandle { task.cancel() }
         } else {
             DispatchQueue.main.async { [weak self] in
                 guard let self, let token = self.session?.token else { return }
@@ -586,6 +675,8 @@ final class AccountContextImpl: AccountContext {
     }
 
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func refreshSessionWithRetry() async -> Bool {
         for attempt in 1...maxForegroundRecoverRetries {
             guard !Task.isCancelled else { return false }
@@ -609,8 +700,10 @@ final class AccountContextImpl: AccountContext {
     }
 
     @objc private func handleSessionExpired() {
-        stopSessionRecovery()
-        SessionExpiredModal.show(onLoginAgain: { [self] in self.logout() })
+        if #available(iOS 13.0, *) {
+            stopSessionRecovery()
+            SessionExpiredModal.show(onLoginAgain: { [self] in self.logout() })
+        }
     }
 
     private func setLoggedIn(_ value: Bool) {
@@ -620,7 +713,7 @@ final class AccountContextImpl: AccountContext {
 
     private func restoreAndRefreshSession(
         saved: MezonSession,
-        onReady: @escaping @MainActor (AccountContextImpl) -> Void
+        onReady: @escaping (AccountContextImpl) -> Void
     ) {
         session = saved
         applyCurrentUser(User(
@@ -641,12 +734,16 @@ final class AccountContextImpl: AccountContext {
                 guard self.isStillCurrentSession(epoch: startEpoch) else { return }
                 let merged = self.mergeIdToken(into: newSession, previous: saved)
                 self.applySession(merged, user: self.currentUser, connectSocket: !merged.created, fetchAccount: false)
-                self.scheduleHeavyAccountBootstrapAfterYield(token: merged.token)
+                if #available(iOS 13.0, *) {
+                    self.scheduleHeavyAccountBootstrapAfterYield(token: merged.token)
+                }
                 if let s = self.session {
                     self.setLoggedIn(!s.created)
                 }
                 if !VoIPMinimalCallBootstrap.isMinimalChromeActive {
-                    self.registerFCMTokenIfNeeded()
+                    if #available(iOS 13.0, *) {
+                        self.registerFCMTokenIfNeeded()
+                    }
                 }
                 self.markSessionReady()
             },
@@ -678,17 +775,36 @@ final class AccountContextImpl: AccountContext {
         }
         account.network.updateBaseURL(from: session)
 
-        account.network.bearerUnauthorizedRecovery = { [weak self] failedToken, statusCode in
-            guard let self else { return nil }
-            return await self.recoverBearerTokenAfterUnauthorized(
-                failedToken: failedToken,
-                statusCode: statusCode
-            )
+        account.network.bearerUnauthorizedRecovery = { [weak self] failedToken, statusCode, completion in
+            guard let self else {
+                completion(.success(nil))
+                return
+            }
+            guard #available(iOS 13.0, *) else {
+                completion(.success(nil))
+                return
+            }
+            Task { @MainActor in
+                let token = await self.recoverBearerTokenAfterUnauthorized(
+                    failedToken: failedToken,
+                    statusCode: statusCode
+                )
+                completion(.success(token))
+            }
         }
 
-        account.network.bearerTokenProvider = { [weak self] in
-            guard let self else { return nil }
-            return await self.getToken()
+        account.network.bearerTokenProvider = { [weak self] completion in
+            guard let self else {
+                completion(nil)
+                return
+            }
+            guard #available(iOS 13.0, *) else {
+                completion(self.session?.token)
+                return
+            }
+            Task { @MainActor in
+                completion(await self.getToken())
+            }
         }
 
         if socketEventsDisposable == nil {
@@ -699,9 +815,26 @@ final class AccountContextImpl: AccountContext {
         }
 
         if connectSocket {
-            account.socket.tokenProvider = { [weak self] in
-                guard let self else { throw SessionError.noSession }
-                return try await self.tokenForSocketReconnect()
+            account.socket.tokenProvider = { [weak self] completion in
+                guard let self else {
+                    completion(.failure(SessionError.noSession))
+                    return
+                }
+                guard #available(iOS 13.0, *) else {
+                    if let token = self.session?.token, !token.isEmpty {
+                        completion(.success(token))
+                    } else {
+                        completion(.failure(SessionError.noSession))
+                    }
+                    return
+                }
+                Task { @MainActor in
+                    do {
+                        completion(.success(try await self.tokenForSocketReconnect()))
+                    } catch {
+                        completion(.failure(error))
+                    }
+                }
             }
             account.socket.sessionProvider = { [weak self] in
                 self?.session
@@ -714,20 +847,26 @@ final class AccountContextImpl: AccountContext {
         if let user { applyCurrentUser(user) }
 
         guard fetchAccount else { return }
-        scheduleHeavyAccountBootstrapAfterYield(token: session.token)
+        if #available(iOS 13.0, *) {
+            scheduleHeavyAccountBootstrapAfterYield(token: session.token)
+        }
     }
 
+    @available(iOS 13.0, *)
     private func scheduleHeavyAccountBootstrapAfterYield(token: String) {
         guard !VoIPMinimalCallBootstrap.isMinimalChromeActive else { return }
-        heavyAccountBootstrapTask?.cancel()
-        heavyAccountBootstrapTask = Task { @MainActor in
+        heavyAccountBootstrapHandle?.cancel()
+        let task = Task<Void, Never> { @MainActor in
             await Task.yield()
             await Task.yield()
             guard !Task.isCancelled else { return }
             await performHeavyAccountBootstrap(token: token)
         }
+        heavyAccountBootstrapHandle = CancelHandle { task.cancel() }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func performHeavyAccountBootstrap(token: String) async {
         let startEpoch = sessionEpoch
         do {
@@ -745,6 +884,8 @@ final class AccountContextImpl: AccountContext {
         fetchAllUserClansAndChannels(token: token)
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     func prepareForVoIPAnswerConnectivity() async -> Bool {
         let disk = SessionStore.load()
         let candidates = [session, disk].compactMap { $0 }
@@ -778,6 +919,8 @@ final class AccountContextImpl: AccountContext {
         return true
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func fetchAllUserClansAndChannels(token: String) {
         let startEpoch = sessionEpoch
         Task { @MainActor [weak self] in
@@ -801,6 +944,7 @@ final class AccountContextImpl: AccountContext {
         }
     }
 
+    @available(iOS 13.0, *)
     private func joinDirectMessageClanOnSocketConnected() {
         joinDirectMessageSocketRoomOnSocketConnected()
 
@@ -826,6 +970,7 @@ final class AccountContextImpl: AccountContext {
         account.socket.joinClanChat(clanId: 0)
     }
 
+    @available(iOS 13.0, *)
     private func rejoinCurrentChannel() {
         guard let channel = currentChannel else {
             return
@@ -854,24 +999,26 @@ final class AccountContextImpl: AccountContext {
         guard account.socket.isConnected else { return }
         let clanId = channel.clanID
         guard clanId != 0 else { return }
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: self, clanId: clanId)
-            guard self.account.socket.isConnected else { return }
-            self.account.socket.joinClanChat(clanId: clanId)
-            let channelType: Int32 = channel.type != 0 ? channel.type : MezonConstants.ChannelType.channel.rawValue
-            let isPublic = channel.parentID != 0 ? false : (channel.channelPrivate == 0)
-            self.account.socket.joinChannel(
-                clanId: clanId,
-                channelId: channel.channelID,
-                channelType: channelType,
-                isPublic: isPublic
-            )
-            NotificationCenter.default.post(
-                name: Notification.Name("MezonJoinedClanChatForBadges"),
-                object: nil,
-                userInfo: ["clanId": clanId]
-            )
+        if #available(iOS 13.0, *) {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: self, clanId: clanId)
+                guard self.account.socket.isConnected else { return }
+                self.account.socket.joinClanChat(clanId: clanId)
+                let channelType: Int32 = channel.type != 0 ? channel.type : MezonConstants.ChannelType.channel.rawValue
+                let isPublic = channel.parentID != 0 ? false : (channel.channelPrivate == 0)
+                self.account.socket.joinChannel(
+                    clanId: clanId,
+                    channelId: channel.channelID,
+                    channelType: channelType,
+                    isPublic: isPublic
+                )
+                NotificationCenter.default.post(
+                    name: Notification.Name("MezonJoinedClanChatForBadges"),
+                    object: nil,
+                    userInfo: ["clanId": clanId]
+                )
+            }
         }
     }
 
@@ -897,6 +1044,8 @@ final class AccountContextImpl: AccountContext {
         return true
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     func refreshUserProfile() async {
         guard let token = session?.token else {
             applyCachedAccountIfAvailable()
@@ -1054,14 +1203,16 @@ final class AccountContextImpl: AccountContext {
         case .connected:
             let joinDelayNanos: UInt64 = 250_000_000
             let isMinimalChrome = VoIPMinimalCallBootstrap.isMinimalChromeActive
-            Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: joinDelayNanos)
-                guard let self, self.account.socket.isConnected else { return }
-                if isMinimalChrome {
-                    self.joinDirectMessageSocketRoomOnSocketConnected()
-                } else {
-                    self.joinDirectMessageClanOnSocketConnected()
-                    self.rejoinCurrentChannel()
+            if #available(iOS 13.0, *) {
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(nanoseconds: joinDelayNanos)
+                    guard let self, self.account.socket.isConnected else { return }
+                    if isMinimalChrome {
+                        self.joinDirectMessageSocketRoomOnSocketConnected()
+                    } else {
+                        self.joinDirectMessageClanOnSocketConnected()
+                        self.rejoinCurrentChannel()
+                    }
                 }
             }
 
@@ -1172,44 +1323,46 @@ final class AccountContextImpl: AccountContext {
             }
             
             let messageCopy = apiMessage
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                let isSelf = String(messageCopy.senderID) == self.currentUser?.id
-                if isSelf {
-                    let now = UInt32(Date().timeIntervalSince1970)
-                    NotificationCenter.default.post(
-                        name: Notification.Name("MezonChannelMarkedAsRead"), object: nil,
-                        userInfo: [
-                            "channelId": channelId, "clanId": clanId,
-                            "messageId": String(messageCopy.messageID),
-                            "timestampSeconds": now, "fromSelf": true
-                        ] as [String: Any]
+            if #available(iOS 13.0, *) {
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    let isSelf = String(messageCopy.senderID) == self.currentUser?.id
+                    if isSelf {
+                        let now = UInt32(Date().timeIntervalSince1970)
+                        NotificationCenter.default.post(
+                            name: Notification.Name("MezonChannelMarkedAsRead"), object: nil,
+                            userInfo: [
+                                "channelId": channelId, "clanId": clanId,
+                                "messageId": String(messageCopy.messageID),
+                                "timestampSeconds": now, "fromSelf": true
+                            ] as [String: Any]
+                        )
+                        let isDmListMessage = clanId == 0
+                            && (messageCopy.mode == MezonConstants.ChannelStreamMode.dm.rawValue
+                                || messageCopy.mode == MezonConstants.ChannelStreamMode.group.rawValue)
+                        guard isDmListMessage else { return }
+                    }
+                    let incrementDmBadge = !isSelf && Self.shouldIncrementDmBadgeForSocketMessage(
+                        messageCopy, channelId: channelId,
+                        currentUserId: self.currentUser?.id, currentClanId: self.currentClanId
                     )
-                    let isDmListMessage = clanId == 0
-                        && (messageCopy.mode == MezonConstants.ChannelStreamMode.dm.rawValue
-                            || messageCopy.mode == MezonConstants.ChannelStreamMode.group.rawValue)
-                    guard isDmListMessage else { return }
+                    var userInfo: [String: Any] = [
+                        "channelId": channelId, "clanId": clanId,
+                        "senderId": String(messageCopy.senderID), "mode": messageCopy.mode,
+                        "timestampSeconds": messageCopy.createTimeSeconds,
+                        "messageCode": messageCopy.code,
+                        "incrementDmBadge": incrementDmBadge, "topicId": messageCopy.topicID
+                    ]
+                    if let raw = try? messageCopy.serializedData() {
+                        userInfo["serializedChannelMessage"] = raw
+                    }
+                    let notificationName = isSelf
+                        ? Notification.Name("MezonDMListMessageReceived")
+                        : Notification.Name("MezonNewMessageReceived")
+                    NotificationCenter.default.post(
+                        name: notificationName, object: nil, userInfo: userInfo
+                    )
                 }
-                let incrementDmBadge = !isSelf && Self.shouldIncrementDmBadgeForSocketMessage(
-                    messageCopy, channelId: channelId,
-                    currentUserId: self.currentUser?.id, currentClanId: self.currentClanId
-                )
-                var userInfo: [String: Any] = [
-                    "channelId": channelId, "clanId": clanId,
-                    "senderId": String(messageCopy.senderID), "mode": messageCopy.mode,
-                    "timestampSeconds": messageCopy.createTimeSeconds,
-                    "messageCode": messageCopy.code,
-                    "incrementDmBadge": incrementDmBadge, "topicId": messageCopy.topicID
-                ]
-                if let raw = try? messageCopy.serializedData() {
-                    userInfo["serializedChannelMessage"] = raw
-                }
-                let notificationName = isSelf
-                    ? Notification.Name("MezonDMListMessageReceived")
-                    : Notification.Name("MezonNewMessageReceived")
-                NotificationCenter.default.post(
-                    name: notificationName, object: nil, userInfo: userInfo
-                )
             }
 
         case .messageUpdated(let update):
@@ -1310,13 +1463,19 @@ final class AccountContextImpl: AccountContext {
             applyTopicInMessageEvent(event)
 
         case .notification(let noti):
-            handleSocketNotification(noti)
+            if #available(iOS 13.0, *) {
+                handleSocketNotification(noti)
+            }
 
         case .webRTC(let msg):
-            WebRTCCallManager.shared.handleSignalingMessage(msg, currentUserId: currentUserNumericId() ?? 0)
+            if #available(iOS 13.0, *) {
+                WebRTCCallManager.shared.handleSignalingMessage(msg, currentUserId: currentUserNumericId() ?? 0)
+            }
 
         case .incomingCallPush(let push):
-            WebRTCCallManager.shared.handleIncomingCallPush(push, currentUserId: currentUserNumericId() ?? 0)
+            if #available(iOS 13.0, *) {
+                WebRTCCallManager.shared.handleIncomingCallPush(push, currentUserId: currentUserNumericId() ?? 0)
+            }
 
         case .customStatus(let e):
             applyIncomingCustomStatusEvent(e)
@@ -1531,6 +1690,7 @@ final class AccountContextImpl: AccountContext {
         return false
     }
 
+    @available(iOS 13.0, *)
     private func handleSocketNotification(_ noti: Mezon_Api_Notification) {
         if noti.code == -3 { 
             var senderName = ""

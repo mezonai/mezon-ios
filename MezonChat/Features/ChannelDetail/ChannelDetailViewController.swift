@@ -45,10 +45,14 @@ final class ChannelDetailViewController: ViewController {
                 self?.openThreadList()
             },
             onMuteTapped: { [weak self] in
-                self?.handleMuteButtonTapped()
+                if #available(iOS 13.0, *) {
+                    self?.handleMuteButtonTapped()
+                }
             },
             onGroupOptionsTapped: { [weak self] in
-                self?.showGroupDMOptions()
+                if #available(iOS 13.0, *) {
+                    self?.showGroupDMOptions()
+                }
             }
         )
     }
@@ -180,6 +184,7 @@ final class ChannelDetailViewController: ViewController {
         navigationController?.pushViewController(settingsVC, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func handleMuteButtonTapped() {
         let isMuted = context.account.postbox.read { tx in
             guard let record = tx.getNotificationSetting(entityId: channel.channelID) else { return false }
@@ -193,6 +198,7 @@ final class ChannelDetailViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func openMuteDuration() {
         let isThread = channel.type == MezonConstants.ChannelType.thread.rawValue
         let vc = MuteDurationViewController(
@@ -208,6 +214,7 @@ final class ChannelDetailViewController: ViewController {
         self.navigationController?.pushViewController(vc, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func handleMuteChannel(muteTimeSeconds: Int32) {
         ChannelMuteHelper.setMuteChannel(
             context: context,
@@ -232,6 +239,7 @@ final class ChannelDetailViewController: ViewController {
         return myId == channel.creatorID
     }
 
+    @available(iOS 13.0, *)
     private func showGroupDMOptions() {
         guard isGroupDirectMessage else { return }
 
@@ -277,6 +285,7 @@ final class ChannelDetailViewController: ViewController {
         )
     }
 
+    @available(iOS 13.0, *)
     private func confirmLeaveGroup() {
         presentLeaveOrDeleteConfirmation(
             title: L(L10n.ChannelDetail.leaveGroupConfirmTitle),
@@ -286,6 +295,7 @@ final class ChannelDetailViewController: ViewController {
         )
     }
 
+    @available(iOS 13.0, *)
     private func confirmDeleteGroup() {
         presentLeaveOrDeleteConfirmation(
             title: L(L10n.ChannelDetail.deleteGroupConfirmTitle),
@@ -295,6 +305,7 @@ final class ChannelDetailViewController: ViewController {
         )
     }
 
+    @available(iOS 13.0, *)
     private func presentLeaveOrDeleteConfirmation(
         title: String,
         message: String,
@@ -309,6 +320,7 @@ final class ChannelDetailViewController: ViewController {
         present(alert, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func performLeaveOrDeleteGroup(userConfirmedDelete: Bool) {
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -414,7 +426,9 @@ private final class GroupDMOptionsSheetViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        setupUI()
+        if #available(iOS 13.0, *) {
+            setupUI()
+        }
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -570,7 +584,7 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
     private let nameField = UITextField()
     private let cancelButton = UIButton(type: .system)
     private let saveButton = UIButton(type: .system)
-    private let activityIndicator = UIActivityIndicatorView(style: .medium)
+    private let activityIndicator = UIActivityIndicatorView.mezonMedium()
 
     init(
         context: AccountContext,
@@ -615,7 +629,7 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
         avatarImageView.clipsToBounds = true
 
         avatarPlaceholderImageView.translatesAutoresizingMaskIntoConstraints = false
-        avatarPlaceholderImageView.image = UIImage(systemName: "person.2.fill")
+        avatarPlaceholderImageView.image = UIImage.mezonSystemImage("person.2.fill")
         avatarPlaceholderImageView.tintColor = .white
         avatarPlaceholderImageView.contentMode = .scaleAspectFit
 
@@ -624,7 +638,7 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
         avatarOverlay.backgroundColor = UIColor.black.withAlphaComponent(0.18)
         avatarOverlay.isUserInteractionEnabled = false
 
-        let cameraImageView = UIImageView(image: UIImage(systemName: "camera.fill"))
+        let cameraImageView = UIImageView(image: UIImage.mezonSystemImage("camera.fill"))
         cameraImageView.translatesAutoresizingMaskIntoConstraints = false
         cameraImageView.tintColor = .white
         cameraImageView.contentMode = .scaleAspectFit
@@ -807,12 +821,14 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
     }
 
     @objc private func pickAvatarTapped() {
-        guard UIImagePickerController.isSourceTypeAvailable(.photoLibrary) else { return }
-        let picker = UIImagePickerController()
-        picker.sourceType = .photoLibrary
-        picker.allowsEditing = true
-        picker.delegate = self
-        present(picker, animated: true)
+        if #available(iOS 13.0, *) {
+            guard UIImagePickerController.isSourceTypeAvailable(.photoLibrary) else { return }
+            let picker = UIImagePickerController()
+            picker.sourceType = .photoLibrary
+            picker.allowsEditing = true
+            picker.delegate = self
+            present(picker, animated: true)
+        }
     }
 
     @objc private func removeAvatarTapped() {
@@ -859,58 +875,60 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
     }
 
     @objc private func saveTapped() {
-        guard !isSaving else { return }
-        let name = trimmedGroupName
-        guard !name.isEmpty else {
-            updateSaveButtonState()
-            Toast.error(L(L10n.ChannelDetail.groupNameRequired))
-            return
-        }
-        guard name.count <= Self.maxGroupNameLength else {
-            updateSaveButtonState()
-            return
-        }
-
-        setSaving(true)
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer { self.setSaving(false) }
-            guard let token = await self.context.getToken() else {
-                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+        if #available(iOS 13.0, *) {
+            guard !isSaving else { return }
+            let name = trimmedGroupName
+            guard !name.isEmpty else {
+                updateSaveButtonState()
+                Toast.error(L(L10n.ChannelDetail.groupNameRequired))
                 return
             }
-            do {
-                let uploadedAvatarURL = try await self.uploadSelectedAvatarIfNeeded(token: token)
-                let response = try await self.context.account.network.updateChannelDesc(
-                    clanId: 0,
-                    channelId: self.originalChannel.channelID,
-                    channelLabel: name,
-                    channelAvatar: uploadedAvatarURL,
-                    token: token
-                )
+            guard name.count <= Self.maxGroupNameLength else {
+                updateSaveButtonState()
+                return
+            }
 
-                var updated = self.originalChannel
-                updated.channelLabel = response.channelLabel.isEmpty ? name : response.channelLabel
-                updated.channelAvatar = uploadedAvatarURL
-                if response.type != 0 {
-                    updated.type = response.type
-                } else if updated.type == 0 {
-                    updated.type = MezonConstants.ChannelType.group.rawValue
+            setSaving(true)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                defer { self.setSaving(false) }
+                guard let token = await self.context.getToken() else {
+                    Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                    return
                 }
-                updated.clanID = 0
-                if response.updateTimeSeconds != 0 {
-                    updated.updateTimeSeconds = response.updateTimeSeconds
-                }
+                do {
+                    let uploadedAvatarURL = try await self.uploadSelectedAvatarIfNeeded(token: token)
+                    let response = try await self.context.account.network.updateChannelDesc(
+                        clanId: 0,
+                        channelId: self.originalChannel.channelID,
+                        channelLabel: name,
+                        channelAvatar: uploadedAvatarURL,
+                        token: token
+                    )
 
-                self.onSaved(updated)
-                Toast.success(L(L10n.ChannelDetail.groupUpdated))
-                self.dismiss(animated: true)
-            } catch {
-                SentryLogger.capture(error, extras: [
-                    "where": "ChannelDetail.updateGroup",
-                    "channelId": self.originalChannel.channelID,
-                ])
-                Toast.error(L(L10n.ChannelDetail.updateGroupFailed))
+                    var updated = self.originalChannel
+                    updated.channelLabel = response.channelLabel.isEmpty ? name : response.channelLabel
+                    updated.channelAvatar = uploadedAvatarURL
+                    if response.type != 0 {
+                        updated.type = response.type
+                    } else if updated.type == 0 {
+                        updated.type = MezonConstants.ChannelType.group.rawValue
+                    }
+                    updated.clanID = 0
+                    if response.updateTimeSeconds != 0 {
+                        updated.updateTimeSeconds = response.updateTimeSeconds
+                    }
+
+                    self.onSaved(updated)
+                    Toast.success(L(L10n.ChannelDetail.groupUpdated))
+                    self.dismiss(animated: true)
+                } catch {
+                    SentryLogger.capture(error, extras: [
+                        "where": "ChannelDetail.updateGroup",
+                        "channelId": self.originalChannel.channelID,
+                    ])
+                    Toast.error(L(L10n.ChannelDetail.updateGroupFailed))
+                }
             }
         }
     }
@@ -948,6 +966,7 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
             : UIColor.theme.textDisabled
     }
 
+    @available(iOS 13.0, *)
     private func uploadSelectedAvatarIfNeeded(token: String) async throws -> String {
         guard let selectedImage, let selectedImageData else {
             return avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1000,6 +1019,7 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
 }
 
 enum ChannelMuteHelper {
+    @available(iOS 13.0, *)
     static func setMuteChannel(
         context: AccountContext,
         channelId: Int64,

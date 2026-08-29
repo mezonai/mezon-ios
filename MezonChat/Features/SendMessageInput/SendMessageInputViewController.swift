@@ -154,6 +154,7 @@ private enum OgpPreviewService {
         linkCandidates(in: text).filter { !shouldSkip(link: $0.url) }
     }
 
+    @available(iOS 13.0, *)
     static func fetch(link: OgpLinkCandidate) async throws -> OgpPreviewItem? {
         var request = URLRequest(url: MezonConfig.ogpURL)
         request.httpMethod = "POST"
@@ -180,6 +181,7 @@ private enum OgpPreviewService {
         )
     }
 
+    @available(iOS 13.0, *)
     private static func httpData(_ request: URLRequest) async throws -> (Data, URLResponse) {
         if #available(iOS 15.0, *) {
             return try await URLSession.shared.data(for: request)
@@ -305,8 +307,8 @@ private final class OgpPreviewView: UIView {
     private lazy var closeButton: UIButton = {
         let button = UIButton(type: .system)
         button.translatesAutoresizingMaskIntoConstraints = false
-        let config = UIImage.SymbolConfiguration(pointSize: 13.sf, weight: .semibold)
-        button.setImage(UIImage(systemName: "xmark", withConfiguration: config), for: .normal)
+        let config = MezonSymbolConfiguration(pointSize: 13.sf, weight: .semibold)
+        button.setImage(UIImage.mezonSystemImage("xmark", withConfiguration: config), for: .normal)
         button.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         return button
     }()
@@ -412,14 +414,14 @@ final class SendMessageInputViewController: UIViewController {
     private static let threadActivePrivateJoinedStatus: Int32 = 3
 
     private static func composerEmojiFaceIcon(pointSize: CGFloat) -> UIImage? {
-        let sym = UIImage.SymbolConfiguration(pointSize: pointSize)
+        let sym = MezonSymbolConfiguration(pointSize: pointSize)
         return UIImage(named: "Chat/FaceIcon")
-            ?? UIImage(systemName: "face.smiling", withConfiguration: sym)
+            ?? UIImage.mezonSystemImage("face.smiling", withConfiguration: sym)
     }
 
     private static func composerEmojiToolbarIcon(showKeyboard: Bool, pointSize: CGFloat) -> UIImage? {
         if showKeyboard {
-            return UIImage(systemName: "keyboard", withConfiguration: UIImage.SymbolConfiguration(pointSize: pointSize))
+            return UIImage.mezonSystemImage("keyboard", withConfiguration: MezonSymbolConfiguration(pointSize: pointSize))
         }
         return composerEmojiFaceIcon(pointSize: pointSize)
     }
@@ -440,8 +442,8 @@ final class SendMessageInputViewController: UIViewController {
     }
     private let clanId: Int64
     var topicId: Int64 = 0
-    private var ambiguousDeliveryVerifyTask: Task<Void, Never>?
-    private var deliveryConfirmTask: Task<Void, Never>?
+    private var ambiguousDeliveryVerifyTask: CancelHandle?
+    private var deliveryConfirmTask: CancelHandle?
     private var pendingDeliveryConfirmations: [String: Date] = [:]
     private var locallyReactivatedThreadIds = Set<Int64>()
     private var locallyJoinedThreadIds = Set<Int64>()
@@ -583,8 +585,8 @@ final class SendMessageInputViewController: UIViewController {
     private lazy var replyCancelButton: UIButton = {
         let btn = UIButton(type: .system)
         btn.translatesAutoresizingMaskIntoConstraints = false
-        let config = UIImage.SymbolConfiguration(pointSize: 12, weight: .bold)
-        btn.setImage(UIImage(systemName: "xmark.circle.fill", withConfiguration: config), for: .normal)
+        let config = MezonSymbolConfiguration(pointSize: 12, weight: .bold)
+        btn.setImage(UIImage.mezonSystemImage("xmark.circle.fill", withConfiguration: config), for: .normal)
         btn.addTarget(self, action: #selector(clearReplyAction), for: .touchUpInside)
         return btn
     }()
@@ -668,13 +670,13 @@ final class SendMessageInputViewController: UIViewController {
     private var voiceRecordingStartAborted = false
     private var voiceSlideAnchorX: CGFloat?
     private var activeOgpPreviewItem: OgpPreviewItem?
-    private var ogpFetchTask: Task<Void, Never>?
+    private var ogpFetchTask: CancelHandle?
     private var ogpRequestedKey: String = ""
     private var dismissedOgpLink: String = ""
 
     private lazy var chevronButton: UIButton = {
         let btn = UIButton(type: .system)
-        btn.setImage(UIImage(systemName: "chevron.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .semibold)), for: .normal)
+        btn.setImage(UIImage.mezonSystemImage("chevron.left", withConfiguration: MezonSymbolConfiguration(pointSize: 16.sf, weight: .semibold)), for: .normal)
         btn.translatesAutoresizingMaskIntoConstraints = false
         btn.layer.cornerRadius = 20.swh
         btn.clipsToBounds = true
@@ -684,7 +686,7 @@ final class SendMessageInputViewController: UIViewController {
 
     private lazy var attachButton: UIButton = {
         let btn = UIButton(type: .system)
-        btn.setImage(UIImage(systemName: "plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)), for: .normal)
+        btn.setImage(UIImage.mezonSystemImage("plus", withConfiguration: MezonSymbolConfiguration(pointSize: 16.sf, weight: .medium)), for: .normal)
         btn.translatesAutoresizingMaskIntoConstraints = false
         btn.layer.cornerRadius = 20.swh
         btn.clipsToBounds = true
@@ -756,7 +758,7 @@ final class SendMessageInputViewController: UIViewController {
 
     private lazy var advanceButton: UIButton = {
         let btn = UIButton(type: .system)
-        btn.setImage(UIImage(systemName: "line.3.horizontal", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)), for: .normal)
+        btn.setImage(UIImage.mezonSystemImage("line.3.horizontal", withConfiguration: MezonSymbolConfiguration(pointSize: 16.sf, weight: .medium)), for: .normal)
         btn.translatesAutoresizingMaskIntoConstraints = false
         btn.layer.cornerRadius = 20.swh
         btn.addTarget(self, action: #selector(toggleAdvancePanelAction), for: .touchUpInside)
@@ -775,9 +777,9 @@ final class SendMessageInputViewController: UIViewController {
         let b = UIButton(type: .system)
         b.translatesAutoresizingMaskIntoConstraints = false
         b.isHidden = true
-        let cfg = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+        let cfg = MezonSymbolConfiguration(pointSize: 11, weight: .semibold)
         let image = UIImage(named: "Chat/AnonymousIcon")?.withRenderingMode(.alwaysTemplate)
-            ?? UIImage(systemName: "sunglasses.fill", withConfiguration: cfg)
+            ?? UIImage.mezonSystemImage("sunglasses.fill", withConfiguration: cfg)
         b.setImage(image, for: .normal)
         b.imageView?.contentMode = .scaleAspectFit
         b.transform = CGAffineTransform(rotationAngle: CGFloat.pi / 6.0)
@@ -794,9 +796,9 @@ final class SendMessageInputViewController: UIViewController {
         let sendSide: CGFloat = 40.swh
         btn.layer.cornerRadius = sendSide / 2
         btn.clipsToBounds = true
-        let sendCfg = UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)
+        let sendCfg = MezonSymbolConfiguration(pointSize: 16.sf, weight: .medium)
         let sendImg = UIImage(named: "Chat/SendMessageIcon")?.withRenderingMode(.alwaysTemplate)
-            ?? UIImage(systemName: "paperplane.fill", withConfiguration: sendCfg)
+            ?? UIImage.mezonSystemImage("paperplane.fill", withConfiguration: sendCfg)
         btn.setImage(sendImg, for: .normal)
         btn.imageView?.contentMode = .scaleAspectFit
         let iconInset: CGFloat = 9.sf
@@ -1027,16 +1029,22 @@ final class SendMessageInputViewController: UIViewController {
         setupMentionSuggestion()
         setupEmojiSuggestion()
         setupHashtagSuggestion()
-        setupBindings()
+        if #available(iOS 13.0, *) {
+            setupBindings()
+        }
         setupThemeObserver()
         applyTheme()
         if suppressStoredComposerDraftRestoreOnLoad {
             resetComposerVisualDraftState()
             onHeightChanged?(totalHeight)
         } else {
-            restoreComposerDraftAndAttachmentsForCurrentKey()
+            if #available(iOS 13.0, *) {
+                restoreComposerDraftAndAttachmentsForCurrentKey()
+            }
         }
-        loadClanMembers()
+        if #available(iOS 13.0, *) {
+            loadClanMembers()
+        }
         bindMentionDataUpdates()
         reloadEmojiSuggestionList()
         reloadHashtagChannelCandidates()
@@ -1058,9 +1066,11 @@ final class SendMessageInputViewController: UIViewController {
         refreshSendPermissionAvailability()
         if channelStreamMode == MezonConstants.ChannelStreamMode.dm.rawValue,
            context.engine.friendsData.allFriends().isEmpty {
-            Task { [weak self] in
-                guard let self, let token = await self.context.getToken() else { return }
-                await self.context.engine.friendsData.refreshFromNetwork(token: token)
+            if #available(iOS 13.0, *) {
+                Task { [weak self] in
+                    guard let self, let token = await self.context.getToken() else { return }
+                    await self.context.engine.friendsData.refreshFromNetwork(token: token)
+                }
             }
         }
     }
@@ -1076,8 +1086,8 @@ final class SendMessageInputViewController: UIViewController {
         }
         if isAdvancePanelVisible {
             isAdvancePanelVisible = false
-            let iconConfig = UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)
-            advanceButton.setImage(UIImage(systemName: "line.3.horizontal", withConfiguration: iconConfig), for: .normal)
+            let iconConfig = MezonSymbolConfiguration(pointSize: 16.sf, weight: .medium)
+            advanceButton.setImage(UIImage.mezonSystemImage("line.3.horizontal", withConfiguration: iconConfig), for: .normal)
         }
     }
 
@@ -1235,6 +1245,7 @@ final class SendMessageInputViewController: UIViewController {
         )
     }
 
+    @available(iOS 13.0, *)
     private func rebindMentionForCurrentChannel() {
         bindMentionDataUpdates()
         allMentionMembers = []
@@ -1242,6 +1253,7 @@ final class SendMessageInputViewController: UIViewController {
         loadClanMembers()
     }
 
+    @available(iOS 13.0, *)
     func syncStoredDraftIdentity(
         channel newChannel: Mezon_Api_ChannelDescription,
         topicId newTopicId: Int64,
@@ -1383,6 +1395,7 @@ final class SendMessageInputViewController: UIViewController {
         return m
     }
 
+    @available(iOS 13.0, *)
     private func applyComposerDraftSnapshot(_ snap: ComposerDraftSnapshot) {
         replyDisplay = nil
         editingDisplay = nil
@@ -1478,6 +1491,7 @@ final class SendMessageInputViewController: UIViewController {
         updateSendVoiceToggle()
     }
 
+    @available(iOS 13.0, *)
     private func restoreComposerDraftAndAttachmentsForCurrentKey() {
         let key = draftStorageKey(for: channel, topicId: topicId)
         if let snap = Self.channelTextDraftCache[key] {
@@ -1515,6 +1529,7 @@ final class SendMessageInputViewController: UIViewController {
         updateSendVoiceToggle()
     }
 
+    @available(iOS 13.0, *)
     func sendReplicatedThreadSeedMessage(from display: ChatMessageDisplay) async throws {
         let record = context.account.postbox.read { tx in
             tx.getMessageById(display.message.id, channelId: display.message.channelId)
@@ -1589,6 +1604,7 @@ final class SendMessageInputViewController: UIViewController {
         )
     }
 
+    @available(iOS 13.0, *)
     func send() {
         guard !composerSendPermissionBlocked else { return }
         let plainText = buildPlainTextFromAttributed()
@@ -1637,14 +1653,20 @@ final class SendMessageInputViewController: UIViewController {
         guard !isEditingShareContactMessage else { return }
         expandAttachControls()
     }
-    @objc private func openPhotoPickerAction() { openPhotoPicker() }
+    @objc private func openPhotoPickerAction() {
+        if #available(iOS 13.0, *) {
+            openPhotoPicker()
+        }
+    }
     @objc private func toggleAdvancePanelAction() { toggleAdvancePanel() }
     @objc private func toggleEmojiPickerAction() { toggleEmojiPicker() }
     @objc private func sendAction() {
-        if let primarySendActionOverride {
-            primarySendActionOverride()
-        } else {
-            send()
+        if #available(iOS 13.0, *) {
+            if let primarySendActionOverride {
+                primarySendActionOverride()
+            } else {
+                send()
+            }
         }
     }
     @objc private func anonymousIndicatorTapped() {
@@ -1655,6 +1677,7 @@ final class SendMessageInputViewController: UIViewController {
     }
 
 
+    @available(iOS 13.0, *)
     func sendLocation(latitude: Double, longitude: Double) {
         guard !composerSendPermissionBlocked else { return }
         guard !isEditingShareContactMessage else { return }
@@ -1737,6 +1760,7 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     func sendBuzzMessage(text: String) {
         guard !composerSendPermissionBlocked else { return }
         guard !isEditingShareContactMessage else { return }
@@ -1810,6 +1834,7 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     func sendShareContact(friend: Mezon_Api_Friend) {
         guard !composerSendPermissionBlocked else { return }
         guard !shouldSendAsAnonymousMessage else { return }
@@ -1935,6 +1960,7 @@ final class SendMessageInputViewController: UIViewController {
         )
     }
 
+    @available(iOS 13.0, *)
     private func markOnboardingWelcomeMessageSentIfNeeded(
         ack: Mezon_Realtime_ChannelMessageAck,
         anonymous: Bool
@@ -1950,6 +1976,7 @@ final class SendMessageInputViewController: UIViewController {
         )
     }
 
+    @available(iOS 13.0, *)
     func sendSticker(_ sticker: CachedClanStickerRecord) {
         guard !isEditingShareContactMessage else { return }
         if editingDisplay != nil {
@@ -1972,6 +1999,7 @@ final class SendMessageInputViewController: UIViewController {
     }
 
 
+    @available(iOS 13.0, *)
     func sendGif(url: String) {
         guard !isEditingShareContactMessage else { return }
         if editingDisplay != nil {
@@ -1992,6 +2020,7 @@ final class SendMessageInputViewController: UIViewController {
         textView.becomeFirstResponder()
     }
 
+    @available(iOS 13.0, *)
     func setEditingMessage(_ display: ChatMessageDisplay) {
         refreshSendPermissionAvailability()
         guard !composerSendPermissionBlocked else { return }
@@ -2105,6 +2134,7 @@ final class SendMessageInputViewController: UIViewController {
         return (text, endDeltas)
     }
 
+    @available(iOS 13.0, *)
     private func populateComposerFromEditDisplay(_ display: ChatMessageDisplay) {
         let parsed = display.parsedContent
         activeMentions.removeAll()
@@ -2261,12 +2291,14 @@ final class SendMessageInputViewController: UIViewController {
         syncAttachControlsWithTypedText()
         updateSendVoiceToggle()
     }
+    @available(iOS 13.0, *)
     func updateText(_ newText: String) {
         text = newText
         textPipe.putNext(newText)
         scheduleOgpPreviewUpdate(for: newText)
     }
 
+    @available(iOS 13.0, *)
     func resendFailedMessage(display: ChatMessageDisplay) {
         guard display.isFailed else { return }
         let localId = display.message.id
@@ -2411,6 +2443,7 @@ final class SendMessageInputViewController: UIViewController {
         return !NetworkMonitor.shared.isConnected
     }
 
+    @available(iOS 13.0, *)
     private func scheduleAmbiguousSendFailsafe(localId: String) {
         let postbox = context.account.postbox
         scheduleAmbiguousDeliveryVerification()
@@ -2424,18 +2457,21 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func scheduleAmbiguousDeliveryVerification() {
         ambiguousDeliveryVerifyTask?.cancel()
         let clanId = self.clanId
         let channelId = self.channel.channelID
         let topicId = self.topicId
-        ambiguousDeliveryVerifyTask = Task { @MainActor [weak self] in
+        let ambiguousDeliveryVerifyTaskWork = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: Self.ambiguousDeliveryVerifyDelayNanoseconds)
             guard !Task.isCancelled, let self else { return }
             await self.verifyAmbiguousPendingDelivery(clanId: clanId, channelId: channelId, topicId: topicId)
         }
+        ambiguousDeliveryVerifyTask = CancelHandle { ambiguousDeliveryVerifyTaskWork.cancel() }
     }
 
+    @available(iOS 13.0, *)
     private func verifyAmbiguousPendingDelivery(clanId: Int64, channelId: Int64, topicId: Int64) async {
         let postbox = context.account.postbox
         let storageChannelId = topicId != 0 ? "topic-\(topicId)" : "\(channelId)"
@@ -2469,24 +2505,28 @@ final class SendMessageInputViewController: UIViewController {
 
     private static let deliveryConfirmDelayNanoseconds: UInt64 = 5_000_000_000
 
+    @available(iOS 13.0, *)
     private func registerDeliveryConfirmation(serverMessageId: String) {
         guard !serverMessageId.isEmpty, serverMessageId != "0" else { return }
         pendingDeliveryConfirmations[serverMessageId] = Date()
         scheduleDeliveryConfirmation()
     }
 
+    @available(iOS 13.0, *)
     private func scheduleDeliveryConfirmation() {
         deliveryConfirmTask?.cancel()
         let clanId = self.clanId
         let channelId = self.channel.channelID
         let topicId = self.topicId
-        deliveryConfirmTask = Task { @MainActor [weak self] in
+        let deliveryConfirmTaskWork = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: Self.deliveryConfirmDelayNanoseconds)
             guard !Task.isCancelled, let self else { return }
             await self.confirmPendingDeliveries(clanId: clanId, channelId: channelId, topicId: topicId)
         }
+        deliveryConfirmTask = CancelHandle { deliveryConfirmTaskWork.cancel() }
     }
 
+    @available(iOS 13.0, *)
     private func confirmPendingDeliveries(clanId: Int64, channelId: Int64, topicId: Int64) async {
         let due = pendingDeliveryConfirmations
         guard !due.isEmpty else { return }
@@ -2544,6 +2584,7 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func openPhotoPicker() {
         guard !isEditingShareContactMessage else { return }
         let remaining = remainingAttachmentSlots
@@ -2576,6 +2617,7 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func sendEditedImageImmediately(_ result: MediaPickerResult) {
         guard !composerSendPermissionBlocked, !result.isVideo else { return }
         ensureChannelMetadataResolvedFromPostboxIfNeeded()
@@ -2622,8 +2664,8 @@ final class SendMessageInputViewController: UIViewController {
             if isAdvancePanelVisible {
                 isAdvancePanelVisible = false
                 onToggleAdvancePanel?(false, 0)
-                let advIconConfig = UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)
-                advanceButton.setImage(UIImage(systemName: "line.3.horizontal", withConfiguration: advIconConfig), for: .normal)
+                let advIconConfig = MezonSymbolConfiguration(pointSize: 16.sf, weight: .medium)
+                advanceButton.setImage(UIImage.mezonSystemImage("line.3.horizontal", withConfiguration: advIconConfig), for: .normal)
             }
             hideEmojiSuggestions()
             hideHashtagSuggestions()
@@ -2666,9 +2708,9 @@ final class SendMessageInputViewController: UIViewController {
             }
         }
 
-        let iconConfig = UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)
+        let iconConfig = MezonSymbolConfiguration(pointSize: 16.sf, weight: .medium)
         let iconName = isAdvancePanelVisible ? "xmark" : "line.3.horizontal"
-        advanceButton.setImage(UIImage(systemName: iconName, withConfiguration: iconConfig), for: .normal)
+        advanceButton.setImage(UIImage.mezonSystemImage(iconName, withConfiguration: iconConfig), for: .normal)
     }
 
     func hideAdvancePanelIfNeeded() {
@@ -2679,8 +2721,8 @@ final class SendMessageInputViewController: UIViewController {
 
     func markAdvancePanelDismissedByHost() {
         isAdvancePanelVisible = false
-        let iconConfig = UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)
-        advanceButton.setImage(UIImage(systemName: "line.3.horizontal", withConfiguration: iconConfig), for: .normal)
+        let iconConfig = MezonSymbolConfiguration(pointSize: 16.sf, weight: .medium)
+        advanceButton.setImage(UIImage.mezonSystemImage("line.3.horizontal", withConfiguration: iconConfig), for: .normal)
     }
 
 
@@ -3092,6 +3134,7 @@ final class SendMessageInputViewController: UIViewController {
         setOgpPreviewItem(nil)
     }
 
+    @available(iOS 13.0, *)
     private func scheduleOgpPreviewUpdate(for rawText: String) {
         guard !composerSendPermissionBlocked else {
             clearOgpPreview(userDismissed: false, resetDismissed: false)
@@ -3123,7 +3166,7 @@ final class SendMessageInputViewController: UIViewController {
         ogpRequestedKey = requestKey
         setOgpPreviewItem(nil)
 
-        ogpFetchTask = Task { [weak self] in
+        let ogpFetchTaskWork = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 120_000_000)
             guard !Task.isCancelled else { return }
 
@@ -3144,6 +3187,8 @@ final class SendMessageInputViewController: UIViewController {
                 self.setOgpPreviewItem(nil)
             }
         }
+
+        ogpFetchTask = CancelHandle { ogpFetchTaskWork.cancel() }
     }
 
     private func syncAttachControlsWithTypedText() {
@@ -3558,6 +3603,7 @@ final class SendMessageInputViewController: UIViewController {
             || channel.type == MezonConstants.ChannelType.thread.rawValue
     }
 
+    @available(iOS 13.0, *)
     private func loadClanMembers() {
         if clanId == 0 {
             loadDMMembers()
@@ -3570,6 +3616,7 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func loadComposerChannelMentionMembers() {
         if let records = mergedChannelMemberRecordsForMentions() {
             buildMentionMembers(from: records)
@@ -3619,6 +3666,7 @@ final class SendMessageInputViewController: UIViewController {
         fetchDMChannelUsersFromNetwork()
     }
 
+    @available(iOS 13.0, *)
     private func loadChannelMembersForPrivate() {
         let isThreadWithParent =
             channel.type == MezonConstants.ChannelType.thread.rawValue && channel.parentID != 0
@@ -3637,6 +3685,7 @@ final class SendMessageInputViewController: UIViewController {
         fetchPrivateChannelUsersFromNetwork()
     }
 
+    @available(iOS 13.0, *)
     private func loadClanMembersForPublic() {
         if let clanUsers = context.engine.clanData.getClanUsers(clanId: clanId) {
             buildMentionMembers(from: clanUsers)
@@ -3787,6 +3836,7 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func clanUserListForMentionFallback(token: String) async throws -> Mezon_Api_ClanUserList {
         if let c = context.engine.clanData.getClanUsers(clanId: clanId), !c.clanUsers.isEmpty {
             return c
@@ -3798,6 +3848,7 @@ final class SendMessageInputViewController: UIViewController {
         return r
     }
 
+    @available(iOS 13.0, *)
     private func mergeClanUsersIntoAllMentionMembers(token: String) async {
         guard clanId > 0 else { return }
         do {
@@ -3841,6 +3892,7 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func memberUserIdsForChannel(channelId: Int64, token: String) async throws -> Set<Int64> {
         let cached = context.account.postbox.read { tx -> Set<Int64> in
             let rows = (tx.getChannelMeta(channelId: channelId)?.members ?? []).filter { !$0.isBanned }
@@ -3875,6 +3927,7 @@ final class SendMessageInputViewController: UIViewController {
         return Set(records.map(\.userId))
     }
 
+    @available(iOS 13.0, *)
     private func roleListForMentionExpansion(token: String) async throws -> Mezon_Api_RoleList {
         if let cached = context.engine.clanData.getClanRoles(clanId: clanId) {
             return cached.roles
@@ -3915,6 +3968,7 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func addUsersFromParentMentionsToThreadIfNeeded(
         mentionList: [Mezon_Api_MessageMention],
         editTargetSenderId: Int64?,
@@ -4056,6 +4110,7 @@ final class SendMessageInputViewController: UIViewController {
         context.engine.clanData.applyLocallyCreatedChannel(ch, skipChannelListFetch: true)
     }
 
+    @available(iOS 13.0, *)
     private func activateThreadBeforeSendIfNeeded(token: String) async throws {
         guard clanId != 0, isThreadChannelForSendPrep else { return }
 
@@ -4091,6 +4146,7 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func prepareThreadBeforeSendIfNeeded(
         mentionList: [Mezon_Api_MessageMention],
         editTargetSenderId: Int64?,
@@ -4131,6 +4187,7 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func ensureRolesLoadedIfNeeded() {
         guard includeRoleMentions, clanId != 0 else { return }
         guard context.engine.clanData.getClanRoles(clanId: clanId) == nil else { return }
@@ -5119,6 +5176,7 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func setupBindings() {
         placeholderLabel.text = placeholder
 
@@ -5212,7 +5270,9 @@ final class SendMessageInputViewController: UIViewController {
         reloadHashtagChannelCandidates()
         if !(textView.text ?? "").isEmpty {
             flushComposerHeightAfterContentMutation()
-            scheduleOgpPreviewUpdate(for: textView.text ?? "")
+            if #available(iOS 13.0, *) {
+                scheduleOgpPreviewUpdate(for: textView.text ?? "")
+            }
         }
     }
 
@@ -5247,53 +5307,55 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     @objc private func handleVoiceLongPress(_ g: UILongPressGestureRecognizer) {
-        let slideRef = voiceButton.superview ?? view
-        switch g.state {
-        case .began:
-            voiceRecordingCancelled = false
-            voiceRecordingStartAborted = false
-            voiceSlideAnchorX = g.location(in: slideRef).x
-            requestVoiceRecordingPermission { [weak self] granted in
-                guard let self else { return }
-                if self.voiceRecordingStartAborted { return }
-                guard granted else {
-                    self.presentMicrophoneDeniedAlert()
-                    return
+        if #available(iOS 13.0, *) {
+            let slideRef = voiceButton.superview ?? view
+            switch g.state {
+            case .began:
+                voiceRecordingCancelled = false
+                voiceRecordingStartAborted = false
+                voiceSlideAnchorX = g.location(in: slideRef).x
+                requestVoiceRecordingPermission { [weak self] granted in
+                    guard let self else { return }
+                    if self.voiceRecordingStartAborted { return }
+                    guard granted else {
+                        self.presentMicrophoneDeniedAlert()
+                        return
+                    }
+                    self.startVoiceRecording()
                 }
-                self.startVoiceRecording()
-            }
-        case .changed:
-            guard let anchorX = voiceSlideAnchorX else { return }
-            let x = g.location(in: slideRef).x
-            let delta = x - anchorX
-            if delta < -Self.voiceCancelSwipeThreshold {
-                if !voiceRecordingCancelled {
-                    voiceRecordingCancelled = true
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                }
-                if isVoiceRecordingActive { voiceRecordingOverlay.setSlideCancelledHighlight(true) }
-            } else {
-                if voiceRecordingCancelled {
-                    voiceRecordingCancelled = false
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                }
-                if isVoiceRecordingActive { voiceRecordingOverlay.setSlideCancelledHighlight(false) }
-            }
-        case .ended, .cancelled, .failed:
-            voiceRecordingStartAborted = true
-            voiceSlideAnchorX = nil
-            voiceRecordingOverlay.setSlideCancelledHighlight(false)
-            if isVoiceRecordingActive {
-                if voiceRecordingCancelled {
-                    cancelVoiceRecording(deleteFile: true)
+            case .changed:
+                guard let anchorX = voiceSlideAnchorX else { return }
+                let x = g.location(in: slideRef).x
+                let delta = x - anchorX
+                if delta < -Self.voiceCancelSwipeThreshold {
+                    if !voiceRecordingCancelled {
+                        voiceRecordingCancelled = true
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    }
+                    if isVoiceRecordingActive { voiceRecordingOverlay.setSlideCancelledHighlight(true) }
                 } else {
-                    finishVoiceRecordingAndSend()
+                    if voiceRecordingCancelled {
+                        voiceRecordingCancelled = false
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    }
+                    if isVoiceRecordingActive { voiceRecordingOverlay.setSlideCancelledHighlight(false) }
                 }
-            } else {
-                cancelVoiceRecording(deleteFile: false)
+            case .ended, .cancelled, .failed:
+                voiceRecordingStartAborted = true
+                voiceSlideAnchorX = nil
+                voiceRecordingOverlay.setSlideCancelledHighlight(false)
+                if isVoiceRecordingActive {
+                    if voiceRecordingCancelled {
+                        cancelVoiceRecording(deleteFile: true)
+                    } else {
+                        finishVoiceRecordingAndSend()
+                    }
+                } else {
+                    cancelVoiceRecording(deleteFile: false)
+                }
+            default:
+                break
             }
-        default:
-            break
         }
     }
 
@@ -5401,6 +5463,7 @@ final class SendMessageInputViewController: UIViewController {
         emojiButton.isUserInteractionEnabled = true
     }
 
+    @available(iOS 13.0, *)
     private func finishVoiceRecordingAndSend() {
         let url = voiceRecordingFileURL
         let start = voiceRecordingStartDate
@@ -5430,6 +5493,7 @@ final class SendMessageInputViewController: UIViewController {
         sendVoiceAttachment(from: url, durationSeconds: durationSec)
     }
 
+    @available(iOS 13.0, *)
     private func sendVoiceAttachment(from fileURL: URL, durationSeconds: Int) {
         let size = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? NSNumber)?.intValue ?? 0
         let file = PickedFileInfo(url: fileURL, filename: fileURL.lastPathComponent, filesize: size, filetype: "audio/mp4")
@@ -5461,6 +5525,7 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func uploadAttachments(_ images: [UIImage], fileURLs: [Int: URL], token: String) async throws -> [Mezon_Api_MessageAttachment] {
         var attachments: [Mezon_Api_MessageAttachment] = []
 
@@ -5541,6 +5606,7 @@ final class SendMessageInputViewController: UIViewController {
         return attachments
     }
 
+    @available(iOS 13.0, *)
     private func uploadFileAttachments(_ files: [PickedFileInfo], token: String) async throws -> [Mezon_Api_MessageAttachment] {
         var attachments: [Mezon_Api_MessageAttachment] = []
 
@@ -5849,6 +5915,7 @@ final class SendMessageInputViewController: UIViewController {
         return (try? JSONSerialization.data(withJSONObject: contentJSON)) ?? Data()
     }
 
+    @available(iOS 13.0, *)
     private func sendChannelMessage(
         text: String,
         images: [UIImage],
@@ -6369,6 +6436,7 @@ final class SendMessageInputViewController: UIViewController {
     }
 
 
+    @available(iOS 13.0, *)
     func sendWaveWelcome(replyingTo display: ChatMessageDisplay) {
         if editingDisplay != nil {
             clearEditingMessage()
@@ -6408,6 +6476,7 @@ final class SendMessageInputViewController: UIViewController {
         return ref
     }
 
+    @available(iOS 13.0, *)
     private func sendChannelMessageWithAttachments(
         text: String,
         attachments: [Mezon_Api_MessageAttachment],
@@ -6599,15 +6668,17 @@ final class SendMessageInputViewController: UIViewController {
 
 extension SendMessageInputViewController: UITextViewDelegate {
     func textViewDidChange(_ textView: UITextView) {
-        lastHandledComposerSelection = NSRange(location: -1, length: -1)
-        text = textView.text ?? ""
-        placeholderLabel.isHidden = !text.isEmpty
-        updateTextViewHeight()
-        updateInlineSuggestions()
-        updateSendVoiceToggle()
-        syncAttachControlsWithTypedText()
-        refreshComposerTypingAttributesForSelection()
-        scheduleOgpPreviewUpdate(for: text)
+        if #available(iOS 13.0, *) {
+            lastHandledComposerSelection = NSRange(location: -1, length: -1)
+            text = textView.text ?? ""
+            placeholderLabel.isHidden = !text.isEmpty
+            updateTextViewHeight()
+            updateInlineSuggestions()
+            updateSendVoiceToggle()
+            syncAttachControlsWithTypedText()
+            refreshComposerTypingAttributesForSelection()
+            scheduleOgpPreviewUpdate(for: text)
+        }
     }
 
     func textViewDidEndEditing(_ textView: UITextView) {

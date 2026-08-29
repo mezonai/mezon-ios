@@ -1,17 +1,20 @@
 import Foundation
 
 extension MezonEngine {
-    private static var stickerListSyncTask: Task<Void, Never>?
+    private static var stickerListSyncHandle: CancelHandle?
 
+    @available(iOS 13.0, *)
     func scheduleStickerListNetworkSync(debounceSeconds: Double = 0.8) {
-        Self.stickerListSyncTask?.cancel()
-        Self.stickerListSyncTask = Task { @MainActor [weak self] in
+        Self.stickerListSyncHandle?.cancel()
+        let task = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(debounceSeconds * 1_000_000_000))
             guard !Task.isCancelled, let self else { return }
             await self.syncStickerListFromNetwork()
         }
+        Self.stickerListSyncHandle = CancelHandle { task.cancel() }
     }
 
+    @available(iOS 13.0, *)
     func syncStickerListFromNetwork() async {
         guard let session = SessionStore.load(),
               !session.token.isEmpty,
@@ -107,7 +110,9 @@ extension MezonEngine {
         postbox.setSetting(key: MediaPanelPostboxKeys.stickerListByUser, value: cache)
         switch event {
         case .stickerCreated, .stickerUpdated:
-            scheduleStickerListNetworkSync()
+            if #available(iOS 13.0, *) {
+                scheduleStickerListNetworkSync()
+            }
         default:
             break
         }

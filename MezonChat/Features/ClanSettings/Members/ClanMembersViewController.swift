@@ -83,7 +83,7 @@ final class ClanMembersViewController: BaseViewController, UITableViewDataSource
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
 
-        backButton.setImage(UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        backButton.setImage(UIImage.mezonSystemImage("chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
         backButton.translatesAutoresizingMaskIntoConstraints = false
@@ -134,8 +134,8 @@ final class ClanMembersViewController: BaseViewController, UITableViewDataSource
         searchField.translatesAutoresizingMaskIntoConstraints = false
         searchContainer.addSubview(searchField)
 
-        let config = UIImage.SymbolConfiguration(pointSize: 10.sf, weight: .bold)
-        searchClearButton.setImage(UIImage(systemName: "xmark", withConfiguration: config), for: .normal)
+        let config = MezonSymbolConfiguration(pointSize: 10.sf, weight: .bold)
+        searchClearButton.setImage(UIImage.mezonSystemImage("xmark", withConfiguration: config), for: .normal)
         searchClearButton.tintColor = UIColor.theme.iconSecondary
         searchClearButton.backgroundColor = UIColor.theme.border
         searchClearButton.layer.cornerRadius = 10.swh
@@ -144,7 +144,7 @@ final class ClanMembersViewController: BaseViewController, UITableViewDataSource
         searchClearButton.addTarget(self, action: #selector(clearSearchTapped), for: .touchUpInside)
         searchContainer.addSubview(searchClearButton)
 
-        let searchIcon = UIImageView(image: UIImage(systemName: "magnifyingglass")?.withRenderingMode(.alwaysTemplate))
+        let searchIcon = UIImageView(image: UIImage.mezonSystemImage("magnifyingglass")?.withRenderingMode(.alwaysTemplate))
         searchIcon.tintColor = UIColor.theme.textDisabled
         searchIcon.contentMode = .scaleAspectFit
         searchIcon.translatesAutoresizingMaskIntoConstraints = false
@@ -383,7 +383,7 @@ private final class MemberCell: UITableViewCell {
 
         containerStack.addArrangedSubview(textStack)
 
-        let arrowImage = UIImage(named: "Channel/ChevronRight")?.withRenderingMode(.alwaysTemplate) ?? UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate)
+        let arrowImage = UIImage(named: "Channel/ChevronRight")?.withRenderingMode(.alwaysTemplate) ?? UIImage.mezonSystemImage("chevron.right")?.withRenderingMode(.alwaysTemplate)
         chevronView.image = arrowImage
         chevronView.tintColor = UIColor.theme.textStrong
         chevronView.contentMode = .scaleAspectFit

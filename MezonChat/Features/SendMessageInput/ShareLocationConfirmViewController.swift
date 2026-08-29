@@ -68,8 +68,8 @@ final class ShareLocationConfirmViewController: UIViewController {
         v.layer.cornerRadius = 20
         v.clipsToBounds = true
 
-        let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-        let iv = UIImageView(image: UIImage(systemName: "location.fill", withConfiguration: config))
+        let config = MezonSymbolConfiguration(pointSize: 14, weight: .medium)
+        let iv = UIImageView(image: UIImage.mezonSystemImage("location.fill", withConfiguration: config))
         iv.tintColor = .white
         iv.translatesAutoresizingMaskIntoConstraints = false
         v.addSubview(iv)

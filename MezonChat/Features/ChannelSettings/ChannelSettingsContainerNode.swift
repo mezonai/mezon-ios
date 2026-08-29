@@ -87,7 +87,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         ])
 
         let closeBtn = UIButton(type: .system)
-        closeBtn.setImage(UIImage(systemName: "xmark")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        closeBtn.setImage(UIImage.mezonSystemImage("xmark")?.withRenderingMode(.alwaysTemplate), for: .normal)
         closeBtn.tintColor = t.textStrong
         closeBtn.addTarget(self, action: #selector(handleClose), for: .touchUpInside)
         header.addSubview(closeBtn)
@@ -356,7 +356,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         if !isDestructive {
             let arrowImage =
                 UIImage(named: "Channel/ChevronRight")?.withRenderingMode(.alwaysTemplate)
-                ?? UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate)
+                ?? UIImage.mezonSystemImage("chevron.right")?.withRenderingMode(.alwaysTemplate)
             let arrow = UIImageView(image: arrowImage)
             arrow.tintColor = UIColor.theme.textStrong
             v.addSubview(arrow)

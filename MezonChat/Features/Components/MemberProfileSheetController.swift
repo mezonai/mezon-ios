@@ -5,13 +5,13 @@ struct MemberProfileVoiceChannelActions {
     let showMute: Bool
     let showKick: Bool
     let confirmUserLabel: String
-    let onMute: () async throws -> Void
-    let onKick: () async throws -> Void
+    let onMute: (@escaping (Error?) -> Void) -> Void
+    let onKick: (@escaping (Error?) -> Void) -> Void
 }
 
 struct MemberProfileGroupAction {
     let confirmUserLabel: String
-    let onRemove: () async throws -> Void
+    let onRemove: (@escaping (Error?) -> Void) -> Void
 }
 
 private struct MemberProfileRole {
@@ -41,7 +41,7 @@ private func memberProfileMakeVoiceManagePill(systemName: String, title: String,
     b.layer.cornerRadius = 8
     b.clipsToBounds = true
     b.onTap = action
-    let iv = UIImageView(image: UIImage(systemName: systemName)?.withRenderingMode(.alwaysTemplate))
+    let iv = UIImageView(image: UIImage.mezonSystemImage(systemName)?.withRenderingMode(.alwaysTemplate))
     iv.tintColor = UIColor(red: 0.92, green: 0.25, blue: 0.25, alpha: 1)
     iv.contentMode = .scaleAspectFit
     iv.translatesAutoresizingMaskIntoConstraints = false
@@ -68,7 +68,6 @@ private func memberProfileMakeVoiceManagePill(systemName: String, title: String,
     return b
 }
 
-@MainActor
 private final class VoiceChannelMeetActionConfirmViewController: UIViewController {
 
     enum Kind {
@@ -273,13 +272,19 @@ final class MemberProfileSheetController: ViewController {
             showTransferAction: onTransferFunds != nil && !isCurrentUser && user.id != 0 && !isWebhook,
             isWebhook: isWebhook,
             onSendMessageTapped: { [weak self] in
-                self?.handleSendMessage()
+                if #available(iOS 13.0, *) {
+                    self?.handleSendMessage()
+                }
             },
             onStartCallTapped: { [weak self] in
-                self?.handleStartCall()
+                if #available(iOS 13.0, *) {
+                    self?.handleStartCall()
+                }
             },
             onAddFriendTapped: { [weak self] in
-                self?.handleAddFriend()
+                if #available(iOS 13.0, *) {
+                    self?.handleAddFriend()
+                }
             },
             onTransferFundsTapped: { [weak self] in
                 self?.handleTransferFunds()
@@ -297,7 +302,9 @@ final class MemberProfileSheetController: ViewController {
                 self?.presentRemoveFromGroupConfirm()
             },
             onRemoveRoleTapped: { [weak self] role in
-                self?.presentRemoveRoleConfirm(role)
+                if #available(iOS 13.0, *) {
+                    self?.presentRemoveRoleConfirm(role)
+                }
             }
         )
         displayNodeDidLoad()
@@ -377,13 +384,12 @@ final class MemberProfileSheetController: ViewController {
     private func presentVoiceMuteConfirm() {
         guard let actions = voiceChannelActions, actions.showMute else { return }
         let vc = VoiceChannelMeetActionConfirmViewController(kind: .mute, userLabel: actions.confirmUserLabel) { [weak self] in
-            Task { @MainActor in
+            actions.onMute { [weak self] error in
                 guard let self else { return }
-                do {
-                    try await actions.onMute()
-                    self.animateDismiss()
-                } catch {
+                if let error {
                     self.presentVoiceMeetError(error)
+                } else {
+                    self.animateDismiss()
                 }
             }
         }
@@ -395,13 +401,12 @@ final class MemberProfileSheetController: ViewController {
             return
         }
         let vc = VoiceChannelMeetActionConfirmViewController(kind: .kick, userLabel: actions.confirmUserLabel) { [weak self] in
-            Task { @MainActor in
+            actions.onKick { [weak self] error in
                 guard let self else { return }
-                do {
-                    try await actions.onKick()
-                    self.animateDismiss()
-                } catch {
+                if let error {
                     self.presentVoiceMeetError(error)
+                } else {
+                    self.animateDismiss()
                 }
             }
         }
@@ -421,19 +426,19 @@ final class MemberProfileSheetController: ViewController {
             title: L(L10n.ChannelDetail.removeFromGroupConfirmAction),
             style: .destructive,
             handler: { [weak self] _ in
-                Task { @MainActor in
+                action.onRemove { [weak self] error in
                     guard let self else { return }
-                    do {
-                        try await action.onRemove()
-                        self.animateDismiss()
-                    } catch {
+                    if error != nil {
                         Toast.error(L(L10n.ChannelDetail.removeFromGroupFailed))
+                    } else {
+                        self.animateDismiss()
                     }
                 }
             }))
         present(alert, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func presentRemoveRoleConfirm(_ role: MemberProfileRole) {
         guard role.canRemove, clanId != 0, user.id != 0 else { return }
         let displayName = user.displayName.isEmpty ? user.username : user.displayName
@@ -453,6 +458,7 @@ final class MemberProfileSheetController: ViewController {
         present(alert, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func removeRoleFromProfile(_ role: MemberProfileRole) {
         guard role.canRemove, clanId != 0, user.id != 0 else { return }
         let userId = user.id
@@ -492,6 +498,7 @@ final class MemberProfileSheetController: ViewController {
         present(ac, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func handleSendMessage() {
         sheetNode.setLoading(true)
 
@@ -503,6 +510,7 @@ final class MemberProfileSheetController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func handleStartCall() {
         guard onStartCall != nil else { return }
         sheetNode.setLoading(true)
@@ -515,6 +523,7 @@ final class MemberProfileSheetController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func handleAddFriend() {
         guard !isCurrentUser, user.id != 0 else { return }
 
@@ -555,6 +564,8 @@ final class MemberProfileSheetController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func resolveDirectMessageChannel() async -> Mezon_Api_ChannelDescription? {
         guard let token = await context.getToken() else {
             Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
@@ -663,7 +674,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
     private var panStartHeight: CGFloat = 0
     private var isSheetPanActive = false
     private var validLayout: ContainerViewLayout?
-    private var loadingIndicator = UIActivityIndicatorView(style: .medium)
+    private var loadingIndicator = UIActivityIndicatorView.mezonMedium()
     private let user: Mezon_Api_User
     private var roles: [MemberProfileRole]
     private var bannerTintRequestKey: String?
@@ -1560,7 +1571,7 @@ private final class ProfileRoleChipView: UIView {
         titleLabel.numberOfLines = 1
 
         removeButton.tintColor = UIColor.theme.textDisabled
-        removeButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
+        removeButton.setImage(UIImage.mezonSystemImage("xmark.circle.fill"), for: .normal)
         removeButton.contentEdgeInsets = .zero
         removeButton.imageView?.contentMode = .scaleAspectFit
         removeButton.isHidden = !role.canRemove
@@ -1666,7 +1677,7 @@ private final class ProfileActionButton: ASDisplayNode {
         cornerRadius = 10.sf
 
         let color = isGreen ? UIColor(red: 0.3, green: 0.78, blue: 0.47, alpha: 1) : t.textStrong
-        iconNode.image = UIImage(systemName: icon)?.withRenderingMode(.alwaysTemplate)
+        iconNode.image = UIImage.mezonSystemImage(icon)?.withRenderingMode(.alwaysTemplate)
         iconNode.tintColor = color
         iconNode.contentMode = .scaleAspectFit
         iconNode.style.preferredSize = CGSize(width: 24.sf, height: 24.sh)

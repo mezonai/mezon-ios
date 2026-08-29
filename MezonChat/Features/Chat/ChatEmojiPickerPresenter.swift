@@ -217,13 +217,17 @@ final class ChatEmojiPickerPresenter {
         }
         v.onStickerSelected = { [weak self] sticker in
             guard let send = self?.sendInput else { return }
-            send.sendSticker(sticker)
+            if #available(iOS 13.0, *) {
+                send.sendSticker(sticker)
+            }
             send.hideEmojiPickerIfNeeded()
             send.focusComposerAfterEmojiPanelSelection()
         }
         v.onGifSelected = { [weak self] url in
             guard let send = self?.sendInput else { return }
-            send.sendGif(url: url)
+            if #available(iOS 13.0, *) {
+                send.sendGif(url: url)
+            }
             send.hideEmojiPickerIfNeeded()
             send.focusComposerAfterEmojiPanelSelection()
         }

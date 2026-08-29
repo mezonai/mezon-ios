@@ -3,6 +3,7 @@ import UIKit
 enum RapidClanSwitchNotice {
 
     static func show() {
+        guard #available(iOS 13.0, *) else { return }
         DispatchQueue.main.async {
             RapidClanSwitchNoticeManager.shared.present()
         }
@@ -26,6 +27,7 @@ private final class RapidClanSwitchRootViewController: UIViewController {
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .all }
 }
 
+@available(iOS 13.0, *)
 private final class RapidClanSwitchNoticeManager {
 
     static let shared = RapidClanSwitchNoticeManager()
@@ -154,7 +156,7 @@ private final class RapidClanSwitchContentView: UIView {
         iconBg.layer.cornerRadius = 28
         iconBg.translatesAutoresizingMaskIntoConstraints = false
 
-        let iconView = UIImageView(image: UIImage(systemName: "hand.raised.fill"))
+        let iconView = UIImageView(image: UIImage.mezonSystemImage("hand.raised.fill"))
         iconView.tintColor = t.iconPrimary
         iconView.contentMode = .scaleAspectFit
         iconView.translatesAutoresizingMaskIntoConstraints = false

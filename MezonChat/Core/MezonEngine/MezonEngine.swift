@@ -1,7 +1,6 @@
 import Foundation
 import SwiftProtobuf
 
-@MainActor
 final class MezonEngine {
     let account: Account
 
@@ -21,7 +20,6 @@ final class MezonEngine {
     lazy var data = EngineData(postbox: account.postbox)
 }
 
-@MainActor
 final class MezonEngineUnauthorized {
     let network: MezonHTTPClient
 

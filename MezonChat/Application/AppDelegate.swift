@@ -3,7 +3,7 @@ import FirebaseCore
 import FirebaseMessaging
 import UserNotifications
 
-@main
+@available(iOS 13.0, *)
 final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelegate {
 
     var window: UIWindow?
@@ -17,6 +17,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
     private let disposables = DisposableSet()
     private var hasStartedAuthFlow = false
 
+    @available(iOS 13.0, *)
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -75,6 +76,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         registerFcmDeviceWithBackendIfPossible()
     }
 
+    @available(iOS 13.0, *)
     private func registerFcmDeviceWithBackendIfPossible() {
         Task { @MainActor in
             guard !VoIPMinimalCallBootstrap.isMinimalChromeActive else { return }
@@ -93,6 +95,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         return config
     }
 
+    @available(iOS 13.0, *)
     func scene(
         _ scene: UIScene,
         willConnectTo session: UISceneSession,
@@ -123,7 +126,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
 
         let savedSession = SessionStore.load()
 
-        let onReady: @MainActor (AccountContextImpl) -> Void = { [weak self] context in
+        let onReady: (AccountContextImpl) -> Void = { [weak self] context in
             guard let self, !self.hasStartedAuthFlow else { return }
             self.hasStartedAuthFlow = true
             self.startAuthFlow(context: context)
@@ -300,6 +303,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         }
     }
 
+    @available(iOS 13.0, *)
     private func refreshVoiceChannelMembersOnForeground() {
         guard let ctx = accountContext, ctx.isLoggedIn else { return }
         let clanId = ctx.currentClanId
@@ -373,6 +377,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
     deinit { disposables.dispose() }
 }
 
+@available(iOS 13.0, *)
 extension AppDelegate: UNUserNotificationCenterDelegate {
 
     private static func stringFromPushValue(_ value: Any?) -> String? {
@@ -519,6 +524,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         return (channelId, clanId, isDM)
     }
 
+    @available(iOS 13.0, *)
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
@@ -557,7 +563,6 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         }
     }
 
-    @MainActor
     private static func foregroundNotificationOptionsRespectingActiveCall() -> UNNotificationPresentationOptions {
         let inVoiceCall = VoiceChannelPiPOverlay.shared.isActive || VoiceChannelRoomViewController.hasLiveVoiceCall
         let inPeerCall = WebRTCCallManager.shared.signalingSession != nil
@@ -729,6 +734,7 @@ extension Notification.Name {
     static let mezonAlignChannelListAfterSearchJump = Notification.Name("MezonAlignChannelListAfterSearchJump")
 }
 
+@available(iOS 13.0, *)
 extension AppDelegate: MessagingDelegate {
     func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
         guard fcmToken != nil else { return }

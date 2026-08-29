@@ -597,8 +597,8 @@ private final class MessageActionSheetNode: ASDisplayNode {
         if let pdf = UIImage(named: "Chat/FaceIcon") {
             smiley = resizedEmoji(pdf)
         } else {
-            let symCfg = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
-            smiley = UIImage(systemName: "face.smiling", withConfiguration: symCfg) ?? UIImage()
+            let symCfg = MezonSymbolConfiguration(pointSize: 18, weight: .medium)
+            smiley = UIImage.mezonSystemImage("face.smiling", withConfiguration: symCfg) ?? UIImage()
         }
         pickerBtn.setImage(smiley, for: .normal)
         pickerBtn.tintColor = t.textStrong
@@ -675,8 +675,8 @@ private final class MessageActionSheetNode: ASDisplayNode {
             iconImage = UIImage(named: assetName)?
                 .withRenderingMode(useOriginalIconColor ? .alwaysOriginal : .alwaysTemplate)
         } else if let sfName = action.sfSymbolName {
-            let config = UIImage.SymbolConfiguration(pointSize: isWarning ? 14 : 20, weight: .medium)
-            iconImage = UIImage(systemName: sfName, withConfiguration: config)
+            let config = MezonSymbolConfiguration(pointSize: isWarning ? 14 : 20, weight: .medium)
+            iconImage = UIImage.mezonSystemImage(sfName, withConfiguration: config)
         }
 
         var labelX: CGFloat

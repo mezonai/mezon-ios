@@ -7,7 +7,7 @@ final class LanguageSettingsViewController: BaseViewController {
     private let headerView = UIView()
     private let backButton: UIButton = {
         let btn = UIButton(type: .system)
-        let img = UIImage(systemName: "chevron.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium))
+        let img = UIImage.mezonSystemImage("chevron.left", withConfiguration: MezonSymbolConfiguration(pointSize: 18, weight: .medium))
         btn.setImage(img, for: .normal)
         btn.translatesAutoresizingMaskIntoConstraints = false
         return btn
@@ -20,7 +20,7 @@ final class LanguageSettingsViewController: BaseViewController {
     }()
 
     private lazy var tableView: UITableView = {
-        let tv = UITableView(frame: .zero, style: .insetGrouped)
+        let tv = UITableView.mezonInsetGrouped()
         tv.translatesAutoresizingMaskIntoConstraints = false
         tv.separatorInset = .zero
         

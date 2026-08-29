@@ -2,7 +2,6 @@ import Foundation
 import SwiftProtobuf
 
 extension MezonEngine {
-    @MainActor
     final class TopicService {
         private let engine: MezonEngine
         private var network: MezonHTTPClient { engine.account.network }
@@ -10,6 +9,8 @@ extension MezonEngine {
 
         init(engine: MezonEngine) { self.engine = engine }
 
+        @available(iOS 13.0, *)
+        @MainActor
         func listTopics(clanId: Int64, token: String) async throws {
             let apiTopics = try await network.listSdTopics(clanID: clanId, token: token)
             let mapped = apiTopics.map { TopicRecord(from: $0) }
@@ -19,6 +20,8 @@ extension MezonEngine {
             }
         }
 
+        @available(iOS 13.0, *)
+        @MainActor
         func createTopic(clanId: Int64, channelId: Int64, messageId: Int64, token: String) async throws -> Mezon_Api_SdTopic {
             let apiTopic = try await network.createSdTopic(
                 clanID: clanId,

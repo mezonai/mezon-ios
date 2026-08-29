@@ -80,7 +80,7 @@ final class StickersPanel: UIView {
     private let searchIconView: UIImageView = {
         let iv = UIImageView()
         iv.translatesAutoresizingMaskIntoConstraints = false
-        iv.image = UIImage(systemName: "magnifyingglass")
+        iv.image = UIImage.mezonSystemImage("magnifyingglass")
         iv.tintColor = UIColor.mezonSecondaryLabel
         iv.contentMode = .scaleAspectFit
         return iv
@@ -99,7 +99,7 @@ final class StickersPanel: UIView {
     private let soundFilterButton: UIButton = {
         let b = UIButton(type: .system)
         b.translatesAutoresizingMaskIntoConstraints = false
-        let fallback = UIImage(systemName: "speaker.wave.2.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .medium))
+        let fallback = UIImage.mezonSystemImage("speaker.wave.2.fill", withConfiguration: MezonSymbolConfiguration(pointSize: 15, weight: .medium))
         let voiceImg = UIImage(named: "Chat/SpeakerIcon")?.withRenderingMode(.alwaysTemplate) ?? fallback
         b.setImage(voiceImg, for: .normal)
         b.imageView?.contentMode = .scaleAspectFit
@@ -162,7 +162,7 @@ final class StickersPanel: UIView {
         let icon = UIImageView()
         icon.translatesAutoresizingMaskIntoConstraints = false
         icon.image = UIImage(named: "Chat/FaceIcon")
-            ?? UIImage(systemName: "face.smiling")
+            ?? UIImage.mezonSystemImage("face.smiling")
         icon.tintColor = UIColor.mezonLabel.withAlphaComponent(0.2)
         icon.contentMode = .scaleAspectFit
         NSLayoutConstraint.activate([icon.widthAnchor.constraint(equalToConstant: 48), icon.heightAnchor.constraint(equalToConstant: 48)])
@@ -795,15 +795,17 @@ private final class SoundStickerCell: UICollectionViewCell {
         playInner.translatesAutoresizingMaskIntoConstraints = false
         playInner.contentMode = .scaleAspectFit
         if #available(iOS 13.0, *) {
-            playInner.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 10, weight: .bold)
+            if #available(iOS 13.0, *) {
+                playInner.preferredSymbolConfiguration = MezonSymbolConfiguration(pointSize: 10, weight: .bold).uiKitConfiguration
+            }
         }
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         nameLabel.font = .systemFont(ofSize: 14, weight: .medium)
         nameLabel.lineBreakMode = .byTruncatingTail
         sendButton.translatesAutoresizingMaskIntoConstraints = false
-        let sendCfg = UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
+        let sendCfg = MezonSymbolConfiguration(pointSize: 15, weight: .semibold)
         let sendImg = UIImage(named: "Chat/SendMessageIcon")?.withRenderingMode(.alwaysTemplate)
-            ?? UIImage(systemName: "paperplane.fill", withConfiguration: sendCfg)
+            ?? UIImage.mezonSystemImage("paperplane.fill", withConfiguration: sendCfg)
         sendButton.setImage(sendImg, for: .normal)
         sendButton.imageView?.contentMode = .scaleAspectFit
         sendButton.imageEdgeInsets = UIEdgeInsets(top: 5, left: 5, bottom: 5, right: 5)
@@ -861,8 +863,8 @@ private final class SoundStickerCell: UICollectionViewCell {
         nameLabel.textColor = t.textStrong
         sendButton.tintColor = t.textStrong
         nameLabel.text = sticker.shortname
-        let sym = UIImage.SymbolConfiguration(pointSize: 10, weight: .bold)
-        playInner.image = UIImage(systemName: playing ? "pause.fill" : "play.fill", withConfiguration: sym)
+        let sym = MezonSymbolConfiguration(pointSize: 10, weight: .bold)
+        playInner.image = UIImage.mezonSystemImage(playing ? "pause.fill" : "play.fill", withConfiguration: sym)
         onPlay = { [weak panel] in panel?.handleSoundStickerPlayToggle(sticker) }
         onSend = { [weak panel] in panel?.handleSoundStickerSend(sticker) }
     }
@@ -893,7 +895,9 @@ private final class StickerSectionHeaderCell: UICollectionViewCell {
 
         chevronView.translatesAutoresizingMaskIntoConstraints = false
         if #available(iOS 13.0, *) {
-            chevronView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+            if #available(iOS 13.0, *) {
+                chevronView.preferredSymbolConfiguration = MezonSymbolConfiguration(pointSize: 12, weight: .semibold).uiKitConfiguration
+            }
         }
         chevronView.contentMode = .scaleAspectFit
 
@@ -927,7 +931,7 @@ private final class StickerSectionHeaderCell: UICollectionViewCell {
         titleLabel.textColor = t.textStrong
         chevronView.tintColor = t.textStrong
         let chevronName = collapsed ? "chevron.right" : "chevron.down"
-        chevronView.image = UIImage(systemName: chevronName, withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold))
+        chevronView.image = UIImage.mezonSystemImage(chevronName, withConfiguration: MezonSymbolConfiguration(pointSize: 12, weight: .semibold))
     }
 
     @objc private func tapped() { onToggle?(categoryKey) }
@@ -1030,9 +1034,9 @@ private final class StickerCategoryStripCell: UICollectionViewCell {
             imageView.contentMode = .scaleAspectFit
             imageView.layer.cornerRadius = 0
             imageView.tintColor = UIColor.theme.textStrong
-            let storeCfg = UIImage.SymbolConfiguration(pointSize: 15, weight: .medium)
+            let storeCfg = MezonSymbolConfiguration(pointSize: 15, weight: .medium)
             let storeImg = UIImage(named: "Chat/StoreIcon")?.withRenderingMode(.alwaysTemplate)
-                ?? UIImage(systemName: "bag.fill", withConfiguration: storeCfg)?.withRenderingMode(.alwaysTemplate)
+                ?? UIImage.mezonSystemImage("bag.fill", withConfiguration: storeCfg)?.withRenderingMode(.alwaysTemplate)
             imageView.image = storeImg
             return
         }

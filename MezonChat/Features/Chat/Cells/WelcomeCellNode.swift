@@ -132,7 +132,7 @@ final class WelcomeCellNode: ASDisplayNode {
             default: iconName = "Channel/channel"
             }
             let isThread = channelType == MezonConstants.ChannelType.thread.rawValue
-            let image = UIImage(named: iconName) ?? UIImage(systemName: iconName)
+            let image = UIImage(named: iconName) ?? UIImage.mezonSystemImage(iconName)
             iconImageNode.image = image?.withRenderingMode(.alwaysTemplate)
             iconImageNode.tintColor = t.textStrong
             iconImageNode.contentMode = .scaleAspectFit
@@ -216,7 +216,7 @@ final class WelcomeCellNode: ASDisplayNode {
 
             groupDmOuterNode.addSubnode(groupDmImageNode)
 
-            groupDmIconNode.image = UIImage(systemName: "person.2.fill")?.withRenderingMode(.alwaysTemplate)
+            groupDmIconNode.image = UIImage.mezonSystemImage("person.2.fill")?.withRenderingMode(.alwaysTemplate)
             groupDmIconNode.tintColor = .white
             groupDmIconNode.contentMode = .scaleAspectFit
             groupDmOuterNode.addSubnode(groupDmIconNode)

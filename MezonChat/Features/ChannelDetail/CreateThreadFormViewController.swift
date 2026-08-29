@@ -77,7 +77,9 @@ final class CreateThreadFormViewController: UIViewController {
             self.sendInputVC.focusTextInput()
         }
         v.onActionTapped = { [weak self] item in
-            self?.handleAdvanceAction(item)
+            if #available(iOS 13.0, *) {
+                self?.handleAdvanceAction(item)
+            }
         }
         v.onHeightChanged = { [weak self] newHeight in
             self?.updateAdvancePanelOverlayHeight(newHeight)
@@ -123,7 +125,7 @@ final class CreateThreadFormViewController: UIViewController {
         return vc
     }()
 
-    private let activityIndicator = UIActivityIndicatorView(style: .medium)
+    private let activityIndicator = UIActivityIndicatorView.mezonMedium()
 
     init(
         context: AccountContext,
@@ -357,7 +359,9 @@ final class CreateThreadFormViewController: UIViewController {
         }
 
         sendInputVC.primarySendActionOverride = { [weak self] in
-            self?.performCreateThreadSubmission()
+            if #available(iOS 13.0, *) {
+                self?.performCreateThreadSubmission()
+            }
         }
         sendInputVC.alwaysShowAttachToolbarWhileTyping = true
     }
@@ -512,7 +516,7 @@ final class CreateThreadFormViewController: UIViewController {
         visibilityDetailLabel.text = L(L10n.ThreadList.createThreadPrivateSubtitle)
         
         let iconName = threadIsPrivate ? "checkmark.square.fill" : "square"
-        visibilityCheckbox.setImage(UIImage(systemName: iconName), for: .normal)
+        visibilityCheckbox.setImage(UIImage.mezonSystemImage(iconName), for: .normal)
         let t = UIColor.theme
         visibilityCheckbox.tintColor = threadIsPrivate ? t.iconPrimary : t.textDisabled
     }
@@ -543,14 +547,19 @@ final class CreateThreadFormViewController: UIViewController {
         refreshVisibilityLabels()
 
         guard let nav = navigationController else { return }
-        let appearance = UINavigationBarAppearance()
-        appearance.configureWithOpaqueBackground()
-        appearance.backgroundColor = t.secondary
-        appearance.titleTextAttributes = [.foregroundColor: t.textStrong]
-        appearance.shadowColor = t.border.withAlphaComponent(0.35)
-        nav.navigationBar.standardAppearance = appearance
-        nav.navigationBar.scrollEdgeAppearance = appearance
-        nav.navigationBar.compactAppearance = appearance
+        if #available(iOS 13.0, *) {
+            let appearance = UINavigationBarAppearance()
+            appearance.configureWithOpaqueBackground()
+            appearance.backgroundColor = t.secondary
+            appearance.titleTextAttributes = [.foregroundColor: t.textStrong]
+            appearance.shadowColor = t.border.withAlphaComponent(0.35)
+            nav.navigationBar.standardAppearance = appearance
+            nav.navigationBar.scrollEdgeAppearance = appearance
+            nav.navigationBar.compactAppearance = appearance
+        } else {
+            nav.navigationBar.barTintColor = t.secondary
+            nav.navigationBar.titleTextAttributes = [.foregroundColor: t.textStrong]
+        }
         nav.navigationBar.tintColor = t.textStrong
     }
 
@@ -625,6 +634,7 @@ final class CreateThreadFormViewController: UIViewController {
         return code == 403 || code == 7
     }
 
+    @available(iOS 13.0, *)
     private func performCreateThreadSubmission() {
         guard !pendingThreadSubmission else { return }
         let trimmed = (nameField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -839,6 +849,7 @@ final class CreateThreadFormViewController: UIViewController {
         presenter.present(vc, animated: animated)
     }
 
+    @available(iOS 13.0, *)
     private func handleAdvanceAction(_ item: AdvancedFunctionItem) {
         switch item.id {
         case "pickFiles":
@@ -869,6 +880,7 @@ final class CreateThreadFormViewController: UIViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func navigateToShareContactForThreadForm() {
         view.endEditing(true)
         sendInputVC.markAdvancePanelDismissedByHost()
@@ -886,6 +898,7 @@ final class CreateThreadFormViewController: UIViewController {
         navigationController?.pushViewController(vc, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func handleSendLocationForThreadForm() {
         let status: CLAuthorizationStatus
         if #available(iOS 14.0, *) {
@@ -910,6 +923,7 @@ final class CreateThreadFormViewController: UIViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func fetchLocationAndShowConfirmForThreadForm() {
         locationManager.delegate = self
         locationCompletion = { [weak self] coord in
@@ -919,6 +933,7 @@ final class CreateThreadFormViewController: UIViewController {
         locationManager.requestLocation()
     }
 
+    @available(iOS 13.0, *)
     private func showLocationConfirmForThreadForm(coordinate: CLLocationCoordinate2D) {
         let label = parentChannelLabel.isEmpty ? "this channel" : parentChannelLabel
         let confirmVC = ShareLocationConfirmViewController(coordinate: coordinate, channelLabel: label)

@@ -1,6 +1,7 @@
 import UIKit
 import WebRTC
 
+@available(iOS 13.0, *)
 final class StreamingRoomViewController: ViewController {
 
     let streamChannelId: Int64
@@ -147,7 +148,7 @@ final class StreamingRoomViewController: ViewController {
         leaveButton.backgroundColor = UIColor.systemRed
         leaveButton.layer.cornerRadius = 25
         leaveButton.clipsToBounds = true
-        leaveButton.setImage(UIImage(systemName: "phone.down.fill"), for: .normal)
+        leaveButton.setImage(UIImage.mezonSystemImage("phone.down.fill"), for: .normal)
         leaveButton.tintColor = .white
         leaveButton.addTarget(self, action: #selector(leaveTapped), for: .touchUpInside)
 
@@ -239,8 +240,12 @@ final class StreamingRoomViewController: ViewController {
         view.bringSubviewToFront(bottomChrome)
 
         bindSession()
-        loadStreamBackgroundIfNeeded()
-        refreshPlaybackUI()
+        if #available(iOS 13.0, *) {
+            loadStreamBackgroundIfNeeded()
+        }
+        if #available(iOS 13.0, *) {
+            refreshPlaybackUI()
+        }
         refreshMembersRow()
 
         presenceObserver = NotificationCenter.default.addObserver(
@@ -271,8 +276,12 @@ final class StreamingRoomViewController: ViewController {
                 self.channel = updated
                 self.cachedAvatarURL = nil
             }
-            self.loadStreamBackgroundIfNeeded()
-            self.refreshPlaybackUI()
+            if #available(iOS 13.0, *) {
+                self.loadStreamBackgroundIfNeeded()
+            }
+            if #available(iOS 13.0, *) {
+                self.refreshPlaybackUI()
+            }
         }
 
         if let pip = existingPiPOverlay {
@@ -345,6 +354,7 @@ final class StreamingRoomViewController: ViewController {
         return resolved
     }
 
+    @available(iOS 13.0, *)
     private func fetchRemoteChannelAvatarIfNeeded() {
         guard !didFetchRemoteChannel else { return }
         guard resolvedStreamChannelAvatarURL().isEmpty else { return }
@@ -518,8 +528,8 @@ final class StreamingRoomViewController: ViewController {
         button.layer.cornerRadius = 22
         button.clipsToBounds = true
         button.tintColor = UIColor.theme.textStrong
-        let config = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .semibold)
-        button.setImage(UIImage(systemName: systemImage, withConfiguration: config), for: .normal)
+        let config = MezonSymbolConfiguration(pointSize: pointSize, weight: .semibold)
+        button.setImage(UIImage.mezonSystemImage(systemImage, withConfiguration: config), for: .normal)
     }
 
     @objc private func minimizeTapped() {
@@ -558,7 +568,6 @@ final class StreamingRoomViewController: ViewController {
         )
     }
 
-    @MainActor
     static func endStream(
         context: AccountContext,
         clanId: Int64,
@@ -588,10 +597,8 @@ final class StreamingRoomViewController: ViewController {
         }
     }
 
-    @MainActor
     private static func findNavigationControllerForStreamExit() -> UINavigationController? {
-        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else { return nil }
-        for window in scene.windows where !window.isHidden {
+        for window in mezonApplicationWindows() where !window.isHidden {
             if let nav = findNavigationController(in: window.rootViewController) {
                 return nav
             }
@@ -599,7 +606,6 @@ final class StreamingRoomViewController: ViewController {
         return nil
     }
 
-    @MainActor
     private static func findNavigationController(in viewController: UIViewController?) -> UINavigationController? {
         guard let viewController else { return nil }
         if let nav = viewController as? UINavigationController { return nav }
@@ -612,7 +618,6 @@ final class StreamingRoomViewController: ViewController {
         return nil
     }
 
-    @MainActor
     static func prepareJoiningStream(
         targetChannelId: Int64,
         clanId: Int64,

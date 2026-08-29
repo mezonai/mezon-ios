@@ -1,6 +1,5 @@
 import UIKit
 
-@MainActor
 final class TransferSuccessViewController: UIViewController {
 
     private let context: AccountContext
@@ -65,7 +64,7 @@ final class TransferSuccessViewController: UIViewController {
         checkBg.layer.cornerRadius = checkSize / 2
 
         let checkIcon = UIImageView(
-            image: UIImage(systemName: "checkmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 22, weight: .bold))
+            image: UIImage.mezonSystemImage("checkmark", withConfiguration: MezonSymbolConfiguration(pointSize: 22, weight: .bold))
         )
         checkIcon.translatesAutoresizingMaskIntoConstraints = false
         checkIcon.tintColor = .white
@@ -200,8 +199,8 @@ final class TransferSuccessViewController: UIViewController {
         let wrap = UIView()
         wrap.translatesAutoresizingMaskIntoConstraints = false
         let tint = UIColor.mezonTextPrimary
-        let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-        let iv = UIImageView(image: UIImage(systemName: symbolName, withConfiguration: cfg))
+        let cfg = MezonSymbolConfiguration(pointSize: 16, weight: .medium)
+        let iv = UIImageView(image: UIImage.mezonSystemImage(symbolName, withConfiguration: cfg))
         iv.translatesAutoresizingMaskIntoConstraints = false
         iv.tintColor = tint
         iv.contentMode = .scaleAspectFit
@@ -279,9 +278,11 @@ final class TransferSuccessViewController: UIViewController {
                 width: nil,
                 height: nil
             )
-            let sharingVC = SharingViewController(context: context, sharedContent: .media([file]))
-            sharingVC.modalPresentationStyle = .pageSheet
-            present(sharingVC, animated: true)
+            if #available(iOS 13.0, *) {
+                let sharingVC = SharingViewController(context: context, sharedContent: .media([file]))
+                sharingVC.modalPresentationStyle = .pageSheet
+                present(sharingVC, animated: true)
+            }
         } catch {}
     }
 

@@ -1,7 +1,6 @@
 import Foundation
 import UIKit
 
-@MainActor
 protocol SharedAccountContext: AnyObject {
     var mainWindow: Window1? { get }
     var basePath: String { get }
@@ -14,7 +13,6 @@ protocol SharedAccountContext: AnyObject {
     func makeLoginController(context: AccountContext) -> NavigationController
 }
 
-@MainActor
 final class SharedAccountContextImpl: SharedAccountContext {
     let mainWindow: Window1?
     let basePath: String
@@ -34,7 +32,7 @@ final class SharedAccountContextImpl: SharedAccountContext {
     func createAccountContext(
         session: MezonSession,
         user: User?,
-        onReady: @escaping @MainActor (AccountContextImpl) -> Void
+        onReady: @escaping (AccountContextImpl) -> Void
     ) -> AccountContextImpl {
         let account = Account(id: session.userId ?? UUID().uuidString)
         let context = AccountContextImpl(
@@ -50,7 +48,7 @@ final class SharedAccountContextImpl: SharedAccountContext {
     }
 
     func createUnauthorizedContext(
-        onReady: @escaping @MainActor (AccountContextImpl) -> Void
+        onReady: @escaping (AccountContextImpl) -> Void
     ) -> AccountContextImpl {
         let account = Account(id: "unauthorized")
         let context = AccountContextImpl(
@@ -76,7 +74,7 @@ final class SharedAccountContextImpl: SharedAccountContext {
     }
 
     func makeLoginController(context: AccountContext) -> NavigationController {
-        let nav = NavigationController(mode: .single, theme: MezonRootController.makeNavTheme(theme: .light))
+        let nav = NavigationController(mode: .single, theme: mezonNavigationTheme(theme: .light))
         nav.setViewControllers([WelcomeController(context: context)], animated: false)
         nav.interactivePopGestureRecognizer?.isEnabled = false
         return nav

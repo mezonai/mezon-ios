@@ -439,17 +439,19 @@ final class QRScannerViewController: ViewController {
         
         confirmNode.onLogin = { [weak self, weak confirmNode] in
             guard let self = self else { return }
-            Task {
-                do {
-                    let token = self.context.session?.token ?? ""
-                    _ = try await self.context.engine.auth.confirmLogin(loginId: userId, token: token)
-                    await MainActor.run {
-                        confirmNode?.setSuccess(true)
-                    }
-                } catch {
-                    await MainActor.run {
-                        self.showAlert(message: error.localizedDescription) {
-                            self.hideLoginConfirm()
+            if #available(iOS 13.0, *) {
+                Task {
+                    do {
+                        let token = self.context.session?.token ?? ""
+                        _ = try await self.context.engine.auth.confirmLogin(loginId: userId, token: token)
+                        await MainActor.run {
+                            confirmNode?.setSuccess(true)
+                        }
+                    } catch {
+                        await MainActor.run {
+                            self.showAlert(message: error.localizedDescription) {
+                                self.hideLoginConfirm()
+                            }
                         }
                     }
                 }
@@ -492,52 +494,54 @@ final class QRScannerViewController: ViewController {
         let theme = context.sharedContext.currentPresentationTheme.attributes
         let token = context.session?.token ?? ""
         
-        Task {
-            do {
-                let inviteInfo = try await context.engine.clanData.getInviteInfo(code: code, token: token)
+        if #available(iOS 13.0, *) {
+            Task {
+                do {
+                    let inviteInfo = try await context.engine.clanData.getInviteInfo(code: code, token: token)
                 
-                await MainActor.run {
-                    let inviteNode = QRClanInviteNode(theme: theme, inviteInfo: inviteInfo)
-                    inviteNode.frame = self.displayNode.bounds
+                    await MainActor.run {
+                        let inviteNode = QRClanInviteNode(theme: theme, inviteInfo: inviteInfo)
+                        inviteNode.frame = self.displayNode.bounds
                     
-                    inviteNode.onJoin = { [weak self, weak inviteNode] in
-                        guard let self = self else { return }
-                        inviteNode?.setJoining(true)
-                        Task {
-                            let clanId = await ClanInviteJoiner.join(context: self.context, code: code, clanId: inviteInfo.clan_id.flatMap(Int64.init))
-                            await MainActor.run {
-                                guard let clanId else {
+                        inviteNode.onJoin = { [weak self, weak inviteNode] in
+                            guard let self = self else { return }
+                            inviteNode?.setJoining(true)
+                            Task {
+                                let clanId = await ClanInviteJoiner.join(context: self.context, code: code, clanId: inviteInfo.clan_id.flatMap(Int64.init))
+                                await MainActor.run {
+                                    guard let clanId else {
+                                        self.hideClanInvite()
+                                        return
+                                    }
                                     self.hideClanInvite()
-                                    return
+                                    self.closeTapped()
+                                    NotificationCenter.default.post(
+                                        name: .mezonQRSelectClan,
+                                        object: nil,
+                                        userInfo: ["clanId": "\(clanId)"]
+                                    )
                                 }
-                                self.hideClanInvite()
-                                self.closeTapped()
-                                NotificationCenter.default.post(
-                                    name: .mezonQRSelectClan,
-                                    object: nil,
-                                    userInfo: ["clanId": "\(clanId)"]
-                                )
                             }
                         }
-                    }
                     
-                    inviteNode.onCancel = { [weak self] in
-                        self?.hideClanInvite()
-                    }
+                        inviteNode.onCancel = { [weak self] in
+                            self?.hideClanInvite()
+                        }
                     
-                    self.clanInviteNode = inviteNode
-                    self.displayNode.addSubnode(inviteNode)
+                        self.clanInviteNode = inviteNode
+                        self.displayNode.addSubnode(inviteNode)
                     
-                    inviteNode.alpha = 0
-                    UIView.animate(withDuration: 0.3) {
-                        inviteNode.alpha = 1
+                        inviteNode.alpha = 0
+                        UIView.animate(withDuration: 0.3) {
+                            inviteNode.alpha = 1
+                        }
                     }
-                }
-            } catch {
-                await MainActor.run {
-                    self.endExclusiveScanHandling()
-                    self.showAlert(message: error.localizedDescription) {
-                        self.startCaptureSessionIfNeeded()
+                } catch {
+                    await MainActor.run {
+                        self.endExclusiveScanHandling()
+                        self.showAlert(message: error.localizedDescription) {
+                            self.startCaptureSessionIfNeeded()
+                        }
                     }
                 }
             }
@@ -563,24 +567,26 @@ final class QRScannerViewController: ViewController {
         
         profileNode.onMessage = { [weak self] in
             guard let self = self else { return }
-            Task {
-                do {
-                    let token = await self.context.getToken() ?? ""
-                    if let userId = Int64(profileData.id) {
-                        let channel = try await self.context.account.network.createDirectMessage(userId: userId, token: token)
-                        await MainActor.run {
-                            self.hideUserProfile()
-                            self.closeTapped()
-                            NotificationCenter.default.post(
-                                name: .mezonQRNavigateToDM,
-                                object: nil,
-                                userInfo: ["channelId": "\(channel.channelID)", "title": profileData.name]
-                            )
+            if #available(iOS 13.0, *) {
+                Task {
+                    do {
+                        let token = await self.context.getToken() ?? ""
+                        if let userId = Int64(profileData.id) {
+                            let channel = try await self.context.account.network.createDirectMessage(userId: userId, token: token)
+                            await MainActor.run {
+                                self.hideUserProfile()
+                                self.closeTapped()
+                                NotificationCenter.default.post(
+                                    name: .mezonQRNavigateToDM,
+                                    object: nil,
+                                    userInfo: ["channelId": "\(channel.channelID)", "title": profileData.name]
+                                )
+                            }
                         }
-                    }
-                } catch {
-                    await MainActor.run {
-                        self.showAlert(message: error.localizedDescription)
+                    } catch {
+                        await MainActor.run {
+                            self.showAlert(message: error.localizedDescription)
+                        }
                     }
                 }
             }
@@ -733,7 +739,7 @@ private final class QRExternalLinkSheetController: UIViewController {
         iconContainer.clipsToBounds = true
         contentView.addSubview(iconContainer)
 
-        iconImageView.image = UIImage(systemName: "link")
+        iconImageView.image = UIImage.mezonSystemImage("link")
         iconImageView.tintColor = UIColor.white.withAlphaComponent(0.14)
         iconImageView.contentMode = .scaleAspectFit
         iconContainer.addSubview(iconImageView)
@@ -756,7 +762,7 @@ private final class QRExternalLinkSheetController: UIViewController {
         openButton.setTitle(Self.openLinkTitle, for: .normal)
         openButton.setTitleColor(.white, for: .normal)
         openButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
-        openButton.setImage(UIImage(systemName: "globe"), for: .normal)
+        openButton.setImage(UIImage.mezonSystemImage("globe"), for: .normal)
         openButton.imageEdgeInsets = UIEdgeInsets(top: 0, left: -6, bottom: 0, right: 6)
         openButton.titleEdgeInsets = UIEdgeInsets(top: 0, left: 6, bottom: 0, right: -6)
         openButton.addTarget(self, action: #selector(openTapped), for: .touchUpInside)
@@ -765,7 +771,7 @@ private final class QRExternalLinkSheetController: UIViewController {
         moreButton.backgroundColor = UIColor.white.withAlphaComponent(0.16)
         moreButton.layer.cornerRadius = 22
         moreButton.tintColor = .white
-        moreButton.setImage(UIImage(systemName: "ellipsis"), for: .normal)
+        moreButton.setImage(UIImage.mezonSystemImage("ellipsis"), for: .normal)
         moreButton.addTarget(self, action: #selector(moreTapped), for: .touchUpInside)
         contentView.addSubview(moreButton)
     }
@@ -942,7 +948,7 @@ private final class QRScannedTextPayloadSheetController: UIViewController {
         copyButton.setTitle(L(L10n.QRScanner.copyContent), for: .normal)
         copyButton.setTitleColor(.white, for: .normal)
         copyButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
-        copyButton.setImage(UIImage(systemName: "doc.on.doc"), for: .normal)
+        copyButton.setImage(UIImage.mezonSystemImage("doc.on.doc"), for: .normal)
         copyButton.imageEdgeInsets = UIEdgeInsets(top: 0, left: -6, bottom: 0, right: 6)
         copyButton.titleEdgeInsets = UIEdgeInsets(top: 0, left: 6, bottom: 0, right: -6)
         copyButton.addTarget(self, action: #selector(copyTapped), for: .touchUpInside)

@@ -27,6 +27,7 @@ struct ZkProverClient: Sendable {
         self.session = URLSession(configuration: .default)
     }
 
+    @available(iOS 13.0, *)
     func fetchProofs(userId: String, jwt: String, ephemeralPublicKeyBase58: String, address: String) async throws -> ZkProofBundle {
         let u = baseURL.appendingPathComponent("prove")
         var request = URLRequest(url: u)

@@ -55,7 +55,7 @@ final class PanelKeyboardView: UIView, UIGestureRecognizerDelegate {
     private let grabberBar: UIView = {
         let v = UIView()
         v.translatesAutoresizingMaskIntoConstraints = false
-        v.backgroundColor = UIColor.label.withAlphaComponent(0.25)
+        v.backgroundColor = UIColor.mezonCompatLabel.withAlphaComponent(0.25)
         v.layer.cornerRadius = 2.5
         return v
     }()
@@ -85,7 +85,7 @@ final class PanelKeyboardView: UIView, UIGestureRecognizerDelegate {
     private let separatorLine: UIView = {
         let v = UIView()
         v.translatesAutoresizingMaskIntoConstraints = false
-        v.backgroundColor = UIColor.label.withAlphaComponent(0.1)
+        v.backgroundColor = UIColor.mezonCompatLabel.withAlphaComponent(0.1)
         return v
     }()
 

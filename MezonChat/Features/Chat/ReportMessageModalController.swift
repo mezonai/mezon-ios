@@ -40,7 +40,9 @@ final class ReportMessageModalController: ViewController {
     override func loadDisplayNode() {
         displayNode = ReportMessageModalNode(
             onSubmit: { [weak self] abuseType in
-                self?.submitReport(abuseType: abuseType)
+                if #available(iOS 13.0, *) {
+                    self?.submitReport(abuseType: abuseType)
+                }
             },
             onDimTapped: { [weak self] in
                 self?.animateDismiss(completion: nil)
@@ -66,6 +68,7 @@ final class ReportMessageModalController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func submitReport(abuseType: ReportMessageAbuseType) {
         let id = messageId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let msgId = Int64(id) else {
@@ -227,8 +230,8 @@ private final class ReportMessageModalNode: ASDisplayNode {
             pendingSubmitCategory = sel
             let backBtn = UIButton(type: .system)
             backBtn.translatesAutoresizingMaskIntoConstraints = false
-            let cfg = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
-            backBtn.setImage(UIImage(systemName: "chevron.left", withConfiguration: cfg), for: .normal)
+            let cfg = MezonSymbolConfiguration(pointSize: 18, weight: .medium)
+            backBtn.setImage(UIImage.mezonSystemImage("chevron.left", withConfiguration: cfg), for: .normal)
             backBtn.tintColor = t.textStrong
             backBtn.addTarget(self, action: #selector(reportSummaryBackTapped), for: .touchUpInside)
 
@@ -401,7 +404,7 @@ private final class ReportMessageModalNode: ASDisplayNode {
                 lbl.textColor = t.textStrong
                 lbl.textAlignment = .center
                 lbl.isUserInteractionEnabled = false
-                let chev = UIImageView(image: UIImage(systemName: "chevron.right", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)))
+                let chev = UIImageView(image: UIImage.mezonSystemImage("chevron.right", withConfiguration: MezonSymbolConfiguration(pointSize: 12, weight: .semibold)))
                 chev.tintColor = t.textDisabled
                 chev.translatesAutoresizingMaskIntoConstraints = false
                 chev.setContentHuggingPriority(.required, for: .horizontal)

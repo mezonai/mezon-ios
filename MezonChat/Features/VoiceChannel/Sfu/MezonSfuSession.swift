@@ -2,7 +2,7 @@ import AVFoundation
 import Foundation
 import WebRTC
 
-@MainActor
+@available(iOS 13.0, *)
 final class MezonSfuSession: NSObject {
 
     private static let midAudio = "0"
@@ -43,7 +43,7 @@ final class MezonSfuSession: NSObject {
     var onLocalVideoTrack: ((RTCVideoTrack?) -> Void)?
     var onSpeaking: ((Set<String>) -> Void)?
     var onPushToTalkActive: ((Bool) -> Void)?
-    var tokenProvider: (() async -> String?)?
+    var tokenProvider: ((@escaping (String?) -> Void) -> Void)?
 
     private(set) var role: SfuRole = .speaker
     private(set) var isConnected = false
@@ -57,8 +57,8 @@ final class MezonSfuSession: NSObject {
 
     private var webSocketTask: URLSessionWebSocketTask?
     private var urlSession: URLSession?
-    private var receiveTask: Task<Void, Never>?
-    private var pollTasks: [Task<Void, Never>] = []
+    private var receiveTask: CancelHandle?
+    private var pollTasks: [CancelHandle] = []
     private var peerConnection: RTCPeerConnection?
 
     private var channelId: Int64 = 0
@@ -121,6 +121,8 @@ final class MezonSfuSession: NSObject {
         onPushToTalkActive = nil
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     func join(channelId: Int64, clanId: Int64, userId: String, token: String, role: SfuRole) {
         leave()
         self.channelId = channelId
@@ -165,13 +167,18 @@ final class MezonSfuSession: NSObject {
                     break
                 }
                 self.reconnectAttempts += 1
-                if let fresh = await self.tokenProvider?(), !fresh.isEmpty {
-                    self.token = fresh
+                if let provider = self.tokenProvider {
+                    let fresh = await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
+                        provider { continuation.resume(returning: $0) }
+                    }
+                    if let fresh, !fresh.isEmpty {
+                        self.token = fresh
+                    }
                 }
                 self.openConnection(initial: false)
             }
         }
-        pollTasks = [speakingTask, reconnectTask]
+        pollTasks = [CancelHandle { speakingTask.cancel() }, CancelHandle { reconnectTask.cancel() }]
     }
 
     func leave() {
@@ -182,8 +189,8 @@ final class MezonSfuSession: NSObject {
         connecting = false
         stateRestored = false
         joined = false
-        for task in pollTasks {
-            task.cancel()
+        for handle in pollTasks {
+            handle.cancel()
         }
         pollTasks = []
         receiveTask?.cancel()
@@ -264,6 +271,8 @@ final class MezonSfuSession: NSObject {
         send(["type": "mute", "is_mute": true])
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func openConnection(initial: Bool) {
         connecting = true
         connectionGen += 1
@@ -303,12 +312,14 @@ final class MezonSfuSession: NSObject {
         webSocketTask = task
         task.resume()
         receiveTask?.cancel()
-        receiveTask = Task { [weak self] in
+        let receiveTaskWork = Task { [weak self] in
             await self?.receiveLoop(task: task, gen: gen)
         }
+        receiveTask = CancelHandle { receiveTaskWork.cancel() }
         sendJoin(gen: gen)
     }
 
+    @available(iOS 13.0, *)
     private func sendJoin(gen: Int) {
         let payload: [String: Any] = [
             "type": "join",
@@ -336,6 +347,8 @@ final class MezonSfuSession: NSObject {
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func receiveLoop(task: URLSessionWebSocketTask, gen: Int) async {
         while !Task.isCancelled {
             do {
@@ -371,6 +384,8 @@ final class MezonSfuSession: NSObject {
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func handleMessage(_ text: String) {
         guard let data = text.data(using: .utf8),
               let msg = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
@@ -439,6 +454,8 @@ final class MezonSfuSession: NSObject {
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func onOffer(generation: Int64, sdp: String) {
         parseMsids(sdp)
         let gen = connectionGen
@@ -447,6 +464,8 @@ final class MezonSfuSession: NSObject {
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func negotiate(firstGeneration: Int64, firstSdp: String, gen: Int) async {
         if negotiating {
             pendingOffer = (firstGeneration, firstSdp)
@@ -648,6 +667,7 @@ final class MezonSfuSession: NSObject {
         return components.url
     }
 
+    @available(iOS 13.0, *)
     private func pollSpeaking(_ pc: RTCPeerConnection) {
         pc.statistics { [weak self] report in
             Task { @MainActor [weak self] in
@@ -990,6 +1010,8 @@ final class MezonSfuSession: NSObject {
         return nil
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func awaitSetRemote(_ pc: RTCPeerConnection, _ desc: RTCSessionDescription) async throws {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             pc.setRemoteDescription(desc) { error in
@@ -1002,6 +1024,8 @@ final class MezonSfuSession: NSObject {
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func awaitSetLocal(_ pc: RTCPeerConnection, _ desc: RTCSessionDescription) async throws {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             pc.setLocalDescription(desc) { error in
@@ -1014,6 +1038,8 @@ final class MezonSfuSession: NSObject {
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func awaitCreateAnswer(_ pc: RTCPeerConnection) async throws -> RTCSessionDescription {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<RTCSessionDescription, Error>) in
             let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
@@ -1031,6 +1057,8 @@ final class MezonSfuSession: NSObject {
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func rollbackIfStuck(_ pc: RTCPeerConnection) async {
         guard pc.signalingState == .haveRemoteOffer else { return }
         try? await awaitSetLocal(pc, RTCSessionDescription(type: .rollback, sdp: ""))
@@ -1047,7 +1075,9 @@ final class MezonSfuSession: NSObject {
     }
 }
 
+@available(iOS 13.0, *)
 extension MezonSfuSession: RTCPeerConnectionDelegate {
+    @available(iOS 13.0, *)
     nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {
         Task { @MainActor [weak self] in
             guard let self, peerConnection === self.peerConnection else { return }
@@ -1075,6 +1105,7 @@ extension MezonSfuSession: RTCPeerConnectionDelegate {
         }
     }
 
+    @available(iOS 13.0, *)
     nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didAdd rtpReceiver: RTCRtpReceiver, streams: [RTCMediaStream]) {
         Task { @MainActor [weak self] in
             guard let self, peerConnection === self.peerConnection else { return }
@@ -1082,6 +1113,7 @@ extension MezonSfuSession: RTCPeerConnectionDelegate {
         }
     }
 
+    @available(iOS 13.0, *)
     nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didStartReceivingOn transceiver: RTCRtpTransceiver) {
         Task { @MainActor [weak self] in
             guard let self, peerConnection === self.peerConnection else { return }
@@ -1100,6 +1132,8 @@ extension MezonSfuSession: RTCPeerConnectionDelegate {
 }
 
 enum VoiceChannelMicPermission {
+    @available(iOS 13.0, *)
+    @MainActor
     static func requestIfNeeded() async -> Bool {
         await withCheckedContinuation { cont in
             AVAudioSession.sharedInstance().requestRecordPermission { granted in
@@ -1110,6 +1144,8 @@ enum VoiceChannelMicPermission {
 }
 
 enum VoiceChannelCameraPermission {
+    @available(iOS 13.0, *)
+    @MainActor
     static func requestIfNeeded() async -> Bool {
         let status = AVCaptureDevice.authorizationStatus(for: .video)
         switch status {

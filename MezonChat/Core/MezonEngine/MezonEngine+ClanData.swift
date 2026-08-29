@@ -105,7 +105,6 @@ enum EStateFriend: Int32 {
 
 extension MezonEngine {
 
-    @MainActor
     final class ClanData {
         private let engine: MezonEngine
         private var network: MezonHTTPClient { engine.account.network }
@@ -120,10 +119,11 @@ extension MezonEngine {
         let clanBadgeCountUpdated = ValuePipe<(clanId: Int64, count: Int32)>()
         let clanNotificationUpdated = ValuePipe<Int64>()
 
-        private var inflightFetchAllByClanId: [Int64: Task<Void, Never>] = [:]
+        private var inflightFetchAllByClanId: [Int64: CancelHandle] = [:]
+        private var fetchAllWaitersByClanId: [Int64: [() -> Void]] = [:]
         private var lastFetchAllAtByClanId: [Int64: Date] = [:]
         private let clanDataCacheTTL: TimeInterval = 300
-        private var inflightForceRefreshClanUsersByClanId: [Int64: Task<Void, Never>] = [:]
+        private var inflightForceRefreshClanUsersByClanId: [Int64: CancelHandle] = [:]
         private var lastPresenceMemberRefreshAtByClanId: [Int64: Date] = [:]
         private var attemptedMemberRefreshUserIdsByClanId: [Int64: Set<Int64>] = [:]
         private let presenceMemberRefreshCooldown: TimeInterval = 60
@@ -138,6 +138,7 @@ extension MezonEngine {
                 task.cancel()
             }
             inflightFetchAllByClanId.removeAll()
+            flushAllFetchAllWaiters()
             lastFetchAllAtByClanId.removeAll()
             for (_, task) in inflightForceRefreshClanUsersByClanId {
                 task.cancel()
@@ -149,23 +150,29 @@ extension MezonEngine {
         }
 
         func cancelFetchAllClanData(exceptClanId: Int64) {
-            for (cid, task) in inflightFetchAllByClanId where cid != exceptClanId {
-                task.cancel()
+            for (cid, handle) in inflightFetchAllByClanId where cid != exceptClanId {
+                handle.cancel()
                 inflightFetchAllByClanId[cid] = nil
+                flushFetchAllWaiters(clanId: cid)
                 lastFetchAllAtByClanId[cid] = nil
             }
         }
 
+        @available(iOS 13.0, *)
         func fetchAllClanData(clanId: Int64, token: String) {
             Task { @MainActor in
                 await self.fetchAllClanDataIfNeeded(clanId: clanId, token: token)
             }
         }
 
+        @available(iOS 13.0, *)
+        @MainActor
         func fetchAllClanDataIfNeeded(clanId: Int64, token: String) async {
             guard clanId != 0 else { return }
-            if let existing = inflightFetchAllByClanId[clanId] {
-                await existing.value
+            if inflightFetchAllByClanId[clanId] != nil {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    fetchAllWaitersByClanId[clanId, default: []].append { continuation.resume() }
+                }
                 return
             }
             if let last = lastFetchAllAtByClanId[clanId], Date().timeIntervalSince(last) < clanDataCacheTTL {
@@ -176,6 +183,7 @@ extension MezonEngine {
                 guard let self else { return }
                 defer {
                     self.inflightFetchAllByClanId[clanId] = nil
+                    self.flushFetchAllWaiters(clanId: clanId)
                 }
 
                 async let usersResult = self.fetchClanUsers(clanId: clanId, token: token)
@@ -196,8 +204,21 @@ extension MezonEngine {
                     self.lastFetchAllAtByClanId[clanId] = nil
                 }
             }
-            inflightFetchAllByClanId[clanId] = task
+            inflightFetchAllByClanId[clanId] = CancelHandle { task.cancel() }
             await task.value
+        }
+
+        private func flushFetchAllWaiters(clanId: Int64) {
+            let waiters = fetchAllWaitersByClanId.removeValue(forKey: clanId) ?? []
+            for waiter in waiters { waiter() }
+        }
+
+        private func flushAllFetchAllWaiters() {
+            let pending = fetchAllWaitersByClanId
+            fetchAllWaitersByClanId.removeAll()
+            for (_, waiters) in pending {
+                for waiter in waiters { waiter() }
+            }
         }
 
         private func hasPersistedClanData(clanId: Int64) -> Bool {
@@ -205,6 +226,8 @@ extension MezonEngine {
                 || postbox.getPreferenceData(key: PreferencesKeys.clanUsers(clanId: clanId))?.isEmpty == false
         }
 
+        @available(iOS 13.0, *)
+        @MainActor
         private func fetchClanUsers(clanId: Int64, token: String) async {
             do {
                 let response = try await network.listClanUsers(clanId: clanId, token: token)
@@ -237,9 +260,12 @@ extension MezonEngine {
             attempted.formUnion(unknownIds)
             attemptedMemberRefreshUserIdsByClanId[clanId] = attempted
             lastPresenceMemberRefreshAtByClanId[clanId] = Date()
-            forceRefreshClanUsers(clanId: clanId, token: token)
+            if #available(iOS 13.0, *) {
+                forceRefreshClanUsers(clanId: clanId, token: token)
+            }
         }
 
+        @available(iOS 13.0, *)
         func forceRefreshClanUsers(clanId: Int64, token: String) {
             guard clanId != 0 else { return }
             if let existing = inflightForceRefreshClanUsersByClanId[clanId], !existing.isCancelled { return }
@@ -248,9 +274,11 @@ extension MezonEngine {
                 defer { self.inflightForceRefreshClanUsersByClanId[clanId] = nil }
                 await self.fetchClanUsersForced(clanId: clanId, token: token)
             }
-            inflightForceRefreshClanUsersByClanId[clanId] = task
+            inflightForceRefreshClanUsersByClanId[clanId] = CancelHandle { task.cancel() }
         }
 
+        @available(iOS 13.0, *)
+        @MainActor
         private func fetchClanUsersForced(clanId: Int64, token: String) async {
             do {
                 let response = try await network.listClanUsers(clanId: clanId, token: token)
@@ -281,6 +309,8 @@ extension MezonEngine {
             clanUsersUpdated.putNext(clanId)
         }
 
+        @available(iOS 13.0, *)
+        @MainActor
         private func fetchRoles(clanId: Int64, token: String) async {
             do {
                 let response = try await network.listRoles(clanId: clanId, token: token)
@@ -292,10 +322,13 @@ extension MezonEngine {
             }
         }
 
+        @available(iOS 13.0, *)
+        @MainActor
         func refetchEvents(clanId: Int64, token: String) async {
             await fetchEvents(clanId: clanId, token: token)
         }
 
+        @available(iOS 13.0, *)
         func setUserEventInterest(
             clanId: Int64,
             eventId: Int64,
@@ -347,6 +380,8 @@ extension MezonEngine {
             postbox.setPreferenceDataSync(key: PreferencesKeys.clanEvents(clanId: clanId), value: data)
         }
 
+        @available(iOS 13.0, *)
+        @MainActor
         private func fetchEvents(clanId: Int64, token: String) async {
             do {
                 let response = try await network.listEvents(clanId: clanId, token: token)
@@ -358,6 +393,8 @@ extension MezonEngine {
             }
         }
 
+        @available(iOS 13.0, *)
+        @MainActor
         private func fetchUserPermissions(clanId: Int64, token: String) async {
             do {
                 let response = try await network.getRoleOfUserInTheClan(clanId: clanId, token: token)
@@ -369,6 +406,8 @@ extension MezonEngine {
             }
         }
 
+        @available(iOS 13.0, *)
+        @MainActor
         private func fetchAllPermissions(token: String) async {
             do {
                 let response = try await network.getListPermission(token: token)
@@ -379,6 +418,8 @@ extension MezonEngine {
             }
         }
 
+        @available(iOS 13.0, *)
+        @MainActor
         private func fetchVoiceChannelUsers(clanId: Int64, token: String) async {
             do {
                 let response = try await network.listChannelVoiceUsers(clanId: clanId, token: token)
@@ -390,6 +431,8 @@ extension MezonEngine {
             }
         }
 
+        @available(iOS 13.0, *)
+        @MainActor
         private func fetchStreamChannelUsers(clanId: Int64, token: String) async {
             do {
                 let response = try await network.listStreamingChannelUsers(clanId: clanId, token: token)
@@ -438,11 +481,15 @@ extension MezonEngine {
         }
 
 
+        @available(iOS 13.0, *)
+        @MainActor
         private func fetchBadgeCount(clanId: Int64, token: String) async {
 
 
         }
 
+        @available(iOS 13.0, *)
+        @MainActor
         private func fetchDefaultNotification(clanId: Int64, token: String) async {
             do {
                 let response = try await network.getNotificationClan(clanId: clanId, token: token)
@@ -454,6 +501,8 @@ extension MezonEngine {
             }
         }
 
+        @available(iOS 13.0, *)
+        @MainActor
         private func fetchCategoryNotification(clanId: Int64, token: String) async {
             do {
                 let response = try await network.getChannelCategoryNotiSettingsList(clanId: clanId, token: token)
@@ -642,6 +691,8 @@ extension MezonEngine {
             return voiceChannelUserList(from: streamList)
         }
 
+        @available(iOS 13.0, *)
+        @MainActor
         func refetchVoiceChannelUsers(clanId: Int64, token: String) async {
             await fetchVoiceChannelUsers(clanId: clanId, token: token)
         }
@@ -936,18 +987,26 @@ extension MezonEngine {
             return channels
         }
 
+        @available(iOS 13.0, *)
+        @MainActor
         func getInviteInfo(code: String, token: String) async throws -> ClanInviteInfo {
             try await network.getInviteInfo(code: code, token: token)
         }
 
+        @available(iOS 13.0, *)
+        @MainActor
         func joinClanWithInvite(code: String, token: String) async throws -> Mezon_Api_InviteUserRes {
             try await network.joinClanWithInvite(code: code, token: token)
         }
 
+        @available(iOS 13.0, *)
+        @MainActor
         func createClanDesc(name: String, logo: String = "", banner: String = "", token: String) async throws -> Mezon_Api_ClanDesc {
             try await network.createClanDesc(name: name, logo: logo, banner: banner, token: token)
         }
 
+        @available(iOS 13.0, *)
+        @MainActor
         func applyCreationTemplateChannels(clanId: Int64, template: ClanCreationTemplate, token: String) async {
             do {
                 let channelList = try await network.listChannelDescs(clanId: clanId, token: token)
@@ -986,7 +1045,6 @@ extension MezonEngine {
         }
     }
 
-    @MainActor
     final class FriendsData {
         private let engine: MezonEngine
         private var network: MezonHTTPClient { engine.account.network }
@@ -995,9 +1053,10 @@ extension MezonEngine {
         let friendsUpdated = ValuePipe<Void>()
 
         private var socketDisposable: Disposable?
-        private var socketRefreshTask: Task<Void, Never>?
-        private var tokenProvider: (() async -> String?)?
-        private var inflightNetworkRefreshTask: Task<Void, Never>?
+        private var socketRefreshTask: CancelHandle?
+        private var tokenProvider: ((@escaping (String?) -> Void) -> Void)?
+        private var inflightNetworkRefreshTask: CancelHandle?
+        private var networkRefreshWaiters: [() -> Void] = []
         private var lastFriendsNetworkRefreshAt: Date?
         private let friendsNetworkRefreshCooldown: TimeInterval = 3.0
 
@@ -1012,6 +1071,7 @@ extension MezonEngine {
             socketRefreshTask = nil
             inflightNetworkRefreshTask?.cancel()
             inflightNetworkRefreshTask = nil
+            flushNetworkRefreshWaiters()
             tokenProvider = nil
             lastFriendsNetworkRefreshAt = nil
         }
@@ -1022,7 +1082,7 @@ extension MezonEngine {
             inflightNetworkRefreshTask?.cancel()
         }
 
-        func start(tokenProvider: @escaping () async -> String?) {
+        func start(tokenProvider: @escaping (@escaping (String?) -> Void) -> Void) {
             self.tokenProvider = tokenProvider
             socketDisposable?.dispose()
             socketDisposable = (MezonSocket.shared.events()
@@ -1031,12 +1091,12 @@ extension MezonEngine {
                     switch event {
                     case .blockFriend(let m):
                         self.applyLocalBlockState(userId: m.userID, blocked: true, blockerUserId: m.userID)
-                        self.scheduleRefreshFromSocket()
+                        if #available(iOS 13.0, *) { self.scheduleRefreshFromSocket() }
                     case .unBlockFriend(let m):
                         self.applyLocalBlockState(userId: m.userID, blocked: false)
-                        self.scheduleRefreshFromSocket()
+                        if #available(iOS 13.0, *) { self.scheduleRefreshFromSocket() }
                     case .addFriend, .removeFriend:
-                        self.scheduleRefreshFromSocket()
+                        if #available(iOS 13.0, *) { self.scheduleRefreshFromSocket() }
                     default:
                         break
                     }
@@ -1084,9 +1144,13 @@ extension MezonEngine {
             return result
         }
 
+        @available(iOS 13.0, *)
+        @MainActor
         func refreshFromNetwork(token: String, force: Bool = false) async {
-            if let inflight = inflightNetworkRefreshTask {
-                _ = await inflight.value
+            if inflightNetworkRefreshTask != nil {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    networkRefreshWaiters.append { continuation.resume() }
+                }
                 if !force { return }
             }
             if !force,
@@ -1096,14 +1160,25 @@ extension MezonEngine {
             }
             let task = Task<Void, Never> { @MainActor [weak self] in
                 guard let self else { return }
-                defer { self.inflightNetworkRefreshTask = nil }
+                defer {
+                    self.inflightNetworkRefreshTask = nil
+                    self.flushNetworkRefreshWaiters()
+                }
                 await self.performRefreshFromNetwork(token: token)
                 self.lastFriendsNetworkRefreshAt = Date()
             }
-            inflightNetworkRefreshTask = task
+            inflightNetworkRefreshTask = CancelHandle { task.cancel() }
             _ = await task.value
         }
 
+        private func flushNetworkRefreshWaiters() {
+            let waiters = networkRefreshWaiters
+            networkRefreshWaiters.removeAll()
+            for waiter in waiters { waiter() }
+        }
+
+        @available(iOS 13.0, *)
+        @MainActor
         private func performRefreshFromNetwork(token: String) async {
             let net = network
             guard let response = try? await net.listFriends(token: token, limit: 0, state: 0) else {
@@ -1135,14 +1210,20 @@ extension MezonEngine {
             persistFriends(list)
         }
 
+        @available(iOS 13.0, *)
         func scheduleRefreshFromSocket() {
             socketRefreshTask?.cancel()
-            socketRefreshTask = Task { [weak self] in
+            let task = Task { [weak self] in
                 guard let self else { return }
                 try? await Task.sleep(nanoseconds: 300_000_000)
-                guard let tokenProvider = self.tokenProvider, let token = await tokenProvider() else { return }
+                guard !Task.isCancelled, let tokenProvider = self.tokenProvider else { return }
+                let token = await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
+                    tokenProvider { continuation.resume(returning: $0) }
+                }
+                guard let token else { return }
                 await self.refreshFromNetwork(token: token, force: true)
             }
+            socketRefreshTask = CancelHandle { task.cancel() }
         }
 
         private func persistFriends(_ list: [Mezon_Api_Friend]) {

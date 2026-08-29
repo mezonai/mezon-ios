@@ -113,9 +113,13 @@ final class ThreadListViewController: ViewController {
             name: .mezonUserChannelAddedFromSocket, object: nil)
 
         applyCachedThreadsIfAny()
-        rebuildSections()
+        if #available(iOS 13.0, *) {
+            rebuildSections()
+        }
         tableView.reloadData()
-        fetchThreadsFromNetwork(showSpinner: allThreads.isEmpty)
+        if #available(iOS 13.0, *) {
+            fetchThreadsFromNetwork(showSpinner: allThreads.isEmpty)
+        }
     }
 
     deinit {
@@ -124,7 +128,9 @@ final class ThreadListViewController: ViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        refreshThreadsFromLocalCaches()
+        if #available(iOS 13.0, *) {
+            refreshThreadsFromLocalCaches()
+        }
     }
 
     @objc private func handleThemeChange() {
@@ -143,30 +149,34 @@ final class ThreadListViewController: ViewController {
     }
 
     @objc private func handleChannelDescriptionDidUpdate(_ notification: Notification) {
-        guard let updatedClanId = Self.int64UserInfo(notification.userInfo?["clanId"]),
-              updatedClanId == clanId,
-              let channelId = Self.int64UserInfo(notification.userInfo?["channelId"]),
-              channelId != 0 else {
-            return
-        }
+        if #available(iOS 13.0, *) {
+            guard let updatedClanId = Self.int64UserInfo(notification.userInfo?["clanId"]),
+                  updatedClanId == clanId,
+                  let channelId = Self.int64UserInfo(notification.userInfo?["channelId"]),
+                  channelId != 0 else {
+                return
+            }
 
-        let candidates = cachedThreadChannelsFromChannelCaches()
-        guard var updated = candidates.first(where: { $0.channelID == channelId })
-                ?? context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channelId) else {
-            return
-        }
+            let candidates = cachedThreadChannelsFromChannelCaches()
+            guard var updated = candidates.first(where: { $0.channelID == channelId })
+                    ?? context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channelId) else {
+                return
+            }
 
-        applyLocalThreadChannelUpdate(updated)
+            applyLocalThreadChannelUpdate(updated)
+        }
     }
 
     @objc private func handleUserChannelAddedFromSocket(_ notification: Notification) {
-        guard let updatedClanId = Self.int64UserInfo(notification.userInfo?["clanId"]),
-              updatedClanId == clanId,
-              let updated = notification.userInfo?["channel"] as? Mezon_Api_ChannelDescription,
-              updated.channelID != 0 else {
-            return
+        if #available(iOS 13.0, *) {
+            guard let updatedClanId = Self.int64UserInfo(notification.userInfo?["clanId"]),
+                  updatedClanId == clanId,
+                  let updated = notification.userInfo?["channel"] as? Mezon_Api_ChannelDescription,
+                  updated.channelID != 0 else {
+                return
+            }
+            applyLocalThreadChannelUpdate(updated)
         }
-        applyLocalThreadChannelUpdate(updated)
     }
 
     private func applyLocalThreadChannelUpdate(_ updated: Mezon_Api_ChannelDescription) {
@@ -245,12 +255,12 @@ final class ThreadListViewController: ViewController {
         backButton.tintColor = t.textStrong
         addButton.tintColor = t.textStrong
         backButton.setImage(
-            UIImage(systemName: "chevron.left")?.withConfiguration(
-                UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)),
+            UIImage.mezonSystemImage("chevron.left")?.mezonWithConfiguration(
+                MezonSymbolConfiguration(pointSize: 20, weight: .semibold)),
             for: .normal)
         addButton.setImage(
-            UIImage(systemName: "plus")?.withConfiguration(
-                UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)),
+            UIImage.mezonSystemImage("plus")?.mezonWithConfiguration(
+                MezonSymbolConfiguration(pointSize: 20, weight: .semibold)),
             for: .normal)
         addButton.isHidden = !canCreateThread
     }
@@ -295,8 +305,8 @@ final class ThreadListViewController: ViewController {
         searchClearButton.addTarget(self, action: #selector(clearSearchTapped), for: .touchUpInside)
         searchClearButton.isHidden = true
         searchClearButton.setImage(
-            UIImage(systemName: "xmark.circle.fill")?.withConfiguration(
-                UIImage.SymbolConfiguration(pointSize: 18, weight: .regular)),
+            UIImage.mezonSystemImage("xmark.circle.fill")?.mezonWithConfiguration(
+                MezonSymbolConfiguration(pointSize: 18, weight: .regular)),
             for: .normal)
         searchBarContainer.addSubview(searchClearButton)
 
@@ -334,77 +344,86 @@ final class ThreadListViewController: ViewController {
     }
 
     @objc private func clearSearchTapped() {
-        searchField.text = ""
-        searchClearButton.isHidden = true
-        searchText = ""
-        searchResults = []
-        rebuildSections()
-        tableView.reloadData()
+        if #available(iOS 13.0, *) {
+            searchField.text = ""
+            searchClearButton.isHidden = true
+            searchText = ""
+            searchResults = []
+            rebuildSections()
+            tableView.reloadData()
+        }
     }
 
     @objc private func createThreadTapped() {
-        guard canCreateThread else {
-            Toast.error(L(L10n.ThreadList.createThreadForbidden))
-            return
-        }
-        let form = CreateThreadFormViewController(
-            context: context,
-            clanId: clanId,
-            parentChannelId: parentChannelId,
-            parentCategoryId: parentCategoryId,
-            parentChannelLabel: parentChannelLabel,
-            composerParentChannel: composerParentChannel,
-            onComplete: { [weak self] result in
-                guard let self else { return }
-                switch result {
-                case .success(let channel):
-                    Toast.success(L(L10n.ThreadList.createThreadSuccess))
-                    fetchThreadsFromNetwork(showSpinner: false)
-                    context.currentClanId = clanId
-                    let vc = ChatViewController(clanId: clanId, channel: channel, context: context)
-                    navigationController?.pushViewController(vc, animated: true)
-                case .failure:
-                    break
+        if #available(iOS 13.0, *) {
+            guard canCreateThread else {
+                Toast.error(L(L10n.ThreadList.createThreadForbidden))
+                return
+            }
+            let form = CreateThreadFormViewController(
+                context: context,
+                clanId: clanId,
+                parentChannelId: parentChannelId,
+                parentCategoryId: parentCategoryId,
+                parentChannelLabel: parentChannelLabel,
+                composerParentChannel: composerParentChannel,
+                onComplete: { [weak self] result in
+                    guard let self else { return }
+                    switch result {
+                    case .success(let channel):
+                        Toast.success(L(L10n.ThreadList.createThreadSuccess))
+                        fetchThreadsFromNetwork(showSpinner: false)
+                        context.currentClanId = clanId
+                        let vc = ChatViewController(clanId: clanId, channel: channel, context: context)
+                        navigationController?.pushViewController(vc, animated: true)
+                    case .failure:
+                        break
+                    }
+                }
+            )
+            let nav = UINavigationController(rootViewController: form)
+            nav.modalPresentationStyle = .pageSheet
+            if #available(iOS 15.0, *) {
+                if let sheet = nav.sheetPresentationController {
+                    sheet.detents = [.large()]
+                    sheet.prefersGrabberVisible = true
                 }
             }
-        )
-        let nav = UINavigationController(rootViewController: form)
-        nav.modalPresentationStyle = .pageSheet
-        if #available(iOS 15.0, *) {
-            if let sheet = nav.sheetPresentationController {
-                sheet.detents = [.large()]
-                sheet.prefersGrabberVisible = true
-            }
+            present(nav, animated: true)
         }
-        present(nav, animated: true)
     }
 
     @objc private func pulledToRefresh() {
-        fetchThreadsFromNetwork(showSpinner: false)
+        if #available(iOS 13.0, *) {
+            fetchThreadsFromNetwork(showSpinner: false)
+        }
     }
 
     @objc private func searchTextChanged() {
-        let text = searchField.text ?? ""
-        searchClearButton.isHidden = text.isEmpty
-        searchWorkItem?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            Task { @MainActor in
-                self.searchText = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                if self.searchText.isEmpty {
-                    self.searchResults = []
-                    self.rebuildSections()
-                    self.tableView.reloadData()
-                } else {
-                    await self.runThreadSearch()
+        if #available(iOS 13.0, *) {
+            let text = searchField.text ?? ""
+            searchClearButton.isHidden = text.isEmpty
+            searchWorkItem?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                Task { @MainActor in
+                    self.searchText = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                    if self.searchText.isEmpty {
+                        self.searchResults = []
+                        self.rebuildSections()
+                        self.tableView.reloadData()
+                    } else {
+                        await self.runThreadSearch()
+                    }
                 }
             }
+            searchWorkItem = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
         }
-        searchWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
     }
 
     @MainActor
+    @available(iOS 13.0, *)
     private func runThreadSearch() async {
         guard !searchText.isEmpty else { return }
         guard let token = await context.getToken() else { return }
@@ -455,6 +474,7 @@ final class ThreadListViewController: ViewController {
         )
     }
 
+    @available(iOS 13.0, *)
     private func fetchThreadsFromNetwork(showSpinner: Bool) {
         guard !isLoading else { return }
         isLoading = true
@@ -740,12 +760,14 @@ final class ThreadListViewController: ViewController {
         return t
     }
 
+    @available(iOS 13.0, *)
     private static let relativeTimeFormatter: RelativeDateTimeFormatter = {
         let f = RelativeDateTimeFormatter()
         f.unitsStyle = .abbreviated
         return f
     }()
 
+    @available(iOS 13.0, *)
     private static func formatTime(_ header: Mezon_Api_ChannelMessageHeader) -> String {
         guard header.timestampSeconds > 0 else { return "" }
         let date = Date(timeIntervalSince1970: TimeInterval(header.timestampSeconds))
@@ -903,8 +925,8 @@ private final class ThreadListEmptyCell: UITableViewCell {
         let t = UIColor.theme
         createButton.isHidden = !showCreateButton
         iconCircleView.backgroundColor = t.iconPrimary.withAlphaComponent(0.14)
-        iconImageView.image = UIImage(systemName: "bubble.left.fill")?.withConfiguration(
-            UIImage.SymbolConfiguration(pointSize: 24, weight: .regular)
+        iconImageView.image = UIImage.mezonSystemImage("bubble.left.fill")?.mezonWithConfiguration(
+            MezonSymbolConfiguration(pointSize: 24, weight: .regular)
         )
         iconImageView.tintColor = t.textDisabled
         iconSlashOne.backgroundColor = .white
@@ -1059,8 +1081,8 @@ private final class ThreadListItemCell: UITableViewCell {
         bulletLabel.isHidden = time.isEmpty
         timeLabel.text = time
 
-        chevronView.image = UIImage(systemName: "chevron.right")?.withConfiguration(
-            UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold))
+        chevronView.image = UIImage.mezonSystemImage("chevron.right")?.mezonWithConfiguration(
+            MezonSymbolConfiguration(pointSize: 12, weight: .semibold))
         chevronView.tintColor = t.textDisabled
 
         cardView.layer.masksToBounds = true
@@ -1169,7 +1191,11 @@ extension ThreadListViewController: UITableViewDataSource, UITableViewDelegate {
             let h = thread.lastSentMessage
             preview = Self.previewText(from: h)
             sender = senderDisplayNameForPreview(senderId: h.senderID)
-            time = Self.formatTime(h)
+            if #available(iOS 13.0, *) {
+                time = Self.formatTime(h)
+            } else {
+                time = ""
+            }
         } else {
             preview = ""
             sender = ""

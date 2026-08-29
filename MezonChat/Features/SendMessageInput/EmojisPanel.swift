@@ -73,7 +73,7 @@ final class EmojisPanel: UIView {
     private let searchIconView: UIImageView = {
         let iv = UIImageView()
         iv.translatesAutoresizingMaskIntoConstraints = false
-        iv.image = UIImage(systemName: "magnifyingglass")
+        iv.image = UIImage.mezonSystemImage("magnifyingglass")
         iv.tintColor = UIColor.mezonSecondaryLabel
         iv.contentMode = .scaleAspectFit
         return iv
@@ -627,24 +627,24 @@ extension EmojisPanel: UICollectionViewDataSource, UICollectionViewDelegate, UIC
 
 extension EmojisPanel {
     fileprivate static func stripSymbol(for key: String) -> UIImage? {
-        let config = UIImage.SymbolConfiguration(pointSize: 15, weight: .medium)
+        let config = MezonSymbolConfiguration(pointSize: 15, weight: .medium)
         switch key {
-        case EmojiCategoryOrdering.recent: return UIImage(systemName: "clock", withConfiguration: config)
+        case EmojiCategoryOrdering.recent: return UIImage.mezonSystemImage("clock", withConfiguration: config)
         case EmojiCategoryOrdering.forSale:
             return UIImage(named: "Chat/StoreIcon")?.withRenderingMode(.alwaysTemplate)
-                ?? UIImage(systemName: "bag.fill", withConfiguration: config)?.withRenderingMode(.alwaysTemplate)
-        case EmojiCategoryOrdering.frequently: return UIImage(systemName: "star.fill", withConfiguration: config)
+                ?? UIImage.mezonSystemImage("bag.fill", withConfiguration: config)?.withRenderingMode(.alwaysTemplate)
+        case EmojiCategoryOrdering.frequently: return UIImage.mezonSystemImage("star.fill", withConfiguration: config)
         case "People":
             return UIImage(named: "Chat/FaceIcon")
-                ?? UIImage(systemName: "face.smiling", withConfiguration: config)
-        case "Nature": return UIImage(systemName: "leaf.fill", withConfiguration: config)
-        case "Food": return UIImage(systemName: "fork.knife", withConfiguration: config)
-        case "Activities": return UIImage(systemName: "figure.run", withConfiguration: config)
-        case "Travel": return UIImage(systemName: "bicycle", withConfiguration: config)
-        case "Objects": return UIImage(systemName: "archivebox.fill", withConfiguration: config)
-        case "Symbols": return UIImage(systemName: "heart.fill", withConfiguration: config)
-        case "Flags": return UIImage(systemName: "flag.fill", withConfiguration: config)
-        default: return UIImage(systemName: "building.2.fill", withConfiguration: config)
+                ?? UIImage.mezonSystemImage("face.smiling", withConfiguration: config)
+        case "Nature": return UIImage.mezonSystemImage("leaf.fill", withConfiguration: config)
+        case "Food": return UIImage.mezonSystemImage("fork.knife", withConfiguration: config)
+        case "Activities": return UIImage.mezonSystemImage("figure.run", withConfiguration: config)
+        case "Travel": return UIImage.mezonSystemImage("bicycle", withConfiguration: config)
+        case "Objects": return UIImage.mezonSystemImage("archivebox.fill", withConfiguration: config)
+        case "Symbols": return UIImage.mezonSystemImage("heart.fill", withConfiguration: config)
+        case "Flags": return UIImage.mezonSystemImage("flag.fill", withConfiguration: config)
+        default: return UIImage.mezonSystemImage("building.2.fill", withConfiguration: config)
         }
     }
 }
@@ -664,7 +664,9 @@ private final class EmojiSectionHeaderCell: UICollectionViewCell {
 
         chevronView.translatesAutoresizingMaskIntoConstraints = false
         if #available(iOS 13.0, *) {
-            chevronView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)
+            if #available(iOS 13.0, *) {
+                chevronView.preferredSymbolConfiguration = MezonSymbolConfiguration(pointSize: 12, weight: .semibold).uiKitConfiguration
+            }
         }
         chevronView.contentMode = .scaleAspectFit
 
@@ -698,7 +700,7 @@ private final class EmojiSectionHeaderCell: UICollectionViewCell {
         titleLabel.textColor = t.textStrong
         chevronView.tintColor = t.textStrong
         let chevronName = collapsed ? "chevron.right" : "chevron.down"
-        chevronView.image = UIImage(systemName: chevronName, withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold))
+        chevronView.image = UIImage.mezonSystemImage(chevronName, withConfiguration: MezonSymbolConfiguration(pointSize: 12, weight: .semibold))
     }
 
     @objc private func tapped() { onToggle?(categoryKey) }

@@ -71,7 +71,7 @@ final class ClanListViewController: ViewController {
 
     override func loadDisplayNode() {
         let interaction = ClanListInteraction(
-            onSelectClan: { [weak self] clan in self?.handleUserClanSelection(clan) },
+            onSelectClan: { [weak self] clan in if #available(iOS 13.0, *) { self?.handleUserClanSelection(clan) } },
             onSelectDM: { [weak self] dm in self?.openDirectMessage(dm) },
             onLogoTapped: { [weak self] in self?.onLogoTapped?() },
             onJoinClanTapped: { [weak self] in self?.onJoinClanTapped?() },
@@ -109,46 +109,52 @@ final class ClanListViewController: ViewController {
             name: .mezonAccountCurrentUserDidChange, object: nil)
         clanListBoundAccountUserId = context.currentUser?.id
         applyUnreadDMsFromCache()
-        loadClans()
+        if #available(iOS 13.0, *) {
+            loadClans()
+        }
     }
 
     @objc private func handleAccountCurrentUserDidChange() {
-        defer { needsReloadPipe.putNext(()) }
-        guard let uid = context.currentUser?.id, !uid.isEmpty else {
-            clanListBoundAccountUserId = nil
-            return
-        }
-        guard let prev = clanListBoundAccountUserId else {
+        if #available(iOS 13.0, *) {
+            defer { needsReloadPipe.putNext(()) }
+            guard let uid = context.currentUser?.id, !uid.isEmpty else {
+                clanListBoundAccountUserId = nil
+                return
+            }
+            guard let prev = clanListBoundAccountUserId else {
+                clanListBoundAccountUserId = uid
+                return
+            }
+            guard prev != uid else { return }
             clanListBoundAccountUserId = uid
-            return
+            loadClansTask?.cancel()
+            loadClansTask = nil
+            lastLoadClansAt = nil
+            completedRemoteClanListFetch = false
+            setClans([])
+            setSelectedClanId(nil)
+            context.currentClanId = 0
+            UserDefaults.standard.removeObject(forKey: Self.selectedClanIdUserDefaultsKey)
+            context.account.postbox.writeSync { tx in tx.replaceAllClans([]) }
+            context.account.postbox.setPreferenceData(key: PreferencesKeys.clans, value: Data())
+            context.account.postbox.setPreferenceData(key: PreferencesKeys.selectedClanId, value: Data())
+            loadClans()
+            fetchUnreadDMs()
         }
-        guard prev != uid else { return }
-        clanListBoundAccountUserId = uid
-        loadClansTask?.cancel()
-        loadClansTask = nil
-        lastLoadClansAt = nil
-        completedRemoteClanListFetch = false
-        setClans([])
-        setSelectedClanId(nil)
-        context.currentClanId = 0
-        UserDefaults.standard.removeObject(forKey: Self.selectedClanIdUserDefaultsKey)
-        context.account.postbox.writeSync { tx in tx.replaceAllClans([]) }
-        context.account.postbox.setPreferenceData(key: PreferencesKeys.clans, value: Data())
-        context.account.postbox.setPreferenceData(key: PreferencesKeys.selectedClanId, value: Data())
-        loadClans()
-        fetchUnreadDMs()
     }
 
     @objc private func handleMezonQRSelectClan(_ notification: Notification) {
-        guard let clanIdStr = notification.userInfo?["clanId"] as? String,
-            let clanId = Int64(clanIdStr)
-        else { return }
+        if #available(iOS 13.0, *) {
+            guard let clanIdStr = notification.userInfo?["clanId"] as? String,
+                let clanId = Int64(clanIdStr)
+            else { return }
 
-        if let clan = clans.first(where: { $0.clanID == clanId }) {
-            select(clan: clan)
-        } else {
-            setSelectedClanId(clanId)
-            loadClans()
+            if let clan = clans.first(where: { $0.clanID == clanId }) {
+                select(clan: clan)
+            } else {
+                setSelectedClanId(clanId)
+                loadClans()
+            }
         }
     }
 
@@ -169,33 +175,45 @@ final class ClanListViewController: ViewController {
     }
 
     @objc private func handleSocketStatusForClanBadges(_ notification: Notification) {
-        guard let connected = notification.userInfo?["isConnected"] as? Bool, connected else { return }
-        if clans.isEmpty {
-            completedRemoteClanListFetch = false
-            lastLoadClansAt = nil
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-                guard let self, self.clans.isEmpty else { return }
-                self.lastLoadClansAt = nil
-                self.loadClans()
+        if #available(iOS 13.0, *) {
+            guard let connected = notification.userInfo?["isConnected"] as? Bool, connected else { return }
+            if clans.isEmpty {
+                completedRemoteClanListFetch = false
+                lastLoadClansAt = nil
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                    guard let self, self.clans.isEmpty else { return }
+                    self.lastLoadClansAt = nil
+                    self.loadClans()
+                }
             }
-        }
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            if self.loadClansTask != nil { return }
-            await self.refreshClanSidebarBadgesFromSocket()
-            self.fetchUnreadDMs()
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if self.loadClansTask != nil { return }
+                await self.refreshClanSidebarBadgesFromSocket()
+                self.fetchUnreadDMs()
+            }
         }
     }
 
 
-    private var refreshClanSidebarBadgesTask: Task<Void, Never>?
+    private var refreshClanSidebarBadgesTask: CancelHandle?
+    private var refreshClanSidebarBadgesWaiters: [() -> Void] = []
+
+    private func flushRefreshClanSidebarBadgesWaiters() {
+        let waiters = refreshClanSidebarBadgesWaiters
+        refreshClanSidebarBadgesWaiters.removeAll()
+        for waiter in waiters { waiter() }
+    }
     private var lastRefreshClanSidebarBadgesAt: Date?
     private let refreshClanSidebarBadgesCooldown: TimeInterval = 2.0
 
     @MainActor
+    @available(iOS 13.0, *)
     private func refreshClanSidebarBadgesFromSocket(force: Bool = false) async {
-        if let existing = refreshClanSidebarBadgesTask {
-            await existing.value
+        if refreshClanSidebarBadgesTask != nil {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                refreshClanSidebarBadgesWaiters.append { continuation.resume() }
+            }
         }
         if !force, let last = lastRefreshClanSidebarBadgesAt,
            Date().timeIntervalSince(last) < refreshClanSidebarBadgesCooldown { return }
@@ -205,6 +223,7 @@ final class ClanListViewController: ViewController {
             guard let self else { return }
             defer {
                 self.refreshClanSidebarBadgesTask = nil
+                self.flushRefreshClanSidebarBadgesWaiters()
             }
             guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
             guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
@@ -219,7 +238,7 @@ final class ClanListViewController: ViewController {
             } catch {
             }
         }
-        refreshClanSidebarBadgesTask = task
+        refreshClanSidebarBadgesTask = CancelHandle { task.cancel() }
         _ = await task.value
     }
 
@@ -254,89 +273,92 @@ final class ClanListViewController: ViewController {
     @objc private func handleThemeChange() { clanListNode.applyTheme() }
 
     @objc private func handleNewMessageReceived(_ notification: Notification) {
-        guard let channelId = Self.int64UserInfo(notification.userInfo?["channelId"]),
-              let clanId = Self.int64UserInfo(notification.userInfo?["clanId"]) else { return }
+        if #available(iOS 13.0, *) {
+            guard let channelId = Self.int64UserInfo(notification.userInfo?["channelId"]),
+                  let clanId = Self.int64UserInfo(notification.userInfo?["clanId"]) else { return }
 
-        let senderId: String? = {
-            let v = notification.userInfo?["senderId"]
-            if let s = v as? String { return s }
-            if let n = v as? Int64 { return String(n) }
-            if let n = v as? Int { return String(n) }
-            if let n = v as? NSNumber { return n.stringValue }
-            return nil
-        }()
-        guard let senderId else { return }
+            let senderId: String? = {
+                let v = notification.userInfo?["senderId"]
+                if let s = v as? String { return s }
+                if let n = v as? Int64 { return String(n) }
+                if let n = v as? Int { return String(n) }
+                if let n = v as? NSNumber { return n.stringValue }
+                return nil
+            }()
+            guard let senderId else { return }
 
-        guard senderId != context.currentUser?.id else { return }
+            guard senderId != context.currentUser?.id else { return }
 
-        if clanId != 0 {
-            if let data = notification.userInfo?["serializedChannelMessage"] as? Data,
-               let m = try? Mezon_Api_ChannelMessage(serializedBytes: data)
-            {
-                var topicId = Self.int64UserInfo(notification.userInfo?["topicId"]) ?? 0
-                if topicId == 0, m.topicID != 0 { topicId = m.topicID }
-                if topicId != 0, ActiveChannelTracker.currentChannelId == topicId { return }
-                if topicId == 0, ActiveChannelTracker.currentChannelId == channelId { return }
-                if topicId != 0,
-                   Self.checkMessageMentionsUser(
-                    m, currentUserId: context.currentUser?.id,
-                    currentUserRoleIds: Self.getCurrentUserRoleIds(context: context))
+            if clanId != 0 {
+                if let data = notification.userInfo?["serializedChannelMessage"] as? Data,
+                   let m = try? Mezon_Api_ChannelMessage(serializedBytes: data)
                 {
-                    let mid = String(m.messageID)
-                    let dedup: String
-                    if !mid.isEmpty, mid != "0" { dedup = "\(topicId)_\(mid)" }
-                    else { dedup = "\(topicId)_\(m.createTimeSeconds)" }
-                    guard !processedMentionIds.contains(dedup) else { return }
-                    processedMentionIds.insert(dedup)
-                    if processedMentionIds.count > 500 { processedMentionIds.removeAll() }
-                    for i in 0..<clans.count {
-                        if clans[i].clanID == clanId { clans[i].badgeCount += 1 }
+                    var topicId = Self.int64UserInfo(notification.userInfo?["topicId"]) ?? 0
+                    if topicId == 0, m.topicID != 0 { topicId = m.topicID }
+                    if topicId != 0, ActiveChannelTracker.currentChannelId == topicId { return }
+                    if topicId == 0, ActiveChannelTracker.currentChannelId == channelId { return }
+                    if topicId != 0,
+                       Self.checkMessageMentionsUser(
+                        m, currentUserId: context.currentUser?.id,
+                        currentUserRoleIds: Self.getCurrentUserRoleIds(context: context))
+                    {
+                        let mid = String(m.messageID)
+                        let dedup: String
+                        if !mid.isEmpty, mid != "0" { dedup = "\(topicId)_\(mid)" }
+                        else { dedup = "\(topicId)_\(m.createTimeSeconds)" }
+                        guard !processedMentionIds.contains(dedup) else { return }
+                        processedMentionIds.insert(dedup)
+                        if processedMentionIds.count > 500 { processedMentionIds.removeAll() }
+                        for i in 0..<clans.count {
+                            if clans[i].clanID == clanId { clans[i].badgeCount += 1 }
+                        }
+                        clansPipe.putNext(clans)
+                        persistClanRecordsToPostbox(clans)
+                        needsReloadPipe.putNext(())
                     }
-                    clansPipe.putNext(clans)
-                    persistClanRecordsToPostbox(clans)
-                    needsReloadPipe.putNext(())
                 }
+                return
             }
-            return
-        }
 
-        guard (notification.userInfo?["incrementDmBadge"] as? Bool) == true else { return }
+            guard (notification.userInfo?["incrementDmBadge"] as? Bool) == true else { return }
 
-        let ts: UInt32
-        if let t = notification.userInfo?["timestampSeconds"] as? UInt32 { ts = t }
-        else if let t = notification.userInfo?["timestampSeconds"] as? Int { ts = UInt32(clamping: t) }
-        else { ts = UInt32(Date().timeIntervalSince1970) }
+            let ts: UInt32
+            if let t = notification.userInfo?["timestampSeconds"] as? UInt32 { ts = t }
+            else if let t = notification.userInfo?["timestampSeconds"] as? Int { ts = UInt32(clamping: t) }
+            else { ts = UInt32(Date().timeIntervalSince1970) }
 
-        if let idx = unreadDMs.firstIndex(where: { $0.channelID == channelId }) {
-            unreadDMs[idx].countMessUnread += 1
-            var header = unreadDMs[idx].lastSentMessage
-            header.timestampSeconds = ts
-            unreadDMs[idx].lastSentMessage = header
-            unreadDMsPipe.putNext(unreadDMs)
-            needsReloadPipe.putNext(())
-            return
-        }
-
-        if var ch = context.account.postbox.getDMChannelDescription(channelId: channelId) {
-            ch.countMessUnread = max(1, ch.countMessUnread + 1)
-            var header = ch.lastSentMessage
-            header.timestampSeconds = ts
-            ch.lastSentMessage = header
-            var next = unreadDMs
-            next.append(ch)
-            next.sort { a, b in
-                let ta = a.hasLastSentMessage ? a.lastSentMessage.timestampSeconds : 0
-                let tb = b.hasLastSentMessage ? b.lastSentMessage.timestampSeconds : 0
-                return ta > tb
+            if let idx = unreadDMs.firstIndex(where: { $0.channelID == channelId }) {
+                unreadDMs[idx].countMessUnread += 1
+                var header = unreadDMs[idx].lastSentMessage
+                header.timestampSeconds = ts
+                unreadDMs[idx].lastSentMessage = header
+                unreadDMsPipe.putNext(unreadDMs)
+                needsReloadPipe.putNext(())
+                return
             }
-            setUnreadDMs(next)
-            scheduleFetchUnreadDMsDebounced()
-            return
-        }
 
-        fetchUnreadDMs()
+            if var ch = context.account.postbox.getDMChannelDescription(channelId: channelId) {
+                ch.countMessUnread = max(1, ch.countMessUnread + 1)
+                var header = ch.lastSentMessage
+                header.timestampSeconds = ts
+                ch.lastSentMessage = header
+                var next = unreadDMs
+                next.append(ch)
+                next.sort { a, b in
+                    let ta = a.hasLastSentMessage ? a.lastSentMessage.timestampSeconds : 0
+                    let tb = b.hasLastSentMessage ? b.lastSentMessage.timestampSeconds : 0
+                    return ta > tb
+                }
+                setUnreadDMs(next)
+                scheduleFetchUnreadDMsDebounced()
+                return
+            }
+
+            fetchUnreadDMs()
+        }
     }
 
+    @available(iOS 13.0, *)
     private func scheduleFetchUnreadDMsDebounced() {
         debouncedUnreadDmFetchWorkItem?.cancel()
         let item = DispatchWorkItem { [weak self] in
@@ -440,10 +462,11 @@ final class ClanListViewController: ViewController {
         showDiscoverEmptyOverlayPipe.putNext(show)
     }
 
-    private var loadClansTask: Task<Void, Never>?
+    private var loadClansTask: CancelHandle?
     private var lastLoadClansAt: Date?
     private let loadClansCooldown: TimeInterval = 2.0
 
+    @available(iOS 13.0, *)
     func loadClans() {
         if loadClansTask != nil { return }
         if let last = lastLoadClansAt, Date().timeIntervalSince(last) < loadClansCooldown { return }
@@ -515,7 +538,7 @@ final class ClanListViewController: ViewController {
                 }
             }
         }
-        loadClansTask = task
+        loadClansTask = CancelHandle { task.cancel() }
     }
 
     private var rapidClanSwitchCount = 0
@@ -525,6 +548,7 @@ final class ClanListViewController: ViewController {
     private let rapidClanSwitchThreshold = 5
     private let rapidClanSwitchNoticeCooldown: TimeInterval = 30
 
+    @available(iOS 13.0, *)
     private func handleUserClanSelection(_ clan: Mezon_Api_ClanDesc) {
         noteRapidClanSwitchAndWarnIfNeeded()
         select(clan: clan)
@@ -547,6 +571,7 @@ final class ClanListViewController: ViewController {
         RapidClanSwitchNotice.show()
     }
 
+    @available(iOS 13.0, *)
     func select(clan: Mezon_Api_ClanDesc) {
         onClanSelected?()
         context.currentClanId = clan.clanID
@@ -562,6 +587,7 @@ final class ClanListViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     func removeClanAndSelectNext(removedClanId: Int64) {
         guard clans.contains(where: { $0.clanID == removedClanId }) else { return }
 
@@ -600,10 +626,11 @@ final class ClanListViewController: ViewController {
     private func applyUnreadDMsFromCache() {
     }
 
-    private var fetchUnreadDMsTask: Task<Void, Never>?
+    private var fetchUnreadDMsTask: CancelHandle?
     private var lastFetchUnreadDMsAt: Date?
     private let fetchUnreadDMsCooldown: TimeInterval = 2.0
 
+    @available(iOS 13.0, *)
     func fetchUnreadDMs() {
         if fetchUnreadDMsTask != nil { return }
         if let last = lastFetchUnreadDMsAt, Date().timeIntervalSince(last) < fetchUnreadDMsCooldown {
@@ -643,7 +670,7 @@ final class ClanListViewController: ViewController {
                 self.applyUnreadDMsFromCache()
             }
         }
-        fetchUnreadDMsTask = task
+        fetchUnreadDMsTask = CancelHandle { task.cancel() }
     }
 
 
@@ -686,20 +713,22 @@ final class ClanListViewController: ViewController {
         return result
     }
 
-    private var fetchClanDataDebounceTask: Task<Void, Never>?
+    private var fetchClanDataDebounceTask: CancelHandle?
     private let fetchClanDataDebounceNanos: UInt64 = 350_000_000
 
+    @available(iOS 13.0, *)
     private func fetchClanData(clanId: Int64) {
         guard clanId != 0 else { return }
         context.engine.clanData.cancelFetchAllClanData(exceptClanId: clanId)
         fetchClanDataDebounceTask?.cancel()
-        fetchClanDataDebounceTask = Task { @MainActor [weak self] in
+        let fetchClanDataDebounceTaskWork = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: self?.fetchClanDataDebounceNanos ?? 0)
             guard !Task.isCancelled, let self, self.context.currentClanId == clanId else { return }
             guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
             guard self.context.currentClanId == clanId else { return }
             await self.context.engine.clanData.fetchAllClanDataIfNeeded(clanId: clanId, token: token)
         }
+        fetchClanDataDebounceTask = CancelHandle { fetchClanDataDebounceTaskWork.cancel() }
     }
 
     private static func int64UserInfo(_ value: Any?) -> Int64? {

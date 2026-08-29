@@ -285,7 +285,11 @@ open class NavigationController: UINavigationController, ContainableController, 
         case .none:
             normalStatusBarStyle = .default
         case .black:
-            normalStatusBarStyle = .darkContent
+            if #available(iOS 13.0, *) {
+                normalStatusBarStyle = .darkContent
+            } else {
+                normalStatusBarStyle = .default
+            }
         case .white:
             normalStatusBarStyle = .lightContent
         }
@@ -423,7 +427,9 @@ open class NavigationController: UINavigationController, ContainableController, 
 
         self.scheduledLayoutTransitionRequest = nil
 
-        self.updateContainers(layout: layout, transition: transition)
+        if #available(iOS 13.0, *) {
+            self.updateContainers(layout: layout, transition: transition)
+        }
     }
 
     private weak var currentTopVisibleOverlayContainerStatusBar: NavigationOverlayContainer? = nil
@@ -435,7 +441,9 @@ open class NavigationController: UINavigationController, ContainableController, 
             return
         }
         if let layout = self.validLayout {
-            self.updateContainers(layout: layout, transition: transition)
+            if #available(iOS 13.0, *) {
+                self.updateContainers(layout: layout, transition: transition)
+            }
         }
     }
 
@@ -1803,7 +1811,9 @@ open class NavigationController: UINavigationController, ContainableController, 
             strongSelf.updateContainersNonReentrant(transition: .immediate)
         }
         if let layout = self.validLayout {
-            self.updateContainers(layout: layout, transition: .immediate)
+            if #available(iOS 13.0, *) {
+                self.updateContainers(layout: layout, transition: .immediate)
+            }
         }
     }
 
@@ -1811,7 +1821,9 @@ open class NavigationController: UINavigationController, ContainableController, 
         if self.currentStatusBarExternalHidden != value {
             self.currentStatusBarExternalHidden = value
             if let layout = self.validLayout {
-                self.updateContainers(layout: layout, transition: transition)
+                if #available(iOS 13.0, *) {
+                    self.updateContainers(layout: layout, transition: transition)
+                }
             }
         }
     }

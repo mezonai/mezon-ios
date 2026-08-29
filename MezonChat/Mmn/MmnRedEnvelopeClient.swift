@@ -105,6 +105,7 @@ enum MmnRedEnvelopeClient {
         return url
     }
 
+    @available(iOS 13.0, *)
     private static func zkCredentials(userId: String) throws -> (proof: String, publicInput: String, publicKey: String) {
         MmnWalletStore.shared.bind(userId: userId)
         guard let zk = MmnWalletStore.shared.zkProofs,
@@ -114,6 +115,7 @@ enum MmnRedEnvelopeClient {
         return (zk.proof, zk.publicInput, ephemeral.publicKeyBase58)
     }
 
+    @available(iOS 13.0, *)
     static func claimAmount(luckyMoneyId: String, userId: String) async throws -> MmnRedEnvelopeClaimAmountData {
         let cred = try zkCredentials(userId: userId)
         let url = try requestURL(path: "api/v1/red-envelopes/qr/claim-amount", query: ["id": luckyMoneyId])
@@ -144,6 +146,7 @@ enum MmnRedEnvelopeClient {
         throw MmnRedEnvelopeError.invalidPayload
     }
 
+    @available(iOS 13.0, *)
     static func claimRedEnvelope(luckyMoneyId: String, splitMoneyId: Int64, userId: String) async throws {
         let cred = try zkCredentials(userId: userId)
         let url = try requestURL(

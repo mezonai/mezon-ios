@@ -88,8 +88,8 @@ final class PollOptionRowNode: ASDisplayNode {
         checkmarkNode.cornerRadius = allowMultiple ? 4 : size / 2
         checkmarkNode.clipsToBounds = true
 
-        let config = UIImage.SymbolConfiguration(pointSize: 10, weight: .bold)
-        checkIconNode.image = UIImage(systemName: "checkmark", withConfiguration: config)?
+        let config = MezonSymbolConfiguration(pointSize: 10, weight: .bold)
+        checkIconNode.image = UIImage.mezonSystemImage("checkmark", withConfiguration: config)?
             .withRenderingMode(.alwaysTemplate)
         checkIconNode.tintColor = hasVoted ? .white : UIColor.theme.primary
         checkIconNode.contentMode = .scaleAspectFit

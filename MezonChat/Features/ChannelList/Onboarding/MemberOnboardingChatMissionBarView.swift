@@ -23,8 +23,8 @@ final class MemberOnboardingChatMissionBarView: UIControl {
 
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.contentMode = .scaleAspectFit
-        iconView.image = UIImage(systemName: "number", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .semibold))?
-            .withTintColor(UIColor.theme.textStrong, renderingMode: .alwaysOriginal)
+        iconView.image = UIImage.mezonSystemImage("number", withConfiguration: MezonSymbolConfiguration(pointSize: 16.sf, weight: .semibold))?
+            .mezonTinted(UIColor.theme.textStrong, renderingMode: .alwaysOriginal)
         iconView.isUserInteractionEnabled = false
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -77,8 +77,8 @@ final class MemberOnboardingChatMissionBarView: UIControl {
         topSeparator.backgroundColor = UIColor.theme.border
         titleLabel.textColor = UIColor.theme.textStrong
         subtitleLabel.textColor = UIColor.theme.text
-        iconView.image = UIImage(systemName: "number", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .semibold))?
-            .withTintColor(UIColor.theme.textStrong, renderingMode: .alwaysOriginal)
+        iconView.image = UIImage.mezonSystemImage("number", withConfiguration: MezonSymbolConfiguration(pointSize: 16.sf, weight: .semibold))?
+            .mezonTinted(UIColor.theme.textStrong, renderingMode: .alwaysOriginal)
     }
 
     @objc private func handleTap() {

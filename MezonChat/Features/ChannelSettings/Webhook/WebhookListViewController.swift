@@ -1,6 +1,5 @@
 import UIKit
 
-@MainActor
 final class WebhookListViewController: BaseViewController {
 
     private let context: AccountContext
@@ -63,20 +62,26 @@ final class WebhookListViewController: BaseViewController {
     override func setupUI() {
         view.backgroundColor = UIColor.theme.primary
         setupHeader()
-        setupTableView()
+        if #available(iOS 13.0, *) {
+            setupTableView()
+        }
         setupEmptyView()
         setupAddButton()
     }
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        fetchWebhooks()
+        if #available(iOS 13.0, *) {
+            fetchWebhooks()
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: animated)
-        fetchWebhooks()
+        if #available(iOS 13.0, *) {
+            fetchWebhooks()
+        }
     }
 
     override func applyTheme() {
@@ -94,7 +99,7 @@ final class WebhookListViewController: BaseViewController {
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
 
-        backButton.setImage(UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        backButton.setImage(UIImage.mezonSystemImage("chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
         
@@ -249,8 +254,8 @@ final class WebhookListViewController: BaseViewController {
     }
 
     private func setupAddButton() {
-        addButton.setImage(UIImage(systemName: "plus")?.withConfiguration(
-            UIImage.SymbolConfiguration(pointSize: 22.sf, weight: .bold)
+        addButton.setImage(UIImage.mezonSystemImage("plus")?.mezonWithConfiguration(
+            MezonSymbolConfiguration(pointSize: 22.sf, weight: .bold)
         ), for: .normal)
         addButton.tintColor = .white
         addButton.backgroundColor = UIColor.theme.bgViolet
@@ -272,9 +277,12 @@ final class WebhookListViewController: BaseViewController {
     }
 
     @objc private func addTapped() {
-        handleAddWebhook()
+        if #available(iOS 13.0, *) {
+            handleAddWebhook()
+        }
     }
 
+    @available(iOS 13.0, *)
     private func fetchWebhooks() {
         Task { [weak self] in
             guard let self else { return }
@@ -308,6 +316,7 @@ final class WebhookListViewController: BaseViewController {
         tableView.isHidden = webhooks.isEmpty
     }
 
+    @available(iOS 13.0, *)
     private func handleAddWebhook() {
         guard !isCreating else { return }
         
@@ -330,6 +339,7 @@ final class WebhookListViewController: BaseViewController {
         performAddWebhook(for: self.channelId)
     }
 
+    @available(iOS 13.0, *)
     private func performAddWebhook(for channelId: Int64) {
         isCreating = true
         addButton.isEnabled = false
@@ -370,6 +380,7 @@ final class WebhookListViewController: BaseViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func openEditWebhook(_ webhook: Mezon_Api_Webhook) {
         let vc = WebhookEditViewController(
             context: context,
@@ -417,8 +428,10 @@ extension WebhookListViewController: UITableViewDelegate, UITableViewDataSource 
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        tableView.deselectRow(at: indexPath, animated: true)
-        openEditWebhook(webhooks[indexPath.row])
+        if #available(iOS 13.0, *) {
+            tableView.deselectRow(at: indexPath, animated: true)
+            openEditWebhook(webhooks[indexPath.row])
+        }
     }
 }
 
@@ -473,7 +486,7 @@ final class WebhookItemCell: UITableViewCell {
         contentView.addSubview(subtitleLabel)
 
         let arrowImage = UIImage(named: "Channel/ChevronRight")?.withRenderingMode(.alwaysTemplate)
-            ?? UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate)
+            ?? UIImage.mezonSystemImage("chevron.right")?.withRenderingMode(.alwaysTemplate)
         chevronView.image = arrowImage
         chevronView.tintColor = UIColor.theme.textStrong
         chevronView.contentMode = .scaleAspectFit

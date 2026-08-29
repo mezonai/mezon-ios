@@ -8,9 +8,9 @@ final class UpdatePhoneNumberViewController: BaseViewController {
     private let headerView = UIView()
     private let backButton: UIButton = {
         let btn = UIButton(type: .system)
-        let img = UIImage(
-            systemName: "chevron.left",
-            withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
+        let img = UIImage.mezonSystemImage(
+            "chevron.left",
+            withConfiguration: MezonSymbolConfiguration(pointSize: 18, weight: .medium)
         )
         btn.setImage(img, for: .normal)
         btn.translatesAutoresizingMaskIntoConstraints = false
@@ -52,8 +52,8 @@ final class UpdatePhoneNumberViewController: BaseViewController {
     }()
     private let dropdownIcon: UIImageView = {
         let iv = UIImageView()
-        iv.image = UIImage(systemName: "chevron.down",
-                           withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold))
+        iv.image = UIImage.mezonSystemImage("chevron.down",
+                           withConfiguration: MezonSymbolConfiguration(pointSize: 12, weight: .semibold))
         iv.contentMode = .scaleAspectFit
         iv.translatesAutoresizingMaskIntoConstraints = false
         return iv
@@ -96,7 +96,7 @@ final class UpdatePhoneNumberViewController: BaseViewController {
     }()
 
     private let loadingIndicator: UIActivityIndicatorView = {
-        let ai = UIActivityIndicatorView(style: .medium)
+        let ai = UIActivityIndicatorView.mezonMedium()
         ai.hidesWhenStopped = true
         ai.color = .white
         ai.translatesAutoresizingMaskIntoConstraints = false
@@ -367,32 +367,35 @@ final class UpdatePhoneNumberViewController: BaseViewController {
     }
 
     @objc private func nextTapped() {
-        let phone = (phoneTextField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !phone.isEmpty, isValidPhone(phone, prefix: selectedCountry.prefix) else { return }
+        if #available(iOS 13.0, *) {
+            let phone = (phoneTextField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !phone.isEmpty, isValidPhone(phone, prefix: selectedCountry.prefix) else { return }
 
-        let fullPhone = buildFullPhone()
+            let fullPhone = buildFullPhone()
 
-        if let cachedTime = getCooldownTime(for: fullPhone) {
-            let elapsed = Int(Date().timeIntervalSince1970 - cachedTime)
-            let remaining = Self.otpCooldownSeconds - elapsed
-            if remaining > 0 {
-                Toast.error(String(format: L(L10n.PhoneSetting.tooFast), remaining))
+            if let cachedTime = getCooldownTime(for: fullPhone) {
+                let elapsed = Int(Date().timeIntervalSince1970 - cachedTime)
+                let remaining = Self.otpCooldownSeconds - elapsed
+                if remaining > 0 {
+                    Toast.error(String(format: L(L10n.PhoneSetting.tooFast), remaining))
+                    return
+                }
+            }
+
+            if fullPhone == currentPhone, !currentPhone.isEmpty {
+                Toast.error(L(L10n.PhoneSetting.phoneAlreadyLinked))
                 return
             }
-        }
 
-        if fullPhone == currentPhone, !currentPhone.isEmpty {
-            Toast.error(L(L10n.PhoneSetting.phoneAlreadyLinked))
-            return
+            callLinkPhoneAPI(phone: fullPhone)
         }
-
-        callLinkPhoneAPI(phone: fullPhone)
     }
 
     @objc private func backTapped() {
         navigationController?.popViewController(animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func callLinkPhoneAPI(phone: String) {
         setLoading(true)
 

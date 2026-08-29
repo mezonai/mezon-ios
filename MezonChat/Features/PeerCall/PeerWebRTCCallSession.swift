@@ -47,7 +47,7 @@ enum PeerCallDirection {
     case incoming
 }
 
-@MainActor
+@available(iOS 13.0, *)
 final class PeerWebRTCCallSession: NSObject {
 
     let direction: PeerCallDirection
@@ -75,18 +75,18 @@ final class PeerWebRTCCallSession: NSObject {
     private var outgoingRingTimer: DispatchWorkItem?
     private var incomingRingTimer: DispatchWorkItem?
     private var outgoingConnectTimeoutTimer: DispatchWorkItem?
-    private var disconnectRecoveryTask: Task<Void, Never>?
-    private var deferredRemoteVideoScanTask: Task<Void, Never>?
-    private var rescanRemoteVideoDebounceTask: Task<Void, Never>?
-    private var beginOutgoingCallTask: Task<Void, Never>?
-    private var answerIncomingCallTask: Task<Void, Never>?
-    private var strayPreWarmIceFollowupTask: Task<Void, Never>?
+    private var disconnectRecoveryTask: CancelHandle?
+    private var deferredRemoteVideoScanTask: CancelHandle?
+    private var rescanRemoteVideoDebounceTask: CancelHandle?
+    private var beginOutgoingCallTask: CancelHandle?
+    private var answerIncomingCallTask: CancelHandle?
+    private var strayPreWarmIceFollowupTask: CancelHandle?
     private var isScanningTransceivers = false
     private var delegateDeliveredRemoteVideoTrackIds: [String] = []
     private var lastPublishedRemoteVideoTrackId: String?
-    private var remoteVideoInboundBytesProbeTask: Task<Void, Never>?
-    private var remoteVideoInboundMonitorTask: Task<Void, Never>?
-    private var audioFlowVerifyTask: Task<Void, Never>?
+    private var remoteVideoInboundBytesProbeTask: CancelHandle?
+    private var remoteVideoInboundMonitorTask: CancelHandle?
+    private var audioFlowVerifyTask: CancelHandle?
     private var beganAudioFlowVerification = false
     private var lastEmittedRemoteVideoInboundActive = false
 
@@ -231,6 +231,7 @@ final class PeerWebRTCCallSession: NSObject {
         _ = threadSafePreWarmSignaling.takeAll()
     }
 
+    @available(iOS 13.0, *)
     private func ensureCallStillActive() throws {
         if ended || Task.isCancelled {
             throw PeerWebRTCCallSessionError.cancelled
@@ -285,10 +286,11 @@ final class PeerWebRTCCallSession: NSObject {
         }
     }
 
+    @available(iOS 13.0, *)
     func beginOutgoingCall() {
         onStatusLabel?(direction == .outgoing ? PeerCallLocalizedStrings.statusRinging : "")
         beginOutgoingCallTask?.cancel()
-        beginOutgoingCallTask = Task { @MainActor [weak self] in
+        let beginOutgoingCallTaskWork = Task { @MainActor [weak self] in
             guard let self else { return }
             let micOk = await Self.requestMicPermission()
             guard !Task.isCancelled, !ended else { return }
@@ -308,6 +310,7 @@ final class PeerWebRTCCallSession: NSObject {
                 finishCall(sendQuit: false)
             }
         }
+        beginOutgoingCallTask = CancelHandle { beginOutgoingCallTaskWork.cancel() }
     }
 
     func scheduleIncomingRingTimeout() {
@@ -321,13 +324,15 @@ final class PeerWebRTCCallSession: NSObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 45, execute: work)
     }
 
+    @available(iOS 13.0, *)
     func rescanRemoteVideoAttachment() {
         rescanRemoteVideoDebounceTask?.cancel()
-        rescanRemoteVideoDebounceTask = Task { @MainActor in
+        let rescanRemoteVideoDebounceTaskWork = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 120_000_000)
             guard !Task.isCancelled, !ended else { return }
             scanTransceiversForRemoteVideo()
         }
+        rescanRemoteVideoDebounceTask = CancelHandle { rescanRemoteVideoDebounceTaskWork.cancel() }
     }
 
     func resyncRemoteAttachmentWithUI() {
@@ -346,6 +351,8 @@ final class PeerWebRTCCallSession: NSObject {
         return channelId == ch && peerUserId == peer
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private static func waitForCallKitReadyForIncomingAnswer() async {
         let rtc = RTCAudioSession.sharedInstance()
         if rtc.isActive {
@@ -380,6 +387,8 @@ final class PeerWebRTCCallSession: NSObject {
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func configureAudioSessionWithIncomingRetry() async throws {
         do {
             try configureAudioSession()
@@ -390,6 +399,7 @@ final class PeerWebRTCCallSession: NSObject {
         }
     }
 
+    @available(iOS 13.0, *)
     func answerIncomingCall() {
         guard !incomingAnswerFlowStarted else { return }
         incomingAnswerFlowStarted = true
@@ -397,7 +407,7 @@ final class PeerWebRTCCallSession: NSObject {
         PeerCallSoundPlayer.shared.stopRinging()
         onStatusLabel?(PeerCallLocalizedStrings.statusConnecting)
         answerIncomingCallTask?.cancel()
-        answerIncomingCallTask = Task { @MainActor [weak self] in
+        let answerIncomingCallTaskWork = Task { @MainActor [weak self] in
             guard let self else { return }
             let micOk = await Self.requestMicPermission()
             guard !Task.isCancelled, !ended else { return }
@@ -429,8 +439,11 @@ final class PeerWebRTCCallSession: NSObject {
                 finishCall(sendQuit: true)
             }
         }
+        answerIncomingCallTask = CancelHandle { answerIncomingCallTaskWork.cancel() }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     func prepareIncomingAnswerInBackground() async throws {
         guard !ended, !isAnswerPrepared, peerConnection == nil, !preWarmInFlight else { return }
         guard direction == .incoming else { return }
@@ -451,6 +464,8 @@ final class PeerWebRTCCallSession: NSObject {
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func performPreWarmBuild(offerCompressed: String) async throws {
         try ensureCallStillActive()
         let factory = Self.makePeerConnectionFactory()
@@ -563,9 +578,10 @@ final class PeerWebRTCCallSession: NSObject {
         scheduleStrayPreWarmIceFollowupFlush()
     }
 
+    @available(iOS 13.0, *)
     private func scheduleStrayPreWarmIceFollowupFlush() {
         strayPreWarmIceFollowupTask?.cancel()
-        strayPreWarmIceFollowupTask = Task { @MainActor [weak self] in
+        let strayPreWarmIceFollowupTaskWork = Task { @MainActor [weak self] in
             for delayNs in [120_000_000, 360_000_000, 900_000_000] {
                 try? await Task.sleep(nanoseconds: UInt64(delayNs))
                 guard let self, !self.ended else { return }
@@ -573,8 +589,11 @@ final class PeerWebRTCCallSession: NSObject {
                 self.flushPreWarmSignalingDirectly()
             }
         }
+        strayPreWarmIceFollowupTask = CancelHandle { strayPreWarmIceFollowupTaskWork.cancel() }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func waitForIncomingOfferIfNeeded() async throws {
         guard direction == .incoming else { return }
         for _ in 0..<100 {
@@ -586,6 +605,8 @@ final class PeerWebRTCCallSession: NSObject {
         throw PeerWebRTCCallSessionError.missingSDP
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func waitForPreWarmCompletionIfActive() async {
         for _ in 0..<60 {
             if !preWarmInFlight { return }
@@ -608,6 +629,7 @@ final class PeerWebRTCCallSession: NSObject {
         finishCall(sendQuit: true)
     }
 
+    @available(iOS 13.0, *)
     func handleIncomingSignaling(_ msg: Mezon_Realtime_WebrtcSignalingFwd) {
         guard msg.channelID == channelId else {
             return
@@ -628,15 +650,15 @@ final class PeerWebRTCCallSession: NSObject {
                 }
                 return
             }
-            Task {
+            Task { @MainActor in
                 await handleRenegotiationOffer(msg.jsonData)
             }
         case WebRTCSignalingDataType.sdpAnswer:
-            Task {
+            Task { @MainActor in
                 await applyCompressedAnswer(msg.jsonData)
             }
         case WebRTCSignalingDataType.iceCandidate:
-            Task {
+            Task { @MainActor in
                 await queueOrApplyIce(msg.jsonData)
             }
         case WebRTCSignalingDataType.sdpStatusRemoteMedia:
@@ -694,6 +716,7 @@ final class PeerWebRTCCallSession: NSObject {
         try? applySpeakerOutputRoute()
     }
 
+    @available(iOS 13.0, *)
     func switchCamera() {
         guard videoCapturer != nil, localVideoTrack != nil, localCameraEnabled else { return }
         preferredCameraPosition = preferredCameraPosition == .front ? .back : .front
@@ -704,6 +727,8 @@ final class PeerWebRTCCallSession: NSObject {
         })
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     func toggleCameraEnabled() {
         if localCameraEnabled {
             localCameraEnabled = false
@@ -724,6 +749,8 @@ final class PeerWebRTCCallSession: NSObject {
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func enableCameraMidCall() async {
         guard let pc = peerConnection, let factory = peerFactory else {
             return
@@ -781,6 +808,8 @@ final class PeerWebRTCCallSession: NSObject {
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func createAndSendOffer() async throws {
         guard let pc = peerConnection else { return }
         let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
@@ -935,6 +964,8 @@ final class PeerWebRTCCallSession: NSObject {
         onLocalVideoTrack?(nil)
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private static func requestMicPermission() async -> Bool {
         await withCheckedContinuation { cont in
             AVAudioSession.sharedInstance().requestRecordPermission { ok in
@@ -943,6 +974,8 @@ final class PeerWebRTCCallSession: NSObject {
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private static func requestCameraPermission() async -> Bool {
         await withCheckedContinuation { cont in
             AVCaptureDevice.requestAccess(for: .video) { ok in
@@ -1065,6 +1098,8 @@ final class PeerWebRTCCallSession: NSObject {
         track.isEnabled = false
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func setPeerRemoteDescription(_ sd: RTCSessionDescription) async throws {
         guard let pc = peerConnection else {
             throw PeerWebRTCCallSessionError.peerConnectionCreateFailed
@@ -1254,6 +1289,8 @@ final class PeerWebRTCCallSession: NSObject {
         return max(1, Int(fps.rounded()))
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func startOutgoingPeerConnection() async throws {
         try ensureCallStillActive()
         let factory = Self.makePeerConnectionFactory()
@@ -1352,6 +1389,8 @@ final class PeerWebRTCCallSession: NSObject {
         scheduleRemoteVideoPostConnectWork()
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func buildIncomingPeerConnectionAndAnswer() async throws {
         try ensureCallStillActive()
         guard let offerCompressed = pendingOfferCompressed, !offerCompressed.isEmpty else {
@@ -1490,6 +1529,8 @@ final class PeerWebRTCCallSession: NSObject {
         return RTCSessionDescription(type: type, sdp: sdp)
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func applyCompressedAnswer(_ payload: String) async {
         guard !ended else { return }
         guard let pc = peerConnection else { return }
@@ -1526,6 +1567,8 @@ final class PeerWebRTCCallSession: NSObject {
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func handleRenegotiationOffer(_ payload: String) async {
         guard !ended else { return }
         guard let pc = peerConnection else { return }
@@ -1584,6 +1627,8 @@ final class PeerWebRTCCallSession: NSObject {
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func queueOrApplyIce(_ json: String) async {
         guard !ended else { return }
         if peerConnection == nil {
@@ -1593,6 +1638,8 @@ final class PeerWebRTCCallSession: NSObject {
         await applyRemoteIceCandidatePayload(json)
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func applyRemoteIceCandidatePayload(_ json: String) async {
         guard !ended else { return }
         guard let pc = peerConnection else { return }
@@ -1609,6 +1656,8 @@ final class PeerWebRTCCallSession: NSObject {
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func addIceCandidate(_ cand: RTCIceCandidate, pc: RTCPeerConnection) async throws {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             pc.add(cand) { error in
@@ -1638,6 +1687,7 @@ final class PeerWebRTCCallSession: NSObject {
         }
     }
 
+    @available(iOS 13.0, *)
     private func drainPendingRemoteIce() {
         guard let pc = peerConnection else { return }
         let batch = pendingRemoteIce
@@ -1707,13 +1757,14 @@ final class PeerWebRTCCallSession: NSObject {
         )
     }
 
+    @available(iOS 13.0, *)
     private func tryPresentFullyConnectedCallUI() {
         guard iceConnectedOrCompletedForUI || peerConnectionReportedConnectedForUI else { return }
         guard !didPostConnectedStatusToUI else { return }
         if beganAudioFlowVerification { return }
         beganAudioFlowVerification = true
         audioFlowVerifyTask?.cancel()
-        audioFlowVerifyTask = Task { @MainActor in
+        let audioFlowVerifyTaskWork = Task { @MainActor in
             let deadline = Date().addingTimeInterval(12)
             let pollNs: UInt64 = 120_000_000
             while !Task.isCancelled, !self.ended {
@@ -1728,6 +1779,7 @@ final class PeerWebRTCCallSession: NSObject {
                 try? await Task.sleep(nanoseconds: pollNs)
             }
         }
+        audioFlowVerifyTask = CancelHandle { audioFlowVerifyTaskWork.cancel() }
     }
 
     private func forwardLocalMediaStatus() {
@@ -1863,9 +1915,10 @@ final class PeerWebRTCCallSession: NSObject {
         }
     }
 
+    @available(iOS 13.0, *)
     private func scheduleRepublishRemoteVideoFromInboundStatsIfNeeded() {
         remoteVideoInboundBytesProbeTask?.cancel()
-        remoteVideoInboundBytesProbeTask = Task { @MainActor in
+        let remoteVideoInboundBytesProbeTaskWork = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 2_500_000_000)
             guard !Task.isCancelled, !ended, let pc = peerConnection else { return }
             typealias Pick = (track: RTCVideoTrack, bytes: UInt64)
@@ -1883,6 +1936,7 @@ final class PeerWebRTCCallSession: NSObject {
             }
             publishRemoteVideoTrack(best.track, fromPeerDelegate: false)
         }
+        remoteVideoInboundBytesProbeTask = CancelHandle { remoteVideoInboundBytesProbeTaskWork.cancel() }
     }
 
     private func emitRemoteVideoInboundActive(_ active: Bool) {
@@ -1896,9 +1950,10 @@ final class PeerWebRTCCallSession: NSObject {
         scheduleRemoteVideoInboundMonitor()
     }
 
+    @available(iOS 13.0, *)
     private func scheduleRemoteVideoInboundMonitor() {
         remoteVideoInboundMonitorTask?.cancel()
-        remoteVideoInboundMonitorTask = Task { @MainActor in
+        let remoteVideoInboundMonitorTaskWork = Task { @MainActor in
             var prevBytes: UInt64 = 0
             var stallTicks = 0
             while !Task.isCancelled, !ended {
@@ -1933,8 +1988,10 @@ final class PeerWebRTCCallSession: NSObject {
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
             }
         }
+        remoteVideoInboundMonitorTask = CancelHandle { remoteVideoInboundMonitorTaskWork.cancel() }
     }
 
+    @available(iOS 13.0, *)
     private nonisolated static func maxVideoInboundBytesReceived(
         peerConnection: RTCPeerConnection,
         excludingLocalTrackId: String?
@@ -1949,6 +2006,7 @@ final class PeerWebRTCCallSession: NSObject {
         return maxB
     }
 
+    @available(iOS 13.0, *)
     private nonisolated static func receiverStatisticsReport(
         peerConnection: RTCPeerConnection,
         receiver: RTCRtpReceiver
@@ -1958,6 +2016,7 @@ final class PeerWebRTCCallSession: NSObject {
         }
     }
 
+    @available(iOS 13.0, *)
     private nonisolated static func hasInboundAudioRtp(peerConnection: RTCPeerConnection) async -> Bool {
         for tx in peerConnection.transceivers where tx.mediaType == .audio {
             let report = await receiverStatisticsReport(peerConnection: peerConnection, receiver: tx.receiver)
@@ -1997,9 +2056,10 @@ final class PeerWebRTCCallSession: NSObject {
         return maxBytes
     }
 
+    @available(iOS 13.0, *)
     private func scheduleDeferredRemoteVideoScan() {
         deferredRemoteVideoScanTask?.cancel()
-        deferredRemoteVideoScanTask = Task { @MainActor in
+        let deferredRemoteVideoScanTaskWork = Task { @MainActor in
             let delays: [UInt64] = [800_000_000, 2_200_000_000]
             for ns in delays {
                 try? await Task.sleep(nanoseconds: ns)
@@ -2007,11 +2067,13 @@ final class PeerWebRTCCallSession: NSObject {
                 scanTransceiversForRemoteVideo()
             }
         }
+        deferredRemoteVideoScanTask = CancelHandle { deferredRemoteVideoScanTaskWork.cancel() }
     }
 
+    @available(iOS 13.0, *)
     private func scheduleDisconnectRecoveryIfNeeded() {
         disconnectRecoveryTask?.cancel()
-        disconnectRecoveryTask = Task { @MainActor in
+        let disconnectRecoveryTaskWork = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 22_000_000_000)
             guard !Task.isCancelled else { return }
             guard !self.ended else { return }
@@ -2020,6 +2082,7 @@ final class PeerWebRTCCallSession: NSObject {
                 self.finishCall(sendQuit: true)
             }
         }
+        disconnectRecoveryTask = CancelHandle { disconnectRecoveryTaskWork.cancel() }
     }
 }
 
@@ -2041,7 +2104,9 @@ private struct MakeCallPushBody: Encodable {
     let sentAt: String
 }
 
+@available(iOS 13.0, *)
 extension PeerWebRTCCallSession: RTCPeerConnectionDelegate {
+    @available(iOS 13.0, *)
     nonisolated func peerConnection(_: RTCPeerConnection, didChange state: RTCPeerConnectionState) {
         if preWarmBackgroundIceFlag.get() { return }
         Task { @MainActor in
@@ -2065,6 +2130,7 @@ extension PeerWebRTCCallSession: RTCPeerConnectionDelegate {
         }
     }
 
+    @available(iOS 13.0, *)
     nonisolated func peerConnection(_: RTCPeerConnection, didChange state: RTCIceConnectionState) {
         if preWarmBackgroundIceFlag.get() { return }
         Task { @MainActor in
@@ -2112,6 +2178,7 @@ extension PeerWebRTCCallSession: RTCPeerConnectionDelegate {
         }
     }
 
+    @available(iOS 13.0, *)
     nonisolated func peerConnection(_: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
         if preWarmBackgroundIceFlag.get() {
             if let data = try? Self.iceCandidateJSONDataForWire(candidate),
@@ -2139,6 +2206,7 @@ extension PeerWebRTCCallSession: RTCPeerConnectionDelegate {
 
     nonisolated func peerConnectionShouldNegotiate(_: RTCPeerConnection) {}
 
+    @available(iOS 13.0, *)
     nonisolated func peerConnection(_: RTCPeerConnection, didAdd rtpReceiver: RTCRtpReceiver, streams: [RTCMediaStream]) {
         if preWarmBackgroundIceFlag.get() { return }
         Task { @MainActor in
@@ -2149,6 +2217,7 @@ extension PeerWebRTCCallSession: RTCPeerConnectionDelegate {
         }
     }
 
+    @available(iOS 13.0, *)
     nonisolated func peerConnection(_: RTCPeerConnection, didStartReceivingOn transceiver: RTCRtpTransceiver) {
         if preWarmBackgroundIceFlag.get() { return }
         Task { @MainActor in
@@ -2160,6 +2229,7 @@ extension PeerWebRTCCallSession: RTCPeerConnectionDelegate {
         }
     }
 
+    @available(iOS 13.0, *)
     nonisolated func peerConnection(_: RTCPeerConnection, didAdd stream: RTCMediaStream) {
         if preWarmBackgroundIceFlag.get() { return }
         Task { @MainActor in
@@ -2171,6 +2241,7 @@ extension PeerWebRTCCallSession: RTCPeerConnectionDelegate {
         }
     }
 
+    @available(iOS 13.0, *)
     nonisolated func peerConnection(_: RTCPeerConnection, didRemove rtpReceiver: RTCRtpReceiver) {
         Task { @MainActor in
             let kind = rtpReceiver.track?.kind ?? "nil"

@@ -30,10 +30,8 @@ enum MemberOnboardingProgress {
     private static let fullyDoneKeyPrefix = "mezon.memberOnboarding.fullyDone."
     private static let missionsKeyPrefix = "mezon.memberOnboarding.missions."
 
-    @MainActor
     private static var missionsByClanId: [Int64: [MemberOnboardingMission]] = [:]
 
-    @MainActor
     static func clearClanData(clanId: Int64) {
         missionsByClanId[clanId] = nil
         UserDefaults.standard.removeObject(forKey: missionsStorageKey(clanId: clanId))
@@ -52,7 +50,6 @@ enum MemberOnboardingProgress {
         UserDefaults.standard.set(data, forKey: missionsStorageKey(clanId: clanId))
     }
 
-    @MainActor
     private static func loadPersistedMissions(clanId: Int64) -> [MemberOnboardingMission] {
         guard let data = UserDefaults.standard.data(forKey: missionsStorageKey(clanId: clanId)),
               let missions = try? JSONDecoder().decode([MemberOnboardingMission].self, from: data),
@@ -63,7 +60,6 @@ enum MemberOnboardingProgress {
         return missions
     }
 
-    @MainActor
     static func isEligible(context: AccountContext, clanId: Int64) -> Bool {
         guard clanId != 0 else { return false }
         if ClanOnboardingProgress.isEligible(context: context, clanId: clanId) { return false }
@@ -75,7 +71,6 @@ enum MemberOnboardingProgress {
         return true
     }
 
-    @MainActor
     static func compute(context: AccountContext, clanId: Int64) -> MemberOnboardingViewState {
         guard isEligible(context: context, clanId: clanId) else { return .hidden }
 
@@ -99,6 +94,7 @@ enum MemberOnboardingProgress {
     }
 
     @MainActor
+    @available(iOS 13.0, *)
     static func fetchData(context: AccountContext, clanId: Int64) async {
         guard clanId != 0 else { return }
         guard clanIsOnboardingEnabled(context: context, clanId: clanId) else {
@@ -155,14 +151,12 @@ enum MemberOnboardingProgress {
         }
     }
 
-    @MainActor
     static func currentMission(context: AccountContext, clanId: Int64) -> MemberOnboardingMission? {
         let state = compute(context: context, clanId: clanId)
         guard state.isVisible, state.completedSteps < state.missions.count else { return nil }
         return state.missions[state.completedSteps]
     }
 
-    @MainActor
     static func resolveChannelLabel(
         channelId: Int64,
         context: AccountContext,
@@ -197,7 +191,7 @@ enum MemberOnboardingProgress {
         return "\(action) #\(channelLabel)"
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     static func performMission(
         _ mission: MemberOnboardingMission,
         at index: Int,
@@ -232,7 +226,7 @@ enum MemberOnboardingProgress {
         }
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     static func completeVisitMissionIfNeeded(
         context: AccountContext,
         clanId: Int64,
@@ -245,7 +239,7 @@ enum MemberOnboardingProgress {
         )
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     static func completeSendMessageMissionIfNeeded(
         context: AccountContext,
         clanId: Int64,
@@ -258,7 +252,7 @@ enum MemberOnboardingProgress {
         )
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     static func completeDoSomethingMissionIfNeeded(context: AccountContext, clanId: Int64) {
         completeMissionIfNeeded(
             context: context,
@@ -267,7 +261,7 @@ enum MemberOnboardingProgress {
         )
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     private static func completeMissionIfNeeded(
         context: AccountContext,
         clanId: Int64,
@@ -307,7 +301,6 @@ enum MemberOnboardingProgress {
         )
     }
 
-    @MainActor
     private static func resolvedServerOnboardingStep(
         steps: [Mezon_Api_OnboardingSteps],
         userId: Int64,
@@ -319,7 +312,6 @@ enum MemberOnboardingProgress {
             .max() ?? 0
     }
 
-    @MainActor
     private static func applyServerProgress(
         userId: Int64,
         clanId: Int64,
@@ -345,7 +337,7 @@ enum MemberOnboardingProgress {
         }
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     private static func reconcileLocalProgressToServerIfNeeded(
         context: AccountContext,
         clanId: Int64,
@@ -370,7 +362,7 @@ enum MemberOnboardingProgress {
         return min(count, missionCount)
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     private static func syncOnboardingStepToServer(
         context: AccountContext,
         clanId: Int64,
@@ -398,7 +390,6 @@ enum MemberOnboardingProgress {
         }
     }
 
-    @MainActor
     private static func resolvedUserId(context: AccountContext) -> Int64 {
         for candidate in resolvedUserIdStringCandidates(context: context) {
             if let userId = Int64(candidate), userId != 0 {
@@ -408,7 +399,6 @@ enum MemberOnboardingProgress {
         return 0
     }
 
-    @MainActor
     private static func resolvedUserIdStringCandidates(context: AccountContext) -> [String] {
         var candidates: [String] = []
         if let id = context.currentUser?.id, !id.isEmpty {
@@ -428,7 +418,7 @@ enum MemberOnboardingProgress {
         return candidates
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     private static func awaitResolvedUserId(
         context: AccountContext,
         maxWaitSeconds: TimeInterval = 8
@@ -467,7 +457,6 @@ enum MemberOnboardingProgress {
         return item.content.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    @MainActor
     private static func clanIsOnboardingEnabled(context: AccountContext, clanId: Int64) -> Bool {
         context.account.postbox.read { tx in
             guard let record = tx.getClan(id: clanId),

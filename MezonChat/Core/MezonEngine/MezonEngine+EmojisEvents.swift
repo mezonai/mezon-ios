@@ -1,19 +1,22 @@
 import Foundation
 
 extension MezonEngine {
-    private static var emojiListSyncTask: Task<Void, Never>?
+    private static var emojiListSyncHandle: CancelHandle?
 
+    @available(iOS 13.0, *)
     func scheduleEmojiListNetworkSync(debounceSeconds: Double = 0.8) {
-        Self.emojiListSyncTask?.cancel()
-        Self.emojiListSyncTask = Task { @MainActor [weak self] in
+        Self.emojiListSyncHandle?.cancel()
+        let task = Task { @MainActor [weak self] in
             if debounceSeconds > 0 {
                 try? await Task.sleep(nanoseconds: UInt64(debounceSeconds * 1_000_000_000))
             }
             guard !Task.isCancelled, let self else { return }
             await self.syncEmojiListFromNetwork()
         }
+        Self.emojiListSyncHandle = CancelHandle { task.cancel() }
     }
 
+    @available(iOS 13.0, *)
     func syncEmojiListFromNetwork() async {
         guard let session = SessionStore.load(),
               !session.token.isEmpty,

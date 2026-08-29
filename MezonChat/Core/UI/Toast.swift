@@ -160,9 +160,16 @@ private final class ToastManager {
     }
 
     private func makeToastHostView() -> UIView? {
-        guard let scene = Self.findWindowScene() else { return nil }
-        let statusBarStyle = Self.currentStatusBarStyle(in: scene)
-        let window = ToastPassthroughWindow(windowScene: scene)
+        let window: ToastPassthroughWindow
+        let statusBarStyle: UIStatusBarStyle
+        if #available(iOS 13.0, *) {
+            guard let scene = Self.findWindowScene() else { return nil }
+            statusBarStyle = Self.currentStatusBarStyle(in: scene)
+            window = ToastPassthroughWindow(windowScene: scene)
+        } else {
+            statusBarStyle = Self.legacyStatusBarStyle()
+            window = ToastPassthroughWindow(frame: UIScreen.main.bounds)
+        }
         window.backgroundColor = .clear
         window.windowLevel = .alert + 1
         let controller = ToastRootViewController(statusBarStyle: statusBarStyle)
@@ -173,6 +180,14 @@ private final class ToastManager {
         return controller.view
     }
 
+    private static func legacyStatusBarStyle() -> UIStatusBarStyle {
+        if let root = UIApplication.shared.keyWindow?.rootViewController {
+            return root.preferredStatusBarStyle
+        }
+        return ThemeManager.shared.preferredStatusBarStyle
+    }
+
+    @available(iOS 13.0, *)
     private static func currentStatusBarStyle(in scene: UIWindowScene) -> UIStatusBarStyle {
         let candidateWindows = scene.windows.filter { window in
             window.isKeyWindow && !window.isHidden && !(window is ToastPassthroughWindow)
@@ -185,6 +200,7 @@ private final class ToastManager {
         return ThemeManager.shared.preferredStatusBarStyle
     }
 
+    @available(iOS 13.0, *)
     private static func findWindowScene() -> UIWindowScene? {
         let scenes = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
@@ -305,7 +321,7 @@ private final class ToastView: UIView {
         iconBg.layer.cornerRadius = 18.swh
         iconBg.translatesAutoresizingMaskIntoConstraints = false
 
-        let iconView = UIImageView(image: UIImage(systemName: config.iconName))
+        let iconView = UIImageView(image: UIImage.mezonSystemImage(config.iconName))
         iconView.tintColor = .white
         iconView.contentMode = .scaleAspectFit
         iconView.translatesAutoresizingMaskIntoConstraints = false
@@ -333,7 +349,7 @@ private final class ToastView: UIView {
         messageLabel.translatesAutoresizingMaskIntoConstraints = false
 
         let closeBtn = UIButton(type: .system)
-        closeBtn.setImage(UIImage(systemName: "xmark"), for: .normal)
+        closeBtn.setImage(UIImage.mezonSystemImage("xmark"), for: .normal)
         closeBtn.tintColor = type == .notification ? UIColor.theme.iconSecondary : .init(white: 0.3, alpha: 1)
         closeBtn.addTarget(self, action: #selector(closeButtonTapped), for: .touchUpInside)
         closeBtn.translatesAutoresizingMaskIntoConstraints = false

@@ -522,7 +522,7 @@ final class EmojiItemCell: UITableViewCell {
 
     private func setLegacyPlaceholderAvatar() {
         creatorTextAvatar.showImageMode()
-        creatorAvatarImageView.image = UIImage(systemName: "person.circle.fill")?
+        creatorAvatarImageView.image = UIImage.mezonSystemImage("person.circle.fill")?
             .withRenderingMode(.alwaysTemplate)
         creatorAvatarImageView.tintColor = UIColor.theme.textDisabled
     }

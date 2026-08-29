@@ -85,7 +85,7 @@ final class GifsPanel: UIView {
     private let categoryBackButton: UIButton = {
         let b = UIButton(type: .system)
         b.translatesAutoresizingMaskIntoConstraints = false
-        b.setImage(UIImage(systemName: "chevron.left"), for: .normal)
+        b.setImage(UIImage.mezonSystemImage("chevron.left"), for: .normal)
         b.tintColor = UIColor.mezonLabel
         return b
     }()
@@ -109,7 +109,7 @@ final class GifsPanel: UIView {
     private let searchIconView: UIImageView = {
         let iv = UIImageView()
         iv.translatesAutoresizingMaskIntoConstraints = false
-        iv.image = UIImage(systemName: "magnifyingglass")
+        iv.image = UIImage.mezonSystemImage("magnifyingglass")
         iv.tintColor = UIColor.mezonSecondaryLabel
         iv.contentMode = .scaleAspectFit
         return iv
@@ -145,7 +145,7 @@ final class GifsPanel: UIView {
     }()
 
     private let loadingIndicator: UIActivityIndicatorView = {
-        let v = UIActivityIndicatorView(style: .medium)
+        let v = UIActivityIndicatorView.mezonMedium()
         v.translatesAutoresizingMaskIntoConstraints = false
         v.hidesWhenStopped = true
         return v
@@ -154,7 +154,7 @@ final class GifsPanel: UIView {
     private let emptyStack: UIStackView = {
         let icon = UIImageView()
         icon.translatesAutoresizingMaskIntoConstraints = false
-        icon.image = UIImage(systemName: "photo.on.rectangle.angled")
+        icon.image = UIImage.mezonSystemImage("photo.on.rectangle.angled")
         icon.tintColor = UIColor.mezonLabel.withAlphaComponent(0.2)
         icon.contentMode = .scaleAspectFit
         NSLayoutConstraint.activate([icon.widthAnchor.constraint(equalToConstant: 48), icon.heightAnchor.constraint(equalToConstant: 48)])
@@ -483,22 +483,25 @@ final class GifsPanel: UIView {
 
 
     @objc private func searchTextChanged() {
-        searchDebounceWorkItem?.cancel()
-        let text = searchTextField.text ?? ""
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if #available(iOS 13.0, *) {
+            searchDebounceWorkItem?.cancel()
+            let text = searchTextField.text ?? ""
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if trimmed.isEmpty {
-            resetCategoryState()
-            return
-        }
+            if trimmed.isEmpty {
+                resetCategoryState()
+                return
+            }
 
-        let work = DispatchWorkItem { [weak self] in
-            self?.performSearch(query: trimmed)
+            let work = DispatchWorkItem { [weak self] in
+                self?.performSearch(query: trimmed)
+            }
+            searchDebounceWorkItem = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
         }
-        searchDebounceWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
     }
 
+    @available(iOS 13.0, *)
     private func performSearch(query: String) {
         guard MezonEnvironment.isKlipyConfigured else { return }
         displayMode = .loading
@@ -528,6 +531,7 @@ final class GifsPanel: UIView {
         }
     }
     
+    @available(iOS 13.0, *)
     private func performCategorySearch(query: String) {
         guard MezonEnvironment.isKlipyConfigured else { return }
         displayMode = .loading
@@ -563,10 +567,12 @@ final class GifsPanel: UIView {
     }
 
     private func handleCategoryTap(_ category: KlipyCategory) {
-        gifSearchActive = true
-        currentGifCategory = category.category
-        searchTextField.text = ""
-        performCategorySearch(query: category.category)
+        if #available(iOS 13.0, *) {
+            gifSearchActive = true
+            currentGifCategory = category.category
+            searchTextField.text = ""
+            performCategorySearch(query: category.category)
+        }
     }
 
     @objc private func searchEditingDidBegin() { onSearchFocusChanged?(true) }
@@ -603,17 +609,19 @@ extension GifsPanel: UICollectionViewDataSource, UICollectionViewDelegate, UICol
     }
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        switch displayMode {
-        case .categories:
-            handleCategoryTap(categories[indexPath.item])
-        case .searchResults:
-            let gif = searchResultGifs[indexPath.item]
-            if let url = gif.url {
-                onGifSelected?(url)
-                resetCategoryState()
+        if #available(iOS 13.0, *) {
+            switch displayMode {
+            case .categories:
+                handleCategoryTap(categories[indexPath.item])
+            case .searchResults:
+                let gif = searchResultGifs[indexPath.item]
+                if let url = gif.url {
+                    onGifSelected?(url)
+                    resetCategoryState()
+                }
+            case .loading:
+                break
             }
-        case .loading:
-            break
         }
     }
 

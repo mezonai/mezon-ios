@@ -1,7 +1,6 @@
 import AVFoundation
 import Foundation
 
-@MainActor
 final class PeerCallSoundPlayer {
 
     static let shared = PeerCallSoundPlayer()

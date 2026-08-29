@@ -100,10 +100,10 @@ final class MessageAudioPlayerView: UIView, ChatAudioPlaybackProgressSink {
         attributes: .concurrent
     )
 
-    private static let playSymbolConfig = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
-    private static let playIcon: UIImage? = UIImage(systemName: "play.fill", withConfiguration: playSymbolConfig)?
+    private static let playSymbolConfig = MezonSymbolConfiguration(pointSize: 14, weight: .semibold)
+    private static let playIcon: UIImage? = UIImage.mezonSystemImage("play.fill", withConfiguration: playSymbolConfig)?
         .withRenderingMode(.alwaysTemplate)
-    private static let pauseIcon: UIImage? = UIImage(systemName: "pause.fill", withConfiguration: playSymbolConfig)?
+    private static let pauseIcon: UIImage? = UIImage.mezonSystemImage("pause.fill", withConfiguration: playSymbolConfig)?
         .withRenderingMode(.alwaysTemplate)
 
     private var themeObserver: NSObjectProtocol?
@@ -139,14 +139,14 @@ final class MessageAudioPlayerView: UIView, ChatAudioPlaybackProgressSink {
 
     private func setup() {
         bubble.layer.cornerRadius = 22
-        bubble.layer.cornerCurve = .continuous
+        bubble.layer.setMezonCornerCurveContinuous()
         bubble.isUserInteractionEnabled = false
         addSubview(bubble)
 
         playIconView.image = Self.playIcon
         playIconView.contentMode = .center
         playIconView.layer.cornerRadius = Self.buttonSize / 2
-        playIconView.layer.cornerCurve = .continuous
+        playIconView.layer.setMezonCornerCurveContinuous()
         playIconView.clipsToBounds = true
         playIconView.isUserInteractionEnabled = false
         bubble.addSubview(playIconView)

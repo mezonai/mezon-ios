@@ -137,7 +137,7 @@ final class ChatContainerNode: ASDisplayNode {
 
         let t = UIColor.theme
         loadingOlderNode.setViewBlock {
-            let indicator = UIActivityIndicatorView(style: .medium)
+            let indicator = UIActivityIndicatorView.mezonMedium()
             indicator.hidesWhenStopped = true
             indicator.color = t.textDisabled
             return indicator
@@ -239,9 +239,9 @@ final class ChatContainerNode: ASDisplayNode {
 
         let btnSize: CGFloat = 40
         jumpToPresentNode.setImage(
-            UIImage(systemName: "chevron.down")?.withConfiguration(
-                UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
-            ).withTintColor(.white, renderingMode: .alwaysOriginal),
+            UIImage.mezonSystemImage("chevron.down")?.mezonWithConfiguration(
+                MezonSymbolConfiguration(pointSize: 16, weight: .semibold)
+            )?.mezonTinted(.white, renderingMode: .alwaysOriginal),
             for: .normal
         )
         jumpToPresentNode.backgroundColor = UIColor.theme.textDisabled.withAlphaComponent(0.85)

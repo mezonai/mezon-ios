@@ -1,6 +1,5 @@
 import UIKit
 
-@MainActor
 final class ChannelPermissionsViewController: BaseViewController {
 
     enum Tab: Int {
@@ -19,7 +18,7 @@ final class ChannelPermissionsViewController: BaseViewController {
     private var channelRoles: [Mezon_Api_Role] = []
     private var channelMembers: [ClanMemberRecord] = []
 
-    private var fetchMembersTask: Task<Void, Never>?
+    private var fetchMembersTask: CancelHandle?
     private var privacyUpdateInFlight = false
 
     private var currentTab: Tab = .basic
@@ -71,7 +70,9 @@ final class ChannelPermissionsViewController: BaseViewController {
         view.backgroundColor = .mezonSecondary
         setupHeader()
         setupTabs()
-        setupContent()
+        if #available(iOS 13.0, *) {
+            setupContent()
+        }
     }
 
     override func setupBindings() {
@@ -94,7 +95,7 @@ final class ChannelPermissionsViewController: BaseViewController {
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
 
-        backButton.setImage(UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        backButton.setImage(UIImage.mezonSystemImage("chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
 
@@ -165,6 +166,7 @@ final class ChannelPermissionsViewController: BaseViewController {
         button.layer.cornerRadius = 8.swh
     }
 
+    @available(iOS 13.0, *)
     private func setupContent() {
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.backgroundColor = .clear
@@ -238,9 +240,11 @@ final class ChannelPermissionsViewController: BaseViewController {
     }
 
     @objc private func privateCardTapped() {
-        guard !privacyUpdateInFlight else { return }
-        privateSwitch.setOn(!privateSwitch.isOn, animated: true)
-        privateSwitchChanged()
+        if #available(iOS 13.0, *) {
+            guard !privacyUpdateInFlight else { return }
+            privateSwitch.setOn(!privateSwitch.isOn, animated: true)
+            privateSwitchChanged()
+        }
     }
 
     private func setupDescription() {
@@ -258,7 +262,7 @@ final class ChannelPermissionsViewController: BaseViewController {
         addMemberCard.addGestureRecognizer(tap)
         addMemberCard.isUserInteractionEnabled = true
 
-        let plus = UIImageView(image: UIImage(systemName: "plus.circle")?.withRenderingMode(.alwaysTemplate))
+        let plus = UIImageView(image: UIImage.mezonSystemImage("plus.circle")?.withRenderingMode(.alwaysTemplate))
         plus.tintColor = .mezonTextPrimary
         plus.contentMode = .scaleAspectFit
         plus.translatesAutoresizingMaskIntoConstraints = false
@@ -271,7 +275,7 @@ final class ChannelPermissionsViewController: BaseViewController {
         label.translatesAutoresizingMaskIntoConstraints = false
         addMemberCard.addSubview(label)
 
-        let chevron = UIImageView(image: UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate))
+        let chevron = UIImageView(image: UIImage.mezonSystemImage("chevron.right")?.withRenderingMode(.alwaysTemplate))
         chevron.tintColor = UIColor.theme.textDisabled
         chevron.contentMode = .scaleAspectFit
         chevron.translatesAutoresizingMaskIntoConstraints = false
@@ -331,8 +335,13 @@ final class ChannelPermissionsViewController: BaseViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        reloadLocalData()
-        fetchMembersTask = Task { [weak self] in await self?.refresh() }
+        if #available(iOS 13.0, *) {
+            reloadLocalData()
+        }
+        if #available(iOS 13.0, *) {
+            let fetchMembersTaskWork = Task { [weak self] in await self?.refresh() }
+            fetchMembersTask = CancelHandle { fetchMembersTaskWork.cancel() }
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -340,17 +349,23 @@ final class ChannelPermissionsViewController: BaseViewController {
         navigationController?.setNavigationBarHidden(true, animated: animated)
     }
 
-    @objc private func handleRolesChanged() { reloadLocalData() }
+    @objc private func handleRolesChanged() {
+        if #available(iOS 13.0, *) {
+            reloadLocalData()
+        }
+    }
 
     @objc private func handleChannelDescriptionDidUpdate(_ notification: Notification) {
-        let nid: Int64? = {
-            if let v = notification.userInfo?["channelId"] as? Int64 { return v }
-            if let v = notification.userInfo?["channelId"] as? Int { return Int64(v) }
-            if let n = notification.userInfo?["channelId"] as? NSNumber { return n.int64Value }
-            return nil
-        }()
-        guard nid == channelId else { return }
-        reloadLocalData()
+        if #available(iOS 13.0, *) {
+            let nid: Int64? = {
+                if let v = notification.userInfo?["channelId"] as? Int64 { return v }
+                if let v = notification.userInfo?["channelId"] as? Int { return Int64(v) }
+                if let n = notification.userInfo?["channelId"] as? NSNumber { return n.int64Value }
+                return nil
+            }()
+            guard nid == channelId else { return }
+            reloadLocalData()
+        }
     }
 
     private func channelSnapshotFromStores() -> Mezon_Api_ChannelDescription? {
@@ -367,18 +382,23 @@ final class ChannelPermissionsViewController: BaseViewController {
     @objc private func backTapped() { navigationController?.popViewController(animated: true) }
 
     @objc private func selectBasicTab() {
-        guard currentTab != .basic else { return }
-        currentTab = .basic
-        applyTabSelection()
+        if #available(iOS 13.0, *) {
+            guard currentTab != .basic else { return }
+            currentTab = .basic
+            applyTabSelection()
+        }
     }
 
     @objc private func selectAdvancedTab() {
-        guard isPrivate else { return }
-        guard currentTab != .advanced else { return }
-        currentTab = .advanced
-        applyTabSelection()
+        if #available(iOS 13.0, *) {
+            guard isPrivate else { return }
+            guard currentTab != .advanced else { return }
+            currentTab = .advanced
+            applyTabSelection()
+        }
     }
 
+    @available(iOS 13.0, *)
     private func applyTabSelection() {
         refreshVisibility()
         rebuildList()
@@ -415,6 +435,7 @@ final class ChannelPermissionsViewController: BaseViewController {
         emptyAdvancedLabel.isHidden = !advancedEmpty
     }
 
+    @available(iOS 13.0, *)
     private func reloadLocalData() {
         if let latest = channelSnapshotFromStores() {
             isPrivate = latest.channelPrivate == 1
@@ -439,6 +460,8 @@ final class ChannelPermissionsViewController: BaseViewController {
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func refresh() async {
         guard !Task.isCancelled else { return }
         let ids = await repository.fetchChannelMembers(
@@ -448,6 +471,7 @@ final class ChannelPermissionsViewController: BaseViewController {
         reloadLocalData()
     }
 
+    @available(iOS 13.0, *)
     private func rebuildList() {
         listContentStack.arrangedSubviews.forEach {
             listContentStack.removeArrangedSubview($0)
@@ -483,62 +507,67 @@ final class ChannelPermissionsViewController: BaseViewController {
     // MARK: - Toggle private
 
     @objc private func privateSwitchChanged() {
-        guard !privacyUpdateInFlight else {
-            privateSwitch.setOn(isPrivate, animated: true)
-            return
-        }
-        let newPrivate = privateSwitch.isOn
-        guard newPrivate != isPrivate else { return }
-        let previous = isPrivate
-        privacyUpdateInFlight = true
-        privateSwitch.isEnabled = false
-        fetchMembersTask?.cancel()
-        fetchMembersTask = nil
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await self.repository.changeChannelPrivate(
-                    clanId: self.clanId, channelId: self.channelId, makePrivate: newPrivate)
-                self.isPrivate = newPrivate
-                if newPrivate, let uid = self.context.currentUser?.id, let cuid = Int64(uid) {
-                    self.channelMemberIds.insert(cuid)
-                }
-                self.rebuildChannelMembers()
-                self.refreshVisibility()
-                self.rebuildList()
-                Toast.success(L(L10n.ChannelPermission.toastSuccess))
-                await self.refresh()
-            } catch {
-                self.isPrivate = previous
-                self.privateSwitch.setOn(previous, animated: true)
-                self.refreshVisibility()
-                self.rebuildList()
-                Toast.error(L(L10n.ChannelPermission.toastFailed))
+        if #available(iOS 13.0, *) {
+            guard !privacyUpdateInFlight else {
+                privateSwitch.setOn(isPrivate, animated: true)
+                return
             }
-            self.privacyUpdateInFlight = false
-            self.privateSwitch.isEnabled = true
+            let newPrivate = privateSwitch.isOn
+            guard newPrivate != isPrivate else { return }
+            let previous = isPrivate
+            privacyUpdateInFlight = true
+            privateSwitch.isEnabled = false
+            fetchMembersTask?.cancel()
+            fetchMembersTask = nil
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    try await self.repository.changeChannelPrivate(
+                        clanId: self.clanId, channelId: self.channelId, makePrivate: newPrivate)
+                    self.isPrivate = newPrivate
+                    if newPrivate, let uid = self.context.currentUser?.id, let cuid = Int64(uid) {
+                        self.channelMemberIds.insert(cuid)
+                    }
+                    self.rebuildChannelMembers()
+                    self.refreshVisibility()
+                    self.rebuildList()
+                    Toast.success(L(L10n.ChannelPermission.toastSuccess))
+                    await self.refresh()
+                } catch {
+                    self.isPrivate = previous
+                    self.privateSwitch.setOn(previous, animated: true)
+                    self.refreshVisibility()
+                    self.rebuildList()
+                    Toast.error(L(L10n.ChannelPermission.toastFailed))
+                }
+                self.privacyUpdateInFlight = false
+                self.privateSwitch.isEnabled = true
+            }
         }
     }
 
     // MARK: - Add / remove
 
     @objc private func openAddMemberSheet() {
-        let allMembers = repository.clanMembers(clanId: clanId)
-        let allRoles = repository.roles(clanId: clanId)
-        let memberPool = allMembers.filter { !channelMemberIds.contains($0.userId) }
-        let rolePool = allRoles.filter { role in
-            !repository.isEveryone(role) && !repository.roleIsInChannel(role, channelId: channelId)
-        }
-        let sheet = AddMemberOrRoleSheetController(
-            availableMembers: memberPool,
-            availableRoles: rolePool,
-            onAdd: { [weak self] memberIds, roleIds in
-                self?.performAdd(memberIds: memberIds, roleIds: roleIds)
+        if #available(iOS 13.0, *) {
+            let allMembers = repository.clanMembers(clanId: clanId)
+            let allRoles = repository.roles(clanId: clanId)
+            let memberPool = allMembers.filter { !channelMemberIds.contains($0.userId) }
+            let rolePool = allRoles.filter { role in
+                !repository.isEveryone(role) && !repository.roleIsInChannel(role, channelId: channelId)
             }
-        )
-        present(sheet, animated: true)
+            let sheet = AddMemberOrRoleSheetController(
+                availableMembers: memberPool,
+                availableRoles: rolePool,
+                onAdd: { [weak self] memberIds, roleIds in
+                    self?.performAdd(memberIds: memberIds, roleIds: roleIds)
+                }
+            )
+            present(sheet, animated: true)
+        }
     }
 
+    @available(iOS 13.0, *)
     private func performAdd(memberIds: [Int64], roleIds: [Int64]) {
         Task { [weak self] in
             guard let self else { return }
@@ -559,6 +588,7 @@ final class ChannelPermissionsViewController: BaseViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func removeMember(_ member: ClanMemberRecord) {
         Task { [weak self] in
             guard let self else { return }
@@ -574,6 +604,7 @@ final class ChannelPermissionsViewController: BaseViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func removeRole(_ role: Mezon_Api_Role) {
         Task { [weak self] in
             guard let self else { return }
@@ -625,6 +656,7 @@ final class ChannelPermissionsViewController: BaseViewController {
         return v
     }
 
+    @available(iOS 13.0, *)
     private func makeRoleRow(_ role: Mezon_Api_Role, advanced: Bool) -> UIView {
         let isEveryone = repository.isEveryone(role)
         let row = ChannelPermissionsRowView(
@@ -641,6 +673,7 @@ final class ChannelPermissionsViewController: BaseViewController {
         return row
     }
 
+    @available(iOS 13.0, *)
     private func makeMemberRow(_ member: ClanMemberRecord, advanced: Bool) -> UIView {
         let ownerId = repository.clanOwnerId(clanId: clanId)
         let isOwner: Bool = {

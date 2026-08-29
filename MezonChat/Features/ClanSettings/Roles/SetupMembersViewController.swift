@@ -1,7 +1,6 @@
 import UIKit
 import AsyncDisplayKit
 
-@MainActor
 final class SetupMembersViewController: BaseViewController {
 
     enum Mode {
@@ -33,7 +32,7 @@ final class SetupMembersViewController: BaseViewController {
     private let searchContainer = UIView()
     private let searchField = UITextField()
     private let addMemberButton = UIButton(type: .custom)
-    private let tableView = UITableView(frame: .zero, style: .insetGrouped)
+    private let tableView = UITableView.mezonInsetGrouped()
 
     private let bottomBar = UIStackView()
     private let finishButton = UIButton(type: .custom)
@@ -91,9 +90,11 @@ final class SetupMembersViewController: BaseViewController {
             )
         }
         if isEditMode, let role = role, role.roleUserList.roleUsers.isEmpty {
-            Task { [weak self] in
-                guard let self else { return }
-                await self.repository.fetchRoleMembers(roleId: self.roleId, clanId: self.clanId)
+            if #available(iOS 13.0, *) {
+                Task { [weak self] in
+                    guard let self else { return }
+                    await self.repository.fetchRoleMembers(roleId: self.roleId, clanId: self.clanId)
+                }
             }
         }
     }
@@ -115,7 +116,7 @@ final class SetupMembersViewController: BaseViewController {
         view.addSubview(headerView)
 
         backButton.setImage(
-            UIImage(systemName: isEditMode ? "chevron.left" : "xmark")?
+            UIImage.mezonSystemImage(isEditMode ? "chevron.left" : "xmark")?
                 .withRenderingMode(.alwaysTemplate),
             for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
@@ -183,7 +184,7 @@ final class SetupMembersViewController: BaseViewController {
         searchContainer.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(searchContainer)
 
-        let icon = UIImageView(image: UIImage(systemName: "magnifyingglass")?.withRenderingMode(.alwaysTemplate))
+        let icon = UIImageView(image: UIImage.mezonSystemImage("magnifyingglass")?.withRenderingMode(.alwaysTemplate))
         icon.tintColor = UIColor.theme.textDisabled
         icon.contentMode = .scaleAspectFit
         icon.translatesAutoresizingMaskIntoConstraints = false
@@ -241,13 +242,13 @@ final class SetupMembersViewController: BaseViewController {
             return
         }
 
-        let icon = UIImageView(image: UIImage(systemName: "plus.circle.fill")?.withRenderingMode(.alwaysTemplate))
+        let icon = UIImageView(image: UIImage.mezonSystemImage("plus.circle.fill")?.withRenderingMode(.alwaysTemplate))
         icon.tintColor = UIColor.theme.bgViolet
         let label = UILabel()
         label.text = L(L10n.ClanRoles.membersAdd)
         label.textColor = .mezonTextPrimary
         label.font = .systemFont(ofSize: 14.sf, weight: .medium)
-        let chevron = UIImageView(image: UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate))
+        let chevron = UIImageView(image: UIImage.mezonSystemImage("chevron.right")?.withRenderingMode(.alwaysTemplate))
         chevron.tintColor = UIColor.theme.textDisabled
 
         [icon, label, chevron].forEach {
@@ -426,16 +427,19 @@ final class SetupMembersViewController: BaseViewController {
     }
 
     @objc private func openAddMemberSheet() {
-        guard canEdit, let role else { return }
-        let assignedIds = Set(role.roleUserList.roleUsers.map { $0.id })
-        let candidates = allMembers.filter { !assignedIds.contains($0.userId) }
-        let sheet = AddMembersSheetController(candidates: candidates) { [weak self] selected in
-            guard let self, !selected.isEmpty else { return }
-            self.commitAddMembers(ids: selected)
+        if #available(iOS 13.0, *) {
+            guard canEdit, let role else { return }
+            let assignedIds = Set(role.roleUserList.roleUsers.map { $0.id })
+            let candidates = allMembers.filter { !assignedIds.contains($0.userId) }
+            let sheet = AddMembersSheetController(candidates: candidates) { [weak self] selected in
+                guard let self, !selected.isEmpty else { return }
+                self.commitAddMembers(ids: selected)
+            }
+            present(sheet, animated: true)
         }
-        present(sheet, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func commitAddMembers(ids: [Int64]) {
         Task { [weak self] in
             guard let self else { return }
@@ -459,6 +463,7 @@ final class SetupMembersViewController: BaseViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func removeMember(_ member: ClanMemberRecord) {
         Task { [weak self] in
             guard let self else { return }
@@ -482,26 +487,28 @@ final class SetupMembersViewController: BaseViewController {
     }
 
     @objc private func finishTapped() {
-        let ids = Array(selectedIds)
-        guard !ids.isEmpty else { return }
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await self.repository.updateRole(
-                    roleId: self.roleId,
-                    clanId: self.clanId,
-                    title: nil,
-                    color: nil,
-                    roleIcon: nil,
-                    addUserIds: ids,
-                    activePermissionIds: [],
-                    removeUserIds: [],
-                    removePermissionIds: []
-                )
-                Toast.success(L(L10n.ClanRoles.membersAdded))
-                self.popToRolesList()
-            } catch {
-                Toast.error(L(L10n.ClanRoles.failed))
+        if #available(iOS 13.0, *) {
+            let ids = Array(selectedIds)
+            guard !ids.isEmpty else { return }
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    try await self.repository.updateRole(
+                        roleId: self.roleId,
+                        clanId: self.clanId,
+                        title: nil,
+                        color: nil,
+                        roleIcon: nil,
+                        addUserIds: ids,
+                        activePermissionIds: [],
+                        removeUserIds: [],
+                        removePermissionIds: []
+                    )
+                    Toast.success(L(L10n.ClanRoles.membersAdded))
+                    self.popToRolesList()
+                } catch {
+                    Toast.error(L(L10n.ClanRoles.failed))
+                }
             }
         }
     }
@@ -553,7 +560,9 @@ extension SetupMembersViewController: UITableViewDataSource, UITableViewDelegate
         )
         if isEditMode {
             cell.onAccessoryTapped = { [weak self] in
-                self?.removeMember(member)
+                if #available(iOS 13.0, *) {
+                    self?.removeMember(member)
+                }
             }
         }
         return cell

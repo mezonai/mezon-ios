@@ -54,7 +54,7 @@ final class QRClanInviteNode: ASDisplayNode {
         if inviteInfo.is_community == true {
              let attachment = NSTextAttachment()
              if #available(iOS 13.0, *) {
-                 attachment.image = UIImage(systemName: "checkmark.seal.fill")?.withTintColor(.white)
+                 attachment.image = UIImage.mezonSystemImage("checkmark.seal.fill")?.mezonTinted(.white)
              }
              attachment.bounds = CGRect(x: 0, y: -2, width: 18, height: 18)
              clanAttr.append(NSAttributedString(attachment: attachment))
@@ -78,7 +78,7 @@ final class QRClanInviteNode: ASDisplayNode {
         joinSpinnerNode.style.preferredSize = CGSize(width: 24, height: 24)
         joinSpinnerNode.isHidden = true
         joinSpinnerNode.setViewBlock {
-            let indicator = UIActivityIndicatorView(style: .medium)
+            let indicator = UIActivityIndicatorView.mezonMedium()
             indicator.color = .white
             indicator.startAnimating()
             return indicator

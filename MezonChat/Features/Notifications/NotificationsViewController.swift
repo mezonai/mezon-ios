@@ -39,12 +39,16 @@ final class NotificationsViewController: ViewController {
             onTabSelected: { [weak self] categoryTag in
                 guard let self else { return }
                 self.currentCategory = categoryTag
-                Task { await self.fetchNotifications(category: categoryTag) }
+                if #available(iOS 13.0, *) {
+                    Task { await self.fetchNotifications(category: categoryTag) }
+                }
             },
             onLoadMore: { [weak self] in
                 guard let self else { return }
-                Task {
-                    await self.fetchNotifications(category: self.currentCategory, isLoadMore: true)
+                if #available(iOS 13.0, *) {
+                    Task {
+                        await self.fetchNotifications(category: self.currentCategory, isLoadMore: true)
+                    }
                 }
             },
             onItemSelected: { [weak self] item in
@@ -70,7 +74,9 @@ final class NotificationsViewController: ViewController {
         let clanId = currentCategory == NotificationTabCategory.topic ? resolvedTopicClanId() : context.currentClanId
         if items.isEmpty || clanId != lastLoadedClanId {
             loadedCategories.removeAll()
-            Task { await fetchNotifications(category: currentCategory) }
+            if #available(iOS 13.0, *) {
+                Task { await fetchNotifications(category: currentCategory) }
+            }
         }
     }
 
@@ -91,6 +97,7 @@ final class NotificationsViewController: ViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     func fetchNotifications(category: Int32, isLoadMore: Bool = false) async {
         if isLoadMore {
             guard !isLoadingMore else { return }

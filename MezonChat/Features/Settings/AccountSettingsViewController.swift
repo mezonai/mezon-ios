@@ -7,7 +7,7 @@ final class AccountSettingsViewController: BaseViewController {
     private let headerView = UIView()
     private let backButton: UIButton = {
         let btn = UIButton(type: .system)
-        let img = UIImage(systemName: "chevron.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium))
+        let img = UIImage.mezonSystemImage("chevron.left", withConfiguration: MezonSymbolConfiguration(pointSize: 18, weight: .medium))
         btn.setImage(img, for: .normal)
         btn.translatesAutoresizingMaskIntoConstraints = false
         return btn
@@ -272,7 +272,7 @@ final class AccountSettingsViewController: BaseViewController {
         container.addSubview(rightStack)
 
         if showWarning {
-            let icon = UIImageView(image: UIImage(systemName: "exclamationmark.circle.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)))
+            let icon = UIImageView(image: UIImage.mezonSystemImage("exclamationmark.circle.fill", withConfiguration: MezonSymbolConfiguration(pointSize: 14, weight: .medium)))
             icon.tintColor = .mezonTextPrimary
             icon.setContentHuggingPriority(.required, for: .horizontal)
             rightStack.addArrangedSubview(icon)
@@ -292,7 +292,7 @@ final class AccountSettingsViewController: BaseViewController {
             rightStack.setCustomSpacing(12.sw, after: detailLabel)
         }
 
-        let chevron = UIImageView(image: UIImage(systemName: "chevron.right", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)))
+        let chevron = UIImageView(image: UIImage.mezonSystemImage("chevron.right", withConfiguration: MezonSymbolConfiguration(pointSize: 13, weight: .semibold)))
         chevron.tintColor = .mezonTextPrimary
         chevron.setContentHuggingPriority(.required, for: .horizontal)
         rightStack.addArrangedSubview(chevron)
@@ -317,53 +317,56 @@ final class AccountSettingsViewController: BaseViewController {
     }
 
     @objc private func rowTapped(_ gesture: RowTapGesture) {
-        switch gesture.action {
-        case .none:
-            break
-        case .userProfile:
-            let vc = ProfileSettingViewController(context: context, initialTab: .userProfile)
-            navigationController?.pushViewController(vc, animated: true)
-        case .linkEmail:
-            let currentEmail = context.currentUser?.email?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let vc = UpdateEmailViewController(context: context, currentEmail: currentEmail)
-            navigationController?.pushViewController(vc, animated: true)
-        case .linkPhone:
-            let currentPhone = context.currentUser?.phoneNumber?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let vc = UpdatePhoneNumberViewController(context: context, currentPhone: currentPhone)
-            navigationController?.pushViewController(vc, animated: true)
-        case .blockedUsers:
-            let vc = BlockedUsersViewController(context: context)
-            navigationController?.pushViewController(vc, animated: true)
-        case .setPassword:
-            let email = context.currentUser?.email?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if email.isEmpty {
-                let alert = UIAlertController(
-                    title: L(L10n.AccountSetting.requireLinkEmailTitle),
-                    message: L(L10n.AccountSetting.requireLinkEmailMessage),
-                    preferredStyle: .alert
-                )
-                alert.addAction(UIAlertAction(title: L(L10n.Common.cancel), style: .cancel))
-                alert.addAction(UIAlertAction(title: L(L10n.AccountSetting.requireLinkEmailAction), style: .default) { [weak self] _ in
-                    guard let self = self else { return }
-                    let vc = UpdateEmailViewController(context: self.context, currentEmail: "")
-                    self.navigationController?.pushViewController(vc, animated: true)
-                })
-                present(alert, animated: true)
-                return
-            }
+        if #available(iOS 13.0, *) {
+            switch gesture.action {
+            case .none:
+                break
+            case .userProfile:
+                let vc = ProfileSettingViewController(context: context, initialTab: .userProfile)
+                navigationController?.pushViewController(vc, animated: true)
+            case .linkEmail:
+                let currentEmail = context.currentUser?.email?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let vc = UpdateEmailViewController(context: context, currentEmail: currentEmail)
+                navigationController?.pushViewController(vc, animated: true)
+            case .linkPhone:
+                let currentPhone = context.currentUser?.phoneNumber?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let vc = UpdatePhoneNumberViewController(context: context, currentPhone: currentPhone)
+                navigationController?.pushViewController(vc, animated: true)
+            case .blockedUsers:
+                let vc = BlockedUsersViewController(context: context)
+                navigationController?.pushViewController(vc, animated: true)
+            case .setPassword:
+                let email = context.currentUser?.email?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if email.isEmpty {
+                    let alert = UIAlertController(
+                        title: L(L10n.AccountSetting.requireLinkEmailTitle),
+                        message: L(L10n.AccountSetting.requireLinkEmailMessage),
+                        preferredStyle: .alert
+                    )
+                    alert.addAction(UIAlertAction(title: L(L10n.Common.cancel), style: .cancel))
+                    alert.addAction(UIAlertAction(title: L(L10n.AccountSetting.requireLinkEmailAction), style: .default) { [weak self] _ in
+                        guard let self = self else { return }
+                        let vc = UpdateEmailViewController(context: self.context, currentEmail: "")
+                        self.navigationController?.pushViewController(vc, animated: true)
+                    })
+                    present(alert, animated: true)
+                    return
+                }
 
-            var hasPassword = false
-            if let data = context.account.postbox.getPreferenceData(key: PreferencesKeys.account),
-               let api = try? Mezon_Api_Account(serializedData: data) {
-                hasPassword = api.passwordSetted
-            } 
-            let vc = SetPasswordViewController(context: context, hasPassword: hasPassword, email: email)
-            navigationController?.pushViewController(vc, animated: true)
-        case .deleteAccount:
-            presentDeleteAccountConfirmation()
+                var hasPassword = false
+                if let data = context.account.postbox.getPreferenceData(key: PreferencesKeys.account),
+                   let api = try? Mezon_Api_Account(serializedData: data) {
+                    hasPassword = api.passwordSetted
+                } 
+                let vc = SetPasswordViewController(context: context, hasPassword: hasPassword, email: email)
+                navigationController?.pushViewController(vc, animated: true)
+            case .deleteAccount:
+                presentDeleteAccountConfirmation()
+            }
         }
     }
 
+    @available(iOS 13.0, *)
     private func presentDeleteAccountConfirmation() {
         let alert = UIAlertController(
             title: L(L10n.AccountSetting.deleteAccountAlertTitle),
@@ -377,6 +380,7 @@ final class AccountSettingsViewController: BaseViewController {
         present(alert, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func performDeleteAccount() {
         Task { @MainActor in
             // guard let token = await context.getToken() else {

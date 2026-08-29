@@ -1,6 +1,5 @@
 import UIKit
 
-@MainActor
 final class ChannelPermissionsRowView: UIView {
 
     enum Kind {
@@ -62,7 +61,7 @@ final class ChannelPermissionsRowView: UIView {
         avatarInitials.textAlignment = .center
 
         roleIconView.contentMode = .scaleAspectFit
-        roleIconView.image = UIImage(systemName: "shield.lefthalf.filled")?.withRenderingMode(.alwaysTemplate)
+        roleIconView.image = UIImage.mezonSystemImage("shield.lefthalf.filled")?.withRenderingMode(.alwaysTemplate)
         roleIconView.isHidden = true
 
         nameLabel.font = .systemFont(ofSize: 14.sf, weight: .semibold)
@@ -73,7 +72,7 @@ final class ChannelPermissionsRowView: UIView {
         subLabel.textColor = UIColor.theme.textDisabled
         subLabel.numberOfLines = 1
 
-        ownerIcon.image = UIImage(systemName: "crown.fill")?.withRenderingMode(.alwaysTemplate)
+        ownerIcon.image = UIImage.mezonSystemImage("crown.fill")?.withRenderingMode(.alwaysTemplate)
         ownerIcon.tintColor = UIColor.systemYellow
         ownerIcon.contentMode = .scaleAspectFit
         ownerIcon.isHidden = true
@@ -81,7 +80,7 @@ final class ChannelPermissionsRowView: UIView {
         trailingButton.addTarget(self, action: #selector(trailingTapped), for: .touchUpInside)
         trailingButton.isHidden = true
 
-        chevron.image = UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate)
+        chevron.image = UIImage.mezonSystemImage("chevron.right")?.withRenderingMode(.alwaysTemplate)
         chevron.tintColor = UIColor.theme.textDisabled
         chevron.contentMode = .scaleAspectFit
         chevron.isHidden = true
@@ -181,7 +180,7 @@ final class ChannelPermissionsRowView: UIView {
         case .removeButton(let enabled):
             trailingButton.isHidden = false
             trailingButton.setImage(
-                UIImage(systemName: "xmark.circle.fill")?.withRenderingMode(.alwaysTemplate),
+                UIImage.mezonSystemImage("xmark.circle.fill")?.withRenderingMode(.alwaysTemplate),
                 for: .normal
             )
             trailingButton.tintColor = enabled ? UIColor.theme.text : UIColor.theme.textDisabled

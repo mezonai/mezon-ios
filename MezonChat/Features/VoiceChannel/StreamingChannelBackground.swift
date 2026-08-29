@@ -1,6 +1,5 @@
 import UIKit
 
-@MainActor
 enum StreamingChannelBackground {
 
     static func normalizedAvatar(_ raw: String) -> String {

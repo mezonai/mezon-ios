@@ -2,7 +2,6 @@ import AsyncDisplayKit
 import UIKit
 import WebKit
 
-@MainActor
 final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
 
     private let pageURL: URL
@@ -19,12 +18,12 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
     private var revealChromeCenterOverride: CGPoint?
 
     private var chromeHeaderExpanded = true
-    private var chromeAutoHideTask: Task<Void, Never>?
+    private var chromeAutoHideTask: CancelHandle?
 
     private let errorContainer = UIView()
     private let errorLabel = UILabel()
     private let retryButton = UIButton(type: .system)
-    private let loadingSpinner = UIActivityIndicatorView(style: .large)
+    private let loadingSpinner = UIActivityIndicatorView.mezonLarge()
 
     init(pageURL: URL, appTitle: String) {
         self.pageURL = pageURL
@@ -51,7 +50,9 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         if chromeHeaderExpanded {
-            scheduleChromeAutoHide()
+            if #available(iOS 13.0, *) {
+                scheduleChromeAutoHide()
+            }
         }
     }
 
@@ -134,11 +135,14 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
     }
 
     private func scheduleChromeAutoHide() {
-        chromeAutoHideTask?.cancel()
-        chromeAutoHideTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 5_000_000_000)
-            guard !Task.isCancelled else { return }
-            hideChromeHeader(animated: true)
+        if #available(iOS 13.0, *) {
+            chromeAutoHideTask?.cancel()
+            let chromeAutoHideTaskWork = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                guard !Task.isCancelled else { return }
+                hideChromeHeader(animated: true)
+            }
+            chromeAutoHideTask = CancelHandle { chromeAutoHideTaskWork.cancel() }
         }
     }
 
@@ -152,11 +156,13 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
     }
 
     private func showChromeHeader(animated: Bool) {
-        guard !chromeHeaderExpanded else { return }
-        chromeHeaderExpanded = true
-        revealChromeButton.isHidden = true
-        scheduleChromeAutoHide()
-        applyChromeVisibilityLayout(animated: animated)
+        if #available(iOS 13.0, *) {
+            guard !chromeHeaderExpanded else { return }
+            chromeHeaderExpanded = true
+            revealChromeButton.isHidden = true
+            scheduleChromeAutoHide()
+            applyChromeVisibilityLayout(animated: animated)
+        }
     }
 
     private func applyChromeVisibilityLayout(animated: Bool) {
@@ -367,8 +373,8 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
         revealChromeButton.backgroundColor = UIColor(white: 0, alpha: 0.45)
         revealChromeButton.tintColor = .white
         revealChromeButton.setImage(
-            UIImage(systemName: "chevron.down")?.withConfiguration(
-                UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold)),
+            UIImage.mezonSystemImage("chevron.down")?.mezonWithConfiguration(
+                MezonSymbolConfiguration(pointSize: 18, weight: .semibold)),
             for: .normal)
     }
 
@@ -377,7 +383,9 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
     }
 
     @objc private func revealChromeTapped() {
-        showChromeHeader(animated: true)
+        if #available(iOS 13.0, *) {
+            showChromeHeader(animated: true)
+        }
     }
 
     @objc private func handleThemeChange() {
@@ -397,12 +405,12 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
         collapseChromeButton.tintColor = t.textStrong
         headerSeparator.backgroundColor = t.border.withAlphaComponent(0.35)
         backButton.setImage(
-            UIImage(systemName: "xmark")?.withConfiguration(
-                UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)),
+            UIImage.mezonSystemImage("xmark")?.mezonWithConfiguration(
+                MezonSymbolConfiguration(pointSize: 17, weight: .semibold)),
             for: .normal)
         collapseChromeButton.setImage(
-            UIImage(systemName: "chevron.up")?.withConfiguration(
-                UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold)),
+            UIImage.mezonSystemImage("chevron.up")?.mezonWithConfiguration(
+                MezonSymbolConfiguration(pointSize: 18, weight: .semibold)),
             for: .normal)
         styleRevealChromeButton()
     }
@@ -488,14 +496,18 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        handleLoadFailure(error)
+        if #available(iOS 13.0, *) {
+            handleLoadFailure(error)
+        }
     }
 
     private func handleLoadFailure(_ error: Error) {
-        let nsError = error as NSError
-        if nsError.code == NSURLErrorCancelled { return }
-        if nsError.code == 102 { return }
-        showLoadError()
+        if #available(iOS 13.0, *) {
+            let nsError = error as NSError
+            if nsError.code == NSURLErrorCancelled { return }
+            if nsError.code == 102 { return }
+            showLoadError()
+        }
     }
 
     private func setupErrorView() {
@@ -542,14 +554,16 @@ final class ChannelAppWebViewController: ViewController, WKNavigationDelegate {
     }
 
     private func showLoadError() {
-        loadingSpinner.stopAnimating()
-        errorContainer.isHidden = false
-        view.bringSubviewToFront(errorContainer)
-        showChromeHeader(animated: true)
-        chromeAutoHideTask?.cancel()
-        chromeAutoHideTask = nil
-        if chromeHeaderExpanded {
-            view.bringSubviewToFront(headerBar)
+        if #available(iOS 13.0, *) {
+            loadingSpinner.stopAnimating()
+            errorContainer.isHidden = false
+            view.bringSubviewToFront(errorContainer)
+            showChromeHeader(animated: true)
+            chromeAutoHideTask?.cancel()
+            chromeAutoHideTask = nil
+            if chromeHeaderExpanded {
+                view.bringSubviewToFront(headerBar)
+            }
         }
     }
 

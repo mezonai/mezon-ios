@@ -1,5 +1,5 @@
 import Foundation
-import CryptoKit
+import CommonCrypto
 import UIKit
 import AVFoundation
 import MobileVLCKit
@@ -588,7 +588,15 @@ final class ImageCache {
 
 private extension String {
     var sha256Hash: String {
-        SHA256.hash(data: Data(self.utf8)).map { String(format: "%02x", $0) }.joined()
+        var digest = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+        var context = CC_SHA256_CTX()
+        CC_SHA256_Init(&context)
+        let bytes = Array(self.utf8)
+        if !bytes.isEmpty {
+            CC_SHA256_Update(&context, bytes, CC_LONG(bytes.count))
+        }
+        CC_SHA256_Final(&digest, &context)
+        return digest.map { String(format: "%02x", $0) }.joined()
     }
 }
 

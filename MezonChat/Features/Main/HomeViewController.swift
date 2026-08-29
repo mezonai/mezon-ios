@@ -27,19 +27,27 @@ final class HomeViewController: BaseViewController {
         view.backgroundColor = UIColor.theme.primary
         embedChildren()
         embedDiscoverOverlay()
-        bindClanSelection()
+        if #available(iOS 13.0, *) {
+            bindClanSelection()
+        }
         bindChannelSelection()
         bindSearchTapped()
         bindLogoTap()
         bindDismissDiscoverOnClanSelect()
-        bindClanJoinCreate()
+        if #available(iOS 13.0, *) {
+            bindClanJoinCreate()
+        }
         bindDiscoverEmptyOverlay()
-        applyInitialClanSelection()
+        if #available(iOS 13.0, *) {
+            applyInitialClanSelection()
+        }
 
         self.scrollToTopWithTabBar = { [weak self] in
             guard let self else { return }
             if self.clanListVC.discoverEmptyOverlayShouldShow {
-                self.focusDiscoverWhenNoClansFromTab()
+                if #available(iOS 13.0, *) {
+                    self.focusDiscoverWhenNoClansFromTab()
+                }
             } else {
                 self.scrollToTop?()
             }
@@ -53,7 +61,9 @@ final class HomeViewController: BaseViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleAlignHomeAfterCrossClanVoice(_:)), name: .mezonAlignHomeAfterCrossClanVoice, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleAlignChannelListAfterSearchJump(_:)), name: .mezonAlignChannelListAfterSearchJump, object: nil)
 
-        bindBadgeCountUpdates()
+        if #available(iOS 13.0, *) {
+            bindBadgeCountUpdates()
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -87,6 +97,7 @@ final class HomeViewController: BaseViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func focusDiscoverWhenNoClansFromTab() {
         guard clanListVC.discoverEmptyOverlayShouldShow else { return }
         discoverEmptyOverlayVC.reloadDiscoverList()
@@ -128,6 +139,7 @@ final class HomeViewController: BaseViewController {
         channelListVC.selectWithoutNavigation(channelId: channelId)
     }
 
+    @available(iOS 13.0, *)
     func alignHomeForCrossClanVoice(clanId: Int64, voiceChannelId: Int64) {
         guard clanId != 0 else { return }
         if let tab = parent as? TabBarController {
@@ -169,22 +181,27 @@ final class HomeViewController: BaseViewController {
     }
 
     @objc private func handleAlignHomeAfterCrossClanVoice(_ notification: Notification) {
-        guard let clanId = Self.int64FromAlignUserInfo(notification.userInfo?["clanId"]), clanId != 0 else { return }
-        let channelId = Self.int64FromAlignUserInfo(notification.userInfo?["channelId"]) ?? 0
-        alignHomeForCrossClanVoice(clanId: clanId, voiceChannelId: channelId)
+        if #available(iOS 13.0, *) {
+            guard let clanId = Self.int64FromAlignUserInfo(notification.userInfo?["clanId"]), clanId != 0 else { return }
+            let channelId = Self.int64FromAlignUserInfo(notification.userInfo?["channelId"]) ?? 0
+            alignHomeForCrossClanVoice(clanId: clanId, voiceChannelId: channelId)
+        }
     }
 
     @objc private func handleAlignChannelListAfterSearchJump(_ notification: Notification) {
-        guard let clanId = Self.int64FromAlignUserInfo(notification.userInfo?["clanId"]), clanId != 0 else { return }
-        let channelId = Self.int64FromAlignUserInfo(notification.userInfo?["channelId"]) ?? 0
-        guard channelId != 0 else { return }
-        alignHomeForCrossClanVoice(clanId: clanId, voiceChannelId: channelId)
+        if #available(iOS 13.0, *) {
+            guard let clanId = Self.int64FromAlignUserInfo(notification.userInfo?["clanId"]), clanId != 0 else { return }
+            let channelId = Self.int64FromAlignUserInfo(notification.userInfo?["channelId"]) ?? 0
+            guard channelId != 0 else { return }
+            alignHomeForCrossClanVoice(clanId: clanId, voiceChannelId: channelId)
+        }
     }
 
     private func channelSidebarMemberCount(clanId: Int64) -> Int {
         context.engine.clanData.getClanUsers(clanId: clanId)?.clanUsers.count ?? 0
     }
 
+    @available(iOS 13.0, *)
     private func applyInitialClanSelection() {
         guard let id = clanListVC.selectedClanId, id != 0 else { return }
         context.currentClanId = id
@@ -235,7 +252,9 @@ final class HomeViewController: BaseViewController {
         let vc = discoverEmptyOverlayVC
         vc.hostNavigationController = navigationController
         vc.onUserJoinedClan = { [weak self] in
-            self?.clanListVC.loadClans()
+            if #available(iOS 13.0, *) {
+                self?.clanListVC.loadClans()
+            }
         }
         addChild(vc)
         view.addSubview(vc.view)
@@ -287,10 +306,13 @@ final class HomeViewController: BaseViewController {
             if let tabBar = self.parent as? TabBarController {
                 tabBar.selectedIndex = 1
             }
-            rootController?.directMessagesController?.fetchDirectMessages()
+            if #available(iOS 13.0, *) {
+                rootController?.directMessagesController?.fetchDirectMessages()
+            }
         }
     }
 
+    @available(iOS 13.0, *)
     private func bindClanJoinCreate() {
         clanListVC.onJoinClanTapped = { [weak self] in
             guard let self else { return }
@@ -318,6 +340,7 @@ final class HomeViewController: BaseViewController {
         present(vc, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func bindClanSelection() {
         disposables.add(
             (clanListVC.selectedClanIdSignal |> deliverOnMainQueue)
@@ -423,6 +446,7 @@ final class HomeViewController: BaseViewController {
         )
     }
 
+    @available(iOS 13.0, *)
     private func bindBadgeCountUpdates() {
         disposables.add(
             (context.engine.clanData.clanBadgeCountUpdated.signal() |> deliverOnMainQueue)

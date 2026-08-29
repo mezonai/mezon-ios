@@ -1,11 +1,10 @@
 import UIKit
 
-@MainActor
 final class ProfileOnlineStatusSheetController: UIViewController {
 
     private let context: AccountContext
 
-    private let tableView = UITableView(frame: .zero, style: .insetGrouped)
+    private let tableView = UITableView.mezonInsetGrouped()
 
     private var currentUserObserver: NSObjectProtocol?
 
@@ -123,6 +122,7 @@ final class ProfileOnlineStatusSheetController: UIViewController {
         }.withRenderingMode(.alwaysOriginal)
     }
 
+    @available(iOS 13.0, *)
     private func clearCustomStatus() {
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -136,9 +136,12 @@ final class ProfileOnlineStatusSheetController: UIViewController {
     }
 
     @objc private func clearAccessoryTapped() {
-        clearCustomStatus()
+        if #available(iOS 13.0, *) {
+            clearCustomStatus()
+        }
     }
 
+    @available(iOS 13.0, *)
     private func selectPresence(_ status: User.OnlineStatus) {
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -225,7 +228,9 @@ extension ProfileOnlineStatusSheetController: UITableViewDataSource, UITableView
         tableView.deselectRow(at: indexPath, animated: true)
         switch Section(rawValue: indexPath.section)! {
         case .presence:
-            selectPresence(presenceCases[indexPath.row].0)
+            if #available(iOS 13.0, *) {
+                selectPresence(presenceCases[indexPath.row].0)
+            }
         case .custom:
             let host = presentingViewController
             let ctx = context

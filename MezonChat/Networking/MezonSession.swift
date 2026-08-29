@@ -332,7 +332,9 @@ enum SessionStore {
         clear()
         deleteInstallationIdFromKeychain()
         KeychainHelper.shared.removeAllDatabaseEncryptionKeys()
-        MmnWalletStore.shared.clear()
+        if #available(iOS 13.0, *) {
+            MmnWalletStore.shared.clear()
+        }
     }
 
     private struct IdTokenBackupPayload: Codable {

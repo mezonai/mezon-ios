@@ -49,7 +49,7 @@ final class MessageReplyNode: ASDisplayNode {
         previewNode.truncationMode = .byTruncatingTail
         addSubnode(previewNode)
 
-        attachmentIconNode.image = UIImage(systemName: "photo")?.withRenderingMode(.alwaysTemplate)
+        attachmentIconNode.image = UIImage.mezonSystemImage("photo")?.withRenderingMode(.alwaysTemplate)
         attachmentIconNode.tintColor = UIColor.theme.textDisabled
         attachmentIconNode.contentMode = .scaleAspectFit
     }
@@ -98,7 +98,7 @@ final class MessageReplyNode: ASDisplayNode {
                 format.scale = UIScreen.main.scale
                 format.opaque = false
                 let img = UIGraphicsImageRenderer(size: size, format: format).image { _ in
-                    let tinted = raw.withRenderingMode(.alwaysTemplate).withTintColor(UIColor.theme.textStrong, renderingMode: .alwaysOriginal)
+                    let tinted = raw.withRenderingMode(.alwaysTemplate).mezonTinted(UIColor.theme.textStrong, renderingMode: .alwaysOriginal)
                     let iconSz = CGSize(width: 14, height: 14)
                     let origin = CGPoint(x: (size.width - iconSz.width) / 2, y: (size.height - iconSz.height) / 2)
                     tinted.draw(in: CGRect(origin: origin, size: iconSz))
@@ -352,7 +352,7 @@ final class MessageDeletedReplyNode: ASDisplayNode {
         iconNode.contentMode = .scaleAspectFit
         addSubnode(iconNode)
 
-        trashNode.image = UIImage(systemName: "trash")?.withRenderingMode(.alwaysTemplate)
+        trashNode.image = UIImage.mezonSystemImage("trash")?.withRenderingMode(.alwaysTemplate)
         trashNode.tintColor = t.textDisabled
         trashNode.contentMode = .scaleAspectFit
         addSubnode(trashNode)

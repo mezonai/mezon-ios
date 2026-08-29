@@ -1,6 +1,5 @@
 import UIKit
 
-@MainActor
 final class AuditLogFilterActionViewController: BaseViewController {
     
     private let context: AccountContext
@@ -41,7 +40,7 @@ final class AuditLogFilterActionViewController: BaseViewController {
         titleLabel.textColor = UIColor.theme.textStrong
         titleLabel.textAlignment = .center
         
-        closeButton.setImage(UIImage(systemName: "xmark")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        closeButton.setImage(UIImage.mezonSystemImage("xmark")?.withRenderingMode(.alwaysTemplate), for: .normal)
         closeButton.tintColor = UIColor.theme.textStrong
         closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         

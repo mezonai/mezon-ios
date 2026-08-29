@@ -71,7 +71,7 @@ final class MediaPickerViewController: UIViewController {
         if #available(iOS 15.0, *) {
             var config = UIButton.Configuration.plain()
             config.title = "Recent Photos"
-            config.image = UIImage(systemName: "chevron.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold))
+            config.image = UIImage.mezonSystemImage("chevron.down", withConfiguration: MezonSymbolConfiguration(pointSize: 10, weight: .semibold))
             config.imagePlacement = .trailing
             config.imagePadding = 4
             config.baseForegroundColor = UIColor.theme.textStrong
@@ -83,7 +83,7 @@ final class MediaPickerViewController: UIViewController {
             btn.configuration = config
         } else {
             btn.setTitle("Recent Photos", for: .normal)
-            btn.setImage(UIImage(systemName: "chevron.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold)), for: .normal)
+            btn.setImage(UIImage.mezonSystemImage("chevron.down", withConfiguration: MezonSymbolConfiguration(pointSize: 10, weight: .semibold)), for: .normal)
             btn.semanticContentAttribute = .forceRightToLeft
             btn.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .semibold)
             btn.setTitleColor(UIColor.theme.textStrong, for: .normal)
@@ -166,8 +166,8 @@ final class MediaPickerViewController: UIViewController {
         stack.alignment = .center
         stack.spacing = 12
 
-        let iconConfig = UIImage.SymbolConfiguration(pointSize: 44, weight: .thin)
-        let iconView = UIImageView(image: UIImage(systemName: "photo.on.rectangle.angled", withConfiguration: iconConfig))
+        let iconConfig = MezonSymbolConfiguration(pointSize: 44, weight: .thin)
+        let iconView = UIImageView(image: UIImage.mezonSystemImage("photo.on.rectangle.angled", withConfiguration: iconConfig))
         iconView.tintColor = UIColor.white.withAlphaComponent(0.3)
         iconView.contentMode = .scaleAspectFit
         iconView.translatesAutoresizingMaskIntoConstraints = false
@@ -309,7 +309,9 @@ final class MediaPickerViewController: UIViewController {
         super.viewWillDisappear(animated)
         stopCameraCell()
         if !isPresentingEditor {
-            sendResultsIfNeeded()
+            if #available(iOS 13.0, *) {
+                sendResultsIfNeeded()
+            }
         }
     }
 
@@ -597,7 +599,7 @@ final class MediaPickerViewController: UIViewController {
             self.albumDropdownView.alpha = 1
             self.albumDropdownView.transform = .identity
         }
-        let upImg = UIImage(systemName: "chevron.up", withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold))
+        let upImg = UIImage.mezonSystemImage("chevron.up", withConfiguration: MezonSymbolConfiguration(pointSize: 10, weight: .semibold))
         UIView.animate(withDuration: 0.2) {
             if #available(iOS 15.0, *) {
                 self.titleButton.configuration?.image = upImg
@@ -616,7 +618,7 @@ final class MediaPickerViewController: UIViewController {
             self.dropdownOverlay.isHidden = true
             self.albumDropdownView.transform = .identity
         })
-        let downImg = UIImage(systemName: "chevron.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold))
+        let downImg = UIImage.mezonSystemImage("chevron.down", withConfiguration: MezonSymbolConfiguration(pointSize: 10, weight: .semibold))
         UIView.animate(withDuration: 0.2) {
             if #available(iOS 15.0, *) {
                 self.titleButton.configuration?.image = downImg
@@ -635,42 +637,46 @@ final class MediaPickerViewController: UIViewController {
     }
 
     @objc private func confirmSelectionAction() {
-        confirmSelection()
+        if #available(iOS 13.0, *) {
+            confirmSelection()
+        }
     }
 
     @objc private func editSelectionAction() {
-        guard selectedAssets.count == 1,
-              let asset = selectedAssets.first,
-              asset.mediaType == .image else { return }
+        if #available(iOS 13.0, *) {
+            guard selectedAssets.count == 1,
+                  let asset = selectedAssets.first,
+                  asset.mediaType == .image else { return }
 
-        editButton.isEnabled = false
-        sendButton.isEnabled = false
-        exportImage(asset: asset) { [weak self] result in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.editButton.isEnabled = true
-                self.sendButton.isEnabled = true
-                guard let result else { return }
-
-                self.isPresentingEditor = true
-                let editor = ImageEditorViewController(result: result)
-                let sendEditedResult = self.onEditedSend
-                editor.onCancel = { [weak self] in
-                    self?.isPresentingEditor = false
-                }
-                editor.onSendStarted = { [weak self] in
+            editButton.isEnabled = false
+            sendButton.isEnabled = false
+            exportImage(asset: asset) { [weak self] result in
+                DispatchQueue.main.async {
                     guard let self else { return }
-                    self.didSendResults = true
-                    self.isPresentingEditor = false
-                    if let presenter = self.presentingViewController {
-                        presenter.dismiss(animated: true)
-                    } else {
-                        self.dismiss(animated: true)
+                    self.editButton.isEnabled = true
+                    self.sendButton.isEnabled = true
+                    guard let result else { return }
+
+                    self.isPresentingEditor = true
+                    let editor = ImageEditorViewController(result: result)
+                    let sendEditedResult = self.onEditedSend
+                    editor.onCancel = { [weak self] in
+                        self?.isPresentingEditor = false
                     }
+                    editor.onSendStarted = { [weak self] in
+                        guard let self else { return }
+                        self.didSendResults = true
+                        self.isPresentingEditor = false
+                        if let presenter = self.presentingViewController {
+                            presenter.dismiss(animated: true)
+                        } else {
+                            self.dismiss(animated: true)
+                        }
+                    }
+                    editor.onSend = { edited in sendEditedResult?(edited) }
+                    editor.modalPresentationStyle = .fullScreen
+                    self.present(editor, animated: true)
                 }
-                editor.onSend = { edited in sendEditedResult?(edited) }
-                editor.modalPresentationStyle = .fullScreen
-                self.present(editor, animated: true)
             }
         }
     }
@@ -1009,7 +1015,9 @@ extension MediaPickerViewController: UICollectionViewDataSource, UICollectionVie
         if indexPath.item == 0 {
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: CameraPreviewCell.reuseId, for: indexPath) as! CameraPreviewCell
             cell.onTap = { [weak self] in
-                self?.openCamera()
+                if #available(iOS 13.0, *) {
+                    self?.openCamera()
+                }
             }
             if AVCaptureDevice.authorizationStatus(for: .video) == .authorized {
                 cell.startSession()
@@ -1123,7 +1131,9 @@ extension MediaPickerViewController: UIImagePickerControllerDelegate, UINavigati
             }
             editor.onSend = { edited in sendEditedResult?(edited) }
             editor.modalPresentationStyle = .fullScreen
-            self.present(editor, animated: true)
+            if #available(iOS 13.0, *) {
+                self.present(editor, animated: true)
+            }
         }
     }
 
@@ -1323,8 +1333,8 @@ private final class CameraPreviewCell: UICollectionViewCell {
     private let previewLayer = AVCaptureVideoPreviewLayer()
 
     private let cameraIconView: UIImageView = {
-        let config = UIImage.SymbolConfiguration(pointSize: 28, weight: .medium)
-        let iv = UIImageView(image: UIImage(systemName: "camera.fill", withConfiguration: config))
+        let config = MezonSymbolConfiguration(pointSize: 28, weight: .medium)
+        let iv = UIImageView(image: UIImage.mezonSystemImage("camera.fill", withConfiguration: config))
         iv.tintColor = .white
         iv.translatesAutoresizingMaskIntoConstraints = false
         return iv
@@ -1506,7 +1516,7 @@ private final class AlbumCell: UITableViewCell {
         iv.clipsToBounds = true
         iv.layer.cornerRadius = 4
         iv.translatesAutoresizingMaskIntoConstraints = false
-        iv.backgroundColor = UIColor.systemGray5
+        iv.backgroundColor = UIColor.mezonCompatSystemGray5
         return iv
     }()
 
@@ -1526,8 +1536,8 @@ private final class AlbumCell: UITableViewCell {
     }()
 
     private let checkmarkView: UIImageView = {
-        let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
-        let iv = UIImageView(image: UIImage(systemName: "checkmark", withConfiguration: config))
+        let config = MezonSymbolConfiguration(pointSize: 14, weight: .semibold)
+        let iv = UIImageView(image: UIImage.mezonSystemImage("checkmark", withConfiguration: config))
         iv.tintColor = UIColor(red: 0.35, green: 0.40, blue: 0.95, alpha: 1)
         iv.translatesAutoresizingMaskIntoConstraints = false
         iv.isHidden = true

@@ -91,13 +91,13 @@ final class TransactionItemCell: UITableViewCell {
         
         if isIncoming {
             iconContainer.backgroundColor = UIColor(hex: 0x14532D, alpha: 0.2) 
-            chevronIcon.image = UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate)
+            chevronIcon.image = UIImage.mezonSystemImage("chevron.right")?.withRenderingMode(.alwaysTemplate)
             chevronIcon.tintColor = UIColor.theme.textSuccess
             titleLabel.textColor = UIColor.theme.textSuccess
             statusLabel.text = L(L10n.Profile.historyReceived)
         } else {
             iconContainer.backgroundColor = UIColor(hex: 0x7F1D1D, alpha: 0.2) 
-            chevronIcon.image = UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate)
+            chevronIcon.image = UIImage.mezonSystemImage("chevron.right")?.withRenderingMode(.alwaysTemplate)
             chevronIcon.tintColor = .systemRed
             titleLabel.textColor = .systemRed
             statusLabel.text = L(L10n.Profile.historySent)

@@ -1,7 +1,6 @@
 import UIKit
 import AVFoundation
 
-@MainActor
 final class VoiceCallReactionFlightView: UIView {
 
     var onSoundReactionTilePlayingChanged: ((Int64, Bool) -> Void)?
@@ -257,12 +256,10 @@ private extension String {
     }
 }
 
-@MainActor
 private final class ReactionFlightStartGate {
     var started = false
 }
 
-@MainActor
 private func voiceReactionDisplayName(context: AccountContext, clanId: Int64, userId: Int64) -> String {
     let key = String(userId)
     if let list = context.engine.clanData.getClanUsers(clanId: clanId) {
@@ -279,7 +276,6 @@ private func voiceReactionDisplayName(context: AccountContext, clanId: Int64, us
     return ""
 }
 
-@MainActor
 private func voiceReactionAvatarURL(context: AccountContext, clanId: Int64, userId: Int64) -> String? {
     guard let list = context.engine.clanData.getClanUsers(clanId: clanId) else { return nil }
     for cu in list.clanUsers where cu.user.id == userId {

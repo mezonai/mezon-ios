@@ -18,7 +18,6 @@ struct ClanOnboardingViewState: Equatable {
 }
 
 enum ClanOnboardingProgress {
-    @MainActor
     static func isEligible(context: AccountContext, clanId: Int64) -> Bool {
         guard clanId != 0 else { return false }
         let currentUserId = Int64(context.account.id) ?? 0
@@ -35,7 +34,6 @@ enum ClanOnboardingProgress {
         return context.rolePermissions.isClanOwner(clanId: clanId)
     }
 
-    @MainActor
     static func compute(
         context: AccountContext,
         clanId: Int64,
@@ -114,7 +112,6 @@ enum ClanOnboardingProgress {
         return UserDefaults.standard.bool(forKey: stepFlagKey(step, clanId: clanId))
     }
 
-    @MainActor
     private static func sendMessageStepStatus(
         context: AccountContext,
         clanId: Int64,
@@ -158,7 +155,7 @@ enum ClanOnboardingChannelCache {
         }
     }
 
-    @MainActor
+    @available(iOS 13.0, *)
     static func markSendMessageOnboardingProgressIfNeeded(
         context: AccountContext,
         postbox: Postbox,

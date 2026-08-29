@@ -42,6 +42,7 @@ final class MmnWalletStore: @unchecked Sendable {
         queue.sync { _ephemeralKey }
     }
 
+    @available(iOS 13.0, *)
     func ephemeralKeyPair() -> MmnEphemeralKeyPair? {
         guard let ek = ephemeralKey, let seed = Data(base64Encoded: ek.seedBase64) else { return nil }
         return try? MmnEphemeralKeyPair.fromSeed(seed)

@@ -1,7 +1,6 @@
 import AsyncDisplayKit
 import UIKit
 
-@MainActor
 final class CanvasNode: ASDisplayNode {
 
     private let context: AccountContext
@@ -32,6 +31,7 @@ final class CanvasNode: ASDisplayNode {
         tableNode.view.delaysContentTouches = false
     }
 
+    @available(iOS 13.0, *)
     func loadTabDataIfNeeded() {
         guard !didLoadCanvases else { return }
         didLoadCanvases = true
@@ -44,6 +44,7 @@ final class CanvasNode: ASDisplayNode {
         tableNode.view.backgroundColor = .clear
     }
 
+    @available(iOS 13.0, *)
     private func fetchCanvases() {
         Task { @MainActor [weak self] in
             guard let self else { return }

@@ -5,7 +5,6 @@ final class WebhookAvatarCache {
     static let shared = NSCache<NSString, UIImage>()
 }
 
-@MainActor
 final class WebhookEditViewController: BaseViewController {
 
     private let context: AccountContext
@@ -66,7 +65,9 @@ final class WebhookEditViewController: BaseViewController {
         view.backgroundColor = UIColor.theme.primary
         setupHeader()
         setupScrollView()
-        setupAvatarSection()
+        if #available(iOS 13.0, *) {
+            setupAvatarSection()
+        }
         setupNameSection()
         if !isClanIntegration {
             setupChannelSection()
@@ -102,7 +103,7 @@ final class WebhookEditViewController: BaseViewController {
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
 
-        backButton.setImage(UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        backButton.setImage(UIImage.mezonSystemImage("chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
 
@@ -269,7 +270,7 @@ final class WebhookEditViewController: BaseViewController {
         channelRow.translatesAutoresizingMaskIntoConstraints = false
         channelRow.addTarget(self, action: #selector(channelTapped), for: .touchUpInside)
 
-        channelIconView.image = UIImage(systemName: "number")?.withRenderingMode(.alwaysTemplate)
+        channelIconView.image = UIImage.mezonSystemImage("number")?.withRenderingMode(.alwaysTemplate)
         channelIconView.tintColor = UIColor.theme.textDisabled
         channelIconView.contentMode = .scaleAspectFit
         channelIconView.translatesAutoresizingMaskIntoConstraints = false
@@ -281,7 +282,7 @@ final class WebhookEditViewController: BaseViewController {
         channelLabel.isUserInteractionEnabled = false
         
         let arrowImage = UIImage(named: "Channel/ChevronRight")?.withRenderingMode(.alwaysTemplate)
-            ?? UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate)
+            ?? UIImage.mezonSystemImage("chevron.right")?.withRenderingMode(.alwaysTemplate)
         let arrowIcon = UIImageView(image: arrowImage)
         arrowIcon.tintColor = UIColor.theme.textStrong
         arrowIcon.contentMode = .scaleAspectFit
@@ -411,10 +412,10 @@ final class WebhookEditViewController: BaseViewController {
         ) {
             channelLabel.text = ch.channelLabel
             let iconName = ch.channelListIconAssetName()
-            channelIconView.image = (UIImage(named: iconName) ?? UIImage(systemName: iconName))?.withRenderingMode(.alwaysTemplate)
+            channelIconView.image = (UIImage(named: iconName) ?? UIImage.mezonSystemImage(iconName))?.withRenderingMode(.alwaysTemplate)
         } else {
             channelLabel.text = "#\(selectedChannelId)"
-            channelIconView.image = UIImage(systemName: "number")?.withRenderingMode(.alwaysTemplate)
+            channelIconView.image = UIImage.mezonSystemImage("number")?.withRenderingMode(.alwaysTemplate)
         }
 
         urlLabel.text = webhook.url.isEmpty ? "No URL" : webhook.url
@@ -492,7 +493,7 @@ final class WebhookEditViewController: BaseViewController {
             self?.selectedChannelId = selectedChannel.channelID
             self?.channelLabel.text = selectedChannel.channelLabel
             let iconName = selectedChannel.channelListIconAssetName()
-            self?.channelIconView.image = (UIImage(named: iconName) ?? UIImage(systemName: iconName))?.withRenderingMode(.alwaysTemplate)
+            self?.channelIconView.image = (UIImage(named: iconName) ?? UIImage.mezonSystemImage(iconName))?.withRenderingMode(.alwaysTemplate)
             self?.updateSaveButtonVisibility()
         }
         vc.modalPresentationStyle = .pageSheet
@@ -503,12 +504,14 @@ final class WebhookEditViewController: BaseViewController {
     }
 
     @objc private func pickAvatarTapped() {
-        guard UIImagePickerController.isSourceTypeAvailable(.photoLibrary) else { return }
-        let picker = UIImagePickerController()
-        picker.sourceType = .photoLibrary
-        picker.allowsEditing = true
-        picker.delegate = self
-        present(picker, animated: true)
+        if #available(iOS 13.0, *) {
+            guard UIImagePickerController.isSourceTypeAvailable(.photoLibrary) else { return }
+            let picker = UIImagePickerController()
+            picker.sourceType = .photoLibrary
+            picker.allowsEditing = true
+            picker.delegate = self
+            present(picker, animated: true)
+        }
     }
 
     @objc private func saveTapped() {
@@ -521,113 +524,120 @@ final class WebhookEditViewController: BaseViewController {
     }
 
     @objc private func resetTokenTapped() {
-        guard !isResettingToken else { return }
-        isResettingToken = true
-        resetTokenButton.isEnabled = false
+        if #available(iOS 13.0, *) {
+            guard !isResettingToken else { return }
+            isResettingToken = true
+            resetTokenButton.isEnabled = false
         
-        Task { [weak self] in
-            guard let self else { return }
-            defer {
-                self.isResettingToken = false
-                self.resetTokenButton.isEnabled = true
-            }
-            guard let token = await self.context.getToken() else {
-                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
-                return
-            }
+            Task { [weak self] in
+                guard let self else { return }
+                defer {
+                    self.isResettingToken = false
+                    self.resetTokenButton.isEnabled = true
+                }
+                guard let token = await self.context.getToken() else {
+                    Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                    return
+                }
             
-            do {
-                var req = Mezon_Api_UpdateClanWebhookRequest()
-                req.id = self.webhook.id
-                req.clanID = self.clanId
-                req.webhookName = self.webhook.webhookName
-                req.avatar = self.webhook.avatar
-                req.resetToken = true
-                _ = try await MezonHTTPClient.shared.updateClanWebhookById(request: req, token: token)
+                do {
+                    var req = Mezon_Api_UpdateClanWebhookRequest()
+                    req.id = self.webhook.id
+                    req.clanID = self.clanId
+                    req.webhookName = self.webhook.webhookName
+                    req.avatar = self.webhook.avatar
+                    req.resetToken = true
+                    _ = try await MezonHTTPClient.shared.updateClanWebhookById(request: req, token: token)
                 
-                Toast.success(L(L10n.Webhook.resetSuccess))
-                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s delay for backend sync
-                self.onWebhookUpdated?()
-                self.fetchLatestWebhook()
-            } catch {
-                Toast.error(L(L10n.Webhook.saveError))
+                    Toast.success(L(L10n.Webhook.resetSuccess))
+                    try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s delay for backend sync
+                    self.onWebhookUpdated?()
+                    self.fetchLatestWebhook()
+                } catch {
+                    Toast.error(L(L10n.Webhook.saveError))
+                }
             }
         }
     }
 
     @objc private func deleteTapped() {
-        handleDelete()
+        if #available(iOS 13.0, *) {
+            handleDelete()
+        }
     }
 
     private func handleSave() {
-        guard !isSaving else { return }
-        let trimmedName = webhookName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty && trimmedName.count <= 64 else { return }
+        if #available(iOS 13.0, *) {
+            guard !isSaving else { return }
+            let trimmedName = webhookName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedName.isEmpty && trimmedName.count <= 64 else { return }
         
-        isSaving = true
-        saveButton.isEnabled = false
+            isSaving = true
+            saveButton.isEnabled = false
 
-        Task { [weak self] in
-            guard let self else { return }
-            defer { 
-                self.isSaving = false
-                self.updateSaveButtonVisibility()
-            }
-            guard let token = await self.context.getToken() else {
-                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
-                return
-            }
-            
-            if let imgData = self.selectedImageData, let img = self.selectedImage {
-                do {
-                    let uploadInfo = try await self.context.account.network.uploadAttachmentFile(
-                        filename: "webhook_\(self.webhook.id)_\(Int(Date().timeIntervalSince1970)).jpg",
-                        filetype: "image/jpeg",
-                        size: imgData.count,
-                        width: Int(img.size.width),
-                        height: Int(img.size.height),
-                        token: token
-                    )
-                    try await self.context.account.network.uploadToMinIO(
-                        url: uploadInfo.url,
-                        data: imgData,
-                        contentType: "image/jpeg"
-                    )
-                    self.avatarURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
-                } catch {
-                    Toast.error(L(L10n.Webhook.saveError))
+            Task { [weak self] in
+                guard let self else { return }
+                defer { 
+                    self.isSaving = false
+                    self.updateSaveButtonVisibility()
+                }
+                guard let token = await self.context.getToken() else {
+                    Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
                     return
                 }
-            }
-
-            do {
-                if self.isClanIntegration {
-                    var req = Mezon_Api_UpdateClanWebhookRequest()
-                    req.id = self.webhook.id
-                    req.clanID = self.clanId
-                    req.webhookName = trimmedName
-                    req.avatar = self.avatarURL
-                    _ = try await MezonHTTPClient.shared.updateClanWebhookById(request: req, token: token)
-                } else {
-                    var req = Mezon_Api_WebhookUpdateRequestById()
-                    req.id = self.webhook.id
-                    req.clanID = self.clanId
-                    req.webhookName = trimmedName
-                    req.avatar = self.avatarURL
-                    req.channelID = self.webhook.channelID
-                    req.channelIDUpdate = self.selectedChannelId
-                    _ = try await MezonHTTPClient.shared.updateWebhookById(request: req, token: token)
+            
+                if let imgData = self.selectedImageData, let img = self.selectedImage {
+                    do {
+                        let uploadInfo = try await self.context.account.network.uploadAttachmentFile(
+                            filename: "webhook_\(self.webhook.id)_\(Int(Date().timeIntervalSince1970)).jpg",
+                            filetype: "image/jpeg",
+                            size: imgData.count,
+                            width: Int(img.size.width),
+                            height: Int(img.size.height),
+                            token: token
+                        )
+                        try await self.context.account.network.uploadToMinIO(
+                            url: uploadInfo.url,
+                            data: imgData,
+                            contentType: "image/jpeg"
+                        )
+                        self.avatarURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+                    } catch {
+                        Toast.error(L(L10n.Webhook.saveError))
+                        return
+                    }
                 }
-                Toast.success(L(L10n.Webhook.saveSuccess))
-                try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s delay for backend sync
-                self.onWebhookUpdated?()
-                self.navigationController?.popViewController(animated: true)
-            } catch {
-                Toast.error(L(L10n.Webhook.saveError))
+
+                do {
+                    if self.isClanIntegration {
+                        var req = Mezon_Api_UpdateClanWebhookRequest()
+                        req.id = self.webhook.id
+                        req.clanID = self.clanId
+                        req.webhookName = trimmedName
+                        req.avatar = self.avatarURL
+                        _ = try await MezonHTTPClient.shared.updateClanWebhookById(request: req, token: token)
+                    } else {
+                        var req = Mezon_Api_WebhookUpdateRequestById()
+                        req.id = self.webhook.id
+                        req.clanID = self.clanId
+                        req.webhookName = trimmedName
+                        req.avatar = self.avatarURL
+                        req.channelID = self.webhook.channelID
+                        req.channelIDUpdate = self.selectedChannelId
+                        _ = try await MezonHTTPClient.shared.updateWebhookById(request: req, token: token)
+                    }
+                    Toast.success(L(L10n.Webhook.saveSuccess))
+                    try? await Task.sleep(nanoseconds: 500_000_000) // 0.5s delay for backend sync
+                    self.onWebhookUpdated?()
+                    self.navigationController?.popViewController(animated: true)
+                } catch {
+                    Toast.error(L(L10n.Webhook.saveError))
+                }
             }
         }
     }
 
+    @available(iOS 13.0, *)
     private func fetchLatestWebhook() {
         Task { [weak self] in
             guard let self else { return }
@@ -661,6 +671,7 @@ final class WebhookEditViewController: BaseViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func handleDelete() {
         let alert = UIAlertController(
             title: L(L10n.Webhook.deleteTitle),
@@ -674,6 +685,7 @@ final class WebhookEditViewController: BaseViewController {
         present(alert, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func performDelete() {
         guard !isSaving else { return }
         isSaving = true

@@ -19,7 +19,7 @@ final class ClanOverviewViewController: BaseViewController {
     private let nameErrorLabel = UILabel()
     private let avatarImageView = UIImageView()
     private let pickAvatarButton = UIButton(type: .system)
-    private let cameraIcon = UIImageView(image: UIImage(systemName: "camera.fill"))
+    private let cameraIcon = UIImageView(image: UIImage.mezonSystemImage("camera.fill"))
     private let changeAvatarLabel = UILabel()
 
     private let sysMsgChannelButton = UIButton(type: .system)
@@ -65,7 +65,9 @@ final class ClanOverviewViewController: BaseViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        loadClanData()
+        if #available(iOS 13.0, *) {
+            loadClanData()
+        }
         NotificationCenter.default.addObserver(self, selector: #selector(clanDescDidUpdate(_:)), name: Notification.Name("MezonClanDescUpdated"), object: nil)
     }
 
@@ -76,43 +78,45 @@ final class ClanOverviewViewController: BaseViewController {
     }
 
     @objc private func clanDescDidUpdate(_ notification: Notification) {
-        guard let userInfo = notification.userInfo,
-              let id = userInfo["clanId"] as? Int64,
-              id == self.clanId else { return }
+        if #available(iOS 13.0, *) {
+            guard let userInfo = notification.userInfo,
+                  let id = userInfo["clanId"] as? Int64,
+                  id == self.clanId else { return }
         
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard let clan = self.context.account.postbox.read({ tx in tx.getClan(id: self.clanId) }) else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard let clan = self.context.account.postbox.read({ tx in tx.getClan(id: self.clanId) }) else { return }
             
-            let currentName = self.clanNameTextField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if currentName == self.initialClanName || currentName == clan.name {
-                self.clanNameTextField.text = clan.name
-                self.initialClanName = clan.name
-            }
-            
-            if self.anonymousSwitch.isOn == self.initialAnonymous || self.anonymousSwitch.isOn == clan.preventsAnonymousMessages {
-                self.anonymousSwitch.isOn = clan.preventsAnonymousMessages
-                self.initialAnonymous = clan.preventsAnonymousMessages
-            }
-            
-            if let d = try? Mezon_Api_ClanDesc(serializedBytes: clan.data) {
-                if !d.banner.isEmpty, let url = URL(string: d.banner) {
-                    if self.selectedAvatarData == nil {
-                        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-                            guard let data = data, let image = UIImage(data: data) else { return }
-                            DispatchQueue.main.async {
-                                self?.avatarImageView.image = image
-                                self?.updateAvatarOverlay()
-                            }
-                        }.resume()
-                    }
-                } else if self.selectedAvatarData == nil {
-                    self.avatarImageView.image = nil
-                    self.updateAvatarOverlay()
+                let currentName = self.clanNameTextField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if currentName == self.initialClanName || currentName == clan.name {
+                    self.clanNameTextField.text = clan.name
+                    self.initialClanName = clan.name
                 }
-            }
             
-            self.updateSaveButtonState()
+                if self.anonymousSwitch.isOn == self.initialAnonymous || self.anonymousSwitch.isOn == clan.preventsAnonymousMessages {
+                    self.anonymousSwitch.isOn = clan.preventsAnonymousMessages
+                    self.initialAnonymous = clan.preventsAnonymousMessages
+                }
+            
+                if let d = try? Mezon_Api_ClanDesc(serializedBytes: clan.data) {
+                    if !d.banner.isEmpty, let url = URL(string: d.banner) {
+                        if self.selectedAvatarData == nil {
+                            URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+                                guard let data = data, let image = UIImage(data: data) else { return }
+                                DispatchQueue.main.async {
+                                    self?.avatarImageView.image = image
+                                    self?.updateAvatarOverlay()
+                                }
+                            }.resume()
+                        }
+                    } else if self.selectedAvatarData == nil {
+                        self.avatarImageView.image = nil
+                        self.updateAvatarOverlay()
+                    }
+                }
+            
+                self.updateSaveButtonState()
+            }
         }
     }
 
@@ -160,7 +164,7 @@ final class ClanOverviewViewController: BaseViewController {
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
 
-        backButton.setImage(UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        backButton.setImage(UIImage.mezonSystemImage("chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
         
@@ -563,7 +567,7 @@ final class ClanOverviewViewController: BaseViewController {
         ])
         
         if showChevron {
-            let chevron = UIImageView(image: UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate))
+            let chevron = UIImageView(image: UIImage.mezonSystemImage("chevron.right")?.withRenderingMode(.alwaysTemplate))
             chevron.tintColor = UIColor.theme.textDisabled
             chevron.translatesAutoresizingMaskIntoConstraints = false
             row.addSubview(chevron)
@@ -588,13 +592,13 @@ final class ClanOverviewViewController: BaseViewController {
         label.textColor = UIColor.theme.textStrong
         
         button.tag = tag
-        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 22.swh, weight: .regular)
-        button.setImage(UIImage(systemName: "circle", withConfiguration: symbolConfig)?.withRenderingMode(.alwaysTemplate), for: .normal)
+        let symbolConfig = MezonSymbolConfiguration(pointSize: 22.swh, weight: .regular)
+        button.setImage(UIImage.mezonSystemImage("circle", withConfiguration: symbolConfig)?.withRenderingMode(.alwaysTemplate), for: .normal)
         if #available(iOS 15.0, *) {
             let palette = UIImage.SymbolConfiguration(paletteColors: [.white, UIColor.theme.bgViolet])
-            button.setImage(UIImage(systemName: "checkmark.circle.fill", withConfiguration: palette.applying(symbolConfig))?.withRenderingMode(.alwaysOriginal), for: .selected)
+            button.setImage(UIImage(systemName: "checkmark.circle.fill", withConfiguration: palette.applying(symbolConfig.uiKitConfiguration))?.withRenderingMode(.alwaysOriginal), for: .selected)
         } else {
-            button.setImage(UIImage(systemName: "checkmark.circle.fill", withConfiguration: symbolConfig)?.withRenderingMode(.alwaysTemplate), for: .selected)
+            button.setImage(UIImage.mezonSystemImage("checkmark.circle.fill", withConfiguration: symbolConfig)?.withRenderingMode(.alwaysTemplate), for: .selected)
         }
         button.tintColor = UIColor.theme.textDisabled
         button.addTarget(self, action: #selector(notifTypeChanged(_:)), for: .touchUpInside)
@@ -644,6 +648,7 @@ final class ClanOverviewViewController: BaseViewController {
         return wrap
     }
 
+    @available(iOS 13.0, *)
     private func loadClanData() {
         guard let clan = context.account.postbox.read({ tx in tx.getClan(id: clanId) }) else { return }
         self.initialClanName = clan.name
@@ -748,18 +753,20 @@ final class ClanOverviewViewController: BaseViewController {
     }
 
     @objc private func pickAvatarTapped() {
-        guard pickAvatarButton.isUserInteractionEnabled else { return }
-        pickAvatarButton.isUserInteractionEnabled = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.pickAvatarButton.isUserInteractionEnabled = true
-        }
+        if #available(iOS 13.0, *) {
+            guard pickAvatarButton.isUserInteractionEnabled else { return }
+            pickAvatarButton.isUserInteractionEnabled = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.pickAvatarButton.isUserInteractionEnabled = true
+            }
         
-        guard UIImagePickerController.isSourceTypeAvailable(.photoLibrary) else { return }
-        let picker = UIImagePickerController()
-        picker.sourceType = .photoLibrary
-        picker.allowsEditing = true
-        picker.delegate = self
-        present(picker, animated: true)
+            guard UIImagePickerController.isSourceTypeAvailable(.photoLibrary) else { return }
+            let picker = UIImagePickerController()
+            picker.sourceType = .photoLibrary
+            picker.allowsEditing = true
+            picker.delegate = self
+            present(picker, animated: true)
+        }
     }
 
     private func updateSysMsgChannelUI() {
@@ -813,207 +820,211 @@ final class ClanOverviewViewController: BaseViewController {
     }
 
     @objc private func saveTapped() {
-        guard !isSaving else { return }
-        isSaving = true
-        updateSaveButtonState()
-
-        let name = clanNameTextField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !ClanCreationNameRules.isValid(name) {
-            Toast.error(L(L10n.Clan.invalidName))
-            isSaving = false
+        if #available(iOS 13.0, *) {
+            guard !isSaving else { return }
+            isSaving = true
             updateSaveButtonState()
-            return
-        }
-        
-        let isDuplicate = context.account.postbox.read({ tx -> Bool in
-            let clans = tx.getClans()
-            return clans.contains(where: { $0.id != self.clanId && $0.name.lowercased() == name.lowercased() })
-        })
-        
-        if isDuplicate {
-            Toast.error(L(L10n.Clan.duplicateName))
-            isSaving = false
-            updateSaveButtonState()
-            return
-        }
 
-        Task { [weak self] in
-            guard let self else { return }
-            defer {
-                self.isSaving = false
-                self.updateSaveButtonState()
+            let name = clanNameTextField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !ClanCreationNameRules.isValid(name) {
+                Toast.error(L(L10n.Clan.invalidName))
+                isSaving = false
+                updateSaveButtonState()
+                return
             }
-            guard let token = await self.context.getToken() else { return }
+        
+            let isDuplicate = context.account.postbox.read({ tx -> Bool in
+                let clans = tx.getClans()
+                return clans.contains(where: { $0.id != self.clanId && $0.name.lowercased() == name.lowercased() })
+            })
+        
+            if isDuplicate {
+                Toast.error(L(L10n.Clan.duplicateName))
+                isSaving = false
+                updateSaveButtonState()
+                return
+            }
 
-            guard let clan = self.context.account.postbox.read({ tx in tx.getClan(id: self.clanId) }) else { return }
-            
-            let currentName = self.clanNameTextField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let isNameChanged = currentName != clan.name
-            let isAvatarChanged = self.selectedAvatarData != nil
-            let isAnonymousChanged = self.anonymousSwitch.isOn != clan.preventsAnonymousMessages
-            let isNotifChanged = self.selectedNotificationType != self.initialNotificationType
-            
-            var isSysMsgChanged = false
-            if let msg = self.initialSysMsg {
-                isSysMsgChanged = (self.sysMsgRandomWelcomeSwitch.isOn ? "1" : "0") != msg.welcomeRandom ||
-                                  (self.sysMsgWelcomeStickerSwitch.isOn ? "1" : "0") != msg.setupTips ||
-                                  (!self.sysMsgAuditLogSwitch.isOn) != msg.hideAuditLog ||
-                                  (self.selectedSysMsgChannelId ?? 0) != msg.channelID
-            } else {
-                isSysMsgChanged = self.sysMsgRandomWelcomeSwitch.isOn || self.sysMsgWelcomeStickerSwitch.isOn || self.sysMsgAuditLogSwitch.isOn || (self.selectedSysMsgChannelId ?? 0) != 0
-            }
-            
-            if isNameChanged || isAvatarChanged || isAnonymousChanged {
-                var req = Mezon_Api_UpdateClanDescRequest()
-                req.clanID = self.clanId
-                req.clanName = name
-                req.preventAnonymous = self.anonymousSwitch.isOn
-                req.logo = SwiftProtobuf.Google_Protobuf_StringValue(clan.icon ?? "")
-                
-                if let d = try? Mezon_Api_ClanDesc(serializedBytes: clan.data) {
-                    req.banner = SwiftProtobuf.Google_Protobuf_StringValue(d.banner)
-                    req.status = d.status
-                    req.isOnboarding = SwiftProtobuf.Google_Protobuf_BoolValue(d.isOnboarding)
-                    req.welcomeChannelID = d.welcomeChannelID
-                    req.onboardingBanner = SwiftProtobuf.Google_Protobuf_StringValue(d.onboardingBanner)
-                    req.isCommunity = SwiftProtobuf.Google_Protobuf_BoolValue(d.isCommunity)
-                    req.communityBanner = SwiftProtobuf.Google_Protobuf_StringValue(d.communityBanner)
+            Task { [weak self] in
+                guard let self else { return }
+                defer {
+                    self.isSaving = false
+                    self.updateSaveButtonState()
                 }
-                
-                var bannerUrlToSave: String? = nil
-                if let data = self.selectedAvatarData {
-                    let uploadInfo = try await self.context.account.network.uploadAttachmentFile(
-                        filename: "banner.jpg",
-                        filetype: "image/jpeg",
-                        size: data.count,
-                        width: Int(self.selectedAvatarImage?.size.width ?? 0),
-                        height: Int(self.selectedAvatarImage?.size.height ?? 0),
-                        token: token
-                    )
-                    try await self.context.account.network.uploadToMinIO(
-                        url: uploadInfo.url,
-                        data: data,
-                        contentType: "image/jpeg"
-                    )
-                    bannerUrlToSave = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+                guard let token = await self.context.getToken() else { return }
+
+                guard let clan = self.context.account.postbox.read({ tx in tx.getClan(id: self.clanId) }) else { return }
+            
+                let currentName = self.clanNameTextField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let isNameChanged = currentName != clan.name
+                let isAvatarChanged = self.selectedAvatarData != nil
+                let isAnonymousChanged = self.anonymousSwitch.isOn != clan.preventsAnonymousMessages
+                let isNotifChanged = self.selectedNotificationType != self.initialNotificationType
+            
+                var isSysMsgChanged = false
+                if let msg = self.initialSysMsg {
+                    isSysMsgChanged = (self.sysMsgRandomWelcomeSwitch.isOn ? "1" : "0") != msg.welcomeRandom ||
+                                      (self.sysMsgWelcomeStickerSwitch.isOn ? "1" : "0") != msg.setupTips ||
+                                      (!self.sysMsgAuditLogSwitch.isOn) != msg.hideAuditLog ||
+                                      (self.selectedSysMsgChannelId ?? 0) != msg.channelID
+                } else {
+                    isSysMsgChanged = self.sysMsgRandomWelcomeSwitch.isOn || self.sysMsgWelcomeStickerSwitch.isOn || self.sysMsgAuditLogSwitch.isOn || (self.selectedSysMsgChannelId ?? 0) != 0
                 }
-                if let b = bannerUrlToSave {
-                    req.banner = SwiftProtobuf.Google_Protobuf_StringValue(b)
-                }
+            
+                if isNameChanged || isAvatarChanged || isAnonymousChanged {
+                    var req = Mezon_Api_UpdateClanDescRequest()
+                    req.clanID = self.clanId
+                    req.clanName = name
+                    req.preventAnonymous = self.anonymousSwitch.isOn
+                    req.logo = SwiftProtobuf.Google_Protobuf_StringValue(clan.icon ?? "")
                 
-                do {
-                    try await self.context.account.network.updateClanDesc(request: req, token: token)
+                    if let d = try? Mezon_Api_ClanDesc(serializedBytes: clan.data) {
+                        req.banner = SwiftProtobuf.Google_Protobuf_StringValue(d.banner)
+                        req.status = d.status
+                        req.isOnboarding = SwiftProtobuf.Google_Protobuf_BoolValue(d.isOnboarding)
+                        req.welcomeChannelID = d.welcomeChannelID
+                        req.onboardingBanner = SwiftProtobuf.Google_Protobuf_StringValue(d.onboardingBanner)
+                        req.isCommunity = SwiftProtobuf.Google_Protobuf_BoolValue(d.isCommunity)
+                        req.communityBanner = SwiftProtobuf.Google_Protobuf_StringValue(d.communityBanner)
+                    }
+                
+                    var bannerUrlToSave: String? = nil
+                    if let data = self.selectedAvatarData {
+                        let uploadInfo = try await self.context.account.network.uploadAttachmentFile(
+                            filename: "banner.jpg",
+                            filetype: "image/jpeg",
+                            size: data.count,
+                            width: Int(self.selectedAvatarImage?.size.width ?? 0),
+                            height: Int(self.selectedAvatarImage?.size.height ?? 0),
+                            token: token
+                        )
+                        try await self.context.account.network.uploadToMinIO(
+                            url: uploadInfo.url,
+                            data: data,
+                            contentType: "image/jpeg"
+                        )
+                        bannerUrlToSave = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+                    }
+                    if let b = bannerUrlToSave {
+                        req.banner = SwiftProtobuf.Google_Protobuf_StringValue(b)
+                    }
+                
+                    do {
+                        try await self.context.account.network.updateClanDesc(request: req, token: token)
                     
-                    if var d = try? Mezon_Api_ClanDesc(serializedBytes: clan.data) {
-                        d.clanName = req.clanName
-                        d.preventAnonymous = req.preventAnonymous
-                        if !req.logo.value.isEmpty {
-                            d.logo = req.logo.value
+                        if var d = try? Mezon_Api_ClanDesc(serializedBytes: clan.data) {
+                            d.clanName = req.clanName
+                            d.preventAnonymous = req.preventAnonymous
+                            if !req.logo.value.isEmpty {
+                                d.logo = req.logo.value
+                            }
+                            if let b = bannerUrlToSave {
+                                d.banner = b
+                            }
+                            let updatedClan = ClanRecord(
+                                id: clan.id,
+                                name: req.clanName,
+                                icon: clan.icon,
+                                ownerId: clan.ownerId,
+                                data: try d.serializedData()
+                            )
+                            self.context.account.postbox.writeSync { tx in
+                                tx.updateClans([updatedClan])
+                            }
                         }
-                        if let b = bannerUrlToSave {
-                            d.banner = b
-                        }
-                        let updatedClan = ClanRecord(
-                            id: clan.id,
-                            name: req.clanName,
-                            icon: clan.icon,
-                            ownerId: clan.ownerId,
-                            data: try d.serializedData()
-                        )
+                    } catch {
+                        await MainActor.run { Toast.error("ClanDesc error: \(error.localizedDescription)") }
+                        return
+                    }
+                }
+                
+                if isSysMsgChanged {
+                    var sysReq = Mezon_Api_SystemMessageRequest()
+                    sysReq.clanID = self.clanId
+                    sysReq.welcomeRandom = self.sysMsgRandomWelcomeSwitch.isOn ? "1" : "0"
+                    sysReq.setupTips = self.sysMsgWelcomeStickerSwitch.isOn ? "1" : "0"
+                    sysReq.welcomeSticker = self.initialSysMsg?.welcomeSticker ?? ""
+                    sysReq.hideAuditLog = !self.sysMsgAuditLogSwitch.isOn
+                    sysReq.channelID = self.selectedSysMsgChannelId ?? 0
+                    sysReq.boostMessage = self.initialSysMsg?.boostMessage ?? ""
+                
+                    do {
+                        try await self.context.account.network.updateSystemMessage(request: sysReq, token: token)
+                    } catch {
+                        await MainActor.run { Toast.error("SysMsg error: \(error.localizedDescription)") }
+                        return
+                    }
+                }
+            
+                if isNotifChanged {
+                    do {
+                        try await self.context.account.network.setDefaultNotificationClan(clanId: self.clanId, notificationType: self.selectedNotificationType, token: token)
                         self.context.account.postbox.writeSync { tx in
-                            tx.updateClans([updatedClan])
+                            let existing = tx.getNotificationSetting(entityId: self.clanId)
+                            let newSetting = NotificationSettingRecord(
+                                id: existing?.id ?? self.clanId,
+                                entityId: self.clanId,
+                                scope: .clan,
+                                notificationSettingType: self.selectedNotificationType,
+                                timeMuteSeconds: existing?.timeMuteSeconds ?? 0,
+                                active: existing?.active ?? 1
+                            )
+                            tx.updateNotificationSetting(newSetting)
                         }
+                    } catch {
+                        await MainActor.run { Toast.error("Notif error: \(error.localizedDescription)") }
+                        return
                     }
-                } catch {
-                    await MainActor.run { Toast.error("ClanDesc error: \(error.localizedDescription)") }
-                    return
                 }
-            }
-                
-            if isSysMsgChanged {
-                var sysReq = Mezon_Api_SystemMessageRequest()
-                sysReq.clanID = self.clanId
-                sysReq.welcomeRandom = self.sysMsgRandomWelcomeSwitch.isOn ? "1" : "0"
-                sysReq.setupTips = self.sysMsgWelcomeStickerSwitch.isOn ? "1" : "0"
-                sysReq.welcomeSticker = self.initialSysMsg?.welcomeSticker ?? ""
-                sysReq.hideAuditLog = !self.sysMsgAuditLogSwitch.isOn
-                sysReq.channelID = self.selectedSysMsgChannelId ?? 0
-                sysReq.boostMessage = self.initialSysMsg?.boostMessage ?? ""
-                
-                do {
-                    try await self.context.account.network.updateSystemMessage(request: sysReq, token: token)
-                } catch {
-                    await MainActor.run { Toast.error("SysMsg error: \(error.localizedDescription)") }
-                    return
-                }
-            }
             
-            if isNotifChanged {
-                do {
-                    try await self.context.account.network.setDefaultNotificationClan(clanId: self.clanId, notificationType: self.selectedNotificationType, token: token)
-                    self.context.account.postbox.writeSync { tx in
-                        let existing = tx.getNotificationSetting(entityId: self.clanId)
-                        let newSetting = NotificationSettingRecord(
-                            id: existing?.id ?? self.clanId,
-                            entityId: self.clanId,
-                            scope: .clan,
-                            notificationSettingType: self.selectedNotificationType,
-                            timeMuteSeconds: existing?.timeMuteSeconds ?? 0,
-                            active: existing?.active ?? 1
-                        )
-                        tx.updateNotificationSetting(newSetting)
-                    }
-                } catch {
-                    await MainActor.run { Toast.error("Notif error: \(error.localizedDescription)") }
-                    return
+                await MainActor.run {
+                    Toast.success(L(L10n.ClanSetting.Overview.saveSuccess))
+                    self.navigationController?.popViewController(animated: true)
                 }
-            }
-            
-            await MainActor.run {
-                Toast.success(L(L10n.ClanSetting.Overview.saveSuccess))
-                self.navigationController?.popViewController(animated: true)
             }
         }
     }
 
     @objc private func deleteClanTapped() {
-        MezonConfirm.present(
-            from: self,
-            title: L(L10n.ClanSetting.Overview.deleteClanConfirmTitle),
-            content: L(L10n.ClanSetting.Overview.deleteClanConfirmMessage),
-            confirmTitle: L(L10n.Common.delete),
-            isDanger: true,
-            onConfirm: { [weak self] in
-                guard let self else { return }
-                Task {
-                    guard let token = await self.context.getToken() else { return }
-                    do {
-                        try await self.context.account.network.deleteClanDesc(clanId: self.clanId, token: token)
+        if #available(iOS 13.0, *) {
+            MezonConfirm.present(
+                from: self,
+                title: L(L10n.ClanSetting.Overview.deleteClanConfirmTitle),
+                content: L(L10n.ClanSetting.Overview.deleteClanConfirmMessage),
+                confirmTitle: L(L10n.Common.delete),
+                isDanger: true,
+                onConfirm: { [weak self] in
+                    guard let self else { return }
+                    Task {
+                        guard let token = await self.context.getToken() else { return }
+                        do {
+                            try await self.context.account.network.deleteClanDesc(clanId: self.clanId, token: token)
                         
-                        await MainActor.run {
-                            if let root = self.navigationController as? MezonRootController {
-                                root.homeController?.clanListVC.removeClanAndSelectNext(removedClanId: self.clanId)
-                            }
+                            await MainActor.run {
+                                if let root = self.navigationController as? MezonRootController {
+                                    root.homeController?.clanListVC.removeClanAndSelectNext(removedClanId: self.clanId)
+                                }
                             
-                            let nextClanId = self.context.currentClanId
-                            if nextClanId != 0 {
-                                NotificationCenter.default.post(
-                                    name: .mezonQRSelectClan,
-                                    object: nil,
-                                    userInfo: ["clanId": "\(nextClanId)"]
-                                )
-                            } else {
-                                self.navigationController?.popToRootViewController(animated: true)
+                                let nextClanId = self.context.currentClanId
+                                if nextClanId != 0 {
+                                    NotificationCenter.default.post(
+                                        name: .mezonQRSelectClan,
+                                        object: nil,
+                                        userInfo: ["clanId": "\(nextClanId)"]
+                                    )
+                                } else {
+                                    self.navigationController?.popToRootViewController(animated: true)
+                                }
                             }
-                        }
-                    } catch {
-                        await MainActor.run {
-                            Toast.error(L(L10n.ClanSetting.Overview.saveError))
+                        } catch {
+                            await MainActor.run {
+                                Toast.error(L(L10n.ClanSetting.Overview.saveError))
+                            }
                         }
                     }
                 }
-            }
-        )
+            )
+        }
     }
 }
 
@@ -1204,7 +1215,7 @@ final class SysMsgSelectChannelViewController: BaseViewController {
         button.addTarget(self, action: #selector(handleChannelTap(_:)), for: .touchUpInside)
 
         let iconName = channel.channelListIconAssetName()
-        let hashIcon = UIImageView(image: (UIImage(named: iconName) ?? UIImage(systemName: iconName))?.withRenderingMode(.alwaysTemplate))
+        let hashIcon = UIImageView(image: (UIImage(named: iconName) ?? UIImage.mezonSystemImage(iconName))?.withRenderingMode(.alwaysTemplate))
         hashIcon.tintColor = UIColor.theme.textDisabled
         hashIcon.contentMode = .scaleAspectFit
         button.addSubview(hashIcon)
@@ -1230,7 +1241,7 @@ final class SysMsgSelectChannelViewController: BaseViewController {
         ])
         
         if channel.channelID == currentChannelId {
-            let checkIcon = UIImageView(image: UIImage(systemName: "checkmark")?.withRenderingMode(.alwaysTemplate))
+            let checkIcon = UIImageView(image: UIImage.mezonSystemImage("checkmark")?.withRenderingMode(.alwaysTemplate))
             checkIcon.tintColor = UIColor.theme.bgViolet
             button.addSubview(checkIcon)
             checkIcon.translatesAutoresizingMaskIntoConstraints = false

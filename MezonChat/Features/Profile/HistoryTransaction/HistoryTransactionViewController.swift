@@ -27,8 +27,8 @@ final class HistoryTransactionViewController: BaseViewController {
     private let outgoingTabButton = UIButton(type: .system)
     
     private let tableView = UITableView(frame: .zero, style: .plain)
-    private let spinner = UIActivityIndicatorView(style: .medium)
-    private let footerSpinner = UIActivityIndicatorView(style: .medium)
+    private let spinner = UIActivityIndicatorView.mezonMedium()
+    private let footerSpinner = UIActivityIndicatorView.mezonMedium()
     
     enum FilterType: String {
         case all = "all"
@@ -55,7 +55,9 @@ final class HistoryTransactionViewController: BaseViewController {
         setupTabs()
         setupTableView()
         
-        fetchInitial()
+        if #available(iOS 13.0, *) {
+            fetchInitial()
+        }
     }
     
     override func applyTheme() {
@@ -75,7 +77,7 @@ final class HistoryTransactionViewController: BaseViewController {
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
 
-        backButton.setImage(UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        backButton.setImage(UIImage.mezonSystemImage("chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
         
@@ -256,14 +258,16 @@ final class HistoryTransactionViewController: BaseViewController {
     }
     
     @objc private func tabTapped(_ sender: UIButton) {
-        cachedScrollOffsets[activeTab] = tableView.contentOffset.y
+        if #available(iOS 13.0, *) {
+            cachedScrollOffsets[activeTab] = tableView.contentOffset.y
         
-        if sender == allTabButton { activeTab = .all }
-        else if sender == incomingTabButton { activeTab = .incoming }
-        else if sender == outgoingTabButton { activeTab = .outgoing }
+            if sender == allTabButton { activeTab = .all }
+            else if sender == incomingTabButton { activeTab = .incoming }
+            else if sender == outgoingTabButton { activeTab = .outgoing }
         
-        updateTabSelection()
-        fetchInitial()
+            updateTabSelection()
+            fetchInitial()
+        }
     }
     
     private func updateTabSelection() {
@@ -277,8 +281,9 @@ final class HistoryTransactionViewController: BaseViewController {
         outgoingTabButton.setTitleColor(activeTab == .outgoing ? UIColor.theme.textStrong : UIColor.theme.textDisabled, for: .normal)
     }
     
-    private var fetchTask: Task<Void, Never>?
+    private var fetchTask: CancelHandle?
     
+    @available(iOS 13.0, *)
     private func fetchInitial() {
         fetchTask?.cancel()
         
@@ -307,7 +312,7 @@ final class HistoryTransactionViewController: BaseViewController {
         isLoadMore = false
         footerSpinner.stopAnimating()
         
-        fetchTask = Task {
+        let fetchTaskWork = Task {
             do {
                 try? await Task.sleep(nanoseconds: 300_000_000)
                 if Task.isCancelled { return }
@@ -348,14 +353,17 @@ final class HistoryTransactionViewController: BaseViewController {
                 spinner.stopAnimating()
             }
         }
+        
+        fetchTask = CancelHandle { fetchTaskWork.cancel() }
     }
     
+    @available(iOS 13.0, *)
     private func fetchLoadMore() {
         guard hasMore, !isLoadMore else { return }
         isLoadMore = true
         footerSpinner.startAnimating()
         
-        fetchTask = Task {
+        let fetchTaskWork = Task {
             do {
                 guard let addr = walletAddress else {
                     footerSpinner.stopAnimating()
@@ -399,6 +407,8 @@ final class HistoryTransactionViewController: BaseViewController {
                 footerSpinner.stopAnimating()
             }
         }
+        
+        fetchTask = CancelHandle { fetchTaskWork.cancel() }
     }
 }
 
@@ -428,13 +438,15 @@ extension HistoryTransactionViewController: UITableViewDelegate, UITableViewData
     }
     
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        guard !transactions.isEmpty else { return }
-        let offsetY = scrollView.contentOffset.y
-        let contentHeight = scrollView.contentSize.height
-        let height = scrollView.frame.size.height
+        if #available(iOS 13.0, *) {
+            guard !transactions.isEmpty else { return }
+            let offsetY = scrollView.contentOffset.y
+            let contentHeight = scrollView.contentSize.height
+            let height = scrollView.frame.size.height
         
-        if offsetY > contentHeight - height - 100 {
-            fetchLoadMore()
+            if offsetY > contentHeight - height - 100 {
+                fetchLoadMore()
+            }
         }
     }
 }

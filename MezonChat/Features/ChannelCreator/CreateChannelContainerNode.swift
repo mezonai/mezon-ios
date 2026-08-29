@@ -12,7 +12,7 @@ final class CreateChannelContainerNode: ASDisplayNode {
     private let nameField = UITextField()
     private let nameErrorLabel = UILabel()
     private var createBtn: UIButton!
-    private let activityIndicator = UIActivityIndicatorView(style: .medium)
+    private let activityIndicator = UIActivityIndicatorView.mezonMedium()
     
     private let textTypeBtn = RadioButtonView()
     private let voiceTypeBtn = RadioButtonView()
@@ -51,7 +51,7 @@ final class CreateChannelContainerNode: ASDisplayNode {
         ])
 
         let closeBtn = UIButton(type: .system)
-        closeBtn.setImage(UIImage(systemName: "xmark")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        closeBtn.setImage(UIImage.mezonSystemImage("xmark")?.withRenderingMode(.alwaysTemplate), for: .normal)
         closeBtn.tintColor = t.textStrong
         closeBtn.addTarget(self, action: #selector(handleClose), for: .touchUpInside)
         header.addSubview(closeBtn)

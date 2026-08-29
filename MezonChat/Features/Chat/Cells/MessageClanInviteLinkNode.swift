@@ -52,7 +52,7 @@ final class MessageClanInviteLinkNode: ASDisplayNode {
         containerNode.borderColor = t.border.cgColor
 
         loadingNode.setViewBlock {
-            let v = UIActivityIndicatorView(style: .medium)
+            let v = UIActivityIndicatorView.mezonMedium()
             v.startAnimating()
             v.color = t.textDisabled
             return v

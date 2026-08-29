@@ -38,7 +38,6 @@ private struct VoiceParticipantTileDescriptor {
     let kind: VoiceParticipantTileKind
 }
 
-@MainActor
 private func voiceChannelFindClanUser(context: AccountContext, clanId: Int64, identityKey: String) -> Mezon_Api_ClanUserList.ClanUser? {
     let key = identityKey.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !key.isEmpty, let list = context.engine.clanData.getClanUsers(clanId: clanId) else { return nil }
@@ -49,7 +48,6 @@ private func voiceChannelFindClanUser(context: AccountContext, clanId: Int64, id
     return nil
 }
 
-@MainActor
 private func voiceChannelDisplayNameFromClanUser(_ cu: Mezon_Api_ClanUserList.ClanUser) -> String? {
     if !cu.clanNick.isEmpty { return cu.clanNick }
     if !cu.user.displayName.isEmpty { return cu.user.displayName }
@@ -57,14 +55,12 @@ private func voiceChannelDisplayNameFromClanUser(_ cu: Mezon_Api_ClanUserList.Cl
     return nil
 }
 
-@MainActor
 private func voiceChannelAvatarURLFromClanUser(_ cu: Mezon_Api_ClanUserList.ClanUser) -> String? {
     if !cu.clanAvatar.isEmpty { return cu.clanAvatar }
     if !cu.user.avatarURL.isEmpty { return cu.user.avatarURL }
     return nil
 }
 
-@MainActor
 private func voiceChannelMeetStateDisplayName(context: AccountContext, clanId: Int64) -> String {
     if let idStr = context.currentUser?.id,
        let cu = voiceChannelFindClanUser(context: context, clanId: clanId, identityKey: idStr),
@@ -76,7 +72,6 @@ private func voiceChannelMeetStateDisplayName(context: AccountContext, clanId: I
     return "Mezon"
 }
 
-@MainActor
 private func voiceChannelResolveAvatarURL(context: AccountContext, clanId: Int64, identityKey: String) -> String? {
     if let cu = voiceChannelFindClanUser(context: context, clanId: clanId, identityKey: identityKey),
        let url = voiceChannelAvatarURLFromClanUser(cu), !url.isEmpty {
@@ -93,7 +88,6 @@ private func voiceChannelResolveAvatarURL(context: AccountContext, clanId: Int64
     return nil
 }
 
-@MainActor
 private func voiceChannelResolveDisplayNameForUserId(context: AccountContext, clanId: Int64, userId: Int64) -> String {
     let key = "\(userId)"
     if let cu = voiceChannelFindClanUser(context: context, clanId: clanId, identityKey: key),
@@ -112,7 +106,6 @@ private func voiceChannelResolveDisplayNameForUserId(context: AccountContext, cl
     return key
 }
 
-@MainActor
 private func voiceChannelShortProfileSubtitleLine(cu: Mezon_Api_ClanUserList.ClanUser?, identityFallback: String) -> String {
     if let cu {
         if !cu.user.username.isEmpty { return cu.user.username }
@@ -121,7 +114,6 @@ private func voiceChannelShortProfileSubtitleLine(cu: Mezon_Api_ClanUserList.Cla
     return identityFallback
 }
 
-@MainActor
 private func voiceChannelResolveDisplayName(context: AccountContext, clanId: Int64, identityKey: String, isLocal: Bool) -> String {
     let idKey = isLocal ? (context.currentUser?.id ?? "") : identityKey
     if let cu = voiceChannelFindClanUser(context: context, clanId: clanId, identityKey: idKey),
@@ -140,7 +132,6 @@ private func voiceChannelResolveDisplayName(context: AccountContext, clanId: Int
     return idKey.isEmpty ? "…" : idKey
 }
 
-@MainActor
 private func voiceChannelResolveUsername(context: AccountContext, clanId: Int64, identityKey: String, isLocal: Bool) -> String {
     let idKey = isLocal ? (context.currentUser?.id ?? "") : identityKey
     if let cu = voiceChannelFindClanUser(context: context, clanId: clanId, identityKey: idKey) {
@@ -196,7 +187,6 @@ private func voiceChannelEarpieceCategoryOptions() -> AVAudioSession.CategoryOpt
     voiceChannelBaseCategoryOptions()
 }
 
-@MainActor
 private func voiceChannelSessionAlreadyMatchesPreservedRoute(
     _ route: VoiceChannelPiPPreservedAudioRoute,
     desiredMode: String
@@ -226,7 +216,6 @@ private func voiceChannelSessionAlreadyMatchesPreservedRoute(
     }
 }
 
-@MainActor
 fileprivate func applyVoiceChannelPreservedAudioRouteToSession(_ route: VoiceChannelPiPPreservedAudioRoute) {
     let cfg = RTCAudioSessionConfiguration.webRTC()
     cfg.category = AVAudioSession.Category.playAndRecord.rawValue
@@ -342,9 +331,9 @@ private final class VoiceHeaderSystemAudioRouteControl: UIView {
         stateIconView.tintColor = color
     }
 
-    func setRouteStateSymbol(systemName: String, pointSize: CGFloat, weight: UIImage.SymbolWeight) {
-        let cfg = UIImage.SymbolConfiguration(pointSize: pointSize, weight: weight)
-        stateIconView.image = UIImage(systemName: systemName, withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate)
+    func setRouteStateSymbol(systemName: String, pointSize: CGFloat, weight: UIFont.Weight) {
+        let cfg = MezonSymbolConfiguration(pointSize: pointSize, weight: weight)
+        stateIconView.image = UIImage.mezonSystemImage(systemName, withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate)
     }
 
     func setRouteStateTemplateAsset(named assetName: String) {
@@ -352,7 +341,7 @@ private final class VoiceHeaderSystemAudioRouteControl: UIView {
     }
 }
 
-@MainActor
+@available(iOS 13.0, *)
 final class VoiceChannelPiPOverlay: NSObject {
 
     static let shared = VoiceChannelPiPOverlay()
@@ -505,8 +494,10 @@ final class VoiceChannelPiPOverlay: NSObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in
-                self?.applyPiPChromeTheme()
+            if #available(iOS 13.0, *) {
+                Task { @MainActor in
+                    self?.applyPiPChromeTheme()
+                }
             }
         }
     }
@@ -564,8 +555,9 @@ final class VoiceChannelPiPOverlay: NSObject {
             }
         }
 
-        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
-        guard let scene else {
+        guard #available(iOS 13.0, *),
+              let scene = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene }).first else {
             return
         }
         let w = VoicePiPPassthroughWindow(windowScene: scene)
@@ -574,11 +566,11 @@ final class VoiceChannelPiPOverlay: NSObject {
         w.isUserInteractionEnabled = true
         switch ThemeManager.shared.current {
         case .light, .sunrise:
-            w.overrideUserInterfaceStyle = .light
+            w.setMezonOverrideUserInterfaceStyle(.light)
         case .dark, .redDark, .purpleHaze, .abyssDark, .sunset:
-            w.overrideUserInterfaceStyle = .dark
+            w.setMezonOverrideUserInterfaceStyle(.dark)
         case .system:
-            w.overrideUserInterfaceStyle = .unspecified
+            w.setMezonOverrideUserInterfaceStyle(.unspecified)
         }
         w.pipView = pipView
         let rootVC = UIViewController()
@@ -882,8 +874,8 @@ final class VoiceChannelPiPOverlay: NSObject {
     }
 
     private func showBadge(icon: String, name: String, micOn: Bool) {
-        let cfg = UIImage.SymbolConfiguration(pointSize: 10, weight: .medium)
-        badgeIcon.image = UIImage(systemName: icon, withConfiguration: cfg)
+        let cfg = MezonSymbolConfiguration(pointSize: 10, weight: .medium)
+        badgeIcon.image = UIImage.mezonSystemImage(icon, withConfiguration: cfg)
         badgeIcon.tintColor = .white
         badgeLabel.text = name
     }
@@ -967,8 +959,7 @@ final class VoiceChannelPiPOverlay: NSObject {
     }
 
     private func findVisibleNavigationController() -> NavigationController? {
-        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else { return nil }
-        for window in scene.windows where !window.isHidden && window !== pipWindow {
+        for window in mezonApplicationWindows() where !window.isHidden && window !== pipWindow {
             if let nav = findNavigationControllerInViewHierarchy(window) {
                 return nav
             }
@@ -1121,9 +1112,11 @@ final class VoiceChannelPiPOverlay: NSObject {
     }
 }
 
+@available(iOS 13.0, *)
 extension VoiceChannelPiPOverlay: AVPictureInPictureControllerDelegate {
     nonisolated func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {}
 
+    @available(iOS 13.0, *)
     nonisolated func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         Task { @MainActor [weak self] in
             guard let self, pictureInPictureController === self.systemCallPiPController else { return }
@@ -1142,6 +1135,7 @@ extension VoiceChannelPiPOverlay: AVPictureInPictureControllerDelegate {
         }
     }
 
+    @available(iOS 13.0, *)
     nonisolated func pictureInPictureController(
         _ pictureInPictureController: AVPictureInPictureController,
         failedToStartPictureInPictureWithError error: Error
@@ -1152,6 +1146,7 @@ extension VoiceChannelPiPOverlay: AVPictureInPictureControllerDelegate {
         }
     }
 
+    @available(iOS 13.0, *)
     nonisolated func pictureInPictureController(
         _ pictureInPictureController: AVPictureInPictureController,
         restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
@@ -1215,12 +1210,10 @@ private enum VoiceCallSystemPiPSourceLayout {
     static let margin: CGFloat = 10
 }
 
-@MainActor
 private func voiceCallSystemPiPChromeTags() -> [Int] {
     [VoiceCallSystemPiPViewTag.status, VoiceCallSystemPiPViewTag.name, VoiceCallSystemPiPViewTag.initial, VoiceCallSystemPiPViewTag.avatar, VoiceCallSystemPiPViewTag.phoneIcon]
 }
 
-@MainActor
 private func voiceCallSystemPiPSetChromeHidden(_ container: UIView, hidden: Bool) {
     for tag in voiceCallSystemPiPChromeTags() {
         container.viewWithTag(tag)?.isHidden = hidden
@@ -1229,7 +1222,6 @@ private func voiceCallSystemPiPSetChromeHidden(_ container: UIView, hidden: Bool
 
 @available(iOS 15.0, *)
 private enum VoiceCallSystemPiPFactory {
-    @MainActor
     static func make(sourceSuperview: UIView, context: AccountContext, clanId: Int64) -> (UIView, AVPictureInPictureVideoCallViewController, AVPictureInPictureController)? {
         guard AVPictureInPictureController.isPictureInPictureSupported() else {
             return nil
@@ -1286,8 +1278,8 @@ private enum VoiceCallSystemPiPFactory {
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.tag = VoiceCallSystemPiPViewTag.phoneIcon
         iconView.contentMode = .scaleAspectFit
-        let iconCfg = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-        iconView.image = UIImage(systemName: "phone.fill", withConfiguration: iconCfg)
+        let iconCfg = MezonSymbolConfiguration(pointSize: 14, weight: .medium)
+        iconView.image = UIImage.mezonSystemImage("phone.fill", withConfiguration: iconCfg)
         iconView.tintColor = UIColor(red: 0.3, green: 0.85, blue: 0.4, alpha: 1)
 
         contentVC.view.addSubview(pipAvatarView)
@@ -1378,6 +1370,7 @@ private extension UIViewController {
     }
 }
 
+@available(iOS 13.0, *)
 final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedPiPHost {
 
     private(set) static weak var currentLiveRoom: VoiceChannelRoomViewController?
@@ -1398,7 +1391,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private var sfuSession: MezonSfuSession?
     private var sfuParticipants: [SfuParticipant] = []
     private var hasEverConnected = false
-    private var connectTask: Task<Void, Never>?
+    private var connectTask: CancelHandle?
     private var voiceReactionDisposable: Disposable?
     private var clanUsersUpdatedDisposable: Disposable?
     private var didRequestClanUsersForAvatars = false
@@ -1441,7 +1434,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private var isRestoringCallPiP = false
 
     private let connectingOverlay = UIView()
-    private let connectingSpinner = UIActivityIndicatorView(style: .medium)
+    private let connectingSpinner = UIActivityIndicatorView.mezonMedium()
     private let connectingLabel = UILabel()
     private let connectingStack = UIStackView()
     private let voiceReactionOverlay = VoiceCallReactionFlightView()
@@ -1455,7 +1448,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private let cameraSwitchButton = UIButton(type: .custom)
     private let audioRouteControl = VoiceHeaderSystemAudioRouteControl()
     private let agentToggleButton = UIButton(type: .custom)
-    private let agentToggleSpinner = UIActivityIndicatorView(style: .medium)
+    private let agentToggleSpinner = UIActivityIndicatorView.mezonMedium()
     private var voiceAgentEnabled = false
     private var isAgentToggleLoading = false
     private let moreButton = UIButton(type: .custom)
@@ -1821,7 +1814,9 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         NotificationCenter.default.addObserver(
             self, selector: #selector(applyTheme), name: ThemeManager.didChangeNotification, object: nil)
 
-        bindClanUsersUpdatedForAvatars()
+        if #available(iOS 13.0, *) {
+            bindClanUsersUpdatedForAvatars()
+        }
 
         audioRouteObserver = NotificationCenter.default.addObserver(
             forName: AVAudioSession.routeChangeNotification,
@@ -1862,12 +1857,16 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
         setupPttControls()
         if joinRole == .audience {
-            applyRole(.audience)
+            if #available(iOS 13.0, *) {
+                applyRole(.audience)
+            }
         }
 
         if let pip = existingPiPOverlay,
            let (session, joinFlag, leaveFlag, route) = pip.takeOverSession() {
-            applySessionAfterTakeover(session, joinFlag: joinFlag, leaveFlag: leaveFlag, preservedAudioRoute: route)
+            if #available(iOS 13.0, *) {
+                applySessionAfterTakeover(session, joinFlag: joinFlag, leaveFlag: leaveFlag, preservedAudioRoute: route)
+            }
             view.layoutIfNeeded()
             didStartVoiceConnection = true
         }
@@ -1879,7 +1878,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         button.layer.cornerRadius = 20
         button.layer.borderWidth = 1
         button.layer.borderColor = UIColor.theme.border.cgColor
-        let img = UIImage(systemName: systemImage, withConfiguration: UIImage.SymbolConfiguration(pointSize: pointSize, weight: .medium))
+        let img = UIImage.mezonSystemImage(systemImage, withConfiguration: MezonSymbolConfiguration(pointSize: pointSize, weight: .medium))
         button.setImage(img?.withRenderingMode(.alwaysTemplate), for: .normal)
         button.imageView?.contentMode = .scaleAspectFit
     }
@@ -1910,7 +1909,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         b.layer.cornerRadius = 25
         b.layer.borderWidth = 0.5
         b.layer.borderColor = UIColor.theme.textDisabled.withAlphaComponent(0.6).cgColor
-        let img = UIImage(systemName: systemName, withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium))
+        let img = UIImage.mezonSystemImage(systemName, withConfiguration: MezonSymbolConfiguration(pointSize: 18, weight: .medium))
         b.setImage(img?.withRenderingMode(.alwaysTemplate), for: .normal)
         b.tintColor = UIColor.theme.textStrong
         b.widthAnchor.constraint(equalToConstant: 50).isActive = true
@@ -1926,7 +1925,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         b.translatesAutoresizingMaskIntoConstraints = false
         b.backgroundColor = UIColor(red: 0.89, green: 0.18, blue: 0.18, alpha: 1)
         b.layer.cornerRadius = 25
-        let img = UIImage(systemName: "phone.down.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold))
+        let img = UIImage.mezonSystemImage("phone.down.fill", withConfiguration: MezonSymbolConfiguration(pointSize: 18, weight: .semibold))
         b.setImage(img?.withRenderingMode(.alwaysTemplate), for: .normal)
         b.tintColor = .white
         b.widthAnchor.constraint(equalToConstant: 50).isActive = true
@@ -1951,8 +1950,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
         pttMicIcon.translatesAutoresizingMaskIntoConstraints = false
         pttMicIcon.contentMode = .scaleAspectFit
-        let micCfg = UIImage.SymbolConfiguration(pointSize: 34, weight: .medium)
-        pttMicIcon.image = UIImage(systemName: "mic.slash.fill", withConfiguration: micCfg)?.withRenderingMode(.alwaysTemplate)
+        let micCfg = MezonSymbolConfiguration(pointSize: 34, weight: .medium)
+        pttMicIcon.image = UIImage.mezonSystemImage("mic.slash.fill", withConfiguration: micCfg)?.withRenderingMode(.alwaysTemplate)
         pttMicIcon.tintColor = UIColor.theme.textStrong
         pttMicIcon.isUserInteractionEnabled = false
 
@@ -1984,8 +1983,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         configurePttSecondaryPill(pttRaisePill, backgroundColor: UIColor.theme.tertiary)
         pttRaiseIcon.translatesAutoresizingMaskIntoConstraints = false
         pttRaiseIcon.contentMode = .scaleAspectFit
-        let raiseCfg = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
-        pttRaiseIcon.image = UIImage(systemName: "hand.raised.fill", withConfiguration: raiseCfg)?.withRenderingMode(.alwaysTemplate)
+        let raiseCfg = MezonSymbolConfiguration(pointSize: 20, weight: .medium)
+        pttRaiseIcon.image = UIImage.mezonSystemImage("hand.raised.fill", withConfiguration: raiseCfg)?.withRenderingMode(.alwaysTemplate)
         pttRaiseIcon.tintColor = UIColor.theme.textStrong
         pttRaiseIcon.isUserInteractionEnabled = false
         pttRaisePill.addSubview(pttRaiseIcon)
@@ -2029,8 +2028,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         let icon = UIImageView()
         icon.translatesAutoresizingMaskIntoConstraints = false
         icon.contentMode = .scaleAspectFit
-        let cfg = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .medium)
-        icon.image = UIImage(systemName: systemName, withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate)
+        let cfg = MezonSymbolConfiguration(pointSize: pointSize, weight: .medium)
+        icon.image = UIImage.mezonSystemImage(systemName, withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate)
         icon.tintColor = tint
         icon.isUserInteractionEnabled = false
         return icon
@@ -2073,15 +2072,15 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     private func setPttPillPressed(_ pressed: Bool) {
-        let micCfg = UIImage.SymbolConfiguration(pointSize: 34, weight: .medium)
+        let micCfg = MezonSymbolConfiguration(pointSize: 34, weight: .medium)
         if pressed {
             pttMicPill.backgroundColor = UIColor.theme.bgViolet
-            pttMicIcon.image = UIImage(systemName: "mic.fill", withConfiguration: micCfg)?.withRenderingMode(.alwaysTemplate)
+            pttMicIcon.image = UIImage.mezonSystemImage("mic.fill", withConfiguration: micCfg)?.withRenderingMode(.alwaysTemplate)
             pttMicIcon.tintColor = .white
             pttMicLabel.textColor = .white
         } else {
             pttMicPill.backgroundColor = UIColor.theme.tertiary
-            pttMicIcon.image = UIImage(systemName: "mic.slash.fill", withConfiguration: micCfg)?.withRenderingMode(.alwaysTemplate)
+            pttMicIcon.image = UIImage.mezonSystemImage("mic.slash.fill", withConfiguration: micCfg)?.withRenderingMode(.alwaysTemplate)
             pttMicIcon.tintColor = UIColor.theme.textStrong
             pttMicLabel.textColor = UIColor.theme.textStrong
         }
@@ -2197,6 +2196,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         ensureClanUsersLoadedForAvatars()
     }
 
+    @available(iOS 13.0, *)
     private func ensureClanUsersLoadedForAvatars() {
         guard !didRequestClanUsersForAvatars, channel.clanID != 0 else { return }
         let clanId = channel.clanID
@@ -2282,8 +2282,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         if let root = view.window?.rootViewController {
             return root.findDeepestNavigationController()
         }
-        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first else { return nil }
-        for w in scene.windows where !w.isHidden {
+        for w in mezonApplicationWindows() where !w.isHidden {
             if let nav = w.rootViewController?.findDeepestNavigationController() { return nav }
         }
         return nil
@@ -2381,9 +2380,9 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         let inset = VoiceMoreToolsPopoverMetrics.imageInset
         b.imageEdgeInsets = UIEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
         b.imageView?.contentMode = .scaleAspectFit
-        let cfg = UIImage.SymbolConfiguration(pointSize: VoiceMoreToolsPopoverMetrics.symbolPointSize, weight: .medium)
+        let cfg = MezonSymbolConfiguration(pointSize: VoiceMoreToolsPopoverMetrics.symbolPointSize, weight: .medium)
         let resolved = image?.withRenderingMode(.alwaysTemplate)
-            ?? UIImage(systemName: fallbackSystemName, withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate)
+            ?? UIImage.mezonSystemImage(fallbackSystemName, withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate)
         b.setImage(resolved, for: .normal)
         b.tintColor = .white
         b.backgroundColor = UIColor.white.withAlphaComponent(0.14)
@@ -2529,9 +2528,9 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
     private func refreshRaiseHandButtonAppearance() {
         guard raiseHandButton != nil else { return }
-        let cfg = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
+        let cfg = MezonSymbolConfiguration(pointSize: 18, weight: .medium)
         raiseHandButton.setImage(
-            UIImage(systemName: "hand.raised.fill", withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate),
+            UIImage.mezonSystemImage("hand.raised.fill", withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate),
             for: .normal
         )
         if isLocalRaiseHandActive {
@@ -2651,7 +2650,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         nameLabel.numberOfLines = 1
         nameLabel.text = voiceChannelResolveDisplayNameForUserId(context: context, clanId: channel.clanID, userId: userId)
 
-        let hand = UIImageView(image: UIImage(systemName: "hand.raised.fill"))
+        let hand = UIImageView(image: UIImage.mezonSystemImage("hand.raised.fill"))
         hand.translatesAutoresizingMaskIntoConstraints = false
         hand.tintColor = UIColor(red: 0.95, green: 0.58, blue: 0.2, alpha: 1)
         hand.contentMode = .scaleAspectFit
@@ -2688,6 +2687,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         }
     }
 
+    @available(iOS 13.0, *)
     private func wireSessionCallbacks(_ session: MezonSfuSession) {
         session.onConnectionState = { [weak self] state in
             self?.handleSfuState(state)
@@ -2713,13 +2713,15 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         }
         let tokenContext = context
         let tokenChannelId = channel.channelID
-        session.tokenProvider = {
-            guard let token = await tokenContext.getToken() else { return nil }
-            return try? await tokenContext.account.network.generateMeetToken(
-                channelId: tokenChannelId,
-                roomName: "\(tokenChannelId)",
-                token: token
-            )
+        session.tokenProvider = { completion in
+            Task { @MainActor in
+                guard let token = await tokenContext.getToken() else { completion(nil); return }
+                completion(try? await tokenContext.account.network.generateMeetToken(
+                    channelId: tokenChannelId,
+                    roomName: "\(tokenChannelId)",
+                    token: token
+                ))
+            }
         }
     }
 
@@ -2860,17 +2862,23 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         super.viewDidAppear(animated)
         if !didPrefetchVoiceChannelPermissions {
             didPrefetchVoiceChannelPermissions = true
-            Task { await prefetchVoiceChannelPermissions() }
+            if #available(iOS 13.0, *) {
+                Task { await prefetchVoiceChannelPermissions() }
+            }
         }
-        if resumeVoiceRoomFromPiPOverlayIfNeeded() {
+        if #available(iOS 13.0, *), resumeVoiceRoomFromPiPOverlayIfNeeded() {
             didStartVoiceConnection = true
             return
         }
         guard !didStartVoiceConnection else { return }
         didStartVoiceConnection = true
 
-        connectTask = Task { @MainActor in
-            await self.runVoiceConnectionPipeline()
+        if #available(iOS 13.0, *) {
+            let connectTaskWork = Task { @MainActor in
+                await self.runVoiceConnectionPipeline()
+            }
+
+            connectTask = CancelHandle { connectTaskWork.cancel() }
         }
     }
 
@@ -3239,6 +3247,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         navigationController?.popViewController(animated: true)
     }
 
+    @available(iOS 13.0, *)
     @objc private func micTapped() {
         guard currentRole == .speaker else { return }
         guard let session = sfuSession else { return }
@@ -3268,6 +3277,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         navigationController?.pushViewController(chatVC, animated: true)
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func runVoiceConnectionPipeline() async {
         setConnectingOverlayVisible(true)
         await context.waitForSessionReady()
@@ -3463,7 +3474,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
     private func setMicButtonIcon(muted: Bool) {
         let name = muted ? "mic.slash.fill" : "mic.fill"
-        let img = UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium))
+        let img = UIImage.mezonSystemImage(name, withConfiguration: MezonSymbolConfiguration(pointSize: 18, weight: .medium))
         micButton.setImage(img?.withRenderingMode(.alwaysTemplate), for: .normal)
     }
 
@@ -3933,26 +3944,30 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     @objc private func cameraBarTapped() {
-        guard let session = sfuSession else { return }
-        let currentlyOn = session.cameraEnabled
-        Task { @MainActor in
-            if !currentlyOn {
-                let ok = await VoiceChannelCameraPermission.requestIfNeeded()
-                if !ok {
-                    self.presentCameraSettingsAlert()
-                    return
+        if #available(iOS 13.0, *) {
+            guard let session = sfuSession else { return }
+            let currentlyOn = session.cameraEnabled
+            Task { @MainActor in
+                if !currentlyOn {
+                    let ok = await VoiceChannelCameraPermission.requestIfNeeded()
+                    if !ok {
+                        self.presentCameraSettingsAlert()
+                        return
+                    }
                 }
+                session.setCameraEnabled(!currentlyOn)
+                self.refreshCamButtonIcon()
+                self.refreshParticipantRowsFromSession()
             }
-            session.setCameraEnabled(!currentlyOn)
-            self.refreshCamButtonIcon()
-            self.refreshParticipantRowsFromSession()
         }
     }
 
     @objc private func switchCameraTapped() {
-        guard let session = sfuSession, session.cameraEnabled else { return }
-        session.switchCamera()
-        refreshParticipantRowsFromSession()
+        if #available(iOS 13.0, *) {
+            guard let session = sfuSession, session.cameraEnabled else { return }
+            session.switchCamera()
+            refreshParticipantRowsFromSession()
+        }
     }
 
     private func refreshCamButtonIcon() {
@@ -3965,7 +3980,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
     private func setCamButtonIcon(cameraOn: Bool) {
         let name = cameraOn ? "video.fill" : "video.slash.fill"
-        let img = UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium))
+        let img = UIImage.mezonSystemImage(name, withConfiguration: MezonSymbolConfiguration(pointSize: 18, weight: .medium))
         camButton.setImage(img?.withRenderingMode(.alwaysTemplate), for: .normal)
         cameraSwitchButton.isHidden = !cameraOn
     }
@@ -4004,6 +4019,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         }
     }
 
+    @available(iOS 13.0, *)
+    @MainActor
     private func prefetchVoiceChannelPermissions() async {
         guard let token = await context.getToken() else { return }
         do {
@@ -4066,39 +4083,41 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     @objc private func agentToggleTapped() {
-        guard !isAgentToggleLoading, voiceChannelCanManageVoice(), !agentToggleButton.isHidden else { return }
-        let wasEnabled = voiceAgentEnabled
-        isAgentToggleLoading = true
-        voiceAgentEnabled.toggle()
-        refreshVoiceAgentButtonAppearance()
-        let ch = channel
-        let roomName = "\(ch.channelID)"
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer {
-                self.isAgentToggleLoading = false
-                self.refreshVoiceAgentButtonAppearance()
-            }
-            guard let token = await self.context.getToken() else {
-                self.voiceAgentEnabled = wasEnabled
-                self.refreshVoiceAgentButtonAppearance()
-                self.presentVoiceAlert(
-                    title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Error", comment: ""),
-                    message: NSLocalizedString("voiceChannel.agentNoSession", tableName: nil, bundle: .main, value: "Could not verify your session.", comment: ""))
-                return
-            }
-            do {
-                if wasEnabled {
-                    try await self.context.account.network.disconnectAgentFromVoiceChannel(channelId: ch.channelID, roomName: roomName, token: token)
-                } else {
-                    try await self.context.account.network.addAgentToVoiceChannel(channelId: ch.channelID, roomName: roomName, token: token)
+        if #available(iOS 13.0, *) {
+            guard !isAgentToggleLoading, voiceChannelCanManageVoice(), !agentToggleButton.isHidden else { return }
+            let wasEnabled = voiceAgentEnabled
+            isAgentToggleLoading = true
+            voiceAgentEnabled.toggle()
+            refreshVoiceAgentButtonAppearance()
+            let ch = channel
+            let roomName = "\(ch.channelID)"
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                defer {
+                    self.isAgentToggleLoading = false
+                    self.refreshVoiceAgentButtonAppearance()
                 }
-            } catch {
-                self.voiceAgentEnabled = wasEnabled
-                self.refreshVoiceAgentButtonAppearance()
-                self.presentVoiceAlert(
-                    title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Error", comment: ""),
-                    message: error.localizedDescription)
+                guard let token = await self.context.getToken() else {
+                    self.voiceAgentEnabled = wasEnabled
+                    self.refreshVoiceAgentButtonAppearance()
+                    self.presentVoiceAlert(
+                        title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Error", comment: ""),
+                        message: NSLocalizedString("voiceChannel.agentNoSession", tableName: nil, bundle: .main, value: "Could not verify your session.", comment: ""))
+                    return
+                }
+                do {
+                    if wasEnabled {
+                        try await self.context.account.network.disconnectAgentFromVoiceChannel(channelId: ch.channelID, roomName: roomName, token: token)
+                    } else {
+                        try await self.context.account.network.addAgentToVoiceChannel(channelId: ch.channelID, roomName: roomName, token: token)
+                    }
+                } catch {
+                    self.voiceAgentEnabled = wasEnabled
+                    self.refreshVoiceAgentButtonAppearance()
+                    self.presentVoiceAlert(
+                        title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Error", comment: ""),
+                        message: error.localizedDescription)
+                }
             }
         }
     }
@@ -4133,6 +4152,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         }
     }
 
+    @available(iOS 13.0, *)
     private func presentParticipantShortProfile(identityKey idKey: String) {
         if VoiceChannelPiPOverlay.shared.isActive { return }
         guard sfuSession != nil else { return }
@@ -4169,35 +4189,51 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                     showMute: micOn,
                     showKick: true,
                     confirmUserLabel: display.isEmpty ? subtitle : display,
-                    onMute: { [weak self] in
-                        guard let self else { return }
-                        guard let token = await self.context.getToken() else {
-                            throw NSError(domain: "VoiceChannel", code: 0, userInfo: [
-                                NSLocalizedDescriptionKey: NSLocalizedString(
-                                    "voiceChannel.shortProfile.notSignedIn", tableName: nil, bundle: .main, value: "Not signed in", comment: ""),
-                            ])
+                    onMute: { [weak self] completion in
+                        guard let self else { completion(nil); return }
+                        Task { @MainActor in
+                            guard let token = await self.context.getToken() else {
+                                completion(NSError(domain: "VoiceChannel", code: 0, userInfo: [
+                                    NSLocalizedDescriptionKey: NSLocalizedString(
+                                        "voiceChannel.shortProfile.notSignedIn", tableName: nil, bundle: .main, value: "Not signed in", comment: ""),
+                                ]))
+                                return
+                            }
+                            do {
+                                try await self.context.account.network.muteMezonMeetParticipant(
+                                    clanId: self.channel.clanID,
+                                    channelId: self.channel.channelID,
+                                    userId: participantUserId,
+                                    token: token
+                                )
+                                completion(nil)
+                            } catch {
+                                completion(error)
+                            }
                         }
-                        try await self.context.account.network.muteMezonMeetParticipant(
-                            clanId: self.channel.clanID,
-                            channelId: self.channel.channelID,
-                            userId: participantUserId,
-                            token: token
-                        )
                     },
-                    onKick: { [weak self] in
-                        guard let self else { return }
-                        guard let token = await self.context.getToken() else {
-                            throw NSError(domain: "VoiceChannel", code: 0, userInfo: [
-                                NSLocalizedDescriptionKey: NSLocalizedString(
-                                    "voiceChannel.shortProfile.notSignedIn", tableName: nil, bundle: .main, value: "Not signed in", comment: ""),
-                            ])
+                    onKick: { [weak self] completion in
+                        guard let self else { completion(nil); return }
+                        Task { @MainActor in
+                            guard let token = await self.context.getToken() else {
+                                completion(NSError(domain: "VoiceChannel", code: 0, userInfo: [
+                                    NSLocalizedDescriptionKey: NSLocalizedString(
+                                        "voiceChannel.shortProfile.notSignedIn", tableName: nil, bundle: .main, value: "Not signed in", comment: ""),
+                                ]))
+                                return
+                            }
+                            do {
+                                try await self.context.account.network.removeMezonMeetParticipant(
+                                    clanId: self.channel.clanID,
+                                    channelId: self.channel.channelID,
+                                    userId: participantUserId,
+                                    token: token
+                                )
+                                completion(nil)
+                            } catch {
+                                completion(error)
+                            }
                         }
-                        try await self.context.account.network.removeMezonMeetParticipant(
-                            clanId: self.channel.clanID,
-                            channelId: self.channel.channelID,
-                            userId: participantUserId,
-                            token: token
-                        )
                     }
                 )
                 : nil
@@ -4417,6 +4453,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 }
 
+@available(iOS 13.0, *)
 extension VoiceChannelRoomViewController: UIScrollViewDelegate {
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         guard scrollView === contentScroll else { return }
@@ -4443,6 +4480,7 @@ extension VoiceChannelRoomViewController: UIScrollViewDelegate {
     }
 }
 
+@available(iOS 13.0, *)
 extension VoiceChannelRoomViewController: AVPictureInPictureControllerDelegate {
     func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {}
 
@@ -4636,8 +4674,8 @@ private final class VoiceParticipantRowView: UIView {
 
         expandButton.translatesAutoresizingMaskIntoConstraints = false
         expandButton.isHidden = tileKind != .screenShare
-        let expandCfg = UIImage.SymbolConfiguration(pointSize: layoutMetrics.expandSymbolPointSize, weight: .medium)
-        expandButton.setImage(UIImage(systemName: "arrow.up.left.and.arrow.down.right", withConfiguration: expandCfg), for: .normal)
+        let expandCfg = MezonSymbolConfiguration(pointSize: layoutMetrics.expandSymbolPointSize, weight: .medium)
+        expandButton.setImage(UIImage.mezonSystemImage("arrow.up.left.and.arrow.down.right", withConfiguration: expandCfg), for: .normal)
         expandButton.tintColor = .white
         expandButton.backgroundColor = UIColor.black.withAlphaComponent(0.45)
         expandButton.layer.cornerRadius = 6
@@ -4666,8 +4704,8 @@ private final class VoiceParticipantRowView: UIView {
         soundReactionCorner.isHidden = true
         soundReactionIcon.translatesAutoresizingMaskIntoConstraints = false
         soundReactionIcon.contentMode = .scaleAspectFit
-        let soundCfg = UIImage.SymbolConfiguration(pointSize: layoutMetrics.soundIconSide * 0.88, weight: .semibold)
-        soundReactionIcon.image = UIImage(systemName: "speaker.wave.2.fill", withConfiguration: soundCfg)
+        let soundCfg = MezonSymbolConfiguration(pointSize: layoutMetrics.soundIconSide * 0.88, weight: .semibold)
+        soundReactionIcon.image = UIImage.mezonSystemImage("speaker.wave.2.fill", withConfiguration: soundCfg)
         soundReactionIcon.tintColor = UIColor(red: 0.35, green: 0.78, blue: 0.95, alpha: 1)
         soundReactionCorner.addSubview(soundReactionIcon)
 
@@ -4677,8 +4715,8 @@ private final class VoiceParticipantRowView: UIView {
         raiseHandCorner.isHidden = true
         raiseHandIcon.translatesAutoresizingMaskIntoConstraints = false
         raiseHandIcon.contentMode = .scaleAspectFit
-        let raiseCfg = UIImage.SymbolConfiguration(pointSize: layoutMetrics.raiseHandIconSide * 0.9, weight: .semibold)
-        raiseHandIcon.image = UIImage(systemName: "hand.raised.fill", withConfiguration: raiseCfg)
+        let raiseCfg = MezonSymbolConfiguration(pointSize: layoutMetrics.raiseHandIconSide * 0.9, weight: .semibold)
+        raiseHandIcon.image = UIImage.mezonSystemImage("hand.raised.fill", withConfiguration: raiseCfg)
         raiseHandIcon.tintColor = .white
         raiseHandCorner.addSubview(raiseHandIcon)
 
@@ -4830,26 +4868,26 @@ private final class VoiceParticipantRowView: UIView {
         raiseHandCorner.layer.cornerRadius = m.raiseHandCornerSide / 2
         badgeLabel.font = .systemFont(ofSize: m.badgeFontSize, weight: .semibold)
         if tileKind == .screenShare {
-            let expandCfg = UIImage.SymbolConfiguration(pointSize: m.expandSymbolPointSize, weight: .medium)
-            expandButton.setImage(UIImage(systemName: "arrow.up.left.and.arrow.down.right", withConfiguration: expandCfg), for: .normal)
+            let expandCfg = MezonSymbolConfiguration(pointSize: m.expandSymbolPointSize, weight: .medium)
+            expandButton.setImage(UIImage.mezonSystemImage("arrow.up.left.and.arrow.down.right", withConfiguration: expandCfg), for: .normal)
         }
-        let soundCfg = UIImage.SymbolConfiguration(pointSize: m.soundIconSide * 0.88, weight: .semibold)
-        soundReactionIcon.image = UIImage(systemName: "speaker.wave.2.fill", withConfiguration: soundCfg)
-        let raiseCfg = UIImage.SymbolConfiguration(pointSize: m.raiseHandIconSide * 0.9, weight: .semibold)
-        raiseHandIcon.image = UIImage(systemName: "hand.raised.fill", withConfiguration: raiseCfg)
+        let soundCfg = MezonSymbolConfiguration(pointSize: m.soundIconSide * 0.88, weight: .semibold)
+        soundReactionIcon.image = UIImage.mezonSystemImage("speaker.wave.2.fill", withConfiguration: soundCfg)
+        let raiseCfg = MezonSymbolConfiguration(pointSize: m.raiseHandIconSide * 0.9, weight: .semibold)
+        raiseHandIcon.image = UIImage.mezonSystemImage("hand.raised.fill", withConfiguration: raiseCfg)
         refreshBadgeSymbols()
     }
 
     private func refreshBadgeSymbols() {
         let pt = max(10, min(17, layoutMetrics.badgeIconSide * 0.82))
-        let iconCfg = UIImage.SymbolConfiguration(pointSize: pt, weight: .medium)
+        let iconCfg = MezonSymbolConfiguration(pointSize: pt, weight: .medium)
         switch tileKind {
         case .mainVideo:
             let micName = badgeMicOn ? "mic.fill" : "mic.slash.fill"
-            badgeIcon.image = UIImage(systemName: micName, withConfiguration: iconCfg)
+            badgeIcon.image = UIImage.mezonSystemImage(micName, withConfiguration: iconCfg)
             badgeIcon.tintColor = .white
         case .screenShare:
-            badgeIcon.image = UIImage(systemName: "rectangle.on.rectangle", withConfiguration: iconCfg)
+            badgeIcon.image = UIImage.mezonSystemImage("rectangle.on.rectangle", withConfiguration: iconCfg)
             badgeIcon.tintColor = .white
         }
     }

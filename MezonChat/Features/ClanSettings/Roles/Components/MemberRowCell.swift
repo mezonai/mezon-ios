@@ -1,6 +1,5 @@
 import UIKit
 
-@MainActor
 final class MemberRowCell: UITableViewCell {
 
     static let reuseId = "MemberRowCell"
@@ -143,7 +142,7 @@ final class MemberRowCell: UITableViewCell {
         case .removeButton:
             accessoryButton.isHidden = false
             accessoryButton.setImage(
-                UIImage(systemName: "minus.circle.fill")?.withRenderingMode(.alwaysTemplate),
+                UIImage.mezonSystemImage("minus.circle.fill")?.withRenderingMode(.alwaysTemplate),
                 for: .normal)
             accessoryButton.tintColor = UIColor.systemRed
             checkboxView.isHidden = true
@@ -151,7 +150,7 @@ final class MemberRowCell: UITableViewCell {
             accessoryButton.isHidden = true
             checkboxView.isHidden = false
             let symbol = checked ? "checkmark.circle.fill" : "circle"
-            checkboxView.image = UIImage(systemName: symbol)?.withRenderingMode(.alwaysTemplate)
+            checkboxView.image = UIImage.mezonSystemImage(symbol)?.withRenderingMode(.alwaysTemplate)
             checkboxView.tintColor = checked ? UIColor.theme.bgViolet : UIColor.theme.textDisabled
         }
     }

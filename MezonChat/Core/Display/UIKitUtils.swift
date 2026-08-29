@@ -973,7 +973,7 @@ public extension UIView {
             }
         }
 
-        if self.overrideUserInterfaceStyle != overrideUserInterfaceStyle {
+        if #available(iOS 13.0, *), self.overrideUserInterfaceStyle != overrideUserInterfaceStyle {
             self.overrideUserInterfaceStyle = overrideUserInterfaceStyle
             setMonochromaticEffectImpl(self, overrideUserInterfaceStyle != .unspecified)
         }
@@ -997,7 +997,7 @@ public extension UIView {
             }
         }
 
-        if self.overrideUserInterfaceStyle != overrideUserInterfaceStyle {
+        if #available(iOS 13.0, *), self.overrideUserInterfaceStyle != overrideUserInterfaceStyle {
             self.overrideUserInterfaceStyle = overrideUserInterfaceStyle
             setMonochromaticEffectImpl(self, overrideUserInterfaceStyle != .unspecified)
         }

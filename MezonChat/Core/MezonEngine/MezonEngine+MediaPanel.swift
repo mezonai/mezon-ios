@@ -42,6 +42,7 @@ private enum MediaPanelEmojiImagePrefetch {
 
 extension MezonEngine {
 
+    @available(iOS 13.0, *)
     func prefetchMediaPanelCaches(token: String) async {
         let network = account.network
         let postbox = account.postbox
@@ -110,11 +111,13 @@ extension MezonEngine {
 
 enum KlipyGIFClient {
 
+    @available(iOS 13.0, *)
     static func fetchCategoriesData() async throws -> Data {
         let urlStr = "\(MezonEnvironment.klipyBaseURL)/\(MezonEnvironment.klipyAPIKey)/gifs/categories"
         return try await getJSON(urlString: urlStr, extraItems: [])
     }
 
+    @available(iOS 13.0, *)
     static func fetchTrendingData(page: Int = 1, perPage: Int = 30) async throws -> Data {
         let urlStr = "\(MezonEnvironment.klipyBaseURL)/\(MezonEnvironment.klipyAPIKey)/gifs/trending"
         return try await getJSON(urlString: urlStr, extraItems: [
@@ -124,6 +127,7 @@ enum KlipyGIFClient {
         ])
     }
 
+    @available(iOS 13.0, *)
     static func fetchSearchData(query: String, page: Int = 1, perPage: Int = 30) async throws -> Data {
         let urlStr = "\(MezonEnvironment.klipyBaseURL)/\(MezonEnvironment.klipyAPIKey)/gifs/search"
         return try await getJSON(urlString: urlStr, extraItems: [
@@ -134,6 +138,7 @@ enum KlipyGIFClient {
         ])
     }
 
+    @available(iOS 13.0, *)
     private static func getJSON(urlString: String, extraItems: [URLQueryItem]) async throws -> Data {
         guard var components = URLComponents(string: urlString) else {
             throw URLError(.badURL)

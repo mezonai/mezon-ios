@@ -263,8 +263,8 @@ private final class AttachmentThumbCell: UICollectionViewCell {
         v.isUserInteractionEnabled = false
         v.isHidden = true
 
-        let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .bold)
-        let playIcon = UIImageView(image: UIImage(systemName: "play.fill", withConfiguration: config))
+        let config = MezonSymbolConfiguration(pointSize: 14, weight: .bold)
+        let playIcon = UIImageView(image: UIImage.mezonSystemImage("play.fill", withConfiguration: config))
         playIcon.tintColor = .white
         playIcon.translatesAutoresizingMaskIntoConstraints = false
         v.addSubview(playIcon)
@@ -278,8 +278,8 @@ private final class AttachmentThumbCell: UICollectionViewCell {
     private lazy var closeButton: UIButton = {
         let btn = UIButton(type: .system)
         btn.translatesAutoresizingMaskIntoConstraints = false
-        let config = UIImage.SymbolConfiguration(pointSize: 10, weight: .bold)
-        btn.setImage(UIImage(systemName: "xmark", withConfiguration: config), for: .normal)
+        let config = MezonSymbolConfiguration(pointSize: 10, weight: .bold)
+        btn.setImage(UIImage.mezonSystemImage("xmark", withConfiguration: config), for: .normal)
         btn.tintColor = .white
         btn.backgroundColor = UIColor.gray
         btn.layer.cornerRadius = 12
@@ -375,7 +375,7 @@ private final class AttachmentFileCell: UICollectionViewCell {
     private let iconImageView: UIImageView = {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFit
-        iv.tintColor = .systemIndigo
+        iv.tintColor = .mezonCompatSystemIndigo
         iv.translatesAutoresizingMaskIntoConstraints = false
         return iv
     }()
@@ -403,8 +403,8 @@ private final class AttachmentFileCell: UICollectionViewCell {
     private lazy var closeButton: UIButton = {
         let btn = UIButton(type: .system)
         btn.translatesAutoresizingMaskIntoConstraints = false
-        let config = UIImage.SymbolConfiguration(pointSize: 10, weight: .bold)
-        btn.setImage(UIImage(systemName: "xmark", withConfiguration: config), for: .normal)
+        let config = MezonSymbolConfiguration(pointSize: 10, weight: .bold)
+        btn.setImage(UIImage.mezonSystemImage("xmark", withConfiguration: config), for: .normal)
         btn.tintColor = .white
         btn.backgroundColor = UIColor.gray
         btn.layer.cornerRadius = 12
@@ -458,8 +458,8 @@ private final class AttachmentFileCell: UICollectionViewCell {
     required init?(coder: NSCoder) { fatalError() }
 
     func configure(file: PickedFileInfo) {
-        let iconConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
-        iconImageView.image = UIImage(systemName: Self.iconName(for: file.filename), withConfiguration: iconConfig)
+        let iconConfig = MezonSymbolConfiguration(pointSize: 18, weight: .medium)
+        iconImageView.image = UIImage.mezonSystemImage(Self.iconName(for: file.filename), withConfiguration: iconConfig)
         nameLabel.text = file.filename
         nameLabel.textColor = UIColor.theme.text
         sizeLabel.text = Self.formattedSize(file.filesize)
@@ -468,8 +468,8 @@ private final class AttachmentFileCell: UICollectionViewCell {
     }
 
     func configure(remoteFile: RemoteAttachmentPreview) {
-        let iconConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
-        iconImageView.image = UIImage(systemName: Self.iconName(for: remoteFile.filename), withConfiguration: iconConfig)
+        let iconConfig = MezonSymbolConfiguration(pointSize: 18, weight: .medium)
+        iconImageView.image = UIImage.mezonSystemImage(Self.iconName(for: remoteFile.filename), withConfiguration: iconConfig)
         nameLabel.text = remoteFile.filename.isEmpty ? remoteFile.url : remoteFile.filename
         nameLabel.textColor = UIColor.theme.text
         sizeLabel.text = ""

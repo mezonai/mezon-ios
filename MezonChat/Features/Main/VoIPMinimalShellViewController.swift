@@ -35,9 +35,12 @@ final class VoIPMinimalShellViewController: ViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        flushPendingIncomingPeerCallIfNeeded()
+        if #available(iOS 13.0, *) {
+            flushPendingIncomingPeerCallIfNeeded()
+        }
     }
 
+    @available(iOS 13.0, *)
     func flushPendingIncomingPeerCallIfNeeded() {
         guard WebRTCCallManager.shared.peekPendingIncomingPeerCallPresentation() != nil else { return }
         switch peerCallIncomingPresentHost() {
@@ -51,51 +54,53 @@ final class VoIPMinimalShellViewController: ViewController {
     }
 
     @objc private func handleIncomingPeerCall(_ notification: Notification) {
-        guard let payload = IncomingPeerCallPayload(userInfo: notification.userInfo) else {
-            return
-        }
-        let myId: Int64? = {
-            if let s = context.currentUser?.id, let v = Int64(s) { return v }
-            if let s = SessionStore.load()?.userId, let v = Int64(s) { return v }
-            return nil
-        }()
-        guard let myId else {
-            return
-        }
-        guard payload.receiverId == myId || payload.receiverId == 0 else {
-            return
-        }
-        if WebRTCCallManager.shared.discardStaleIncomingPeerPayloadIfNeeded(payload) {
-            return
-        }
-        switch peerCallIncomingPresentHost() {
-        case .noHost:
-            stashIncomingPeerCallAndScheduleFlush(notification.userInfo ?? [:])
-            return
-        case .alreadyShowing:
-            WebRTCCallManager.shared.clearPendingIncomingPeerCallPresentation()
-            return
-        case .ready(let top):
-            let skipRing = (notification.userInfo?["mezonSkipIncomingRingingUI"] as? Bool) == true
-            let display = IncomingPeerCallPayloadParser.callerDisplay(for: payload, skipDecompressOffer: skipRing)
-            let vc = PeerCallViewController(
-                context: context,
-                incoming: payload,
-                remoteDisplayName: display.name,
-                remoteAvatarURL: display.avatar,
-                skipIncomingRingingUI: skipRing
-            )
-            if let nav = top as? UINavigationController ?? top.navigationController {
-                let push = { nav.pushViewController(vc, animated: false) }
-                if nav.presentedViewController != nil {
-                    nav.dismiss(animated: false, completion: push)
-                } else {
-                    push()
-                }
-            } else {
-                top.present(vc, animated: false, completion: nil)
+        if #available(iOS 13.0, *) {
+            guard let payload = IncomingPeerCallPayload(userInfo: notification.userInfo) else {
+                return
             }
-            WebRTCCallManager.shared.clearPendingIncomingPeerCallPresentation()
+            let myId: Int64? = {
+                if let s = context.currentUser?.id, let v = Int64(s) { return v }
+                if let s = SessionStore.load()?.userId, let v = Int64(s) { return v }
+                return nil
+            }()
+            guard let myId else {
+                return
+            }
+            guard payload.receiverId == myId || payload.receiverId == 0 else {
+                return
+            }
+            if WebRTCCallManager.shared.discardStaleIncomingPeerPayloadIfNeeded(payload) {
+                return
+            }
+            switch peerCallIncomingPresentHost() {
+            case .noHost:
+                stashIncomingPeerCallAndScheduleFlush(notification.userInfo ?? [:])
+                return
+            case .alreadyShowing:
+                WebRTCCallManager.shared.clearPendingIncomingPeerCallPresentation()
+                return
+            case .ready(let top):
+                let skipRing = (notification.userInfo?["mezonSkipIncomingRingingUI"] as? Bool) == true
+                let display = IncomingPeerCallPayloadParser.callerDisplay(for: payload, skipDecompressOffer: skipRing)
+                let vc = PeerCallViewController(
+                    context: context,
+                    incoming: payload,
+                    remoteDisplayName: display.name,
+                    remoteAvatarURL: display.avatar,
+                    skipIncomingRingingUI: skipRing
+                )
+                if let nav = top as? UINavigationController ?? top.navigationController {
+                    let push = { nav.pushViewController(vc, animated: false) }
+                    if nav.presentedViewController != nil {
+                        nav.dismiss(animated: false, completion: push)
+                    } else {
+                        push()
+                    }
+                } else {
+                    top.present(vc, animated: false, completion: nil)
+                }
+                WebRTCCallManager.shared.clearPendingIncomingPeerCallPresentation()
+            }
         }
     }
 
@@ -105,6 +110,7 @@ final class VoIPMinimalShellViewController: ViewController {
         case ready(UIViewController)
     }
 
+    @available(iOS 13.0, *)
     private func stashIncomingPeerCallAndScheduleFlush(_ userInfo: [AnyHashable: Any]) {
         WebRTCCallManager.shared.stashIncomingPeerCallPresentation(userInfo)
         DispatchQueue.main.async { [weak self] in
@@ -118,6 +124,9 @@ final class VoIPMinimalShellViewController: ViewController {
     }
 
     private func peerCallApplicationModalRootViewController() -> UIViewController? {
+        guard #available(iOS 13.0, *) else {
+            return mezonKeyWindow()?.rootViewController
+        }
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
             .filter { $0.session.role == .windowApplication }
             .filter { [.foregroundActive, .foregroundInactive].contains($0.activationState) }
@@ -143,6 +152,7 @@ final class VoIPMinimalShellViewController: ViewController {
         return nil
     }
 
+    @available(iOS 13.0, *)
     private func peerCallIncomingPresentHost() -> PeerCallIncomingPresentHost {
         guard let root = peerCallApplicationModalRootViewController() else {
             return .noHost

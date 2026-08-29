@@ -617,7 +617,6 @@ final class NotificationItemCell: UITableViewCell {
 }
 
 
-@MainActor
 final class NotificationsContainerNode: ASDisplayNode {
 
 
@@ -633,7 +632,7 @@ final class NotificationsContainerNode: ASDisplayNode {
     private let tabScrollView = UIScrollView()
     private let tabStackView = UIStackView()
     private let tableView = UITableView(frame: .zero, style: .plain)
-    private let loadingIndicator = UIActivityIndicatorView(style: .medium)
+    private let loadingIndicator = UIActivityIndicatorView.mezonMedium()
 
     private let emptyStateStack: UIStackView = {
         let sv = UIStackView()
@@ -706,7 +705,7 @@ final class NotificationsContainerNode: ASDisplayNode {
                 }
 
                 if newState.isLoadingMore {
-                    let spinner = UIActivityIndicatorView(style: .medium)
+                    let spinner = UIActivityIndicatorView.mezonMedium()
                     spinner.startAnimating()
                     spinner.frame = CGRect(
                         x: 0, y: 0, width: self.tableView.bounds.width, height: 44)

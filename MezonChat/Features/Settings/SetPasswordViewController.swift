@@ -9,8 +9,8 @@ final class SetPasswordViewController: BaseViewController {
     private let headerView = UIView()
     private let backButton: UIButton = {
         let btn = UIButton(type: .system)
-        let img = UIImage(systemName: "chevron.left",
-                          withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium))
+        let img = UIImage.mezonSystemImage("chevron.left",
+                          withConfiguration: MezonSymbolConfiguration(pointSize: 18, weight: .medium))
         btn.setImage(img, for: .normal)
         btn.translatesAutoresizingMaskIntoConstraints = false
         return btn
@@ -57,7 +57,7 @@ final class SetPasswordViewController: BaseViewController {
     }()
 
     private let loadingIndicator: UIActivityIndicatorView = {
-        let ai = UIActivityIndicatorView(style: .medium)
+        let ai = UIActivityIndicatorView.mezonMedium()
         ai.hidesWhenStopped = true
         ai.translatesAutoresizingMaskIntoConstraints = false
         return ai
@@ -316,30 +316,33 @@ final class SetPasswordViewController: BaseViewController {
     }
 
     @objc private func saveTapped() {
-        view.endEditing(true)
+        if #available(iOS 13.0, *) {
+            view.endEditing(true)
 
-        let currentPw = currentPasswordField.getText()
-        let newPw = newPasswordField.getText()
-        let confirmPw = confirmPasswordField.getText()
+            let currentPw = currentPasswordField.getText()
+            let newPw = newPasswordField.getText()
+            let confirmPw = confirmPasswordField.getText()
 
-        let passwordError = validatePassword(newPw)
-        let confirmError = (newPw != confirmPw) ? L(L10n.SetPassword.errorNotEqual) : nil
-        let samePass = hasPassword && !currentPw.isEmpty && !newPw.isEmpty && currentPw == newPw
+            let passwordError = validatePassword(newPw)
+            let confirmError = (newPw != confirmPw) ? L(L10n.SetPassword.errorNotEqual) : nil
+            let samePass = hasPassword && !currentPw.isEmpty && !newPw.isEmpty && currentPw == newPw
 
-        if passwordError != nil || confirmError != nil || samePass {
-            newPasswordField.setError(samePass ? L(L10n.SetPassword.errorSamePass) : passwordError)
-            confirmPasswordField.setError(confirmError)
-            return
+            if passwordError != nil || confirmError != nil || samePass {
+                newPasswordField.setError(samePass ? L(L10n.SetPassword.errorSamePass) : passwordError)
+                confirmPasswordField.setError(confirmError)
+                return
+            }
+
+            if newPw.isEmpty {
+                newPasswordField.setError(validatePassword(newPw))
+                return
+            }
+
+            submitPassword(email: userEmail, newPassword: newPw, oldPassword: hasPassword ? currentPw : nil)
         }
-
-        if newPw.isEmpty {
-            newPasswordField.setError(validatePassword(newPw))
-            return
-        }
-
-        submitPassword(email: userEmail, newPassword: newPw, oldPassword: hasPassword ? currentPw : nil)
     }
 
+    @available(iOS 13.0, *)
     private func submitPassword(email: String, newPassword: String, oldPassword: String?) {
         setLoading(true)
 
@@ -610,7 +613,7 @@ private final class PasswordFormField: UIView {
 
     private func updateToggleIcon() {
         let name = isSecure ? "eye.slash" : "eye"
-        let img = UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .regular))
+        let img = UIImage.mezonSystemImage(name, withConfiguration: MezonSymbolConfiguration(pointSize: 16, weight: .regular))
         toggleButton.setImage(img, for: .normal)
     }
 }

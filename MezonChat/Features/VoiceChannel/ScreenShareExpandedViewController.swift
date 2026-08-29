@@ -109,9 +109,9 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
             videoView.bottomAnchor.constraint(equalTo: videoContainer.bottomAnchor),
         ])
 
-        let dismissCfg = UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
+        let dismissCfg = MezonSymbolConfiguration(pointSize: 18, weight: .semibold)
         dismissDetailButton.translatesAutoresizingMaskIntoConstraints = false
-        dismissDetailButton.setImage(UIImage(systemName: "xmark.circle.fill", withConfiguration: dismissCfg), for: .normal)
+        dismissDetailButton.setImage(UIImage.mezonSystemImage("xmark.circle.fill", withConfiguration: dismissCfg), for: .normal)
         dismissDetailButton.tintColor = .white
         dismissDetailButton.backgroundColor = UIColor.black.withAlphaComponent(0.55)
         dismissDetailButton.layer.cornerRadius = 22
@@ -158,8 +158,8 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
 
         pttIcon.translatesAutoresizingMaskIntoConstraints = false
         pttIcon.contentMode = .scaleAspectFit
-        let iconCfg = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
-        pttIcon.image = UIImage(systemName: "mic.slash.fill", withConfiguration: iconCfg)?.withRenderingMode(.alwaysTemplate)
+        let iconCfg = MezonSymbolConfiguration(pointSize: 20, weight: .medium)
+        pttIcon.image = UIImage.mezonSystemImage("mic.slash.fill", withConfiguration: iconCfg)?.withRenderingMode(.alwaysTemplate)
         pttIcon.tintColor = .white
         pttIcon.isUserInteractionEnabled = false
 
@@ -287,13 +287,13 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
     }
 
     private func setPttPressed(_ pressed: Bool) {
-        let iconCfg = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
+        let iconCfg = MezonSymbolConfiguration(pointSize: 20, weight: .medium)
         if pressed {
             pttTint.backgroundColor = UIColor.theme.bgViolet.withAlphaComponent(0.9)
-            pttIcon.image = UIImage(systemName: "mic.fill", withConfiguration: iconCfg)?.withRenderingMode(.alwaysTemplate)
+            pttIcon.image = UIImage.mezonSystemImage("mic.fill", withConfiguration: iconCfg)?.withRenderingMode(.alwaysTemplate)
         } else {
             pttTint.backgroundColor = .clear
-            pttIcon.image = UIImage(systemName: "mic.slash.fill", withConfiguration: iconCfg)?.withRenderingMode(.alwaysTemplate)
+            pttIcon.image = UIImage.mezonSystemImage("mic.slash.fill", withConfiguration: iconCfg)?.withRenderingMode(.alwaysTemplate)
         }
     }
 

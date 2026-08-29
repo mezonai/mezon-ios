@@ -31,8 +31,8 @@ final class NetworkBannerView: UIView {
         alpha = 0
         isHidden = true
 
-        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
-        iconView.image = UIImage(systemName: "wifi.slash")?.withConfiguration(config)
+        let config = MezonSymbolConfiguration(pointSize: 16, weight: .semibold)
+        iconView.image = UIImage.mezonSystemImage("wifi.slash")?.mezonWithConfiguration(config)
         iconView.tintColor = .white
         iconView.contentMode = .scaleAspectFit
         iconView.translatesAutoresizingMaskIntoConstraints = false

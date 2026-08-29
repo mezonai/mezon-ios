@@ -275,7 +275,7 @@ final class DiscoverClanEmptyStateViewController: UIViewController {
         l.isHidden = true
         return l
     }()
-    private let loadingIndicator = UIActivityIndicatorView(style: .medium)
+    private let loadingIndicator = UIActivityIndicatorView.mezonMedium()
     private lazy var statusBackgroundHost: UIView = {
         let v = UIView()
         loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
@@ -401,7 +401,9 @@ final class DiscoverClanEmptyStateViewController: UIViewController {
 
         applyThemeFully()
         updateStatusBackgroundVisibility()
-        Task { await reloadFirstPage() }
+        if #available(iOS 13.0, *) {
+            Task { await reloadFirstPage() }
+        }
 
         NotificationCenter.default.addObserver(self, selector: #selector(themeChanged), name: ThemeManager.didChangeNotification, object: nil)
     }
@@ -432,7 +434,7 @@ final class DiscoverClanEmptyStateViewController: UIViewController {
         qrHeaderButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
         
         let currentTheme = ThemeManager.shared.current
-        let effectiveTheme = currentTheme == .system ? (UITraitCollection.current.userInterfaceStyle == .dark ? AppTheme.dark : AppTheme.light) : currentTheme
+        let effectiveTheme = currentTheme == .system ? (mezonSystemPrefersDarkMode() ? AppTheme.dark : AppTheme.light) : currentTheme
         qrHeaderButton.setImage(UIImage(named: "Profile/ScanQR")?.withRenderingMode(.alwaysTemplate), for: .normal)
         if effectiveTheme == .light || effectiveTheme == .sunrise {
             qrHeaderButton.tintColor = UIColor(hexString: "#ff6b6f76")
@@ -509,9 +511,12 @@ final class DiscoverClanEmptyStateViewController: UIViewController {
     }
 
     @objc private func pullRefresh() {
-        Task { await reloadFirstPage() }
+        if #available(iOS 13.0, *) {
+            Task { await reloadFirstPage() }
+        }
     }
 
+    @available(iOS 13.0, *)
     func reloadDiscoverList() {
         Task { await reloadFirstPage() }
     }
@@ -534,6 +539,7 @@ final class DiscoverClanEmptyStateViewController: UIViewController {
         navigationForDiscoverPush()?.pushViewController(vc, animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func reloadFirstPage() async {
         await fetchPage(1, append: false)
         await MainActor.run {
@@ -541,6 +547,7 @@ final class DiscoverClanEmptyStateViewController: UIViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func fetchPage(_ page: Int32, append: Bool) async {
         guard !loading else {
             await MainActor.run { if append { self.loadingMore = false } }
@@ -591,6 +598,7 @@ final class DiscoverClanEmptyStateViewController: UIViewController {
         }
     }
 
+    @available(iOS 13.0, *)
     private func loadMoreIfNeeded() {
         guard !loading, !loadingMore, currentPage < totalPages else { return }
         loadingMore = true
@@ -622,11 +630,13 @@ extension DiscoverClanEmptyStateViewController: UITableViewDataSource, UITableVi
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        let offset = scrollView.contentOffset.y
-        let h = scrollView.contentSize.height
-        let fh = scrollView.frame.height
-        if h > 0, offset > h - fh * 1.5 {
-            loadMoreIfNeeded()
+        if #available(iOS 13.0, *) {
+            let offset = scrollView.contentOffset.y
+            let h = scrollView.contentSize.height
+            let fh = scrollView.frame.height
+            if h > 0, offset > h - fh * 1.5 {
+                loadMoreIfNeeded()
+            }
         }
     }
 }
@@ -800,8 +810,8 @@ final class DiscoverClanDetailViewController: BaseViewController {
         cardView.addSubview(innerStack)
         contentView.bringSubviewToFront(logoView)
         view.bringSubviewToFront(backButton)
-        let sym = UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)
-        backButton.setImage(UIImage(systemName: "chevron.left", withConfiguration: sym), for: .normal)
+        let sym = MezonSymbolConfiguration(pointSize: 20, weight: .semibold)
+        backButton.setImage(UIImage.mezonSystemImage("chevron.left", withConfiguration: sym), for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
         backButton.backgroundColor = UIColor.theme.primary.withAlphaComponent(0.45)
         backButton.layer.cornerRadius = 20.swh
@@ -858,8 +868,8 @@ final class DiscoverClanDetailViewController: BaseViewController {
         iconBg.layer.cornerRadius = 18.swh
         iconBg.backgroundColor = UIColor.theme.borderDim
         let iconView = UIImageView()
-        let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-        iconView.image = UIImage(systemName: iconName, withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate)
+        let cfg = MezonSymbolConfiguration(pointSize: 16, weight: .medium)
+        iconView.image = UIImage.mezonSystemImage(iconName, withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate)
         iconView.tintColor = UIColor.theme.textDisabled
         iconView.contentMode = .scaleAspectFit
         iconView.translatesAutoresizingMaskIntoConstraints = false
@@ -934,22 +944,24 @@ final class DiscoverClanDetailViewController: BaseViewController {
     }
 
     @objc private func joinTapped() {
-        joinButton.isEnabled = false
-        Task { @MainActor in
-            let code = "\(item.inviteID)"
-            let clanId = await ClanInviteJoiner.join(context: context, code: code, clanId: item.clanID)
-            guard let clanId, clanId != 0 else {
-                joinButton.isEnabled = true
-                return
+        if #available(iOS 13.0, *) {
+            joinButton.isEnabled = false
+            Task { @MainActor in
+                let code = "\(item.inviteID)"
+                let clanId = await ClanInviteJoiner.join(context: context, code: code, clanId: item.clanID)
+                guard let clanId, clanId != 0 else {
+                    joinButton.isEnabled = true
+                    return
+                }
+                await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: context, clanId: clanId)
+                context.account.socket.joinClanChat(clanId: clanId)
+                onJoined?()
+                NotificationCenter.default.post(
+                    name: .mezonQRSelectClan,
+                    object: nil,
+                    userInfo: ["clanId": "\(clanId)"]
+                )
             }
-            await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: context, clanId: clanId)
-            context.account.socket.joinClanChat(clanId: clanId)
-            onJoined?()
-            NotificationCenter.default.post(
-                name: .mezonQRSelectClan,
-                object: nil,
-                userInfo: ["clanId": "\(clanId)"]
-            )
         }
     }
 }

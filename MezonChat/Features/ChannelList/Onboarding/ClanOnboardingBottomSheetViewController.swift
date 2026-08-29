@@ -218,9 +218,9 @@ final class ClanOnboardingBottomSheetViewController: UIViewController {
         if item.iconName.contains("/") {
             iconView.image = UIImage(named: item.iconName)?.withRenderingMode(.alwaysOriginal)
         } else {
-            iconView.image = UIImage(
-                systemName: item.iconName,
-                withConfiguration: UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .semibold)
+            iconView.image = UIImage.mezonSystemImage(
+                item.iconName,
+                withConfiguration: MezonSymbolConfiguration(pointSize: 16.sf, weight: .semibold)
             )?.withRenderingMode(.alwaysTemplate)
             iconView.tintColor = .white
         }
@@ -293,10 +293,10 @@ final class ClanOnboardingBottomSheetViewController: UIViewController {
             tickView.translatesAutoresizingMaskIntoConstraints = false
             tickView.contentMode = .scaleAspectFit
             tickView.isUserInteractionEnabled = false
-            tickView.image = UIImage(
-                systemName: "checkmark",
-                withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf, weight: .bold)
-            )?.withTintColor(.white, renderingMode: .alwaysOriginal)
+            tickView.image = UIImage.mezonSystemImage(
+                "checkmark",
+                withConfiguration: MezonSymbolConfiguration(pointSize: 14.sf, weight: .bold)
+            )?.mezonTinted(.white, renderingMode: .alwaysOriginal)
             container.addSubview(tickView)
             NSLayoutConstraint.activate([
                 tickView.centerXAnchor.constraint(equalTo: container.centerXAnchor),
@@ -309,10 +309,10 @@ final class ClanOnboardingBottomSheetViewController: UIViewController {
             arrowView.translatesAutoresizingMaskIntoConstraints = false
             arrowView.contentMode = .scaleAspectFit
             arrowView.isUserInteractionEnabled = false
-            arrowView.image = UIImage(
-                systemName: "chevron.right",
-                withConfiguration: UIImage.SymbolConfiguration(pointSize: 22.sf, weight: .semibold)
-            )?.withTintColor(UIColor.theme.text, renderingMode: .alwaysOriginal)
+            arrowView.image = UIImage.mezonSystemImage(
+                "chevron.right",
+                withConfiguration: MezonSymbolConfiguration(pointSize: 22.sf, weight: .semibold)
+            )?.mezonTinted(UIColor.theme.text, renderingMode: .alwaysOriginal)
             container.addSubview(arrowView)
             NSLayoutConstraint.activate([
                 arrowView.centerXAnchor.constraint(equalTo: container.centerXAnchor),

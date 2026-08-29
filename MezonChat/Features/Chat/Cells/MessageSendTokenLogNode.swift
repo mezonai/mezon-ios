@@ -38,8 +38,8 @@ final class MessageSendTokenLogNode: ASDisplayNode {
         iconBgNode.cornerRadius = Self.iconBoxSize / 2
         iconBgNode.clipsToBounds = true
 
-        let symbol = UIImage(systemName: "arrow.left.arrow.right")?
-            .withConfiguration(UIImage.SymbolConfiguration(pointSize: Self.iconImageSize, weight: .semibold))
+        let symbol = UIImage.mezonSystemImage("arrow.left.arrow.right")?
+            .mezonWithConfiguration(MezonSymbolConfiguration(pointSize: Self.iconImageSize, weight: .semibold))?
             .withRenderingMode(.alwaysTemplate)
         iconNode.image = symbol
         iconNode.tintColor = .white

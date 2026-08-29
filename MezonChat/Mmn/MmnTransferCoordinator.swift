@@ -52,13 +52,13 @@ enum MmnTransferError: Error, LocalizedError {
     }
 }
 
-@MainActor
 enum MmnTransferCoordinator {
     private static let giveCoffeeLock = NSLock()
     private static var isGiveCoffeeInFlight = false
     private static let giveCoffeeTextData = "givecoffee"
     private static let giveCoffeeAmountInput = "10000"
 
+    @available(iOS 13.0, *)
     private static func loadCachedWalletCredentials(userId: String) throws -> (zk: MmnPersistedZkProofs, ephemeral: MmnEphemeralKeyPair) {
         MmnWalletStore.shared.bind(userId: userId)
         guard let zk = MmnWalletStore.shared.zkProofs,
@@ -68,6 +68,7 @@ enum MmnTransferCoordinator {
         return (zk, ephemeral)
     }
 
+    @available(iOS 13.0, *)
     static func send(
         context: AccountContext,
         payload: TransferQRPayload,
@@ -146,6 +147,7 @@ enum MmnTransferCoordinator {
         return addResult
     }
 
+    @available(iOS 13.0, *)
     static func sendGiveCoffee(
         context: AccountContext,
         receiverUserId: String,

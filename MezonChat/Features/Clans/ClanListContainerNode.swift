@@ -703,8 +703,8 @@ private final class ClanCreateActionCell: UICollectionViewCell {
 
     private let iconView: UIImageView = {
         let iv = UIImageView()
-        let cfg = UIImage.SymbolConfiguration(pointSize: 22, weight: .semibold)
-        iv.image = UIImage(systemName: "plus", withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate)
+        let cfg = MezonSymbolConfiguration(pointSize: 22, weight: .semibold)
+        iv.image = UIImage.mezonSystemImage("plus", withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate)
         iv.contentMode = .scaleAspectFit
         iv.translatesAutoresizingMaskIntoConstraints = false
         return iv
@@ -766,7 +766,7 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
     }()
 
     private let groupIconView: UIImageView = {
-        let iv = UIImageView(image: UIImage(systemName: "person.2.fill"))
+        let iv = UIImageView(image: UIImage.mezonSystemImage("person.2.fill"))
         iv.translatesAutoresizingMaskIntoConstraints = false
         iv.contentMode = .scaleAspectFit
         iv.tintColor = .white

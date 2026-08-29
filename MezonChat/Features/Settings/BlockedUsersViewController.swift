@@ -1,6 +1,5 @@
 import UIKit
 
-@MainActor
 final class BlockedUsersViewController: BaseViewController {
 
     private let context: AccountContext
@@ -32,7 +31,9 @@ final class BlockedUsersViewController: BaseViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        fetchBlockedUsers()
+        if #available(iOS 13.0, *) {
+            fetchBlockedUsers()
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -52,7 +53,7 @@ final class BlockedUsersViewController: BaseViewController {
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
 
-        backButton.setImage(UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        backButton.setImage(UIImage.mezonSystemImage("chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
         
@@ -130,6 +131,7 @@ final class BlockedUsersViewController: BaseViewController {
         navigationController?.popViewController(animated: true)
     }
 
+    @available(iOS 13.0, *)
     private func fetchBlockedUsers() {
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -159,6 +161,7 @@ final class BlockedUsersViewController: BaseViewController {
         tableView.isHidden = blockedUsers.isEmpty
     }
 
+    @available(iOS 13.0, *)
     private func unblockUser(_ user: Mezon_Api_Friend) {
         let userId = user.user.id
         guard !inProgressUnblockIds.contains(userId) else { return }
@@ -216,7 +219,9 @@ extension BlockedUsersViewController: UITableViewDelegate, UITableViewDataSource
         
         cell.configure(with: user, isLast: isLast)
         cell.onUnblockTapped = { [weak self] in
-            self?.unblockUser(user)
+            if #available(iOS 13.0, *) {
+                self?.unblockUser(user)
+            }
         }
         return cell
     }
