@@ -211,6 +211,7 @@ final class MezonRootController: NavigationController {
         AppDelegate.pendingNavigation = nil
 
         handoffActiveVoiceRoomToPiPBeforeNavigation()
+        dismissPresentedModalsBeforeNavigation()
 
         if !isDM, let clanId = clanIdStr.flatMap({ Int64($0) }), clanId != 0 {
             context.currentClanId = clanId
@@ -234,6 +235,7 @@ final class MezonRootController: NavigationController {
         AppDelegate.pendingFriendRequestNavigation = nil
 
         handoffActiveVoiceRoomToPiPBeforeNavigation()
+        dismissPresentedModalsBeforeNavigation()
         context.account.socket.ensureFreshConnection()
 
         Task { @MainActor [weak self] in
@@ -263,6 +265,17 @@ final class MezonRootController: NavigationController {
             guard let self, let token = await self.context.getToken() else { return }
             await self.context.engine.friendsData.refreshFromNetwork(token: token, force: true)
         }
+    }
+
+    private func dismissPresentedModalsBeforeNavigation() {
+        guard let windowRoot = view.window?.rootViewController else { return }
+        guard windowRoot.presentedViewController != nil else { return }
+        var controller = windowRoot.presentedViewController
+        while let current = controller {
+            if current.isModalInPresentation { return }
+            controller = current.presentedViewController
+        }
+        windowRoot.dismiss(animated: false)
     }
 
     private func handoffActiveVoiceRoomToPiPBeforeNavigation() {

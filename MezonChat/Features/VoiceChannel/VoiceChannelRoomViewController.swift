@@ -4121,7 +4121,6 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             let display = self.resolveDisplayName(participant: participant)
             let avatarURL = voiceChannelResolveAvatarURL(context: self.context, clanId: self.channel.clanID, identityKey: idKey)
             let canManage = self.voiceChannelCanManageVoice()
-            let roomName = "\(self.channel.channelID)"
 
             var apiUser = Mezon_Api_User()
             if let cu {
@@ -4129,6 +4128,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             } else if let uid = Int64(idKey) {
                 apiUser.id = uid
             }
+            let participantUserId = apiUser.id
             apiUser.displayName = display
             if !subtitle.isEmpty {
                 apiUser.username = subtitle
@@ -4153,8 +4153,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                         try await self.context.account.network.muteMezonMeetParticipant(
                             clanId: self.channel.clanID,
                             channelId: self.channel.channelID,
-                            roomName: roomName,
-                            username: idKey,
+                            userId: participantUserId,
                             token: token
                         )
                     },
@@ -4169,8 +4168,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                         try await self.context.account.network.removeMezonMeetParticipant(
                             clanId: self.channel.clanID,
                             channelId: self.channel.channelID,
-                            roomName: roomName,
-                            username: idKey,
+                            userId: participantUserId,
                             token: token
                         )
                     }

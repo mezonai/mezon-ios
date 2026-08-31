@@ -1300,7 +1300,9 @@ enum MezonApiNameRegistry {
         "ListRolePermissions",
         "IsFollower",
         "DeletePinMessage",
-        "MarkAsRead"
+        "MarkAsRead",
+        "UploadBatchAttachmentFile",
+        "SearchCtrlK"
     ]
 
     private static let nameToIndex: [String: Int32] = {
