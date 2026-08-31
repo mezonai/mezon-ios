@@ -919,12 +919,19 @@ private final class PinnedMessageCellNode: ASCellNode, ASNetworkImageNodeDelegat
                     url: att.url,
                     sourceURL: att.url,
                     image: itemIndex == index ? att.localImage : nil,
+                    pixelSize: GalleryItemInfo.pixelSize(width: att.width, height: att.height),
                     placeholderURL: nil,
                     senderName: displayNameForGallery,
                     senderId: String(pinForGallery.senderID),
                     senderAvatarURL: avatarURLForGallery,
                     timestamp: Self.galleryTimestamp(for: pinForGallery),
-                    isVideo: true
+                    isVideo: true,
+                    videoShareMetadata: GalleryVideoShareMetadata(
+                        filename: att.filename,
+                        filetype: att.filetype,
+                        durationSeconds: att.durationSeconds ?? 0,
+                        thumbnail: att.thumbnail
+                    )
                 )
             }
             return GalleryItemInfo.imageItem(

@@ -37,6 +37,7 @@ final class SharingViewController: UIViewController {
     private var diffableDataSource: UITableViewDiffableDataSource<Section, SharingSuggestionItem>!
 
     private var sharedMediaFiles: [SharingManager.SharedMediaFile] = []
+    private var existingVideoAttachment: SharingManager.ExistingVideoAttachment?
 
     private let headerView: UIView = {
         let v = UIView()
@@ -366,6 +367,8 @@ final class SharingViewController: UIViewController {
             if let first = trimmed.first {
                 textField.text = first
             }
+        case .existingVideo(let attachment):
+            existingVideoAttachment = attachment
         }
     }
 
@@ -479,7 +482,9 @@ final class SharingViewController: UIViewController {
         let bottomConstraint = bottomArea.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         self.bottomAreaBottomConstraint = bottomConstraint
 
-        let attachHeight = attachmentScrollView.heightAnchor.constraint(equalToConstant: sharedMediaFiles.isEmpty ? 0 : 80)
+        let attachHeight = attachmentScrollView.heightAnchor.constraint(
+            equalToConstant: hasAttachmentPreview ? 80 : 0
+        )
         self.attachmentHeightConstraint = attachHeight
 
         NSLayoutConstraint.activate([
@@ -553,6 +558,9 @@ final class SharingViewController: UIViewController {
 
         if !sharedMediaFiles.isEmpty {
             buildAttachmentPreviews()
+        }
+        if existingVideoAttachment != nil {
+            buildExistingVideoPreview()
         }
 
         tableView.delegate = self
@@ -972,6 +980,84 @@ final class SharingViewController: UIViewController {
         }
     }
 
+    private func buildExistingVideoPreview() {
+        guard let attachment = existingVideoAttachment else { return }
+        let thumbSize: CGFloat = 70
+        let wrapper = UIView()
+        wrapper.translatesAutoresizingMaskIntoConstraints = false
+        wrapper.widthAnchor.constraint(equalToConstant: thumbSize).isActive = true
+        wrapper.heightAnchor.constraint(equalToConstant: thumbSize).isActive = true
+        wrapper.layer.cornerRadius = 6
+        wrapper.clipsToBounds = true
+
+        let imageView = UIImageView()
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        imageView.contentMode = .scaleAspectFill
+        imageView.clipsToBounds = true
+        imageView.backgroundColor = UIColor.theme.tertiary
+        wrapper.addSubview(imageView)
+        NSLayoutConstraint.activate([
+            imageView.topAnchor.constraint(equalTo: wrapper.topAnchor),
+            imageView.bottomAnchor.constraint(equalTo: wrapper.bottomAnchor),
+            imageView.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor),
+            imageView.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor),
+        ])
+        if !attachment.thumbnail.isEmpty {
+            _ = ImageCache.shared.loadImage(urlString: attachment.thumbnail) { [weak imageView] image in
+                imageView?.image = image
+            }
+        }
+
+        let overlay = UIView()
+        overlay.translatesAutoresizingMaskIntoConstraints = false
+        overlay.backgroundColor = UIColor.black.withAlphaComponent(0.4)
+        wrapper.addSubview(overlay)
+        NSLayoutConstraint.activate([
+            overlay.topAnchor.constraint(equalTo: wrapper.topAnchor),
+            overlay.bottomAnchor.constraint(equalTo: wrapper.bottomAnchor),
+            overlay.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor),
+            overlay.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor),
+        ])
+        let playIcon = UIImageView(image: UIImage(systemName: "play.fill"))
+        playIcon.translatesAutoresizingMaskIntoConstraints = false
+        playIcon.tintColor = .white
+        playIcon.contentMode = .scaleAspectFit
+        overlay.addSubview(playIcon)
+        NSLayoutConstraint.activate([
+            playIcon.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
+            playIcon.centerYAnchor.constraint(equalTo: overlay.centerYAnchor),
+            playIcon.widthAnchor.constraint(equalToConstant: 20),
+            playIcon.heightAnchor.constraint(equalToConstant: 20),
+        ])
+
+        let removeButton = UIButton(type: .system)
+        removeButton.translatesAutoresizingMaskIntoConstraints = false
+        let removeConfig = UIImage.SymbolConfiguration(pointSize: 10, weight: .bold)
+        removeButton.setImage(UIImage(systemName: "xmark", withConfiguration: removeConfig), for: .normal)
+        removeButton.tintColor = .white
+        removeButton.backgroundColor = UIColor.black.withAlphaComponent(0.5)
+        removeButton.layer.cornerRadius = 10
+        removeButton.addTarget(self, action: #selector(removeExistingVideo(_:)), for: .touchUpInside)
+        wrapper.addSubview(removeButton)
+        NSLayoutConstraint.activate([
+            removeButton.topAnchor.constraint(equalTo: wrapper.topAnchor, constant: 2),
+            removeButton.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor, constant: -2),
+            removeButton.widthAnchor.constraint(equalToConstant: 20),
+            removeButton.heightAnchor.constraint(equalToConstant: 20),
+        ])
+        attachmentStackView.addArrangedSubview(wrapper)
+    }
+
+    @objc private func removeExistingVideo(_ sender: UIButton) {
+        existingVideoAttachment = nil
+        sender.superview?.removeFromSuperview()
+        if !hasAttachmentPreview {
+            attachmentHeightConstraint?.constant = 0
+            UIView.animate(withDuration: 0.2) { self.view.layoutIfNeeded() }
+        }
+        updateSendButton()
+    }
+
     @objc private func removeAttachment(_ sender: UIButton) {
         let idx = sender.tag
         guard idx < sharedMediaFiles.count else { return }
@@ -1113,9 +1199,13 @@ final class SharingViewController: UIViewController {
     }
 
     private func hasShareableContent() -> Bool {
-        if !sharedMediaFiles.isEmpty { return true }
+        if hasAttachmentPreview { return true }
         let comment = (textField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return !comment.isEmpty
+    }
+
+    private var hasAttachmentPreview: Bool {
+        !sharedMediaFiles.isEmpty || existingVideoAttachment != nil
     }
 
     @objc private func searchTextChanged(_ tf: UITextField) {
@@ -1486,6 +1576,26 @@ final class SharingViewController: UIViewController {
             do {
                 var uploadedAttachments: [Mezon_Api_MessageAttachment] = []
 
+                if let existingVideo = self.existingVideoAttachment {
+                    let url = existingVideo.url.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !url.isEmpty else { throw SharingSendError.fileUnavailable }
+                    let remoteFilename = URL(string: url)?.lastPathComponent ?? ""
+                    let filename = existingVideo.filename.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let resolvedFilename = !filename.isEmpty
+                        ? filename
+                        : (!remoteFilename.isEmpty ? remoteFilename : "video.mp4")
+                    var attachment = Mezon_Api_MessageAttachment()
+                    attachment.url = url
+                    attachment.thumbnail = existingVideo.thumbnail
+                    attachment.filename = resolvedFilename
+                    attachment.filetype = "video"
+                    attachment.size = Int32(clamping: max(existingVideo.size, 0))
+                    attachment.width = Int32(clamping: max(existingVideo.width, 0))
+                    attachment.height = Int32(clamping: max(existingVideo.height, 0))
+                    attachment.duration = Int32(clamping: max(existingVideo.durationSeconds, 0))
+                    uploadedAttachments.append(attachment)
+                }
+
                 for file in self.sharedMediaFiles {
                     try Task.checkCancellation()
                     guard let fileURL = SharingManager.shared.localFileURL(from: file.path) else {
@@ -1594,7 +1704,7 @@ final class SharingViewController: UIViewController {
                 }
                 let isPublic = channel.channelPrivate == 0
 
-                if uploadedAttachments.isEmpty, !self.sharedMediaFiles.isEmpty {
+                if uploadedAttachments.isEmpty, self.hasAttachmentPreview {
                     throw SharingSendError.fileUnavailable
                 }
 
@@ -1624,7 +1734,7 @@ final class SharingViewController: UIViewController {
             } catch {
                 SentryLogger.capture(error, extras: [
                     "where": "Sharing.sendWithAttachments",
-                    "mediaCount": self.sharedMediaFiles.count,
+                    "mediaCount": self.sharedMediaFiles.count + (self.existingVideoAttachment == nil ? 0 : 1),
                 ])
                 finishUploadingUI()
                 self.showError(self.userFacingShareError(error))

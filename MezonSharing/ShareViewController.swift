@@ -6,10 +6,10 @@ class ShareViewController: UIViewController {
 
     private let shareProtocol = "mezon.mobile.sharing"
     private let sharedKey = "mezon.mobile.sharing"
-    private let appGroupIdentifier = "group.mezon.mobile"
 
     private var sharedMedia: [SharedMediaFile] = []
     private var sharedText: [String] = []
+    private var existingVideo: ExistingVideoSharePayload?
     private var pendingItems = 0
     private var processedItems = 0
 
@@ -128,6 +128,12 @@ class ShareViewController: UIViewController {
                 return
             }
 
+            if let payload = self.decodeExistingVideo(from: url) {
+                self.existingVideo = payload
+                self.itemProcessed()
+                return
+            }
+
             let fileExtension = self.getExtension(from: url, type: .video)
             let newName = UUID().uuidString
             guard let newPath = self.sharedContainerURL()?.appendingPathComponent("\(newName).\(fileExtension)") else {
@@ -236,7 +242,11 @@ class ShareViewController: UIViewController {
                 return
             }
 
-            self.sharedText.append(url.absoluteString)
+            if let payload = self.decodeExistingVideo(from: url) {
+                self.existingVideo = payload
+            } else {
+                self.sharedText.append(url.absoluteString)
+            }
             self.itemProcessed()
         }
     }
@@ -252,12 +262,17 @@ class ShareViewController: UIViewController {
 
     private func saveAndRedirect() {
 
-        guard let userDefaults = UserDefaults(suiteName: appGroupIdentifier) else {
+        guard let userDefaults = UserDefaults(suiteName: ExistingVideoSharePayload.appGroupIdentifier) else {
             dismissWithError(message: "Cannot access shared storage")
             return
         }
 
-        if !sharedMedia.isEmpty {
+        if let existingVideo {
+            let encodedData = try? JSONEncoder().encode(existingVideo)
+            userDefaults.set(encodedData, forKey: sharedKey)
+            userDefaults.synchronize()
+            redirectToHostApp(type: .existingVideo)
+        } else if !sharedMedia.isEmpty {
             let encodedData = try? JSONEncoder().encode(sharedMedia)
             userDefaults.set(encodedData, forKey: sharedKey)
             userDefaults.synchronize()
@@ -293,8 +308,30 @@ class ShareViewController: UIViewController {
     }
 
     private func sharedContainerURL() -> URL? {
-        let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier)
+        let url = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: ExistingVideoSharePayload.appGroupIdentifier
+        )
         return url
+    }
+
+    private func decodeExistingVideo(from url: URL) -> ExistingVideoSharePayload? {
+        guard url.scheme?.lowercased() == ExistingVideoSharePayload.internalScheme,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let token = components.queryItems?.first(where: { $0.name == "token" })?.value,
+              UUID(uuidString: token) != nil,
+              let defaults = UserDefaults(suiteName: ExistingVideoSharePayload.appGroupIdentifier)
+        else { return nil }
+
+        let key = ExistingVideoSharePayload.tokenKeyPrefix + token.lowercased()
+        guard let data = defaults.data(forKey: key) else { return nil }
+        defaults.removeObject(forKey: key)
+        defaults.synchronize()
+
+        let now = Date().timeIntervalSince1970
+        guard let record = try? JSONDecoder().decode(ExistingVideoShareTokenRecord.self, from: data),
+              record.createdAt <= now,
+              now - record.createdAt <= ExistingVideoSharePayload.tokenLifetime else { return nil }
+        return record.payload
     }
 
     private func saveScreenshot(_ image: UIImage) -> URL? {
@@ -422,13 +459,14 @@ class ShareViewController: UIViewController {
     }
 
     enum RedirectType: CustomStringConvertible {
-        case media, text, file
+        case media, text, file, existingVideo
 
         var description: String {
             switch self {
             case .media: return "media"
             case .text: return "text"
             case .file: return "file"
+            case .existingVideo: return "existingVideo"
             }
         }
     }

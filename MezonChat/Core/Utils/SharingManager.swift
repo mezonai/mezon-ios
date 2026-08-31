@@ -5,7 +5,6 @@ final class SharingManager {
 
     static let shared = SharingManager()
 
-    private let appGroupIdentifier = "group.mezon.mobile"
     private let sharedKey = "mezon.mobile.sharing"
 
     private init() {}
@@ -19,6 +18,17 @@ final class SharingManager {
         var height: CGFloat?
     }
 
+    struct ExistingVideoAttachment: Codable {
+        var url: String
+        var thumbnail: String
+        var filename: String
+        var filetype: String
+        var size: Int64
+        var width: Int
+        var height: Int
+        var durationSeconds: Int
+    }
+
     enum SharedMediaType: Int, Codable {
         case image = 0
         case video = 1
@@ -28,10 +38,13 @@ final class SharingManager {
     enum SharedContent {
         case media([SharedMediaFile])
         case text([String])
+        case existingVideo(ExistingVideoAttachment)
     }
 
     func loadSharedContent(type: String) -> SharedContent? {
-        guard let userDefaults = UserDefaults(suiteName: appGroupIdentifier) else { return nil }
+        guard let userDefaults = UserDefaults(
+            suiteName: ExistingVideoSharePayload.appGroupIdentifier
+        ) else { return nil }
 
         defer {
             userDefaults.removeObject(forKey: sharedKey)
@@ -39,6 +52,11 @@ final class SharingManager {
         }
 
         switch type {
+        case "existingVideo":
+            guard let data = userDefaults.data(forKey: sharedKey),
+                  let attachment = try? JSONDecoder().decode(ExistingVideoAttachment.self, from: data) else { return nil }
+            return .existingVideo(attachment)
+
         case "media", "file":
             guard let data = userDefaults.data(forKey: sharedKey) else { return nil }
             guard let files = try? JSONDecoder().decode([SharedMediaFile].self, from: data) else { return nil }
@@ -49,6 +67,10 @@ final class SharingManager {
             return texts.isEmpty ? nil : .text(texts)
 
         default:
+            if let data = userDefaults.data(forKey: sharedKey),
+               let attachment = try? JSONDecoder().decode(ExistingVideoAttachment.self, from: data) {
+                return .existingVideo(attachment)
+            }
             if let data = userDefaults.data(forKey: sharedKey),
                let files = try? JSONDecoder().decode([SharedMediaFile].self, from: data), !files.isEmpty {
                 return .media(files)
@@ -61,7 +83,9 @@ final class SharingManager {
     }
 
     func hasPendingSharedContent() -> Bool {
-        guard let userDefaults = UserDefaults(suiteName: appGroupIdentifier) else { return false }
+        guard let userDefaults = UserDefaults(
+            suiteName: ExistingVideoSharePayload.appGroupIdentifier
+        ) else { return false }
         return userDefaults.object(forKey: sharedKey) != nil
     }
 

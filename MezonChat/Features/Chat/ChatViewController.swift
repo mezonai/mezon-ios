@@ -6288,12 +6288,19 @@ final class ChatViewController: ViewController {
                 url: attachment.url,
                 sourceURL: attachment.url,
                 image: previewImage ?? attachment.localImage,
+                pixelSize: GalleryItemInfo.pixelSize(width: attachment.width, height: attachment.height),
                 placeholderURL: nil,
                 senderName: display.senderDisplayName,
                 senderId: display.message.senderId,
                 senderAvatarURL: display.avatarURL,
                 timestamp: display.message.createdAt,
-                isVideo: true
+                isVideo: true,
+                videoShareMetadata: GalleryVideoShareMetadata(
+                    filename: attachment.filename,
+                    filetype: attachment.filetype,
+                    durationSeconds: attachment.durationSeconds ?? 0,
+                    thumbnail: attachment.thumbnail
+                )
             )
         }
         return GalleryItemInfo.imageItem(
@@ -6382,12 +6389,18 @@ final class ChatViewController: ViewController {
                 url: attachment.url,
                 sourceURL: attachment.url,
                 image: nil,
+                pixelSize: GalleryItemInfo.pixelSize(width: attachment.width, height: attachment.height),
                 placeholderURL: nil,
                 senderName: uploader.name,
                 senderId: String(attachment.uploader),
                 senderAvatarURL: uploader.avatarURL,
                 timestamp: timestamp,
-                isVideo: true
+                isVideo: true,
+                videoShareMetadata: GalleryVideoShareMetadata(
+                    filename: attachment.filename,
+                    filetype: attachment.filetype,
+                    size: Int64(attachment.filesize) ?? 0
+                )
             )
         }
         return GalleryItemInfo.imageItem(
