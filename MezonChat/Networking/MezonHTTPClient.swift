@@ -1582,12 +1582,11 @@ final class MezonHTTPClient {
         return response.token
     }
 
-    func muteMezonMeetParticipant(clanId: Int64, channelId: Int64, roomName: String, username: String, token: String) async throws {
+    func muteMezonMeetParticipant(clanId: Int64, channelId: Int64, userId: Int64, token: String) async throws {
         var req = Mezon_Api_MeetParticipantRequest()
         req.clanID = clanId
         req.channelID = channelId
-        req.roomName = roomName
-        req.username = username
+        req.userID = userId
         let _: SwiftProtobuf.Google_Protobuf_Empty = try await postProto(
             path: "/mezon.api.Mezon/MuteParticipantMezonMeet",
             message: req,
@@ -1595,12 +1594,11 @@ final class MezonHTTPClient {
         )
     }
 
-    func removeMezonMeetParticipant(clanId: Int64, channelId: Int64, roomName: String, username: String, token: String) async throws {
+    func removeMezonMeetParticipant(clanId: Int64, channelId: Int64, userId: Int64, token: String) async throws {
         var req = Mezon_Api_MeetParticipantRequest()
         req.clanID = clanId
         req.channelID = channelId
-        req.roomName = roomName
-        req.username = username
+        req.userID = userId
         let _: SwiftProtobuf.Google_Protobuf_Empty = try await postProto(
             path: "/mezon.api.Mezon/RemoveParticipantMezonMeet",
             message: req,
@@ -1956,6 +1954,17 @@ final class MezonHTTPClient {
         return try await postProto(
             path: "/mezon.api.Mezon/ListChannelByUserId",
             message: empty,
+            auth: .bearer(token)
+        )
+    }
+
+    func searchCtrlK(text: String, type: Int32, token: String) async throws -> Mezon_Api_SearchCtrlKResponse {
+        var req = Mezon_Api_SearchCtrlKRequest()
+        req.text = text
+        req.type = type
+        return try await postProto(
+            path: "/mezon.api.Mezon/SearchCtrlK",
+            message: req,
             auth: .bearer(token)
         )
     }
