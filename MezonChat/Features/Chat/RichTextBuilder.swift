@@ -518,13 +518,6 @@ enum RichTextBuilder {
             if codeText.hasPrefix("```") && codeText.hasSuffix("```") {
                 codeText = String(codeText.dropFirst(3).dropLast(3))
             }
-            if let firstNewline = codeText.firstIndex(of: "\n") {
-                let firstLine = codeText[codeText.startIndex..<firstNewline]
-                let trimmed = firstLine.trimmingCharacters(in: .whitespaces)
-                if !trimmed.isEmpty && !trimmed.contains(" ") && trimmed.count < 20 {
-                    codeText = String(codeText[firstNewline...])
-                }
-            }
             codeText = codeText.trimmingCharacters(in: .newlines)
             segments.append(.codeBlock(codeText))
 
