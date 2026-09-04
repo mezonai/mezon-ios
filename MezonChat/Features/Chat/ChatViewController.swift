@@ -6494,6 +6494,18 @@ final class ChatViewController: ViewController {
         case restricted
     }
 
+    private func shareMessageText(display: ChatMessageDisplay) {
+        let text = display.parsedContent.text
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let activity = UIActivityViewController(activityItems: [text], applicationActivities: nil)
+        if let popover = activity.popoverPresentationController {
+            popover.sourceView = view
+            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1)
+            popover.permittedArrowDirections = []
+        }
+        present(activity, animated: true)
+    }
+
     private func saveSingleMessageImage(display: ChatMessageDisplay) {
         loadSingleMessageImage(display: display) { [weak self] image in
             guard let self else { return }
@@ -6678,6 +6690,8 @@ final class ChatViewController: ViewController {
         case .copyText:
             UIPasteboard.general.string = display.parsedContent.text
             Toast.success(L(L10n.MessageAction.copied))
+        case .shareText:
+            shareMessageText(display: display)
         case .saveImage:
             saveSingleMessageImage(display: display)
         case .copyImage:

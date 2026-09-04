@@ -1158,6 +1158,7 @@ enum L10n {
     enum MessageAction {
         static let reply            = "messageAction.reply"
         static let copyText         = "messageAction.copyText"
+        static let shareText        = "messageAction.shareText"
         static let saveImage        = "messageAction.saveImage"
         static let saveVideo        = "messageAction.saveVideo"
         static let copyImage        = "messageAction.copyImage"
@@ -2299,6 +2300,7 @@ extension L10n {
 
         "messageAction.reply": "Reply",
         "messageAction.copyText": "Copy Text",
+        "messageAction.shareText": "Share Text",
         "messageAction.saveImage": "Save Image",
         "messageAction.saveVideo": "Save Video",
         "messageAction.copyImage": "Copy Image",
@@ -3585,6 +3587,7 @@ extension L10n {
 
         "messageAction.reply": "Trả lời",
         "messageAction.copyText": "Sao chép văn bản",
+        "messageAction.shareText": "Chia sẻ văn bản",
         "messageAction.saveImage": "Lưu ảnh",
         "messageAction.saveVideo": "Lưu video",
         "messageAction.copyImage": "Sao chép ảnh",

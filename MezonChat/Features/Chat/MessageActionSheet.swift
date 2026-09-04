@@ -8,6 +8,7 @@ enum MessageAction: CaseIterable {
     case forwardAll
     case createThread
     case copyText
+    case shareText
     case saveImage
     case copyImage
     case markUnread
@@ -30,6 +31,7 @@ enum MessageAction: CaseIterable {
         case .forwardAll:       return L(L10n.MessageAction.forwardAll)
         case .createThread:     return L(L10n.MessageAction.createThread)
         case .copyText:         return L(L10n.MessageAction.copyText)
+        case .shareText:        return L(L10n.MessageAction.shareText)
         case .saveImage:        return L(L10n.MessageAction.saveImage)
         case .copyImage:        return L(L10n.MessageAction.copyImage)
         case .markUnread:       return L(L10n.MessageAction.markUnread)
@@ -54,6 +56,7 @@ enum MessageAction: CaseIterable {
         case .forwardAll:       return "Chat/IconForwardAll"
         case .createThread:     return nil
         case .copyText:         return "Chat/IconCopy"
+        case .shareText:        return nil
         case .saveImage:        return nil
         case .copyImage:        return "Chat/IconCopy"
         case .markUnread:       return "Chat/IconMarkUnread"
@@ -74,6 +77,7 @@ enum MessageAction: CaseIterable {
         switch self {
         case .createThread:     return "square.and.pencil"
         case .saveImage:        return "square.and.arrow.down"
+        case .shareText:        return "square.and.arrow.up"
         case .topicDiscussion:  return "text.bubble"
         case .quickMenu:       return "bolt.fill"
         case .unpinMessage:     return "pin.slash"
@@ -96,7 +100,7 @@ enum MessageAction: CaseIterable {
         switch self {
         case .giveACoffee, .reply, .forwardMessage, .forwardAll, .createThread, .resend, .editMessage, .forward:
             return .frequent
-        case .copyText, .saveImage, .copyImage, .markUnread, .topicDiscussion, .pinMessage, .unpinMessage, .markMessage, .quickMenu:
+        case .copyText, .shareText, .saveImage, .copyImage, .markUnread, .topicDiscussion, .pinMessage, .unpinMessage, .markMessage, .quickMenu:
             return .normal
         case .deleteMessage, .report:
             return .warning
@@ -259,6 +263,7 @@ final class MessageActionSheetController: ViewController {
 
         if hasText {
             actions.append(.copyText)
+            actions.append(.shareText)
         }
         if display.singleImageMediaAttachment != nil {
             actions.append(.saveImage)
