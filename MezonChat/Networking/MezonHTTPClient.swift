@@ -1966,6 +1966,17 @@ final class MezonHTTPClient {
         )
     }
 
+    func searchCtrlK(text: String, type: Int32, token: String) async throws -> Mezon_Api_SearchCtrlKResponse {
+        var req = Mezon_Api_SearchCtrlKRequest()
+        req.text = text
+        req.type = type
+        return try await postProto(
+            path: "/mezon.api.Mezon/SearchCtrlK",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func listFriends(
         token: String,
         limit: Int32 = 100,

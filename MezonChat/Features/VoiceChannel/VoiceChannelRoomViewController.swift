@@ -4169,6 +4169,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             } else if let uid = Int64(idKey) {
                 apiUser.id = uid
             }
+            let participantUserId = apiUser.id
             apiUser.displayName = display
             if !subtitle.isEmpty {
                 apiUser.username = subtitle

@@ -99,6 +99,8 @@ final class ChatContainerNode: ASDisplayNode {
     private let isDM: Bool
     private let disposables = DisposableSet()
     var pendingJumpMessageId: String?
+    var onPendingJumpCompleted: ((String) -> Void)?
+    private var scheduledJumpMessageId: String?
     private(set) var didAutoScrollForNewMessages = false
     private var isLoadMoreGuardActive = false
     private var lastKnownDistanceFromBottom: CGFloat = 0
@@ -320,20 +322,31 @@ final class ChatContainerNode: ASDisplayNode {
         if hadZeroFrame && listView.bounds.width > 0 || needsReloadAfterLayout {
             needsReloadAfterLayout = false
             reloadAllItems()
+            triggerPendingJump()
         }
     }
 
     func triggerPendingJump() {
-        guard let jumpId = pendingJumpMessageId,
-              state.messages.contains(where: { $0.id == jumpId }) else { return }
-        pendingJumpMessageId = nil
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            self?.scrollToMessage(id: jumpId)
+        guard let jumpId = pendingJumpMessageId else { return }
+        guard state.messages.contains(where: { $0.id == jumpId }),
+              committedMessageIds.contains(jumpId),
+              scheduledJumpMessageId != jumpId else { return }
+        scheduledJumpMessageId = jumpId
+        listView.addAfterTransactionsCompleted { [weak self] in
+            guard let self else { return }
+            guard self.pendingJumpMessageId == jumpId else {
+                self.scheduledJumpMessageId = nil
+                return
+            }
+            if !self.scrollToMessage(id: jumpId) {
+                self.scheduledJumpMessageId = nil
+            }
         }
     }
 
-    func scrollToMessage(id: String) {
-        guard let row = committedMessageIds.firstIndex(of: id) else { return }
+    @discardableResult
+    func scrollToMessage(id: String) -> Bool {
+        guard let row = committedMessageIds.firstIndex(of: id) else { return false }
         listView.transaction(
             deleteIndices: [],
             insertIndicesAndItems: [],
@@ -341,7 +354,13 @@ final class ChatContainerNode: ASDisplayNode {
             options: [.Synchronous],
             scrollToItem: ListViewScrollToItem(index: row, position: .center(.top), animated: true, curve: .Default(duration: nil), directionHint: .Down),
             updateOpaqueState: nil,
-            completion: { _ in }
+            completion: { [weak self] _ in
+                guard let self else { return }
+                self.scheduledJumpMessageId = nil
+                guard self.pendingJumpMessageId == id else { return }
+                self.pendingJumpMessageId = nil
+                self.onPendingJumpCompleted?(id)
+            }
         )
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
@@ -355,6 +374,7 @@ final class ChatContainerNode: ASDisplayNode {
                 }
             }
         }
+        return true
     }
 
     func captureVisibleMessageAnchor() -> VisibleMessageAnchor? {
