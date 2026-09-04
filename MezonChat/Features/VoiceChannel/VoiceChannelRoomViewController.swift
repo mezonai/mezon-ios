@@ -1480,6 +1480,9 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private let bottomPill = UIView()
     private let bottomControlsStack = UIStackView()
 
+    private var contentScrollBottomToPill: NSLayoutConstraint?
+    private var contentScrollBottomToPtt: NSLayoutConstraint?
+
     private let pttContainer = UIStackView()
     private let pttMicPill = UIControl()
     private let pttMicIcon = UIImageView()
@@ -1732,6 +1735,9 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         voiceReactionOverlay.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(voiceReactionOverlay)
 
+        let scrollBottomToPill = contentScroll.bottomAnchor.constraint(equalTo: bottomPill.topAnchor, constant: -24)
+        contentScrollBottomToPill = scrollBottomToPill
+
         NSLayoutConstraint.activate([
             headerBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             headerBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 10),
@@ -1761,7 +1767,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             contentScroll.topAnchor.constraint(equalTo: headerBar.bottomAnchor, constant: 8),
             contentScroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             contentScroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            contentScroll.bottomAnchor.constraint(equalTo: bottomPill.topAnchor, constant: -24),
+            scrollBottomToPill,
 
             participantArea.topAnchor.constraint(equalTo: contentScroll.contentLayoutGuide.topAnchor, constant: 16),
             participantArea.leadingAnchor.constraint(equalTo: contentScroll.frameLayoutGuide.leadingAnchor),
@@ -2016,6 +2022,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             pttContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -14),
             pttContainer.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
         ])
+        contentScrollBottomToPtt = contentScroll.bottomAnchor.constraint(equalTo: pttContainer.topAnchor, constant: -12)
     }
 
     private func configurePttSecondaryPill(_ pill: UIControl, backgroundColor: UIColor) {
@@ -2803,6 +2810,13 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         let audience = role == .audience
         bottomPill.isHidden = audience
         pttContainer.isHidden = !audience
+        if audience {
+            contentScrollBottomToPill?.isActive = false
+            contentScrollBottomToPtt?.isActive = true
+        } else {
+            contentScrollBottomToPtt?.isActive = false
+            contentScrollBottomToPill?.isActive = true
+        }
         if !audience {
             setPttPillPressed(false)
             stopPttPulse()
@@ -4148,7 +4162,6 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             let display = self.resolveDisplayName(identityKey: idKey, isLocal: false)
             let avatarURL = voiceChannelResolveAvatarURL(context: self.context, clanId: self.channel.clanID, identityKey: idKey)
             let canManage = self.voiceChannelCanManageVoice()
-            let participantUserId = Int64(idKey) ?? cu?.user.id ?? 0
 
             var apiUser = Mezon_Api_User()
             if let cu {
