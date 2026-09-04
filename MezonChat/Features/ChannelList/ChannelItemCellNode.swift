@@ -1,10 +1,113 @@
 import AsyncDisplayKit
 import UIKit
 
+enum ChannelEventIcon {
+    private static let upcomingImage = makeImage(
+        tintColor: UIColor(red: 168 / 255, green: 85 / 255, blue: 247 / 255, alpha: 1)
+    )
+    private static let ongoingImage = makeImage(
+        tintColor: UIColor(red: 34 / 255, green: 197 / 255, blue: 94 / 255, alpha: 1)
+    )
+
+    static func normalizedStatus(_ status: Int32?) -> Int32? {
+        switch status {
+        case ClanEventStatusValue.upcoming, ClanEventStatusValue.ongoing:
+            return status
+        default:
+            return nil
+        }
+    }
+
+    static func image(for status: Int32?) -> UIImage? {
+        switch normalizedStatus(status) {
+        case ClanEventStatusValue.upcoming:
+            return upcomingImage
+        case ClanEventStatusValue.ongoing:
+            return ongoingImage
+        default:
+            return nil
+        }
+    }
+
+    private static func makeImage(tintColor: UIColor) -> UIImage? {
+        guard let source = UIImage(named: "Channel/Event"),
+              let sourceImage = source.cgImage else {
+            return nil
+        }
+
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        guard tintColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+            return source
+        }
+
+        let width = sourceImage.width
+        let height = sourceImage.height
+        let bytesPerRow = width * 4
+        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGBitmapInfo.byteOrder32Big.rawValue
+            | CGImageAlphaInfo.premultipliedLast.rawValue
+        var pixels = [UInt8](repeating: 0, count: height * bytesPerRow)
+        let outputImage: CGImage? = pixels.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(
+                data: buffer.baseAddress,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: bytesPerRow,
+                space: colorSpace,
+                bitmapInfo: bitmapInfo
+            ) else {
+                return nil
+            }
+            context.draw(sourceImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+            let bytes = buffer.bindMemory(to: UInt8.self)
+            let targetRed = red * 255
+            let targetGreen = green * 255
+            let targetBlue = blue * 255
+            let whiteThreshold: CGFloat = 120
+            for offset in stride(from: 0, to: bytes.count, by: 4) {
+                let pixelAlpha = CGFloat(bytes[offset + 3])
+                guard pixelAlpha > 0 else { continue }
+                let unpremultiply = 255 / pixelAlpha
+                let sourceRed = min(255, CGFloat(bytes[offset]) * unpremultiply)
+                let sourceGreen = min(255, CGFloat(bytes[offset + 1]) * unpremultiply)
+                let sourceBlue = min(255, CGFloat(bytes[offset + 2]) * unpremultiply)
+                let sourceWhite = min(sourceRed, sourceGreen, sourceBlue)
+                let whiteMix = min(
+                    1,
+                    max(0, (sourceWhite - whiteThreshold) / (255 - whiteThreshold))
+                )
+                let premultiply = pixelAlpha / 255
+                bytes[offset] = UInt8(
+                    ((targetRed * (1 - whiteMix) + 255 * whiteMix) * premultiply).rounded()
+                )
+                bytes[offset + 1] = UInt8(
+                    ((targetGreen * (1 - whiteMix) + 255 * whiteMix) * premultiply).rounded()
+                )
+                bytes[offset + 2] = UInt8(
+                    ((targetBlue * (1 - whiteMix) + 255 * whiteMix) * premultiply).rounded()
+                )
+            }
+            return context.makeImage()
+        }
+        guard let outputImage else { return source }
+        return UIImage(
+            cgImage: outputImage,
+            scale: source.scale,
+            orientation: source.imageOrientation
+        )
+    }
+}
+
 final class ChannelItemCellNode: ASCellNode {
 
     private let iconNode = ASTextNode2()
     private let iconImgNode = ASImageNode()
+    private let eventIconNode = ASImageNode()
     private let nameNode = ASTextNode2()
     private let badgeNode = ASTextNode2()
     private let badgeBackground = ASDisplayNode()
@@ -15,11 +118,20 @@ final class ChannelItemCellNode: ASCellNode {
     private let channel: Mezon_Api_ChannelDescription
     private let cellSelected: Bool
     private let isVoiceActive: Bool
+    private var eventStatus: Int32?
+    let channelId: Int64
 
-    init(channel: Mezon_Api_ChannelDescription, isSelected: Bool, isVoiceActive: Bool = false) {
+    init(
+        channel: Mezon_Api_ChannelDescription,
+        isSelected: Bool,
+        isVoiceActive: Bool = false,
+        eventStatus: Int32? = nil
+    ) {
         self.channel = channel
         self.cellSelected = isSelected
         self.isVoiceActive = isVoiceActive
+        self.eventStatus = ChannelEventIcon.normalizedStatus(eventStatus)
+        self.channelId = channel.channelID
         super.init()
         automaticallyManagesSubnodes = true
         neverShowPlaceholders = true
@@ -81,6 +193,10 @@ final class ChannelItemCellNode: ASCellNode {
             iconImgNode.isHidden = true
         }
 
+        eventIconNode.image = ChannelEventIcon.image(for: eventStatus)
+        eventIconNode.contentMode = .scaleAspectFit
+        eventIconNode.isHidden = eventIconNode.image == nil
+
         let nameStr = channel.channelLabel.isEmpty ? "channel" : channel.channelLabel
         let nameColor =
             isUnread ? t.channelUnread : t.channelNormal
@@ -131,6 +247,15 @@ final class ChannelItemCellNode: ASCellNode {
         isUserInteractionEnabled = true
     }
 
+    func applyEventStatus(_ status: Int32?) {
+        let normalized = ChannelEventIcon.normalizedStatus(status)
+        guard eventStatus != normalized else { return }
+        eventStatus = normalized
+        eventIconNode.image = ChannelEventIcon.image(for: normalized)
+        eventIconNode.isHidden = eventIconNode.image == nil
+        setNeedsLayout()
+    }
+
     func applyListSelectionState(selected: Bool) {
         let t = UIColor.theme
         let isVoiceType = Self.voiceTypes.contains(channel.type)
@@ -172,6 +297,23 @@ final class ChannelItemCellNode: ASCellNode {
         iconNode.style.preferredSize = CGSize(width: 14.swh, height: 14.swh)
         iconImgNode.style.preferredSize = CGSize(width: 12.swh, height: 12.swh)
         let iconChild: ASLayoutElement = iconNode.isHidden ? iconImgNode : iconNode
+        eventIconNode.style.preferredSize = CGSize(width: 16.swh, height: 16.swh)
+
+        let leadingChild: ASLayoutElement
+        let contentSpacing: CGFloat
+        if eventIconNode.isHidden {
+            leadingChild = iconChild
+            contentSpacing = 10.sw
+        } else {
+            leadingChild = ASStackLayoutSpec(
+                direction: .horizontal,
+                spacing: 6.sw,
+                justifyContent: .start,
+                alignItems: .center,
+                children: [iconChild, eventIconNode]
+            )
+            contentSpacing = 8.sw
+        }
 
         let badgeInset = ASInsetLayoutSpec(
             insets: UIEdgeInsets(top: 2.swh, left: 6.swh, bottom: 2.swh, right: 6.swh),
@@ -186,13 +328,13 @@ final class ChannelItemCellNode: ASCellNode {
         nameNode.style.flexShrink = 1
         nameNode.style.flexGrow = 0
 
-        var children: [ASLayoutElement] = [iconChild, nameNode]
+        var children: [ASLayoutElement] = [leadingChild, nameNode]
         if !badgeNode.isHidden {
             children.append(contentsOf: [spacer, badge])
         }
 
         let row = ASStackLayoutSpec(
-            direction: .horizontal, spacing: 10.sw, justifyContent: .start, alignItems: .center,
+            direction: .horizontal, spacing: contentSpacing, justifyContent: .start, alignItems: .center,
             children: children)
 
         let inset = ASInsetLayoutSpec(

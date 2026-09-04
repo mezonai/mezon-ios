@@ -1,6 +1,12 @@
 import Foundation
 import SwiftProtobuf
 
+enum ClanEventStatusValue {
+    static let upcoming: Int32 = 1
+    static let ongoing: Int32 = 2
+    static let completed: Int32 = 3
+}
+
 enum ChannelPreferenceListCodec {
     static func decode(_ data: Data) -> [Mezon_Api_ChannelDescription] {
         guard data.count >= 4 else { return [] }
@@ -130,6 +136,10 @@ extension MezonEngine {
         private var clanUsersMemoByClanId: [Int64: (list: Mezon_Api_ClanUserList?, at: Date)] = [:]
         private let clanUsersMemoTTL: TimeInterval = 2
         private let clanUsersMemoMaxEntries = 4
+        private var clanEventSocketVersionsByClanId: [Int64: Int] = [:]
+        private var inflightEventFetchesByClanId: [Int64: Task<Void, Never>] = [:]
+        private var clanEventFetchIdsByClanId: [Int64: UUID] = [:]
+        private var pendingForcedEventFetchIdsByClanId: [Int64: UUID] = [:]
 
         init(engine: MezonEngine) { self.engine = engine }
 
@@ -146,6 +156,13 @@ extension MezonEngine {
             lastPresenceMemberRefreshAtByClanId.removeAll()
             attemptedMemberRefreshUserIdsByClanId.removeAll()
             clanUsersMemoByClanId.removeAll()
+            for (_, task) in inflightEventFetchesByClanId {
+                task.cancel()
+            }
+            inflightEventFetchesByClanId.removeAll()
+            clanEventFetchIdsByClanId.removeAll()
+            pendingForcedEventFetchIdsByClanId.removeAll()
+            clanEventSocketVersionsByClanId.removeAll()
         }
 
         func cancelFetchAllClanData(exceptClanId: Int64) {
@@ -293,7 +310,72 @@ extension MezonEngine {
         }
 
         func refetchEvents(clanId: Int64, token: String) async {
-            await fetchEvents(clanId: clanId, token: token)
+            await fetchEvents(clanId: clanId, token: token, force: true)
+        }
+
+        func channelEventStatuses(clanId: Int64) -> [Int64: Int32] {
+            var statuses: [Int64: Int32] = [:]
+            for event in getClanEvents(clanId: clanId)?.events ?? [] where event.channelID != 0 {
+                switch event.eventStatus {
+                case ClanEventStatusValue.ongoing:
+                    statuses[event.channelID] = ClanEventStatusValue.ongoing
+                case ClanEventStatusValue.upcoming:
+                    if statuses[event.channelID] != ClanEventStatusValue.ongoing {
+                        statuses[event.channelID] = ClanEventStatusValue.upcoming
+                    }
+                default:
+                    break
+                }
+            }
+            return statuses
+        }
+
+        @discardableResult
+        func applyClanEventStatusUpdate(_ update: Mezon_Api_CreateEventRequest) -> Bool {
+            let validStatuses: Set<Int32> = [
+                ClanEventStatusValue.upcoming,
+                ClanEventStatusValue.ongoing,
+                ClanEventStatusValue.completed,
+            ]
+            guard update.clanID != 0 else {
+                return false
+            }
+            markClanEventSocketUpdate(clanId: update.clanID)
+            guard update.action == 0,
+                  validStatuses.contains(update.eventStatus) else {
+                return false
+            }
+
+            guard var list = getClanEvents(clanId: update.clanID) else {
+                return false
+            }
+            guard let index = list.events.firstIndex(where: { $0.id == update.eventID }) else {
+                return false
+            }
+
+            var event = list.events[index]
+            let updatedStartTime = update.eventStatus == ClanEventStatusValue.completed
+                && update.startTimeSeconds != 0
+                ? update.startTimeSeconds
+                : event.startTimeSeconds
+            guard event.eventStatus != update.eventStatus || event.startTimeSeconds != updatedStartTime else {
+                return true
+            }
+
+            event.eventStatus = update.eventStatus
+            event.startTimeSeconds = updatedStartTime
+            list.events[index] = event
+            guard let data = try? list.serializedData() else { return false }
+            postbox.setPreferenceDataSync(
+                key: PreferencesKeys.clanEvents(clanId: update.clanID),
+                value: data
+            )
+            clanEventsUpdated.putNext(update.clanID)
+            return true
+        }
+
+        private func markClanEventSocketUpdate(clanId: Int64) {
+            clanEventSocketVersionsByClanId[clanId, default: 0] += 1
         }
 
         func setUserEventInterest(
@@ -320,7 +402,7 @@ extension MezonEngine {
                     try await network.deleteUserEvent(request: req, token: token)
                 }
             } catch {
-                await fetchEvents(clanId: clanId, token: token)
+                await refetchEvents(clanId: clanId, token: token)
             }
         }
 
@@ -347,15 +429,60 @@ extension MezonEngine {
             postbox.setPreferenceDataSync(key: PreferencesKeys.clanEvents(clanId: clanId), value: data)
         }
 
-        private func fetchEvents(clanId: Int64, token: String) async {
-            do {
-                let response = try await network.listEvents(clanId: clanId, token: token)
-                if let data = try? response.serializedData() {
-                    postbox.setPreferenceDataSync(key: PreferencesKeys.clanEvents(clanId: clanId), value: data)
+        private func fetchEvents(clanId: Int64, token: String, force: Bool = false) async {
+            guard clanId != 0 else { return }
+            if let existing = inflightEventFetchesByClanId[clanId] {
+                if force, let fetchId = clanEventFetchIdsByClanId[clanId] {
+                    pendingForcedEventFetchIdsByClanId[clanId] = fetchId
                 }
-                clanEventsUpdated.putNext(clanId)
-            } catch {
+                await existing.value
+                return
             }
+
+            let fetchId = UUID()
+            clanEventFetchIdsByClanId[clanId] = fetchId
+            let task = Task { @MainActor [weak self] in
+                guard let self else { return }
+                defer {
+                    if self.clanEventFetchIdsByClanId[clanId] == fetchId {
+                        self.inflightEventFetchesByClanId[clanId] = nil
+                        self.clanEventFetchIdsByClanId[clanId] = nil
+                        self.pendingForcedEventFetchIdsByClanId[clanId] = nil
+                    }
+                }
+
+                var shouldFetch = true
+                while shouldFetch, !Task.isCancelled {
+                    let socketVersion = self.clanEventSocketVersionsByClanId[clanId] ?? 0
+                    var appliedCurrentResponse = false
+                    do {
+                        let response = try await self.network.listEvents(clanId: clanId, token: token)
+                        guard !Task.isCancelled,
+                              self.clanEventFetchIdsByClanId[clanId] == fetchId else {
+                            return
+                        }
+                        if self.clanEventSocketVersionsByClanId[clanId, default: 0] == socketVersion {
+                            if let data = try? response.serializedData() {
+                                self.postbox.setPreferenceDataSync(
+                                    key: PreferencesKeys.clanEvents(clanId: clanId),
+                                    value: data
+                                )
+                            }
+                            self.clanEventsUpdated.putNext(clanId)
+                            appliedCurrentResponse = true
+                        }
+                    } catch {
+                    }
+
+                    let hasPendingForce = self.pendingForcedEventFetchIdsByClanId[clanId] == fetchId
+                    if hasPendingForce {
+                        self.pendingForcedEventFetchIdsByClanId[clanId] = nil
+                    }
+                    shouldFetch = hasPendingForce && !appliedCurrentResponse
+                }
+            }
+            inflightEventFetchesByClanId[clanId] = task
+            await task.value
         }
 
         private func fetchUserPermissions(clanId: Int64, token: String) async {
