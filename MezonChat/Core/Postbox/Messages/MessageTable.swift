@@ -1,8 +1,13 @@
 import Foundation
+import os.log
 
 final class MessageTable: Table {
 
+    private static let reactionLog = OSLog(subsystem: "mezon.postbox", category: "reaction-scope")
+
     private static let topicMessageCode: Int32 = 9
+
+    private static let topicChannelKeyPrefix = "topic-"
 
     private struct TopicMetaValue {
         var rpl: Int
@@ -546,6 +551,17 @@ final class MessageTable: Table {
             }
         }
 
+        if preferredChannelIds.isEmpty {
+            os_log(.error, log: Self.reactionLog,
+                   "unscoped msg=%{public}@ emoji=%{public}@ targets=%{public}@",
+                   messageId, reaction.emoji, cacheTargets.joined(separator: ","))
+        }
+        if cacheTargets.count > 1 {
+            os_log(.error, log: Self.reactionLog,
+                   "multi msg=%{public}@ ch=%{public}lld topic=%{public}lld targets=%{public}@",
+                   messageId, reaction.channelID, reaction.topicID, cacheTargets.joined(separator: ","))
+        }
+
         var updatedChannelIds = Set<String>()
         for channelId in cacheTargets {
             if updateCachedMessageReaction(messageId: messageId, channelId: channelId, reaction: reaction) {
@@ -554,12 +570,22 @@ final class MessageTable: Table {
         }
 
         if updatedChannelIds.isEmpty {
-            let fallbackCacheTargets = cache.keys
+            let unscopedMatches = cache.keys
                 .filter { channelId in
                     !cacheTargets.contains(channelId)
                         && cache[channelId]?.contains(where: { $0.id == messageId && !$0.isDeleted }) == true
                 }
                 .sorted()
+            let fallbackCacheTargets = unscopedMatches
+                .filter { $0.hasPrefix(Self.topicChannelKeyPrefix) }
+            let blockedCrossChannelTargets = unscopedMatches
+                .filter { !$0.hasPrefix(Self.topicChannelKeyPrefix) }
+            if !blockedCrossChannelTargets.isEmpty {
+                os_log(.error, log: Self.reactionLog,
+                       "blocked msg=%{public}@ ch=%{public}lld topic=%{public}lld emoji=%{public}@ wouldWrite=%{public}@",
+                       messageId, reaction.channelID, reaction.topicID, reaction.emoji,
+                       blockedCrossChannelTargets.joined(separator: ","))
+            }
             for channelId in fallbackCacheTargets {
                 if updateCachedMessageReaction(messageId: messageId, channelId: channelId, reaction: reaction) {
                     updatedChannelIds.insert(channelId)
@@ -597,7 +623,7 @@ final class MessageTable: Table {
     private static func preferredReactionChannelIds(for reaction: Mezon_Api_MessageReaction) -> [String] {
         var ids: [String] = []
         if reaction.topicID != 0 {
-            ids.append("topic-\(reaction.topicID)")
+            ids.append("\(Self.topicChannelKeyPrefix)\(reaction.topicID)")
         }
         if reaction.channelID != 0 {
             let channelId = "\(reaction.channelID)"
