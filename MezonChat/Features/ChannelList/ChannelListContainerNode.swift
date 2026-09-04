@@ -1349,28 +1349,55 @@ final class ChannelListContainerNode: ASDisplayNode {
     @discardableResult
     private func normalizeListElementPresentation(_ view: UIView) -> Bool {
         var changed = false
-        if view.layer.animationKeys()?.isEmpty == false {
-            view.layer.removeAllAnimations()
+        let viewLayer = view.layer
+        if viewLayer.animationKeys()?.isEmpty == false {
+            viewLayer.removeAllAnimations()
+            changed = true
+        }
+        if viewLayer.speed != 1 || viewLayer.timeOffset != 0 {
+            viewLayer.speed = 1
+            viewLayer.timeOffset = 0
             changed = true
         }
         if view.alpha != 1 {
             view.alpha = 1
             changed = true
         }
-        if view.layer.opacity != 1 {
-            view.layer.opacity = 1
+        if viewLayer.opacity != 1 {
+            viewLayer.opacity = 1
             changed = true
         }
         if view.transform != .identity {
             view.transform = .identity
             changed = true
         }
+        if !CATransform3DIsIdentity(viewLayer.transform) {
+            viewLayer.transform = CATransform3DIdentity
+            changed = true
+        }
         return changed
     }
 
     @discardableResult
-    func sanitizeListPresentationArtifacts() -> Bool {
-        guard tableIsInWindow else { return false }
+    private func normalizeListElementTree(_ view: UIView) -> Bool {
+        var changed = normalizeListElementPresentation(view)
+        for sub in view.subviews {
+            if normalizeListElementTree(sub) { changed = true }
+        }
+        return changed
+    }
+
+    @discardableResult
+    func sanitizeListPresentationArtifacts(attempt: Int = 0) -> Bool {
+        guard tableIsInWindow else {
+            if attempt < 8 {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.nodeIsVisible else { return }
+                    self.sanitizeListPresentationArtifacts(attempt: attempt + 1)
+                }
+            }
+            return false
+        }
         var changed = false
         let tableLayer = tableNode.view.layer
         if tableLayer.animationKeys()?.isEmpty == false {
@@ -1389,14 +1416,17 @@ final class ChannelListContainerNode: ASDisplayNode {
         let visibleCells = Set(tableNode.view.visibleCells.map { ObjectIdentifier($0) })
         for sub in tableNode.view.subviews {
             if let cell = sub as? UITableViewCell {
-                if normalizeListElementPresentation(cell) { changed = true }
-                if normalizeListElementPresentation(cell.contentView) { changed = true }
+                var surfaceChanged = normalizeListElementPresentation(cell)
+                if normalizeListElementPresentation(cell.contentView) { surfaceChanged = true }
+                normalizeListElementTree(cell)
+                if surfaceChanged { changed = true }
                 if cell.isHidden, visibleCells.contains(ObjectIdentifier(cell)) {
                     cell.isHidden = false
                     changed = true
                 }
             } else if let header = sub as? CategorySectionHeaderView {
                 if normalizeListElementPresentation(header) { changed = true }
+                normalizeListElementTree(header)
             }
         }
         if tableNode.numberOfSections != totalSections {
@@ -2404,15 +2434,10 @@ extension ChannelListContainerNode: ASTableDelegate {
         while let v = current, !(v is UITableViewCell) {
             current = v.superview
         }
-        guard let cell = current as? UITableViewCell else { return }
-        if cell.layer.animationKeys()?.isEmpty == false {
-            cell.layer.removeAllAnimations()
-        }
-        if cell.alpha != 1 { cell.alpha = 1 }
-        if cell.layer.opacity != 1 { cell.layer.opacity = 1 }
-        if cell.contentView.alpha != 1 { cell.contentView.alpha = 1 }
-        if cell.contentView.layer.animationKeys()?.isEmpty == false {
-            cell.contentView.layer.removeAllAnimations()
+        if let cell = current as? UITableViewCell {
+            normalizeListElementTree(cell)
+        } else {
+            normalizeListElementTree(node.view)
         }
     }
 
