@@ -600,7 +600,25 @@ final class ChatViewController: ViewController {
 
     private var messagesNode: ChatContainerNode { displayNode as! ChatContainerNode }
 
-    var pendingJumpToMessageId: String?
+    private var initialMessageJumpTargetId: String?
+    private var startupJumpTargetForInitialFetch: String?
+    var pendingJumpToMessageId: String? {
+        didSet {
+            if let target = pendingJumpToMessageId, !target.isEmpty {
+                initialMessageJumpTargetId = target
+            }
+        }
+    }
+
+    private func finishMessageJump(messageId: String) {
+        if let initialTarget = initialMessageJumpTargetId {
+            guard initialTarget == messageId else { return }
+            initialMessageJumpTargetId = nil
+            setIsLoading(false)
+        }
+        isJumping = false
+        readyToLoadMore = true
+    }
 
     init(
         clanId: Int64, channel: Mezon_Api_ChannelDescription, context: AccountContext,
@@ -994,11 +1012,15 @@ final class ChatViewController: ViewController {
             self.handleEmbedButtonClicked(button: button, messageId: messageId, display: display)
         }
         
-        displayNode = ChatContainerNode(
+        let containerNode = ChatContainerNode(
             signal: stateSignal(),
             interaction: interaction,
             isDM: channel.type == MezonConstants.ChannelType.dm.rawValue
         )
+        containerNode.onPendingJumpCompleted = { [weak self] messageId in
+            self?.finishMessageJump(messageId: messageId)
+        }
+        displayNode = containerNode
     }
 
     override func viewDidLoad() {
@@ -1081,8 +1103,7 @@ final class ChatViewController: ViewController {
                 self.setIsLoading(false)
                 return
             }
-            self.hasCompletedInitialFetch = true
-            self.fetchMessages(token: token)
+            self.performInitialMessageFetchIfNeeded(token: token)
         }
     }
     
@@ -1723,6 +1744,7 @@ final class ChatViewController: ViewController {
         markChannelAsReadOnEntryIfPossible()
 
         if let jumpId = pendingJumpToMessageId {
+            isJumping = true
             pendingJumpToMessageId = nil
             DispatchQueue.main.async { [weak self] in
                 self?.jumpToMessage(id: jumpId)
@@ -1808,7 +1830,20 @@ final class ChatViewController: ViewController {
         2_400_000_000
     ]
 
+    private func performInitialMessageFetchIfNeeded(token: String) {
+        guard !hasCompletedInitialFetch else { return }
+        hasCompletedInitialFetch = true
+        if startupJumpTargetForInitialFetch != nil {
+            startupJumpTargetForInitialFetch = nil
+            return
+        }
+        fetchMessages(token: token)
+    }
+
     func start() {
+        if let initialMessageJumpTargetId {
+            startupJumpTargetForInitialFetch = initialMessageJumpTargetId
+        }
         if topicId == 0 {
             context.currentClanId = clanId
             context.currentChannel = channel
@@ -1896,8 +1931,7 @@ final class ChatViewController: ViewController {
                 return nil
             }()
             if let immediateToken, !self.hasCompletedInitialFetch {
-                self.hasCompletedInitialFetch = true
-                self.fetchMessages(token: immediateToken)
+                self.performInitialMessageFetchIfNeeded(token: immediateToken)
             }
 
             var token = await self.context.getTokenPreferringCachedSkipSessionReadyWait()
@@ -1910,8 +1944,7 @@ final class ChatViewController: ViewController {
                 return
             }
             if !self.hasCompletedInitialFetch {
-                self.hasCompletedInitialFetch = true
-                self.fetchMessages(token: token)
+                self.performInitialMessageFetchIfNeeded(token: token)
             }
             await self.waitForSocketConnected()
             self.joinChat()
@@ -2444,7 +2477,7 @@ final class ChatViewController: ViewController {
     }
 
     func fetchMessages(token: String? = nil) {
-        if pendingJumpToMessageId != nil { return }
+        if initialMessageJumpTargetId != nil || pendingJumpToMessageId != nil { return }
         let hadCachedMessages = !messages.isEmpty
         let hadCachedInPostbox = hasCachedMessagesInPostbox()
         if shouldSkipRemoteFetchForEmptyTopic(
@@ -4620,14 +4653,11 @@ final class ChatViewController: ViewController {
         if messages.contains(where: { $0.id == messageId }) {
             messagesNode.pendingJumpMessageId = messageId
             messagesNode.triggerPendingJump()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                self?.isJumping = false
-            }
             return
         }
 
         guard let msgId = Int64(messageId) else {
-            isJumping = false
+            finishMessageJump(messageId: messageId)
             return
         }
 
@@ -4640,12 +4670,12 @@ final class ChatViewController: ViewController {
         Task { @MainActor in
             defer {
                 self.setIsLoadingMessageContext(false)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                    self?.isJumping = false
-                    self?.readyToLoadMore = true
-                }
             }
-            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
+            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else {
+                self.messagesNode.pendingJumpMessageId = nil
+                self.finishMessageJump(messageId: messageId)
+                return
+            }
             do {
                 let response = try await self.context.account.network.listChannelMessages(
                     clanId: self.clanId,
@@ -4656,8 +4686,9 @@ final class ChatViewController: ViewController {
                     topicId: self.topicId,
                     token: token
                 )
-                guard !response.messages.isEmpty else {
+                guard response.messages.contains(where: { $0.messageID == msgId }) else {
                     self.messagesNode.pendingJumpMessageId = nil
+                    self.finishMessageJump(messageId: messageId)
                     return
                 }
                 self.setHasMoreOlder(response.messages.count > 1)
@@ -4676,6 +4707,7 @@ final class ChatViewController: ViewController {
                     "anchorMessageId": msgId,
                 ])
                 self.messagesNode.pendingJumpMessageId = nil
+                self.finishMessageJump(messageId: messageId)
             }
         }
     }
