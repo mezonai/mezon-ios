@@ -1722,7 +1722,7 @@ final class SharingViewController: UIViewController {
                     avatar: self.context.currentUser?.avatarURL?.absoluteString ?? "",
                     topicId: 0,
                     token: token,
-                    preferHTTPFirst: true
+                    httpOnly: true
                 )
 
                 SharingManager.shared.cleanupSharedFiles(self.sharedMediaFiles)
