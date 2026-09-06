@@ -1049,7 +1049,7 @@ final class MezonHTTPClient {
         topicId: Int64 = 0,
         code: Int32 = 0,
         token: String,
-        preferHTTPFirst: Bool = false
+        httpOnly: Bool = false
     ) async throws -> Mezon_Realtime_ChannelMessageAck {
         var req = Mezon_Realtime_ChannelMessageSend()
         req.clanID = clanId
@@ -1066,12 +1066,68 @@ final class MezonHTTPClient {
         req.topicID = topicId
         req.code = code
 
-        return try await postProto(
-            path: "/mezon.api.Mezon/SendChannelMessage",
+        if !httpOnly,
+           await MezonSocket.shared.canSendChannelMessageRealtime(clanId: clanId, channelId: channelId),
+           let ack = await sendChannelMessageOverSocket(req) {
+            return ack
+        }
+
+        return try await postProtoHTTP(
+            path: "/mezon.api.Mezon/\(Self.sendChannelMessageApiName)",
             message: req,
-            auth: .bearer(token),
-            preferHTTPFirst: preferHTTPFirst
+            auth: .bearer(token)
         )
+    }
+
+    private static let sendChannelMessageApiName = "SendChannelMessage"
+    private static let realtimeSendAckTimeoutNanoseconds: UInt64 = 5_000_000_000
+
+    private func sendChannelMessageOverSocket(
+        _ req: Mezon_Realtime_ChannelMessageSend
+    ) async -> Mezon_Realtime_ChannelMessageAck? {
+        var envelope = Mezon_Realtime_Envelope()
+        envelope.channelMessageSend = req
+        let started = Date()
+        let fallbackReason: String
+        do {
+            let reply = try await MezonSocket.shared.sendAwaitingReply(
+                envelope,
+                timeoutNanoseconds: Self.realtimeSendAckTimeoutNanoseconds
+            )
+            await MezonSocket.shared.noteApiRequestSucceeded()
+            if case .some(.channelMessageAck(let ack)) = reply.message, ack.messageID > 0 {
+                return ack
+            }
+            fallbackReason = Self.realtimeRejectionReason(reply)
+        } catch {
+            if Date().timeIntervalSince(started) >= 1.5 {
+                await MezonSocket.shared.noteApiRequestTimedOut()
+            }
+            fallbackReason = "\(error)"
+        }
+        SentryLogger.addBreadcrumb(
+            category: "socket.send",
+            message: "channel_message_send_fallback_http",
+            level: .warning,
+            data: [
+                "clan_id": req.clanID,
+                "channel_id": req.channelID,
+                "reason": fallbackReason,
+                "elapsed_ms": Int(Date().timeIntervalSince(started) * 1000)
+            ]
+        )
+        return nil
+    }
+
+    private static func realtimeRejectionReason(_ reply: Mezon_Realtime_Envelope) -> String {
+        switch reply.message {
+        case .some(.error(let err)):
+            return "error \(err.code): \(err.message)"
+        case .some(.channelMessageAck):
+            return "empty ack"
+        default:
+            return "unexpected reply"
+        }
     }
 
     func messageButtonClick(
@@ -2261,9 +2317,9 @@ final class MezonHTTPClient {
 
     private static let httpOnlyApiNames: Set<String> = [
         "SessionRefresh",
+        "SendChannelMessage",
     ]
     private static let singleTransportOnlyApiNames: Set<String> = [
-        "SendChannelMessage",
         "UpdateChannelMessage",
     ]
     private static let socketFallbackGraceWaitNanoseconds: UInt64 = 2_000_000_000
