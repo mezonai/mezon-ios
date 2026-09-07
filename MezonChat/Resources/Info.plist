@@ -46,15 +46,15 @@
 	<string>We need needs to use Bluetooth to detect connected headsets for mezon meeting</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>We need needs to use Bluetooth to detect connected headsets for mezon meeting</string>
-	<key>NSCameraUsageDescription</key>
-	<string>Mezon app needs access to the camera to call video or take add pricture send to chat</string>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>Mezon needs access to your local network to establish peer-to-peer voice and video calls.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_mezon-call._udp</string>
 		<string>_mezon-call._tcp</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Mezon app needs access to the camera to call video or take add pricture send to chat</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Mezon needs access to your local network to establish peer-to-peer voice and video calls.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>We use your location to enhance your experience by showing nearby content and providing location-specific features when you're using the app. Your privacy is important to us, and we only access your location while you're actively using the app.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
@@ -67,6 +67,10 @@
 	<string>Mezon app needs access to the photo library to select and send images in messages</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Mezon app needs access to the photo library to select and send images in messages</string>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>INSendMessageIntent</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

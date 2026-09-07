@@ -756,15 +756,7 @@ final class MezonHTTPClient {
     private func performListChannelBadgeCount(clanId: Int64, token: String) async throws -> Mezon_Api_ListChannelBadgeCountResponse {
         var req = Mezon_Api_ListChannelBadgeCountRequest()
         req.clanID = clanId
-        let primary: Mezon_Api_ListChannelBadgeCountResponse = try await postProto(
-            path: "/mezon.api.Mezon/ListChannelBadgeCount",
-            message: req,
-            auth: .bearer(token)
-        )
-        if !primary.channeldesc.isEmpty {
-            return primary
-        }
-        return try await postProtoHTTP(
+        return try await postProto(
             path: "/mezon.api.Mezon/ListChannelBadgeCount",
             message: req,
             auth: .bearer(token)
@@ -778,18 +770,9 @@ final class MezonHTTPClient {
     }
 
     private func performListClanBadgeCount(token: String) async throws -> Mezon_Api_ListClanBadgeCountResponse {
-        let empty = SwiftProtobuf.Google_Protobuf_Empty()
-        let primary: Mezon_Api_ListClanBadgeCountResponse = try await postProto(
+        return try await postProto(
             path: "/mezon.api.Mezon/ListClanBadgeCount",
-            message: empty,
-            auth: .bearer(token)
-        )
-        if !primary.listBadge.isEmpty {
-            return primary
-        }
-        return try await postProtoHTTP(
-            path: "/mezon.api.Mezon/ListClanBadgeCount",
-            message: empty,
+            message: SwiftProtobuf.Google_Protobuf_Empty(),
             auth: .bearer(token)
         )
     }
@@ -1243,7 +1226,7 @@ final class MezonHTTPClient {
         limit: Int32 = 50,
         topicId: Int64 = 0,
         token: String,
-        preferHTTPFirst: Bool = true
+        preferHTTPFirst: Bool = false
     ) async throws -> Mezon_Api_ChannelMessageList {
         try await retryingTransientRequest(
             operationName: "ListChannelMessages clanId=\(clanId) channelId=\(channelId) messageId=\(messageId) direction=\(direction)"
@@ -2318,6 +2301,7 @@ final class MezonHTTPClient {
     private static let httpOnlyApiNames: Set<String> = [
         "SessionRefresh",
         "SendChannelMessage",
+        "ListClanBadgeCount",
     ]
     private static let singleTransportOnlyApiNames: Set<String> = [
         "UpdateChannelMessage",
@@ -2381,6 +2365,15 @@ final class MezonHTTPClient {
     ) async throws -> Response {
         let apiName = protoApiName(from: path)
         let singleTransportOnly = Self.singleTransportOnlyApiNames.contains(apiName)
+
+        if case .serverKey = auth {
+            return try await postProtoHTTP(
+                path: path,
+                message: message,
+                auth: auth,
+                allowBearerRetry: allowBearerRetry
+            )
+        }
 
         if preferHTTPFirst {
             do {
@@ -2612,6 +2605,15 @@ final class MezonHTTPClient {
         auth: AuthMethod,
         allowBearerRetry: Bool = true
     ) async throws {
+        if case .bearer = auth {
+            let acknowledged: SwiftProtobuf.Google_Protobuf_Empty? = try await sendOverSocketIfPossible(
+                path: path,
+                message: message
+            )
+            if acknowledged != nil {
+                return
+            }
+        }
         let resolvedAuth = await resolveAuth(auth)
         let url = protoBaseURL.appendingPathComponent(path)
         var request = URLRequest(url: url)
