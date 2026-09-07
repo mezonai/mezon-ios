@@ -9,6 +9,8 @@
 		<string>applinks:mezon.ai</string>
 		<string>applinks:www.mezon.ai</string>
 	</array>
+	<key>com.apple.developer.usernotifications.communication</key>
+	<true/>
 	<key>com.apple.security.application-groups</key>
 	<array>
 		<string>group.mezon.mobile</string>

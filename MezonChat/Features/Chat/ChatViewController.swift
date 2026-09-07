@@ -538,7 +538,6 @@ final class ChatViewController: ViewController {
     private var lastMarkedAsReadMessageId: Int64?
     private var pendingMarkAsRead = false
     private var didMarkChannelAsReadForCurrentAppearance = false
-    private var nextFetchPrefersHTTPFirst = false
     private var isCatchingUpAfterReconnect = false
     private var reconnectCatchUpTask: Task<Void, Never>?
     private var readyToLoadMore = false
@@ -1364,7 +1363,6 @@ final class ChatViewController: ViewController {
             }
             if needsRefreshAfterTopicDiscussion, topicId == 0 {
                 needsRefreshAfterTopicDiscussion = false
-                markNextFetchPrefersHTTPFirst()
                 fetchMessages()
             }
         }
@@ -2195,12 +2193,7 @@ final class ChatViewController: ViewController {
     func prepareForNotificationNavigation() {
         shouldReconcileKeyboardAfterNotificationNavigation = true
         collapseNotificationNavigationComposerOverlays()
-        markNextFetchPrefersHTTPFirst()
         reconcileKeyboardAfterNotificationNavigationIfNeeded()
-    }
-
-    func markNextFetchPrefersHTTPFirst() {
-        nextFetchPrefersHTTPFirst = true
     }
 
     func applyMergedChannelDescriptionFromChannelListLoadIfNeeded(
@@ -2374,8 +2367,6 @@ final class ChatViewController: ViewController {
 
         let pageSize: Int32 = 30
         let maxCatchUpPages = 20
-        // The channel join has no acknowledgement. Require two quiet HTTP passes so a
-        // message created while the realtime subscription is being restored is covered.
         var consecutiveNoAdvancePasses = 0
         var pagesFetched = 0
         var hitPageCap = false
@@ -2393,8 +2384,7 @@ final class ChatViewController: ViewController {
                     direction: 1,
                     limit: pageSize,
                     topicId: topicId,
-                    token: token,
-                    preferHTTPFirst: true
+                    token: token
                 )
                 pagesFetched += 1
 
@@ -2469,9 +2459,6 @@ final class ChatViewController: ViewController {
             setIsLoadingMessageContext(true)
         }
         setErrorMessage(nil)
-        let preferHTTPFirst = true
-        nextFetchPrefersHTTPFirst = false
-
         Task { @MainActor in
             defer {
                 self.setIsLoading(false)
@@ -2493,8 +2480,7 @@ final class ChatViewController: ViewController {
                             direction: 2,
                             limit: 30,
                             topicId: self.topicId,
-                            token: token,
-                            preferHTTPFirst: preferHTTPFirst
+                            token: token
                         )
                         if response.messages.isEmpty {
                             response = try await self.context.account.network.listChannelMessages(
@@ -2504,8 +2490,7 @@ final class ChatViewController: ViewController {
                                 direction: 3,
                                 limit: 30,
                                 topicId: self.topicId,
-                                token: token,
-                                preferHTTPFirst: preferHTTPFirst
+                                token: token
                             )
                         }
                         return response

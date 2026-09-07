@@ -984,6 +984,14 @@ enum L10n {
         static let description        = "muteDuration.description"
     }
 
+    enum NotificationActions {
+        static let view = "notificationActions.view"
+        static let reply = "notificationActions.reply"
+        static let send = "notificationActions.send"
+        static let placeholder = "notificationActions.placeholder"
+        static let replyFailed = "notificationActions.replyFailed"
+    }
+
     enum NotificationSettings {
         static let title            = "notifSettings.title"
         static let useDefault       = "notifSettings.useDefault"
@@ -1605,6 +1613,12 @@ extension L10n {
         "welcome.title":        "Welcome to Mezon",
         "welcome.subtitle":     "The Live, Work, and Play Platform\nCustomize your own space to talk, play and hang out.",
         "welcome.startNow":     "Get started",
+
+        "notificationActions.view": "View",
+        "notificationActions.reply": "Reply",
+        "notificationActions.send": "Send",
+        "notificationActions.placeholder": "Message",
+        "notificationActions.replyFailed": "Your reply could not be sent. Tap to open the conversation.",
 
         "notifications.title": "Notifications",
         "notifications.mentions": "Mentions",
@@ -2868,6 +2882,12 @@ extension L10n {
         "welcome.title":        "Chào mừng đến với Mezon",
         "welcome.subtitle":     "Nền tảng Kết nối, Làm việc,\nvà Giải trí",
         "welcome.startNow":     "Bắt đầu nào",
+
+        "notificationActions.view": "Xem",
+        "notificationActions.reply": "Trả lời",
+        "notificationActions.send": "Gửi",
+        "notificationActions.placeholder": "Tin nhắn",
+        "notificationActions.replyFailed": "Không gửi được trả lời. Chạm để mở cuộc trò chuyện.",
 
         "notifications.title": "Thông báo",
         "notifications.mentions": "Nhắc đến",
