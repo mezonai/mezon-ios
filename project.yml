@@ -109,7 +109,7 @@ targets:
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         PRODUCT_BUNDLE_IDENTIFIER: mezon.mobile
         PRODUCT_NAME: Mezon
-        MARKETING_VERSION: "1.2.112"
+        MARKETING_VERSION: "1.2.114"
         CURRENT_PROJECT_VERSION: "1"
         INFOPLIST_FILE: MezonChat/Resources/Info.plist
         DEVELOPMENT_TEAM: ""
@@ -182,6 +182,8 @@ targets:
           - remote-notification
           - audio
           - fetch
+        NSUserActivityTypes:
+          - INSendMessageIntent
 
   NotificationService:
     type: app-extension
@@ -210,11 +212,12 @@ targets:
     deploymentTarget: "13.0"
     sources:
       - path: MezonSharing
+      - path: MezonChat/Core/Utils/ExistingVideoSharePayload.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: mezon.mobile.MezonSharing
         PRODUCT_NAME: MezonSharing
-        MARKETING_VERSION: "1.2.112"
+        MARKETING_VERSION: "1.2.114"
         CURRENT_PROJECT_VERSION: "1"
         DEVELOPMENT_TEAM: ""
         CODE_SIGN_STYLE: Automatic

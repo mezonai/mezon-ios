@@ -38,9 +38,17 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
             }
         }
 
+        UNUserNotificationCenter.current().delegate = self
+        MessageNotificationCategory.register()
+        NotificationCenter.default.addObserver(
+            forName: LanguageManager.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            MessageNotificationCategory.register()
+        }
         DispatchQueue.main.async {
             FirebaseApp.configure()
-            UNUserNotificationCenter.current().delegate = self
             Messaging.messaging().delegate = self
         }
 
@@ -164,7 +172,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         NotificationCenter.default.addObserver(self, selector: #selector(handleWillEnterForeground), name: UIApplication.willEnterForegroundNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleDidBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleDidEnterBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
-        if let notificationResponse = connectionOptions.notificationResponse {
+        if let notificationResponse = connectionOptions.notificationResponse,
+           !MessageNotificationCategory.isReplyAction(notificationResponse) {
             let userInfo = notificationResponse.notification.request.content.userInfo
             let isFriendRequestNotification = Self.isFriendRequestNotification(response: notificationResponse)
             let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)
@@ -411,7 +420,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         return dictionaries
     }
 
-    private static func pushPayloadString(_ userInfo: [AnyHashable: Any], keys: [String]) -> String? {
+    static func pushPayloadString(_ userInfo: [AnyHashable: Any], keys: [String]) -> String? {
         let dictionaries = pushPayloadDictionaries(userInfo)
         for key in keys {
             for dict in dictionaries {
@@ -421,7 +430,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         return nil
     }
 
-    private static func pushPayloadInt64(_ userInfo: [AnyHashable: Any], keys: [String]) -> Int64? {
+    static func pushPayloadInt64(_ userInfo: [AnyHashable: Any], keys: [String]) -> Int64? {
         guard let raw = pushPayloadString(userInfo, keys: keys)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
               !raw.isEmpty else { return nil }
@@ -480,7 +489,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         return (channelId, clanId, isDM)
     }
 
-    private static func parseFCMPayload(_ userInfo: [AnyHashable: Any]) -> (channelId: String?, clanId: String?, isDM: Bool) {
+    static func parseFCMPayload(_ userInfo: [AnyHashable: Any]) -> (channelId: String?, clanId: String?, isDM: Bool) {
         var channelId = pushPayloadString(userInfo, keys: [
             "channel", "channel_id", "channelId", "channelID",
             "message_channel_id", "messageChannelId", "target_channel_id", "targetChannelId",
@@ -572,6 +581,20 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
+        if MessageNotificationCategory.isReplyAction(response) {
+            let text = (response as? UNTextInputNotificationResponse)?.userText ?? ""
+            let notification = response.notification
+            Task { @MainActor [weak self] in
+                await NotificationReplySender.send(
+                    text: text,
+                    notification: notification,
+                    accountContext: self?.accountContext
+                )
+                completionHandler()
+            }
+            return
+        }
+
         let userInfo = response.notification.request.content.userInfo
         let isFriendRequestNotification = Self.isFriendRequestNotification(response: response)
         let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)

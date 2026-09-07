@@ -1483,7 +1483,7 @@ final class SharingViewController: UIViewController {
         do {
             let uploadInfo = try await context.account.network.uploadAttachmentFile(
                 filename: thumbFilename, filetype: "image/jpeg", size: jpegData.count,
-                width: width, height: height, token: token, preferHTTPFirst: true)
+                width: width, height: height, token: token)
             try await context.account.network.uploadToMinIO(
                 url: uploadInfo.url, data: jpegData, contentType: "image/jpeg")
             return "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
@@ -1642,7 +1642,6 @@ final class SharingViewController: UIViewController {
                         height: height,
                         token: token,
                         progressKey: fileURL.path,
-                        preferHTTPFirst: true,
                         network: self.context.account.network
                     )
 
@@ -1721,8 +1720,7 @@ final class SharingViewController: UIViewController {
                     mentionEveryone: false,
                     avatar: self.context.currentUser?.avatarURL?.absoluteString ?? "",
                     topicId: 0,
-                    token: token,
-                    httpOnly: true
+                    token: token
                 )
 
                 SharingManager.shared.cleanupSharedFiles(self.sharedMediaFiles)
