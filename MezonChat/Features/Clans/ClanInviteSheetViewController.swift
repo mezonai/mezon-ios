@@ -892,6 +892,7 @@ private final class ClanInviteFriendCellNode: ASCellNode {
 }
 
 private final class ClanInviteSheetContainerNode: ASDisplayNode {
+    private let showsQRCode: Bool
     let titleNode = ASTextNode()
     let shareButton: ClanInviteActionButtonNode
     let copyButton: ClanInviteActionButtonNode
@@ -904,7 +905,8 @@ private final class ClanInviteSheetContainerNode: ASDisplayNode {
     let loadingSpinner = UIActivityIndicatorView(style: .medium)
     let loadingLabel = UILabel()
 
-    override init() {
+    init(showsQRCode: Bool) {
+        self.showsQRCode = showsQRCode
         shareButton = ClanInviteActionButtonNode(
             iconAsset: "Invite/ShareIcon",
             fallbackSystemIcon: "square.and.arrow.up",
@@ -922,6 +924,7 @@ private final class ClanInviteSheetContainerNode: ASDisplayNode {
         )
 
         super.init()
+        qrButton.isHidden = !showsQRCode
         automaticallyManagesSubnodes = false
 
         titleNode.isLayerBacked = true
@@ -1022,9 +1025,15 @@ private final class ClanInviteSheetContainerNode: ASDisplayNode {
         let copyW = copySz.width
         let qrW = qrSz.width
 
-        shareButton.frame = CGRect(x: aLead, y: aTop, width: shareW, height: 62.sh)
-        copyButton.frame = CGRect(x: (w - copyW) / 2, y: aTop, width: copyW, height: 62.sh)
-        qrButton.frame = CGRect(x: w - aTrail - qrW, y: aTop, width: qrW, height: 62.sh)
+        if showsQRCode {
+            shareButton.frame = CGRect(x: aLead, y: aTop, width: shareW, height: 62.sh)
+            copyButton.frame = CGRect(x: (w - copyW) / 2, y: aTop, width: copyW, height: 62.sh)
+            qrButton.frame = CGRect(x: w - aTrail - qrW, y: aTop, width: qrW, height: 62.sh)
+        } else {
+            shareButton.frame = CGRect(x: w / 3 - shareW / 2, y: aTop, width: shareW, height: 62.sh)
+            copyButton.frame = CGRect(x: w * 2 / 3 - copyW / 2, y: aTop, width: copyW, height: 62.sh)
+            qrButton.frame = .zero
+        }
         dividerNode.frame = CGRect(
             x: 0,
             y: y + 94.sh - 1 / UIScreen.main.scale,
@@ -1068,6 +1077,7 @@ final class ClanInviteSheetViewController: ViewController {
 
     private let context: AccountContext
     private let clanId: Int64
+    private let channelId: Int64?
     private let nativeModalPresenter = UIViewController()
 
     private var inviteLink: String?
@@ -1083,9 +1093,10 @@ final class ClanInviteSheetViewController: ViewController {
 
     private var containerNode: ClanInviteSheetContainerNode { displayNode as! ClanInviteSheetContainerNode }
 
-    init(context: AccountContext, clanId: Int64) {
+    init(context: AccountContext, clanId: Int64, channelId: Int64? = nil) {
         self.context = context
         self.clanId = clanId
+        self.channelId = channelId
         super.init(navigationBarPresentationData: nil)
     }
 
@@ -1094,7 +1105,7 @@ final class ClanInviteSheetViewController: ViewController {
     }
 
     override func loadDisplayNode() {
-        let node = ClanInviteSheetContainerNode()
+        let node = ClanInviteSheetContainerNode(showsQRCode: channelId == nil)
         displayNode = node
 
         node.shareButton.onTap = { [weak self] in self?.shareInvite() }
@@ -1268,6 +1279,10 @@ final class ClanInviteSheetViewController: ViewController {
     }
 
     private func resolveInviteLink(token: String) async -> String? {
+        if let channelId {
+            return "\(MezonConfig.chatWebAppBaseURL)/chat/clans/\(clanId)/channels/\(channelId)"
+        }
+
         guard let inviteContext = await resolveInviteContext(token: token) else {
             return nil
         }

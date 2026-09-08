@@ -737,19 +737,31 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
 
     private func handleHeaderActionTapped(tableNode: ASTableNode) {
         guard let host = tableNode.view.findHostingViewController() else { return }
-        guard channelType == MezonConstants.ChannelType.group.rawValue else { return }
-        let memberSnapshot = currentGroupMemberSnapshot()
-        let vc = NewGroupDMViewController(
-            context: context,
-            existingGroupChannel: channelDescription,
-            existingMemberIds: memberSnapshot.ids,
-            existingMemberCount: memberSnapshot.count,
-            onMembersAdded: { [weak self] updated in
-                let expectedCount: Int? = updated.memberCount > 0 ? Int(updated.memberCount) : nil
-                self?.refreshGroupMembersAfterAdd(expectedMemberCount: expectedCount)
-            }
-        )
-        host.navigationController?.pushViewController(vc, animated: true)
+        if channelType == MezonConstants.ChannelType.group.rawValue {
+            let memberSnapshot = currentGroupMemberSnapshot()
+            let vc = NewGroupDMViewController(
+                context: context,
+                existingGroupChannel: channelDescription,
+                existingMemberIds: memberSnapshot.ids,
+                existingMemberCount: memberSnapshot.count,
+                onMembersAdded: { [weak self] updated in
+                    let expectedCount: Int? = updated.memberCount > 0 ? Int(updated.memberCount) : nil
+                    self?.refreshGroupMembersAfterAdd(expectedMemberCount: expectedCount)
+                }
+            )
+            host.navigationController?.pushViewController(vc, animated: true)
+            return
+        }
+
+        guard clanId != 0, channelType != MezonConstants.ChannelType.dm.rawValue else { return }
+        let vc = ClanInviteSheetViewController(context: context, clanId: clanId, channelId: channelId)
+        vc.modalPresentationStyle = .pageSheet
+        if #available(iOS 15.0, *), let sheet = vc.sheetPresentationController {
+            sheet.prefersGrabberVisible = true
+            sheet.detents = [.medium(), .large()]
+            sheet.selectedDetentIdentifier = .medium
+        }
+        host.present(vc, animated: true)
     }
 
     private func refreshGroupMembersAfterAdd(expectedMemberCount: Int?) {
