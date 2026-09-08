@@ -50,6 +50,7 @@ final class MezonSfuSession: NSObject {
     private(set) var micEnabled = false
     private(set) var cameraEnabled = false
     private(set) var pttActive = false
+    private var pttRequested = false
     private(set) var localCameraTrack: RTCVideoTrack?
     private(set) var participants: [SfuParticipant] = []
     private(set) var speakingIds: Set<String> = []
@@ -90,7 +91,7 @@ final class MezonSfuSession: NSObject {
     private var userIdByMid: [String: String] = [:]
     private var peerIdByMid: [String: String] = [:]
     private var roleByMid: [String: SfuRole] = [:]
-    private var leftMids: Set<String> = []
+    private var memberByPeerId: [String: MemberState] = [:]
     private var remote: [String: RemoteEntry] = [:]
     private var remoteOrder: [String] = []
 
@@ -109,6 +110,14 @@ final class MezonSfuSession: NSObject {
         init(id: String) {
             self.id = id
         }
+    }
+
+    private final class MemberState {
+        var userId: String?
+        var role: SfuRole?
+        var muted: Bool?
+        var cameraActive: Bool?
+        var screenActive: Bool?
     }
 
     func clearCallbacks() {
@@ -130,6 +139,7 @@ final class MezonSfuSession: NSObject {
         micEnabled = false
         cameraEnabled = false
         pttActive = false
+        pttRequested = false
         joined = false
         localTracksAdded = false
         active = true
@@ -181,6 +191,7 @@ final class MezonSfuSession: NSObject {
         socketOpen = false
         connecting = false
         stateRestored = false
+        pttRequested = false
         joined = false
         for task in pollTasks {
             task.cancel()
@@ -208,7 +219,7 @@ final class MezonSfuSession: NSObject {
         userIdByMid.removeAll()
         peerIdByMid.removeAll()
         roleByMid.removeAll()
-        leftMids.removeAll()
+        memberByPeerId.removeAll()
         remote.removeAll()
         remoteOrder.removeAll()
         participants = []
@@ -254,12 +265,14 @@ final class MezonSfuSession: NSObject {
 
     func pttPress() {
         guard role == .audience else { return }
+        pttRequested = true
         send(["type": "mute", "is_mute": false])
         send(["type": "push_to_talk", "active": true])
     }
 
     func pttRelease() {
         guard role == .audience else { return }
+        pttRequested = false
         send(["type": "push_to_talk", "active": false])
         send(["type": "mute", "is_mute": true])
     }
@@ -270,6 +283,11 @@ final class MezonSfuSession: NSObject {
         let gen = connectionGen
         stateRestored = false
         if !initial {
+            if pttActive {
+                pttActive = false
+                localAudioTrack?.isEnabled = false
+                onPushToTalkActive?(false)
+            }
             webSocketTask?.cancel(with: .goingAway, reason: nil)
             urlSession?.invalidateAndCancel()
             peerConnection?.close()
@@ -279,7 +297,7 @@ final class MezonSfuSession: NSObject {
             userIdByMid.removeAll()
             peerIdByMid.removeAll()
             roleByMid.removeAll()
-            leftMids.removeAll()
+            memberByPeerId.removeAll()
             remote.removeAll()
             remoteOrder.removeAll()
             emitParticipants()
@@ -391,7 +409,11 @@ final class MezonSfuSession: NSObject {
             reconnectAttempts = 0
             if !stateRestored {
                 stateRestored = true
-                send(["type": "mute", "is_mute": !micEnabled])
+                let resumePushToTalk = role == .audience && pttRequested
+                send(["type": "mute", "is_mute": !micEnabled && !resumePushToTalk])
+                if resumePushToTalk {
+                    send(["type": "push_to_talk", "active": true])
+                }
                 if role == .speaker {
                     send(["type": "camera", "active": cameraEnabled])
                 }
@@ -425,6 +447,7 @@ final class MezonSfuSession: NSObject {
             let detail = (msg["message"] as? String) ?? ""
             if detail == "invalid_push_to_talk" || detail == "push_to_talk_rejected" {
                 pttActive = false
+                pttRequested = false
                 localAudioTrack?.isEnabled = false
                 onPushToTalkActive?(false)
             } else if active && joined {
@@ -679,8 +702,22 @@ final class MezonSfuSession: NSObject {
         var revivedMids = false
         for peer in members {
             guard let peerId = stringValue(peer["peer_id"]), !peerId.isEmpty else { continue }
-            let userIdValue = stringValue(peer["user_id"]).flatMap { $0.isEmpty ? nil : $0 }
-            let peerRole: SfuRole? = peer["role"] != nil ? SfuRole.fromWire(stringValue(peer["role"])) : nil
+            let state = memberState(peerId: peerId)
+            if let userIdValue = stringValue(peer["user_id"]), !userIdValue.isEmpty {
+                state.userId = userIdValue
+            }
+            if peer["role"] != nil {
+                state.role = SfuRole.fromWire(stringValue(peer["role"]))
+            }
+            if let muted = boolValue(peer["is_mute"]) {
+                state.muted = muted
+            }
+            if let cameraActive = boolValue(peer["camera_active"]) {
+                state.cameraActive = cameraActive
+            }
+            if let screenActive = boolValue(peer["screen_active"]) {
+                state.screenActive = screenActive
+            }
             var mids: [String] = []
             for key in ["mid_audio", "mid_video", "mid_screen"] {
                 if let mid = stringValue(peer[key]), !mid.isEmpty, mid != "0" {
@@ -688,38 +725,58 @@ final class MezonSfuSession: NSObject {
                 }
             }
             for mid in mids {
-                if leftMids.remove(mid) != nil {
+                if claimMid(mid, peerId: peerId) {
                     revivedMids = true
-                }
-                peerIdByMid[mid] = peerId
-                if let userIdValue {
-                    userIdByMid[mid] = userIdValue
-                }
-                if let peerRole {
-                    roleByMid[mid] = peerRole
                 }
             }
             let existing = remoteOrder.first(where: { remote[$0]?.peerId == peerId })
             guard let participantId = existing ?? mids.first.map({ remoteParticipantId($0) }) else { continue }
-            let entry = remoteEntry(id: participantId)
-            entry.peerId = peerId
-            if let userIdValue {
-                entry.userId = userIdValue
-            }
-            if let peerRole {
-                entry.role = peerRole
-            }
-            if let muted = boolValue(peer["is_mute"]) {
-                entry.muted = muted
-            }
-            if let cameraActive = boolValue(peer["camera_active"]) {
-                entry.cameraActive = cameraActive
-            }
-            if let screenActive = boolValue(peer["screen_active"]) {
-                entry.screenActive = screenActive
-            }
+            applyMemberState(to: remoteEntry(id: participantId), peerId: peerId)
         }
         return revivedMids
+    }
+
+    private func memberState(peerId: String) -> MemberState {
+        if let state = memberByPeerId[peerId] {
+            return state
+        }
+        let state = MemberState()
+        memberByPeerId[peerId] = state
+        return state
+    }
+
+    @discardableResult
+    private func claimMid(_ mid: String, peerId: String) -> Bool {
+        let changed = peerIdByMid.updateValue(peerId, forKey: mid) != peerId
+        if let state = memberByPeerId[peerId] {
+            if let userId = state.userId {
+                userIdByMid[mid] = userId
+            }
+            if let role = state.role {
+                roleByMid[mid] = role
+            }
+        }
+        return changed
+    }
+
+    private func applyMemberState(to entry: RemoteEntry, peerId: String) {
+        entry.peerId = peerId
+        guard let state = memberByPeerId[peerId] else { return }
+        if let userId = state.userId {
+            entry.userId = userId
+        }
+        if let role = state.role {
+            entry.role = role
+        }
+        if let muted = state.muted {
+            entry.muted = muted
+        }
+        if let cameraActive = state.cameraActive {
+            entry.cameraActive = cameraActive
+        }
+        if let screenActive = state.screenActive {
+            entry.screenActive = screenActive
+        }
     }
 
     private func remoteEntry(id: String) -> RemoteEntry {
@@ -738,9 +795,18 @@ final class MezonSfuSession: NSObject {
     }
 
     private func handlePeerLeft(_ msg: [String: Any]) {
+        let peerId = stringValue(msg["peer_id"])
+        if let peerId {
+            memberByPeerId.removeValue(forKey: peerId)
+        }
         for key in ["mid_audio", "mid_video", "mid_screen"] {
             guard let mid = stringValue(msg[key]), !mid.isEmpty, mid != "0" else { continue }
-            leftMids.insert(mid)
+            if let owner = peerIdByMid[mid], let peerId, owner != peerId {
+                continue
+            }
+            peerIdByMid.removeValue(forKey: mid)
+            userIdByMid.removeValue(forKey: mid)
+            roleByMid.removeValue(forKey: mid)
             removeRemoteEntry(id: remoteParticipantId(mid))
         }
     }
@@ -750,7 +816,6 @@ final class MezonSfuSession: NSObject {
             let mid = tc.mid
             if mid.isEmpty { continue }
             if mid == Self.midAudio || mid == Self.midCamera || mid == Self.midScreen { continue }
-            if leftMids.contains(mid) { continue }
             var current = RTCRtpTransceiverDirection.inactive
             let hasCurrent = tc.currentDirection(&current)
             let direction = hasCurrent ? current : tc.direction
@@ -779,7 +844,7 @@ final class MezonSfuSession: NSObject {
                 entry.userId = uid
             }
             if let pid = peerIdByMid[mid] {
-                entry.peerId = pid
+                applyMemberState(to: entry, peerId: pid)
             }
             if let peerRole = roleByMid[mid] {
                 entry.role = peerRole
@@ -842,9 +907,10 @@ final class MezonSfuSession: NSObject {
     }
 
     private static let msidUserRegex = try? NSRegularExpression(pattern: "(?:^|-)u(\\d+)(?:-|$)")
+    private static let msidPeerRegex = try? NSRegularExpression(pattern: "(?:^|-)p(\\d+)(?:-|$)")
 
     private func parseMsids(_ sdp: String) {
-        guard let regex = Self.msidUserRegex else { return }
+        guard let userRegex = Self.msidUserRegex, let peerRegex = Self.msidPeerRegex else { return }
         var currentMid: String?
         for rawLine in sdpLines(sdp) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
@@ -854,19 +920,24 @@ final class MezonSfuSession: NSObject {
                 currentMid = String(line.dropFirst("a=mid:".count)).trimmingCharacters(in: .whitespaces)
             } else if let mid = currentMid, line.hasPrefix("a=msid:") {
                 let payload = String(line.dropFirst("a=msid:".count)).trimmingCharacters(in: .whitespaces)
-                let parts = payload.split(whereSeparator: { $0 == " " || $0 == "\t" })
-                for part in parts {
-                    let token = String(part)
-                    let range = NSRange(token.startIndex..<token.endIndex, in: token)
-                    if let match = regex.firstMatch(in: token, options: [], range: range),
-                       match.numberOfRanges > 1,
-                       let groupRange = Range(match.range(at: 1), in: token) {
-                        userIdByMid[mid] = String(token[groupRange])
-                        break
-                    }
+                let tokens = payload.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+                guard let uid = tokens.compactMap({ Self.firstCapture(userRegex, in: $0) }).first else { continue }
+                userIdByMid[mid] = uid
+                if let pid = tokens.compactMap({ Self.firstCapture(peerRegex, in: $0) }).first, pid != "0" {
+                    claimMid(mid, peerId: pid)
                 }
             }
         }
+    }
+
+    private static func firstCapture(_ regex: NSRegularExpression, in token: String) -> String? {
+        let range = NSRange(token.startIndex..<token.endIndex, in: token)
+        guard let match = regex.firstMatch(in: token, options: [], range: range),
+              match.numberOfRanges > 1,
+              let groupRange = Range(match.range(at: 1), in: token) else {
+            return nil
+        }
+        return String(token[groupRange])
     }
 
     private func sdpLines(_ sdp: String) -> [String] {
