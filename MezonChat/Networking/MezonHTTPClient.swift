@@ -160,7 +160,6 @@ final class MezonHTTPClient {
                 return statusCode == 0
                     || statusCode == 408
                     || statusCode == 425
-                    || statusCode == 429
                     || (500...599).contains(statusCode)
             }
         }
@@ -2325,7 +2324,6 @@ final class MezonHTTPClient {
     private static let httpOnlyApiNames: Set<String> = [
         "SessionRefresh",
         "SendChannelMessage",
-        "ListClanBadgeCount",
     ]
     private static let singleTransportOnlyApiNames: Set<String> = [
         "UpdateChannelMessage",
