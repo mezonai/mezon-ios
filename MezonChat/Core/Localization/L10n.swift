@@ -850,9 +850,75 @@ enum L10n {
         static let unknownClan          = "clan.inviteSheet.unknownClan"
     }
 
+    enum EventEditor {
+        static let create = "eventEditor.create"
+        static let edit = "eventEditor.edit"
+        static let update = "eventEditor.update"
+        static let step = "eventEditor.step"
+        static let location = "eventEditor.location"
+        static let details = "eventEditor.details"
+        static let preview = "eventEditor.preview"
+        static let cancel = "eventEditor.cancel"
+        static let back = "eventEditor.back"
+        static let next = "eventEditor.next"
+        static let close = "eventEditor.close"
+        static let done = "eventEditor.done"
+        static let chooseType = "eventEditor.chooseType"
+        static let chooseTypeSubtitle = "eventEditor.chooseTypeSubtitle"
+        static let voice = "eventEditor.voice"
+        static let voiceSubtitle = "eventEditor.voiceSubtitle"
+        static let elsewhere = "eventEditor.elsewhere"
+        static let elsewhereSubtitle = "eventEditor.elsewhereSubtitle"
+        static let external = "eventEditor.external"
+        static let externalSubtitle = "eventEditor.externalSubtitle"
+        static let address = "eventEditor.address"
+        static let addressPlaceholder = "eventEditor.addressPlaceholder"
+        static let addressError = "eventEditor.addressError"
+        static let announcement = "eventEditor.announcement"
+        static let pickChannel = "eventEditor.pickChannel"
+        static let search = "eventEditor.search"
+        static let noChannels = "eventEditor.noChannels"
+        static let detailsTitle = "eventEditor.detailsTitle"
+        static let detailsSubtitle = "eventEditor.detailsSubtitle"
+        static let name = "eventEditor.name"
+        static let namePlaceholder = "eventEditor.namePlaceholder"
+        static let nameRequired = "eventEditor.nameRequired"
+        static let nameTooLong = "eventEditor.nameTooLong"
+        static let invalidName = "eventEditor.invalidName"
+        static let startDate = "eventEditor.startDate"
+        static let startTime = "eventEditor.startTime"
+        static let endDate = "eventEditor.endDate"
+        static let endTime = "eventEditor.endTime"
+        static let startError = "eventEditor.startError"
+        static let endError = "eventEditor.endError"
+        static let repeatLabel = "eventEditor.repeat"
+        static let repeatNone = "eventEditor.repeatNone"
+        static let repeatWeekly = "eventEditor.repeatWeekly"
+        static let repeatOther = "eventEditor.repeatOther"
+        static let repeatMonthly = "eventEditor.repeatMonthly"
+        static let repeatAnnually = "eventEditor.repeatAnnually"
+        static let repeatWeekday = "eventEditor.repeatWeekday"
+        static let description = "eventEditor.description"
+        static let descriptionPlaceholder = "eventEditor.descriptionPlaceholder"
+        static let cover = "eventEditor.cover"
+        static let addCover = "eventEditor.addCover"
+        static let removeCover = "eventEditor.removeCover"
+        static let coverTooLarge = "eventEditor.coverTooLarge"
+        static let coverFailed = "eventEditor.coverFailed"
+        static let previewTitle = "eventEditor.previewTitle"
+        static let previewVoice = "eventEditor.previewVoice"
+        static let previewLocation = "eventEditor.previewLocation"
+        static let previewExternal = "eventEditor.previewExternal"
+        static let previewEdit = "eventEditor.previewEdit"
+        static let created = "eventEditor.created"
+        static let updated = "eventEditor.updated"
+        static let sessionExpired = "eventEditor.sessionExpired"
+        static let permissionDenied = "eventEditor.permissionDenied"
+    }
+
     enum EventMenu {
-        static let title              = "eventMenu.dashboard.title"
-        static let eventOne           = "eventMenu.dashboard.event_one"
+        static let eventCountOne      = "eventMenu.dashboard.eventCountOne"
+        static let eventCountMany     = "eventMenu.dashboard.eventCountMany"
         static let noEvent            = "eventMenu.dashboard.noEvent"
         static let noEventDescription = "eventMenu.dashboard.noEventDescription"
         static let createButton       = "eventMenu.dashboard.createButton"
@@ -872,6 +938,13 @@ enum L10n {
         static let detailCreatedBy    = "eventMenu.detail.createdBy"
         static let itemInterested     = "eventMenu.item.interested"
         static let itemUninterested   = "eventMenu.item.uninterested"
+        static let actions           = "eventMenu.actions"
+        static let endEvent          = "eventMenu.endEvent"
+        static let deleteEvent       = "eventMenu.deleteEvent"
+        static let deleteTitle       = "eventMenu.deleteTitle"
+        static let deleteMessage     = "eventMenu.deleteMessage"
+        static let deleted           = "eventMenu.deleted"
+        static let openLink          = "eventMenu.openLink"
     }
 
     enum OnboardingClan {
@@ -1712,8 +1785,72 @@ extension L10n {
         "discover.detail.communityVerified": "Weekly events and updates.",
         "discover.detail.dateUnavailable": "—",
 
-        "eventMenu.dashboard.title":              "Events",
-        "eventMenu.dashboard.event_one":          "Event",
+        "eventEditor.create": "Create Event",
+        "eventEditor.edit": "Edit Event",
+        "eventEditor.update": "Update Event",
+        "eventEditor.step": "Step %d of 3",
+        "eventEditor.location": "Location",
+        "eventEditor.details": "Details",
+        "eventEditor.preview": "Preview",
+        "eventEditor.cancel": "Cancel",
+        "eventEditor.back": "Back",
+        "eventEditor.next": "Next",
+        "eventEditor.close": "Close",
+        "eventEditor.done": "Done",
+        "eventEditor.chooseType": "What type of event is this?",
+        "eventEditor.chooseTypeSubtitle": "Choose how members will join your event.",
+        "eventEditor.voice": "Voice Channel",
+        "eventEditor.voiceSubtitle": "Host the event in a voice channel",
+        "eventEditor.elsewhere": "Somewhere else",
+        "eventEditor.elsewhereSubtitle": "Meet at an offline location",
+        "eventEditor.external": "Create External Event",
+        "eventEditor.externalSubtitle": "Users can join the meeting by link without logging in.",
+        "eventEditor.address": "Address",
+        "eventEditor.addressPlaceholder": "Enter event location",
+        "eventEditor.addressError": "Location must be 100 characters or fewer",
+        "eventEditor.announcement": "Announcement channel (optional)",
+        "eventEditor.pickChannel": "Tap to select a channel",
+        "eventEditor.search": "Search",
+        "eventEditor.noChannels": "No channels available",
+        "eventEditor.detailsTitle": "Tell us about your event",
+        "eventEditor.detailsSubtitle": "Add a name, schedule, and optional cover image.",
+        "eventEditor.name": "Event name",
+        "eventEditor.namePlaceholder": "Enter event name",
+        "eventEditor.nameRequired": "Enter an event name",
+        "eventEditor.nameTooLong": "Event name must be %d characters or fewer",
+        "eventEditor.invalidName": "Event name contains invalid characters",
+        "eventEditor.startDate": "Start date",
+        "eventEditor.startTime": "Start time",
+        "eventEditor.endDate": "End date",
+        "eventEditor.endTime": "End time",
+        "eventEditor.startError": "Start time must be in the future",
+        "eventEditor.endError": "End time must be after start time",
+        "eventEditor.repeat": "Repeat",
+        "eventEditor.repeatNone": "Does not repeat",
+        "eventEditor.repeatWeekly": "Weekly on %@",
+        "eventEditor.repeatOther": "Every other %@",
+        "eventEditor.repeatMonthly": "Monthly on the %d %@",
+        "eventEditor.repeatAnnually": "Annually on %@ %d",
+        "eventEditor.repeatWeekday": "Every weekday",
+        "eventEditor.description": "Description",
+        "eventEditor.descriptionPlaceholder": "Describe your event (optional)",
+        "eventEditor.cover": "Cover image",
+        "eventEditor.addCover": "Add cover image (up to 1 MB)",
+        "eventEditor.removeCover": "Remove cover image",
+        "eventEditor.coverTooLarge": "Cover image must be 1 MB or smaller",
+        "eventEditor.coverFailed": "Could not upload cover image",
+        "eventEditor.previewTitle": "Looking good?",
+        "eventEditor.previewVoice": "Members will join via the selected voice channel.",
+        "eventEditor.previewLocation": "Review your event before creating it.",
+        "eventEditor.previewExternal": "Members can join using the meeting link.",
+        "eventEditor.previewEdit": "Review your changes before saving.",
+        "eventEditor.created": "Event created",
+        "eventEditor.updated": "Event updated",
+        "eventEditor.sessionExpired": "Your session has expired. Please sign in again.",
+        "eventEditor.permissionDenied": "You no longer have permission to edit this event.",
+
+        "eventMenu.dashboard.eventCountOne":      "1 Event",
+        "eventMenu.dashboard.eventCountMany":     "%d Events",
         "eventMenu.dashboard.noEvent":            "There are no upcoming events.",
         "eventMenu.dashboard.noEventDescription": "Feel free to invite other members to contribute their ideas for upcoming events.",
         "eventMenu.dashboard.createButton":     "Create",
@@ -1733,6 +1870,13 @@ extension L10n {
         "eventMenu.detail.createdBy":             "Created by ",
         "eventMenu.item.interested":              "Interested",
         "eventMenu.item.uninterested":            "Uninterested",
+        "eventMenu.actions":                      "Event actions",
+        "eventMenu.endEvent":                     "End Event",
+        "eventMenu.deleteEvent":                  "Delete Event",
+        "eventMenu.deleteTitle":                  "Delete event?",
+        "eventMenu.deleteMessage":                "Are you sure you want to delete \"%@\"?",
+        "eventMenu.deleted":                      "Event deleted",
+        "eventMenu.openLink":                     "Open Link",
 
         "clan.action.invite":               "Invite",
         "clan.action.markAsRead":           "Mark as Read",
@@ -2982,8 +3126,72 @@ extension L10n {
         "discover.detail.communityVerified": "Sự kiện và cập nhật hàng tuần.",
         "discover.detail.dateUnavailable": "—",
 
-        "eventMenu.dashboard.title":              "Sự kiện",
-        "eventMenu.dashboard.event_one":          "Sự kiện",
+        "eventEditor.create": "Tạo sự kiện",
+        "eventEditor.edit": "Chỉnh sửa sự kiện",
+        "eventEditor.update": "Cập nhật sự kiện",
+        "eventEditor.step": "Bước %d / 3",
+        "eventEditor.location": "Địa điểm",
+        "eventEditor.details": "Chi tiết",
+        "eventEditor.preview": "Xem trước",
+        "eventEditor.cancel": "Hủy",
+        "eventEditor.back": "Quay lại",
+        "eventEditor.next": "Tiếp theo",
+        "eventEditor.close": "Đóng",
+        "eventEditor.done": "Xong",
+        "eventEditor.chooseType": "Đây là loại sự kiện gì?",
+        "eventEditor.chooseTypeSubtitle": "Chọn cách thành viên tham gia sự kiện.",
+        "eventEditor.voice": "Kênh thoại",
+        "eventEditor.voiceSubtitle": "Tổ chức sự kiện trong kênh thoại",
+        "eventEditor.elsewhere": "Địa điểm khác",
+        "eventEditor.elsewhereSubtitle": "Gặp mặt tại một địa điểm trực tiếp",
+        "eventEditor.external": "Tạo sự kiện bên ngoài",
+        "eventEditor.externalSubtitle": "Người dùng có thể tham gia cuộc họp qua liên kết mà không cần đăng nhập.",
+        "eventEditor.address": "Địa chỉ",
+        "eventEditor.addressPlaceholder": "Nhập địa điểm sự kiện",
+        "eventEditor.addressError": "Địa điểm không được vượt quá 100 ký tự",
+        "eventEditor.announcement": "Kênh thông báo (không bắt buộc)",
+        "eventEditor.pickChannel": "Nhấn để chọn kênh",
+        "eventEditor.search": "Tìm kiếm",
+        "eventEditor.noChannels": "Không có kênh phù hợp",
+        "eventEditor.detailsTitle": "Giới thiệu về sự kiện của bạn",
+        "eventEditor.detailsSubtitle": "Thêm tên, lịch trình và ảnh bìa nếu muốn.",
+        "eventEditor.name": "Tên sự kiện",
+        "eventEditor.namePlaceholder": "Nhập tên sự kiện",
+        "eventEditor.nameRequired": "Vui lòng nhập tên sự kiện",
+        "eventEditor.nameTooLong": "Tên sự kiện không được vượt quá %d ký tự",
+        "eventEditor.invalidName": "Tên sự kiện chứa ký tự không hợp lệ",
+        "eventEditor.startDate": "Ngày bắt đầu",
+        "eventEditor.startTime": "Giờ bắt đầu",
+        "eventEditor.endDate": "Ngày kết thúc",
+        "eventEditor.endTime": "Giờ kết thúc",
+        "eventEditor.startError": "Thời gian bắt đầu phải ở tương lai",
+        "eventEditor.endError": "Thời gian kết thúc phải sau thời gian bắt đầu",
+        "eventEditor.repeat": "Lặp lại",
+        "eventEditor.repeatNone": "Không lặp lại",
+        "eventEditor.repeatWeekly": "Hàng tuần vào %@",
+        "eventEditor.repeatOther": "Cách tuần vào %@",
+        "eventEditor.repeatMonthly": "Hàng tháng vào lần thứ %d của %@",
+        "eventEditor.repeatAnnually": "Hàng năm vào %@ ngày %d",
+        "eventEditor.repeatWeekday": "Mỗi ngày trong tuần",
+        "eventEditor.description": "Mô tả",
+        "eventEditor.descriptionPlaceholder": "Mô tả sự kiện (không bắt buộc)",
+        "eventEditor.cover": "Ảnh bìa",
+        "eventEditor.addCover": "Thêm ảnh bìa (tối đa 1 MB)",
+        "eventEditor.removeCover": "Xóa ảnh bìa",
+        "eventEditor.coverTooLarge": "Ảnh bìa không được vượt quá 1 MB",
+        "eventEditor.coverFailed": "Không thể tải ảnh bìa lên",
+        "eventEditor.previewTitle": "Mọi thứ đã sẵn sàng?",
+        "eventEditor.previewVoice": "Thành viên sẽ tham gia qua kênh thoại đã chọn.",
+        "eventEditor.previewLocation": "Kiểm tra sự kiện trước khi tạo.",
+        "eventEditor.previewExternal": "Thành viên có thể tham gia bằng liên kết cuộc họp.",
+        "eventEditor.previewEdit": "Kiểm tra thay đổi trước khi lưu.",
+        "eventEditor.created": "Đã tạo sự kiện",
+        "eventEditor.updated": "Đã cập nhật sự kiện",
+        "eventEditor.sessionExpired": "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.",
+        "eventEditor.permissionDenied": "Bạn không còn quyền chỉnh sửa sự kiện này.",
+
+        "eventMenu.dashboard.eventCountOne":      "1 sự kiện",
+        "eventMenu.dashboard.eventCountMany":     "%d sự kiện",
         "eventMenu.dashboard.noEvent":            "Không có sự kiện nào",
         "eventMenu.dashboard.noEventDescription": "Hãy thoải mái mời các thành viên khác tham gia đóng góp ý tưởng cho các sự kiện sắp tới.",
         "eventMenu.dashboard.createButton":     "Tạo",
@@ -3003,6 +3211,13 @@ extension L10n {
         "eventMenu.detail.createdBy":             "Tạo bởi ",
         "eventMenu.item.interested":              "Quan tâm",
         "eventMenu.item.uninterested":            "Bỏ quan tâm",
+        "eventMenu.actions":                      "Thao tác sự kiện",
+        "eventMenu.endEvent":                     "Kết thúc sự kiện",
+        "eventMenu.deleteEvent":                  "Xóa sự kiện",
+        "eventMenu.deleteTitle":                  "Xóa sự kiện?",
+        "eventMenu.deleteMessage":                "Bạn có chắc muốn xóa \"%@\" không?",
+        "eventMenu.deleted":                      "Đã xóa sự kiện",
+        "eventMenu.openLink":                     "Mở liên kết",
 
         "clan.action.invite":               "Mời",
         "clan.action.markAsRead":           "Đánh dấu là đã đọc",

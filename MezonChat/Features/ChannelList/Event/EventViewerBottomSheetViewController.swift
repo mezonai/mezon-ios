@@ -6,12 +6,10 @@ enum EventListFilter {
         currentUserId: Int64,
         channels: [Mezon_Api_ChannelDescription]
     ) -> [Mezon_Api_EventManagement] {
-        let accessibleChannelIds = Set(channels.map(\.channelID))
         let privateTextChannelIds = privateTextChannelIds(from: channels)
         return events.filter { event in
             let passesPrivacy = !event.isPrivate || event.creatorID == currentUserId
             let passesChannel = event.channelID == 0
-                || accessibleChannelIds.contains(event.channelID)
                 || privateTextChannelIds.contains(event.channelID)
             return passesPrivacy && passesChannel
         }
@@ -37,15 +35,21 @@ enum EventDisplayStatus: Int32 {
 }
 
 enum EventDisplayHelper {
+    static let clanEventBadgeColor = UIColor(rgb: 0x3B82F6)
+    static let channelEventBadgeColor = UIColor(rgb: 0xF97316)
+    static let externalEventBadgeColor = UIColor(rgb: 0xEF4444)
+
     static func resolvedStatus(for event: Mezon_Api_EventManagement, now: Date = Date()) -> EventDisplayStatus {
-        if let stored = EventDisplayStatus(rawValue: event.eventStatus) {
-            return stored
+        guard event.startTimeSeconds != 0 else {
+            return EventDisplayStatus(rawValue: event.eventStatus) ?? .created
         }
-        guard event.startTimeSeconds > 0 else { return .created }
         let start = Date(timeIntervalSince1970: TimeInterval(event.startTimeSeconds))
+        let end = event.endTimeSeconds != 0
+            ? Date(timeIntervalSince1970: TimeInterval(event.endTimeSeconds))
+            : start.addingTimeInterval(2 * 60 * 60)
+        if now >= start && now <= end { return .ongoing }
         let secondsLeft = start.timeIntervalSince(now)
-        if secondsLeft <= 0 { return .ongoing }
-        if secondsLeft <= 10 * 60 { return .upcoming }
+        if secondsLeft > 0 && secondsLeft <= 10 * 60 { return .upcoming }
         return .created
     }
 
@@ -83,22 +87,19 @@ enum EventDisplayHelper {
 
     static func headerTitle(count: Int) -> String {
         if count == 1 {
-            return "1 \(L(L10n.EventMenu.eventOne))"
+            return L(L10n.EventMenu.eventCountOne)
         }
-        if count > 1 {
-            return "\(count) \(L(L10n.EventMenu.title))"
-        }
-        return L(L10n.EventMenu.title)
+        return L(L10n.EventMenu.eventCountMany, count)
     }
 
     static func eventBadge(for event: Mezon_Api_EventManagement) -> (text: String, color: UIColor)? {
         if event.isPrivate {
-            return (L(L10n.EventMenu.privateEvent), UIColor(red: 0.35, green: 0.35, blue: 0.38, alpha: 1))
+            return (L(L10n.EventMenu.privateEvent), externalEventBadgeColor)
         }
         if event.channelID != 0 {
-            return (L(L10n.EventMenu.channelEvent), UIColor(red: 0.98, green: 0.55, blue: 0.15, alpha: 1))
+            return (L(L10n.EventMenu.channelEvent), channelEventBadgeColor)
         }
-        return (L(L10n.EventMenu.clanEvent), UIColor(red: 0.44, green: 0.42, blue: 0.95, alpha: 1))
+        return (L(L10n.EventMenu.clanEvent), clanEventBadgeColor)
     }
 
     static func makeBadgeView(text: String, color: UIColor) -> UIView {
@@ -131,6 +132,10 @@ enum EventDisplayHelper {
     static func configureInterestButton(_ button: UIButton, isInterested: Bool) {
         let title = isInterested ? L(L10n.EventMenu.itemUninterested) : L(L10n.EventMenu.itemInterested)
         let iconName = isInterested ? "bell.slash" : "bell"
+        configureActionButton(button, title: title, iconName: iconName)
+    }
+
+    static func configureActionButton(_ button: UIButton, title: String, iconName: String) {
         let symbolConfig = UIImage.SymbolConfiguration(pointSize: 13, weight: .medium)
         let image = UIImage(systemName: iconName, withConfiguration: symbolConfig)?
             .withRenderingMode(.alwaysTemplate)
@@ -176,6 +181,7 @@ final class EventViewerBottomSheetViewController: UIViewController {
     private let scrollView = UIScrollView()
     private let contentStack = UIStackView()
     private let headerTitleLabel = UILabel()
+    private let createButton = EventEditorButton()
     private let loadingIndicator = UIActivityIndicatorView(style: .medium)
     private let loadingRow = UIView()
     private let listStack = UIStackView()
@@ -216,8 +222,11 @@ final class EventViewerBottomSheetViewController: UIViewController {
         fetchEvents()
         eventsDisposable = context.engine.clanData.clanEventsUpdated.signal().start(next: { [weak self] updatedClanId in
             guard let self, updatedClanId == self.clanId else { return }
-            self.loadedEvents = self.context.engine.clanData.getClanEvents(clanId: self.clanId)?.events ?? []
-            self.reloadEvents()
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.loadedEvents = self.context.engine.clanData.getClanEvents(clanId: self.clanId)?.events ?? []
+                self.reloadEvents()
+            }
         })
         NotificationCenter.default.addObserver(
             self,
@@ -292,16 +301,30 @@ final class EventViewerBottomSheetViewController: UIViewController {
 
     private func makeHeaderRow() -> UIView {
         let container = UIView()
-        headerTitleLabel.font = .systemFont(ofSize: 16, weight: .bold)
+        headerTitleLabel.font = .systemFont(ofSize: 15, weight: .bold)
         headerTitleLabel.textAlignment = .center
         headerTitleLabel.numberOfLines = 1
         headerTitleLabel.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(headerTitleLabel)
+        createButton.setTitle(L(L10n.EventMenu.createButton), for: .normal)
+        createButton.titleLabel?.font = .systemFont(ofSize: 13, weight: .bold)
+        createButton.setTitleColor(.white, for: .normal)
+        createButton.backgroundColor = UIColor(red: 0.39, green: 0.38, blue: 0.91, alpha: 1)
+        createButton.layer.cornerRadius = 8
+        createButton.contentEdgeInsets = UIEdgeInsets(top: 7, left: 14, bottom: 7, right: 14)
+        createButton.setContentHuggingPriority(.required, for: .horizontal)
+        createButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+        createButton.translatesAutoresizingMaskIntoConstraints = false
+        createButton.action = { [weak self] in self?.presentEventEditor() }
+        container.addSubview(createButton)
         NSLayoutConstraint.activate([
+            createButton.centerYAnchor.constraint(equalTo: headerTitleLabel.centerYAnchor),
+            createButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+            headerTitleLabel.centerXAnchor.constraint(equalTo: container.centerXAnchor),
             headerTitleLabel.topAnchor.constraint(equalTo: container.topAnchor, constant: 28),
-            headerTitleLabel.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -10),
-            headerTitleLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
-            headerTitleLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+            headerTitleLabel.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -12),
+            headerTitleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 16),
+            headerTitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: createButton.leadingAnchor, constant: -12),
         ])
         return container
     }
@@ -470,7 +493,9 @@ final class EventViewerBottomSheetViewController: UIViewController {
             },
             voiceChannelLabel: voiceChannelLabel,
             textChannelLabel: textChannelLabel,
-            isInterested: userId != 0 && event.userIds.contains(userId)
+            isInterested: userId != 0 && event.userIds.contains(userId),
+            canEditEvent: EventEditorAccess.canEdit(event, context: context),
+            canEndEvent: EventEditorAccess.canEnd(event, context: context)
         )
         row.onTap = { [weak self] in
             guard let self else { return }
@@ -479,6 +504,35 @@ final class EventViewerBottomSheetViewController: UIViewController {
         }
         row.onToggleInterest = { [weak self] in
             self?.toggleEventInterest(event)
+        }
+        row.onEditEvent = { [weak self] in
+            guard let self,
+                  let latest = self.loadedEvents.first(where: { $0.id == event.id }),
+                  EventEditorAccess.canEdit(latest, context: self.context) else { return }
+            self.presentEventEditor(latest)
+        }
+        row.onEndEvent = { [weak self] in
+            guard let self,
+                  let latest = self.loadedEvents.first(where: { $0.id == event.id }),
+                  EventEditorAccess.canEnd(latest, context: self.context) else { return }
+            EventDeleteConfirmation.present(event: latest, clanId: self.clanId, context: self.context, from: self)
+        }
+        row.onOpenExternalLink = { url in
+            UIApplication.shared.open(url)
+        }
+        row.onCopyExternalLink = { url in
+            UIPasteboard.general.string = url.absoluteString
+            Toast.success(L(L10n.ClanInviteSheet.linkCopied))
+        }
+        row.onInviteToExternalEvent = { [weak self] url in
+            guard let self else { return }
+            let invite = ClanInviteSheetViewController(context: self.context, clanId: self.clanId, externalEventURL: url)
+            invite.modalPresentationStyle = .pageSheet
+            if #available(iOS 15.0, *) {
+                invite.sheetPresentationController?.prefersGrabberVisible = true
+                invite.sheetPresentationController?.detents = [.medium(), .large()]
+            }
+            self.present(invite, animated: true)
         }
         return row
     }
@@ -499,6 +553,11 @@ final class EventViewerBottomSheetViewController: UIViewController {
             self.loadedEvents = self.context.engine.clanData.getClanEvents(clanId: self.clanId)?.events ?? []
             self.reloadEvents()
         }
+    }
+
+    private func presentEventEditor(_ event: Mezon_Api_EventManagement? = nil) {
+        let editor = EventEditorViewController(context: context, clanId: clanId, channels: channels, event: event)
+        present(editor, animated: true)
     }
 
     private func presentEventDetail(_ event: Mezon_Api_EventManagement) {
@@ -551,13 +610,21 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
 
     var onTap: (() -> Void)?
     var onToggleInterest: (() -> Void)?
+    var onEditEvent: (() -> Void)?
+    var onEndEvent: (() -> Void)?
+    var onOpenExternalLink: ((URL) -> Void)?
+    var onCopyExternalLink: ((URL) -> Void)?
+    var onInviteToExternalEvent: ((URL) -> Void)?
 
     private let event: Mezon_Api_EventManagement
     private let creator: ClanMemberRecord?
     private let voiceChannelLabel: String?
     private let textChannelLabel: String?
     private let isInterested: Bool
+    private let canEditEvent: Bool
+    private let canEndEvent: Bool
     private let cardView = UIView()
+    private let editButton = EventEditorButton()
     private let interestButton = UIButton(type: .custom)
     private let openDetailGesture = UITapGestureRecognizer()
 
@@ -566,13 +633,17 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
         creator: ClanMemberRecord?,
         voiceChannelLabel: String?,
         textChannelLabel: String?,
-        isInterested: Bool
+        isInterested: Bool,
+        canEditEvent: Bool,
+        canEndEvent: Bool
     ) {
         self.event = event
         self.creator = creator
         self.voiceChannelLabel = voiceChannelLabel
         self.textChannelLabel = textChannelLabel
         self.isInterested = isInterested
+        self.canEditEvent = canEditEvent
+        self.canEndEvent = canEndEvent
         super.init(frame: .zero)
         build()
         applyTheme()
@@ -588,12 +659,12 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        if let touchedView = touch.view,
-           touchedView === interestButton || touchedView.isDescendant(of: interestButton) {
-            return false
+        var view = touch.view
+        while let current = view, current !== self {
+            if current is UIControl { return false }
+            view = current.superview
         }
-        let point = touch.location(in: interestButton)
-        return !interestButton.point(inside: point, with: nil)
+        return true
     }
 
     private func build() {
@@ -634,24 +705,70 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
         }
 
         root.addArrangedSubview(contentStack)
-        root.addArrangedSubview(makeActionsRow())
+        if event.isPrivate, let url = MezonConfig.externalEventURL(event.meetRoom.externalLink) {
+            root.addArrangedSubview(makeExternalActionsRow(url: url))
+        }
+        if canEditEvent || EventDisplayHelper.resolvedStatus(for: event) != .ongoing || canEndEvent {
+            root.addArrangedSubview(makeActionsRow())
+        }
+    }
+
+    private func makeExternalActionsRow(url: URL) -> UIView {
+        let row = UIStackView()
+        row.axis = .horizontal
+        row.spacing = 8
+        row.distribution = .fillEqually
+        let actions: [(String, String, () -> Void)] = [
+            (L(L10n.EventMenu.openLink), "arrow.up.right.square", { [weak self] in self?.onOpenExternalLink?(url) }),
+            (L(L10n.ClanInviteSheet.invite), "person.badge.plus", { [weak self] in self?.onInviteToExternalEvent?(url) }),
+            (L(L10n.ClanInviteSheet.copy), "link", { [weak self] in self?.onCopyExternalLink?(url) })
+        ]
+        for (title, icon, action) in actions {
+            let button = EventEditorButton()
+            EventDisplayHelper.configureActionButton(button, title: title, iconName: icon)
+            button.titleLabel?.numberOfLines = 2
+            button.titleLabel?.textAlignment = .center
+            button.action = action
+            row.addArrangedSubview(button)
+        }
+        return row
     }
 
     private func makeActionsRow() -> UIView {
         let row = UIStackView()
         row.axis = .horizontal
         row.spacing = 8
-        row.alignment = .center
+        row.alignment = .fill
+        row.distribution = .fillEqually
         row.isUserInteractionEnabled = true
-        EventDisplayHelper.configureInterestButton(interestButton, isInterested: isInterested)
-        interestButton.addTarget(self, action: #selector(interestTapped), for: .touchUpInside)
-        interestButton.translatesAutoresizingMaskIntoConstraints = false
-        row.addArrangedSubview(interestButton)
+        if canEditEvent {
+            EventDisplayHelper.configureActionButton(editButton, title: L(L10n.EventEditor.edit), iconName: "pencil")
+            editButton.action = { [weak self] in self?.onEditEvent?() }
+            row.addArrangedSubview(editButton)
+        }
+        if EventDisplayHelper.resolvedStatus(for: event) != .ongoing || canEndEvent {
+            EventDisplayHelper.configureInterestButton(interestButton, isInterested: isInterested)
+            if canEndEvent {
+                interestButton.setTitle(L(L10n.EventMenu.endEvent), for: .normal)
+                interestButton.setImage(UIImage(systemName: "xmark.circle"), for: .normal)
+            }
+            interestButton.addTarget(self, action: #selector(interestTapped), for: .touchUpInside)
+            interestButton.translatesAutoresizingMaskIntoConstraints = false
+            row.addArrangedSubview(interestButton)
+        }
+        for button in [editButton, interestButton] {
+            button.titleLabel?.numberOfLines = 2
+            button.titleLabel?.textAlignment = .center
+        }
         return row
     }
 
     @objc private func interestTapped() {
-        onToggleInterest?()
+        if canEndEvent {
+            onEndEvent?()
+        } else {
+            onToggleInterest?()
+        }
     }
 
     private func makeInfoRow() -> UIView {

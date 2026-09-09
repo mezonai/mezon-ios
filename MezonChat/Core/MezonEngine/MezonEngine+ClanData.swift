@@ -292,8 +292,43 @@ extension MezonEngine {
             }
         }
 
+        func createEvent(draft: EventEditorDraft, clanId: Int64, creatorId: Int64, token: String) async throws {
+            try await network.createEvent(request: draft.createRequest(clanId: clanId, creatorId: creatorId), token: token)
+            await fetchEvents(clanId: clanId, token: token)
+        }
+
+        func updateEvent(draft: EventEditorDraft, clanId: Int64, original: Mezon_Api_EventManagement, token: String) async throws {
+            try await network.updateEvent(request: draft.updateRequest(clanId: clanId, original: original), token: token)
+            // Keep the confirmed edit visible even if the subsequent list refresh fails.
+            if var list = getClanEvents(clanId: clanId), let index = list.events.firstIndex(where: { $0.id == original.id }) {
+                list.events[index] = draft.applying(to: list.events[index])
+                if let data = try? list.serializedData() {
+                    postbox.setPreferenceDataSync(key: PreferencesKeys.clanEvents(clanId: clanId), value: data)
+                }
+                clanEventsUpdated.putNext(clanId)
+            }
+            await fetchEvents(clanId: clanId, token: token)
+        }
+
         func refetchEvents(clanId: Int64, token: String) async {
             await fetchEvents(clanId: clanId, token: token)
+        }
+
+        func deleteEvent(_ event: Mezon_Api_EventManagement, clanId: Int64, token: String) async throws {
+            var request = Mezon_Api_DeleteEventRequest()
+            request.eventID = event.id
+            request.clanID = clanId
+            request.creatorID = event.creatorID
+            request.eventLabel = event.title
+            request.channelID = event.channelID
+            try await network.deleteEvent(request: request, token: token)
+            if var list = getClanEvents(clanId: clanId) {
+                list.events.removeAll { $0.id == event.id }
+                if let data = try? list.serializedData() {
+                    postbox.setPreferenceDataSync(key: PreferencesKeys.clanEvents(clanId: clanId), value: data)
+                }
+            }
+            clanEventsUpdated.putNext(clanId)
         }
 
         func setUserEventInterest(
