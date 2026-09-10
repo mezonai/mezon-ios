@@ -592,6 +592,14 @@ public protocol CustomViewControllerNavigationDataSummary: AnyObject {
         self.view.window?.rootViewController?.present(viewControllerToPresent, animated: flag, completion: completion)
     }
 
+    final func presentNativeController(
+        _ viewControllerToPresent: UIViewController,
+        animated flag: Bool,
+        completion: (() -> Void)? = nil
+    ) {
+        super.present(viewControllerToPresent, animated: flag, completion: completion)
+    }
+
     override open func dismiss(animated flag: Bool, completion: (() -> Void)? = nil) {
         if let navigationController = self.navigationController as? NavigationController {
             var animated = flag

@@ -876,19 +876,27 @@ final class MezonRootController: NavigationController {
         if let presented = anchor.presentedViewController {
             if presented is SharingViewController {
                 presented.dismiss(animated: false) {
-                    anchor.present(sharingVC, animated: true)
+                    self.presentFromCurrentAnchor(sharingVC, on: anchor)
                 }
                 return
             }
             if isEphemeralShareSheet(presented) {
                 presented.dismiss(animated: false) {
-                    anchor.present(sharingVC, animated: true)
+                    self.presentFromCurrentAnchor(sharingVC, on: anchor)
                 }
                 return
             }
         }
 
-        anchor.present(sharingVC, animated: true)
+        presentFromCurrentAnchor(sharingVC, on: anchor)
+    }
+
+    private func presentFromCurrentAnchor(_ controller: UIViewController, on anchor: UIViewController) {
+        if let anchor = anchor as? ViewController {
+            anchor.presentNativeController(controller, animated: true)
+        } else {
+            anchor.present(controller, animated: true)
+        }
     }
 
     // MARK: - Deep links
