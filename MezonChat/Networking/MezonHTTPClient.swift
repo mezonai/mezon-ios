@@ -1550,6 +1550,30 @@ final class MezonHTTPClient {
         )
     }
 
+    func createEvent(request: Mezon_Api_CreateEventRequest, token: String) async throws {
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/CreateEvent",
+            message: request,
+            auth: .bearer(token)
+        )
+    }
+
+    func updateEvent(request: Mezon_Api_UpdateEventRequest, token: String) async throws {
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/UpdateEvent",
+            message: request,
+            auth: .bearer(token)
+        )
+    }
+
+    func deleteEvent(request: Mezon_Api_DeleteEventRequest, token: String) async throws {
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/DeleteEvent",
+            message: request,
+            auth: .bearer(token)
+        )
+    }
+
     func addUserEvent(request: Mezon_Api_UserEventRequest, token: String) async throws {
         try await postProtoIgnoringBody(
             path: "/mezon.api.Mezon/AddUserEvent",

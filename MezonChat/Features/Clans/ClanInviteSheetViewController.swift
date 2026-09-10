@@ -1078,6 +1078,7 @@ final class ClanInviteSheetViewController: ViewController {
     private let context: AccountContext
     private let clanId: Int64
     private let channelId: Int64?
+    private let externalEventURL: URL?
 
     private var inviteLink: String?
     private var clanName = ""
@@ -1092,10 +1093,11 @@ final class ClanInviteSheetViewController: ViewController {
 
     private var containerNode: ClanInviteSheetContainerNode { displayNode as! ClanInviteSheetContainerNode }
 
-    init(context: AccountContext, clanId: Int64, channelId: Int64? = nil) {
+    init(context: AccountContext, clanId: Int64, channelId: Int64? = nil, externalEventURL: URL? = nil) {
         self.context = context
         self.clanId = clanId
         self.channelId = channelId
+        self.externalEventURL = externalEventURL
         super.init(navigationBarPresentationData: nil)
     }
 
@@ -1104,7 +1106,7 @@ final class ClanInviteSheetViewController: ViewController {
     }
 
     override func loadDisplayNode() {
-        let node = ClanInviteSheetContainerNode(showsQRCode: channelId == nil)
+        let node = ClanInviteSheetContainerNode(showsQRCode: channelId == nil && externalEventURL == nil)
         displayNode = node
 
         node.shareButton.onTap = { [weak self] in self?.shareInvite() }
@@ -1170,9 +1172,10 @@ final class ClanInviteSheetViewController: ViewController {
                 let friends = try await friendsTask
                 let directs = try await directsTask
 
-                let memberIds = Set(context.account.postbox.read { tx in
-                    tx.getClanMembers(clanId: self.clanId).map { $0.userId }
-                })
+                let clanMembers = context.account.postbox.read { tx in tx.getClanMembers(clanId: self.clanId) }
+                let excludedUserIds = externalEventURL == nil
+                    ? Set(clanMembers.map(\.userId))
+                    : context.engine.friendsData.blockedUserIds()
                 cacheDirectChannels(directs)
 
                 let currentUserId = Int64(context.currentUser?.id ?? "") ?? 0
@@ -1183,7 +1186,7 @@ final class ClanInviteSheetViewController: ViewController {
                     guard friend.hasUser else { continue }
                     let u = friend.user
                     let uid = u.id
-                    guard uid != 0, uid != currentUserId, !memberIds.contains(uid) else { continue }
+                    guard uid != 0, uid != currentUserId, !excludedUserIds.contains(uid) else { continue }
                     let name = !u.displayName.isEmpty ? u.displayName : (u.username.isEmpty ? "Unknown" : u.username)
                     let avatar = u.avatarURL.isEmpty ? nil : u.avatarURL
                     merged["user_\(uid)"] = FriendItem(
@@ -1202,7 +1205,7 @@ final class ClanInviteSheetViewController: ViewController {
 
                     if isDM {
                         guard let uid = dm.userIds.first else { continue }
-                        guard uid != 0, uid != currentUserId, !memberIds.contains(uid) else { continue }
+                        guard uid != 0, uid != currentUserId, !excludedUserIds.contains(uid) else { continue }
                         guard dm.channelID != 0 else { continue }
                         let name = !dm.channelLabel.isEmpty
                             ? dm.channelLabel
@@ -1228,6 +1231,21 @@ final class ClanInviteSheetViewController: ViewController {
                             avatarURL: avatar,
                             isGroupDM: true,
                             target: .direct(channelId: dm.channelID, type: dm.type, isPublic: dm.channelPrivate == 0)
+                        )
+                    }
+                }
+
+                if externalEventURL != nil {
+                    for member in clanMembers where member.userId != 0 && member.userId != currentUserId {
+                        guard !excludedUserIds.contains(member.userId), merged["user_\(member.userId)"] == nil else { continue }
+                        let name = !member.clanNick.isEmpty ? member.clanNick : (!member.displayName.isEmpty ? member.displayName : member.username)
+                        let avatar = !member.clanAvatar.isEmpty ? member.clanAvatar : member.userAvatarURL
+                        merged["user_\(member.userId)"] = FriendItem(
+                            id: member.userId,
+                            name: name,
+                            avatarURL: avatar.isEmpty ? nil : avatar,
+                            isGroupDM: false,
+                            target: .friend(userId: member.userId)
                         )
                     }
                 }
@@ -1260,6 +1278,7 @@ final class ClanInviteSheetViewController: ViewController {
     }
 
     private func resolveInviteLink(token: String) async -> String? {
+        if let externalEventURL { return externalEventURL.absoluteString }
         if let channelId {
             return "\(MezonConfig.chatWebAppBaseURL)/chat/clans/\(clanId)/channels/\(channelId)"
         }
@@ -1385,7 +1404,7 @@ final class ClanInviteSheetViewController: ViewController {
                 _ = try await context.account.network.sendChannelMessage(
                     clanId: 0,
                     channelId: dm.channelID,
-                    mode: MezonConstants.ChannelStreamMode.dm.rawValue,
+                    mode: item.isGroupDM ? MezonConstants.ChannelStreamMode.group.rawValue : MezonConstants.ChannelStreamMode.dm.rawValue,
                     isPublic: isPublic,
                     content: content,
                     token: token
@@ -1404,7 +1423,7 @@ final class ClanInviteSheetViewController: ViewController {
         ]
         var payload: [String: Any] = ["t": url]
 
-        if let inviteId = extractInviteId(from: url), !inviteId.isEmpty {
+        if externalEventURL == nil, let inviteId = extractInviteId(from: url), !inviteId.isEmpty {
             do {
                 let inviteInfo = try await context.account.network.getInviteInfo(code: inviteId, token: token)
                 let memberCount = inviteInfo.member_count ?? 0
