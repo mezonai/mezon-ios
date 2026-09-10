@@ -1404,10 +1404,7 @@ final class AccountContextImpl: AccountContext {
 
         case .clanEventCreated(let ev):
             guard ev.clanID != 0 else { break }
-            Task { @MainActor [weak self] in
-                guard let self, let token = await self.getToken() else { return }
-                await self.engine.clanData.refetchEvents(clanId: ev.clanID, token: token)
-            }
+            engine.clanData.applyClanEventFromSocket(ev)
 
         case .clanUpdated(let ev):
             account.postbox.write { tx in
