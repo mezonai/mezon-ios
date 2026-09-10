@@ -366,7 +366,7 @@ private final class MessageActionSheetNode: ASDisplayNode {
     private static let emojiData: [(id: String, shortname: String)] = [
         ("7227274405304181951", ":100:"),
         ("7227274405302432668", ":joy:"),
-        ("7227274405303613492", ":like:"),
+        (String(MezonConstants.likeEmojiId), MezonConstants.likeEmojiShortname),
         ("7227274405305046042", ":laughing:"),
         ("7227274405301971870", ":innocent:"),
     ]

@@ -14,6 +14,7 @@ enum NotificationReplySender {
     private enum ReplyError: Error {
         case notLoggedIn
         case missingChannel
+        case missingMessage
         case emptyAck
     }
 
@@ -69,6 +70,67 @@ enum NotificationReplySender {
             ])
             await postFailureNotification(for: notification)
         }
+    }
+
+    @MainActor
+    static func sendLike(notification: UNNotification, accountContext: AccountContext?) async {
+        let userInfo = notification.request.content.userInfo
+        let lease = BackgroundTaskLease(name: "mezon.notification.like")
+        defer { lease.end() }
+
+        var stage = "token"
+        do {
+            guard let token = await resolveToken(accountContext: accountContext) else {
+                throw ReplyError.notLoggedIn
+            }
+            stage = "message"
+            let messageId = resolveMessageId(userInfo: userInfo)
+            guard messageId != 0 else { throw ReplyError.missingMessage }
+            stage = "target"
+            let target = try await resolveTarget(userInfo: userInfo, token: token)
+            stage = "react"
+            _ = try await MezonHTTPClient.shared.writeMessageReaction(
+                clanId: target.clanId,
+                channelId: target.channelId,
+                mode: target.mode,
+                isPublic: target.isPublic,
+                messageId: messageId,
+                emojiId: MezonConstants.likeEmojiId,
+                emoji: MezonConstants.likeEmojiShortname,
+                count: 1,
+                messageSenderId: resolveMessageSenderId(userInfo: userInfo),
+                actionDelete: false,
+                topicId: target.topicId,
+                token: token
+            )
+        } catch {
+            SentryLogger.capture(error, extras: [
+                "where": "NotificationReplySender.sendLike",
+                "stage": stage,
+                "channel": AppDelegate.pushPayloadString(userInfo, keys: ["channel"]) ?? "",
+                "link": AppDelegate.pushPayloadString(userInfo, keys: ["link"]) ?? ""
+            ])
+            await postFailureNotification(for: notification, bodyKey: L10n.NotificationActions.likeFailed)
+        }
+    }
+
+    private static func resolveMessageId(userInfo: [AnyHashable: Any]) -> Int64 {
+        if let direct = AppDelegate.pushPayloadInt64(userInfo, keys: ["message_id", "messageId", "messageID"]) {
+            return direct
+        }
+        guard let raw = AppDelegate.pushPayloadString(userInfo, keys: ["message"]),
+              let data = raw.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data),
+              let object = json as? [String: Any] else {
+            return 0
+        }
+        if let id = object["id"] as? String { return Int64(id) ?? 0 }
+        if let id = object["id"] as? NSNumber { return id.int64Value }
+        return 0
+    }
+
+    private static func resolveMessageSenderId(userInfo: [AnyHashable: Any]) -> Int64 {
+        AppDelegate.pushPayloadInt64(userInfo, keys: ["sender", "sender_id", "senderId", "senderID"]) ?? 0
     }
 
     @MainActor
@@ -170,11 +232,14 @@ enum NotificationReplySender {
         return json
     }
 
-    private static func postFailureNotification(for notification: UNNotification) async {
+    private static func postFailureNotification(
+        for notification: UNNotification,
+        bodyKey: String = L10n.NotificationActions.replyFailed
+    ) async {
         let original = notification.request.content
         let content = UNMutableNotificationContent()
         content.title = original.title
-        content.body = L(L10n.NotificationActions.replyFailed)
+        content.body = L(bodyKey)
         content.userInfo = original.userInfo
         content.threadIdentifier = original.threadIdentifier
         content.categoryIdentifier = MessageNotificationCategory.identifier

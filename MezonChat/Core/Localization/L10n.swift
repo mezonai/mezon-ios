@@ -1060,9 +1060,11 @@ enum L10n {
     enum NotificationActions {
         static let view = "notificationActions.view"
         static let reply = "notificationActions.reply"
+        static let like = "notificationActions.like"
         static let send = "notificationActions.send"
         static let placeholder = "notificationActions.placeholder"
         static let replyFailed = "notificationActions.replyFailed"
+        static let likeFailed = "notificationActions.likeFailed"
     }
 
     enum NotificationSettings {
@@ -1690,9 +1692,11 @@ extension L10n {
 
         "notificationActions.view": "View",
         "notificationActions.reply": "Reply",
+        "notificationActions.like": "Like",
         "notificationActions.send": "Send",
         "notificationActions.placeholder": "Message",
         "notificationActions.replyFailed": "Your reply could not be sent. Tap to open the conversation.",
+        "notificationActions.likeFailed": "Your like could not be sent. Tap to open the conversation.",
 
         "notifications.title": "Notifications",
         "notifications.mentions": "Mentions",
@@ -3031,9 +3035,11 @@ extension L10n {
 
         "notificationActions.view": "Xem",
         "notificationActions.reply": "Trả lời",
+        "notificationActions.like": "Thích",
         "notificationActions.send": "Gửi",
         "notificationActions.placeholder": "Tin nhắn",
         "notificationActions.replyFailed": "Không gửi được trả lời. Chạm để mở cuộc trò chuyện.",
+        "notificationActions.likeFailed": "Không gửi được biểu cảm. Chạm để mở cuộc trò chuyện.",
 
         "notifications.title": "Thông báo",
         "notifications.mentions": "Nhắc đến",
