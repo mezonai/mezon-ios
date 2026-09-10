@@ -238,7 +238,6 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
         }
         nameField.accessibilityLabel = L(L10n.EventEditor.name)
         nameField.text = draft.title
-        addressField.placeholder = L(L10n.EventEditor.addressPlaceholder)
         addressField.accessibilityLabel = L(L10n.EventEditor.address)
         addressField.text = draft.address
         descriptionView.font = .systemFont(ofSize: 15)
@@ -275,6 +274,10 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
         }
         nameField.attributedPlaceholder = NSAttributedString(
             string: L(L10n.EventEditor.namePlaceholder),
+            attributes: [.foregroundColor: UIColor.theme.textDisabled]
+        )
+        addressField.attributedPlaceholder = NSAttributedString(
+            string: L(L10n.EventEditor.addressPlaceholder),
             attributes: [.foregroundColor: UIColor.theme.textDisabled]
         )
         descriptionView.textColor = UIColor.theme.textStrong

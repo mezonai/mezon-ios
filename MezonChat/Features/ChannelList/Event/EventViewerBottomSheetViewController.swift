@@ -459,7 +459,7 @@ final class EventViewerBottomSheetViewController: UIViewController {
                     empty.bottomAnchor.constraint(equalTo: emptyStateView.bottomAnchor),
                 ])
             }
-            emptyStateView.isHidden = false
+            emptyStateView.isHidden = isFetching
             styleEmptyState(emptyStateView.subviews.first!)
         } else {
             emptyStateView.isHidden = true
@@ -473,9 +473,10 @@ final class EventViewerBottomSheetViewController: UIViewController {
             }
         }
 
-        loadingRow.isHidden = !isFetching
-        loadingIndicator.isHidden = !isFetching
-        if isFetching {
+        let shouldShowLoading = isFetching && events.isEmpty
+        loadingRow.isHidden = !shouldShowLoading
+        loadingIndicator.isHidden = !shouldShowLoading
+        if shouldShowLoading {
             loadingIndicator.startAnimating()
         } else {
             loadingIndicator.stopAnimating()
