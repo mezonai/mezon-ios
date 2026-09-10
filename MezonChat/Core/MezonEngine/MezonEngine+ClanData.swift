@@ -320,7 +320,6 @@ extension MezonEngine {
 
         func updateEvent(draft: EventEditorDraft, clanId: Int64, original: Mezon_Api_EventManagement, token: String) async throws {
             try await network.updateEvent(request: draft.updateRequest(clanId: clanId, original: original), token: token)
-            // Keep the confirmed edit visible even if the subsequent list refresh fails.
             if var list = getClanEvents(clanId: clanId), let index = list.events.firstIndex(where: { $0.id == original.id }) {
                 list.events[index] = draft.applying(to: list.events[index])
                 if let data = try? list.serializedData() {
