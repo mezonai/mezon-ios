@@ -1078,7 +1078,6 @@ final class ClanInviteSheetViewController: ViewController {
     private let context: AccountContext
     private let clanId: Int64
     private let channelId: Int64?
-    private let nativeModalPresenter = UIViewController()
 
     private var inviteLink: String?
     private var clanName = ""
@@ -1126,7 +1125,6 @@ final class ClanInviteSheetViewController: ViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        attachNativeModalPresenter()
         containerNode.searchWrapNode.textField.addTarget(self, action: #selector(searchChanged), for: .editingChanged)
         containerNode.searchWrapNode.clearButton.addTarget(self, action: #selector(clearSearchTapped), for: .touchUpInside)
         applyTheme()
@@ -1134,33 +1132,16 @@ final class ClanInviteSheetViewController: ViewController {
     }
 
     override func dismiss(animated flag: Bool, completion: (() -> Void)? = nil) {
-        if let modal = nativeModalPresenter.presentedViewController ?? presentedViewController {
+        if let modal = presentedViewController {
             modal.dismiss(animated: flag, completion: completion)
         } else {
             super.dismiss(animated: flag, completion: completion)
         }
     }
 
-    private func attachNativeModalPresenter() {
-        nativeModalPresenter.definesPresentationContext = true
-        nativeModalPresenter.view.backgroundColor = .clear
-        nativeModalPresenter.view.isUserInteractionEnabled = false
-        nativeModalPresenter.view.translatesAutoresizingMaskIntoConstraints = false
-
-        addChild(nativeModalPresenter)
-        view.insertSubview(nativeModalPresenter.view, at: 0)
-        NSLayoutConstraint.activate([
-            nativeModalPresenter.view.topAnchor.constraint(equalTo: view.topAnchor),
-            nativeModalPresenter.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            nativeModalPresenter.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            nativeModalPresenter.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
-        nativeModalPresenter.didMove(toParent: self)
-    }
-
     private func presentNativeModal(_ controller: UIViewController) {
-        guard nativeModalPresenter.presentedViewController == nil else { return }
-        nativeModalPresenter.present(controller, animated: true)
+        guard presentedViewController == nil else { return }
+        presentNativeController(controller, animated: true)
     }
 
     private func applyTheme() {
