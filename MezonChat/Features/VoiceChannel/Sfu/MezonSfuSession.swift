@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import Network
 import WebRTC
 
 @MainActor
@@ -14,6 +15,7 @@ final class MezonSfuSession: NSObject {
     private static let speakingPollNanos: UInt64 = 300_000_000
     private static let reconnectPollNanos: UInt64 = 3_000_000_000
     private static let maxReconnectAttempts = 40
+    private static let iceRecoveryGraceNanos: UInt64 = 4_000_000_000
     private static let speakingThreshold = 0.02
 
     private static var sslInitialized = false
@@ -85,6 +87,14 @@ final class MezonSfuSession: NSObject {
 
     private var negotiating = false
     private var pendingOffer: (Int64, String)?
+
+    private var retiringPeerConnection: RTCPeerConnection?
+    private var iceRecoveryTask: Task<Void, Never>?
+    private var pathMonitor: NWPathMonitor?
+    private let pathMonitorQueue = DispatchQueue(label: "com.mezon.sfu.path")
+    private var lastPathSignature: String?
+    private var pathWasUnsatisfied = false
+    private var pathSatisfied = true
 
     private var transceiverCache: [RTCRtpTransceiver] = []
 
@@ -169,6 +179,7 @@ final class MezonSfuSession: NSObject {
                 try? await Task.sleep(nanoseconds: Self.reconnectPollNanos)
                 guard !Task.isCancelled, let self else { break }
                 guard self.active, self.joined, !self.socketOpen, !self.connecting else { continue }
+                guard self.pathSatisfied else { continue }
                 if self.reconnectAttempts >= Self.maxReconnectAttempts {
                     self.active = false
                     self.emitState(.failed)
@@ -182,6 +193,51 @@ final class MezonSfuSession: NSObject {
             }
         }
         pollTasks = [speakingTask, reconnectTask]
+        startPathMonitor()
+    }
+
+    private func startPathMonitor() {
+        pathMonitor?.cancel()
+        lastPathSignature = nil
+        pathWasUnsatisfied = false
+        let monitor = NWPathMonitor()
+        pathMonitor = monitor
+        monitor.pathUpdateHandler = { [weak self] path in
+            let satisfied = path.status == .satisfied
+            let signature = path.availableInterfaces.first?.name ?? ""
+            guard let self else { return }
+            Task { @MainActor in
+                self.handlePathUpdate(satisfied: satisfied, signature: signature)
+            }
+        }
+        monitor.start(queue: pathMonitorQueue)
+    }
+
+    private func handlePathUpdate(satisfied: Bool, signature: String) {
+        pathSatisfied = satisfied
+        guard active else { return }
+        guard satisfied else {
+            pathWasUnsatisfied = true
+            return
+        }
+        let changed = pathWasUnsatisfied || (lastPathSignature != nil && lastPathSignature != signature)
+        lastPathSignature = signature
+        pathWasUnsatisfied = false
+        guard changed, joined else { return }
+        restartSession()
+    }
+
+    private func restartSession() {
+        guard active, joined, !connecting else { return }
+        iceRecoveryTask?.cancel()
+        iceRecoveryTask = nil
+        openConnection(initial: false)
+    }
+
+    private func releaseRetiringPeerConnection() {
+        guard !remote.isEmpty, let previous = retiringPeerConnection else { return }
+        retiringPeerConnection = nil
+        previous.close()
     }
 
     func leave() {
@@ -211,8 +267,14 @@ final class MezonSfuSession: NSObject {
         localAudioTrack = nil
         audioSource = nil
         transceiverCache = []
+        iceRecoveryTask?.cancel()
+        iceRecoveryTask = nil
+        pathMonitor?.cancel()
+        pathMonitor = nil
         peerConnection?.close()
+        retiringPeerConnection?.close()
         peerConnection = nil
+        retiringPeerConnection = nil
         localTracksAdded = false
         negotiating = false
         pendingOffer = nil
@@ -288,9 +350,14 @@ final class MezonSfuSession: NSObject {
                 localAudioTrack?.isEnabled = false
                 onPushToTalkActive?(false)
             }
+            socketOpen = false
             webSocketTask?.cancel(with: .goingAway, reason: nil)
             urlSession?.invalidateAndCancel()
-            peerConnection?.close()
+            if let previous = peerConnection {
+                retiringPeerConnection?.close()
+                retiringPeerConnection = previous
+            }
+            peerConnection = nil
             negotiating = false
             pendingOffer = nil
             localTracksAdded = false
@@ -634,7 +701,15 @@ final class MezonSfuSession: NSObject {
 
     private func createLocalAudioTrack() {
         guard localAudioTrack == nil else { return }
-        let source = Self.factory.audioSource(with: RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil))
+        let constraints = RTCMediaConstraints(
+            mandatoryConstraints: [
+                "googNoiseSuppression": "true",
+                "googEchoCancellation": "true",
+                "googAutoGainControl": "true"
+            ],
+            optionalConstraints: nil
+        )
+        let source = Self.factory.audioSource(with: constraints)
         audioSource = source
         let track = Self.factory.audioTrack(with: source, trackId: "sfu_audio")
         track.isEnabled = false
@@ -866,6 +941,7 @@ final class MezonSfuSession: NSObject {
                 removeRemoteEntry(id: id)
             }
         }
+        releaseRetiringPeerConnection()
         emitParticipants()
     }
 
@@ -1124,6 +1200,8 @@ extension MezonSfuSession: RTCPeerConnectionDelegate {
             guard let self, peerConnection === self.peerConnection else { return }
             switch newState {
             case .connected, .completed:
+                self.iceRecoveryTask?.cancel()
+                self.iceRecoveryTask = nil
                 self.isConnected = true
                 let rtc = RTCAudioSession.sharedInstance()
                 rtc.lockForConfiguration()
@@ -1131,15 +1209,24 @@ extension MezonSfuSession: RTCPeerConnectionDelegate {
                 rtc.unlockForConfiguration()
                 self.emitState(.connected)
             case .failed:
+                self.iceRecoveryTask?.cancel()
+                self.iceRecoveryTask = nil
                 if self.active && self.joined {
                     self.emitState(.disconnected)
-                    self.webSocketTask?.cancel(with: .normalClosure, reason: nil)
-                    self.handleSocketClosed(gen: self.connectionGen)
+                    self.restartSession()
                 } else if self.active {
                     self.emitState(.failed)
                 }
             case .disconnected:
                 self.emitState(.disconnected)
+                if self.active, self.joined, self.iceRecoveryTask == nil {
+                    self.iceRecoveryTask = Task { @MainActor [weak self] in
+                        try? await Task.sleep(nanoseconds: Self.iceRecoveryGraceNanos)
+                        guard !Task.isCancelled, let self else { return }
+                        self.iceRecoveryTask = nil
+                        self.restartSession()
+                    }
+                }
             default:
                 break
             }
