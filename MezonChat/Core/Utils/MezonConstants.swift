@@ -6,6 +6,9 @@ enum MezonConstants {
 
     static let anonymousUserId: Int64 = 1767478432163172999
 
+    static let likeEmojiId: Int64 = 7227274405303613492
+    static let likeEmojiShortname = ":like:"
+
     static let waveStickerFilename = "hello"
     static let waveStickerAttachmentSize: Int32 = 374_892
     static let waveStickerWidth: Int32 = 150

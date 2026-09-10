@@ -173,7 +173,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         NotificationCenter.default.addObserver(self, selector: #selector(handleDidBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleDidEnterBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
         if let notificationResponse = connectionOptions.notificationResponse,
-           !MessageNotificationCategory.isReplyAction(notificationResponse) {
+           !MessageNotificationCategory.isBackgroundAction(notificationResponse) {
             let userInfo = notificationResponse.notification.request.content.userInfo
             let isFriendRequestNotification = Self.isFriendRequestNotification(response: notificationResponse)
             let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)
@@ -587,6 +587,18 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             Task { @MainActor [weak self] in
                 await NotificationReplySender.send(
                     text: text,
+                    notification: notification,
+                    accountContext: self?.accountContext
+                )
+                completionHandler()
+            }
+            return
+        }
+
+        if MessageNotificationCategory.isLikeAction(response) {
+            let notification = response.notification
+            Task { @MainActor [weak self] in
+                await NotificationReplySender.sendLike(
                     notification: notification,
                     accountContext: self?.accountContext
                 )
