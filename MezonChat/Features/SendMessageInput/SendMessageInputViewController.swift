@@ -2973,9 +2973,6 @@ final class SendMessageInputViewController: UIViewController {
 
         var i = index
         if i < remoteImageCount {
-            editingRemoteImageAttachments.remove(at: i)
-            attachmentPreviewView.removeRemoteImage(at: i)
-            updatePreviewVisibility()
             return
         }
         i -= remoteImageCount
@@ -2985,9 +2982,6 @@ final class SendMessageInputViewController: UIViewController {
         }
         i -= localImageCount
         if i < remoteFileCount {
-            editingRemoteFileAttachments.remove(at: i)
-            attachmentPreviewView.removeRemoteFile(at: i)
-            updatePreviewVisibility()
             return
         }
         i -= remoteFileCount
