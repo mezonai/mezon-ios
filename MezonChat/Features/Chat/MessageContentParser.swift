@@ -218,8 +218,6 @@ enum MessageContentParser {
         let embeds = parseEmbeds(json["embed"], topLevelComponents: json["components"])
         let markdownItems = json["mk"] as? [[String: Any]] ?? []
         let ogpPreviews = parseOgpPreviews(markdownItems, text: text)
-        if let embed = json["embed"] {
-        }
         if text.isEmpty && embeds.isEmpty && ogpPreviews.isEmpty {
             return ParsedContent(text: "", tokens: [], embeds: [], ogpPreviews: [])
         }

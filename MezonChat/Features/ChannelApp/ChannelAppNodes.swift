@@ -318,15 +318,18 @@ extension Mezon_Api_ChannelAppResponse {
         guard !trimmed.isEmpty else { return nil }
         let withScheme: String
         let lower = trimmed.lowercased()
-        if lower.hasPrefix("http://") || lower.hasPrefix("https://") {
+        if lower.hasPrefix("https://") {
             withScheme = trimmed
+        } else if lower.hasPrefix("http://") {
+            withScheme = "https://" + String(trimmed.dropFirst("http://".count))
         } else {
             withScheme = "https://" + trimmed
         }
         let encoded = webAppData.addingPercentEncoding(
             withAllowedCharacters: Self.encodeURIComponentAllowed
         ) ?? webAppData
-        return URL(string: withScheme + "?data=" + encoded)
+        let sep = withScheme.contains("?") ? "&" : "?"
+        return URL(string: withScheme + sep + "data=" + encoded + "&clanId=\(clanID)")
     }
 
     private static let encodeURIComponentAllowed: CharacterSet = {

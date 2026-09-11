@@ -40,6 +40,20 @@ enum MezonConfig {
         "\(chatWebAppBaseURL)/chat/clans/\(clanId)/channels/\(channelId)/canvas/\(canvasId)"
     }
 
+    static func eventShareURL(clanId: Int64, channelId: Int64) -> URL? {
+        URL(string: "\(chatWebAppBaseURL)/chat/clans/\(clanId)/channels/\(channelId)")
+    }
+
+    static func externalEventURL(_ link: String) -> URL? {
+        let link = link.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !link.isEmpty,
+              let baseURL = URL(string: "\(chatWebAppBaseURL)/"),
+              let url = URL(string: link, relativeTo: baseURL)?.absoluteURL,
+              let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              url.host != nil else { return nil }
+        return url
+    }
+
     private static func infoPlistString(_ key: String) -> String? {
         guard let raw = Bundle.main.object(forInfoDictionaryKey: key) as? String else { return nil }
         let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)

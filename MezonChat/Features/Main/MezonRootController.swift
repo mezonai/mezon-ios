@@ -211,6 +211,7 @@ final class MezonRootController: NavigationController {
         AppDelegate.pendingNavigation = nil
 
         handoffActiveVoiceRoomToPiPBeforeNavigation()
+        dismissPresentedModalsBeforeNavigation()
 
         if !isDM, let clanId = clanIdStr.flatMap({ Int64($0) }), clanId != 0 {
             context.currentClanId = clanId
@@ -234,6 +235,7 @@ final class MezonRootController: NavigationController {
         AppDelegate.pendingFriendRequestNavigation = nil
 
         handoffActiveVoiceRoomToPiPBeforeNavigation()
+        dismissPresentedModalsBeforeNavigation()
         context.account.socket.ensureFreshConnection()
 
         Task { @MainActor [weak self] in
@@ -263,6 +265,17 @@ final class MezonRootController: NavigationController {
             guard let self, let token = await self.context.getToken() else { return }
             await self.context.engine.friendsData.refreshFromNetwork(token: token, force: true)
         }
+    }
+
+    private func dismissPresentedModalsBeforeNavigation() {
+        guard let windowRoot = view.window?.rootViewController else { return }
+        guard windowRoot.presentedViewController != nil else { return }
+        var controller = windowRoot.presentedViewController
+        while let current = controller {
+            if current.isModalInPresentation { return }
+            controller = current.presentedViewController
+        }
+        windowRoot.dismiss(animated: false)
     }
 
     private func handoffActiveVoiceRoomToPiPBeforeNavigation() {
@@ -705,7 +718,6 @@ final class MezonRootController: NavigationController {
                 let categoryDescs = (try? await categoriesTask) ?? []
                 let favoriteIds = Set((try? await favoritesTask) ?? [])
                 let channels = try await channelsTask
-                NSLog("[ChannelList] MezonRoot listChannelDescs clanId=%lld count=%d cats=%d", clanId, channels.count, categoryDescs.count)
                 guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
                 if channels.isEmpty {
                     if let homeVC = self.homeController, homeVC.channelListVC.clanId == clanId {
@@ -775,9 +787,22 @@ final class MezonRootController: NavigationController {
 
         let sharingVC = SharingViewController(context: context, sharedContent: content)
         guard let windowRoot = view.window?.rootViewController else { return }
-
+        let shouldDismissVideoGallery: Bool
+        if case .existingVideo = content {
+            shouldDismissVideoGallery = true
+        } else {
+            shouldDismissVideoGallery = false
+        }
         dismissShareSheetStack(from: windowRoot) { [weak self] anchor in
             guard let self else { return }
+            if shouldDismissVideoGallery, anchor is GalleryController {
+                anchor.dismiss(animated: false) { [weak self] in
+                    guard let self else { return }
+                    let nextAnchor = self.resolvedSharePresentationAnchor(from: windowRoot)
+                    self.presentSharingViewController(sharingVC, on: nextAnchor)
+                }
+                return
+            }
             self.presentSharingViewController(sharingVC, on: anchor)
         }
     }
@@ -851,19 +876,27 @@ final class MezonRootController: NavigationController {
         if let presented = anchor.presentedViewController {
             if presented is SharingViewController {
                 presented.dismiss(animated: false) {
-                    anchor.present(sharingVC, animated: true)
+                    self.presentFromCurrentAnchor(sharingVC, on: anchor)
                 }
                 return
             }
             if isEphemeralShareSheet(presented) {
                 presented.dismiss(animated: false) {
-                    anchor.present(sharingVC, animated: true)
+                    self.presentFromCurrentAnchor(sharingVC, on: anchor)
                 }
                 return
             }
         }
 
-        anchor.present(sharingVC, animated: true)
+        presentFromCurrentAnchor(sharingVC, on: anchor)
+    }
+
+    private func presentFromCurrentAnchor(_ controller: UIViewController, on anchor: UIViewController) {
+        if let anchor = anchor as? ViewController {
+            anchor.presentNativeController(controller, animated: true)
+        } else {
+            anchor.present(controller, animated: true)
+        }
     }
 
     // MARK: - Deep links

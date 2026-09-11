@@ -2,7 +2,7 @@ import Foundation
 import UIKit
 
 enum PeerCallIncomingFreshness {
-    static let maxOfferAgeMs: Int64 = 30_000
+    static let maxOfferAgeMs: Int64 = 60_000
 }
 
 @MainActor
@@ -31,22 +31,17 @@ final class WebRTCCallManager {
     private var preWarmedIncomingKey: (channelId: Int64, callerId: Int64)?
 
     func attachSignalingSession(_ session: PeerWebRTCCallSession) {
-        print("[DMCall] attachSignalingSession bufferedCount=\(bufferedSignaling.count) awaitingAttachment=\(awaitingIncomingAttachment)")
         signalingSession = session
         awaitingIncomingAttachment = false
         let batch = bufferedSignaling
         bufferedSignaling.removeAll()
         expectedIncomingBufferKey = nil
-        if !batch.isEmpty {
-            print("[DMCall] attachSignalingSession draining \(batch.count) buffered signaling messages")
-        }
         for m in batch {
             session.handleIncomingSignaling(m)
         }
     }
 
     func detachSession(_ session: PeerWebRTCCallSession) {
-        print("[DMCall] detachSession wasSig=\(signalingSession === session) wasWarm=\(preWarmedIncomingSession === session)")
         if signalingSession === session {
             signalingSession = nil
         }
@@ -60,7 +55,6 @@ final class WebRTCCallManager {
     }
 
     func abandonIncomingPresentation() {
-        print("[DMCall] abandonIncomingPresentation hasWarm=\(preWarmedIncomingSession != nil) pendingUserInfo=\(pendingIncomingPeerCallUserInfo != nil)")
         awaitingIncomingAttachment = false
         expectedIncomingBufferKey = nil
         bufferedSignaling.removeAll()
@@ -73,7 +67,6 @@ final class WebRTCCallManager {
     }
 
     func endActivePeerCallFromCallKitAction() {
-        print("[DMCall] endActivePeerCallFromCallKitAction hasSig=\(signalingSession != nil) hasWarm=\(preWarmedIncomingSession != nil)")
         if let session = signalingSession {
             session.hangUp()
         } else if let warm = preWarmedIncomingSession {
@@ -94,17 +87,13 @@ final class WebRTCCallManager {
         currentUserId: Int64,
         compressedOffer: String
     ) {
-        print("[DMCall] preWarmIncomingPeerCallIfNeeded channelId=\(channelId) callerId=\(callerId) receiverId=\(receiverId) currentUserId=\(currentUserId) hasSig=\(signalingSession != nil) hasWarm=\(preWarmedIncomingSession != nil)")
         guard signalingSession == nil, preWarmedIncomingSession == nil else {
-            print("[DMCall] preWarmIncomingPeerCallIfNeeded skip: hasSig=\(signalingSession != nil) hasWarm=\(preWarmedIncomingSession != nil)")
             return
         }
         guard channelId != 0, callerId != 0, !compressedOffer.isEmpty else {
-            print("[DMCall] preWarmIncomingPeerCallIfNeeded skip: missing ids or offer empty=\(compressedOffer.isEmpty)")
             return
         }
         guard receiverId == currentUserId || receiverId == 0 else {
-            print("[DMCall] preWarmIncomingPeerCallIfNeeded skip: receiverId=\(receiverId) != currentUserId=\(currentUserId)")
             return
         }
 
@@ -126,17 +115,12 @@ final class WebRTCCallManager {
         expectedIncomingBufferKey = nil
         let buffered = bufferedSignaling
         bufferedSignaling.removeAll()
-        print("[DMCall] preWarmIncomingPeerCallIfNeeded session created draining \(buffered.count) buffered messages")
         for m in buffered {
             session.handleIncomingSignaling(m)
         }
         Task { @MainActor [weak session] in
             guard let session else { return }
-            do {
-                try await session.prepareIncomingAnswerInBackground()
-            } catch {
-                print("[DMCall] preWarmIncomingPeerCallIfNeeded prepareIncomingAnswerInBackground threw: \(error)")
-            }
+            try? await session.prepareIncomingAnswerInBackground()
         }
     }
 
@@ -144,10 +128,8 @@ final class WebRTCCallManager {
         guard let key = preWarmedIncomingKey,
               key.channelId == channelId, key.callerId == callerId,
               let session = preWarmedIncomingSession else {
-            print("[DMCall] consumePreWarmedIncomingSession miss channelId=\(channelId) callerId=\(callerId) warmKey=\(String(describing: preWarmedIncomingKey))")
             return nil
         }
-        print("[DMCall] consumePreWarmedIncomingSession HIT channelId=\(channelId) callerId=\(callerId)")
         preWarmedIncomingSession = nil
         preWarmedIncomingKey = nil
         return session
@@ -170,9 +152,6 @@ final class WebRTCCallManager {
         guard payload.isStaleIncomingRing(maxAgeMs: PeerCallIncomingFreshness.maxOfferAgeMs) else {
             return false
         }
-        print(
-            "[DMCall] discardStaleIncomingPeerPayloadIfNeeded channelId=\(payload.channelId) callerId=\(payload.callerId)"
-        )
         awaitingIncomingAttachment = false
         expectedIncomingBufferKey = nil
         bufferedSignaling.removeAll()
@@ -199,15 +178,12 @@ final class WebRTCCallManager {
     }
 
     func armIncomingSignalingBufferIfDetached(channelId: Int64, calleeUserId: Int64) {
-        print("[DMCall] armIncomingSignalingBufferIfDetached channelId=\(channelId) calleeUserId=\(calleeUserId) hasSig=\(signalingSession != nil)")
         guard signalingSession == nil else {
-            print("[DMCall] armIncomingSignalingBufferIfDetached skip: session already attached")
             return
         }
         let nextKey = (channelId: channelId, calleeUserId: calleeUserId)
         if let key = expectedIncomingBufferKey {
             if key.channelId != nextKey.channelId || key.calleeUserId != nextKey.calleeUserId {
-                print("[DMCall] armIncomingSignalingBufferIfDetached key changed oldKey=(\(key.channelId),\(key.calleeUserId)) newKey=(\(channelId),\(calleeUserId)) -> clearing buffer")
                 bufferedSignaling.removeAll()
             }
         }
@@ -216,29 +192,22 @@ final class WebRTCCallManager {
     }
 
     func prepareIncomingCallFromVoIPUserInfo(_ userInfo: [AnyHashable: Any], currentUserId: Int64) {
-        print("[DMCall] prepareIncomingCallFromVoIPUserInfo currentUserId=\(currentUserId)")
         guard let payload = IncomingPeerCallPayload(userInfo: userInfo) else {
-            print("[DMCall] prepareIncomingCallFromVoIPUserInfo skip: invalid payload")
             return
         }
-        print("[DMCall] prepareIncomingCallFromVoIPUserInfo channelId=\(payload.channelId) callerId=\(payload.callerId) receiverId=\(payload.receiverId) hasPushOffer=\(payload.compressedOfferFromPush?.isEmpty == false) hasSigOffer=\(payload.compressedOfferFromSignaling?.isEmpty == false)")
         guard payload.receiverId == currentUserId || payload.receiverId == 0 else {
-            print("[DMCall] prepareIncomingCallFromVoIPUserInfo skip: receiverId mismatch \(payload.receiverId) != \(currentUserId)")
             return
         }
 
         if discardStaleIncomingPeerPayloadIfNeeded(payload) {
-            print("[DMCall] prepareIncomingCallFromVoIPUserInfo skip: stale offer timestamp")
             return
         }
 
         if let session = signalingSession, preWarmedIncomingSession == nil {
-            print("[DMCall] prepareIncomingCallFromVoIPUserInfo existing session found isSame=\(session.isSameIncomingPeerCall(channelId: payload.channelId, callerId: payload.callerId)) isRinging=\(session.isRingingIncomingPeerCallMatching(channelId: payload.channelId, callerId: payload.callerId))")
             guard session.isSameIncomingPeerCall(channelId: payload.channelId, callerId: payload.callerId) else {
                 return
             }
             if session.isRingingIncomingPeerCallMatching(channelId: payload.channelId, callerId: payload.callerId) {
-                print("[DMCall] prepareIncomingCallFromVoIPUserInfo -> mezonCallKitMatchedExistingIncoming -> answerIncomingCall")
                 NotificationCenter.default.post(
                     name: .mezonCallKitMatchedExistingIncoming,
                     object: nil,
@@ -253,22 +222,18 @@ final class WebRTCCallManager {
         }
 
         guard let offer = payload.resolvedCompressedOffer(), !offer.isEmpty else {
-            print("[DMCall] prepareIncomingCallFromVoIPUserInfo skip: no resolved offer")
             return
         }
         awaitingIncomingAttachment = true
         expectedIncomingBufferKey = (payload.channelId, currentUserId)
         let presentedViaNative = attemptPresentIncomingPeerCallViaNativeWindowRoot(payload: payload)
-        print("[DMCall] prepareIncomingCallFromVoIPUserInfo presentedViaNativeWindow=\(presentedViaNative) hasWarm=\(preWarmedIncomingSession != nil)")
         if presentedViaNative {
             if let warm = preWarmedIncomingSession,
                warm.isSameIncomingPeerCall(channelId: payload.channelId, callerId: payload.callerId) {
-                print("[DMCall] prepareIncomingCallFromVoIPUserInfo nativeWindow path -> answerIncomingCall on warm session")
                 warm.answerIncomingCall()
             }
             return
         }
-        print("[DMCall] prepareIncomingCallFromVoIPUserInfo posting mezonIncomingPeerCall notification")
         NotificationCenter.default.post(
             name: .mezonIncomingPeerCall,
             object: nil,
@@ -276,7 +241,6 @@ final class WebRTCCallManager {
         )
         if let warm = preWarmedIncomingSession,
            warm.isSameIncomingPeerCall(channelId: payload.channelId, callerId: payload.callerId) {
-            print("[DMCall] prepareIncomingCallFromVoIPUserInfo notification path -> answerIncomingCall on warm session")
             warm.answerIncomingCall()
         }
     }
@@ -327,33 +291,29 @@ final class WebRTCCallManager {
     }
 
     func handleIncomingCallPush(_ push: Mezon_Realtime_IncomingCallPush, currentUserId: Int64) {
-        print("[DMCall] handleIncomingCallPush channelId=\(push.channelID) callerId=\(push.callerID) receiverId=\(push.receiverID) currentUserId=\(currentUserId) hasSig=\(signalingSession != nil)")
         guard push.callerID != currentUserId else {
-            print("[CallKitDebug] handleIncomingCallPush ignored selfEcho callerId=\(push.callerID)")
             return
         }
         guard push.receiverID == currentUserId || push.receiverID == 0 else {
-            print("[CallKitDebug] handleIncomingCallPush ignored receiverMismatch receiverId=\(push.receiverID) currentUserId=\(currentUserId)")
             return
         }
         guard push.channelID != 0, push.callerID != 0 else { return }
         if Self.incomingCallPushIsCancel(push.jsonData) {
             let isConnectedFlag = Self.incomingCallPushIsConnectedTrue(push.jsonData)
-            print("[CallKitDebug] handleIncomingCallPush CANCEL_CALL via socket channelId=\(push.channelID) callerId=\(push.callerID) isConnected=\(isConnectedFlag)")
+            let cancelSentAtMs = IncomingPeerCallPayloadParser.offerCreatedAtMs(pushJsonData: push.jsonData)
+            if let c = cancelSentAtMs,
+               let r = CallKitManager.shared.currentRingingOfferSentAtMs(),
+               c < r {
+                return
+            }
             if let session = signalingSession,
                session.isSameIncomingPeerCall(channelId: push.channelID, callerId: push.callerID) {
                 let isRinging = session.isRingingIncomingPeerCallMatching(
                     channelId: push.channelID,
                     callerId: push.callerID
                 )
-                if isRinging {
-                    print("[CallKitDebug] handleIncomingCallPush -> session.hangUp() (still ringing)")
+                if isRinging || !isConnectedFlag {
                     session.hangUp()
-                } else if !isConnectedFlag {
-                    print("[CallKitDebug] handleIncomingCallPush -> session.hangUp() (active session, isConnected=false caller-cancelled)")
-                    session.hangUp()
-                } else {
-                    print("[CallKitDebug] handleIncomingCallPush -> SKIP session.hangUp() (active session, isConnected=true means caller signaling answered-elsewhere; this device is the answerer)")
                 }
             }
             if let warm = preWarmedIncomingSession,
@@ -369,7 +329,8 @@ final class WebRTCCallManager {
             CallKitManager.shared.endRingingCallIfMatching(
                 channelId: push.channelID,
                 callerId: push.callerID,
-                remoteIsConnected: isConnectedFlag
+                remoteIsConnected: isConnectedFlag,
+                cancelSentAtMs: cancelSentAtMs
             )
             return
         }
@@ -405,7 +366,6 @@ final class WebRTCCallManager {
     }
 
     private func deliverSignaling(_ msg: Mezon_Realtime_WebrtcSignalingFwd, currentUserId: Int64) {
-        print("[DMCall] deliverSignaling dataType=\(msg.dataType) channelId=\(msg.channelID) callerId=\(msg.callerID) receiverId=\(msg.receiverID) hasSig=\(signalingSession != nil) awaitingAttachment=\(awaitingIncomingAttachment) buffered=\(bufferedSignaling.count)")
 
         if msg.dataType == WebRTCSignalingDataType.sdpOffer,
            msg.callerID != currentUserId,
@@ -413,7 +373,6 @@ final class WebRTCCallManager {
            msg.channelID != 0,
            (msg.receiverID == currentUserId || msg.receiverID == 0),
            isBusyWithDifferentPeer(channelId: msg.channelID, callerId: msg.callerID) {
-            print("[DMCall] deliverSignaling sdpOffer from DIFFERENT peer while busy -> sdpJoinedOtherCall to caller=\(msg.callerID) channelId=\(msg.channelID)")
             MezonSocket.shared.forwardWebrtcSignaling(
                 receiverId: msg.callerID,
                 dataType: WebRTCSignalingDataType.sdpJoinedOtherCall,
@@ -425,13 +384,11 @@ final class WebRTCCallManager {
         }
 
         if let session = signalingSession {
-            print("[DMCall] deliverSignaling -> forwarding to attached session")
             session.handleIncomingSignaling(msg)
             return
         }
 
         if Self.isTerminalSignalingDataType(msg.dataType) {
-            print("[DMCall] deliverSignaling -> terminal dataType=\(msg.dataType) no session")
             handleTerminalSignalingWithoutSession(msg, currentUserId: currentUserId)
             return
         }
@@ -445,18 +402,28 @@ final class WebRTCCallManager {
                 awaitingIncomingAttachment = true
                 expectedIncomingBufferKey = (msg.channelID, currentUserId)
             }
-            print("[DMCall] deliverSignaling sdpOffer buffered awaitingAttachment=\(awaitingIncomingAttachment) bufferedCount=\(bufferedSignaling.count + 1)")
             bufferedSignaling.append(msg)
+            let channelId = msg.channelID
+            let callerId = msg.callerID
+            let receiverId = msg.receiverID
+            let compressedOffer = msg.jsonData
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 1_200_000_000)
+                CallKitManager.shared.ringIncomingFromSocketOfferIfNeeded(
+                    channelId: channelId,
+                    callerId: callerId,
+                    receiverId: receiverId,
+                    compressedOffer: compressedOffer
+                )
+            }
             return
         }
 
         if shouldBuffer(msg, currentUserId: currentUserId) {
-            print("[DMCall] deliverSignaling buffered (shouldBuffer) dataType=\(msg.dataType) bufferedCount=\(bufferedSignaling.count + 1)")
             bufferedSignaling.append(msg)
             return
         }
 
-        print("[DMCall] deliverSignaling dropped: no session, not terminal, not bufferable dataType=\(msg.dataType)")
     }
 
     private func handleTerminalSignalingWithoutSession(
@@ -465,7 +432,6 @@ final class WebRTCCallManager {
     ) {
         guard msg.callerID != currentUserId, msg.callerID != 0, msg.channelID != 0 else { return }
         guard msg.receiverID == currentUserId || msg.receiverID == 0 else { return }
-        print("[CallKitDebug] handleTerminalSignalingWithoutSession dataType=\(msg.dataType) channelId=\(msg.channelID) callerId=\(msg.callerID)")
         bufferedSignaling.removeAll()
         awaitingIncomingAttachment = false
         expectedIncomingBufferKey = nil
@@ -505,6 +471,12 @@ final class WebRTCCallManager {
             return true
         }
         return false
+    }
+
+    func hasPendingIncomingSocketOffer(channelId: Int64, callerId: Int64) -> Bool {
+        bufferedSignaling.contains {
+            $0.dataType == WebRTCSignalingDataType.sdpOffer && $0.channelID == channelId && $0.callerID == callerId
+        }
     }
 
     private func shouldBuffer(_ msg: Mezon_Realtime_WebrtcSignalingFwd, currentUserId: Int64) -> Bool {
@@ -622,6 +594,10 @@ enum IncomingPeerCallPayloadParser {
             let data = trimmed.data(using: .utf8),
             let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else { return nil }
+        return sentAtMs(fromInnerDict: obj)
+    }
+
+    static func sentAtMs(fromInnerDict obj: [String: Any]) -> Int64? {
         for key in ["sentAt", "createAt", "createdAt"] {
             if let ms = normalizedEpochMillis(from: obj[key]) { return ms }
         }

@@ -99,6 +99,8 @@ final class ChatContainerNode: ASDisplayNode {
     private let isDM: Bool
     private let disposables = DisposableSet()
     var pendingJumpMessageId: String?
+    var onPendingJumpCompleted: ((String) -> Void)?
+    private var scheduledJumpMessageId: String?
     private(set) var didAutoScrollForNewMessages = false
     private var isLoadMoreGuardActive = false
     private var lastKnownDistanceFromBottom: CGFloat = 0
@@ -320,20 +322,31 @@ final class ChatContainerNode: ASDisplayNode {
         if hadZeroFrame && listView.bounds.width > 0 || needsReloadAfterLayout {
             needsReloadAfterLayout = false
             reloadAllItems()
+            triggerPendingJump()
         }
     }
 
     func triggerPendingJump() {
-        guard let jumpId = pendingJumpMessageId,
-              state.messages.contains(where: { $0.id == jumpId }) else { return }
-        pendingJumpMessageId = nil
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            self?.scrollToMessage(id: jumpId)
+        guard let jumpId = pendingJumpMessageId else { return }
+        guard state.messages.contains(where: { $0.id == jumpId }),
+              committedMessageIds.contains(jumpId),
+              scheduledJumpMessageId != jumpId else { return }
+        scheduledJumpMessageId = jumpId
+        listView.addAfterTransactionsCompleted { [weak self] in
+            guard let self else { return }
+            guard self.pendingJumpMessageId == jumpId else {
+                self.scheduledJumpMessageId = nil
+                return
+            }
+            if !self.scrollToMessage(id: jumpId) {
+                self.scheduledJumpMessageId = nil
+            }
         }
     }
 
-    func scrollToMessage(id: String) {
-        guard let row = committedMessageIds.firstIndex(of: id) else { return }
+    @discardableResult
+    func scrollToMessage(id: String) -> Bool {
+        guard let row = committedMessageIds.firstIndex(of: id) else { return false }
         listView.transaction(
             deleteIndices: [],
             insertIndicesAndItems: [],
@@ -341,7 +354,13 @@ final class ChatContainerNode: ASDisplayNode {
             options: [.Synchronous],
             scrollToItem: ListViewScrollToItem(index: row, position: .center(.top), animated: true, curve: .Default(duration: nil), directionHint: .Down),
             updateOpaqueState: nil,
-            completion: { _ in }
+            completion: { [weak self] _ in
+                guard let self else { return }
+                self.scheduledJumpMessageId = nil
+                guard self.pendingJumpMessageId == id else { return }
+                self.pendingJumpMessageId = nil
+                self.onPendingJumpCompleted?(id)
+            }
         )
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
@@ -355,6 +374,7 @@ final class ChatContainerNode: ASDisplayNode {
                 }
             }
         }
+        return true
     }
 
     func captureVisibleMessageAnchor() -> VisibleMessageAnchor? {
@@ -487,9 +507,6 @@ final class ChatContainerNode: ASDisplayNode {
         let newIds = buildIds(from: state)
 
         if !committedMessageIds.isEmpty, committedMessageIds == newIds {
-#if DEBUG
-            print("[ChatScroll] reloadAllItems update-in-place count=\(newIds.count)")
-#endif
             let updateItems = items.enumerated().map { index, item in
                 ListViewUpdateItem(
                     index: index,
@@ -522,9 +539,6 @@ final class ChatContainerNode: ASDisplayNode {
                 directionHint: .Down
             )
         }
-#if DEBUG
-        print("[ChatScroll] reloadAllItems full-reload old=\(committedMessageIds.count) new=\(newIds.count) anchor=\(visibleMessageAnchor?.messageId ?? "nil")")
-#endif
 
         var deleteItems: [ListViewDeleteItem] = []
         for i in (0..<committedMessageIds.count).reversed() {
@@ -670,9 +684,6 @@ final class ChatContainerNode: ASDisplayNode {
 
         var scrollToItem: ListViewScrollToItem?
         if hasNewAtBottom && !isLoadMoreResult && !new.hasMoreNewer && (isAtBottom || newestMessageIsMe) {
-#if DEBUG
-            print("[ChatScroll] applyTransition auto-bottom isAtBottom=\(isAtBottom) newestIsMe=\(newestMessageIsMe)")
-#endif
             didAutoScrollForNewMessages = true
             scrollToItem = ListViewScrollToItem(index: 0, position: .top(0), animated: true, curve: .Spring(duration: 0.3), directionHint: .Up)
         }

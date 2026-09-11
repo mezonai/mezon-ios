@@ -2,53 +2,6 @@ import AVFoundation
 import Foundation
 import LiveKitWebRTC
 
-private enum StreamingWebRTCDebug {
-    static func log(_ message: @autoclosure () -> String) {
-        #if DEBUG
-        print("[StreamingWebRTC] \(message())")
-        #endif
-    }
-
-    static func iceConnectionStateLabel(_ state: LKRTCIceConnectionState) -> String {
-        switch state {
-        case .new: return "new"
-        case .checking: return "checking"
-        case .connected: return "connected"
-        case .completed: return "completed"
-        case .failed: return "failed"
-        case .disconnected: return "disconnected"
-        case .closed: return "closed"
-        case .count: return "count"
-        @unknown default: return "unknown(\(state.rawValue))"
-        }
-    }
-
-    static func transceiverDirectionLabel(_ direction: LKRTCRtpTransceiverDirection?) -> String {
-        guard let direction else { return "nil" }
-        switch direction {
-        case .sendRecv: return "sendRecv"
-        case .sendOnly: return "sendOnly"
-        case .recvOnly: return "recvOnly"
-        case .inactive: return "inactive"
-        case .stopped: return "stopped"
-        @unknown default: return "unknown"
-        }
-    }
-
-    static func redactedWSURL(_ url: URL) -> String {
-        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
-            return url.absoluteString
-        }
-        components.queryItems = components.queryItems?.map { item in
-            guard item.name == "token" else { return item }
-            let value = item.value ?? ""
-            let suffix = value.count > 6 ? String(value.suffix(6)) : value
-            return URLQueryItem(name: item.name, value: "<redacted:\(suffix)>")
-        }
-        return components.string ?? url.absoluteString
-    }
-}
-
 @MainActor
 final class StreamingWebRTCSession: NSObject {
 
@@ -84,10 +37,6 @@ final class StreamingWebRTCSession: NSObject {
         super.init()
     }
 
-    private static func log(_ message: @autoclosure () -> String) {
-        StreamingWebRTCDebug.log(message())
-    }
-
     func join(
         clanId: Int64,
         channelId: Int64,
@@ -97,10 +46,8 @@ final class StreamingWebRTCSession: NSObject {
         token: String
     ) async {
         if activeStreamChannelId == streamId, isStreaming, peerConnection != nil {
-            Self.log("join skipped: already connected streamId=\(streamId)")
             return
         }
-        Self.log("join start clanId=\(clanId) channelId=\(channelId) streamId=\(streamId) userId=\(userId) username=\(username)")
         disconnect()
         pendingClanId = clanId
         pendingChannelId = channelId
@@ -118,14 +65,11 @@ final class StreamingWebRTCSession: NSObject {
 
         let audioInit = LKRTCRtpTransceiverInit()
         audioInit.direction = .recvOnly
-        let audioTransceiver = pc.addTransceiver(of: .audio, init: audioInit)
-        Self.log("audio transceiver direction=\(StreamingWebRTCDebug.transceiverDirectionLabel(audioTransceiver?.direction))")
+        pc.addTransceiver(of: .audio, init: audioInit)
 
         guard let wsURL = Self.makeWebSocketURL(username: username, token: token) else {
-            Self.log("join failed: invalid websocket url base=\(MezonConfig.streamWebSocketURLString)")
             return
         }
-        Self.log("websocket connect \(StreamingWebRTCDebug.redactedWSURL(wsURL))")
         let session = URLSession(configuration: .default)
         urlSession = session
         let task = session.webSocketTask(with: wsURL)
@@ -137,7 +81,6 @@ final class StreamingWebRTCSession: NSObject {
 
         do {
             let offer = try await Self.createOffer(on: pc)
-            Self.log("local offer created type=\(offer.type.rawValue) sdpLen=\(offer.sdp.count)")
             try await Self.setLocalDescription(offer, on: pc)
             sendJSON([
                 "Key": "session_subscriber",
@@ -145,11 +88,10 @@ final class StreamingWebRTCSession: NSObject {
                 "ChannelId": "\(channelId)",
                 "UserId": userId,
                 "Value": Self.sessionDescriptionPayload(offer),
-            ], label: "session_subscriber")
-            sendJSON(["Key": "get_channels"], label: "get_channels")
+            ])
+            sendJSON(["Key": "get_channels"])
             startAvailabilityPolling()
         } catch {
-            Self.log("join failed during offer/localDescription: \(error.localizedDescription)")
             disconnect()
         }
     }
@@ -161,7 +103,7 @@ final class StreamingWebRTCSession: NSObject {
                 try? await Task.sleep(nanoseconds: Self.availabilityPollIntervalNanos)
                 guard !Task.isCancelled, let self else { return }
                 guard !self.isStreaming, self.webSocketTask != nil else { return }
-                self.sendJSON(["Key": "get_channels"], label: "get_channels")
+                self.sendJSON(["Key": "get_channels"])
             }
         }
     }
@@ -194,7 +136,6 @@ final class StreamingWebRTCSession: NSObject {
     }
 
     func disconnect() {
-        Self.log("disconnect streamId=\(activeStreamChannelId.map(String.init) ?? "nil") isStreaming=\(isStreaming)")
         receiveLoopTask?.cancel()
         receiveLoopTask = nil
         availabilityPollTask?.cancel()
@@ -231,12 +172,9 @@ final class StreamingWebRTCSession: NSObject {
     private func attachRemoteAudioTrack(_ track: LKRTCAudioTrack?) {
         remoteAudioTrack = track
         guard let track else {
-            Self.log("remote audio track cleared")
             return
         }
         track.isEnabled = true
-        Self.log("remote audio track attached id=\(track.trackId) enabled=\(track.isEnabled) state=\(track.readyState.rawValue)")
-        logAudioSessionState(prefix: "after audio track")
     }
 
     private func setRemoteVideoTrack(_ track: LKRTCVideoTrack?) {
@@ -244,9 +182,6 @@ final class StreamingWebRTCSession: NSObject {
         remoteVideoTrack = track
         if let track {
             track.isEnabled = true
-            Self.log("remote video track attached id=\(track.trackId) enabled=\(track.isEnabled) state=\(track.readyState.rawValue)")
-        } else {
-            Self.log("remote video track cleared")
         }
         onRemoteVideoTrackChanged?(track)
     }
@@ -258,7 +193,6 @@ final class StreamingWebRTCSession: NSObject {
             availabilityPollTask?.cancel()
             availabilityPollTask = nil
         }
-        Self.log("isStreaming=\(value) streamId=\(pendingStreamId)")
         onStreamingStateChanged?()
     }
 
@@ -274,11 +208,8 @@ final class StreamingWebRTCSession: NSObject {
         do {
             try rtc.setConfiguration(cfg, active: true)
             rtc.isAudioEnabled = true
-            Self.log("webrtc audio session configured category=playback")
         } catch {
-            Self.log("webrtc audio session configure failed: \(error.localizedDescription)")
         }
-        logAudioSessionState(prefix: "after configure")
     }
 
     private func deactivateWebRTCAudio() {
@@ -289,29 +220,13 @@ final class StreamingWebRTCSession: NSObject {
         try? rtc.setActive(false)
     }
 
-    private func scanRemoteTracks(source: String) {
+    private func scanRemoteTracks() {
         guard let pc = peerConnection else { return }
-        let transceivers = pc.transceivers
-        Self.log("\(source): transceivers=\(transceivers.count)")
-        for (index, transceiver) in transceivers.enumerated() {
-            Self.log("\(source): transceiver[\(index)] media=\(transceiver.mediaType.rawValue) dir=\(StreamingWebRTCDebug.transceiverDirectionLabel(transceiver.direction)) mid=\(transceiver.mid ?? "nil")")
+        for transceiver in pc.transceivers {
             if let track = transceiver.receiver.track {
-                handleRemoteTrack(track, source: "\(source).scan")
+                handleRemoteTrack(track)
             }
         }
-    }
-
-    private static func sdpMediaLineSummary(_ sdp: String) -> String {
-        let lines = sdp.split(separator: "\n", omittingEmptySubsequences: false)
-        let audio = lines.filter { $0.hasPrefix("m=audio") }.count
-        let video = lines.filter { $0.hasPrefix("m=video") }.count
-        return "audioM=\(audio) videoM=\(video)"
-    }
-
-    private func logAudioSessionState(prefix: String) {
-        let session = AVAudioSession.sharedInstance()
-        let route = session.currentRoute.outputs.map(\.portType.rawValue).joined(separator: ",")
-        Self.log("\(prefix): category=\(session.category.rawValue) mode=\(session.mode.rawValue) otherAudio=\(session.isOtherAudioPlaying) outputRoute=[\(route)] volume=\(session.outputVolume)")
     }
 
     private static func makePeerConnectionFactory() -> LKRTCPeerConnectionFactory {
@@ -351,20 +266,12 @@ final class StreamingWebRTCSession: NSObject {
         ]
     }
 
-    private func sendJSON(_ object: [String: Any], label: String? = nil) {
+    private func sendJSON(_ object: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: object),
               let text = String(data: data, encoding: .utf8) else {
-            Self.log("sendJSON failed to encode label=\(label ?? "unknown")")
             return
         }
-        let key = (object["Key"] as? String) ?? label ?? "?"
-        webSocketTask?.send(.string(text)) { error in
-            if let error {
-                StreamingWebRTCDebug.log("ws send failed key=\(key): \(error.localizedDescription)")
-            } else {
-                StreamingWebRTCDebug.log("ws send ok key=\(key)")
-            }
-        }
+        webSocketTask?.send(.string(text)) { _ in }
     }
 
     private func receiveMessages(from task: URLSessionWebSocketTask) async {
@@ -377,14 +284,11 @@ final class StreamingWebRTCSession: NSObject {
                 case .data(let data):
                     if let text = String(data: data, encoding: .utf8) {
                         handleIncomingMessage(text)
-                    } else {
-                        Self.log("ws received binary data len=\(data.count)")
                     }
                 @unknown default:
                     break
                 }
             } catch {
-                Self.log("ws receive loop ended: \(error.localizedDescription)")
                 break
             }
         }
@@ -394,33 +298,27 @@ final class StreamingWebRTCSession: NSObject {
         guard let data = text.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let key = json["Key"] as? String else {
-            Self.log("ws message parse failed: \(text.prefix(200))")
             return
         }
 
         switch key {
         case "channels":
-            Self.log("ws message key=channels value=\(String(describing: json["Value"]))")
             handleChannelsMessage(json)
         case "sd_answer":
-            Self.log("ws message key=sd_answer")
             handleAnswerMessage(json)
         case "ice_candidate":
-            Self.log("ws message key=ice_candidate")
             handleRemoteIceCandidate(json)
         case "session_received":
-            Self.log("ws message key=session_received")
+            break
         case "error":
-            Self.log("ws message key=error value=\(String(describing: json["Value"]))")
             setStreaming(false)
         default:
-            Self.log("ws message key=\(key) value=\(String(describing: json["Value"]))")
+            break
         }
     }
 
     private func handleChannelsMessage(_ json: [String: Any]) {
         guard let values = json["Value"] as? [Any] else {
-            Self.log("channels missing Value array")
             setStreaming(false)
             return
         }
@@ -431,7 +329,6 @@ final class StreamingWebRTCSession: NSObject {
             if let id = value as? Int64 { return "\(id)" == streamIdString }
             return false
         }
-        Self.log("channels contains streamId=\(streamIdString): \(containsStream) available=\(values)")
         guard containsStream else {
             setStreaming(false)
             return
@@ -444,25 +341,21 @@ final class StreamingWebRTCSession: NSObject {
                 "ChannelId": "\(pendingChannelId)",
                 "UserId": pendingUserId,
                 "Value": ["ChannelId": streamIdString],
-            ], label: "connect_subscriber")
+            ])
         }
         setStreaming(true)
     }
 
     private func handleAnswerMessage(_ json: [String: Any]) {
         guard let pc = peerConnection else {
-            Self.log("sd_answer ignored: no peerConnection")
             return
         }
         if let sdp = json["Value"] as? String {
             let answer = LKRTCSessionDescription(type: .answer, sdp: sdp)
             pc.setRemoteDescription(answer) { [weak self] error in
-                if let error {
-                    Self.log("setRemoteDescription failed: \(error.localizedDescription)")
-                } else {
-                    Self.log("setRemoteDescription ok sdpLen=\(sdp.count) \(Self.sdpMediaLineSummary(sdp))")
+                if error == nil {
                     Task { @MainActor [weak self] in
-                        self?.scanRemoteTracks(source: "after sd_answer")
+                        self?.scanRemoteTracks()
                     }
                 }
             }
@@ -472,33 +365,21 @@ final class StreamingWebRTCSession: NSObject {
            let sdp = payload["sdp"] as? String {
             let answer = LKRTCSessionDescription(type: .answer, sdp: sdp)
             pc.setRemoteDescription(answer) { [weak self] error in
-                if let error {
-                    Self.log("setRemoteDescription failed: \(error.localizedDescription)")
-                } else {
-                    Self.log("setRemoteDescription ok sdpLen=\(sdp.count) \(Self.sdpMediaLineSummary(sdp))")
+                if error == nil {
                     Task { @MainActor [weak self] in
-                        self?.scanRemoteTracks(source: "after sd_answer")
+                        self?.scanRemoteTracks()
                     }
                 }
             }
             return
         }
-        Self.log("sd_answer missing sdp payload")
     }
 
     private func handleRemoteIceCandidate(_ json: [String: Any]) {
         guard let pc = peerConnection else { return }
         if let candidateJSON = json["Value"] as? [String: Any] {
             if let candidate = Self.iceCandidate(from: candidateJSON) {
-                pc.add(candidate) { error in
-                    if let error {
-                        Self.log("addIceCandidate failed: \(error.localizedDescription)")
-                    } else {
-                        Self.log("addIceCandidate ok mid=\(candidateJSON["sdpMid"] as? String ?? "")")
-                    }
-                }
-            } else {
-                Self.log("addIceCandidate parse failed dict=\(candidateJSON)")
+                pc.add(candidate) { _ in }
             }
             return
         }
@@ -506,30 +387,20 @@ final class StreamingWebRTCSession: NSObject {
            let data = candidateJSON.data(using: .utf8),
            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let candidate = Self.iceCandidate(from: object) {
-            pc.add(candidate) { error in
-                if let error {
-                    Self.log("addIceCandidate failed: \(error.localizedDescription)")
-                } else {
-                    Self.log("addIceCandidate ok from string payload")
-                }
-            }
+            pc.add(candidate) { _ in }
             return
         }
-        Self.log("ice_candidate unsupported payload=\(String(describing: json["Value"]))")
     }
 
-    private func handleRemoteTrack(_ track: LKRTCMediaStreamTrack, source: String) {
+    private func handleRemoteTrack(_ track: LKRTCMediaStreamTrack) {
         if let video = track as? LKRTCVideoTrack {
-            Self.log("\(source): video track id=\(video.trackId)")
             setRemoteVideoTrack(video)
             return
         }
         if let audio = track as? LKRTCAudioTrack {
-            Self.log("\(source): audio track id=\(audio.trackId) enabled=\(audio.isEnabled) state=\(audio.readyState.rawValue)")
             attachRemoteAudioTrack(audio)
             return
         }
-        Self.log("\(source): unknown track kind=\(track.kind)")
     }
 
     private static func iceCandidate(from json: [String: Any]) -> LKRTCIceCandidate? {
@@ -541,31 +412,25 @@ final class StreamingWebRTCSession: NSObject {
 }
 
 extension StreamingWebRTCSession: LKRTCPeerConnectionDelegate {
-    nonisolated func peerConnection(_: LKRTCPeerConnection, didChange state: LKRTCSignalingState) {
-        StreamingWebRTCDebug.log("signalingState=\(state.rawValue)")
-    }
+    nonisolated func peerConnection(_: LKRTCPeerConnection, didChange _: LKRTCSignalingState) {}
 
     nonisolated func peerConnection(_: LKRTCPeerConnection, didAdd stream: LKRTCMediaStream) {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            Self.log("didAdd stream id=\(stream.streamId) audioTracks=\(stream.audioTracks.count) videoTracks=\(stream.videoTracks.count)")
             for track in stream.audioTracks {
-                self.handleRemoteTrack(track, source: "didAddStream.audio")
+                self.handleRemoteTrack(track)
             }
             for track in stream.videoTracks {
-                self.handleRemoteTrack(track, source: "didAddStream.video")
+                self.handleRemoteTrack(track)
             }
         }
     }
 
     nonisolated func peerConnection(_: LKRTCPeerConnection, didRemove _: LKRTCMediaStream) {}
 
-    nonisolated func peerConnectionShouldNegotiate(_: LKRTCPeerConnection) {
-        StreamingWebRTCDebug.log("negotiation needed")
-    }
+    nonisolated func peerConnectionShouldNegotiate(_: LKRTCPeerConnection) {}
 
     nonisolated func peerConnection(_: LKRTCPeerConnection, didChange state: LKRTCIceConnectionState) {
-        StreamingWebRTCDebug.log("iceConnectionState=\(StreamingWebRTCDebug.iceConnectionStateLabel(state))")
         if state == .connected || state == .completed {
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -573,15 +438,12 @@ extension StreamingWebRTCSession: LKRTCPeerConnectionDelegate {
                 rtc.lockForConfiguration()
                 rtc.isAudioEnabled = true
                 rtc.unlockForConfiguration()
-                self.logAudioSessionState(prefix: "ice connected")
-                self.scanRemoteTracks(source: "ice connected")
+                self.scanRemoteTracks()
             }
         }
     }
 
-    nonisolated func peerConnection(_: LKRTCPeerConnection, didChange state: LKRTCIceGatheringState) {
-        StreamingWebRTCDebug.log("iceGatheringState=\(state.rawValue)")
-    }
+    nonisolated func peerConnection(_: LKRTCPeerConnection, didChange _: LKRTCIceGatheringState) {}
 
     nonisolated func peerConnection(_: LKRTCPeerConnection, didGenerate candidate: LKRTCIceCandidate) {
         guard !candidate.sdp.isEmpty else { return }
@@ -594,7 +456,7 @@ extension StreamingWebRTCSession: LKRTCPeerConnectionDelegate {
             self?.sendJSON([
                 "Key": "ice_candidate",
                 "Value": payload,
-            ], label: "ice_candidate")
+            ])
         }
     }
 
@@ -605,7 +467,7 @@ extension StreamingWebRTCSession: LKRTCPeerConnectionDelegate {
     nonisolated func peerConnection(_: LKRTCPeerConnection, didAdd rtpReceiver: LKRTCRtpReceiver, streams _: [LKRTCMediaStream]) {
         Task { @MainActor [weak self] in
             guard let self, let track = rtpReceiver.track else { return }
-            self.handleRemoteTrack(track, source: "didAddRtpReceiver")
+            self.handleRemoteTrack(track)
         }
     }
 
@@ -614,7 +476,7 @@ extension StreamingWebRTCSession: LKRTCPeerConnectionDelegate {
     nonisolated func peerConnection(_: LKRTCPeerConnection, didStartReceivingOn transceiver: LKRTCRtpTransceiver) {
         Task { @MainActor [weak self] in
             guard let self, let track = transceiver.receiver.track else { return }
-            self.handleRemoteTrack(track, source: "didStartReceivingOn")
+            self.handleRemoteTrack(track)
         }
     }
 }

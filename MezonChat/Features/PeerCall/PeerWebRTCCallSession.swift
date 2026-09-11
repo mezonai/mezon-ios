@@ -1211,11 +1211,7 @@ final class PeerWebRTCCallSession: NSObject {
             throw PeerWebRTCCallSessionError.captureFailed
         }
         let fps = Self.selectCaptureFps(for: picked, desired: 30)
-        capturer.startCapture(with: device, format: picked, fps: fps) { error in
-            if let error {
-                print("[DMCall] startCameraCapture failed: \(error)")
-            }
-        }
+        capturer.startCapture(with: device, format: picked, fps: fps) { _ in }
     }
 
     private static func selectCaptureFormat(

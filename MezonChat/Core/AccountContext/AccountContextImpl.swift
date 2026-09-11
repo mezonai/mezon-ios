@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import WebKit
 import UserNotifications
 import FirebaseMessaging
 import SwiftProtobuf
@@ -387,6 +388,10 @@ final class AccountContextImpl: AccountContext {
         currentChannel = nil
         account.postbox.clearAllSync()
         ImageCache.shared.purgeAccountScopedCaches()
+        WKWebsiteDataStore.default().removeData(
+            ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(),
+            modifiedSince: .distantPast,
+            completionHandler: {})
         EmbedFormState.shared.removeAll()
         UserDefaults.standard.removeObject(forKey: "mezon_selectedClanId")
         UserDefaults.standard.removeObject(forKey: "mezon_otp_cooldown_cache_email")
@@ -1396,6 +1401,10 @@ final class AccountContextImpl: AccountContext {
 
         case .userClanRemoved(let ev):
             engine.clanData.applyClanUserRemovedFromSocket(ev)
+
+        case .clanEventCreated(let ev):
+            guard ev.clanID != 0 else { break }
+            engine.clanData.applyClanEventFromSocket(ev)
 
         case .clanUpdated(let ev):
             account.postbox.write { tx in

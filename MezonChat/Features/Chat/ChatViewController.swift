@@ -538,7 +538,6 @@ final class ChatViewController: ViewController {
     private var lastMarkedAsReadMessageId: Int64?
     private var pendingMarkAsRead = false
     private var didMarkChannelAsReadForCurrentAppearance = false
-    private var nextFetchPrefersHTTPFirst = false
     private var isCatchingUpAfterReconnect = false
     private var reconnectCatchUpTask: Task<Void, Never>?
     private var readyToLoadMore = false
@@ -600,13 +599,25 @@ final class ChatViewController: ViewController {
 
     private var messagesNode: ChatContainerNode { displayNode as! ChatContainerNode }
 
-    private func scrollDebugLog(_ message: @autoclosure () -> String) {
-#if DEBUG
-        print("[ChatScroll][channel=\(channel.channelID)] \(message())")
-#endif
+    private var initialMessageJumpTargetId: String?
+    private var startupJumpTargetForInitialFetch: String?
+    var pendingJumpToMessageId: String? {
+        didSet {
+            if let target = pendingJumpToMessageId, !target.isEmpty {
+                initialMessageJumpTargetId = target
+            }
+        }
     }
 
-    var pendingJumpToMessageId: String?
+    private func finishMessageJump(messageId: String) {
+        if let initialTarget = initialMessageJumpTargetId {
+            guard initialTarget == messageId else { return }
+            initialMessageJumpTargetId = nil
+            setIsLoading(false)
+        }
+        isJumping = false
+        readyToLoadMore = true
+    }
 
     init(
         clanId: Int64, channel: Mezon_Api_ChannelDescription, context: AccountContext,
@@ -1000,11 +1011,15 @@ final class ChatViewController: ViewController {
             self.handleEmbedButtonClicked(button: button, messageId: messageId, display: display)
         }
         
-        displayNode = ChatContainerNode(
+        let containerNode = ChatContainerNode(
             signal: stateSignal(),
             interaction: interaction,
             isDM: channel.type == MezonConstants.ChannelType.dm.rawValue
         )
+        containerNode.onPendingJumpCompleted = { [weak self] messageId in
+            self?.finishMessageJump(messageId: messageId)
+        }
+        displayNode = containerNode
     }
 
     override func viewDidLoad() {
@@ -1087,8 +1102,7 @@ final class ChatViewController: ViewController {
                 self.setIsLoading(false)
                 return
             }
-            self.hasCompletedInitialFetch = true
-            self.fetchMessages(token: token)
+            self.performInitialMessageFetchIfNeeded(token: token)
         }
     }
     
@@ -1370,7 +1384,6 @@ final class ChatViewController: ViewController {
             }
             if needsRefreshAfterTopicDiscussion, topicId == 0 {
                 needsRefreshAfterTopicDiscussion = false
-                markNextFetchPrefersHTTPFirst()
                 fetchMessages()
             }
         }
@@ -1729,6 +1742,7 @@ final class ChatViewController: ViewController {
         markChannelAsReadOnEntryIfPossible()
 
         if let jumpId = pendingJumpToMessageId {
+            isJumping = true
             pendingJumpToMessageId = nil
             DispatchQueue.main.async { [weak self] in
                 self?.jumpToMessage(id: jumpId)
@@ -1736,7 +1750,7 @@ final class ChatViewController: ViewController {
         } else if pendingScrollToBottom && !v.isEmpty {
             pendingScrollToBottom = false
             DispatchQueue.main.async { [weak self] in
-                self?.forceScrollToBottom(reason: "pendingScrollToBottom")
+                self?.forceScrollToBottom()
             }
         }
     }
@@ -1814,7 +1828,20 @@ final class ChatViewController: ViewController {
         2_400_000_000
     ]
 
+    private func performInitialMessageFetchIfNeeded(token: String) {
+        guard !hasCompletedInitialFetch else { return }
+        hasCompletedInitialFetch = true
+        if startupJumpTargetForInitialFetch != nil {
+            startupJumpTargetForInitialFetch = nil
+            return
+        }
+        fetchMessages(token: token)
+    }
+
     func start() {
+        if let initialMessageJumpTargetId {
+            startupJumpTargetForInitialFetch = initialMessageJumpTargetId
+        }
         if topicId == 0 {
             context.currentClanId = clanId
             context.currentChannel = channel
@@ -1902,8 +1929,7 @@ final class ChatViewController: ViewController {
                 return nil
             }()
             if let immediateToken, !self.hasCompletedInitialFetch {
-                self.hasCompletedInitialFetch = true
-                self.fetchMessages(token: immediateToken)
+                self.performInitialMessageFetchIfNeeded(token: immediateToken)
             }
 
             var token = await self.context.getTokenPreferringCachedSkipSessionReadyWait()
@@ -1916,8 +1942,7 @@ final class ChatViewController: ViewController {
                 return
             }
             if !self.hasCompletedInitialFetch {
-                self.hasCompletedInitialFetch = true
-                self.fetchMessages(token: token)
+                self.performInitialMessageFetchIfNeeded(token: token)
             }
             await self.waitForSocketConnected()
             self.joinChat()
@@ -2201,12 +2226,7 @@ final class ChatViewController: ViewController {
     func prepareForNotificationNavigation() {
         shouldReconcileKeyboardAfterNotificationNavigation = true
         collapseNotificationNavigationComposerOverlays()
-        markNextFetchPrefersHTTPFirst()
         reconcileKeyboardAfterNotificationNavigationIfNeeded()
-    }
-
-    func markNextFetchPrefersHTTPFirst() {
-        nextFetchPrefersHTTPFirst = true
     }
 
     func applyMergedChannelDescriptionFromChannelListLoadIfNeeded(
@@ -2342,10 +2362,6 @@ final class ChatViewController: ViewController {
         let wasAtBottom = messagesNode.isAtBottom
         let visibleMessageAnchor = wasAtBottom ? nil : messagesNode.captureVisibleMessageAnchor()
         let initialUserScrollGeneration = messagesNode.userScrollGeneration
-        scrollDebugLog(
-            "catchUp start offset=\(messagesNode.visibleContentOffsetDebugDescription) "
-                + "wasAtBottom=\(wasAtBottom) anchor=\(visibleMessageAnchor?.messageId ?? "nil")"
-        )
         if !wasAtBottom {
             shouldScrollToBottom = false
         }
@@ -2362,7 +2378,6 @@ final class ChatViewController: ViewController {
                 && messagesNode.userScrollGeneration == initialUserScrollGeneration
 
             if canRestorePosition, let visibleMessageAnchor {
-                scrollDebugLog("catchUp finish action=restore anchor=\(visibleMessageAnchor.messageId)")
                 messagesNode.listView.addAfterTransactionsCompleted { [weak self] in
                     guard let self,
                           self.messagesNode.userScrollGeneration == initialUserScrollGeneration else {
@@ -2371,28 +2386,20 @@ final class ChatViewController: ViewController {
                     self.messagesNode.restoreVisibleMessageAnchor(visibleMessageAnchor)
                 }
             } else if reachedPresent, wasAtBottom, canRestorePosition {
-                scrollDebugLog("catchUp finish action=bottom")
                 messagesNode.listView.addAfterTransactionsCompleted { [weak self] in
                     guard let self,
                           self.messagesNode.userScrollGeneration == initialUserScrollGeneration else {
                         return
                     }
-                    self.forceScrollToBottom(reason: "catchUpAtBottom") {
+                    self.forceScrollToBottom {
                         self.markChannelAsRead()
                     }
                 }
-            } else {
-                scrollDebugLog(
-                    "catchUp finish action=none reachedPresent=\(reachedPresent) "
-                        + "wasAtBottom=\(wasAtBottom) canRestore=\(canRestorePosition)"
-                )
             }
         }
 
         let pageSize: Int32 = 30
         let maxCatchUpPages = 20
-        // The channel join has no acknowledgement. Require two quiet HTTP passes so a
-        // message created while the realtime subscription is being restored is covered.
         var consecutiveNoAdvancePasses = 0
         var pagesFetched = 0
         var hitPageCap = false
@@ -2410,8 +2417,7 @@ final class ChatViewController: ViewController {
                     direction: 1,
                     limit: pageSize,
                     topicId: topicId,
-                    token: token,
-                    preferHTTPFirst: true
+                    token: token
                 )
                 pagesFetched += 1
 
@@ -2461,7 +2467,7 @@ final class ChatViewController: ViewController {
     }
 
     func fetchMessages(token: String? = nil) {
-        if pendingJumpToMessageId != nil { return }
+        if initialMessageJumpTargetId != nil || pendingJumpToMessageId != nil { return }
         let hadCachedMessages = !messages.isEmpty
         let hadCachedInPostbox = hasCachedMessagesInPostbox()
         if shouldSkipRemoteFetchForEmptyTopic(
@@ -2486,9 +2492,6 @@ final class ChatViewController: ViewController {
             setIsLoadingMessageContext(true)
         }
         setErrorMessage(nil)
-        let preferHTTPFirst = true
-        nextFetchPrefersHTTPFirst = false
-
         Task { @MainActor in
             defer {
                 self.setIsLoading(false)
@@ -2510,8 +2513,7 @@ final class ChatViewController: ViewController {
                             direction: 2,
                             limit: 30,
                             topicId: self.topicId,
-                            token: token,
-                            preferHTTPFirst: preferHTTPFirst
+                            token: token
                         )
                         if response.messages.isEmpty {
                             response = try await self.context.account.network.listChannelMessages(
@@ -2521,8 +2523,7 @@ final class ChatViewController: ViewController {
                                 direction: 3,
                                 limit: 30,
                                 topicId: self.topicId,
-                                token: token,
-                                preferHTTPFirst: preferHTTPFirst
+                                token: token
                             )
                         }
                         return response
@@ -2574,12 +2575,25 @@ final class ChatViewController: ViewController {
         }
     }
 
+    private static func oldestServerMessageId(in messages: [ChatMessageDisplay]) -> Int64? {
+        for item in messages where !item.isWelcome {
+            if let id = Int64(item.message.id), id != 0 { return id }
+        }
+        return nil
+    }
+
+    private static func newestServerMessageId(in messages: [ChatMessageDisplay]) -> Int64? {
+        for item in messages.reversed() where !item.isWelcome {
+            if let id = Int64(item.message.id), id != 0 { return id }
+        }
+        return nil
+    }
+
     func fetchOlderMessages() {
         guard hasMoreOlder, !isLoadingMore else { return }
         guard messages.count >= 10 else { return }
 
-        guard let oldest = messages.first(where: { !$0.isWelcome }),
-              let msgId = Int64(oldest.message.id), msgId != 0 else {
+        guard let msgId = Self.oldestServerMessageId(in: messages) else {
             setHasMoreOlder(false)
             return
         }
@@ -2618,7 +2632,7 @@ final class ChatViewController: ViewController {
     func fetchNewerMessages() {
         guard hasMoreNewer, !isLoadingNewer else { return }
         guard messages.count >= 10 else { return }
-        guard let newest = messages.last, let msgId = Int64(newest.message.id) else { return }
+        guard let msgId = Self.newestServerMessageId(in: messages) else { return }
 
         guard msgId != lastFetchedNewerMessageId else { return }
         lastFetchedNewerMessageId = msgId
@@ -4624,14 +4638,11 @@ final class ChatViewController: ViewController {
         if messages.contains(where: { $0.id == messageId }) {
             messagesNode.pendingJumpMessageId = messageId
             messagesNode.triggerPendingJump()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                self?.isJumping = false
-            }
             return
         }
 
         guard let msgId = Int64(messageId) else {
-            isJumping = false
+            finishMessageJump(messageId: messageId)
             return
         }
 
@@ -4644,12 +4655,12 @@ final class ChatViewController: ViewController {
         Task { @MainActor in
             defer {
                 self.setIsLoadingMessageContext(false)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                    self?.isJumping = false
-                    self?.readyToLoadMore = true
-                }
             }
-            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
+            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else {
+                self.messagesNode.pendingJumpMessageId = nil
+                self.finishMessageJump(messageId: messageId)
+                return
+            }
             do {
                 let response = try await self.context.account.network.listChannelMessages(
                     clanId: self.clanId,
@@ -4660,8 +4671,9 @@ final class ChatViewController: ViewController {
                     topicId: self.topicId,
                     token: token
                 )
-                guard !response.messages.isEmpty else {
+                guard response.messages.contains(where: { $0.messageID == msgId }) else {
                     self.messagesNode.pendingJumpMessageId = nil
+                    self.finishMessageJump(messageId: messageId)
                     return
                 }
                 self.setHasMoreOlder(response.messages.count > 1)
@@ -4680,13 +4692,13 @@ final class ChatViewController: ViewController {
                     "anchorMessageId": msgId,
                 ])
                 self.messagesNode.pendingJumpMessageId = nil
+                self.finishMessageJump(messageId: messageId)
             }
         }
     }
 
-    private func forceScrollToBottom(reason: String, completion: (() -> Void)? = nil) {
+    private func forceScrollToBottom(completion: (() -> Void)? = nil) {
         guard !messages.isEmpty else { return }
-        scrollDebugLog("forceScrollToBottom reason=\(reason)")
         messagesNode.listView.transaction(
             deleteIndices: [],
             insertIndicesAndItems: [],
@@ -4702,7 +4714,6 @@ final class ChatViewController: ViewController {
         guard messagesNode.pendingJumpMessageId == nil else { return }
         guard !messagesNode.didAutoScrollForNewMessages else { return }
         guard shouldScrollToBottom, !messages.isEmpty else { return }
-        scrollDebugLog("scrollToBottomIfNeeded action=bottom")
         messagesNode.listView.transaction(
             deleteIndices: [],
             insertIndicesAndItems: [],
@@ -6294,12 +6305,19 @@ final class ChatViewController: ViewController {
                 url: attachment.url,
                 sourceURL: attachment.url,
                 image: previewImage ?? attachment.localImage,
+                pixelSize: GalleryItemInfo.pixelSize(width: attachment.width, height: attachment.height),
                 placeholderURL: nil,
                 senderName: display.senderDisplayName,
                 senderId: display.message.senderId,
                 senderAvatarURL: display.avatarURL,
                 timestamp: display.message.createdAt,
-                isVideo: true
+                isVideo: true,
+                videoShareMetadata: GalleryVideoShareMetadata(
+                    filename: attachment.filename,
+                    filetype: attachment.filetype,
+                    durationSeconds: attachment.durationSeconds ?? 0,
+                    thumbnail: attachment.thumbnail
+                )
             )
         }
         return GalleryItemInfo.imageItem(
@@ -6388,12 +6406,18 @@ final class ChatViewController: ViewController {
                 url: attachment.url,
                 sourceURL: attachment.url,
                 image: nil,
+                pixelSize: GalleryItemInfo.pixelSize(width: attachment.width, height: attachment.height),
                 placeholderURL: nil,
                 senderName: uploader.name,
                 senderId: String(attachment.uploader),
                 senderAvatarURL: uploader.avatarURL,
                 timestamp: timestamp,
-                isVideo: true
+                isVideo: true,
+                videoShareMetadata: GalleryVideoShareMetadata(
+                    filename: attachment.filename,
+                    filetype: attachment.filetype,
+                    size: Int64(attachment.filesize) ?? 0
+                )
             )
         }
         return GalleryItemInfo.imageItem(
@@ -6452,6 +6476,18 @@ final class ChatViewController: ViewController {
         case authorized
         case denied
         case restricted
+    }
+
+    private func shareMessageText(display: ChatMessageDisplay) {
+        let text = display.parsedContent.text
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let activity = UIActivityViewController(activityItems: [text], applicationActivities: nil)
+        if let popover = activity.popoverPresentationController {
+            popover.sourceView = view
+            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1)
+            popover.permittedArrowDirections = []
+        }
+        present(activity, animated: true)
     }
 
     private func saveSingleMessageImage(display: ChatMessageDisplay) {
@@ -6638,6 +6674,8 @@ final class ChatViewController: ViewController {
         case .copyText:
             UIPasteboard.general.string = display.parsedContent.text
             Toast.success(L(L10n.MessageAction.copied))
+        case .shareText:
+            shareMessageText(display: display)
         case .saveImage:
             saveSingleMessageImage(display: display)
         case .copyImage:

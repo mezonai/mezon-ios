@@ -4,6 +4,452 @@ import AsyncDisplayKit
 import Photos
 import AVFoundation
 
+private extension ExistingVideoSharePayload {
+    init?(item: GalleryItemInfo) {
+        let source = (item.sourceURL ?? item.url).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !source.isEmpty, let sourceURL = URL(string: source) else { return nil }
+
+        let metadata = item.videoShareMetadata
+        let rawMetadataFilename = metadata?.filename.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let metadataFilename = (rawMetadataFilename as NSString).lastPathComponent
+        let remoteFilename = sourceURL.lastPathComponent.removingPercentEncoding ?? sourceURL.lastPathComponent
+        let fallbackExtension = sourceURL.pathExtension.isEmpty ? "mp4" : sourceURL.pathExtension.lowercased()
+        let candidateFilename = !metadataFilename.isEmpty
+            ? metadataFilename
+            : (!remoteFilename.isEmpty ? remoteFilename : "video.\(fallbackExtension)")
+
+        let filename = (candidateFilename as NSString).pathExtension.isEmpty
+            ? "\(candidateFilename).\(fallbackExtension)"
+            : candidateFilename
+        self.init(
+            url: source,
+            thumbnail: metadata?.thumbnail ?? "",
+            filename: filename,
+            filetype: Self.resolvedMimeType(metadata?.filetype, pathExtension: fallbackExtension),
+            size: max(metadata?.size ?? 0, 0),
+            width: max(Int(item.pixelSize?.width ?? 0), 0),
+            height: max(Int(item.pixelSize?.height ?? 0), 0),
+            durationSeconds: max(metadata?.durationSeconds ?? 0, 0)
+        )
+    }
+
+    private static func resolvedMimeType(_ raw: String?, pathExtension: String) -> String {
+        let mime = raw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        if mime.hasPrefix("video/") { return mime }
+        switch pathExtension.lowercased() {
+        case "mov": return "video/quicktime"
+        case "m4v": return "video/x-m4v"
+        case "webm": return "video/webm"
+        case "mkv": return "video/x-matroska"
+        case "3gp": return "video/3gpp"
+        case "3g2": return "video/3gpp2"
+        case "mpeg", "mpg": return "video/mpeg"
+        case "ogv", "ogg": return "video/ogg"
+        case "ts": return "video/mp2t"
+        case "avi": return "video/x-msvideo"
+        default: return "video/mp4"
+        }
+    }
+}
+
+private enum GalleryVideoSharePreparationError: Error {
+    case unavailable
+}
+
+private final class GalleryVideoActivityItemProvider: UIActivityItemProvider {
+    private static let mezonActivityIdentifier = "mezon.mobile.mezonsharing"
+    private static let shareCacheMaxBytes: Int64 = 512 * 1024 * 1024
+
+    private let payload: ExistingVideoSharePayload
+    private let sourceURL: URL
+    private let stateLock = NSLock()
+    private var activeDownloadTask: URLSessionDownloadTask?
+    private var downloadedURL: URL?
+    private var issuedTokenKey: String?
+    private var preparationError: Error?
+    private var didRequestPhotoLibrarySave = false
+    var preparationProgressHandler: ((Double) -> Void)?
+    var preparationFinishedHandler: (() -> Void)?
+    var preparationFailedHandler: ((Error, @escaping () -> Void) -> Void)?
+    var photoLibrarySaveHandler: (() -> Void)?
+
+    init?(payload: ExistingVideoSharePayload) {
+        guard let sourceURL = URL(string: payload.url) else { return nil }
+        let placeholderURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent((payload.filename as NSString).lastPathComponent)
+        self.payload = payload
+        self.sourceURL = sourceURL
+        super.init(placeholderItem: placeholderURL as NSURL)
+    }
+
+    deinit {
+        cancelAndCleanup()
+    }
+
+    override var item: Any {
+        if Self.isMezonActivity(activityType), let markerURL = makeInternalMarkerURL() {
+            return markerURL as NSURL
+        }
+        if activityType == .saveToCameraRoll {
+            requestPhotoLibrarySave()
+            return NSItemProvider()
+        }
+        if Self.isAuxiliarySystemAction(activityType) {
+            return NSItemProvider()
+        }
+        switch downloadVideoForExternalActivity() {
+        case .success(let fileURL):
+            return fileURL as NSURL
+        case .failure(let error):
+            cancel()
+            notifyPreparationFailedAndWait(error: error)
+            return NSNull()
+        }
+    }
+
+    static func isMezonActivity(_ activityType: UIActivity.ActivityType?) -> Bool {
+        let identifier = activityType?.rawValue.lowercased() ?? ""
+        return identifier == mezonActivityIdentifier || identifier.hasSuffix(".mezonsharing")
+    }
+
+    private static func isAuxiliarySystemAction(_ activityType: UIActivity.ActivityType?) -> Bool {
+        guard let activityType else { return false }
+        let identifier = activityType.rawValue.lowercased()
+        return identifier.contains("savetofiles")
+            || identifier.contains("addtoiclouddrive")
+            || identifier.contains("streamshareservice")
+    }
+
+    private func requestPhotoLibrarySave() {
+        stateLock.lock()
+        guard !didRequestPhotoLibrarySave else {
+            stateLock.unlock()
+            return
+        }
+        didRequestPhotoLibrarySave = true
+        let handler = photoLibrarySaveHandler
+        stateLock.unlock()
+        DispatchQueue.main.async {
+            handler?()
+        }
+    }
+
+    func cancelAndCleanup() {
+        stateLock.lock()
+        let task = activeDownloadTask
+        activeDownloadTask = nil
+        let fileURL = downloadedURL
+        downloadedURL = nil
+        let tokenKey = issuedTokenKey
+        issuedTokenKey = nil
+        stateLock.unlock()
+
+        task?.cancel()
+        if let fileURL {
+            try? FileManager.default.removeItem(at: fileURL)
+        }
+        if let tokenKey,
+           let defaults = UserDefaults(suiteName: ExistingVideoSharePayload.appGroupIdentifier) {
+            defaults.removeObject(forKey: tokenKey)
+            defaults.synchronize()
+        }
+    }
+
+    private func makeInternalMarkerURL() -> URL? {
+        guard let defaults = UserDefaults(suiteName: ExistingVideoSharePayload.appGroupIdentifier) else {
+            return nil
+        }
+        removeExpiredInternalTokens(from: defaults)
+
+        let token = UUID().uuidString.lowercased()
+        let key = ExistingVideoSharePayload.tokenKeyPrefix + token
+        let record = ExistingVideoShareTokenRecord(
+            createdAt: Date().timeIntervalSince1970,
+            payload: payload
+        )
+        guard let data = try? JSONEncoder().encode(record) else { return nil }
+        defaults.set(data, forKey: key)
+        defaults.synchronize()
+
+        var components = URLComponents()
+        components.scheme = ExistingVideoSharePayload.internalScheme
+        components.host = "attachment"
+        components.queryItems = [URLQueryItem(name: "token", value: token)]
+        guard let markerURL = components.url else {
+            defaults.removeObject(forKey: key)
+            return nil
+        }
+
+        stateLock.lock()
+        issuedTokenKey = key
+        stateLock.unlock()
+        return markerURL
+    }
+
+    private func removeExpiredInternalTokens(from defaults: UserDefaults) {
+        let now = Date().timeIntervalSince1970
+        for (key, value) in defaults.dictionaryRepresentation()
+        where key.hasPrefix(ExistingVideoSharePayload.tokenKeyPrefix) {
+            guard let data = value as? Data,
+                  let record = try? JSONDecoder().decode(ExistingVideoShareTokenRecord.self, from: data),
+                  record.createdAt <= now,
+                  now - record.createdAt <= ExistingVideoSharePayload.tokenLifetime else {
+                defaults.removeObject(forKey: key)
+                continue
+            }
+        }
+    }
+
+    private func downloadVideoForExternalActivity() -> Result<URL, Error> {
+        if sourceURL.isFileURL {
+            return FileManager.default.fileExists(atPath: sourceURL.path)
+                ? .success(sourceURL)
+                : .failure(GalleryVideoSharePreparationError.unavailable)
+        }
+
+        stateLock.lock()
+        if let downloadedURL, FileManager.default.fileExists(atPath: downloadedURL.path) {
+            stateLock.unlock()
+            return .success(downloadedURL)
+        }
+        stateLock.unlock()
+
+        notifyPreparationProgress(0)
+        defer { notifyPreparationFinished() }
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mezon_video_shares", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let expectedBytes = max(payload.size, 0)
+            try trimShareCache(in: directory, incomingBytes: expectedBytes)
+            try ensureAvailableCapacity(for: expectedBytes, in: directory)
+        } catch {
+            return .failure(error)
+        }
+
+        let safeFilename = (payload.filename as NSString).lastPathComponent
+        let destination = directory.appendingPathComponent("\(UUID().uuidString)_\(safeFilename)")
+        let completion = DispatchSemaphore(value: 0)
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForResource = 30 * 60
+        let session = URLSession(configuration: configuration)
+        let task = session.downloadTask(with: sourceURL) { [weak self] temporaryURL, response, error in
+            defer { completion.signal() }
+            guard let self else { return }
+            if let error {
+                self.setPreparationError(error)
+                return
+            }
+            guard let temporaryURL,
+                  let response = response as? HTTPURLResponse,
+                  (200...299).contains(response.statusCode) else {
+                self.setPreparationError(GalleryVideoSharePreparationError.unavailable)
+                return
+            }
+            do {
+                if FileManager.default.fileExists(atPath: destination.path) {
+                    try FileManager.default.removeItem(at: destination)
+                }
+                try FileManager.default.moveItem(at: temporaryURL, to: destination)
+                let values = try destination.resourceValues(forKeys: [.fileSizeKey])
+                guard let fileSize = values.fileSize else {
+                    throw GalleryVideoSharePreparationError.unavailable
+                }
+                try self.trimShareCache(
+                    in: directory,
+                    incomingBytes: Int64(fileSize),
+                    retaining: destination
+                )
+                self.stateLock.lock()
+                self.downloadedURL = destination
+                self.stateLock.unlock()
+            } catch {
+                try? FileManager.default.removeItem(at: destination)
+                self.setPreparationError(error)
+            }
+        }
+
+        stateLock.lock()
+        preparationError = nil
+        activeDownloadTask = task
+        stateLock.unlock()
+        let progressObservation = task.progress.observe(\.fractionCompleted) { [weak self] progress, _ in
+            self?.notifyPreparationProgress(progress.fractionCompleted)
+        }
+        task.resume()
+        completion.wait()
+        progressObservation.invalidate()
+        session.finishTasksAndInvalidate()
+
+        stateLock.lock()
+        if activeDownloadTask === task {
+            activeDownloadTask = nil
+        }
+        let result = downloadedURL
+        let error = preparationError
+        preparationError = nil
+        stateLock.unlock()
+        if let result {
+            return .success(result)
+        }
+        return .failure(error ?? GalleryVideoSharePreparationError.unavailable)
+    }
+
+    private func trimShareCache(
+        in directory: URL,
+        incomingBytes: Int64,
+        retaining retainedURL: URL? = nil
+    ) throws {
+        let keys: Set<URLResourceKey> = [
+            .isRegularFileKey,
+            .fileSizeKey,
+            .contentModificationDateKey,
+            .creationDateKey
+        ]
+        let files = try FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: Array(keys),
+            options: .skipsHiddenFiles
+        )
+        let retainedPath = retainedURL?.standardizedFileURL.path
+        var entries: [(url: URL, size: Int64, date: Date)] = []
+
+        for file in files {
+            guard file.standardizedFileURL.path != retainedPath else { continue }
+            let values = try file.resourceValues(forKeys: keys)
+            guard values.isRegularFile == true else { continue }
+            entries.append((
+                url: file,
+                size: Int64(values.fileSize ?? 0),
+                date: values.contentModificationDate ?? values.creationDate ?? .distantPast
+            ))
+        }
+
+        let allowedCachedBytes = max(Self.shareCacheMaxBytes - max(incomingBytes, 0), 0)
+        var cachedBytes = entries.reduce(Int64(0)) { $0 + $1.size }
+        guard cachedBytes > allowedCachedBytes else { return }
+
+        for entry in entries.sorted(by: { $0.date < $1.date }) {
+            try FileManager.default.removeItem(at: entry.url)
+            cachedBytes -= entry.size
+            if cachedBytes <= allowedCachedBytes { return }
+        }
+        if cachedBytes > allowedCachedBytes {
+            throw GalleryVideoSharePreparationError.unavailable
+        }
+    }
+
+    private func ensureAvailableCapacity(for incomingBytes: Int64, in directory: URL) throws {
+        guard incomingBytes > 0 else { return }
+        let values = try directory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        if let availableBytes = values.volumeAvailableCapacityForImportantUsage,
+           availableBytes < incomingBytes {
+            throw GalleryVideoSharePreparationError.unavailable
+        }
+    }
+
+    private func setPreparationError(_ error: Error) {
+        stateLock.lock()
+        preparationError = error
+        stateLock.unlock()
+    }
+
+    private func notifyPreparationProgress(_ progress: Double) {
+        let handler = preparationProgressHandler
+        DispatchQueue.main.async {
+            handler?(min(max(progress, 0), 1))
+        }
+    }
+
+    private func notifyPreparationFinished() {
+        let handler = preparationFinishedHandler
+        DispatchQueue.main.async {
+            handler?()
+        }
+    }
+
+    private func notifyPreparationFailedAndWait(error: Error) {
+        guard let handler = preparationFailedHandler else { return }
+        let acknowledgement = DispatchSemaphore(value: 0)
+        DispatchQueue.main.async {
+            handler(error) {
+                acknowledgement.signal()
+            }
+        }
+        _ = acknowledgement.wait(timeout: .now() + 5)
+    }
+}
+
+private final class GalleryVideoSharePreparationOverlay: UIView {
+    private let panel = UIView()
+    private let spinner = UIActivityIndicatorView(style: .large)
+    private let label = UILabel()
+    private let progressView = UIProgressView(progressViewStyle: .default)
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = UIColor.black.withAlphaComponent(0.55)
+        isUserInteractionEnabled = true
+
+        panel.translatesAutoresizingMaskIntoConstraints = false
+        panel.backgroundColor = UIColor(red: 0.12, green: 0.12, blue: 0.16, alpha: 0.96)
+        panel.layer.cornerRadius = 14
+        addSubview(panel)
+
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        spinner.color = .white
+        panel.addSubview(spinner)
+
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.font = .systemFont(ofSize: 14, weight: .medium)
+        label.textColor = .white
+        label.textAlignment = .center
+        label.numberOfLines = 2
+        panel.addSubview(label)
+
+        progressView.translatesAutoresizingMaskIntoConstraints = false
+        progressView.progressTintColor = .systemBlue
+        progressView.trackTintColor = UIColor.white.withAlphaComponent(0.25)
+        panel.addSubview(progressView)
+
+        NSLayoutConstraint.activate([
+            panel.centerXAnchor.constraint(equalTo: centerXAnchor),
+            panel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            panel.widthAnchor.constraint(equalToConstant: 240),
+
+            spinner.topAnchor.constraint(equalTo: panel.topAnchor, constant: 22),
+            spinner.centerXAnchor.constraint(equalTo: panel.centerXAnchor),
+
+            label.topAnchor.constraint(equalTo: spinner.bottomAnchor, constant: 12),
+            label.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 16),
+            label.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -16),
+
+            progressView.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 14),
+            progressView.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 20),
+            progressView.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -20),
+            progressView.bottomAnchor.constraint(equalTo: panel.bottomAnchor, constant: -22),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func update(progress: Float) {
+        let clampedProgress = min(max(progress, 0), 1)
+        let percent = Int((clampedProgress * 100).rounded())
+        label.text = "\(L(L10n.Gallery.videoPreparingForShare)) \(percent)%"
+        progressView.setProgress(clampedProgress, animated: progress > 0)
+        spinner.startAnimating()
+    }
+
+    func stop() {
+        spinner.stopAnimating()
+        progressView.progress = 0
+    }
+}
+
 final class GalleryController: UIViewController {
     private enum PhotoLibrarySaveAuthorizationResult {
         case authorized
@@ -44,6 +490,8 @@ final class GalleryController: UIViewController {
     private let videoSaveSpinner = UIActivityIndicatorView(style: .large)
     private let videoSaveLabel = UILabel()
     private let videoSaveProgressView = UIProgressView(progressViewStyle: .default)
+    private var videoSharePreparationOverlay: GalleryVideoSharePreparationOverlay?
+    private var shouldResumeVideoPlaybackWhenActive = false
 
     init(items: [GalleryItemInfo], initialIndex: Int, channelItemsLoader: (() async -> [GalleryItemInfo])? = nil) {
         self.items = items
@@ -69,6 +517,19 @@ final class GalleryController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationWillResignActive),
+            name: UIApplication.willResignActiveNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationDidBecomeActive),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
 
         view.backgroundColor = .black
 
@@ -145,6 +606,34 @@ final class GalleryController: UIViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         performDeferredSetupIfNeeded()
+        resumeVideoPlaybackIfPossible()
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    @objc private func applicationWillResignActive() {
+        guard let videoNode = pagingNode.currentItemNode() as? ChatVideoGalleryItemNode else { return }
+        if videoNode.isPlaying {
+            shouldResumeVideoPlaybackWhenActive = true
+        }
+        videoNode.pause()
+    }
+
+    @objc private func applicationDidBecomeActive() {
+        resumeVideoPlaybackIfPossible()
+    }
+
+    private func resumeVideoPlaybackIfPossible() {
+        guard shouldResumeVideoPlaybackWhenActive,
+              UIApplication.shared.applicationState == .active,
+              viewIfLoaded?.window != nil,
+              presentedViewController == nil,
+              let videoNode = pagingNode.currentItemNode() as? ChatVideoGalleryItemNode
+        else { return }
+        shouldResumeVideoPlaybackWhenActive = false
+        videoNode.play()
     }
 
     private func performDeferredSetupIfNeeded() {
@@ -330,6 +819,36 @@ final class GalleryController: UIViewController {
         videoSaveBackdrop.isHidden = true
         videoSavePanel.isHidden = true
         isSavingVideo = false
+    }
+
+    private func showVideoSharePreparationOverlay(progress: Float, over activity: UIActivityViewController) {
+        guard let hostView = activity.presentationController?.containerView ?? activity.view.window else { return }
+        let overlay: GalleryVideoSharePreparationOverlay
+        if let existing = videoSharePreparationOverlay {
+            overlay = existing
+        } else {
+            overlay = GalleryVideoSharePreparationOverlay()
+            overlay.translatesAutoresizingMaskIntoConstraints = false
+            videoSharePreparationOverlay = overlay
+        }
+        if overlay.superview !== hostView {
+            overlay.removeFromSuperview()
+            hostView.addSubview(overlay)
+            NSLayoutConstraint.activate([
+                overlay.topAnchor.constraint(equalTo: hostView.topAnchor),
+                overlay.leadingAnchor.constraint(equalTo: hostView.leadingAnchor),
+                overlay.trailingAnchor.constraint(equalTo: hostView.trailingAnchor),
+                overlay.bottomAnchor.constraint(equalTo: hostView.bottomAnchor),
+            ])
+        }
+        overlay.update(progress: progress)
+        hostView.bringSubviewToFront(overlay)
+    }
+
+    private func hideVideoSharePreparationOverlay() {
+        videoSharePreparationOverlay?.stop()
+        videoSharePreparationOverlay?.removeFromSuperview()
+        videoSharePreparationOverlay = nil
     }
 
     override func viewDidLayoutSubviews() {
@@ -634,6 +1153,7 @@ final class GalleryController: UIViewController {
     }
 
     @objc private func closeTapped() {
+        shouldResumeVideoPlaybackWhenActive = false
         dismiss(animated: true)
     }
 
@@ -671,17 +1191,86 @@ final class GalleryController: UIViewController {
             guard let self else { return }
             let item = self.items[self.pagingNode.centralItemIndex]
             var shareItems: [Any] = []
-            if let node = self.pagingNode.currentItemNode() as? ChatImageGalleryItemNode,
+            var videoProvider: GalleryVideoActivityItemProvider?
+            if item.isVideo,
+               let payload = ExistingVideoSharePayload(item: item),
+               let provider = GalleryVideoActivityItemProvider(payload: payload) {
+                videoProvider = provider
+                shareItems.append(provider)
+            } else if let node = self.pagingNode.currentItemNode() as? ChatImageGalleryItemNode,
                let image = node.currentImage {
                 shareItems.append(image)
             } else if let url = URL(string: item.url) {
                 shareItems.append(url)
             }
             guard !shareItems.isEmpty else { return }
+            let currentVideoNode = self.pagingNode.currentItemNode() as? ChatVideoGalleryItemNode
+            let shouldResumePlayback = currentVideoNode?.isPlaying == true
+            if shouldResumePlayback {
+                self.shouldResumeVideoPlaybackWhenActive = true
+                currentVideoNode?.pause()
+            }
             let activity = UIActivityViewController(activityItems: shareItems, applicationActivities: nil)
+            if let videoProvider {
+                activity.excludedActivityTypes = [.copyToPasteboard]
+                let videoURLString = item.sourceURL ?? item.url
+                videoProvider.photoLibrarySaveHandler = { [weak self, weak activity] in
+                    guard let self else { return }
+                    let save: () -> Void = { [weak self] in
+                        self?.saveVideoToPhotoLibrary(urlString: videoURLString)
+                    }
+                    if activity?.presentingViewController != nil {
+                        activity?.dismiss(animated: false, completion: save)
+                    } else {
+                        save()
+                    }
+                }
+            }
+            videoProvider?.preparationProgressHandler = { [weak self, weak activity] progress in
+                guard let self, let activity else { return }
+                self.showVideoSharePreparationOverlay(progress: Float(progress), over: activity)
+            }
+            videoProvider?.preparationFinishedHandler = { [weak self] in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    self?.hideVideoSharePreparationOverlay()
+                }
+            }
+            videoProvider?.preparationFailedHandler = { [weak self, weak activity] error, acknowledge in
+                guard let self else {
+                    acknowledge()
+                    return
+                }
+                let finish = {
+                    self.hideVideoSharePreparationOverlay()
+                    if (error as? URLError)?.code != .cancelled {
+                        Toast.error(L(L10n.Gallery.videoShareFailed))
+                    }
+                    self.resumeVideoPlaybackIfPossible()
+                    acknowledge()
+                }
+                if activity?.presentingViewController != nil {
+                    activity?.dismiss(animated: false, completion: finish)
+                } else {
+                    finish()
+                }
+            }
             if let popover = activity.popoverPresentationController {
                 popover.sourceView = self.moreButton
                 popover.sourceRect = self.moreButton.bounds
+            }
+            let providerToCleanup = videoProvider
+            activity.completionWithItemsHandler = { [weak self] activityType, _, _, _ in
+                providerToCleanup?.cancelAndCleanup()
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.hideVideoSharePreparationOverlay()
+                    if GalleryVideoActivityItemProvider.isMezonActivity(activityType) {
+                        self.shouldResumeVideoPlaybackWhenActive = false
+                    } else if shouldResumePlayback {
+                        self.shouldResumeVideoPlaybackWhenActive = true
+                        self.resumeVideoPlaybackIfPossible()
+                    }
+                }
             }
             self.present(activity, animated: true)
         })
