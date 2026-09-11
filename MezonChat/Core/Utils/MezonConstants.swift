@@ -58,6 +58,11 @@ enum MezonConstants {
         case thread = 6
     }
 
+    enum QuickMenuType: Int32 {
+        case flashMessage = 1
+        case quickMenu = 2
+    }
+
     enum MessageCode: Int32 {
         case firstMessage = 4
         case welcome = 5

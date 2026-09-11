@@ -1433,6 +1433,10 @@ extension L10n {
         .vietnamese: vi
     ]
 
+    enum SlashCommand {
+        static let header = "slashCommand.header"
+    }
+
     private static let en: [String: String] = [
         "tab.clans":            "Clans",
         "tab.messages":         "Messages",
@@ -2338,6 +2342,7 @@ extension L10n {
         "messageAction.topicDiscussion": "Topic Discussion",
         "messageAction.markMessage": "Mark Message",
         "messageAction.quickMenu": "Quick Menu",
+        "slashCommand.header": "COMMANDS",
         "messageAction.report": "Report",
         "messageAction.pinMessageConfirm": "Please confirm if you would like to pin this message?",
         "messageAction.unpinMessageConfirm": "Remove this message from pinned messages?",
@@ -3632,6 +3637,7 @@ extension L10n {
         "messageAction.topicDiscussion": "Thảo luận chủ đề",
         "messageAction.markMessage": "Đánh dấu tin nhắn",
         "messageAction.quickMenu": "Menu nhanh",
+        "slashCommand.header": "LỆNH",
         "messageAction.report": "Báo cáo",
         "messageAction.pinMessageConfirm": "Bạn có muốn ghim tin nhắn này không?",
         "messageAction.unpinMessageConfirm": "Bỏ ghim tin nhắn này?",
