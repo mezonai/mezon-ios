@@ -128,18 +128,6 @@ final class AttachmentPreviewView: UIView {
         collectionView.reloadData()
     }
 
-    func removeRemoteImage(at index: Int) {
-        guard index >= 0, index < remoteImages.count else { return }
-        remoteImages.remove(at: index)
-        collectionView.reloadData()
-    }
-
-    func removeRemoteFile(at index: Int) {
-        guard index >= 0, index < remoteFiles.count else { return }
-        remoteFiles.remove(at: index)
-        collectionView.reloadData()
-    }
-
     var totalImageCount: Int { remoteImages.count + images.count }
     var totalFileCount: Int { remoteFiles.count + fileItems.count }
 
@@ -191,9 +179,7 @@ extension AttachmentPreviewView: UICollectionViewDataSource, UICollectionViewDel
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: AttachmentThumbCell.reuseId, for: indexPath) as! AttachmentThumbCell
             let remote = remoteImages[item]
             cell.configure(remoteURL: remote.url, isVideo: remote.isVideo)
-            cell.onClose = { [weak self] in
-                self?.onRemove?(item)
-            }
+            cell.onClose = nil
             return cell
         }
 
@@ -212,9 +198,7 @@ extension AttachmentPreviewView: UICollectionViewDataSource, UICollectionViewDel
         if afterImages < remoteFileCount {
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: AttachmentFileCell.reuseId, for: indexPath) as! AttachmentFileCell
             cell.configure(remoteFile: remoteFiles[afterImages])
-            cell.onClose = { [weak self] in
-                self?.onRemove?(item)
-            }
+            cell.onClose = nil
             return cell
         }
 
@@ -326,15 +310,18 @@ private final class AttachmentThumbCell: UICollectionViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        onClose = nil
         currentRemoteURL = nil
         thumbImageView.image = nil
         playOverlay.isHidden = true
+        closeButton.isHidden = false
     }
 
     func configure(image: UIImage, isVideo: Bool = false) {
         currentRemoteURL = nil
         thumbImageView.image = image
         playOverlay.isHidden = !isVideo
+        closeButton.isHidden = false
     }
 
     func configure(remoteURL: String, isVideo: Bool) {
@@ -346,6 +333,7 @@ private final class AttachmentThumbCell: UICollectionViewCell {
         )
         currentRemoteURL = proxyURL
         playOverlay.isHidden = !isVideo
+        closeButton.isHidden = true
         if let cached = ImageCache.shared.image(forKey: proxyURL) {
             thumbImageView.image = cached
             return
@@ -457,6 +445,12 @@ private final class AttachmentFileCell: UICollectionViewCell {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        onClose = nil
+        closeButton.isHidden = false
+    }
+
     func configure(file: PickedFileInfo) {
         let iconConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
         iconImageView.image = UIImage(systemName: Self.iconName(for: file.filename), withConfiguration: iconConfig)
@@ -465,6 +459,7 @@ private final class AttachmentFileCell: UICollectionViewCell {
         sizeLabel.text = Self.formattedSize(file.filesize)
         sizeLabel.textColor = UIColor.theme.textDisabled
         containerView.backgroundColor = UIColor.theme.secondaryLight
+        closeButton.isHidden = false
     }
 
     func configure(remoteFile: RemoteAttachmentPreview) {
@@ -475,6 +470,7 @@ private final class AttachmentFileCell: UICollectionViewCell {
         sizeLabel.text = ""
         sizeLabel.textColor = UIColor.theme.textDisabled
         containerView.backgroundColor = UIColor.theme.secondaryLight
+        closeButton.isHidden = true
     }
 
     private static func iconName(for filename: String) -> String {
