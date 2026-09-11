@@ -1941,6 +1941,19 @@ final class MezonHTTPClient {
         return response.channelApps
     }
 
+    func listQuickMenuAccess(channelId: Int64, menuType: Int32, token: String) async throws -> [Mezon_Api_QuickMenuAccess] {
+        var req = Mezon_Api_ListQuickMenuAccessRequest()
+        req.botID = 0
+        req.channelID = channelId
+        req.menuType = menuType
+        let response: Mezon_Api_QuickMenuAccessList = try await postProto(
+            path: "/mezon.api.Mezon/ListQuickMenuAccess",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.listMenus
+    }
+
     func getApp(appId: Int64, token: String) async throws -> Mezon_Api_App {
         var req = Mezon_Api_App()
         req.id = appId

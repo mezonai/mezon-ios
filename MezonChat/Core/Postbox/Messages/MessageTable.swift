@@ -473,11 +473,17 @@ final class MessageTable: Table {
         let existing = cache[channelId] ?? getMessages(channelId: channelId)
         let existingById = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
         let mergedRaw = belonging.map { incoming -> MessageRecord in
-            guard let previous = existingById[incoming.id] else { return incoming }
-            return MessageRecord.mergingIncomingPreservingEmptyAttachments(
-                incoming: incoming,
-                previous: previous
-            )
+            let merged: MessageRecord
+            if let previous = existingById[incoming.id] {
+                merged = MessageRecord.mergingIncomingPreservingEmptyAttachments(
+                    incoming: incoming,
+                    previous: previous
+                )
+            } else {
+                merged = incoming
+            }
+
+            return enrichTopicMeta(merged)
         }
         var mergedBelonging: [MessageRecord] = []
         var keptIds = Set<String>()
