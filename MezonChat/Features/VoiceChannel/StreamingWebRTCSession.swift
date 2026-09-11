@@ -30,6 +30,7 @@ final class StreamingWebRTCSession: NSObject {
     private var receiveLoopTask: Task<Void, Never>?
     private var availabilityPollTask: Task<Void, Never>?
     private var hasSubscribedToStream = false
+    private var hasActivatedAudioSession = false
 
     private static let availabilityPollIntervalNanos: UInt64 = 3_000_000_000
 
@@ -56,7 +57,10 @@ final class StreamingWebRTCSession: NSObject {
         activeStreamChannelId = streamId
 
         Self.ensureSSL()
-        configureWebRTCAudioForPlayback()
+        guard configureWebRTCAudioForPlayback() else {
+            disconnect()
+            return
+        }
 
         let factory = Self.makePeerConnectionFactory()
         peerFactory = factory
@@ -196,24 +200,34 @@ final class StreamingWebRTCSession: NSObject {
         onStreamingStateChanged?()
     }
 
-    private func configureWebRTCAudioForPlayback() {
+    private func configureWebRTCAudioForPlayback() -> Bool {
         let rtc = RTCAudioSession.sharedInstance()
         rtc.useManualAudio = true
         rtc.lockForConfiguration()
         defer { rtc.unlockForConfiguration() }
         let cfg = RTCAudioSessionConfiguration.webRTC()
-        cfg.category = AVAudioSession.Category.playback.rawValue
-        cfg.mode = AVAudioSession.Mode.moviePlayback.rawValue
-        cfg.categoryOptions = [.mixWithOthers, .allowBluetooth, .allowBluetoothA2DP, .allowAirPlay]
+        // WebRTC's iOS audio unit uses input and output even for a recvOnly
+        // transceiver. A playback-only session makes Core Audio reject StartIO.
+        cfg.category = AVAudioSession.Category.playAndRecord.rawValue
+        cfg.mode = AVAudioSession.Mode.default.rawValue
+        cfg.categoryOptions = [.mixWithOthers, .defaultToSpeaker, .allowBluetooth, .allowBluetoothA2DP]
+        // Use the same configuration when WebRTC initializes/restarts its unit.
+        RTCAudioSessionConfiguration.setWebRTC(cfg)
         do {
-            try rtc.setConfiguration(cfg, active: true)
+            try rtc.setConfiguration(cfg)
+            try rtc.setActive(true)
+            hasActivatedAudioSession = true
             rtc.isAudioEnabled = true
+            return true
         } catch {
+            return false
         }
     }
 
     private func deactivateWebRTCAudio() {
         let rtc = RTCAudioSession.sharedInstance()
+        guard hasActivatedAudioSession else { return }
+        hasActivatedAudioSession = false
         rtc.lockForConfiguration()
         defer { rtc.unlockForConfiguration() }
         rtc.isAudioEnabled = false
@@ -430,10 +444,10 @@ extension StreamingWebRTCSession: RTCPeerConnectionDelegate {
 
     nonisolated func peerConnectionShouldNegotiate(_: RTCPeerConnection) {}
 
-    nonisolated func peerConnection(_: RTCPeerConnection, didChange state: RTCIceConnectionState) {
+    nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didChange state: RTCIceConnectionState) {
         if state == .connected || state == .completed {
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                guard let self, self.peerConnection === peerConnection, self.hasActivatedAudioSession else { return }
                 let rtc = RTCAudioSession.sharedInstance()
                 rtc.lockForConfiguration()
                 rtc.isAudioEnabled = true
