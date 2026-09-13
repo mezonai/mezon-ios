@@ -906,17 +906,6 @@ extension MezonEngine {
             persistStreamUsersList(list, clanId: clanId)
         }
 
-        func applyStreamLeaved(clanId: Int64, entryId: String) {
-            guard clanId != 0, !entryId.isEmpty else { return }
-            var list = resolvedStreamUsersList(clanId: clanId) ?? Mezon_Api_StreamingChannelUserList()
-            if let numericId = Int64(entryId) {
-                list.streamingChannelUsers.removeAll { $0.id == numericId }
-            } else {
-                list.streamingChannelUsers.removeAll { "\($0.id)" == entryId }
-            }
-            persistStreamUsersList(list, clanId: clanId)
-        }
-
         private func persistVoiceUsersList(_ list: Mezon_Api_VoiceChannelUserList, clanId: Int64) {
             if let data = try? list.serializedData() {
                 postbox.setPreferenceData(key: PreferencesKeys.clanVoiceUsers(clanId: clanId), value: data)
