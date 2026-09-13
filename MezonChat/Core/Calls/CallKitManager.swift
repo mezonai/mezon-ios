@@ -2,7 +2,7 @@ import AVFoundation
 import CallKit
 import Darwin
 import Foundation
-import LiveKitWebRTC
+import WebRTC
 import PushKit
 import UIKit
 
@@ -24,6 +24,11 @@ private final class VoIPPushCompletionGate {
 final class CallKitManager: NSObject {
 
     static let shared = CallKitManager()
+
+    var hasTrackedActiveCall: Bool {
+        guard let s = UserDefaults.standard.string(forKey: DefaultsKeys.activeCallUUID) else { return false }
+        return UUID(uuidString: s) != nil
+    }
 
     private enum DefaultsKeys {
         static let notificationPayload = "mezon.voip.notificationPayload"
@@ -82,7 +87,7 @@ final class CallKitManager: NSObject {
     }
 
     func configure() {
-        let rtc = LKRTCAudioSession.sharedInstance()
+        let rtc = RTCAudioSession.sharedInstance()
         rtc.useManualAudio = true
         rtc.isAudioEnabled = false
 
@@ -992,11 +997,11 @@ extension CallKitManager: CXProviderDelegate {
     }
 
     private func preconfigureAudioSessionForIncomingAnswer() {
-        let rtc = LKRTCAudioSession.sharedInstance()
+        let rtc = RTCAudioSession.sharedInstance()
         rtc.useManualAudio = true
         rtc.lockForConfiguration()
         defer { rtc.unlockForConfiguration() }
-        let cfg = LKRTCAudioSessionConfiguration.webRTC()
+        let cfg = RTCAudioSessionConfiguration.webRTC()
         cfg.category = AVAudioSession.Category.playAndRecord.rawValue
         cfg.mode = AVAudioSession.Mode.voiceChat.rawValue
         cfg.categoryOptions = [.allowBluetoothHFP, .allowBluetoothA2DP]
@@ -1004,14 +1009,14 @@ extension CallKitManager: CXProviderDelegate {
     }
 
     func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
-        let rtc = LKRTCAudioSession.sharedInstance()
+        let rtc = RTCAudioSession.sharedInstance()
         rtc.audioSessionDidActivate(audioSession)
         rtc.isAudioEnabled = true
         NotificationCenter.default.post(name: .mezonCallKitAudioActivated, object: nil)
     }
 
     func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
-        let rtc = LKRTCAudioSession.sharedInstance()
+        let rtc = RTCAudioSession.sharedInstance()
         rtc.isAudioEnabled = false
         rtc.audioSessionDidDeactivate(audioSession)
         NotificationCenter.default.post(name: .mezonCallKitAudioReleased, object: nil)

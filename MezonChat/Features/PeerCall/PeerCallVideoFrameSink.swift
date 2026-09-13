@@ -1,8 +1,8 @@
 import Foundation
-import LiveKitWebRTC
+import WebRTC
 
 @objcMembers
-class PeerCallVideoFrameSink: NSObject, LKRTCVideoRenderer {
+class PeerCallVideoFrameSink: NSObject, RTCVideoRenderer {
 
     init(label _: String) {
         super.init()
@@ -11,6 +11,6 @@ class PeerCallVideoFrameSink: NSObject, LKRTCVideoRenderer {
     func setSize(_ size: CGSize) {
     }
 
-    func renderFrame(_ frame: LKRTCVideoFrame?) {
+    func renderFrame(_ frame: RTCVideoFrame?) {
     }
 }

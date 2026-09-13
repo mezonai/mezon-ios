@@ -1944,9 +1944,9 @@ final class ChannelListViewController: ViewController {
                         self?.select(channel: channel)
                     }
                 },
-                onJoinVoice: { [weak self] in
+                onJoinVoice: { [weak self] role in
                     self?.dismissEventBottomSheets(animated: false) {
-                        self?.pushVoiceChannelRoom(for: channel)
+                        self?.pushVoiceChannelRoom(for: channel, role: role)
                     }
                 }
             )
@@ -3268,7 +3268,7 @@ final class ChannelListViewController: ViewController {
         for channel: Mezon_Api_ChannelDescription,
         from presenter: UIViewController? = nil,
         onChat: (() -> Void)? = nil,
-        onJoinVoice: (() -> Void)? = nil
+        onJoinVoice: ((SfuRole) -> Void)? = nil
     ) {
         presentJoinMediaSheet(
             for: channel,
@@ -3290,7 +3290,7 @@ final class ChannelListViewController: ViewController {
             kind: .streaming,
             from: presenter,
             onChat: onChat,
-            onJoin: onJoinStream
+            onJoin: onJoinStream.map { action in { _ in action() } }
         )
     }
 
@@ -3299,7 +3299,7 @@ final class ChannelListViewController: ViewController {
         kind: JoinChannelSheetKind,
         from presenter: UIViewController? = nil,
         onChat: (() -> Void)? = nil,
-        onJoin: (() -> Void)? = nil
+        onJoin: ((SfuRole) -> Void)? = nil
     ) {
         let title = channel.channelLabel.isEmpty
             ? NSLocalizedString("voiceChannel.defaultName", tableName: nil, bundle: .main, value: "Voice", comment: "")
@@ -3329,12 +3329,12 @@ final class ChannelListViewController: ViewController {
         }
         let resolvedMembers = voiceUserIds.compactMap { resolveVoiceMember($0) }
         let chatAction = onChat ?? { [weak self] in self?.pushChatViewController(for: channel) }
-        let joinAction = onJoin ?? { [weak self] in
+        let joinAction = onJoin ?? { [weak self] role in
             guard let self else { return }
             if kind == .streaming {
                 self.pushStreamingRoom(for: channel)
             } else {
-                self.pushVoiceChannelRoom(for: channel)
+                self.pushVoiceChannelRoom(for: channel, role: role)
             }
         }
 
@@ -3404,7 +3404,7 @@ final class ChannelListViewController: ViewController {
         }
     }
 
-    private func pushVoiceChannelRoom(for channel: Mezon_Api_ChannelDescription) {
+    private func pushVoiceChannelRoom(for channel: Mezon_Api_ChannelDescription, role: SfuRole = .speaker) {
         select(channel: channel)
         guard let nav = enclosingNavigationController else { return }
 
@@ -3434,7 +3434,8 @@ final class ChannelListViewController: ViewController {
 
         let vc = VoiceChannelRoomViewController(
             context: context, channel: channel,
-            parentChannelName: parentChannelName(for: channel))
+            parentChannelName: parentChannelName(for: channel),
+            joinRole: role)
         nav.pushViewController(vc, animated: true)
     }
 

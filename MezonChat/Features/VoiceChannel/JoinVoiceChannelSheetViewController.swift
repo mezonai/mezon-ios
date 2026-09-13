@@ -32,8 +32,9 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
     private let members: [VoiceMemberDisplay]
     private let kind: JoinChannelSheetKind
     private let onChat: () -> Void
-    private let onJoinVoice: () -> Void
+    private let onJoinVoice: (SfuRole) -> Void
     private let onInvite: () -> Void
+    private var selectedRole: SfuRole = .speaker
 
     private let contentContainer = UIView()
     private let grabber = UIView()
@@ -53,6 +54,10 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
     private let leftFooterSpacer = UIView()
     private let joinButtonHost = UIView()
     private let joinButton = UIButton(type: .custom)
+    private let splitJoinContainer = UIView()
+    private let splitJoinDivider = UIView()
+    private let roleDropdownButton = UIButton(type: .custom)
+    private var roleMenuHost: UIView?
     private let chatWrap = UIView()
     private let chatButton = UIButton(type: .custom)
     private let chatBadge = UILabel()
@@ -63,7 +68,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         members: [VoiceMemberDisplay] = [],
         kind: JoinChannelSheetKind = .voice,
         onChat: @escaping () -> Void,
-        onJoinVoice: @escaping () -> Void,
+        onJoinVoice: @escaping (SfuRole) -> Void,
         onInvite: @escaping () -> Void = {}
     ) {
         self.channelTitle = channelTitle
@@ -194,30 +199,32 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         joinButtonHost.translatesAutoresizingMaskIntoConstraints = false
         joinButtonHost.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         joinButton.translatesAutoresizingMaskIntoConstraints = false
-        joinVoiceButtonCapsuleStyle(joinButton, height: 50)
         joinButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
         joinButton.titleLabel?.lineBreakMode = .byTruncatingTail
-        joinButton.setTitle(
-            kind == .streaming
-                ? NSLocalizedString(
-                    "streamingRoom.joinSheet.joinStream", tableName: nil, bundle: .main, value: "Join Stream", comment: "")
-                : NSLocalizedString(
-                    "voiceChannel.joinSheet.joinVoice", tableName: nil, bundle: .main, value: "Join Voice", comment: ""),
-            for: .normal)
         joinButton.setTitleColor(.white, for: .normal)
         joinButton.setTitleColor(.white, for: .highlighted)
         joinButton.tintColor = .white
         joinButton.isEnabled = isJoinActionEnabled
-        updateJoinButtonAppearance()
         joinButton.addTarget(self, action: #selector(joinTapped), for: .touchUpInside)
-        joinButtonHost.addSubview(joinButton)
-        NSLayoutConstraint.activate([
-            joinButton.leadingAnchor.constraint(equalTo: joinButtonHost.leadingAnchor),
-            joinButton.trailingAnchor.constraint(equalTo: joinButtonHost.trailingAnchor),
-            joinButton.topAnchor.constraint(equalTo: joinButtonHost.topAnchor),
-            joinButton.bottomAnchor.constraint(equalTo: joinButtonHost.bottomAnchor),
-            joinButtonHost.heightAnchor.constraint(equalToConstant: 50),
-        ])
+        if kind == .voice {
+            joinButton.setTitle(joinTitleForSelectedRole(), for: .normal)
+            buildSplitJoinControl()
+        } else {
+            joinButton.setTitle(
+                NSLocalizedString(
+                    "streamingRoom.joinSheet.joinStream", tableName: nil, bundle: .main, value: "Join Stream", comment: ""),
+                for: .normal)
+            joinVoiceButtonCapsuleStyle(joinButton, height: 50)
+            joinButtonHost.addSubview(joinButton)
+            NSLayoutConstraint.activate([
+                joinButton.leadingAnchor.constraint(equalTo: joinButtonHost.leadingAnchor),
+                joinButton.trailingAnchor.constraint(equalTo: joinButtonHost.trailingAnchor),
+                joinButton.topAnchor.constraint(equalTo: joinButtonHost.topAnchor),
+                joinButton.bottomAnchor.constraint(equalTo: joinButtonHost.bottomAnchor),
+            ])
+        }
+        joinButtonHost.heightAnchor.constraint(equalToConstant: 50).isActive = true
+        updateJoinButtonAppearance()
 
         chatWrap.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -342,13 +349,225 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
     }
 
     private func updateJoinButtonAppearance() {
-        if joinButton.isEnabled {
-            joinButton.backgroundColor = Self.joinVoiceGreen
-            joinButton.alpha = 1
+        let background = joinButton.isEnabled ? Self.joinVoiceGreen : UIColor.theme.textDisabled
+        let alpha: CGFloat = joinButton.isEnabled ? 1 : 0.72
+        if kind == .voice {
+            splitJoinContainer.backgroundColor = background
+            splitJoinContainer.alpha = alpha
+            joinButton.backgroundColor = .clear
         } else {
-            joinButton.backgroundColor = UIColor.theme.textDisabled
-            joinButton.alpha = 0.72
+            joinButton.backgroundColor = background
+            joinButton.alpha = alpha
         }
+    }
+
+    private func buildSplitJoinControl() {
+        splitJoinContainer.translatesAutoresizingMaskIntoConstraints = false
+        splitJoinContainer.layer.cornerRadius = 25
+        splitJoinContainer.layer.cornerCurve = .continuous
+        splitJoinContainer.clipsToBounds = true
+
+        splitJoinDivider.translatesAutoresizingMaskIntoConstraints = false
+        splitJoinDivider.backgroundColor = UIColor.black.withAlphaComponent(0.2)
+
+        roleDropdownButton.translatesAutoresizingMaskIntoConstraints = false
+        let chevronCfg = UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
+        roleDropdownButton.setImage(
+            UIImage(systemName: "chevron.down", withConfiguration: chevronCfg)?.withRenderingMode(.alwaysTemplate),
+            for: .normal)
+        roleDropdownButton.tintColor = .white
+        roleDropdownButton.addTarget(self, action: #selector(roleDropdownTapped), for: .touchUpInside)
+
+        joinButton.contentEdgeInsets = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 10)
+        splitJoinContainer.addSubview(joinButton)
+        splitJoinContainer.addSubview(splitJoinDivider)
+        splitJoinContainer.addSubview(roleDropdownButton)
+        joinButtonHost.addSubview(splitJoinContainer)
+        NSLayoutConstraint.activate([
+            splitJoinContainer.leadingAnchor.constraint(equalTo: joinButtonHost.leadingAnchor),
+            splitJoinContainer.trailingAnchor.constraint(equalTo: joinButtonHost.trailingAnchor),
+            splitJoinContainer.topAnchor.constraint(equalTo: joinButtonHost.topAnchor),
+            splitJoinContainer.bottomAnchor.constraint(equalTo: joinButtonHost.bottomAnchor),
+
+            joinButton.leadingAnchor.constraint(equalTo: splitJoinContainer.leadingAnchor),
+            joinButton.topAnchor.constraint(equalTo: splitJoinContainer.topAnchor),
+            joinButton.bottomAnchor.constraint(equalTo: splitJoinContainer.bottomAnchor),
+
+            splitJoinDivider.leadingAnchor.constraint(equalTo: joinButton.trailingAnchor),
+            splitJoinDivider.widthAnchor.constraint(equalToConstant: 1),
+            splitJoinDivider.topAnchor.constraint(equalTo: splitJoinContainer.topAnchor, constant: 10),
+            splitJoinDivider.bottomAnchor.constraint(equalTo: splitJoinContainer.bottomAnchor, constant: -10),
+
+            roleDropdownButton.leadingAnchor.constraint(equalTo: splitJoinDivider.trailingAnchor),
+            roleDropdownButton.trailingAnchor.constraint(equalTo: splitJoinContainer.trailingAnchor),
+            roleDropdownButton.topAnchor.constraint(equalTo: splitJoinContainer.topAnchor),
+            roleDropdownButton.bottomAnchor.constraint(equalTo: splitJoinContainer.bottomAnchor),
+            roleDropdownButton.widthAnchor.constraint(equalToConstant: 46),
+        ])
+    }
+
+    private func selectRole(_ role: SfuRole) {
+        selectedRole = role
+        joinButton.setTitle(joinTitleForSelectedRole(), for: .normal)
+    }
+
+    @objc private func roleDropdownTapped() {
+        if roleMenuHost != nil {
+            dismissRoleMenu()
+        } else {
+            presentRoleMenu()
+        }
+    }
+
+    private func presentRoleMenu() {
+        guard roleMenuHost == nil else { return }
+        let host = UIView()
+        host.translatesAutoresizingMaskIntoConstraints = false
+        host.backgroundColor = .clear
+
+        let dismissTap = UIButton(type: .custom)
+        dismissTap.translatesAutoresizingMaskIntoConstraints = false
+        dismissTap.backgroundColor = .clear
+        dismissTap.addTarget(self, action: #selector(dismissRoleMenuTapped), for: .touchUpInside)
+
+        let panel = UIView()
+        panel.translatesAutoresizingMaskIntoConstraints = false
+        panel.backgroundColor = UIColor.theme.tertiary
+        panel.layer.cornerRadius = 14
+        panel.layer.cornerCurve = .continuous
+        panel.layer.borderWidth = 1
+        panel.layer.borderColor = UIColor.theme.border.cgColor
+        panel.layer.shadowColor = UIColor.black.cgColor
+        panel.layer.shadowOpacity = 0.22
+        panel.layer.shadowRadius = 16
+        panel.layer.shadowOffset = CGSize(width: 0, height: 6)
+
+        let stack = UIStackView()
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .vertical
+        stack.spacing = 0
+
+        let speakerRow = makeRoleMenuRow(
+            role: .speaker,
+            title: NSLocalizedString(
+                "voiceChannel.joinSheet.joinAsSpeaker", tableName: nil, bundle: .main, value: "Join as speaker", comment: ""))
+        let separator = UIView()
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        separator.backgroundColor = UIColor.theme.border.withAlphaComponent(0.7)
+        let audienceRow = makeRoleMenuRow(
+            role: .audience,
+            title: NSLocalizedString(
+                "voiceChannel.joinSheet.joinAsAudience", tableName: nil, bundle: .main, value: "Join as audience", comment: ""))
+        stack.addArrangedSubview(speakerRow)
+        stack.addArrangedSubview(separator)
+        stack.addArrangedSubview(audienceRow)
+
+        panel.addSubview(stack)
+        host.addSubview(dismissTap)
+        host.addSubview(panel)
+        view.addSubview(host)
+
+        NSLayoutConstraint.activate([
+            host.topAnchor.constraint(equalTo: view.topAnchor),
+            host.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            host.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            host.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            dismissTap.topAnchor.constraint(equalTo: host.topAnchor),
+            dismissTap.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            dismissTap.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            dismissTap.bottomAnchor.constraint(equalTo: host.bottomAnchor),
+
+            separator.heightAnchor.constraint(equalToConstant: 1.0 / UIScreen.main.scale),
+
+            stack.topAnchor.constraint(equalTo: panel.topAnchor, constant: 6),
+            stack.bottomAnchor.constraint(equalTo: panel.bottomAnchor, constant: -6),
+            stack.leadingAnchor.constraint(equalTo: panel.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: panel.trailingAnchor),
+
+            panel.widthAnchor.constraint(equalToConstant: 232),
+            panel.trailingAnchor.constraint(equalTo: joinButtonHost.trailingAnchor),
+            panel.bottomAnchor.constraint(equalTo: joinButtonHost.topAnchor, constant: -8),
+        ])
+
+        roleMenuHost = host
+        panel.alpha = 0
+        panel.transform = CGAffineTransform(translationX: 0, y: 10).scaledBy(x: 0.97, y: 0.97)
+        UIView.animate(
+            withDuration: 0.24, delay: 0,
+            usingSpringWithDamping: 0.86, initialSpringVelocity: 0.4,
+            options: [.curveEaseOut]
+        ) {
+            panel.alpha = 1
+            panel.transform = .identity
+        }
+        UIView.animate(withDuration: 0.2) {
+            self.roleDropdownButton.imageView?.transform = CGAffineTransform(rotationAngle: .pi)
+        }
+    }
+
+    private func makeRoleMenuRow(role: SfuRole, title: String) -> UIControl {
+        let row = UIControl()
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.heightAnchor.constraint(equalToConstant: 46).isActive = true
+        row.tag = role == .audience ? 1 : 0
+        row.addTarget(self, action: #selector(roleMenuRowTapped(_:)), for: .touchUpInside)
+
+        let selected = selectedRole == role
+
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.text = title
+        label.font = .systemFont(ofSize: 15, weight: selected ? .semibold : .regular)
+        label.textColor = UIColor.theme.textStrong
+        label.isUserInteractionEnabled = false
+
+        let check = UIImageView()
+        check.translatesAutoresizingMaskIntoConstraints = false
+        let checkCfg = UIImage.SymbolConfiguration(pointSize: 13, weight: .bold)
+        check.image = UIImage(systemName: "checkmark", withConfiguration: checkCfg)?.withRenderingMode(.alwaysTemplate)
+        check.tintColor = Self.joinVoiceGreen
+        check.isHidden = !selected
+        check.isUserInteractionEnabled = false
+
+        row.addSubview(label)
+        row.addSubview(check)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 16),
+            label.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: check.leadingAnchor, constant: -8),
+            check.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -16),
+            check.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+        ])
+        return row
+    }
+
+    @objc private func roleMenuRowTapped(_ sender: UIControl) {
+        selectRole(sender.tag == 1 ? .audience : .speaker)
+        dismissRoleMenu()
+    }
+
+    @objc private func dismissRoleMenuTapped() {
+        dismissRoleMenu()
+    }
+
+    private func dismissRoleMenu() {
+        guard let host = roleMenuHost else { return }
+        roleMenuHost = nil
+        UIView.animate(withDuration: 0.16, animations: {
+            host.alpha = 0
+            self.roleDropdownButton.imageView?.transform = .identity
+        }, completion: { _ in
+            host.removeFromSuperview()
+        })
+    }
+
+    private func joinTitleForSelectedRole() -> String {
+        selectedRole == .speaker
+            ? NSLocalizedString(
+                "voiceChannel.joinSheet.joinAsSpeakerTitle", tableName: nil, bundle: .main, value: "Join as Speaker", comment: "")
+            : NSLocalizedString(
+                "voiceChannel.joinSheet.joinAsAudienceTitle", tableName: nil, bundle: .main, value: "Join as Audience", comment: "")
     }
 
     private static let joinVoiceGreen = UIColor(red: 0.133, green: 0.694, blue: 0.298, alpha: 1)
@@ -492,9 +711,10 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
 
     @objc private func joinTapped() {
         let action = onJoinVoice
+        let role = selectedRole
         dismissSheet(animated: true) {
             DispatchQueue.main.async {
-                action()
+                action(role)
             }
         }
     }

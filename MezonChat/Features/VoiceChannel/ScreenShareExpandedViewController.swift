@@ -1,7 +1,7 @@
 import UIKit
 import AVFoundation
 import AVKit
-import LiveKit
+import WebRTC
 
 protocol ScreenShareExpandedPiPHost: AnyObject {
     func noteScreenShareExpandedSessionEnded()
@@ -17,12 +17,25 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
 
     weak var pipHost: ScreenShareExpandedPiPHost?
 
-    private let shareTrack: VideoTrack
+    var onPttPress: (() -> Void)?
+    var onPttRelease: (() -> Void)?
+    var showsPttControl = false
+
+    private let shareTrack: RTCVideoTrack
     private let personName: String
-    private let videoView = VideoView()
+    private let videoView = RTCMTLVideoView()
     private var pipController: AVPictureInPictureController?
     private var didAutoDismissForPiP = false
     private var screenShareFocusPollTimer: Foundation.Timer?
+
+    private let pttPill = UIControl()
+    private let pttTint = UIView()
+    private let pttIcon = UIImageView()
+    private let pttLabel = UILabel()
+    private var pttHoldWork: DispatchWorkItem?
+    private var pttHoldTriggered = false
+    private var pttHintView: UIView?
+    private var pttDimWork: DispatchWorkItem?
 
     private var pipSourceView: UIView?
     private var pipBackgroundObserver: NSObjectProtocol?
@@ -41,7 +54,7 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
     private var dismissDetailTopConstraint: NSLayoutConstraint!
     private var dismissDetailTrailingConstraint: NSLayoutConstraint!
 
-    init(track: VideoTrack, displayName: String) {
+    init(track: RTCVideoTrack, displayName: String) {
         self.shareTrack = track
         self.personName = displayName
         super.init(nibName: nil, bundle: nil)
@@ -65,9 +78,8 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
 
         videoContainer.translatesAutoresizingMaskIntoConstraints = false
         videoView.translatesAutoresizingMaskIntoConstraints = false
-        videoView.layoutMode = .fit
-        videoView.mirrorMode = .off
-        videoView.isPinchToZoomEnabled = false
+        videoView.videoContentMode = .scaleAspectFit
+        videoView.backgroundColor = .clear
 
         view.addSubview(scrollView)
         scrollView.addSubview(videoContainer)
@@ -120,15 +132,230 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
         doubleTap.numberOfTapsRequired = 2
         scrollView.addGestureRecognizer(doubleTap)
 
-        videoView.track = shareTrack
+        setupPttControl()
+
+        shareTrack.add(videoView)
         applyScreenShareLayoutForCurrentBounds()
         setupScreenSharePiP()
+    }
+
+    private func setupPttControl() {
+        pttPill.translatesAutoresizingMaskIntoConstraints = false
+        pttPill.backgroundColor = .clear
+        pttPill.layer.cornerRadius = 29
+        pttPill.clipsToBounds = true
+        pttPill.isHidden = !showsPttControl
+        pttPill.addTarget(self, action: #selector(pttTouchDown), for: .touchDown)
+        pttPill.addTarget(self, action: #selector(pttTouchUp), for: [.touchUpInside, .touchUpOutside, .touchCancel])
+
+        let blur = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
+        blur.translatesAutoresizingMaskIntoConstraints = false
+        blur.isUserInteractionEnabled = false
+
+        pttTint.translatesAutoresizingMaskIntoConstraints = false
+        pttTint.backgroundColor = .clear
+        pttTint.isUserInteractionEnabled = false
+
+        pttIcon.translatesAutoresizingMaskIntoConstraints = false
+        pttIcon.contentMode = .scaleAspectFit
+        let iconCfg = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
+        pttIcon.image = UIImage(systemName: "mic.slash.fill", withConfiguration: iconCfg)?.withRenderingMode(.alwaysTemplate)
+        pttIcon.tintColor = .white
+        pttIcon.isUserInteractionEnabled = false
+
+        pttLabel.translatesAutoresizingMaskIntoConstraints = false
+        pttLabel.text = NSLocalizedString("voiceChannel.pushToTalk", tableName: nil, bundle: .main, value: "Push to Talk", comment: "")
+        pttLabel.font = .systemFont(ofSize: 15, weight: .semibold)
+        pttLabel.textColor = .white
+        pttLabel.isUserInteractionEnabled = false
+
+        let content = UIStackView(arrangedSubviews: [pttIcon, pttLabel])
+        content.translatesAutoresizingMaskIntoConstraints = false
+        content.axis = .horizontal
+        content.spacing = 8
+        content.alignment = .center
+        content.isUserInteractionEnabled = false
+
+        pttPill.addSubview(blur)
+        pttPill.addSubview(pttTint)
+        pttPill.addSubview(content)
+        view.addSubview(pttPill)
+        NSLayoutConstraint.activate([
+            blur.topAnchor.constraint(equalTo: pttPill.topAnchor),
+            blur.leadingAnchor.constraint(equalTo: pttPill.leadingAnchor),
+            blur.trailingAnchor.constraint(equalTo: pttPill.trailingAnchor),
+            blur.bottomAnchor.constraint(equalTo: pttPill.bottomAnchor),
+
+            pttTint.topAnchor.constraint(equalTo: pttPill.topAnchor),
+            pttTint.leadingAnchor.constraint(equalTo: pttPill.leadingAnchor),
+            pttTint.trailingAnchor.constraint(equalTo: pttPill.trailingAnchor),
+            pttTint.bottomAnchor.constraint(equalTo: pttPill.bottomAnchor),
+
+            pttPill.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            pttPill.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
+            pttPill.heightAnchor.constraint(equalToConstant: 58),
+            pttPill.widthAnchor.constraint(greaterThanOrEqualToConstant: 240),
+            pttIcon.widthAnchor.constraint(equalToConstant: 26),
+            pttIcon.heightAnchor.constraint(equalToConstant: 26),
+            content.leadingAnchor.constraint(greaterThanOrEqualTo: pttPill.leadingAnchor, constant: 24),
+            content.trailingAnchor.constraint(lessThanOrEqualTo: pttPill.trailingAnchor, constant: -24),
+            content.centerXAnchor.constraint(equalTo: pttPill.centerXAnchor),
+            content.centerYAnchor.constraint(equalTo: pttPill.centerYAnchor),
+        ])
+    }
+
+    func setPttControlVisible(_ visible: Bool) {
+        showsPttControl = visible
+        pttPill.isHidden = !visible
+        if visible {
+            restorePttDim()
+            schedulePttDim()
+        } else {
+            releasePttIfHeld()
+        }
+    }
+
+    private func schedulePttDim() {
+        pttDimWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.pttHoldTriggered else { return }
+            self.pttDimWork = nil
+            UIView.animate(withDuration: 0.4) {
+                self.pttPill.alpha = 0.55
+            }
+        }
+        pttDimWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0, execute: work)
+    }
+
+    private func restorePttDim() {
+        pttDimWork?.cancel()
+        pttDimWork = nil
+        UIView.animate(withDuration: 0.12) {
+            self.pttPill.alpha = 1
+        }
+    }
+
+    func setPttActive(_ active: Bool) {
+        guard !active, pttHoldTriggered else { return }
+        pttHoldTriggered = false
+        setPttPressed(false)
+        stopPttPulse()
+    }
+
+    @objc private func pttTouchDown() {
+        restorePttDim()
+        pttHoldWork?.cancel()
+        pttHoldTriggered = false
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.pttHoldWork = nil
+            self.pttHoldTriggered = true
+            self.setPttPressed(true)
+            self.startPttPulse()
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            self.onPttPress?()
+        }
+        pttHoldWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: work)
+    }
+
+    @objc private func pttTouchUp() {
+        pttHoldWork?.cancel()
+        pttHoldWork = nil
+        if pttHoldTriggered {
+            pttHoldTriggered = false
+            setPttPressed(false)
+            stopPttPulse()
+            onPttRelease?()
+        } else {
+            showPttHoldHint()
+        }
+        schedulePttDim()
+    }
+
+    private func releasePttIfHeld() {
+        pttHoldWork?.cancel()
+        pttHoldWork = nil
+        pttDimWork?.cancel()
+        pttDimWork = nil
+        guard pttHoldTriggered else { return }
+        pttHoldTriggered = false
+        setPttPressed(false)
+        stopPttPulse()
+        onPttRelease?()
+    }
+
+    private func setPttPressed(_ pressed: Bool) {
+        let iconCfg = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
+        if pressed {
+            pttTint.backgroundColor = UIColor.theme.bgViolet.withAlphaComponent(0.9)
+            pttIcon.image = UIImage(systemName: "mic.fill", withConfiguration: iconCfg)?.withRenderingMode(.alwaysTemplate)
+        } else {
+            pttTint.backgroundColor = .clear
+            pttIcon.image = UIImage(systemName: "mic.slash.fill", withConfiguration: iconCfg)?.withRenderingMode(.alwaysTemplate)
+        }
+    }
+
+    private func startPttPulse() {
+        pttIcon.layer.removeAnimation(forKey: "pttPulse")
+        let pulse = CABasicAnimation(keyPath: "transform.scale")
+        pulse.fromValue = 1
+        pulse.toValue = 1.18
+        pulse.duration = 0.52
+        pulse.autoreverses = true
+        pulse.repeatCount = .greatestFiniteMagnitude
+        pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        pttIcon.layer.add(pulse, forKey: "pttPulse")
+    }
+
+    private func stopPttPulse() {
+        pttIcon.layer.removeAnimation(forKey: "pttPulse")
+    }
+
+    private func showPttHoldHint() {
+        pttHintView?.removeFromSuperview()
+        let hint = UIView()
+        hint.translatesAutoresizingMaskIntoConstraints = false
+        hint.backgroundColor = UIColor.black.withAlphaComponent(0.72)
+        hint.layer.cornerRadius = 16
+        hint.isUserInteractionEnabled = false
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.text = NSLocalizedString("voiceChannel.pttHoldHint", tableName: nil, bundle: .main, value: "Please hold", comment: "")
+        label.font = .systemFont(ofSize: 14, weight: .semibold)
+        label.textColor = .white
+        hint.addSubview(label)
+        view.addSubview(hint)
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: hint.topAnchor, constant: 8),
+            label.bottomAnchor.constraint(equalTo: hint.bottomAnchor, constant: -8),
+            label.leadingAnchor.constraint(equalTo: hint.leadingAnchor, constant: 16),
+            label.trailingAnchor.constraint(equalTo: hint.trailingAnchor, constant: -16),
+            hint.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            hint.bottomAnchor.constraint(equalTo: pttPill.topAnchor, constant: -12),
+        ])
+        pttHintView = hint
+        hint.alpha = 0
+        UIView.animate(withDuration: 0.18) {
+            hint.alpha = 1
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self, weak hint] in
+            guard let hint else { return }
+            UIView.animate(withDuration: 0.25, animations: {
+                hint.alpha = 0
+            }, completion: { _ in
+                hint.removeFromSuperview()
+                if self?.pttHintView === hint {
+                    self?.pttHintView = nil
+                }
+            })
+        }
     }
 
     private func applyScreenShareLayoutForCurrentBounds() {
         let landscape = view.bounds.width > view.bounds.height
         let margin: CGFloat = landscape ? 20 : 0
-        videoView.layoutMode = .fit
         scrollTopConstraint.constant = margin
         scrollLeadingConstraint.constant = margin
         scrollTrailingConstraint.constant = -margin
@@ -140,6 +367,7 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         applyScreenShareLayoutForCurrentBounds()
+        view.bringSubviewToFront(pttPill)
         view.bringSubviewToFront(dismissDetailButton)
     }
 
@@ -163,10 +391,14 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
         }
         RunLoop.main.add(timer, forMode: .common)
         screenShareFocusPollTimer = timer
+        if showsPttControl {
+            schedulePttDim()
+        }
     }
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        releasePttIfHeld()
         screenShareFocusPollTimer?.invalidate()
         screenShareFocusPollTimer = nil
         if isBeingDismissed, !didAutoDismissForPiP {
@@ -213,7 +445,7 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
     deinit {
         screenShareFocusPollTimer?.invalidate()
         tearDownScreenSharePiP()
-        videoView.track = nil
+        shareTrack.remove(videoView)
     }
 
     // MARK: - PiP Setup
@@ -242,12 +474,10 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
         contentVC.preferredContentSize = CGSize(width: 1920, height: 1080)
         contentVC.view.backgroundColor = .black
 
-        let pipVideoView = VideoView()
+        let pipVideoView = PeerCallVideoRenderView()
         pipVideoView.translatesAutoresizingMaskIntoConstraints = false
-        pipVideoView.layoutMode = .fit
-        pipVideoView.mirrorMode = .off
-        pipVideoView.isPinchToZoomEnabled = false
-        pipVideoView.track = shareTrack
+        pipVideoView.renderContentMode = .fit
+        pipVideoView.attach(track: shareTrack)
         contentVC.view.addSubview(pipVideoView)
         NSLayoutConstraint.activate([
             pipVideoView.topAnchor.constraint(equalTo: contentVC.view.topAnchor),
@@ -339,13 +569,17 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
     // MARK: - Tear Down
 
     func tearDownForVoiceRoomLeaving() {
+        releasePttIfHeld()
+        onPttPress = nil
+        onPttRelease = nil
         screenShareFocusPollTimer?.invalidate()
         screenShareFocusPollTimer = nil
         tearDownScreenSharePiP()
-        videoView.track = nil
+        shareTrack.remove(videoView)
     }
 
     @objc private func closeScreenShareTapped() {
+        releasePttIfHeld()
         screenShareFocusPollTimer?.invalidate()
         screenShareFocusPollTimer = nil
         tearDownScreenSharePiP()
@@ -370,7 +604,7 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
     }
 
     func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
-        videoView.track = nil
+        shareTrack.remove(videoView)
         tearDownScreenSharePiP()
         pipHost?.releaseScreenSharePiPHost(self)
         pipHost?.noteScreenShareExpandedSessionEnded()
