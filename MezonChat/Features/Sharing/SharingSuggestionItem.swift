@@ -2,6 +2,7 @@ import Foundation
 
 struct SharingSuggestionItem: Hashable {
     let channelID: Int64
+    let userID: Int64
     let clanID: Int64
     let type: Int32
     let displayName: String
@@ -12,12 +13,20 @@ struct SharingSuggestionItem: Hashable {
     let clanName: String?
     let clanLogo: String?
 
+    var identity: String {
+        channelID != 0 ? "channel_\(channelID)" : "user_\(userID)"
+    }
+
+    var needsDirectMessageChannel: Bool {
+        channelID == 0 && userID != 0
+    }
+
     func hash(into hasher: inout Hasher) {
-        hasher.combine(channelID)
+        hasher.combine(identity)
     }
 
     static func == (lhs: SharingSuggestionItem, rhs: SharingSuggestionItem) -> Bool {
-        lhs.channelID == rhs.channelID
+        lhs.identity == rhs.identity
     }
 }
 

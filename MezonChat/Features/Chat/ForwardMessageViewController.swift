@@ -801,6 +801,7 @@ final class ForwardMessageViewController: UIViewController {
             for ch in dmList {
                 built.append(SharingSuggestionItem(
                     channelID: ch.channelID,
+                    userID: ch.type == MezonConstants.ChannelType.dm.rawValue ? (ch.userIds.first ?? 0) : 0,
                     clanID: ch.clanID,
                     type: ch.type,
                     displayName: SharingChannelCell.displayName(for: ch),
@@ -823,6 +824,7 @@ final class ForwardMessageViewController: UIViewController {
                 }()
                 built.append(SharingSuggestionItem(
                     channelID: ch.channelID,
+                    userID: 0,
                     clanID: cid,
                     type: ch.type,
                     displayName: SharingChannelCell.displayName(for: ch),
