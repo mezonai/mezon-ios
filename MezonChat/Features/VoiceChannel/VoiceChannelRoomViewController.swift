@@ -226,29 +226,43 @@ private func voiceChannelSessionAlreadyMatchesPreservedRoute(
     }
 }
 
+private func voiceChannelDesiredMode(for route: VoiceChannelPiPPreservedAudioRoute) -> AVAudioSession.Mode {
+    switch route {
+    case .speaker:
+        return .default
+    case .bluetooth, .earpiece:
+        return VoiceChannelAudioPreferences.mixWithOthersEnabled ? .default : .voiceChat
+    }
+}
+
+private func voiceChannelSessionConfigurationIsForeign(desiredMode: String) -> Bool {
+    let session = AVAudioSession.sharedInstance()
+    return session.category != .playAndRecord || session.mode.rawValue != desiredMode
+}
+
 @MainActor
 fileprivate func applyVoiceChannelPreservedAudioRouteToSession(_ route: VoiceChannelPiPPreservedAudioRoute) {
     let cfg = RTCAudioSessionConfiguration.webRTC()
     cfg.category = AVAudioSession.Category.playAndRecord.rawValue
+    cfg.mode = voiceChannelDesiredMode(for: route).rawValue
     switch route {
     case .speaker:
-        cfg.mode = AVAudioSession.Mode.default.rawValue
         cfg.categoryOptions = voiceChannelSpeakerCategoryOptions()
     case .bluetooth, .earpiece:
-        cfg.mode = (VoiceChannelAudioPreferences.mixWithOthersEnabled
-            ? AVAudioSession.Mode.default
-            : AVAudioSession.Mode.voiceChat).rawValue
         cfg.categoryOptions = voiceChannelEarpieceCategoryOptions()
     }
     RTCAudioSessionConfiguration.setWebRTC(cfg)
     if voiceChannelSessionAlreadyMatchesPreservedRoute(route, desiredMode: cfg.mode) {
         return
     }
+    let hadForeignConfiguration = voiceChannelSessionConfigurationIsForeign(desiredMode: cfg.mode)
     let rtc = RTCAudioSession.sharedInstance()
     rtc.lockForConfiguration()
     defer { rtc.unlockForConfiguration() }
+    var configurationApplied = false
     do {
         try rtc.setConfiguration(cfg, active: true)
+        configurationApplied = true
         switch route {
         case .speaker:
             try rtc.overrideOutputAudioPort(.speaker)
@@ -256,6 +270,10 @@ fileprivate func applyVoiceChannelPreservedAudioRouteToSession(_ route: VoiceCha
             try rtc.overrideOutputAudioPort(.none)
         }
     } catch {
+    }
+    if hadForeignConfiguration, configurationApplied, rtc.isAudioEnabled, WebRTCCallManager.shared.signalingSession == nil {
+        rtc.isAudioEnabled = false
+        rtc.isAudioEnabled = true
     }
 }
 
@@ -1849,7 +1867,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                     }
                 }
             case .categoryChange, .routeConfigurationChange:
-                if self.sfuSession != nil, self.systemRoutePortMatchesPreferredOutput() == false {
+                if self.sfuSession != nil,
+                   self.systemRoutePortMatchesPreferredOutput() == false || self.audioSessionConfigurationIsForeign() {
                     self.applyAudioRoute()
                 }
             default:
@@ -3812,10 +3831,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         defer { rtc.unlockForConfiguration() }
         let cfg = RTCAudioSessionConfiguration.webRTC()
         cfg.category = AVAudioSession.Category.playAndRecord.rawValue
-        let shouldMix = VoiceChannelAudioPreferences.mixWithOthersEnabled
-        cfg.mode = (shouldMix || currentAudioOutput == .speaker
-            ? AVAudioSession.Mode.default
-            : AVAudioSession.Mode.voiceChat).rawValue
+        cfg.mode = voiceChannelDesiredMode(for: pipPreservedRouteFromCurrentOutput()).rawValue
         cfg.categoryOptions = currentAudioOutput == .speaker
             ? voiceChannelSpeakerCategoryOptions()
             : voiceChannelEarpieceCategoryOptions()
@@ -3924,6 +3940,12 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         case .bluetooth:
             return Self.audioRouteHasBluetooth(session)
         }
+    }
+
+    private func audioSessionConfigurationIsForeign() -> Bool {
+        voiceChannelSessionConfigurationIsForeign(
+            desiredMode: voiceChannelDesiredMode(for: pipPreservedRouteFromCurrentOutput()).rawValue
+        )
     }
 
     fileprivate static func audioRouteHasBluetooth(_ session: AVAudioSession) -> Bool {

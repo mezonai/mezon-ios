@@ -359,8 +359,7 @@ final class VLCVideoPlayerNode: ASDisplayNode {
             }
             return
         }
-        try? AVAudioSession.sharedInstance().setCategory(.playback)
-        try? AVAudioSession.sharedInstance().setActive(true)
+        AppAudioSession.activateForMediaPlayback(options: [])
         vlcPlayer?.play()
         posterNode.isHidden = true
         updatePlayPauseIcons(isPlaying: true)

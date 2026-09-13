@@ -747,30 +747,52 @@ final class MezonSfuSession: NSObject {
     }
 
     private func pollSpeaking(_ pc: RTCPeerConnection) {
+        guard onSpeaking != nil else { return }
+        let localId = userId
+        let localAudible = micEnabled || pttActive
+        let userIdByMid = self.userIdByMid
+        let threshold = Self.speakingThreshold
         pc.statistics { [weak self] report in
+            let speaking = Self.speakingUserIds(
+                in: report,
+                localId: localId,
+                localAudible: localAudible,
+                userIdByMid: userIdByMid,
+                threshold: threshold
+            )
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                var speaking = Set<String>()
-                for stat in report.statistics.values {
-                    guard let kind = stat.values["kind"] as? String, kind == "audio" else { continue }
-                    guard let level = (stat.values["audioLevel"] as? NSNumber)?.doubleValue,
-                          level > Self.speakingThreshold else { continue }
-                    if stat.type == "media-source" {
-                        if self.micEnabled || self.pttActive {
-                            speaking.insert(self.userId)
-                        }
-                    } else if stat.type == "inbound-rtp" {
-                        if let mid = stat.values["mid"] as? String, let uid = self.userIdByMid[mid] {
-                            speaking.insert(uid)
-                        }
-                    }
-                }
                 if speaking != self.speakingIds {
                     self.speakingIds = speaking
                     self.onSpeaking?(speaking)
                 }
             }
         }
+    }
+
+    private nonisolated static func speakingUserIds(
+        in report: RTCStatisticsReport,
+        localId: String,
+        localAudible: Bool,
+        userIdByMid: [String: String],
+        threshold: Double
+    ) -> Set<String> {
+        var speaking = Set<String>()
+        for stat in report.statistics.values {
+            let type = stat.type
+            guard type == "media-source" || type == "inbound-rtp" else { continue }
+            let values = stat.values
+            guard let kind = values["kind"] as? String, kind == "audio" else { continue }
+            guard let level = (values["audioLevel"] as? NSNumber)?.doubleValue, level > threshold else { continue }
+            if type == "media-source" {
+                if localAudible {
+                    speaking.insert(localId)
+                }
+            } else if let mid = values["mid"] as? String, let uid = userIdByMid[mid] {
+                speaking.insert(uid)
+            }
+        }
+        return speaking
     }
 
     private func applyPeers(_ members: [[String: Any]]) -> Bool {

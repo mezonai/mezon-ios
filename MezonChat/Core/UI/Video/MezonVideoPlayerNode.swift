@@ -316,8 +316,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     }
 
     public func play() {
-        try? AVAudioSession.sharedInstance().setCategory(.playback)
-        try? AVAudioSession.sharedInstance().setActive(true)
+        AppAudioSession.activateForMediaPlayback(options: [])
         player?.play()
         posterNode.isHidden = true
         updatePlayPauseIcons(isPlaying: true)

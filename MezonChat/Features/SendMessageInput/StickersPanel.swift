@@ -441,16 +441,14 @@ final class StickersPanel: UIView {
             if (audioPreviewPlayer?.rate ?? 0) > 0 {
                 audioPreviewPlayer?.pause()
             } else {
-                try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
-                try? AVAudioSession.sharedInstance().setActive(true)
+                AppAudioSession.activateForMediaPlayback(options: [.mixWithOthers])
                 audioPreviewPlayer?.play()
             }
             reloadVisibleSoundStickerCells()
             return
         }
         stopAudioPreview()
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
-        try? AVAudioSession.sharedInstance().setActive(true)
+        AppAudioSession.activateForMediaPlayback(options: [.mixWithOthers])
         let player = AVPlayer(url: url)
         audioPreviewPlayer = player
         audioPreviewPlayingId = sticker.id

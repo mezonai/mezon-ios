@@ -5541,9 +5541,7 @@ final class SendMessageInputViewController: UIViewController {
         guard !voiceRecordingStartAborted else { return }
         let keyboardWasVisible = textView.isFirstResponder
         do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .spokenAudio, options: [.defaultToSpeaker])
-            try session.setActive(true)
+            try AppAudioSession.activateForVoiceMessageRecording()
         } catch {
             onError?(error.localizedDescription)
             return
@@ -5607,7 +5605,7 @@ final class SendMessageInputViewController: UIViewController {
         UIView.performWithoutAnimation {
             self.voiceRecordingOverlay.isHidden = true
         }
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        AppAudioSession.releaseAfterVoiceMessageRecording()
         emojiButton.isUserInteractionEnabled = true
     }
 
@@ -5622,7 +5620,7 @@ final class SendMessageInputViewController: UIViewController {
         UIView.performWithoutAnimation {
             self.voiceRecordingOverlay.isHidden = true
         }
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        AppAudioSession.releaseAfterVoiceMessageRecording()
         emojiButton.isUserInteractionEnabled = true
 
         guard let url, let start else { return }
