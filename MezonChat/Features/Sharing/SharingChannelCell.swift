@@ -241,7 +241,7 @@ final class SharingChannelCell: UITableViewCell {
         if isDM {
             channelIconView.isHidden = true
             let urlStr = item.avatarURL ?? ch?.avatars.first
-            let username = ch?.usernames.first ?? ""
+            let username = ch?.usernames.first ?? item.displayName
             if let s = urlStr, !s.isEmpty {
                 avatarPlaceholder.isHidden = true
                 avatarView.backgroundColor = UIColor.avatarColor(for: username)

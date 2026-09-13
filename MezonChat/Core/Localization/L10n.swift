@@ -801,16 +801,11 @@ enum L10n {
         static let title                 = "sharing.title"
         static let suggestionsSection    = "sharing.suggestionsSection"
         static let searchPlaceholderAll  = "sharing.searchPlaceholderAll"
-        static let searchPlaceholderUsers = "sharing.searchPlaceholderUsers"
-        static let searchPlaceholderChannels = "sharing.searchPlaceholderChannels"
         static let emptySuggestions      = "sharing.emptySuggestions"
+        static let noResults             = "sharing.noResults"
         static let commentPlaceholder    = "sharing.commentPlaceholder"
         static let sending               = "sharing.sending"
         static let uploading             = "sharing.uploading"
-        static let filterTitle           = "sharing.filterTitle"
-        static let filterAll             = "sharing.filterAll"
-        static let filterUsers           = "sharing.filterUsers"
-        static let filterChannels        = "sharing.filterChannels"
         static let sessionExpired        = "sharing.sessionExpired"
         static let errorTitle            = "sharing.errorTitle"
         static let alertOK             = "sharing.alertOK"
@@ -818,6 +813,7 @@ enum L10n {
         static let uploadCancelled       = "sharing.uploadCancelled"
         static let uploadNetworkError    = "sharing.uploadNetworkError"
         static let fileUnavailable       = "sharing.fileUnavailable"
+        static let targetUnavailable     = "sharing.targetUnavailable"
     }
 
     enum ChannelApp {
@@ -2117,16 +2113,11 @@ extension L10n {
         "sharing.title":                    "Share",
         "sharing.suggestionsSection":       "Suggestions",
         "sharing.searchPlaceholderAll":     "Select a channel or user",
-        "sharing.searchPlaceholderUsers":   "Select user",
-        "sharing.searchPlaceholderChannels":"Select channel",
         "sharing.emptySuggestions":         "No channels or conversations yet. Open the app and browse your servers, then try again.",
+        "sharing.noResults":                "No results found",
         "sharing.commentPlaceholder":       "Add a comment (optional)",
         "sharing.sending":                  "Sending…",
         "sharing.uploading":                "Uploading",
-        "sharing.filterTitle":              "Filter",
-        "sharing.filterAll":                "All",
-        "sharing.filterUsers":              "Users",
-        "sharing.filterChannels":           "Channels",
         "sharing.sessionExpired":           "Session expired",
         "sharing.errorTitle": "Error",
         "sharing.alertOK": "OK",
@@ -2134,6 +2125,7 @@ extension L10n {
         "sharing.uploadCancelled":          "Upload was interrupted. Stay in Mezon and try again.",
         "sharing.uploadNetworkError":       "Network error while uploading. Check your connection and try again.",
         "sharing.fileUnavailable":          "The shared file is no longer available. Share it again from the other app.",
+        "sharing.targetUnavailable":        "Could not open a conversation with this user. Please try again.",
 
         "clan.inviteSheet.title":           "Invite a friend",
         "clan.inviteSheet.share":           "Share Invite",
@@ -3462,16 +3454,11 @@ extension L10n {
         "sharing.title":                    "Chia sẻ",
         "sharing.suggestionsSection":       "Gợi ý",
         "sharing.searchPlaceholderAll":     "Chọn kênh hoặc người dùng",
-        "sharing.searchPlaceholderUsers":   "Chọn người dùng",
-        "sharing.searchPlaceholderChannels":"Chọn kênh",
         "sharing.emptySuggestions":         "Chưa có kênh hoặc cuộc trò chuyện. Mở ứng dụng và vào máy chủ của bạn, rồi thử lại.",
+        "sharing.noResults":                "Không tìm thấy kết quả",
         "sharing.commentPlaceholder":       "Thêm bình luận (tùy chọn)",
         "sharing.sending":                  "Đang gửi…",
         "sharing.uploading":                "Đang tải lên",
-        "sharing.filterTitle":              "Lọc",
-        "sharing.filterAll":                "Tất cả",
-        "sharing.filterUsers":              "Người dùng",
-        "sharing.filterChannels":           "Kênh",
         "sharing.sessionExpired":           "Phiên đăng nhập hết hạn",
         "sharing.errorTitle":               "Lỗi",
         "sharing.alertOK":                  "OK",
@@ -3479,6 +3466,7 @@ extension L10n {
         "sharing.uploadCancelled":          "Tải lên bị gián đoạn. Ở lại Mezon và thử lại.",
         "sharing.uploadNetworkError":       "Lỗi mạng khi tải lên. Kiểm tra kết nối và thử lại.",
         "sharing.fileUnavailable":          "Không còn file được chia sẻ. Hãy chia sẻ lại từ ứng dụng kia.",
+        "sharing.targetUnavailable":        "Không mở được cuộc trò chuyện với người dùng này. Vui lòng thử lại.",
         "clan.inviteSheet.title":           "Mời bạn bè",
         "clan.inviteSheet.share":           "Chia sẻ lời mời",
         "clan.inviteSheet.copy":            "Sao chép link",
