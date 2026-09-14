@@ -23,6 +23,7 @@ private enum VoiceMoreToolsPopoverMetrics {
 
 private struct VoiceTileEntry {
     let identity: String
+    let deviceId: String?
     let isLocal: Bool
     let micOn: Bool
     let speaking: Bool
@@ -30,6 +31,10 @@ private struct VoiceTileEntry {
     let screenTrack: RTCVideoTrack?
     let mirror: Bool
     let isAudience: Bool
+
+    var tileKey: String {
+        deviceId.map { "\(identity)|\($0)" } ?? identity
+    }
 }
 
 private struct VoiceParticipantTileDescriptor {
@@ -62,6 +67,10 @@ private func voiceChannelAvatarURLFromClanUser(_ cu: Mezon_Api_ClanUserList.Clan
     if !cu.clanAvatar.isEmpty { return cu.clanAvatar }
     if !cu.user.avatarURL.isEmpty { return cu.user.avatarURL }
     return nil
+}
+
+private func voiceChannelKickedMessage(reason: String?) -> String {
+    reason ?? NSLocalizedString("voiceChannel.kickedFromChannel", tableName: nil, bundle: .main, value: "You have been kicked from the channel.", comment: "")
 }
 
 @MainActor
@@ -169,7 +178,7 @@ enum VoiceChannelAudioPreferences {
             if let value = UserDefaults.standard.object(forKey: mixWithOthersKey) as? Bool {
                 return value
             }
-            return true
+            return false
         }
         set {
             UserDefaults.standard.set(newValue, forKey: mixWithOthersKey)
@@ -186,14 +195,17 @@ private func voiceChannelBaseCategoryOptions() -> AVAudioSession.CategoryOptions
     return opts
 }
 
-private func voiceChannelSpeakerCategoryOptions() -> AVAudioSession.CategoryOptions {
+private func voiceChannelCategoryOptions(for route: VoiceChannelPiPPreservedAudioRoute) -> AVAudioSession.CategoryOptions {
     var opts = voiceChannelBaseCategoryOptions()
-    opts.insert(.defaultToSpeaker)
+    switch route {
+    case .speaker:
+        opts.insert(.defaultToSpeaker)
+    case .bluetooth:
+        break
+    case .earpiece:
+        opts.remove(.allowBluetoothA2DP)
+    }
     return opts
-}
-
-private func voiceChannelEarpieceCategoryOptions() -> AVAudioSession.CategoryOptions {
-    voiceChannelBaseCategoryOptions()
 }
 
 @MainActor
@@ -227,12 +239,7 @@ private func voiceChannelSessionAlreadyMatchesPreservedRoute(
 }
 
 private func voiceChannelDesiredMode(for route: VoiceChannelPiPPreservedAudioRoute) -> AVAudioSession.Mode {
-    switch route {
-    case .speaker:
-        return .default
-    case .bluetooth, .earpiece:
-        return VoiceChannelAudioPreferences.mixWithOthersEnabled ? .default : .voiceChat
-    }
+    .voiceChat
 }
 
 private func voiceChannelSessionConfigurationIsForeign(desiredMode: String) -> Bool {
@@ -240,22 +247,30 @@ private func voiceChannelSessionConfigurationIsForeign(desiredMode: String) -> B
     return session.category != .playAndRecord || session.mode.rawValue != desiredMode
 }
 
+private func voiceChannelAudioSessionSummary() -> String {
+    let session = AVAudioSession.sharedInstance()
+    let outputs = session.currentRoute.outputs.map(\.portType.rawValue).joined(separator: ",")
+    let inputs = session.currentRoute.inputs.map(\.portType.rawValue).joined(separator: ",")
+    let preferred = session.preferredInput?.portType.rawValue ?? "none"
+    return "mode=\(session.mode.rawValue) options=\(session.categoryOptions.rawValue) out=\(outputs) in=\(inputs) preferredIn=\(preferred)"
+}
+
+private func voiceChannelInputPort(matching types: [AVAudioSession.Port]) -> AVAudioSessionPortDescription? {
+    AVAudioSession.sharedInstance().availableInputs?.first { types.contains($0.portType) }
+}
+
 @MainActor
 fileprivate func applyVoiceChannelPreservedAudioRouteToSession(_ route: VoiceChannelPiPPreservedAudioRoute) {
     let cfg = RTCAudioSessionConfiguration.webRTC()
     cfg.category = AVAudioSession.Category.playAndRecord.rawValue
     cfg.mode = voiceChannelDesiredMode(for: route).rawValue
-    switch route {
-    case .speaker:
-        cfg.categoryOptions = voiceChannelSpeakerCategoryOptions()
-    case .bluetooth, .earpiece:
-        cfg.categoryOptions = voiceChannelEarpieceCategoryOptions()
-    }
+    cfg.categoryOptions = voiceChannelCategoryOptions(for: route)
     RTCAudioSessionConfiguration.setWebRTC(cfg)
     if voiceChannelSessionAlreadyMatchesPreservedRoute(route, desiredMode: cfg.mode) {
         return
     }
     let hadForeignConfiguration = voiceChannelSessionConfigurationIsForeign(desiredMode: cfg.mode)
+    NSLog("%@", "[sfu-audio] apply route=\(route) foreign=\(hadForeignConfiguration) requestedOptions=\(cfg.categoryOptions.rawValue) \(voiceChannelAudioSessionSummary())" as NSString)
     let rtc = RTCAudioSession.sharedInstance()
     rtc.lockForConfiguration()
     defer { rtc.unlockForConfiguration() }
@@ -263,15 +278,34 @@ fileprivate func applyVoiceChannelPreservedAudioRouteToSession(_ route: VoiceCha
     do {
         try rtc.setConfiguration(cfg, active: true)
         configurationApplied = true
+    } catch {
+        NSLog("%@", "[sfu-audio] apply route=\(route) configuration failed: \(error)" as NSString)
+    }
+    do {
         switch route {
         case .speaker:
             try rtc.overrideOutputAudioPort(.speaker)
-        case .bluetooth, .earpiece:
+        case .bluetooth:
             try rtc.overrideOutputAudioPort(.none)
+            if let bluetooth = voiceChannelInputPort(matching: [.bluetoothHFP, .bluetoothLE]) {
+                try rtc.setPreferredInput(bluetooth)
+            }
+        case .earpiece:
+            try rtc.overrideOutputAudioPort(.none)
+            if voiceChannelInputPort(matching: [.bluetoothHFP, .bluetoothLE]) != nil,
+               let builtInMic = voiceChannelInputPort(matching: [.builtInMic]) {
+                try rtc.setPreferredInput(builtInMic)
+            }
         }
     } catch {
+        NSLog("%@", "[sfu-audio] apply route=\(route) port override failed: \(error)" as NSString)
+    }
+    NSLog("%@", "[sfu-audio] applied route=\(route) \(voiceChannelAudioSessionSummary())" as NSString)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        NSLog("%@", "[sfu-audio] settled route=\(route) \(voiceChannelAudioSessionSummary())" as NSString)
     }
     if hadForeignConfiguration, configurationApplied, rtc.isAudioEnabled, WebRTCCallManager.shared.signalingSession == nil {
+        NSLog("%@", "[sfu-audio] restarting audio unit after foreign configuration" as NSString)
         rtc.isAudioEnabled = false
         rtc.isAudioEnabled = true
     }
@@ -282,6 +316,7 @@ private final class VoiceHeaderSystemAudioRouteControl: UIView {
     private let volumeView = MPVolumeView()
     private let hitProxy = UIButton(type: .custom)
     private weak var routePickerButton: UIButton?
+    var onTap: (() -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -345,6 +380,10 @@ private final class VoiceHeaderSystemAudioRouteControl: UIView {
     }
 
     @objc private func hitProxyTapped() {
+        if let onTap {
+            onTap()
+            return
+        }
         routePickerButton?.sendActions(for: .touchUpInside)
     }
 
@@ -580,6 +619,10 @@ final class VoiceChannelPiPOverlay: NSObject {
             if state == .failed {
                 self?.dismiss()
             }
+        }
+        session.onKicked = { [weak self] reason in
+            Toast.info(voiceChannelKickedMessage(reason: reason))
+            self?.dismiss()
         }
 
         let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
@@ -825,9 +868,9 @@ final class VoiceChannelPiPOverlay: NSObject {
         defer { updateOverlaySystemCallPiPStatusFromSession() }
 
         if let remoteShare = session.participants.first(where: { $0.screenActive && $0.screen != nil }),
-           let track = remoteShare.screen {
+           let track = remoteShare.screen,
+           let identity = remoteShare.userId {
             showVideo(track: track, mirror: false)
-            let identity = remoteShare.userId ?? remoteShare.id
             let name = resolveDisplayName(identityKey: identity, isLocal: false)
             showBadge(icon: "rectangle.on.rectangle", name: "\(name) Share Screen", micOn: true)
             return
@@ -1643,6 +1686,9 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         audioRouteControl.translatesAutoresizingMaskIntoConstraints = false
         audioRouteControl.applyHeaderChrome(background: UIColor.theme.secondary, border: UIColor.theme.border)
         audioRouteControl.applyTint(UIColor.theme.white)
+        audioRouteControl.onTap = { [weak self] in
+            self?.cycleAudioOutput()
+        }
         styleHeaderCircleButton(moreButton, systemImage: "ellipsis", pointSize: 18)
         moreButton.tintColor = UIColor.theme.white
         moreButton.addTarget(self, action: #selector(moreButtonTapped), for: .touchUpInside)
@@ -1825,9 +1871,13 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
         voiceReactionOverlay.onSoundReactionTilePlayingChanged = { [weak self] userId, playing in
             guard let self else { return }
-            let rowKey = "\(userId)|main"
-            guard let row = self.participantRows[rowKey] else { return }
-            row.setSoundReactionCornerVisible(playing)
+            let idStr = "\(userId)"
+            for (rowKey, row) in self.participantRows where rowKey.hasSuffix("|main") {
+                let base = rowKey.components(separatedBy: "|").first ?? rowKey
+                if base == idStr {
+                    row.setSoundReactionCornerVisible(playing)
+                }
+            }
         }
         voiceReactionOverlay.onSoundReactionTileBadgesClearAll = { [weak self] in
             guard let self else { return }
@@ -1855,11 +1905,26 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             guard let self else { return }
             let rawReason = (notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt) ?? 0
             let reason = AVAudioSession.RouteChangeReason(rawValue: rawReason) ?? .unknown
+            let routeSession = AVAudioSession.sharedInstance()
+            let routeOutputs = routeSession.currentRoute.outputs.map(\.portType.rawValue).joined(separator: ",")
+            let routeLine = "[sfu-audio] route change reason=\(rawReason) mode=\(routeSession.mode.rawValue) out=\(routeOutputs) preferred=\(self.currentAudioOutput)"
+            NSLog("%@", routeLine as NSString)
             switch reason {
             case .newDeviceAvailable, .oldDeviceUnavailable, .override:
+                if reason != .override {
+                    self.unconfirmedAudioOutput = nil
+                }
                 self.syncCurrentAudioOutputFromSession()
                 if self.sfuSession != nil {
-                    if reason == .oldDeviceUnavailable, self.voiceOutputShouldDefaultToSpeaker() {
+                    let previousRoute = notification.userInfo?[AVAudioSessionRouteChangePreviousRouteKey] as? AVAudioSessionRouteDescription
+                    if reason == .newDeviceAvailable,
+                       !Self.routeDescriptionHasBluetooth(previousRoute),
+                       voiceChannelInputPort(matching: [.bluetoothHFP, .bluetoothLE]) != nil {
+                        self.requestedAudioOutput = nil
+                        self.currentAudioOutput = .bluetooth
+                        self.applyAudioRoute()
+                    } else if reason == .oldDeviceUnavailable, self.voiceOutputShouldDefaultToSpeaker() {
+                        self.requestedAudioOutput = nil
                         self.currentAudioOutput = .speaker
                         self.applyAudioRoute()
                     } else {
@@ -2737,6 +2802,15 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         session.onPushToTalkActive = { [weak self] active in
             self?.applyPttActive(active)
         }
+        session.onParticipantActionFailed = { [weak self] code in
+            self?.handleVoiceParticipantActionFailure(code)
+        }
+        session.onMutedByModerator = { [weak self] in
+            self?.handleMutedByModerator()
+        }
+        session.onKicked = { [weak self] reason in
+            self?.handleKickedFromRoom(reason: reason)
+        }
         let tokenContext = context
         let tokenChannelId = channel.channelID
         session.tokenProvider = {
@@ -2822,6 +2896,40 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
     private func handleSfuErrorCode(_ code: String) {
         _ = code
+    }
+
+    private func relayVoiceParticipantAction(token actionToken: String) throws {
+        guard let session = sfuSession, session.sendParticipantAction(token: actionToken) else {
+            throw NSError(domain: "VoiceChannel", code: 0, userInfo: [
+                NSLocalizedDescriptionKey: voiceParticipantActionFailureMessage(),
+            ])
+        }
+    }
+
+    private func handleVoiceParticipantActionFailure(_ code: String) {
+        presentVoiceAlert(
+            title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Voice", comment: ""),
+            message: voiceParticipantActionFailureMessage())
+    }
+
+    private func voiceParticipantActionFailureMessage() -> String {
+        NSLocalizedString(
+            "voiceChannel.participantActionFailed", tableName: nil, bundle: .main,
+            value: "Couldn't complete that action in the voice room. Try again.", comment: "")
+    }
+
+    private func handleMutedByModerator() {
+        refreshMicButtonIcon()
+        refreshCamButtonIcon()
+        refreshParticipantRowsFromSession()
+        Toast.info(NSLocalizedString(
+            "voiceChannel.mutedByModerator", tableName: nil, bundle: .main,
+            value: "You have been muted by a channel moderator.", comment: ""))
+    }
+
+    private func handleKickedFromRoom(reason: String?) {
+        Toast.info(voiceChannelKickedMessage(reason: reason))
+        popTapped()
     }
 
     private func applyRole(_ role: SfuRole) {
@@ -3056,7 +3164,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     func dismissScreenShareExpandedIfSourceShareEnded() {
         guard let key = screenShareExpandedSourceParticipantKey else { return }
         guard sfuSession != nil else { return }
-        let entry = orderedTileEntries().first(where: { $0.identity == key })
+        let entry = orderedTileEntries().first(where: { $0.tileKey == key })
         guard let entry else {
             tearDownScreenSharePresentationAndPiP()
             return
@@ -3539,11 +3647,11 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         guard sfuSession != nil else { return }
         let entries = orderedTileEntries()
         var entryByKey: [String: VoiceTileEntry] = [:]
-        for entry in entries {
-            entryByKey[entry.identity] = entry
+        for entry in entries where entryByKey[entry.tileKey] == nil {
+            entryByKey[entry.tileKey] = entry
         }
         for (rowKey, row) in participantRows {
-            let baseKey = rowKey.components(separatedBy: "|").first ?? rowKey
+            let baseKey = rowKey.components(separatedBy: "|").dropLast().joined(separator: "|")
             guard let entry = entryByKey[baseKey] else { continue }
             let isScreen = rowKey.hasSuffix("|screen")
             let display = resolveDisplayName(identityKey: entry.identity, isLocal: entry.isLocal)
@@ -3731,6 +3839,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         let localId = context.currentUser?.id ?? ""
         entries.append(VoiceTileEntry(
             identity: localId,
+            deviceId: nil,
             isLocal: true,
             micOn: session.micEnabled || session.pttActive,
             speaking: session.speakingIds.contains(localId),
@@ -3740,10 +3849,11 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             isAudience: currentRole == .audience
         ))
         for p in sfuParticipants {
-            let identity = p.userId ?? p.id
-            if identity.isEmpty || identity == localId { continue }
+            guard let identity = p.userId else { continue }
+            if identity.isEmpty { continue }
             entries.append(VoiceTileEntry(
                 identity: identity,
+                deviceId: p.peerId ?? p.id,
                 isLocal: false,
                 micOn: !p.muted,
                 speaking: session.speakingIds.contains(identity),
@@ -3759,7 +3869,14 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             if pa != pb { return pa < pb }
             let na = resolveDisplayName(identityKey: a.identity, isLocal: a.isLocal)
             let nb = resolveDisplayName(identityKey: b.identity, isLocal: b.isLocal)
-            return na.localizedCaseInsensitiveCompare(nb) == .orderedAscending
+            let byName = na.localizedCaseInsensitiveCompare(nb)
+            if byName != .orderedSame { return byName == .orderedAscending }
+            if a.identity != b.identity { return a.identity < b.identity }
+            if a.isLocal != b.isLocal { return a.isLocal }
+            let da = a.deviceId.flatMap { Int($0) } ?? Int.max
+            let db = b.deviceId.flatMap { Int($0) } ?? Int.max
+            if da != db { return da < db }
+            return (a.deviceId ?? "") < (b.deviceId ?? "")
         }
         return entries
     }
@@ -3775,12 +3892,15 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private func voiceTileDescriptors(entries: [VoiceTileEntry]) -> [VoiceParticipantTileDescriptor] {
         var screens: [VoiceParticipantTileDescriptor] = []
         var mains: [VoiceParticipantTileDescriptor] = []
+        var seenKeys = Set<String>()
         for entry in entries {
             if entry.identity.isEmpty { continue }
+            let key = entry.tileKey
+            guard seenKeys.insert(key).inserted else { continue }
             if entry.screenTrack != nil {
-                screens.append(VoiceParticipantTileDescriptor(rowKey: "\(entry.identity)|screen", entry: entry, kind: .screenShare))
+                screens.append(VoiceParticipantTileDescriptor(rowKey: "\(key)|screen", entry: entry, kind: .screenShare))
             }
-            mains.append(VoiceParticipantTileDescriptor(rowKey: "\(entry.identity)|main", entry: entry, kind: .mainVideo))
+            mains.append(VoiceParticipantTileDescriptor(rowKey: "\(key)|main", entry: entry, kind: .mainVideo))
         }
         return screens + mains
     }
@@ -3804,6 +3924,10 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     private var currentAudioOutput: AudioOutputMode = .earpiece
+    private var requestedAudioOutput: AudioOutputMode?
+    private var unconfirmedAudioOutput: AudioOutputMode?
+    private var requestedAudioOutputDeadline = Date.distantPast
+    private static let requestedAudioOutputGrace: TimeInterval = 2
 
     private func scheduleVoiceChannelAudioRecoveryAfterExternalCall() {
         guard sfuSession != nil else { return }
@@ -3832,37 +3956,44 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         let cfg = RTCAudioSessionConfiguration.webRTC()
         cfg.category = AVAudioSession.Category.playAndRecord.rawValue
         cfg.mode = voiceChannelDesiredMode(for: pipPreservedRouteFromCurrentOutput()).rawValue
-        cfg.categoryOptions = currentAudioOutput == .speaker
-            ? voiceChannelSpeakerCategoryOptions()
-            : voiceChannelEarpieceCategoryOptions()
+        cfg.categoryOptions = voiceChannelCategoryOptions(for: pipPreservedRouteFromCurrentOutput())
         RTCAudioSessionConfiguration.setWebRTC(cfg)
         do {
             try rtc.setConfiguration(cfg, active: true)
         } catch {
+            NSLog("%@", "[sfu-audio] ensure category failed: \(error)" as NSString)
         }
     }
 
     private func syncCurrentAudioOutputFromSession() {
+        let observed = observedAudioOutputFromSession()
+        if unconfirmedAudioOutput == observed {
+            unconfirmedAudioOutput = nil
+        }
+        if let requested = requestedAudioOutput {
+            if requested != observed, Date() < requestedAudioOutputDeadline {
+                currentAudioOutput = requested
+                return
+            }
+            requestedAudioOutput = nil
+        }
+        currentAudioOutput = observed
+    }
+
+    private func observedAudioOutputFromSession() -> AudioOutputMode {
         let session = AVAudioSession.sharedInstance()
         guard let port = session.currentRoute.outputs.first?.portType else {
-            currentAudioOutput = .earpiece
-            return
+            return .earpiece
         }
         switch port {
         case .builtInSpeaker:
-            currentAudioOutput = .speaker
+            return .speaker
         case .bluetoothA2DP, .bluetoothHFP, .bluetoothLE:
-            currentAudioOutput = .bluetooth
-        case .headphones, .headsetMic:
-            currentAudioOutput = .earpiece
-        case .builtInReceiver:
-            currentAudioOutput = .earpiece
+            return .bluetooth
+        case .headphones, .headsetMic, .builtInReceiver:
+            return .earpiece
         default:
-            if Self.audioRouteHasBluetooth(session) {
-                currentAudioOutput = .bluetooth
-            } else {
-                currentAudioOutput = .earpiece
-            }
+            return Self.audioRouteHasBluetooth(session) ? .bluetooth : .earpiece
         }
     }
 
@@ -3882,6 +4013,28 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             return
         }
         refreshSpeakerRouteUI()
+    }
+
+    private func cycleAudioOutput() {
+        requestedAudioOutput = nil
+        syncCurrentAudioOutputFromSession()
+        let hasBluetooth = Self.audioRouteHasBluetooth(AVAudioSession.sharedInstance())
+        let base = unconfirmedAudioOutput ?? currentAudioOutput
+        let next: AudioOutputMode
+        switch base {
+        case .speaker:
+            next = hasBluetooth ? .bluetooth : .earpiece
+        case .bluetooth:
+            next = .earpiece
+        case .earpiece:
+            next = .speaker
+        }
+        requestedAudioOutput = next
+        unconfirmedAudioOutput = next
+        requestedAudioOutputDeadline = Date().addingTimeInterval(Self.requestedAudioOutputGrace)
+        currentAudioOutput = next
+        NSLog("%@", "[sfu-audio] toggle output from \(base) to \(next)" as NSString)
+        applyAudioRoute()
     }
 
     private func applyAudioRoute() {
@@ -3946,6 +4099,13 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         voiceChannelSessionConfigurationIsForeign(
             desiredMode: voiceChannelDesiredMode(for: pipPreservedRouteFromCurrentOutput()).rawValue
         )
+    }
+
+    fileprivate static func routeDescriptionHasBluetooth(_ route: AVAudioSessionRouteDescription?) -> Bool {
+        guard let route else { return false }
+        return (route.inputs + route.outputs).contains { port in
+            port.portType == .bluetoothHFP || port.portType == .bluetoothA2DP || port.portType == .bluetoothLE
+        }
     }
 
     fileprivate static func audioRouteHasBluetooth(_ session: AVAudioSession) -> Bool {
@@ -4149,10 +4309,10 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private func applyParticipantRowCallbacks(rowKey: String, row: VoiceParticipantRowView, entry: VoiceTileEntry, displayName: String) {
         if rowKey.hasSuffix("|screen") {
             row.onMainTileLongPress = nil
-            let sourceKey = entry.identity
+            let sourceKey = entry.tileKey
             row.onExpandScreenShare = { [weak self] in
                 guard let self else { return }
-                let current = self.orderedTileEntries().first(where: { $0.identity == sourceKey })
+                let current = self.orderedTileEntries().first(where: { $0.tileKey == sourceKey })
                 guard let track = current?.screenTrack else { return }
                 self.presentScreenShareExpanded(track: track, displayName: displayName, sourceParticipantKey: sourceKey)
             }
@@ -4213,12 +4373,13 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                                     "voiceChannel.shortProfile.notSignedIn", tableName: nil, bundle: .main, value: "Not signed in", comment: ""),
                             ])
                         }
-                        try await self.context.account.network.muteMezonMeetParticipant(
+                        let actionToken = try await self.context.account.network.muteMezonMeetParticipant(
                             clanId: self.channel.clanID,
                             channelId: self.channel.channelID,
                             userId: participantUserId,
                             token: token
                         )
+                        try self.relayVoiceParticipantAction(token: actionToken)
                     },
                     onKick: { [weak self] in
                         guard let self else { return }
@@ -4228,12 +4389,13 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                                     "voiceChannel.shortProfile.notSignedIn", tableName: nil, bundle: .main, value: "Not signed in", comment: ""),
                             ])
                         }
-                        try await self.context.account.network.removeMezonMeetParticipant(
+                        let actionToken = try await self.context.account.network.removeMezonMeetParticipant(
                             clanId: self.channel.clanID,
                             channelId: self.channel.channelID,
                             userId: participantUserId,
                             token: token
                         )
+                        try self.relayVoiceParticipantAction(token: actionToken)
                     }
                 )
                 : nil
