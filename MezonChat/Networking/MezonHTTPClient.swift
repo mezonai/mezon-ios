@@ -1652,28 +1652,39 @@ final class MezonHTTPClient {
         return response.token
     }
 
-    func muteMezonMeetParticipant(clanId: Int64, channelId: Int64, userId: Int64, token: String) async throws {
+    func muteMezonMeetParticipant(clanId: Int64, channelId: Int64, userId: Int64, token: String) async throws -> String {
         var req = Mezon_Api_MeetParticipantRequest()
         req.clanID = clanId
         req.channelID = channelId
         req.userID = userId
-        let _: SwiftProtobuf.Google_Protobuf_Empty = try await postProto(
+        return try await meetParticipantActionToken(
             path: "/mezon.api.Mezon/MuteParticipantMezonMeet",
             message: req,
-            auth: .bearer(token)
+            token: token
         )
     }
 
-    func removeMezonMeetParticipant(clanId: Int64, channelId: Int64, userId: Int64, token: String) async throws {
+    func removeMezonMeetParticipant(clanId: Int64, channelId: Int64, userId: Int64, token: String) async throws -> String {
         var req = Mezon_Api_MeetParticipantRequest()
         req.clanID = clanId
         req.channelID = channelId
         req.userID = userId
-        let _: SwiftProtobuf.Google_Protobuf_Empty = try await postProto(
+        return try await meetParticipantActionToken(
             path: "/mezon.api.Mezon/RemoveParticipantMezonMeet",
             message: req,
-            auth: .bearer(token)
+            token: token
         )
+    }
+
+    private func meetParticipantActionToken(path: String, message: Mezon_Api_MeetParticipantRequest, token: String) async throws -> String {
+        let data = try await postProtoRawHTTP(path: path, message: message, auth: .bearer(token))
+        let text = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"")) ?? ""
+        guard text.hasPrefix("eyJ"), text.filter({ $0 == "." }).count == 2, !text.hasSuffix(".") else {
+            throw MezonError.invalidResponse
+        }
+        return text
     }
 
     func addAgentToVoiceChannel(channelId: Int64, roomName: String, token: String) async throws {

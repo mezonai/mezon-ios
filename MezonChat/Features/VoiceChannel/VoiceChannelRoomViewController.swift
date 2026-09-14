@@ -23,6 +23,7 @@ private enum VoiceMoreToolsPopoverMetrics {
 
 private struct VoiceTileEntry {
     let identity: String
+    let deviceId: String?
     let isLocal: Bool
     let micOn: Bool
     let speaking: Bool
@@ -30,6 +31,10 @@ private struct VoiceTileEntry {
     let screenTrack: RTCVideoTrack?
     let mirror: Bool
     let isAudience: Bool
+
+    var tileKey: String {
+        deviceId.map { "\(identity)|\($0)" } ?? identity
+    }
 }
 
 private struct VoiceParticipantTileDescriptor {
@@ -62,6 +67,10 @@ private func voiceChannelAvatarURLFromClanUser(_ cu: Mezon_Api_ClanUserList.Clan
     if !cu.clanAvatar.isEmpty { return cu.clanAvatar }
     if !cu.user.avatarURL.isEmpty { return cu.user.avatarURL }
     return nil
+}
+
+private func voiceChannelKickedMessage(reason: String?) -> String {
+    reason ?? NSLocalizedString("voiceChannel.kickedFromChannel", tableName: nil, bundle: .main, value: "You have been kicked from the channel.", comment: "")
 }
 
 @MainActor
@@ -610,6 +619,10 @@ final class VoiceChannelPiPOverlay: NSObject {
             if state == .failed {
                 self?.dismiss()
             }
+        }
+        session.onKicked = { [weak self] reason in
+            Toast.info(voiceChannelKickedMessage(reason: reason))
+            self?.dismiss()
         }
 
         let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
@@ -1858,9 +1871,13 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
         voiceReactionOverlay.onSoundReactionTilePlayingChanged = { [weak self] userId, playing in
             guard let self else { return }
-            let rowKey = "\(userId)|main"
-            guard let row = self.participantRows[rowKey] else { return }
-            row.setSoundReactionCornerVisible(playing)
+            let idStr = "\(userId)"
+            for (rowKey, row) in self.participantRows where rowKey.hasSuffix("|main") {
+                let base = rowKey.components(separatedBy: "|").first ?? rowKey
+                if base == idStr {
+                    row.setSoundReactionCornerVisible(playing)
+                }
+            }
         }
         voiceReactionOverlay.onSoundReactionTileBadgesClearAll = { [weak self] in
             guard let self else { return }
@@ -2785,6 +2802,15 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         session.onPushToTalkActive = { [weak self] active in
             self?.applyPttActive(active)
         }
+        session.onParticipantActionFailed = { [weak self] code in
+            self?.handleVoiceParticipantActionFailure(code)
+        }
+        session.onMutedByModerator = { [weak self] in
+            self?.handleMutedByModerator()
+        }
+        session.onKicked = { [weak self] reason in
+            self?.handleKickedFromRoom(reason: reason)
+        }
         let tokenContext = context
         let tokenChannelId = channel.channelID
         session.tokenProvider = {
@@ -2870,6 +2896,40 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
     private func handleSfuErrorCode(_ code: String) {
         _ = code
+    }
+
+    private func relayVoiceParticipantAction(token actionToken: String) throws {
+        guard let session = sfuSession, session.sendParticipantAction(token: actionToken) else {
+            throw NSError(domain: "VoiceChannel", code: 0, userInfo: [
+                NSLocalizedDescriptionKey: voiceParticipantActionFailureMessage(),
+            ])
+        }
+    }
+
+    private func handleVoiceParticipantActionFailure(_ code: String) {
+        presentVoiceAlert(
+            title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Voice", comment: ""),
+            message: voiceParticipantActionFailureMessage())
+    }
+
+    private func voiceParticipantActionFailureMessage() -> String {
+        NSLocalizedString(
+            "voiceChannel.participantActionFailed", tableName: nil, bundle: .main,
+            value: "Couldn't complete that action in the voice room. Try again.", comment: "")
+    }
+
+    private func handleMutedByModerator() {
+        refreshMicButtonIcon()
+        refreshCamButtonIcon()
+        refreshParticipantRowsFromSession()
+        Toast.info(NSLocalizedString(
+            "voiceChannel.mutedByModerator", tableName: nil, bundle: .main,
+            value: "You have been muted by a channel moderator.", comment: ""))
+    }
+
+    private func handleKickedFromRoom(reason: String?) {
+        Toast.info(voiceChannelKickedMessage(reason: reason))
+        popTapped()
     }
 
     private func applyRole(_ role: SfuRole) {
@@ -3104,7 +3164,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     func dismissScreenShareExpandedIfSourceShareEnded() {
         guard let key = screenShareExpandedSourceParticipantKey else { return }
         guard sfuSession != nil else { return }
-        let entry = orderedTileEntries().first(where: { $0.identity == key })
+        let entry = orderedTileEntries().first(where: { $0.tileKey == key })
         guard let entry else {
             tearDownScreenSharePresentationAndPiP()
             return
@@ -3587,11 +3647,11 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         guard sfuSession != nil else { return }
         let entries = orderedTileEntries()
         var entryByKey: [String: VoiceTileEntry] = [:]
-        for entry in entries {
-            entryByKey[entry.identity] = entry
+        for entry in entries where entryByKey[entry.tileKey] == nil {
+            entryByKey[entry.tileKey] = entry
         }
         for (rowKey, row) in participantRows {
-            let baseKey = rowKey.components(separatedBy: "|").first ?? rowKey
+            let baseKey = rowKey.components(separatedBy: "|").dropLast().joined(separator: "|")
             guard let entry = entryByKey[baseKey] else { continue }
             let isScreen = rowKey.hasSuffix("|screen")
             let display = resolveDisplayName(identityKey: entry.identity, isLocal: entry.isLocal)
@@ -3779,6 +3839,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         let localId = context.currentUser?.id ?? ""
         entries.append(VoiceTileEntry(
             identity: localId,
+            deviceId: nil,
             isLocal: true,
             micOn: session.micEnabled || session.pttActive,
             speaking: session.speakingIds.contains(localId),
@@ -3789,9 +3850,10 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         ))
         for p in sfuParticipants {
             guard let identity = p.userId else { continue }
-            if identity.isEmpty || identity == localId { continue }
+            if identity.isEmpty { continue }
             entries.append(VoiceTileEntry(
                 identity: identity,
+                deviceId: p.peerId ?? p.id,
                 isLocal: false,
                 micOn: !p.muted,
                 speaking: session.speakingIds.contains(identity),
@@ -3807,7 +3869,14 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             if pa != pb { return pa < pb }
             let na = resolveDisplayName(identityKey: a.identity, isLocal: a.isLocal)
             let nb = resolveDisplayName(identityKey: b.identity, isLocal: b.isLocal)
-            return na.localizedCaseInsensitiveCompare(nb) == .orderedAscending
+            let byName = na.localizedCaseInsensitiveCompare(nb)
+            if byName != .orderedSame { return byName == .orderedAscending }
+            if a.identity != b.identity { return a.identity < b.identity }
+            if a.isLocal != b.isLocal { return a.isLocal }
+            let da = a.deviceId.flatMap { Int($0) } ?? Int.max
+            let db = b.deviceId.flatMap { Int($0) } ?? Int.max
+            if da != db { return da < db }
+            return (a.deviceId ?? "") < (b.deviceId ?? "")
         }
         return entries
     }
@@ -3823,12 +3892,15 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private func voiceTileDescriptors(entries: [VoiceTileEntry]) -> [VoiceParticipantTileDescriptor] {
         var screens: [VoiceParticipantTileDescriptor] = []
         var mains: [VoiceParticipantTileDescriptor] = []
+        var seenKeys = Set<String>()
         for entry in entries {
             if entry.identity.isEmpty { continue }
+            let key = entry.tileKey
+            guard seenKeys.insert(key).inserted else { continue }
             if entry.screenTrack != nil {
-                screens.append(VoiceParticipantTileDescriptor(rowKey: "\(entry.identity)|screen", entry: entry, kind: .screenShare))
+                screens.append(VoiceParticipantTileDescriptor(rowKey: "\(key)|screen", entry: entry, kind: .screenShare))
             }
-            mains.append(VoiceParticipantTileDescriptor(rowKey: "\(entry.identity)|main", entry: entry, kind: .mainVideo))
+            mains.append(VoiceParticipantTileDescriptor(rowKey: "\(key)|main", entry: entry, kind: .mainVideo))
         }
         return screens + mains
     }
@@ -4237,10 +4309,10 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private func applyParticipantRowCallbacks(rowKey: String, row: VoiceParticipantRowView, entry: VoiceTileEntry, displayName: String) {
         if rowKey.hasSuffix("|screen") {
             row.onMainTileLongPress = nil
-            let sourceKey = entry.identity
+            let sourceKey = entry.tileKey
             row.onExpandScreenShare = { [weak self] in
                 guard let self else { return }
-                let current = self.orderedTileEntries().first(where: { $0.identity == sourceKey })
+                let current = self.orderedTileEntries().first(where: { $0.tileKey == sourceKey })
                 guard let track = current?.screenTrack else { return }
                 self.presentScreenShareExpanded(track: track, displayName: displayName, sourceParticipantKey: sourceKey)
             }
@@ -4301,12 +4373,13 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                                     "voiceChannel.shortProfile.notSignedIn", tableName: nil, bundle: .main, value: "Not signed in", comment: ""),
                             ])
                         }
-                        try await self.context.account.network.muteMezonMeetParticipant(
+                        let actionToken = try await self.context.account.network.muteMezonMeetParticipant(
                             clanId: self.channel.clanID,
                             channelId: self.channel.channelID,
                             userId: participantUserId,
                             token: token
                         )
+                        try self.relayVoiceParticipantAction(token: actionToken)
                     },
                     onKick: { [weak self] in
                         guard let self else { return }
@@ -4316,12 +4389,13 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                                     "voiceChannel.shortProfile.notSignedIn", tableName: nil, bundle: .main, value: "Not signed in", comment: ""),
                             ])
                         }
-                        try await self.context.account.network.removeMezonMeetParticipant(
+                        let actionToken = try await self.context.account.network.removeMezonMeetParticipant(
                             clanId: self.channel.clanID,
                             channelId: self.channel.channelID,
                             userId: participantUserId,
                             token: token
                         )
+                        try self.relayVoiceParticipantAction(token: actionToken)
                     }
                 )
                 : nil
