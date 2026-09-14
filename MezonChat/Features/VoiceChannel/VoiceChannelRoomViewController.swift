@@ -169,7 +169,7 @@ enum VoiceChannelAudioPreferences {
             if let value = UserDefaults.standard.object(forKey: mixWithOthersKey) as? Bool {
                 return value
             }
-            return true
+            return false
         }
         set {
             UserDefaults.standard.set(newValue, forKey: mixWithOthersKey)
@@ -186,14 +186,17 @@ private func voiceChannelBaseCategoryOptions() -> AVAudioSession.CategoryOptions
     return opts
 }
 
-private func voiceChannelSpeakerCategoryOptions() -> AVAudioSession.CategoryOptions {
+private func voiceChannelCategoryOptions(for route: VoiceChannelPiPPreservedAudioRoute) -> AVAudioSession.CategoryOptions {
     var opts = voiceChannelBaseCategoryOptions()
-    opts.insert(.defaultToSpeaker)
+    switch route {
+    case .speaker:
+        opts.insert(.defaultToSpeaker)
+    case .bluetooth:
+        break
+    case .earpiece:
+        opts.remove(.allowBluetoothA2DP)
+    }
     return opts
-}
-
-private func voiceChannelEarpieceCategoryOptions() -> AVAudioSession.CategoryOptions {
-    voiceChannelBaseCategoryOptions()
 }
 
 @MainActor
@@ -227,12 +230,7 @@ private func voiceChannelSessionAlreadyMatchesPreservedRoute(
 }
 
 private func voiceChannelDesiredMode(for route: VoiceChannelPiPPreservedAudioRoute) -> AVAudioSession.Mode {
-    switch route {
-    case .speaker:
-        return .default
-    case .bluetooth, .earpiece:
-        return VoiceChannelAudioPreferences.mixWithOthersEnabled ? .default : .voiceChat
-    }
+    .voiceChat
 }
 
 private func voiceChannelSessionConfigurationIsForeign(desiredMode: String) -> Bool {
@@ -240,22 +238,30 @@ private func voiceChannelSessionConfigurationIsForeign(desiredMode: String) -> B
     return session.category != .playAndRecord || session.mode.rawValue != desiredMode
 }
 
+private func voiceChannelAudioSessionSummary() -> String {
+    let session = AVAudioSession.sharedInstance()
+    let outputs = session.currentRoute.outputs.map(\.portType.rawValue).joined(separator: ",")
+    let inputs = session.currentRoute.inputs.map(\.portType.rawValue).joined(separator: ",")
+    let preferred = session.preferredInput?.portType.rawValue ?? "none"
+    return "mode=\(session.mode.rawValue) options=\(session.categoryOptions.rawValue) out=\(outputs) in=\(inputs) preferredIn=\(preferred)"
+}
+
+private func voiceChannelInputPort(matching types: [AVAudioSession.Port]) -> AVAudioSessionPortDescription? {
+    AVAudioSession.sharedInstance().availableInputs?.first { types.contains($0.portType) }
+}
+
 @MainActor
 fileprivate func applyVoiceChannelPreservedAudioRouteToSession(_ route: VoiceChannelPiPPreservedAudioRoute) {
     let cfg = RTCAudioSessionConfiguration.webRTC()
     cfg.category = AVAudioSession.Category.playAndRecord.rawValue
     cfg.mode = voiceChannelDesiredMode(for: route).rawValue
-    switch route {
-    case .speaker:
-        cfg.categoryOptions = voiceChannelSpeakerCategoryOptions()
-    case .bluetooth, .earpiece:
-        cfg.categoryOptions = voiceChannelEarpieceCategoryOptions()
-    }
+    cfg.categoryOptions = voiceChannelCategoryOptions(for: route)
     RTCAudioSessionConfiguration.setWebRTC(cfg)
     if voiceChannelSessionAlreadyMatchesPreservedRoute(route, desiredMode: cfg.mode) {
         return
     }
     let hadForeignConfiguration = voiceChannelSessionConfigurationIsForeign(desiredMode: cfg.mode)
+    NSLog("%@", "[sfu-audio] apply route=\(route) foreign=\(hadForeignConfiguration) requestedOptions=\(cfg.categoryOptions.rawValue) \(voiceChannelAudioSessionSummary())" as NSString)
     let rtc = RTCAudioSession.sharedInstance()
     rtc.lockForConfiguration()
     defer { rtc.unlockForConfiguration() }
@@ -263,15 +269,34 @@ fileprivate func applyVoiceChannelPreservedAudioRouteToSession(_ route: VoiceCha
     do {
         try rtc.setConfiguration(cfg, active: true)
         configurationApplied = true
+    } catch {
+        NSLog("%@", "[sfu-audio] apply route=\(route) configuration failed: \(error)" as NSString)
+    }
+    do {
         switch route {
         case .speaker:
             try rtc.overrideOutputAudioPort(.speaker)
-        case .bluetooth, .earpiece:
+        case .bluetooth:
             try rtc.overrideOutputAudioPort(.none)
+            if let bluetooth = voiceChannelInputPort(matching: [.bluetoothHFP, .bluetoothLE]) {
+                try rtc.setPreferredInput(bluetooth)
+            }
+        case .earpiece:
+            try rtc.overrideOutputAudioPort(.none)
+            if voiceChannelInputPort(matching: [.bluetoothHFP, .bluetoothLE]) != nil,
+               let builtInMic = voiceChannelInputPort(matching: [.builtInMic]) {
+                try rtc.setPreferredInput(builtInMic)
+            }
         }
     } catch {
+        NSLog("%@", "[sfu-audio] apply route=\(route) port override failed: \(error)" as NSString)
+    }
+    NSLog("%@", "[sfu-audio] applied route=\(route) \(voiceChannelAudioSessionSummary())" as NSString)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        NSLog("%@", "[sfu-audio] settled route=\(route) \(voiceChannelAudioSessionSummary())" as NSString)
     }
     if hadForeignConfiguration, configurationApplied, rtc.isAudioEnabled, WebRTCCallManager.shared.signalingSession == nil {
+        NSLog("%@", "[sfu-audio] restarting audio unit after foreign configuration" as NSString)
         rtc.isAudioEnabled = false
         rtc.isAudioEnabled = true
     }
@@ -282,6 +307,7 @@ private final class VoiceHeaderSystemAudioRouteControl: UIView {
     private let volumeView = MPVolumeView()
     private let hitProxy = UIButton(type: .custom)
     private weak var routePickerButton: UIButton?
+    var onTap: (() -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -345,6 +371,10 @@ private final class VoiceHeaderSystemAudioRouteControl: UIView {
     }
 
     @objc private func hitProxyTapped() {
+        if let onTap {
+            onTap()
+            return
+        }
         routePickerButton?.sendActions(for: .touchUpInside)
     }
 
@@ -825,9 +855,9 @@ final class VoiceChannelPiPOverlay: NSObject {
         defer { updateOverlaySystemCallPiPStatusFromSession() }
 
         if let remoteShare = session.participants.first(where: { $0.screenActive && $0.screen != nil }),
-           let track = remoteShare.screen {
+           let track = remoteShare.screen,
+           let identity = remoteShare.userId {
             showVideo(track: track, mirror: false)
-            let identity = remoteShare.userId ?? remoteShare.id
             let name = resolveDisplayName(identityKey: identity, isLocal: false)
             showBadge(icon: "rectangle.on.rectangle", name: "\(name) Share Screen", micOn: true)
             return
@@ -1643,6 +1673,9 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         audioRouteControl.translatesAutoresizingMaskIntoConstraints = false
         audioRouteControl.applyHeaderChrome(background: UIColor.theme.secondary, border: UIColor.theme.border)
         audioRouteControl.applyTint(UIColor.theme.white)
+        audioRouteControl.onTap = { [weak self] in
+            self?.cycleAudioOutput()
+        }
         styleHeaderCircleButton(moreButton, systemImage: "ellipsis", pointSize: 18)
         moreButton.tintColor = UIColor.theme.white
         moreButton.addTarget(self, action: #selector(moreButtonTapped), for: .touchUpInside)
@@ -1855,11 +1888,26 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             guard let self else { return }
             let rawReason = (notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt) ?? 0
             let reason = AVAudioSession.RouteChangeReason(rawValue: rawReason) ?? .unknown
+            let routeSession = AVAudioSession.sharedInstance()
+            let routeOutputs = routeSession.currentRoute.outputs.map(\.portType.rawValue).joined(separator: ",")
+            let routeLine = "[sfu-audio] route change reason=\(rawReason) mode=\(routeSession.mode.rawValue) out=\(routeOutputs) preferred=\(self.currentAudioOutput)"
+            NSLog("%@", routeLine as NSString)
             switch reason {
             case .newDeviceAvailable, .oldDeviceUnavailable, .override:
+                if reason != .override {
+                    self.unconfirmedAudioOutput = nil
+                }
                 self.syncCurrentAudioOutputFromSession()
                 if self.sfuSession != nil {
-                    if reason == .oldDeviceUnavailable, self.voiceOutputShouldDefaultToSpeaker() {
+                    let previousRoute = notification.userInfo?[AVAudioSessionRouteChangePreviousRouteKey] as? AVAudioSessionRouteDescription
+                    if reason == .newDeviceAvailable,
+                       !Self.routeDescriptionHasBluetooth(previousRoute),
+                       voiceChannelInputPort(matching: [.bluetoothHFP, .bluetoothLE]) != nil {
+                        self.requestedAudioOutput = nil
+                        self.currentAudioOutput = .bluetooth
+                        self.applyAudioRoute()
+                    } else if reason == .oldDeviceUnavailable, self.voiceOutputShouldDefaultToSpeaker() {
+                        self.requestedAudioOutput = nil
                         self.currentAudioOutput = .speaker
                         self.applyAudioRoute()
                     } else {
@@ -3740,7 +3788,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             isAudience: currentRole == .audience
         ))
         for p in sfuParticipants {
-            let identity = p.userId ?? p.id
+            guard let identity = p.userId else { continue }
             if identity.isEmpty || identity == localId { continue }
             entries.append(VoiceTileEntry(
                 identity: identity,
@@ -3804,6 +3852,10 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     private var currentAudioOutput: AudioOutputMode = .earpiece
+    private var requestedAudioOutput: AudioOutputMode?
+    private var unconfirmedAudioOutput: AudioOutputMode?
+    private var requestedAudioOutputDeadline = Date.distantPast
+    private static let requestedAudioOutputGrace: TimeInterval = 2
 
     private func scheduleVoiceChannelAudioRecoveryAfterExternalCall() {
         guard sfuSession != nil else { return }
@@ -3832,37 +3884,44 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         let cfg = RTCAudioSessionConfiguration.webRTC()
         cfg.category = AVAudioSession.Category.playAndRecord.rawValue
         cfg.mode = voiceChannelDesiredMode(for: pipPreservedRouteFromCurrentOutput()).rawValue
-        cfg.categoryOptions = currentAudioOutput == .speaker
-            ? voiceChannelSpeakerCategoryOptions()
-            : voiceChannelEarpieceCategoryOptions()
+        cfg.categoryOptions = voiceChannelCategoryOptions(for: pipPreservedRouteFromCurrentOutput())
         RTCAudioSessionConfiguration.setWebRTC(cfg)
         do {
             try rtc.setConfiguration(cfg, active: true)
         } catch {
+            NSLog("%@", "[sfu-audio] ensure category failed: \(error)" as NSString)
         }
     }
 
     private func syncCurrentAudioOutputFromSession() {
+        let observed = observedAudioOutputFromSession()
+        if unconfirmedAudioOutput == observed {
+            unconfirmedAudioOutput = nil
+        }
+        if let requested = requestedAudioOutput {
+            if requested != observed, Date() < requestedAudioOutputDeadline {
+                currentAudioOutput = requested
+                return
+            }
+            requestedAudioOutput = nil
+        }
+        currentAudioOutput = observed
+    }
+
+    private func observedAudioOutputFromSession() -> AudioOutputMode {
         let session = AVAudioSession.sharedInstance()
         guard let port = session.currentRoute.outputs.first?.portType else {
-            currentAudioOutput = .earpiece
-            return
+            return .earpiece
         }
         switch port {
         case .builtInSpeaker:
-            currentAudioOutput = .speaker
+            return .speaker
         case .bluetoothA2DP, .bluetoothHFP, .bluetoothLE:
-            currentAudioOutput = .bluetooth
-        case .headphones, .headsetMic:
-            currentAudioOutput = .earpiece
-        case .builtInReceiver:
-            currentAudioOutput = .earpiece
+            return .bluetooth
+        case .headphones, .headsetMic, .builtInReceiver:
+            return .earpiece
         default:
-            if Self.audioRouteHasBluetooth(session) {
-                currentAudioOutput = .bluetooth
-            } else {
-                currentAudioOutput = .earpiece
-            }
+            return Self.audioRouteHasBluetooth(session) ? .bluetooth : .earpiece
         }
     }
 
@@ -3882,6 +3941,28 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             return
         }
         refreshSpeakerRouteUI()
+    }
+
+    private func cycleAudioOutput() {
+        requestedAudioOutput = nil
+        syncCurrentAudioOutputFromSession()
+        let hasBluetooth = Self.audioRouteHasBluetooth(AVAudioSession.sharedInstance())
+        let base = unconfirmedAudioOutput ?? currentAudioOutput
+        let next: AudioOutputMode
+        switch base {
+        case .speaker:
+            next = hasBluetooth ? .bluetooth : .earpiece
+        case .bluetooth:
+            next = .earpiece
+        case .earpiece:
+            next = .speaker
+        }
+        requestedAudioOutput = next
+        unconfirmedAudioOutput = next
+        requestedAudioOutputDeadline = Date().addingTimeInterval(Self.requestedAudioOutputGrace)
+        currentAudioOutput = next
+        NSLog("%@", "[sfu-audio] toggle output from \(base) to \(next)" as NSString)
+        applyAudioRoute()
     }
 
     private func applyAudioRoute() {
@@ -3946,6 +4027,13 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         voiceChannelSessionConfigurationIsForeign(
             desiredMode: voiceChannelDesiredMode(for: pipPreservedRouteFromCurrentOutput()).rawValue
         )
+    }
+
+    fileprivate static func routeDescriptionHasBluetooth(_ route: AVAudioSessionRouteDescription?) -> Bool {
+        guard let route else { return false }
+        return (route.inputs + route.outputs).contains { port in
+            port.portType == .bluetoothHFP || port.portType == .bluetoothA2DP || port.portType == .bluetoothLE
+        }
     }
 
     fileprivate static func audioRouteHasBluetooth(_ session: AVAudioSession) -> Bool {

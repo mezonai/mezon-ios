@@ -3,6 +3,18 @@ import Foundation
 import Network
 import WebRTC
 
+private struct SfuAudioHealth: Sendable {
+    var sourceLevel = 0.0
+    var packetsSent = 0.0
+    var inboundStreams = 0
+    var packetsReceived = 0.0
+    var packetsLost = 0.0
+    var samplesReceived = 0.0
+    var concealedSamples = 0.0
+    var playoutSynthesized = 0.0
+    var roundTripTime = 0.0
+}
+
 @MainActor
 final class MezonSfuSession: NSObject {
 
@@ -13,9 +25,11 @@ final class MezonSfuSession: NSObject {
     private static let captureHeight: Int32 = 360
     private static let captureFps = 24
     private static let speakingPollNanos: UInt64 = 300_000_000
+    private static let audioDiagnosticsNanos: UInt64 = 5_000_000_000
     private static let reconnectPollNanos: UInt64 = 3_000_000_000
     private static let maxReconnectAttempts = 40
     private static let iceRecoveryGraceNanos: UInt64 = 4_000_000_000
+    private static let offerReissueNanos: UInt64 = 8_000_000_000
     private static let speakingThreshold = 0.02
 
     private static var sslInitialized = false
@@ -87,6 +101,9 @@ final class MezonSfuSession: NSObject {
 
     private var negotiating = false
     private var pendingOffer: (Int64, String)?
+    private var offerReissueTask: Task<Void, Never>?
+    private var lastAudioHealth: SfuAudioHealth?
+    private var audioProcessingLogger: RTCCallbackLogger?
 
     private var retiringPeerConnection: RTCPeerConnection?
     private var iceRecoveryTask: Task<Void, Never>?
@@ -156,6 +173,10 @@ final class MezonSfuSession: NSObject {
         isConnected = false
         reconnectAttempts = 0
 
+        lastAudioHealth = nil
+        if audioProcessingLogger == nil {
+            audioProcessingLogger = Self.makeAudioProcessingLogger()
+        }
         Self.ensureSSL()
         createLocalAudioTrack()
 
@@ -192,7 +213,16 @@ final class MezonSfuSession: NSObject {
                 self.openConnection(initial: false)
             }
         }
-        pollTasks = [speakingTask, reconnectTask]
+        let audioDiagnosticsTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: Self.audioDiagnosticsNanos)
+                guard !Task.isCancelled, let self else { break }
+                if let pc = self.peerConnection {
+                    self.logAudioHealth(pc)
+                }
+            }
+        }
+        pollTasks = [speakingTask, reconnectTask, audioDiagnosticsTask]
         startPathMonitor()
     }
 
@@ -255,6 +285,9 @@ final class MezonSfuSession: NSObject {
         pollTasks = []
         receiveTask?.cancel()
         receiveTask = nil
+        clearOfferReissueDeadline()
+        audioProcessingLogger?.stop()
+        audioProcessingLogger = nil
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
         urlSession?.invalidateAndCancel()
@@ -344,6 +377,7 @@ final class MezonSfuSession: NSObject {
         connectionGen += 1
         let gen = connectionGen
         stateRestored = false
+        clearOfferReissueDeadline()
         if !initial {
             if pttActive {
                 pttActive = false
@@ -361,6 +395,7 @@ final class MezonSfuSession: NSObject {
             negotiating = false
             pendingOffer = nil
             localTracksAdded = false
+            lastAudioHealth = nil
             userIdByMid.removeAll()
             peerIdByMid.removeAll()
             roleByMid.removeAll()
@@ -503,6 +538,7 @@ final class MezonSfuSession: NSObject {
         case "role_changed":
             handleRoleChanged(SfuRole.fromWire(msg["role"] as? String))
         case "offer":
+            clearOfferReissueDeadline()
             if let sdp = msg["sdp"] as? String, !sdp.isEmpty {
                 let rawGeneration = msg["offer_generation"]
                 let generation = (rawGeneration as? NSNumber)?.int64Value
@@ -517,6 +553,8 @@ final class MezonSfuSession: NSObject {
                 pttRequested = false
                 localAudioTrack?.isEnabled = false
                 onPushToTalkActive?(false)
+            } else if detail == "stale_offer_generation" || detail == "future_offer_generation" {
+                armOfferReissueDeadline()
             } else if active && joined {
                 webSocketTask?.cancel(with: .normalClosure, reason: nil)
                 handleSocketClosed(gen: connectionGen)
@@ -527,6 +565,24 @@ final class MezonSfuSession: NSObject {
         default:
             break
         }
+    }
+
+    private func armOfferReissueDeadline() {
+        guard offerReissueTask == nil else { return }
+        let gen = connectionGen
+        offerReissueTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.offerReissueNanos)
+            guard let self, !Task.isCancelled else { return }
+            self.offerReissueTask = nil
+            guard gen == self.connectionGen, self.active, self.joined else { return }
+            self.webSocketTask?.cancel(with: .normalClosure, reason: nil)
+            self.handleSocketClosed(gen: gen)
+        }
+    }
+
+    private func clearOfferReissueDeadline() {
+        offerReissueTask?.cancel()
+        offerReissueTask = nil
     }
 
     private func onOffer(generation: Int64, sdp: String) {
@@ -746,6 +802,101 @@ final class MezonSfuSession: NSObject {
         return components.url
     }
 
+    private nonisolated static func makeAudioProcessingLogger() -> RTCCallbackLogger {
+        let logger = RTCCallbackLogger()
+        logger.severity = .info
+        logger.start { @Sendable message in
+            guard Self.isAudioProcessingLogLine(message) else { return }
+            let line = message.trimmingCharacters(in: .whitespacesAndNewlines)
+            NSLog("%@", "[sfu-audio] webrtc \(line)" as NSString)
+        }
+        return logger
+    }
+
+    private nonisolated static func isAudioProcessingLogLine(_ message: String) -> Bool {
+        let markers = [
+            "WebRtcVoiceEngine::ApplyOptions",
+            "AudioProcessing::ApplyConfig",
+            "Voice Processing I/O",
+            "voice processing",
+            "bypass_voice_processing",
+            "Always disable",
+            "built-in NS",
+        ]
+        return markers.contains { message.contains($0) }
+    }
+
+    private func logAudioHealth(_ pc: RTCPeerConnection) {
+        pc.statistics { [weak self] report in
+            let health = Self.audioHealth(in: report)
+            Task { @MainActor [weak self] in
+                self?.emitAudioHealth(health)
+            }
+        }
+    }
+
+    private nonisolated static func audioHealth(in report: RTCStatisticsReport) -> SfuAudioHealth {
+        var health = SfuAudioHealth()
+        for stat in report.statistics.values {
+            let values = stat.values
+            let kind = values["kind"] as? String
+            func number(_ key: String) -> Double {
+                (values[key] as? NSNumber)?.doubleValue ?? 0
+            }
+            switch stat.type {
+            case "media-source" where kind == "audio":
+                health.sourceLevel = number("audioLevel")
+            case "outbound-rtp" where kind == "audio":
+                health.packetsSent += number("packetsSent")
+            case "inbound-rtp" where kind == "audio":
+                health.inboundStreams += 1
+                health.packetsReceived += number("packetsReceived")
+                health.packetsLost += number("packetsLost")
+                health.samplesReceived += number("totalSamplesReceived")
+                health.concealedSamples += number("concealedSamples")
+            case "media-playout":
+                health.playoutSynthesized += number("synthesizedSamplesDuration")
+            case "candidate-pair" where (values["nominated"] as? NSNumber)?.boolValue == true:
+                health.roundTripTime = number("currentRoundTripTime")
+            default:
+                break
+            }
+        }
+        return health
+    }
+
+    private func emitAudioHealth(_ health: SfuAudioHealth) {
+        let previous = lastAudioHealth ?? health
+        lastAudioHealth = health
+        let received = health.samplesReceived - previous.samplesReceived
+        let concealed = health.concealedSamples - previous.concealedSamples
+        let concealedPercent = received > 0 ? concealed / received * 100 : 0
+        let session = AVAudioSession.sharedInstance()
+        let rtc = RTCAudioSession.sharedInstance()
+        let inputs = session.currentRoute.inputs.map(\.portType.rawValue).joined(separator: ",")
+        let outputs = session.currentRoute.outputs.map(\.portType.rawValue).joined(separator: ",")
+        let fields: [String] = [
+            "mic=\(micEnabled)",
+            "ptt=\(pttActive)",
+            "audioEnabled=\(rtc.isAudioEnabled)",
+            "active=\(rtc.isActive)",
+            "mode=\(session.mode.rawValue)",
+            "in=\(inputs)",
+            "out=\(outputs)",
+            "rate=\(Int(session.sampleRate))",
+            "io=\(String(format: "%.4f", session.ioBufferDuration))",
+            "srcLevel=\(String(format: "%.3f", health.sourceLevel))",
+            "sent=+\(Int(health.packetsSent - previous.packetsSent))",
+            "inStreams=\(health.inboundStreams)",
+            "recv=+\(Int(health.packetsReceived - previous.packetsReceived))",
+            "lost=+\(Int(health.packetsLost - previous.packetsLost))",
+            "concealed=\(String(format: "%.1f", concealedPercent))%",
+            "synth=+\(String(format: "%.3f", health.playoutSynthesized - previous.playoutSynthesized))s",
+            "rtt=\(Int(health.roundTripTime * 1000))ms",
+        ]
+        NSLog("%@", ("[sfu-audio] " + fields.joined(separator: " ")) as NSString)
+    }
+
     private func pollSpeaking(_ pc: RTCPeerConnection) {
         guard onSpeaking != nil else { return }
         let localId = userId
@@ -919,28 +1070,21 @@ final class MezonSfuSession: NSObject {
             let id = remoteParticipantId(mid)
             let kind = remoteKind(mid)
             if direction == .inactive || direction == .stopped {
-                guard let entry = remote[id] else { continue }
-                switch kind {
-                case "audio":
-                    entry.audio = nil
-                case "camera":
-                    entry.video = nil
-                case "screen":
-                    entry.screen = nil
-                default:
-                    break
-                }
-                if entry.audio == nil && entry.video == nil && entry.screen == nil {
-                    removeRemoteEntry(id: id)
-                }
+                clearRemoteKind(id: id, kind: kind)
                 continue
             }
             guard let track = tc.receiver.track else { continue }
+            let ownerUserId = userIdByMid[mid]
+            let ownerPeerId = peerIdByMid[mid]
+            if ownerUserId == nil && ownerPeerId == nil {
+                clearRemoteKind(id: id, kind: kind)
+                continue
+            }
             let entry = remoteEntry(id: id)
-            if let uid = userIdByMid[mid] {
+            if let uid = ownerUserId {
                 entry.userId = uid
             }
-            if let pid = peerIdByMid[mid] {
+            if let pid = ownerPeerId {
                 applyMemberState(to: entry, peerId: pid)
             }
             if let peerRole = roleByMid[mid] {
@@ -965,6 +1109,23 @@ final class MezonSfuSession: NSObject {
         }
         releaseRetiringPeerConnection()
         emitParticipants()
+    }
+
+    private func clearRemoteKind(id: String, kind: String?) {
+        guard let entry = remote[id] else { return }
+        switch kind {
+        case "audio":
+            entry.audio = nil
+        case "camera":
+            entry.video = nil
+        case "screen":
+            entry.screen = nil
+        default:
+            break
+        }
+        if entry.audio == nil && entry.video == nil && entry.screen == nil {
+            removeRemoteEntry(id: id)
+        }
     }
 
     private func emitParticipants() {
