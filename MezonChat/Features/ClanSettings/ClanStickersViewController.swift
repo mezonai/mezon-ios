@@ -1,19 +1,55 @@
 import UIKit
+import AVFoundation
+
+private actor SoundStickerSnowflakeGenerator {
+    static let shared = SoundStickerSnowflakeGenerator()
+
+    private static let sequenceMask: Int64 = 0xFFF
+    private var lastTimestamp: Int64 = -1
+    private var sequence: Int64 = 0
+
+    func generate() -> Int64 {
+        var timestamp = Int64(Date().timeIntervalSince1970 * 1_000)
+        timestamp = max(timestamp, lastTimestamp)
+
+        if timestamp == lastTimestamp {
+            sequence = (sequence + 1) & Self.sequenceMask
+            if sequence == 0 {
+                timestamp += 1
+            }
+        } else {
+            sequence = 0
+        }
+
+        lastTimestamp = timestamp
+        return (timestamp << 22) | sequence
+    }
+}
 
 final class ClanStickersViewController: BaseViewController {
 
     private let context: AccountContext
     private let clanId: Int64
+    private let mediaType: StickerMediaType
     private let repository: StickersRepository
 
     private var stickers: [CachedClanStickerRecord] = []
     private var clanMembers: [Int64: ClanMemberRecord] = [:]
     private weak var openSwipeCell: StickerItemCell?
     private var isSwipeInteractionActive = false
+    private var audioPlayer: AVPlayer?
+    private var audioPlaybackEndObserver: NSObjectProtocol?
+    private var playingStickerId: Int64?
 
     private static let listHorizontalInset: CGFloat = 16
     private static let maxUploadFileSize = 512 * 1024
+    private static let maxSoundUploadFileSize = 1024 * 1024
+    private static let maxSoundDuration: TimeInterval = 10
     private static let uploadSectionSpacing: CGFloat = 20.sh
+
+    private var isSoundStickerMode: Bool {
+        mediaType == .audio
+    }
 
     private lazy var tableView: UITableView = {
         let t = UITableView(frame: .zero, style: .plain)
@@ -64,7 +100,14 @@ final class ClanStickersViewController: BaseViewController {
 
     private func setupTableHeader() {
         tableHeaderContainer.backgroundColor = UIColor.theme.primary
-        uploadButton.setTitle(L(L10n.ClanSetting.Stickers.uploadButton), for: .normal)
+        uploadButton.setTitle(
+            L(
+                isSoundStickerMode
+                    ? L10n.ClanSetting.SoundStickers.uploadButton
+                    : L10n.ClanSetting.Stickers.uploadButton
+            ),
+            for: .normal
+        )
         uploadButton.titleLabel?.font = .systemFont(ofSize: 15.sf, weight: .semibold)
         uploadButton.setTitleColor(.white, for: .normal)
         uploadButton.backgroundColor = UIColor.theme.bgViolet
@@ -72,7 +115,11 @@ final class ClanStickersViewController: BaseViewController {
         uploadButton.clipsToBounds = true
         uploadButton.addTarget(self, action: #selector(addStickerTapped), for: .touchUpInside)
 
-        requirementsTitleLabel.text = L(L10n.ClanSetting.Stickers.uploadRequirementsTitle).uppercased()
+        requirementsTitleLabel.text = L(
+            isSoundStickerMode
+                ? L10n.ClanSetting.SoundStickers.uploadRequirementsTitle
+                : L10n.ClanSetting.Stickers.uploadRequirementsTitle
+        ).uppercased()
         requirementsTitleLabel.font = .systemFont(ofSize: 13.sf, weight: .bold)
         requirementsTitleLabel.textColor = UIColor.theme.textStrong
 
@@ -80,11 +127,18 @@ final class ClanStickersViewController: BaseViewController {
         requirementsStack.spacing = 10.sh
         requirementsStack.alignment = .fill
         requirementsStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        [
-            L(L10n.ClanSetting.Stickers.uploadRequirement1),
-            L(L10n.ClanSetting.Stickers.uploadRequirement2),
-            L(L10n.ClanSetting.Stickers.uploadRequirement3)
-        ].forEach { requirementsStack.addArrangedSubview(makeRequirementRow(text: $0)) }
+        let requirements = isSoundStickerMode
+            ? [
+                L(L10n.ClanSetting.SoundStickers.uploadRequirement1),
+                L(L10n.ClanSetting.SoundStickers.uploadRequirement2),
+                L(L10n.ClanSetting.SoundStickers.uploadRequirement3)
+            ]
+            : [
+                L(L10n.ClanSetting.Stickers.uploadRequirement1),
+                L(L10n.ClanSetting.Stickers.uploadRequirement2),
+                L(L10n.ClanSetting.Stickers.uploadRequirement3)
+            ]
+        requirements.forEach { requirementsStack.addArrangedSubview(makeRequirementRow(text: $0)) }
 
         [uploadButton, requirementsTitleLabel, requirementsStack].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
@@ -143,10 +197,15 @@ final class ClanStickersViewController: BaseViewController {
         tableHeaderContainer.frame.size.height = tableHeaderHeight
     }
 
-    init(context: AccountContext, clanId: Int64) {
+    init(
+        context: AccountContext,
+        clanId: Int64,
+        mediaType: StickerMediaType = .sticker
+    ) {
         self.context = context
         self.clanId = clanId
-        self.repository = StickersRepository(context: context)
+        self.mediaType = mediaType
+        self.repository = StickersRepository(context: context, mediaType: mediaType)
         super.init(navigationBarPresentationData: nil)
     }
 
@@ -156,6 +215,9 @@ final class ClanStickersViewController: BaseViewController {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+        if let audioPlaybackEndObserver {
+            NotificationCenter.default.removeObserver(audioPlaybackEndObserver)
+        }
     }
 
     override func setupUI() {
@@ -178,7 +240,11 @@ final class ClanStickersViewController: BaseViewController {
         backButton.tintColor = UIColor.theme.textStrong
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
 
-        headerTitleLabel.text = L(L10n.ClanSetting.sticker)
+        headerTitleLabel.text = L(
+            isSoundStickerMode
+                ? L10n.ClanSetting.soundEffect
+                : L10n.ClanSetting.sticker
+        )
         headerTitleLabel.font = .systemFont(ofSize: 16.sf, weight: .bold)
         headerTitleLabel.textColor = .mezonTextPrimary
         headerTitleLabel.textAlignment = .center
@@ -226,6 +292,13 @@ final class ClanStickersViewController: BaseViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: animated)
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        guard isSoundStickerMode, let playingStickerId else { return }
+        stopSoundPlayback()
+        reloadSoundStickerRows(ids: [playingStickerId])
     }
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
@@ -323,7 +396,11 @@ final class ClanStickersViewController: BaseViewController {
     }
 
     private func canEdit(_ sticker: CachedClanStickerRecord) -> Bool {
-        hasClanStickerAdminPermission || (currentUserId != 0 && currentUserId == sticker.creatorID)
+        let isCreator = currentUserId != 0 && currentUserId == sticker.creatorID
+        if isSoundStickerMode {
+            return context.rolePermissions.isClanOwner(clanId: clanId) || isCreator
+        }
+        return hasClanStickerAdminPermission || isCreator
     }
 
     private func resolvedCreatorInfo(for creatorId: Int64) -> (avatar: String?, name: String) {
@@ -356,9 +433,21 @@ final class ClanStickersViewController: BaseViewController {
 
     @objc private func handleStickersChanged() {
         reloadData()
+        guard isSoundStickerMode,
+              let playingStickerId,
+              !stickers.contains(where: { $0.id == playingStickerId })
+        else { return }
+        stopSoundPlayback()
     }
 
     @objc private func addStickerTapped() {
+        if isSoundStickerMode {
+            let picker = UIDocumentPickerViewController(documentTypes: ["public.audio"], in: .import)
+            picker.delegate = self
+            picker.allowsMultipleSelection = false
+            present(picker, animated: true)
+            return
+        }
         let picker = UIImagePickerController()
         picker.delegate = self
         picker.sourceType = .photoLibrary
@@ -403,14 +492,22 @@ final class ClanStickersViewController: BaseViewController {
         let trimmed = ClanStickerNameValidator.normalized(name)
         guard ClanStickerNameValidator.isValid(trimmed) else {
             Toast.error(String(
-                format: L(L10n.ClanSetting.Stickers.validateName),
+                format: L(
+                    isSoundStickerMode
+                        ? L10n.ClanSetting.SoundStickers.validateName
+                        : L10n.ClanSetting.Stickers.validateName
+                ),
                 ClanStickerNameValidator.minLength,
                 ClanStickerNameValidator.maxLength
             ))
             return false
         }
         guard !stickers.contains(where: { $0.shortname == trimmed && $0.id != excludingId }) else {
-            Toast.error(L(L10n.ClanSetting.Stickers.duplicateName))
+            Toast.error(L(
+                isSoundStickerMode
+                    ? L10n.ClanSetting.SoundStickers.duplicateName
+                    : L10n.ClanSetting.Stickers.duplicateName
+            ))
             return false
         }
         return true
@@ -440,13 +537,21 @@ final class ClanStickersViewController: BaseViewController {
                     category: sticker.category
                 )
                 await MainActor.run {
-                    Toast.success(L(L10n.ClanSetting.Stickers.updateSuccess))
+                    Toast.success(L(
+                        isSoundStickerMode
+                            ? L10n.ClanSetting.SoundStickers.updateSuccess
+                            : L10n.ClanSetting.Stickers.updateSuccess
+                    ))
                     completion(true)
                     reloadData()
                 }
             } catch {
                 await MainActor.run {
-                    Toast.error(L(L10n.ClanSetting.Stickers.errorUpdating))
+                    Toast.error(L(
+                        isSoundStickerMode
+                            ? L10n.ClanSetting.SoundStickers.errorUpdating
+                            : L10n.ClanSetting.Stickers.errorUpdating
+                    ))
                     completion(false)
                 }
             }
@@ -457,8 +562,16 @@ final class ClanStickersViewController: BaseViewController {
         guard canEdit(sticker) else { return }
         MezonConfirm.present(
             from: self,
-            title: L(L10n.ClanSetting.Stickers.deleteConfirmTitle),
-            content: L(L10n.ClanSetting.Stickers.deleteConfirmDesc),
+            title: L(
+                isSoundStickerMode
+                    ? L10n.ClanSetting.SoundStickers.deleteConfirmTitle
+                    : L10n.ClanSetting.Stickers.deleteConfirmTitle
+            ),
+            content: L(
+                isSoundStickerMode
+                    ? L10n.ClanSetting.SoundStickers.deleteConfirmDesc
+                    : L10n.ClanSetting.Stickers.deleteConfirmDesc
+            ),
             confirmTitle: L(L10n.Common.delete),
             isDanger: true
         ) { [weak self] in
@@ -470,11 +583,104 @@ final class ClanStickersViewController: BaseViewController {
                         clanId: self.clanId,
                         shortname: sticker.shortname
                     )
-                    Toast.success(L(L10n.ClanSetting.Stickers.deleteSuccess))
+                    if self.playingStickerId == sticker.id {
+                        self.stopSoundPlayback()
+                    }
+                    Toast.success(L(
+                        self.isSoundStickerMode
+                            ? L10n.ClanSetting.SoundStickers.deleteSuccess
+                            : L10n.ClanSetting.Stickers.deleteSuccess
+                    ))
                 } catch {
-                    Toast.error(L(L10n.ClanSetting.Stickers.errorUpdating))
+                    Toast.error(L(
+                        self.isSoundStickerMode
+                            ? L10n.ClanSetting.SoundStickers.errorUpdating
+                            : L10n.ClanSetting.Stickers.errorUpdating
+                    ))
                 }
             }
+        }
+    }
+
+    private func toggleSoundPlayback(_ sticker: CachedClanStickerRecord) {
+        guard let url = soundURL(for: sticker) else { return }
+        if playingStickerId == sticker.id, let audioPlayer {
+            if audioPlayer.rate > 0 {
+                audioPlayer.pause()
+            } else {
+                activatePlaybackAudioSession()
+                audioPlayer.play()
+            }
+            reloadSoundStickerRows(ids: [sticker.id])
+            return
+        }
+
+        let previousId = playingStickerId
+        stopSoundPlayback()
+        activatePlaybackAudioSession()
+        let player = AVPlayer(url: url)
+        audioPlayer = player
+        playingStickerId = sticker.id
+        audioPlaybackEndObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: player.currentItem,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            let finishedId = self.playingStickerId
+            self.stopSoundPlayback()
+            if let finishedId {
+                self.reloadSoundStickerRows(ids: [finishedId])
+            }
+        }
+        player.play()
+        reloadSoundStickerRows(ids: [previousId, sticker.id].compactMap { $0 })
+    }
+
+    private func activatePlaybackAudioSession() {
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
+        try? AVAudioSession.sharedInstance().setActive(true)
+    }
+
+    private func stopSoundPlayback() {
+        audioPlayer?.pause()
+        audioPlayer = nil
+        playingStickerId = nil
+        if let audioPlaybackEndObserver {
+            NotificationCenter.default.removeObserver(audioPlaybackEndObserver)
+            self.audioPlaybackEndObserver = nil
+        }
+    }
+
+    private func soundURL(for sticker: CachedClanStickerRecord) -> URL? {
+        let source = sticker.source.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !source.isEmpty else { return nil }
+        let resolved: String
+        if URL(string: source)?.scheme != nil {
+            resolved = source
+        } else if source.hasPrefix("//") {
+            resolved = "https:\(source)"
+        } else if source.hasPrefix("/") {
+            resolved = "\(MezonConfig.baseImgURL)\(source)"
+        } else {
+            resolved = "\(MezonConfig.baseImgURL)/\(source)"
+        }
+        guard let url = URL(string: resolved),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https"
+        else {
+            return nil
+        }
+        return url
+    }
+
+    private func reloadSoundStickerRows(ids: [Int64]) {
+        let indexPaths = Set(ids).compactMap { id in
+            stickers.firstIndex(where: { $0.id == id }).map { IndexPath(row: $0, section: 0) }
+        }
+        guard !indexPaths.isEmpty else { return }
+        UIView.performWithoutAnimation {
+            tableView.reloadRows(at: indexPaths, with: .none)
         }
     }
 }
@@ -502,7 +708,11 @@ extension ClanStickersViewController: UITableViewDataSource, UITableViewDelegate
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: StickerItemCell.reuseId, for: indexPath) as! StickerItemCell
         if stickers.isEmpty {
-            cell.configureEmpty(text: L(L10n.ClanSetting.Stickers.empty))
+            cell.configureEmpty(text: L(
+                isSoundStickerMode
+                    ? L10n.ClanSetting.SoundStickers.empty
+                    : L10n.ClanSetting.Stickers.empty
+            ))
             return cell
         }
         let rowCount = stickers.count
@@ -515,8 +725,13 @@ extension ClanStickersViewController: UITableViewDataSource, UITableViewDelegate
             creatorAvatar: creatorInfo.avatar,
             creatorName: creatorInfo.name,
             isEditable: editable,
-            isLast: isLast
+            isLast: isLast,
+            isSoundSticker: isSoundStickerMode,
+            isPlaying: playingStickerId == sticker.id && (audioPlayer?.rate ?? 0) > 0
         )
+        cell.onPlay = isSoundStickerMode ? { [weak self] in
+            self?.toggleSoundPlayback(sticker)
+        } : nil
         cell.onShortnameCommit = { [weak self] newName, done in
             guard let self,
                   let current = self.stickers.first(where: { $0.id == sticker.id })
@@ -558,7 +773,113 @@ extension ClanStickersViewController: UITableViewDataSource, UITableViewDelegate
 
 }
 
-extension ClanStickersViewController: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+extension ClanStickersViewController: UIImagePickerControllerDelegate, UIDocumentPickerDelegate, UINavigationControllerDelegate {
+    func documentPicker(
+        _ controller: UIDocumentPickerViewController,
+        didPickDocumentsAt urls: [URL]
+    ) {
+        guard isSoundStickerMode, let url = urls.first else { return }
+        let didAccess = url.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        let fileExtension = url.pathExtension.lowercased()
+        guard ["mp3", "mpeg", "wav"].contains(fileExtension) else {
+            Toast.error(L(L10n.ClanSetting.SoundStickers.invalidFileType))
+            return
+        }
+
+        do {
+            let resourceValues = try url.resourceValues(forKeys: [.fileSizeKey])
+            guard let fileSize = resourceValues.fileSize,
+                  fileSize <= Self.maxSoundUploadFileSize
+            else {
+                Toast.error(L(L10n.ClanSetting.SoundStickers.uploadFileTooLarge))
+                return
+            }
+            let data = try Data(contentsOf: url, options: .mappedIfSafe)
+            guard data.count <= Self.maxSoundUploadFileSize else {
+                Toast.error(L(L10n.ClanSetting.SoundStickers.uploadFileTooLarge))
+                return
+            }
+            let player = try AVAudioPlayer(data: data)
+            guard player.duration <= Self.maxSoundDuration else {
+                Toast.error(L(L10n.ClanSetting.SoundStickers.durationTooLong))
+                return
+            }
+            let picked = PickedSound(
+                data: data,
+                contentType: Self.soundMimeType(for: fileExtension),
+                fileExtension: fileExtension
+            )
+            presentSoundPreview(picked: picked)
+        } catch {
+            Toast.error(L(L10n.ClanSetting.SoundStickers.invalidFileType))
+        }
+    }
+
+    private func presentSoundPreview(picked: PickedSound) {
+        let preview = ClanStickerPreviewViewController(soundData: picked.data)
+        var isSubmitting = false
+        preview.onConfirm = { [weak self, weak preview] shortname, _ in
+            guard let self, !isSubmitting else { return }
+            let trimmed = ClanStickerNameValidator.normalized(shortname)
+            guard self.validateShortname(trimmed) else { return }
+            isSubmitting = true
+            preview?.dismiss(animated: true) {
+                Task {
+                    await self.uploadSoundSticker(picked: picked, shortname: trimmed)
+                }
+            }
+        }
+        present(preview, animated: true)
+    }
+
+    private func uploadSoundSticker(picked: PickedSound, shortname: String) async {
+        guard !repository.isAtUploadLimit(clanId: clanId) else { return }
+        let uploadId = await SoundStickerSnowflakeGenerator.shared.generate()
+        let filename = "sounds/\(uploadId).\(picked.fileExtension)"
+        do {
+            guard let token = await context.getToken() else { return }
+            let upload = try await context.account.network.uploadAttachmentFile(
+                filename: filename,
+                filetype: picked.contentType,
+                size: picked.data.count,
+                token: token
+            )
+            try await context.account.network.uploadToMinIO(
+                url: upload.url,
+                data: picked.data,
+                contentType: picked.contentType
+            )
+            let cdnURL = "\(MezonConfig.baseImgURL)/\(upload.filename)"
+            let requestId = Self.stickerId(fromUploadFilename: upload.filename) ?? uploadId
+            try await repository.addSticker(
+                clanId: clanId,
+                source: cdnURL,
+                shortname: shortname,
+                category: "Among Us",
+                id: requestId
+            )
+            Toast.success(L(L10n.ClanSetting.SoundStickers.createSuccess))
+        } catch {
+            Toast.error(L(L10n.ClanSetting.SoundStickers.errorUpdating))
+        }
+    }
+
+    private struct PickedSound {
+        let data: Data
+        let contentType: String
+        let fileExtension: String
+    }
+
+    private static func soundMimeType(for fileExtension: String) -> String {
+        fileExtension == "wav" ? "audio/wav" : "audio/mpeg"
+    }
+
     func imagePickerController(
         _ picker: UIImagePickerController,
         didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]

@@ -15,6 +15,7 @@ final class StickerItemCell: UITableViewCell {
 
     var onShortnameCommit: ((String, @escaping (Bool) -> Void) -> Void)?
     var onDelete: (() -> Void)?
+    var onPlay: (() -> Void)?
     var onSwipeOpened: (() -> Void)?
     var onSwipeClosed: (() -> Void)?
     var onSwipeInteractionChanged: ((Bool) -> Void)?
@@ -24,6 +25,7 @@ final class StickerItemCell: UITableViewCell {
     private let deleteButton = UIButton(type: .system)
     private let iconContainerView = UIView()
     private let iconView = UIImageView()
+    private let soundPlayButton = UIButton(type: .system)
     private let forSaleBadgeHost = UIView()
     private let forSaleBadgeView = UIImageView()
     private let nameTextField = UITextField()
@@ -87,6 +89,13 @@ final class StickerItemCell: UITableViewCell {
         iconView.clipsToBounds = true
         iconView.layer.cornerRadius = 6.swh
 
+        soundPlayButton.tintColor = UIColor.theme.bgViolet
+        soundPlayButton.backgroundColor = UIColor.theme.secondaryLight
+        soundPlayButton.layer.cornerRadius = Self.iconSize / 2
+        soundPlayButton.clipsToBounds = true
+        soundPlayButton.isHidden = true
+        soundPlayButton.addTarget(self, action: #selector(playTapped), for: .touchUpInside)
+
         forSaleBadgeHost.backgroundColor = UIColor.theme.secondary
         forSaleBadgeHost.layer.cornerRadius = 3.swh
         forSaleBadgeHost.clipsToBounds = true
@@ -130,11 +139,12 @@ final class StickerItemCell: UITableViewCell {
             $0.translatesAutoresizingMaskIntoConstraints = false
             contentView.addSubview($0)
         }
-        [deleteButton, iconContainerView, iconView, forSaleBadgeHost, forSaleBadgeView, nameTextField, emptyStateLabel, creatorTextAvatar, creatorNameLabel].forEach {
+        [deleteButton, iconContainerView, iconView, soundPlayButton, forSaleBadgeHost, forSaleBadgeView, nameTextField, emptyStateLabel, creatorTextAvatar, creatorNameLabel].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
         }
         deleteActionView.addSubview(deleteButton)
         iconContainerView.addSubview(iconView)
+        iconContainerView.addSubview(soundPlayButton)
         forSaleBadgeHost.addSubview(forSaleBadgeView)
         creatorTextAvatar.addSubview(creatorAvatarImageView)
         creatorAvatarImageView.translatesAutoresizingMaskIntoConstraints = false
@@ -178,6 +188,11 @@ final class StickerItemCell: UITableViewCell {
             iconView.leadingAnchor.constraint(equalTo: iconContainerView.leadingAnchor),
             iconView.trailingAnchor.constraint(equalTo: iconContainerView.trailingAnchor),
             iconView.bottomAnchor.constraint(equalTo: iconContainerView.bottomAnchor),
+
+            soundPlayButton.topAnchor.constraint(equalTo: iconContainerView.topAnchor),
+            soundPlayButton.leadingAnchor.constraint(equalTo: iconContainerView.leadingAnchor),
+            soundPlayButton.trailingAnchor.constraint(equalTo: iconContainerView.trailingAnchor),
+            soundPlayButton.bottomAnchor.constraint(equalTo: iconContainerView.bottomAnchor),
 
             forSaleBadgeHost.topAnchor.constraint(
                 equalTo: iconContainerView.topAnchor,
@@ -231,7 +246,7 @@ final class StickerItemCell: UITableViewCell {
         creatorNameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         nameTextField.setContentHuggingPriority(.defaultLow, for: .horizontal)
         creatorNameLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        [iconContainerView, iconView, forSaleBadgeHost, forSaleBadgeView].forEach {
+        [iconContainerView, iconView, soundPlayButton, forSaleBadgeHost, forSaleBadgeView].forEach {
             $0.setContentCompressionResistancePriority(.required, for: .horizontal)
             $0.setContentCompressionResistancePriority(.required, for: .vertical)
             $0.setContentHuggingPriority(.required, for: .horizontal)
@@ -255,6 +270,8 @@ final class StickerItemCell: UITableViewCell {
         nameTextField.textColor = .mezonTextPrimary
         emptyStateLabel.textColor = UIColor.theme.textDisabled
         creatorNameLabel.textColor = UIColor.theme.textStrong
+        soundPlayButton.tintColor = UIColor.theme.bgViolet
+        soundPlayButton.backgroundColor = UIColor.theme.secondaryLight
         selectedBackgroundView?.backgroundColor = contentBackground.withAlphaComponent(isEmpty ? 0 : 0.6)
         applySwipeOffset(currentSwipeOffset, animated: false)
     }
@@ -298,7 +315,9 @@ final class StickerItemCell: UITableViewCell {
         creatorAvatar: String?,
         creatorName: String,
         isEditable: Bool,
-        isLast: Bool
+        isLast: Bool,
+        isSoundSticker: Bool = false,
+        isPlaying: Bool = false
     ) {
         closeSwipe(animated: false)
         isSwipeDeletable = isEditable
@@ -317,13 +336,21 @@ final class StickerItemCell: UITableViewCell {
         creatorNameLabel.alpha = 1
         creatorTextAvatar.isHidden = false
         creatorTextAvatar.alpha = 1
-        iconView.isHidden = false
-        forSaleBadgeHost.isHidden = !sticker.isForSale
+        iconView.isHidden = isSoundSticker
+        soundPlayButton.isHidden = !isSoundSticker
+        if isSoundSticker {
+            let configuration = UIImage.SymbolConfiguration(pointSize: 14.sf, weight: .semibold)
+            let imageName = isPlaying ? "pause.fill" : "play.fill"
+            soundPlayButton.setImage(UIImage(systemName: imageName, withConfiguration: configuration), for: .normal)
+        }
+        forSaleBadgeHost.isHidden = isSoundSticker || !sticker.isForSale
         isUserInteractionEnabled = true
         applyRowSeparator(isLast: isLast)
 
         loadCreatorAvatar(creatorAvatar, displayName: creatorName)
-        loadStickerIcon(sticker)
+        if !isSoundSticker {
+            loadStickerIcon(sticker)
+        }
     }
 
     func configureEmpty(text: String, isLast: Bool = true) {
@@ -335,6 +362,7 @@ final class StickerItemCell: UITableViewCell {
         creatorAvatarImageView.image = nil
         iconContainerView.isHidden = true
         iconView.isHidden = true
+        soundPlayButton.isHidden = true
         forSaleBadgeHost.isHidden = true
         creatorTextAvatar.isHidden = true
         creatorNameLabel.isHidden = true
@@ -374,8 +402,10 @@ final class StickerItemCell: UITableViewCell {
         iconTask = nil
         loadingIconURL = nil
         iconView.image = nil
+        soundPlayButton.setImage(nil, for: .normal)
         forSaleBadgeHost.isHidden = true
         iconContainerView.isHidden = false
+        soundPlayButton.isHidden = true
         nameTextField.isHidden = false
         emptyStateLabel.isHidden = true
         emptyStateLabel.text = nil
@@ -383,6 +413,7 @@ final class StickerItemCell: UITableViewCell {
         creatorTextAvatar.showImageMode()
         onShortnameCommit = nil
         onDelete = nil
+        onPlay = nil
         onSwipeOpened = nil
         onSwipeClosed = nil
         onSwipeInteractionChanged = nil
@@ -429,6 +460,10 @@ final class StickerItemCell: UITableViewCell {
     @objc private func deleteTapped() {
         closeSwipe(animated: true)
         onDelete?()
+    }
+
+    @objc private func playTapped() {
+        onPlay?()
     }
 
     private func commitEditing() {

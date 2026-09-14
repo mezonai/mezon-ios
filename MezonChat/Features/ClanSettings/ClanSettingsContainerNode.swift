@@ -9,6 +9,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
     var onSelectAuditLog: (() -> Void)?
     var onSelectIntegrations: (() -> Void)?
     var onSelectStickers: (() -> Void)?
+    var onSelectSoundStickers: (() -> Void)?
     var onSelectEmojis: (() -> Void)?
     var onSelectInvites: (() -> Void)?
     var onSelectMembers: (() -> Void)?
@@ -120,7 +121,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         settingsActions.append(contentsOf: [
             .init(title: L(L10n.ClanSetting.emoji), icon: "ClanSetting/emoji", navigate: .emojis),
             .init(title: L(L10n.ClanSetting.sticker), icon: "ClanSetting/StickerIcon", navigate: .stickers),
-            .init(title: L(L10n.ClanSetting.soundEffect), icon: "ClanSetting/SoundEffectIcon"),
+            .init(title: L(L10n.ClanSetting.soundEffect), icon: "ClanSetting/SoundEffectIcon", navigate: .soundStickers),
             .init(title: L(L10n.ClanSetting.enableCommunity), icon: "ClanSetting/EnableCommunityIcon")
         ])
         
@@ -462,6 +463,8 @@ final class ClanSettingsContainerNode: ASDisplayNode {
             onSelectIntegrations?()
         case .stickers:
             onSelectStickers?()
+        case .soundStickers:
+            onSelectSoundStickers?()
         case .emojis:
             onSelectEmojis?()
         case .invites:
@@ -485,6 +488,7 @@ private enum ClanSettingsNavigateAction: Int {
     case invites = 5
     case members = 6
     case auditLog = 7
+    case soundStickers = 8
 }
 
 private struct SettingAction {
