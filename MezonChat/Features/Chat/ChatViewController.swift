@@ -5158,6 +5158,23 @@ final class ChatViewController: ViewController {
         self.navigationController?.pushViewController(vc, animated: true)
     }
 
+    private func cachedChannelDescription(
+        channelId: Int64,
+        preferredClanId: Int64,
+        channels: [Mezon_Api_ChannelDescription]
+    ) -> Mezon_Api_ChannelDescription? {
+        if let channel = channels.first(where: {
+            $0.channelID == channelId &&
+                (preferredClanId == 0 || $0.clanID == preferredClanId || $0.clanID == 0)
+        }) {
+            return channel
+        }
+        return context.account.postbox.resolvedChannelDescription(
+            clanId: preferredClanId,
+            channelId: channelId
+        )
+    }
+
     private func enrichParsedContent(_ parsed: ParsedContent, fallbackClanId: String?) -> ParsedContent {
         let channels = context.engine.clanData.getAllChannelsByUser()?.channeldesc ?? []
         let fallbackClan = fallbackClanId.flatMap { Int64($0) } ?? 0
@@ -5168,22 +5185,30 @@ final class ChatViewController: ViewController {
                     token: token, isVk: isVk, channelId: cid, clanId: gid,
                     channels: channels, fallbackClan: fallbackClan, fallbackClanId: fallbackClanId
                 )
-            case .hashtag(let cid, let clanIdOpt, let parentIdOpt, let label, let ctype, _, _):
-                if ctype != nil { return token }
+            case .hashtag(let cid, let clanIdOpt, let parentIdOpt, let label, let ctype, let channelPrivate, let ageRestricted):
                 guard let cid, !cid.isEmpty, let idInt = Int64(cid) else { return token }
                 let clanInt = clanIdOpt.flatMap { Int64($0) } ?? fallbackClan
-                if let ch = channels.first(where: { $0.channelID == idInt && (clanInt == 0 || $0.clanID == clanInt) }) {
+                if let ch = cachedChannelDescription(
+                    channelId: idInt,
+                    preferredClanId: clanInt,
+                    channels: channels
+                ) {
+                    let cachedLabel = ch.channelLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let embeddedLabel = label?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let resolvedLabel = cachedLabel.isEmpty ? embeddedLabel : cachedLabel
+                    let resolvedClanId = clanIdOpt
+                        ?? (ch.clanID != 0 ? "\(ch.clanID)" : fallbackClanId)
                     return ContentToken(
                         start: token.start,
                         end: token.end,
                         kind: .hashtag(
                             channelId: cid,
-                            clanId: clanIdOpt,
+                            clanId: resolvedClanId,
                             parentId: parentIdOpt ?? (ch.parentID != 0 ? "\(ch.parentID)" : nil),
-                            channelLabel: label,
-                            channelType: ch.type,
-                            channelPrivate: ch.channelPrivate,
-                            ageRestricted: ch.ageRestricted
+                            channelLabel: resolvedLabel,
+                            channelType: ctype ?? ch.type,
+                            channelPrivate: ctype == nil ? ch.channelPrivate : channelPrivate,
+                            ageRestricted: ctype == nil ? ch.ageRestricted : ageRestricted
                         )
                     )
                 }
@@ -5214,7 +5239,11 @@ final class ChatViewController: ViewController {
             if fallbackClan > 0 { return "\(fallbackClan)" }
             return fallbackClanId
         }()
-        if let ch = channels.first(where: { $0.channelID == idInt && (clanInt == 0 || $0.clanID == clanInt) }) {
+        if let ch = cachedChannelDescription(
+            channelId: idInt,
+            preferredClanId: clanInt,
+            channels: channels
+        ) {
             return ContentToken(
                 start: token.start,
                 end: token.end,

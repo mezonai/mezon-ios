@@ -250,12 +250,40 @@ enum MessageContentParser {
 
         tokens.append(contentsOf: parseMarkdowns(markdownItems, text: text))
 
-        tokens.sort { $0.start < $1.start }
-
         let maxLen = text.utf16.count
-        tokens = tokens.filter { $0.start >= 0 && $0.end <= maxLen && $0.start < $0.end }
+        tokens = normalizedTokensForRendering(tokens, maxLength: maxLen)
 
         return ParsedContent(text: text, tokens: tokens, embeds: embeds, ogpPreviews: ogpPreviews)
+    }
+
+    private static func normalizedTokensForRendering(
+        _ tokens: [ContentToken],
+        maxLength: Int
+    ) -> [ContentToken] {
+        let sorted = tokens.enumerated()
+            .filter { entry in
+                let token = entry.element
+                return token.start >= 0 && token.end <= maxLength && token.start < token.end
+            }
+            .sorted { lhs, rhs in
+                if lhs.element.start != rhs.element.start {
+                    return lhs.element.start < rhs.element.start
+                }
+                return lhs.offset < rhs.offset
+            }
+
+        var accepted: [ContentToken] = []
+        accepted.reserveCapacity(sorted.count)
+        var acceptedEnd: Int?
+        for entry in sorted {
+            let token = entry.element
+            if let end = acceptedEnd, token.start < end {
+                continue
+            }
+            accepted.append(token)
+            acceptedEnd = token.end
+        }
+        return accepted
     }
 
     static func sanitizeAndRetryParse(_ raw: String) -> [String: Any]? {
