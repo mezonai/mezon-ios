@@ -181,6 +181,50 @@ private func prioritizeChannels(_ channels: [Mezon_Api_ChannelDescription]) -> [
     channels
 }
 
+private let vietnameseThreadSortLocale = Locale(identifier: "vi_VN")
+
+private func lowercaseFirstCaseComparison(_ lhs: String, _ rhs: String) -> ComparisonResult {
+    for (leftCharacter, rightCharacter) in zip(lhs, rhs) {
+        guard leftCharacter != rightCharacter else { continue }
+
+        let left = String(leftCharacter)
+        let right = String(rightCharacter)
+        let leftLowercased = left.lowercased(with: vietnameseThreadSortLocale)
+        let rightLowercased = right.lowercased(with: vietnameseThreadSortLocale)
+        guard leftLowercased == rightLowercased else { continue }
+
+        let leftIsLowercase = left == leftLowercased
+            && left != left.uppercased(with: vietnameseThreadSortLocale)
+        let rightIsLowercase = right == rightLowercased
+            && right != right.uppercased(with: vietnameseThreadSortLocale)
+        guard leftIsLowercase != rightIsLowercase else { continue }
+        return leftIsLowercase ? .orderedAscending : .orderedDescending
+    }
+    return .orderedSame
+}
+
+private func vietnameseThreadNameAscending(
+    _ lhs: Mezon_Api_ChannelDescription,
+    _ rhs: Mezon_Api_ChannelDescription
+) -> Bool {
+    let result = lhs.channelLabel.compare(
+        rhs.channelLabel,
+        options: [.caseInsensitive],
+        range: nil,
+        locale: vietnameseThreadSortLocale
+    )
+    if result == .orderedSame {
+        return lowercaseFirstCaseComparison(lhs.channelLabel, rhs.channelLabel) == .orderedAscending
+    }
+    return result == .orderedAscending
+}
+
+private func sortThreadsByVietnameseName(
+    _ threads: [Mezon_Api_ChannelDescription]
+) -> [Mezon_Api_ChannelDescription] {
+    threads.sorted(by: vietnameseThreadNameAscending)
+}
+
 private func normalizedCategoryDescs(
     _ categoryDescs: [Mezon_Api_CategoryDesc],
     channels: [Mezon_Api_ChannelDescription]
@@ -215,7 +259,7 @@ private func sortChannelsForCategory(_ channels: [Mezon_Api_ChannelDescription],
     for parent in parents {
         sortedChannels.append(parent)
         if let childThreads = threadsByParent[parent.channelID] {
-            sortedChannels.append(contentsOf: childThreads)
+            sortedChannels.append(contentsOf: sortThreadsByVietnameseName(childThreads))
         }
     }
 
@@ -455,16 +499,6 @@ private func parentChannelOrderFromSnapshot(_ snapshot: [ChannelCategory]) -> [I
     return result
 }
 
-private func threadOrderFromSnapshot(_ snapshot: [ChannelCategory]) -> [Int64: [Int64: [Int64]]] {
-    var result: [Int64: [Int64: [Int64]]] = [:]
-    for cat in snapshot {
-        for (parentId, threads) in cat.orderedThreadChildren where !threads.isEmpty {
-            result[cat.id, default: [:]][parentId] = threads.map(\.channelID)
-        }
-    }
-    return result
-}
-
 private func globalParentChannelOrderFromSnapshot(_ snapshot: [ChannelCategory]) -> [Int64] {
     var order: [Int64] = []
     var seen = Set<Int64>()
@@ -517,23 +551,16 @@ private func applySnapshotChannelOrder(
     globalFallbackOrder: [Int64]
 ) -> [ChannelCategory] {
     let perCategoryOrder = parentChannelOrderFromSnapshot(snapshot)
-    let threadOrders = threadOrderFromSnapshot(snapshot)
     return cats.map { cat in
         guard cat.id != ChannelCategory.favoritesCategoryId else { return cat }
         let parentOrder = perCategoryOrder[cat.id] ?? globalFallbackOrder
         let orderedParents = reorderChannels(cat.channels, preferredOrder: parentOrder)
-        var newThreads: [Int64: [Mezon_Api_ChannelDescription]] = [:]
-        let catThreadOrders = threadOrders[cat.id] ?? [:]
-        for (parentId, threads) in cat.orderedThreadChildren {
-            let preferred = catThreadOrders[parentId] ?? []
-            newThreads[parentId] = reorderChannels(threads, preferredOrder: preferred)
-        }
         return ChannelCategory(
             id: cat.id,
             name: cat.name,
             isCollapsed: cat.isCollapsed,
             channels: orderedParents,
-            orderedThreadChildren: newThreads,
+            orderedThreadChildren: cat.orderedThreadChildren,
             favoriteFlatChannels: cat.favoriteFlatChannels
         )
     }
@@ -693,7 +720,7 @@ func flattenCategoryToRows(_ category: ChannelCategory, threadLookup: [Int64: [M
             let allowedThreadIds = Set((threadLookup[ch.channelID] ?? []).map(\.channelID))
             threads = o.filter { allowedThreadIds.contains($0.channelID) }
         } else if let t = threadLookup[ch.channelID] {
-            threads = t
+            threads = sortThreadsByVietnameseName(t)
         } else {
             threads = []
         }
@@ -1218,9 +1245,9 @@ final class ChannelListViewController: ViewController {
             if let existingIdx = threads.firstIndex(where: { $0.channelID == thread.channelID }) {
                 threads[existingIdx] = thread
             } else {
-                threads.insert(thread, at: 0)
+                threads.append(thread)
             }
-            cat.orderedThreadChildren[thread.parentID] = threads
+            cat.orderedThreadChildren[thread.parentID] = sortThreadsByVietnameseName(threads)
             snap[idx] = cat
             didUpdate = true
             break
