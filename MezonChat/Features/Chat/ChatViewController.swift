@@ -696,8 +696,9 @@ final class ChatViewController: ViewController {
                 guard info.channelId != "\(self.channel.channelID)" else { return }
                 let resolvedClan = info.clanId.flatMap { Int64($0) } ?? self.clanId
                 guard let idInt = Int64(info.channelId) else { return }
-                let channels = self.context.engine.clanData.getAllChannelsByUser()?.channeldesc ?? []
-                let ch0 = channels.first(where: { $0.channelID == idInt && (resolvedClan == 0 || $0.clanID == resolvedClan || $0.clanID == 0) })
+                let ch0 = self.cachedChannelDescriptionForHashtag(channelId: idInt, clanId: resolvedClan)
+                    ?? (self.navigationController as? MezonRootController)?.homeController?.channelListVC.allChannels
+                        .first(where: { $0.channelID == idInt })
             if var ch = ch0, ch.type == MezonConstants.ChannelType.mezonVoice.rawValue {
                 if ch.clanID == 0, resolvedClan != 0 {
                     ch.clanID = resolvedClan
@@ -5158,41 +5159,29 @@ final class ChatViewController: ViewController {
         self.navigationController?.pushViewController(vc, animated: true)
     }
 
-    private func cachedChannelDescription(
-        channelId: Int64,
-        preferredClanId: Int64,
-        channels: [Mezon_Api_ChannelDescription]
-    ) -> Mezon_Api_ChannelDescription? {
-        if let channel = channels.first(where: {
-            $0.channelID == channelId &&
-                (preferredClanId == 0 || $0.clanID == preferredClanId || $0.clanID == 0)
+    private func cachedChannelDescriptionForHashtag(channelId: Int64, clanId: Int64) -> Mezon_Api_ChannelDescription? {
+        let channelsByUser = context.engine.clanData.getAllChannelsByUser()?.channeldesc ?? []
+        if let ch = channelsByUser.first(where: {
+            $0.channelID == channelId && (clanId == 0 || $0.clanID == clanId || $0.clanID == 0)
         }) {
-            return channel
+            return ch
         }
-        return context.account.postbox.resolvedChannelDescription(
-            clanId: preferredClanId,
-            channelId: channelId
-        )
+        return context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channelId)
     }
 
     private func enrichParsedContent(_ parsed: ParsedContent, fallbackClanId: String?) -> ParsedContent {
-        let channels = context.engine.clanData.getAllChannelsByUser()?.channeldesc ?? []
         let fallbackClan = fallbackClanId.flatMap { Int64($0) } ?? 0
         let newTokens: [ContentToken] = parsed.tokens.map { token in
             switch token.kind {
             case .mezonChannelLink(let isVk, let cid, let gid):
                 return enrichMezonChannelLinkToken(
                     token: token, isVk: isVk, channelId: cid, clanId: gid,
-                    channels: channels, fallbackClan: fallbackClan, fallbackClanId: fallbackClanId
+                    fallbackClan: fallbackClan, fallbackClanId: fallbackClanId
                 )
             case .hashtag(let cid, let clanIdOpt, let parentIdOpt, let label, let ctype, let channelPrivate, let ageRestricted):
                 guard let cid, !cid.isEmpty, let idInt = Int64(cid) else { return token }
                 let clanInt = clanIdOpt.flatMap { Int64($0) } ?? fallbackClan
-                if let ch = cachedChannelDescription(
-                    channelId: idInt,
-                    preferredClanId: clanInt,
-                    channels: channels
-                ) {
+                if let ch = cachedChannelDescriptionForHashtag(channelId: idInt, clanId: clanInt) {
                     let cachedLabel = ch.channelLabel.trimmingCharacters(in: .whitespacesAndNewlines)
                     let embeddedLabel = label?.trimmingCharacters(in: .whitespacesAndNewlines)
                     let resolvedLabel = cachedLabel.isEmpty ? embeddedLabel : cachedLabel
@@ -5225,7 +5214,6 @@ final class ChatViewController: ViewController {
         isVk: Bool,
         channelId: String,
         clanId: String,
-        channels: [Mezon_Api_ChannelDescription],
         fallbackClan: Int64,
         fallbackClanId: String?
     ) -> ContentToken {
@@ -5239,11 +5227,7 @@ final class ChatViewController: ViewController {
             if fallbackClan > 0 { return "\(fallbackClan)" }
             return fallbackClanId
         }()
-        if let ch = cachedChannelDescription(
-            channelId: idInt,
-            preferredClanId: clanInt,
-            channels: channels
-        ) {
+        if let ch = cachedChannelDescriptionForHashtag(channelId: idInt, clanId: clanInt) {
             return ContentToken(
                 start: token.start,
                 end: token.end,

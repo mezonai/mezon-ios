@@ -347,14 +347,20 @@ final class ForwardMessageViewController: UIViewController {
     private let forwardFromChannelID: Int64
 
     private var suggestions: [SharingSuggestionItem] = []
+    private var searchResults: [SharingSuggestionItem] = []
     private var filteredItems: [SharingSuggestionItem] = []
+    private var directMessageChannels: [Mezon_Api_ChannelDescription] = []
     private var channelMap: [Int64: Mezon_Api_ChannelDescription] = [:]
     private var clanNames: [Int64: String] = [:]
     private var clanLogos: [Int64: String] = [:]
     private var blockedByMeUserIds: Set<Int64> = []
 
-    private var selectedIDs: Set<Int64> = []
+    private var selectedItems: [SharingSuggestionItem] = []
     private var searchText = ""
+    private var ctrlKGeneration: UInt64 = 0
+    private var awaitingSearchResults = false
+    private var isLoadingDestinations = false
+    private var searchDebounceTimer: Foundation.Timer?
     private var isSending = false
 
     private lazy var closeButton = UIButton(type: .system)
@@ -382,6 +388,12 @@ final class ForwardMessageViewController: UIViewController {
         l.isHidden = true
         return l
     }()
+    private let loadingIndicator: UIActivityIndicatorView = {
+        let ai = UIActivityIndicatorView(style: .medium)
+        ai.translatesAutoresizingMaskIntoConstraints = false
+        ai.hidesWhenStopped = true
+        return ai
+    }()
     private lazy var inputBg = UIView()
     private lazy var commentField = UITextField()
     private lazy var sendBtn = UIButton(type: .system)
@@ -407,6 +419,10 @@ final class ForwardMessageViewController: UIViewController {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    deinit {
+        searchDebounceTimer?.invalidate()
+    }
+
     override var preferredStatusBarStyle: UIStatusBarStyle { ThemeManager.shared.preferredStatusBarStyle }
 
     override func viewDidLoad() {
@@ -431,7 +447,7 @@ final class ForwardMessageViewController: UIViewController {
             attributes: [.foregroundColor: UIColor.theme.textDisabled.withAlphaComponent(0.85)]
         )
         updatePreviewLabel()
-        updateEmptyResultsVisibility()
+        updatePlaceholderState()
         tableView.reloadData()
     }
 
@@ -457,6 +473,7 @@ final class ForwardMessageViewController: UIViewController {
         previewAttLbl.textColor = t.textStrong
         previewLbl.textColor = t.textStrong
         emptyResultsLabel.textColor = t.textDisabled
+        loadingIndicator.color = t.textDisabled
         inputBg.backgroundColor = t.secondary
         commentField.textColor = t.textStrong
         refreshSendButtonVisual()
@@ -533,6 +550,7 @@ final class ForwardMessageViewController: UIViewController {
         previewCard.addSubview(previewLbl)
         view.addSubview(tableView)
         view.addSubview(emptyResultsLabel)
+        view.addSubview(loadingIndicator)
         view.addSubview(bottomBar)
         bottomBar.addSubview(inputBg)
         bottomBar.addSubview(sendBtn)
@@ -585,6 +603,9 @@ final class ForwardMessageViewController: UIViewController {
             emptyResultsLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
             emptyResultsLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
             emptyResultsLabel.centerYAnchor.constraint(equalTo: tableView.centerYAnchor),
+
+            loadingIndicator.centerXAnchor.constraint(equalTo: tableView.centerXAnchor),
+            loadingIndicator.centerYAnchor.constraint(equalTo: tableView.centerYAnchor),
 
             bottomBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             bottomBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -695,19 +716,10 @@ final class ForwardMessageViewController: UIViewController {
         return peerUserIds(in: channel).contains { blockedByMeUserIds.contains($0) }
     }
 
-    private func recencyTimestamp(for item: SharingSuggestionItem) -> UInt32 {
-        guard let ch = channelMap[item.channelID] else { return 0 }
-        return sharingRecencyTimestamp(ch)
-    }
-
-    private func sortSuggestionsByRecency(_ items: [SharingSuggestionItem]) -> [SharingSuggestionItem] {
-        let users = items.filter { isUserFacingDMType($0.type) }
-            .sorted { recencyTimestamp(for: $0) > recencyTimestamp(for: $1) }
-        let channels = items.filter { isSharableClanChannelType($0.type) }
-            .sorted { recencyTimestamp(for: $0) > recencyTimestamp(for: $1) }
-        let other = items.filter { !isUserFacingDMType($0.type) && !isSharableClanChannelType($0.type) }
-            .sorted { recencyTimestamp(for: $0) > recencyTimestamp(for: $1) }
-        return users + channels + other
+    private func existingDirectMessageChannel(withPeer userID: Int64) -> Mezon_Api_ChannelDescription? {
+        channelMap.values.first { ch in
+            ch.type == MezonConstants.ChannelType.dm.rawValue && peerUserIds(in: ch) == [userID]
+        }
     }
 
     private func resolvedClanInfo(for ch: Mezon_Api_ChannelDescription) -> (clanID: Int64, channelClanName: String) {
@@ -726,188 +738,241 @@ final class ForwardMessageViewController: UIViewController {
     }
 
     private func loadDestinations() {
+        blockedByMeUserIds = context.engine.friendsData.blockedUserIds()
+        applyDirectMessageChannels(context.account.postbox.getCachedDMChannelList())
+        isLoadingDestinations = true
+        renderDestinations()
         Task { @MainActor [weak self] in
             guard let self else { return }
-            guard let token = await context.getToken() else { return }
-
-            await context.engine.friendsData.refreshFromNetwork(token: token)
-            blockedByMeUserIds = context.engine.friendsData.blockedUserIds()
-
-            var dmList: [Mezon_Api_ChannelDescription] = []
-            var clanList: [Mezon_Api_ChannelDescription] = []
-
-            do {
-                var dms = try await context.account.network.listDirectMessageChannels(token: token)
-                do {
-                    let badgeResponse = try await context.account.network.listChannelBadgeCount(clanId: 0, token: token)
-                    ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &dms, badgeRows: badgeResponse.channeldesc)
-                } catch {}
-
-                dmList = dms.filter { ch in
-                    guard ch.type != MezonConstants.ChannelType.mezonVoice.rawValue else { return false }
-                    guard !self.shouldHideBlockedDestination(ch) else { return false }
-                    if !ch.channelLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
-                    if ch.displayNames.contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) { return true }
-                    if ch.usernames.contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) { return true }
-                    return false
-                }
-                dmList = dmList.sorted { self.sharingRecencyTimestamp($0) > self.sharingRecencyTimestamp($1) }
-            } catch {}
-
-            if let allChannelsList = context.engine.clanData.getAllChannelsByUser() {
-                clanList = allChannelsList.channeldesc.filter { ch in
-                    let t = ch.type
-                    return t == MezonConstants.ChannelType.channel.rawValue
-                        || t == MezonConstants.ChannelType.thread.rawValue
-                        || t == MezonConstants.ChannelType.announcement.rawValue
-                }
-                clanList = clanList.sorted { self.sharingRecencyTimestamp($0) > self.sharingRecencyTimestamp($1) }
+            guard let token = await self.context.getToken() else {
+                self.isLoadingDestinations = false
+                self.renderDestinations()
+                return
             }
+            self.refreshBlockedUsers(token: token)
+            async let directTask = self.context.account.network.listDirectMessageChannels(token: token)
+            async let groupTask = self.context.account.network.listGroupMessageChannels(token: token)
+            async let badgeTask = self.context.account.network.listChannelBadgeCount(clanId: 0, token: token)
+            async let clanTask = self.context.account.network.listClanDescs(token: token)
 
-            do {
-                let clanDescs = try await context.account.network.listClanDescs(token: token)
-                for clan in clanDescs {
-                    clanNames[clan.clanID] = clan.clanName
+            if var channels = try? await directTask {
+                if let groups = try? await groupTask {
+                    var existingIds = Set(channels.map(\.channelID))
+                    for group in groups where !existingIds.contains(group.channelID) {
+                        channels.append(group)
+                        existingIds.insert(group.channelID)
+                    }
+                }
+                if let badges = try? await badgeTask {
+                    ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &channels, badgeRows: badges.channeldesc)
+                }
+                self.applyDirectMessageChannels(channels)
+            }
+            self.isLoadingDestinations = false
+            self.renderDestinations()
+
+            if let clans = try? await clanTask {
+                for clan in clans {
+                    self.clanNames[clan.clanID] = clan.clanName
                     if !clan.logo.isEmpty {
-                        clanLogos[clan.clanID] = clan.logo
+                        self.clanLogos[clan.clanID] = clan.logo
                     }
                 }
-            } catch {}
-
-            if clanList.isEmpty {
-                do {
-                    let fetched = try await context.account.network.listChannelByUserId(token: token)
-                    if let data = try? fetched.serializedData() {
-                        context.account.postbox.setPreferenceData(key: PreferencesKeys.allChannelsByUser, value: data)
-                    }
-                    clanList = fetched.channeldesc.filter { ch in
-                        let t = ch.type
-                        return t == MezonConstants.ChannelType.channel.rawValue
-                            || t == MezonConstants.ChannelType.thread.rawValue
-                            || t == MezonConstants.ChannelType.announcement.rawValue
-                    }
-                    clanList = clanList.sorted { self.sharingRecencyTimestamp($0) > self.sharingRecencyTimestamp($1) }
-                } catch {}
             }
-
-            channelMap.removeAll(keepingCapacity: true)
-            for ch in dmList + clanList {
-                channelMap[ch.channelID] = ch
-            }
-
-            var built: [SharingSuggestionItem] = []
-            built.reserveCapacity(dmList.count + clanList.count)
-
-            for ch in dmList {
-                built.append(SharingSuggestionItem(
-                    channelID: ch.channelID,
-                    userID: ch.type == MezonConstants.ChannelType.dm.rawValue ? (ch.userIds.first ?? 0) : 0,
-                    clanID: ch.clanID,
-                    type: ch.type,
-                    displayName: SharingChannelCell.displayName(for: ch),
-                    avatarURL: ch.avatars.first,
-                    channelAvatar: ch.channelAvatar,
-                    channelPrivate: ch.channelPrivate,
-                    ageRestricted: ch.ageRestricted,
-                    clanName: nil,
-                    clanLogo: nil
-                ))
-            }
-            for ch in clanList {
-                let (cid, chClanNameRaw) = resolvedClanInfo(for: ch)
-                let mapName = (clanNames[cid] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                let chClanName = chClanNameRaw.trimmingCharacters(in: .whitespacesAndNewlines)
-                let resolvedClanName: String? = {
-                    if !mapName.isEmpty { return mapName }
-                    if !chClanName.isEmpty { return chClanName }
-                    return nil
-                }()
-                built.append(SharingSuggestionItem(
-                    channelID: ch.channelID,
-                    userID: 0,
-                    clanID: cid,
-                    type: ch.type,
-                    displayName: SharingChannelCell.displayName(for: ch),
-                    avatarURL: ch.avatars.first,
-                    channelAvatar: ch.channelAvatar,
-                    channelPrivate: ch.channelPrivate,
-                    ageRestricted: ch.ageRestricted,
-                    clanName: resolvedClanName,
-                    clanLogo: clanLogos[cid]
-                ))
-            }
-
-            suggestions = built
-            applyFilter(resetSelection: false)
-            tableView.reloadData()
-            updateEmptyResultsVisibility()
         }
     }
 
-    private func applyFilter(resetSelection _: Bool = false) {
-        let trimmed = ForwardOutgoing.sanitizedComment(searchText)
-        let hashtag = trimmed.lowercased().hasPrefix("#")
-
-        func fold(_ s: String) -> String {
-            s.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+    private func refreshBlockedUsers(token: String) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.context.engine.friendsData.refreshFromNetwork(token: token)
+            let blocked = self.context.engine.friendsData.blockedUserIds()
+            guard blocked != self.blockedByMeUserIds else { return }
+            self.blockedByMeUserIds = blocked
+            self.applyDirectMessageChannels(self.directMessageChannels)
+            self.renderDestinations()
         }
+    }
 
-        func matches(_ item: SharingSuggestionItem, ch: Mezon_Api_ChannelDescription?, qRaw: String) -> Bool {
-            if hashtag {
-                let t = ch?.type ?? item.type
-                return t == MezonConstants.ChannelType.channel.rawValue
-                    || t == MezonConstants.ChannelType.thread.rawValue
-                    || t == MezonConstants.ChannelType.announcement.rawValue
-            }
-            let q = fold(qRaw)
-            guard !q.isEmpty else { return true }
-            if fold(item.displayName).contains(q) { return true }
-            if let cn = item.clanName, fold(cn).contains(q) { return true }
-            guard let ch else { return false }
-            if !ch.channelLabel.isEmpty, fold(ch.channelLabel).contains(q) { return true }
-            if fold(SharingChannelCell.displayName(for: ch)).contains(q) { return true }
-            for u in ch.usernames where fold(u).contains(q) { return true }
-            for d in ch.displayNames where fold(d).contains(q) { return true }
+    private func applyDirectMessageChannels(_ channels: [Mezon_Api_ChannelDescription]) {
+        directMessageChannels = channels
+        let visible = channels.filter { ch in
+            guard ch.type != MezonConstants.ChannelType.mezonVoice.rawValue else { return false }
+            guard !shouldHideBlockedDestination(ch) else { return false }
+            if !ch.channelLabel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return true }
+            if ch.displayNames.contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) { return true }
+            if ch.usernames.contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) { return true }
             return false
+        }.sorted { sharingRecencyTimestamp($0) > sharingRecencyTimestamp($1) }
+        for ch in visible {
+            channelMap[ch.channelID] = ch
         }
-
-        var matchedItems = suggestions.filter { item in
-            matches(item, ch: channelMap[item.channelID], qRaw: trimmed)
-        }
-        if !trimmed.isEmpty {
-            var matchedIds = Set(matchedItems.map(\.channelID))
-            for item in suggestions {
-                guard let ch = channelMap[item.channelID], ch.parentID != 0 else { continue }
-                guard matchedIds.contains(ch.parentID), !matchedIds.contains(item.channelID) else { continue }
-                matchedItems.append(item)
-                matchedIds.insert(item.channelID)
-            }
-        }
-        filteredItems = matchedItems
-        if hashtag {
-            filteredItems.sort {
-                forwardingDisplayName(for: $0).localizedCaseInsensitiveCompare(forwardingDisplayName(for: $1)) == .orderedAscending
-            }
-        } else {
-            filteredItems = sortSuggestionsByRecency(filteredItems)
-        }
-        updateEmptyResultsVisibility()
+        suggestions = visible.map { directMessageSuggestion(for: $0) }
     }
 
-    private func updateEmptyResultsVisibility() {
-        let trimmed = ForwardOutgoing.sanitizedComment(searchText)
-        let isSearching = !trimmed.isEmpty
-        let showEmpty = isSearching && displaySuggestions.isEmpty
+    private var trimmedSearchQuery: String {
+        ForwardOutgoing.sanitizedComment(searchText)
+    }
+
+    private func scheduleSearch() {
+        searchDebounceTimer?.invalidate()
+        searchDebounceTimer = Foundation.Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] (_: Foundation.Timer) in
+            self?.applySearchQuery()
+        }
+    }
+
+    private func applySearchQuery() {
+        searchDebounceTimer?.invalidate()
+        let query = trimmedSearchQuery
+        if query.isEmpty {
+            ctrlKGeneration &+= 1
+            searchResults = []
+            awaitingSearchResults = false
+        } else {
+            awaitingSearchResults = fetchCtrlKResults(query)
+            if !awaitingSearchResults {
+                searchResults = []
+            }
+        }
+        renderDestinations()
+        scrollDestinationsToTop()
+    }
+
+    private func fetchCtrlKResults(_ rawQuery: String) -> Bool {
+        let type: Int32 = rawQuery.hasPrefix("@") ? 1 : rawQuery.hasPrefix("#") ? 2 : 0
+        let text = type == 0
+            ? rawQuery
+            : String(rawQuery.dropFirst()).trimmingCharacters(in: .whitespaces)
+        ctrlKGeneration &+= 1
+        guard !text.isEmpty, text.utf8.count <= 255 else { return false }
+        let generation = ctrlKGeneration
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            var response: Mezon_Api_SearchCtrlKResponse?
+            if let token = await self.context.getToken() {
+                response = try? await self.context.account.network.searchCtrlK(
+                    text: text, type: type, token: token)
+            }
+            guard self.ctrlKGeneration == generation else { return }
+            if let response {
+                self.searchResults = self.buildSearchResults(users: response.users, channels: response.channels)
+            } else {
+                self.searchResults = []
+            }
+            self.awaitingSearchResults = false
+            self.renderDestinations()
+            self.scrollDestinationsToTop()
+        }
+        return true
+    }
+
+    private func buildSearchResults(
+        users: [Mezon_Api_User],
+        channels: [Mezon_Api_ChannelDescription]
+    ) -> [SharingSuggestionItem] {
+        var items: [SharingSuggestionItem] = []
+        var seen = Set<String>()
+        for user in users where user.id != 0 && !blockedByMeUserIds.contains(user.id) {
+            let existing = existingDirectMessageChannel(withPeer: user.id)
+            let name = user.displayName.isEmpty ? user.username : user.displayName
+            guard !name.isEmpty else { continue }
+            let item = SharingSuggestionItem(
+                channelID: existing?.channelID ?? 0,
+                userID: user.id,
+                clanID: 0,
+                type: MezonConstants.ChannelType.dm.rawValue,
+                displayName: name,
+                avatarURL: user.avatarURL.isEmpty ? existing?.avatars.first : user.avatarURL,
+                channelAvatar: "",
+                channelPrivate: 1,
+                ageRestricted: 0,
+                clanName: nil,
+                clanLogo: nil
+            )
+            guard seen.insert(item.identity).inserted else { continue }
+            items.append(item)
+        }
+        for ch in channels where ch.channelID != 0 {
+            let resolved = channelMap[ch.channelID] ?? ch
+            let item: SharingSuggestionItem
+            if resolved.type == MezonConstants.ChannelType.group.rawValue {
+                guard !shouldHideBlockedDestination(resolved) else { continue }
+                item = directMessageSuggestion(for: resolved)
+            } else if isSharableClanChannelType(resolved.type) {
+                item = clanChannelSuggestion(for: resolved)
+            } else {
+                continue
+            }
+            guard !item.displayName.isEmpty, seen.insert(item.identity).inserted else { continue }
+            channelMap[resolved.channelID] = resolved
+            items.append(item)
+        }
+        return items
+    }
+
+    private func directMessageSuggestion(for ch: Mezon_Api_ChannelDescription) -> SharingSuggestionItem {
+        SharingSuggestionItem(
+            channelID: ch.channelID,
+            userID: ch.type == MezonConstants.ChannelType.dm.rawValue ? (ch.userIds.first ?? 0) : 0,
+            clanID: ch.clanID,
+            type: ch.type,
+            displayName: SharingChannelCell.displayName(for: ch),
+            avatarURL: ch.avatars.first,
+            channelAvatar: ch.channelAvatar,
+            channelPrivate: ch.channelPrivate,
+            ageRestricted: ch.ageRestricted,
+            clanName: nil,
+            clanLogo: nil
+        )
+    }
+
+    private func clanChannelSuggestion(for ch: Mezon_Api_ChannelDescription) -> SharingSuggestionItem {
+        let (cid, chClanNameRaw) = resolvedClanInfo(for: ch)
+        let mapName = (clanNames[cid] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let chClanName = chClanNameRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedClanName: String? = {
+            if !mapName.isEmpty { return mapName }
+            if !chClanName.isEmpty { return chClanName }
+            return nil
+        }()
+        return SharingSuggestionItem(
+            channelID: ch.channelID,
+            userID: 0,
+            clanID: cid,
+            type: ch.type,
+            displayName: SharingChannelCell.displayName(for: ch),
+            avatarURL: ch.avatars.first,
+            channelAvatar: ch.channelAvatar,
+            channelPrivate: ch.channelPrivate,
+            ageRestricted: ch.ageRestricted,
+            clanName: resolvedClanName,
+            clanLogo: clanLogos[cid]
+        )
+    }
+
+    private func renderDestinations() {
+        filteredItems = trimmedSearchQuery.isEmpty ? suggestions : searchResults
+        tableView.reloadData()
+        updatePlaceholderState()
+    }
+
+    private func scrollDestinationsToTop() {
+        tableView.setContentOffset(CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: false)
+    }
+
+    private func updatePlaceholderState() {
+        let isSearching = !trimmedSearchQuery.isEmpty
+        let isWaiting = isSearching ? awaitingSearchResults : isLoadingDestinations
+        let showLoading = displaySuggestions.isEmpty && isWaiting
+        let showEmpty = isSearching && displaySuggestions.isEmpty && !awaitingSearchResults
         emptyResultsLabel.text = L(L10n.Forward.noResults)
         emptyResultsLabel.isHidden = !showEmpty
-        tableView.isScrollEnabled = !showEmpty
-    }
-
-    private func forwardingDisplayName(for item: SharingSuggestionItem) -> String {
-        if let ch = channelMap[item.channelID] {
-            return SharingChannelCell.displayName(for: ch)
+        if showLoading {
+            loadingIndicator.startAnimating()
+        } else {
+            loadingIndicator.stopAnimating()
         }
-        return item.displayName
+        tableView.isScrollEnabled = !showEmpty
     }
 
     private var displaySuggestions: [SharingSuggestionItem] {
@@ -981,8 +1046,7 @@ final class ForwardMessageViewController: UIViewController {
 
     @objc private func searchChanged(_ field: UITextField) {
         searchText = field.text ?? ""
-        applyFilter()
-        tableView.reloadData()
+        scheduleSearch()
     }
 
     @objc private func closeTapped() {
@@ -1025,26 +1089,55 @@ final class ForwardMessageViewController: UIViewController {
         return false
     }
 
+    private func resolveDestinations(
+        for items: [SharingSuggestionItem],
+        token: String
+    ) async throws -> [Mezon_Api_ChannelDescription] {
+        var destinations: [Mezon_Api_ChannelDescription] = []
+        var seenChannelIDs = Set<Int64>()
+        for item in items {
+            guard let channel = try await resolveDestination(for: item, token: token),
+                  seenChannelIDs.insert(channel.channelID).inserted else { continue }
+            destinations.append(channel)
+        }
+        return destinations
+    }
+
+    private func resolveDestination(
+        for item: SharingSuggestionItem,
+        token: String
+    ) async throws -> Mezon_Api_ChannelDescription? {
+        if item.channelID != 0 { return channelMap[item.channelID] }
+        guard item.needsDirectMessageChannel else { return nil }
+        if let existing = existingDirectMessageChannel(withPeer: item.userID) { return existing }
+        let created = try await context.account.network.createDirectMessage(userId: item.userID, token: token)
+        guard created.channelID != 0 else { return nil }
+        channelMap[created.channelID] = created
+        return created
+    }
+
     @objc private func sendTapped() {
-        guard !isSending, !selectedIDs.isEmpty else { return }
+        guard !isSending, !selectedItems.isEmpty else { return }
+        let extraRaw = ForwardOutgoing.sanitizedComment(commentField.text ?? "")
+        if ForwardOutgoing.commentContentJSON(trimmed: extraRaw) == nil, !extraRaw.isEmpty {
+            Toast.error(L(L10n.Forward.commentTooLong))
+            return
+        }
+        let pendingItems = selectedItems
+        isSending = true
         Task { @MainActor [weak self] in
             guard let self else { return }
+            defer { self.isSending = false }
             guard let tok = await context.getToken() else {
                 Toast.error(L(L10n.Sharing.sessionExpired))
                 return
             }
-            let selectedChannels = selectedIDs.compactMap { self.channelMap[$0] }
-            if selectedChannels.isEmpty {
-                return
-            }
-            let extraRaw = ForwardOutgoing.sanitizedComment(commentField.text ?? "")
-            if ForwardOutgoing.commentContentJSON(trimmed: extraRaw) == nil, !extraRaw.isEmpty {
-                Toast.error(L(L10n.Forward.commentTooLong))
-                return
-            }
-            isSending = true
-            defer { self.isSending = false }
             do {
+                let selectedChannels = try await resolveDestinations(for: pendingItems, token: tok)
+                if selectedChannels.isEmpty {
+                    Toast.error(L(L10n.Sharing.targetUnavailable))
+                    return
+                }
                 for dest in selectedChannels {
                     let cid = forwardClanId(for: dest)
                     let mid = forwardingMode(for: dest)
@@ -1100,7 +1193,7 @@ final class ForwardMessageViewController: UIViewController {
                 SentryLogger.capture(error, extras: [
                     "where": "ForwardMessage",
                     "messageCount": messagesToForward.count,
-                    "destinationCount": selectedChannels.count,
+                    "destinationCount": pendingItems.count,
                 ])
                 Toast.error(L(L10n.Sharing.errorTitle))
             }
@@ -1120,7 +1213,7 @@ extension ForwardMessageViewController: UITableViewDelegate, UITableViewDataSour
         cell.configure(
             item: item,
             channel: ch,
-            isSelected: selectedIDs.contains(item.channelID),
+            isSelected: selectedItems.contains(item),
             statusNote: nil,
             isForwardingBlocked: false
         )
@@ -1129,13 +1222,12 @@ extension ForwardMessageViewController: UITableViewDelegate, UITableViewDataSour
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         let item = displaySuggestions[indexPath.row]
-        if selectedIDs.contains(item.channelID) {
-            selectedIDs.remove(item.channelID)
+        if let index = selectedItems.firstIndex(of: item) {
+            selectedItems.remove(at: index)
         } else {
-            selectedIDs.insert(item.channelID)
+            selectedItems.append(item)
         }
-        let hasAny = !selectedIDs.isEmpty
-        sendBtn.isEnabled = hasAny
+        sendBtn.isEnabled = !selectedItems.isEmpty
         refreshSendButtonVisual()
         tableView.reloadRows(at: [indexPath], with: .none)
     }

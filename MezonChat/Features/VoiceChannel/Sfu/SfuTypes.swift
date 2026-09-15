@@ -23,6 +23,7 @@ enum SfuConnectionState {
 struct SfuParticipant {
     let id: String
     let userId: String?
+    let peerId: String?
     let role: SfuRole?
     let muted: Bool
     let audio: RTCAudioTrack?

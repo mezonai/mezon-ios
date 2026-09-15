@@ -925,12 +925,14 @@ final class PeerWebRTCCallSession: NSObject {
         peerConnection?.close()
         peerConnection = nil
         peerFactory = nil
-        let rtcAudio = RTCAudioSession.sharedInstance()
-        rtcAudio.lockForConfiguration()
-        defer { rtcAudio.unlockForConfiguration() }
-        rtcAudio.isAudioEnabled = false
-        try? rtcAudio.setActive(false)
-        try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+        if !MezonSfuSession.hasLiveSession {
+            let rtcAudio = RTCAudioSession.sharedInstance()
+            rtcAudio.lockForConfiguration()
+            defer { rtcAudio.unlockForConfiguration() }
+            rtcAudio.isAudioEnabled = false
+            try? rtcAudio.setActive(false)
+            try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
+        }
         onRemoteVideoTrack?(nil)
         onLocalVideoTrack?(nil)
     }
