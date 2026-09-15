@@ -881,9 +881,8 @@ enum L10n {
         static let nameRequired = "eventEditor.nameRequired"
         static let nameTooLong = "eventEditor.nameTooLong"
         static let invalidName = "eventEditor.invalidName"
-        static let startDate = "eventEditor.startDate"
+        static let date = "eventEditor.date"
         static let startTime = "eventEditor.startTime"
-        static let endDate = "eventEditor.endDate"
         static let endTime = "eventEditor.endTime"
         static let startError = "eventEditor.startError"
         static let endError = "eventEditor.endError"
@@ -1823,9 +1822,8 @@ extension L10n {
         "eventEditor.nameRequired": "Enter an event name",
         "eventEditor.nameTooLong": "Event name must be %d characters or fewer",
         "eventEditor.invalidName": "Event name contains invalid characters",
-        "eventEditor.startDate": "Start date",
+        "eventEditor.date": "Date",
         "eventEditor.startTime": "Start time",
-        "eventEditor.endDate": "End date",
         "eventEditor.endTime": "End time",
         "eventEditor.startError": "Start time must be in the future",
         "eventEditor.endError": "End time must be after start time",
@@ -3163,9 +3161,8 @@ extension L10n {
         "eventEditor.nameRequired": "Vui lòng nhập tên sự kiện",
         "eventEditor.nameTooLong": "Tên sự kiện không được vượt quá %d ký tự",
         "eventEditor.invalidName": "Tên sự kiện chứa ký tự không hợp lệ",
-        "eventEditor.startDate": "Ngày bắt đầu",
+        "eventEditor.date": "Ngày",
         "eventEditor.startTime": "Giờ bắt đầu",
-        "eventEditor.endDate": "Ngày kết thúc",
         "eventEditor.endTime": "Giờ kết thúc",
         "eventEditor.startError": "Thời gian bắt đầu phải ở tương lai",
         "eventEditor.endError": "Thời gian kết thúc phải sau thời gian bắt đầu",

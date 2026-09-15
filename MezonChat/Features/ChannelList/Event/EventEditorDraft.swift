@@ -30,7 +30,10 @@ struct EventEditorDraft {
     init(event: Mezon_Api_EventManagement? = nil, now: Date = Date(), calendar: Calendar = .current) {
         let hour = calendar.dateInterval(of: .hour, for: now)?.start ?? now
         start = hour < now ? calendar.date(byAdding: .hour, value: 1, to: hour) ?? now : hour
-        end = calendar.date(byAdding: .hour, value: 1, to: start) ?? start.addingTimeInterval(3600)
+        let nextHour = calendar.date(byAdding: .hour, value: 1, to: start) ?? start.addingTimeInterval(3600)
+        end = calendar.isDate(nextHour, inSameDayAs: start)
+            ? nextHour
+            : calendar.date(bySettingHour: 23, minute: 59, second: 0, of: start) ?? start
         if let event {
             locationType = event.channelVoiceID != 0 ? .voice : (!event.address.isEmpty ? .location : (event.isPrivate ? .external : .voice))
             voiceChannelId = event.channelVoiceID
@@ -40,9 +43,35 @@ struct EventEditorDraft {
             description = event.description_p
             logoURL = event.logo
             start = Date(timeIntervalSince1970: TimeInterval(event.startTimeSeconds))
-            end = Date(timeIntervalSince1970: TimeInterval(event.endTimeSeconds))
+            end = Self.combining(
+                date: start,
+                time: Date(timeIntervalSince1970: TimeInterval(event.endTimeSeconds)),
+                calendar: calendar
+            )
             repeatType = event.repeatType
         }
+    }
+
+    mutating func setDate(_ date: Date, calendar: Calendar = .current) {
+        start = Self.combining(date: date, time: start, calendar: calendar)
+        end = Self.combining(date: date, time: end, calendar: calendar)
+    }
+
+    mutating func setStartTime(_ time: Date, calendar: Calendar = .current) {
+        start = Self.combining(date: start, time: time, calendar: calendar)
+    }
+
+    mutating func setEndTime(_ time: Date, calendar: Calendar = .current) {
+        end = Self.combining(date: start, time: time, calendar: calendar)
+    }
+
+    private static func combining(date: Date, time: Date, calendar: Calendar) -> Date {
+        var components = calendar.dateComponents([.year, .month, .day], from: date)
+        let clock = calendar.dateComponents([.hour, .minute], from: time)
+        components.hour = clock.hour
+        components.minute = clock.minute
+        components.second = 0
+        return calendar.date(from: components) ?? date
     }
 
     var channelVoiceId: Int64 { locationType == .voice ? voiceChannelId : 0 }
@@ -72,12 +101,12 @@ struct EventEditorDraft {
         return repeatType == EventRepeatType.doesNotRepeat && isPastToday ? L(L10n.EventEditor.startError) : nil
     }
 
-    func endError(calendar: Calendar = .current) -> String? {
-        calendar.isDate(start, inSameDayAs: end) && end <= start ? L(L10n.EventEditor.endError) : nil
+    func endError() -> String? {
+        end <= start ? L(L10n.EventEditor.endError) : nil
     }
 
     func isDetailsValid(now: Date = Date(), calendar: Calendar = .current) -> Bool {
-        titleError == nil && startError(now: now, calendar: calendar) == nil && endError(calendar: calendar) == nil && description.utf16.count <= 255
+        titleError == nil && startError(now: now, calendar: calendar) == nil && endError() == nil && description.utf16.count <= 255
     }
 
     func hasChanges(from event: Mezon_Api_EventManagement) -> Bool {
