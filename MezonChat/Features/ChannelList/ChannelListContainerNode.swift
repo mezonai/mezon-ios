@@ -9,6 +9,7 @@ struct ChannelListInteraction {
     let onPresentSettings: (() -> Void)?
     let onInviteClan: (() -> Void)?
     let onCreateCategory: (() -> Void)?
+    let onCreateEvent: (() -> Void)?
     let canCreateCategory: (() -> Bool)?
     let isClanOwner: (() -> Bool)?
     let onLeaveClan: (() -> Void)?
@@ -2007,6 +2008,8 @@ final class ChannelListContainerNode: ASDisplayNode {
                     self.interaction.onInviteClan?()
                 case .createCategory:
                     self.interaction.onCreateCategory?()
+                case .createEvent:
+                    self.interaction.onCreateEvent?()
                 case .leaveClan:
                     self.interaction.onLeaveClan?()
                 case .deleteClan:
