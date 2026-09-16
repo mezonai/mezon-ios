@@ -1286,6 +1286,9 @@ final class AccountContextImpl: AccountContext {
         case .voiceLeaved(let ev):
             engine.clanData.applyVoiceLeaved(clanId: ev.clanID, channelId: ev.voiceChannelID, userId: ev.voiceUserID)
 
+        case .screenShare(let ev):
+            engine.clanData.applyScreenShare(clanId: ev.clanID, channelId: ev.voiceChannelID, userId: ev.userID, isSharing: ev.isSharing)
+
         case .streamingJoined(let ev):
             engine.clanData.applyStreamJoined(
                 clanId: ev.clanID,

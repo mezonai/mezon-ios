@@ -46,6 +46,7 @@ final class MemberListNode: ASDisplayNode {
     private let disposables = DisposableSet()
     private var didStartMemberLoading = false
     private var didRequestClanMemberRefreshForAvatars = false
+    private var inVoiceUserIds: Set<Int64> = []
 
     private var prefersProfileAvatar: Bool { clanId == 0 }
 
@@ -97,6 +98,7 @@ final class MemberListNode: ASDisplayNode {
         guard !didStartMemberLoading else { return }
         didStartMemberLoading = true
         loadClanData()
+        observeVoicePresence()
         observeClanMemberUpdates()
         refreshClanMembersForAvatarsIfNeeded()
         observeMembers()
@@ -197,6 +199,28 @@ final class MemberListNode: ASDisplayNode {
             avatarUrl: avatarUrl,
             avatarUrls: avatarUrls
         )
+    }
+
+    private func observeVoicePresence() {
+        guard clanId > 0 else { return }
+        inVoiceUserIds = context.engine.clanData.voiceChannelUserIds(clanId: clanId)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleVoicePresenceChanged(_:)),
+            name: .mezonVoicePresenceChanged,
+            object: nil
+        )
+    }
+
+    @objc private func handleVoicePresenceChanged(_ notification: Notification) {
+        guard let changedClanId = (notification.userInfo?["clanId"] as? NSNumber)?.int64Value else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, changedClanId == self.clanId else { return }
+            let updated = self.context.engine.clanData.voiceChannelUserIds(clanId: self.clanId)
+            guard updated != self.inVoiceUserIds else { return }
+            self.inVoiceUserIds = updated
+            self.tableNode.reloadData()
+        }
     }
 
     private func observeClanMemberUpdates() {
@@ -563,7 +587,8 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                         clanAvatar: presentation.clanAvatar, username: presentation.username,
                         avatarUrls: presentation.avatarUrls,
                         prefersProfileAvatar: self.prefersProfileAvatar,
-                        roleColor: color, isOwner: isOwner)
+                        roleColor: color, isOwner: isOwner,
+                        isInVoice: self.inVoiceUserIds.contains(member.userId))
                 }
             case .clan(let members):
                 let member = members[indexPath.row]
@@ -577,7 +602,8 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                         clanAvatar: presentation.clanAvatar, username: presentation.username,
                         avatarUrls: presentation.avatarUrls,
                         prefersProfileAvatar: self.prefersProfileAvatar,
-                        roleColor: color, isOwner: isOwner)
+                        roleColor: color, isOwner: isOwner,
+                        isInVoice: self.inVoiceUserIds.contains(member.userId))
                 }
             }
         } else {
@@ -593,7 +619,8 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                         clanAvatar: presentation.clanAvatar, username: presentation.username,
                         avatarUrls: presentation.avatarUrls,
                         prefersProfileAvatar: self.prefersProfileAvatar,
-                        roleColor: nil, isOwner: isOwner)
+                        roleColor: nil, isOwner: isOwner,
+                        isInVoice: self.inVoiceUserIds.contains(member.userId))
                 }
             case .clan(let members):
                 let member = members[indexPath.row]
@@ -606,7 +633,8 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                         clanAvatar: presentation.clanAvatar, username: presentation.username,
                         avatarUrls: presentation.avatarUrls,
                         prefersProfileAvatar: self.prefersProfileAvatar,
-                        roleColor: nil, isOwner: isOwner)
+                        roleColor: nil, isOwner: isOwner,
+                        isInVoice: self.inVoiceUserIds.contains(member.userId))
                 }
             }
         }
@@ -980,9 +1008,13 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
     private let crownNode = ASTextNode2()
     private let statusNode = ASDisplayNode()
     private let separatorNode = ASDisplayNode()
+    private let inVoiceIconNode = ASImageNode()
+    private let inVoiceTextNode = ASTextNode2()
     private let prefersProfileAvatar: Bool
     private let roleColor: UIColor?
     private let isOwner: Bool
+    private let isInVoice: Bool
+    private var showsInVoice = false
     private let disposables = DisposableSet()
 
     init(
@@ -990,7 +1022,8 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         clanNick: String, clanAvatar: String, username: String,
         avatarUrls: [String] = [],
         prefersProfileAvatar: Bool = false,
-        roleColor: UIColor? = nil, isOwner: Bool = false
+        roleColor: UIColor? = nil, isOwner: Bool = false,
+        isInVoice: Bool = false
     ) {
         self.context = context
         self.userId = userId
@@ -1003,6 +1036,7 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         self.prefersProfileAvatar = prefersProfileAvatar
         self.roleColor = roleColor
         self.isOwner = isOwner
+        self.isInVoice = isInVoice
         super.init()
         self.automaticallyManagesSubnodes = true
         self.backgroundColor = .clear
@@ -1034,6 +1068,21 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
             )
             self.addSubnode(crownNode)
         }
+
+        inVoiceTextNode.maximumNumberOfLines = 1
+        inVoiceTextNode.truncationMode = .byTruncatingTail
+        inVoiceTextNode.attributedText = NSAttributedString(
+            string: L(L10n.ChannelDetail.inVoice),
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 12.sf, weight: .regular),
+                .foregroundColor: UIColor.theme.textStrong.withAlphaComponent(0.6),
+            ]
+        )
+        inVoiceTextNode.style.flexShrink = 1.0
+        inVoiceIconNode.style.preferredSize = CGSize(width: 12.sf, height: 12.sf)
+        inVoiceIconNode.contentMode = .scaleAspectFit
+        inVoiceIconNode.image = (UIImage(named: "Chat/SpeakerIcon") ?? UIImage(systemName: "speaker.wave.2.fill"))?
+            .withTintColor(UIColor.theme.textSuccess.withAlphaComponent(0.6), renderingMode: .alwaysOriginal)
 
         self.updateUI(displayName: displayName, avatarUrl: avatarUrl, isOnline: false, status: 0)
 
@@ -1123,6 +1172,12 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
                 statusNode.backgroundColor = .lightGray
             }
         }
+
+        let shows = isInVoice && isOnline
+        if shows != showsInVoice {
+            showsInVoice = shows
+            setNeedsLayout()
+        }
     }
 
 
@@ -1198,12 +1253,35 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         nameStack.style.flexShrink = 1.0
         nameStack.style.flexGrow = 1.0
 
+        let textColumn: ASLayoutElement
+        if showsInVoice {
+            let voiceRow = ASStackLayoutSpec(
+                direction: .horizontal,
+                spacing: 4.sw,
+                justifyContent: .start,
+                alignItems: .center,
+                children: [inVoiceIconNode, inVoiceTextNode]
+            )
+            let column = ASStackLayoutSpec(
+                direction: .vertical,
+                spacing: 2,
+                justifyContent: .center,
+                alignItems: .stretch,
+                children: [nameStack, voiceRow]
+            )
+            column.style.flexShrink = 1.0
+            column.style.flexGrow = 1.0
+            textColumn = column
+        } else {
+            textColumn = nameStack
+        }
+
         let contentStack = ASStackLayoutSpec(
             direction: .horizontal,
             spacing: 12.sw,
             justifyContent: .start,
             alignItems: .center,
-            children: [avatarWithStatus, nameStack]
+            children: [avatarWithStatus, textColumn]
         )
 
         let insetSpec = ASInsetLayoutSpec(

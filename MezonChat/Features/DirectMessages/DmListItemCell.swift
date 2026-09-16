@@ -69,6 +69,8 @@ final class DmListItemCell: UITableViewCell {
 
     private static let unreadNameFont = UIFont.systemFont(ofSize: 14.sf, weight: .semibold)
     private static let readNameFont = UIFont.systemFont(ofSize: 14.sf, weight: .medium)
+    private static let previewFont = UIFont.systemFont(ofSize: 13.sf)
+    private static let inVoiceFont = UIFont.systemFont(ofSize: 12.sf)
     private static let avatarTargetPixelSize = 120
 
     private static let avatarMemoryCache: NSCache<NSString, UIImage> = {
@@ -188,7 +190,7 @@ final class DmListItemCell: UITableViewCell {
         ])
     }
 
-    func configure(channel: Mezon_Api_ChannelDescription, resolvedAvatarURL: String? = nil) {
+    func configure(channel: Mezon_Api_ChannelDescription, resolvedAvatarURL: String? = nil, isPeerInVoice: Bool = false) {
         groupIconView.tintColor = .mezonTextSecondary
 
         let isGroup = channel.type == MezonConstants.ChannelType.group.rawValue
@@ -232,17 +234,45 @@ final class DmListItemCell: UITableViewCell {
         }
 
         let (preview, time) = lastMessagePreview(channel: channel)
-        let hasPreview = !preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        lastMessageLabel.text = hasPreview ? preview : ""
+        let hasMessagePreview = !preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasPreview = isPeerInVoice || hasMessagePreview
+        if isPeerInVoice {
+            lastMessageLabel.attributedText = Self.inVoicePreviewText()
+        } else {
+            lastMessageLabel.font = Self.previewFont
+            lastMessageLabel.text = hasMessagePreview ? preview : ""
+            lastMessageLabel.textColor = isUnread ? UIColor.theme.textStrong : UIColor.theme.textDisabled
+        }
         lastMessageLabel.isHidden = !hasPreview
         if hasPreviewLayout != hasPreview {
             hasPreviewLayout = hasPreview
             lastMessageTopConstraint?.constant = hasPreview ? 3.sh : 0
             lastMessageZeroHeightConstraint?.isActive = !hasPreview
         }
-        lastMessageLabel.textColor = isUnread ? UIColor.theme.textStrong : UIColor.theme.textDisabled
         timeLabel.text = time
         timeLabel.textColor = isUnread ? UIColor.theme.textStrong : UIColor.theme.textDisabled
+    }
+
+    private static func inVoicePreviewText() -> NSAttributedString {
+        let font = inVoiceFont
+        let result = NSMutableAttributedString()
+        if let icon = (UIImage(named: "Chat/SpeakerIcon") ?? UIImage(systemName: "speaker.wave.2.fill"))?
+            .withTintColor(UIColor.theme.textSuccess.withAlphaComponent(0.6), renderingMode: .alwaysOriginal) {
+            let attachment = NSTextAttachment()
+            attachment.image = icon
+            let side = font.pointSize
+            attachment.bounds = CGRect(x: 0, y: (font.capHeight - side) / 2, width: side, height: side)
+            result.append(NSAttributedString(attachment: attachment))
+            result.append(NSAttributedString(string: " ", attributes: [.font: font]))
+        }
+        result.append(NSAttributedString(
+            string: L(L10n.ChannelDetail.inVoice),
+            attributes: [
+                .font: font,
+                .foregroundColor: UIColor.theme.textStrong.withAlphaComponent(0.6),
+            ]
+        ))
+        return result
     }
 
     private func showGroupAvatarPlaceholder() {

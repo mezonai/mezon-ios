@@ -8,6 +8,7 @@ struct DirectMessagesState {
     var incomingFriendRequestCount: Int
     var messageActivityRows: [DmMessageActivityItem]
     var resolvedAvatarURLByChannelId: [Int64: String]
+    var inVoiceUserIds: Set<Int64> = []
 
     static let empty = DirectMessagesState(
         directMessages: [], isEmpty: true, isLoading: false, errorMessage: nil,
@@ -119,7 +120,11 @@ final class DirectMessagesViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelDescriptionDidUpdate(_:)), name: .mezonChannelDescriptionDidUpdate, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleDirectMessagesThemeChange), name: ThemeManager.didChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleNetworkStatusChanged(_:)), name: NetworkMonitor.statusDidChangeNotification, object: nil)
-        
+        NotificationCenter.default.addObserver(self, selector: #selector(handleVoicePresenceChanged(_:)), name: .mezonVoicePresenceChanged, object: nil)
+        if reloadInVoiceUserIds(clanId: nil) {
+            needsReloadPipe.putNext(())
+        }
+
         friendsUpdatedDisposable = (context.engine.friendsData.friendsUpdated.signal()
             |> deliverOnMainQueue).start(next: { [weak self] _ in
                 self?.syncIncomingFriendRequestCount()
@@ -134,6 +139,34 @@ final class DirectMessagesViewController: ViewController {
         let connected = (notification.userInfo?["isConnected"] as? Bool) ?? NetworkMonitor.shared.isConnected
         guard connected else { return }
         fetchDirectMessages()
+    }
+
+    private var inVoiceUserIdsByClan: [Int64: Set<Int64>] = [:]
+    private var inVoiceUserIds: Set<Int64> = []
+
+    @objc private func handleVoicePresenceChanged(_ notification: Notification) {
+        let changedClanId = (notification.userInfo?["clanId"] as? NSNumber)?.int64Value
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.reloadInVoiceUserIds(clanId: changedClanId) else { return }
+            self.needsReloadPipe.putNext(())
+        }
+    }
+
+    private func reloadInVoiceUserIds(clanId: Int64?) -> Bool {
+        if let clanId {
+            inVoiceUserIdsByClan[clanId] = context.engine.clanData.voiceChannelUserIds(clanId: clanId)
+        } else {
+            let clanIds = context.account.postbox.read { $0.getClans() }.map(\.id)
+            var byClan: [Int64: Set<Int64>] = [:]
+            for id in clanIds {
+                byClan[id] = context.engine.clanData.voiceChannelUserIds(clanId: id)
+            }
+            inVoiceUserIdsByClan = byClan
+        }
+        let merged = inVoiceUserIdsByClan.values.reduce(into: Set<Int64>()) { $0.formUnion($1) }
+        guard merged != inVoiceUserIds else { return false }
+        inVoiceUserIds = merged
+        return true
     }
 
     deinit {
@@ -1335,11 +1368,12 @@ final class DirectMessagesViewController: ViewController {
         let postboxAvatarURL: (Int64) -> String? = { userId in
             postboxAvatarURLByUserId[userId]
         }
+        let myUserId = Int64(context.currentUser?.id ?? "") ?? 0
         let rows = Self.buildMessageActivityRows(
             activities: userActivities,
             friends: friends,
             directMessages: directMessages,
-            myUserId: Int64(context.currentUser?.id ?? "") ?? 0,
+            myUserId: myUserId,
             postboxAvatarURL: postboxAvatarURL
         )
         return DirectMessagesState(
@@ -1353,7 +1387,8 @@ final class DirectMessagesViewController: ViewController {
                 directMessages: directMessages,
                 friends: friends,
                 postboxAvatarURL: postboxAvatarURL
-            )
+            ),
+            inVoiceUserIds: inVoiceUserIds.subtracting([myUserId])
         )
     }
 

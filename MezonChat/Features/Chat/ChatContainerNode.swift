@@ -68,6 +68,7 @@ struct ChatInteraction {
     var onEmbedButtonClicked: ((ParsedEmbedButton, String, ChatMessageDisplay) -> Void)?  
     var onMediaTapped: ((_ index: Int, _ media: [ParsedAttachment], _ display: ChatMessageDisplay, _ previewImage: UIImage?) -> Void)? = nil
     var onMediaRetryTapped: ((_ index: Int, _ display: ChatMessageDisplay) -> Void)? = nil
+    var onInVoiceTapped: (() -> Void)? = nil
 }
 
 final class ChatContainerNode: ASDisplayNode {
@@ -151,6 +152,7 @@ final class ChatContainerNode: ASDisplayNode {
         headerNode.onHeaderTapped = { interaction.onHeaderTapped() }
         headerNode.onSearchTapped = { interaction.onSearchTapped() }
         headerNode.onCallTapped = { interaction.onCallTapped?() }
+        headerNode.onInVoiceTapped = { interaction.onInVoiceTapped?() }
         headerNode.onVideoCallTapped = { interaction.onVideoCallTapped?() }
         addSubnode(headerNode)
         addSubnode(listView)
@@ -294,7 +296,8 @@ final class ChatContainerNode: ASDisplayNode {
             isPrivate: state.isPrivate,
             isAgeRestricted: state.isAgeRestricted,
             isDM: isDM,
-            isBlocked: state.isPeerBlocked
+            isBlocked: state.isPeerBlocked,
+            isInVoice: state.dmPeerInVoice
         )
     }
 
