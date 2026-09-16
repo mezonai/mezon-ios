@@ -1001,6 +1001,7 @@ final class ChannelListViewController: ViewController {
             onPresentSettings: { [weak self] in self?.presentSettings() },
             onInviteClan: { [weak self] in self?.presentInviteClanSheet() },
             onCreateCategory: { [weak self] in self?.presentCreateCategory() },
+            onCreateEvent: { [weak self] in self?.presentCreateEvent() },
             canCreateCategory: { [weak self] in
                 guard let self, self.clanId != 0 else { return false }
                 return self.context.rolePermissions.canManageRoles(clanId: self.clanId)
@@ -1953,6 +1954,16 @@ final class ChannelListViewController: ViewController {
             )
         }
         present(vc, animated: true)
+    }
+
+    private func presentCreateEvent() {
+        guard clanId != 0 else { return }
+        let editor = EventEditorViewController(
+            context: context,
+            clanId: clanId,
+            channels: allChannels
+        )
+        present(editor, animated: true)
     }
 
     private func presentCreateCategory() {
