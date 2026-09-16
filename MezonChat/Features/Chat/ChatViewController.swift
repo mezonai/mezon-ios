@@ -5214,22 +5214,26 @@ final class ChatViewController: ViewController {
                     token: token, isVk: isVk, channelId: cid, clanId: gid,
                     fallbackClan: fallbackClan, fallbackClanId: fallbackClanId
                 )
-            case .hashtag(let cid, let clanIdOpt, let parentIdOpt, let label, let ctype, _, _):
-                if ctype != nil { return token }
+            case .hashtag(let cid, let clanIdOpt, let parentIdOpt, let label, let ctype, let channelPrivate, let ageRestricted):
                 guard let cid, !cid.isEmpty, let idInt = Int64(cid) else { return token }
                 let clanInt = clanIdOpt.flatMap { Int64($0) } ?? fallbackClan
                 if let ch = cachedChannelDescriptionForHashtag(channelId: idInt, clanId: clanInt) {
+                    let cachedLabel = ch.channelLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let embeddedLabel = label?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let resolvedLabel = cachedLabel.isEmpty ? embeddedLabel : cachedLabel
+                    let resolvedClanId = clanIdOpt
+                        ?? (ch.clanID != 0 ? "\(ch.clanID)" : fallbackClanId)
                     return ContentToken(
                         start: token.start,
                         end: token.end,
                         kind: .hashtag(
                             channelId: cid,
-                            clanId: clanIdOpt,
+                            clanId: resolvedClanId,
                             parentId: parentIdOpt ?? (ch.parentID != 0 ? "\(ch.parentID)" : nil),
-                            channelLabel: label,
-                            channelType: ch.type,
-                            channelPrivate: ch.channelPrivate,
-                            ageRestricted: ch.ageRestricted
+                            channelLabel: resolvedLabel,
+                            channelType: ctype ?? ch.type,
+                            channelPrivate: ctype == nil ? ch.channelPrivate : channelPrivate,
+                            ageRestricted: ctype == nil ? ch.ageRestricted : ageRestricted
                         )
                     )
                 }
