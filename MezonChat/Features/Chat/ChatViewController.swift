@@ -1015,7 +1015,11 @@ final class ChatViewController: ViewController {
             guard let self else { return }
             self.handleEmbedButtonClicked(button: button, messageId: messageId, display: display)
         }
-        
+        interaction.onEmbedSelectChanged = { [weak self] (selectId: String, value: String, messageId: String, display: ChatMessageDisplay) in
+            guard let self else { return }
+            self.handleEmbedSelectChanged(selectId: selectId, value: value, messageId: messageId, display: display)
+        }
+
         let containerNode = ChatContainerNode(
             signal: stateSignal(),
             interaction: interaction,
@@ -2982,7 +2986,8 @@ final class ChatViewController: ViewController {
             return embeds.map { embed in
                 let fields = embed.fields.map { "\($0.name):\($0.value)" }.joined(separator: ",")
                 let buttons = embed.actionRows.flatMap { $0.buttons }.map { "\($0.id):\($0.label):\($0.style):\($0.disabled)" }.joined(separator: ";")
-                return "\(embed.title ?? "")|\(embed.description ?? "")|\(fields)|\(embed.actionRows.count)|\(buttons)"
+                let selects = embed.actionRows.flatMap { $0.selects }.map { "\($0.id):\($0.placeholder ?? ""):\($0.selectOptions?.count ?? 0):\($0.disabled)" }.joined(separator: ";")
+                return "\(embed.title ?? "")|\(embed.description ?? "")|\(fields)|\(embed.actionRows.count)|\(buttons)|\(selects)"
             }.joined(separator: "§")
         }()
         let ogpHash = m.parsedContent.ogpPreviews.map {
@@ -5684,6 +5689,26 @@ final class ChatViewController: ViewController {
         EmbedFormState.shared.clear(messageId: messageId)
         ephemeralMessages.removeAll { $0.id == messageId }
         updateMessagesWithEphemeral()
+    }
+
+    private func handleEmbedSelectChanged(selectId: String, value: String, messageId: String, display: ChatMessageDisplay) {
+        let currentUserId = Int64(context.currentUser?.id ?? "") ?? 0
+        let senderId = Int64(display.message.senderId) ?? 0
+        let realMessageId = Int64(messageId) ?? 0
+        let channelId = channel.channelID
+        let token = context.session?.token ?? ""
+
+        Task {
+            try? await MezonHTTPClient.shared.messageButtonClick(
+                messageId: realMessageId,
+                channelId: channelId,
+                buttonId: selectId,
+                senderId: senderId,
+                userId: currentUserId,
+                extraData: value,
+                token: token
+            )
+        }
     }
 
     private func showMemberProfile(_ display: ChatMessageDisplay) {

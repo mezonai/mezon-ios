@@ -2229,17 +2229,16 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private func performVoiceMemberRowsReload() {
-        guard isNodeLoaded else { return }
-        guard committedSectionCount == tableNode.numberOfSections else { return }
+        guard tableIsInWindow, !pendingVisibleReconcile else { return }
+        guard leadingSectionSurgeryIsSafe(committedLeadingSections: leadingTableSectionsCount) else {
+            scheduleReload()
+            return
+        }
         let leading = leadingTableSectionsCount
         var paths: [IndexPath] = []
         for section in leading..<totalSections {
-            guard section < tableNode.numberOfSections else { continue }
             guard !isLoadingPlaceholderTableSection(section) else { continue }
-            let catIdx = categoryIndex(forSection: section)
-            guard catIdx >= 0, catIdx < state.categories.count else { continue }
-            let rows = rowsForSection(catIdx)
-            guard tableNode.numberOfRows(inSection: section) == rows.count else { continue }
+            let rows = rowsForSection(categoryIndex(forSection: section))
             for (r, row) in rows.enumerated() where Self.isVoiceMemberRow(row) {
                 let key = Self.rowDiffKey(row)
                 let displays = resolvedVoiceDisplays(for: row)
