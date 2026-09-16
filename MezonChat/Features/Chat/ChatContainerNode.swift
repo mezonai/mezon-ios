@@ -65,7 +65,8 @@ struct ChatInteraction {
     let resolveSenderRoleIconURL: (_ senderId: String) -> String?
     var onMessagesReloaded: (() -> Void)?
     var onMessageNeedsRelayout: ((String) -> Void)?
-    var onEmbedButtonClicked: ((ParsedEmbedButton, String, ChatMessageDisplay) -> Void)?  
+    var onEmbedButtonClicked: ((ParsedEmbedButton, String, ChatMessageDisplay) -> Void)?
+    var onEmbedSelectChanged: ((_ selectId: String, _ value: String, _ messageId: String, _ display: ChatMessageDisplay) -> Void)? = nil
     var onMediaTapped: ((_ index: Int, _ media: [ParsedAttachment], _ display: ChatMessageDisplay, _ previewImage: UIImage?) -> Void)? = nil
     var onMediaRetryTapped: ((_ index: Int, _ display: ChatMessageDisplay) -> Void)? = nil
     var onInVoiceTapped: (() -> Void)? = nil
@@ -742,7 +743,8 @@ final class ChatContainerNode: ASDisplayNode {
             return embeds.map { embed in
                 let fields = embed.fields.map { "\($0.name):\($0.value)" }.joined(separator: ",")
                 let buttons = embed.actionRows.flatMap { $0.buttons }.map { "\($0.id):\($0.label):\($0.style):\($0.disabled)" }.joined(separator: ";")
-                return "\(embed.title ?? "")|\(embed.description ?? "")|\(fields)|\(embed.actionRows.count)|\(buttons)"
+                let selects = embed.actionRows.flatMap { $0.selects }.map { "\($0.id):\($0.placeholder ?? ""):\($0.selectOptions?.count ?? 0):\($0.disabled)" }.joined(separator: ";")
+                return "\(embed.title ?? "")|\(embed.description ?? "")|\(fields)|\(embed.actionRows.count)|\(buttons)|\(selects)"
             }.joined(separator: "§")
         }()
         let ogpHash = m.parsedContent.ogpPreviews.map {

@@ -44,6 +44,11 @@ struct ParsedEmbedInputComponent: Equatable {
     let selectedValue: ParsedSelectOption?
     let radioOptions: [ParsedRadioOption]?
     let dateValue: String?
+    let disabled: Bool
+
+    var allowsMultipleSelection: Bool {
+        (minOptions ?? 0) > 1 || (maxOptions ?? 0) >= 2
+    }
 }
 
 struct ParsedEmbedButton: Equatable {
@@ -54,8 +59,27 @@ struct ParsedEmbedButton: Equatable {
     let disabled: Bool
 }
 
+enum ParsedEmbedRowComponent: Equatable {
+    case button(ParsedEmbedButton)
+    case select(ParsedEmbedInputComponent)
+}
+
 struct ParsedEmbedActionRow: Equatable {
-    let buttons: [ParsedEmbedButton]
+    let components: [ParsedEmbedRowComponent]
+
+    var buttons: [ParsedEmbedButton] {
+        components.compactMap { component in
+            if case .button(let button) = component { return button }
+            return nil
+        }
+    }
+
+    var selects: [ParsedEmbedInputComponent] {
+        components.compactMap { component in
+            if case .select(let select) = component { return select }
+            return nil
+        }
+    }
 }
 
 struct ParsedEmbedField: Equatable {
@@ -638,17 +662,13 @@ enum MessageContentParser {
                 isTextarea: (comp?["textarea"] as? Bool) ?? false,
                 defaultValue: stringifyValue(comp?["defaultValue"]),
                 selectOptions: nil, minOptions: nil, maxOptions: nil, selectedValue: nil,
-                radioOptions: nil, dateValue: nil
+                radioOptions: nil, dateValue: nil, disabled: false
             )
 
         case .select:
             let comp = dict["component"] as? [String: Any]
-            let optionsArray = (comp?["options"] as? [[String: Any]]) ?? (dict["options"] as? [[String: Any]]) ?? (dict["component"] as? [[String: Any]])
-            let opts = optionsArray?.compactMap { opt -> ParsedSelectOption? in
-                guard let label = stringifyValue(opt["label"] ?? opt["value"]) else { return nil }
-                guard let value = stringifyValue(opt["value"]) else { return nil }
-                return ParsedSelectOption(label: label, value: value)
-            }
+            let optionsArray = (comp?["options"] as? [Any]) ?? (dict["options"] as? [Any]) ?? (dict["component"] as? [Any])
+            let opts = optionsArray?.compactMap(parseSelectOption)
             let selValDict = (comp?["valueSelected"] as? [String: Any]) ?? (dict["valueSelected"] as? [String: Any]) ?? (dict["value"] as? [String: Any])
             var selVal: ParsedSelectOption? = nil
             if let sv = selValDict {
@@ -667,8 +687,9 @@ enum MessageContentParser {
                 placeholder: (comp?["placeholder"] as? String) ?? (dict["placeholder"] as? String),
                 inputType: nil, isTextarea: false, defaultValue: nil,
                 selectOptions: opts, minOptions: intValue(comp?["min_options"] ?? dict["min_options"]),
-                maxOptions: intValue(comp?["max_options"] ?? dict["max_options"]), selectedValue: selVal,
-                radioOptions: nil, dateValue: nil
+                maxOptions: intValue(dict["max_options"] ?? comp?["max_options"]), selectedValue: selVal,
+                radioOptions: nil, dateValue: nil,
+                disabled: (comp?["disabled"] as? Bool) ?? (dict["disabled"] as? Bool) ?? false
             )
 
         case .datepicker:
@@ -678,7 +699,7 @@ enum MessageContentParser {
                 type: .datepicker, id: id,
                 placeholder: nil, inputType: nil, isTextarea: false, defaultValue: nil,
                 selectOptions: nil, minOptions: nil, maxOptions: nil, selectedValue: nil,
-                radioOptions: nil, dateValue: dateVal
+                radioOptions: nil, dateValue: dateVal, disabled: false
             )
 
         case .radio:
@@ -693,7 +714,7 @@ enum MessageContentParser {
                 type: .radio, id: id,
                 placeholder: nil, inputType: nil, isTextarea: false, defaultValue: selectedOrDefault,
                 selectOptions: nil, minOptions: nil, maxOptions: maxOpt, selectedValue: nil,
-                radioOptions: options, dateValue: nil
+                radioOptions: options, dateValue: nil, disabled: false
             )
 
         default:
@@ -708,26 +729,49 @@ enum MessageContentParser {
         return nil
     }
 
+    private static func parseSelectOption(_ raw: Any) -> ParsedSelectOption? {
+        if let opt = raw as? [String: Any] {
+            guard let value = stringifyValue(opt["value"]) else { return nil }
+            let label = stringifyValue(opt["label"]) ?? value
+            return ParsedSelectOption(label: label, value: value)
+        }
+        guard let text = stringifyValue(raw) else { return nil }
+        return ParsedSelectOption(label: text, value: text)
+    }
+
 
     private static func parseActionRows(_ value: Any?) -> [ParsedEmbedActionRow] {
         guard let arr = value as? [[String: Any]], !arr.isEmpty else { return [] }
         return arr.compactMap { row -> ParsedEmbedActionRow? in
             guard let components = row["components"] as? [[String: Any]], !components.isEmpty else { return nil }
-            let buttons = components.compactMap { comp -> ParsedEmbedButton? in
-                guard let typeRaw = intValue(comp["type"]),
-                      typeRaw == EmbedComponentType.button.rawValue else { return nil }
-                let id = (comp["id"] as? String) ?? ""
-                guard let buttonDict = comp["component"] as? [String: Any] else { return nil }
-                let label = (buttonDict["label"] as? String) ?? ""
-                let styleRaw = intValue(buttonDict["style"]) ?? EmbedButtonStyle.primary.rawValue
-                let style = EmbedButtonStyle(rawValue: styleRaw) ?? .primary
-                let url = buttonDict["url"] as? String
-                let disabled = (buttonDict["disable"] as? Bool) ?? false
-                return ParsedEmbedButton(id: id, label: label, style: style, url: url, disabled: disabled)
-            }
-            guard !buttons.isEmpty else { return nil }
-            return ParsedEmbedActionRow(buttons: buttons)
+            let parsed = components.compactMap(parseRowComponent)
+            guard !parsed.isEmpty else { return nil }
+            return ParsedEmbedActionRow(components: parsed)
         }
+    }
+
+    private static func parseRowComponent(_ comp: [String: Any]) -> ParsedEmbedRowComponent? {
+        guard let typeRaw = intValue(comp["type"]),
+              let type = EmbedComponentType(rawValue: typeRaw) else { return nil }
+        switch type {
+        case .button:
+            return parseRowButton(comp).map { ParsedEmbedRowComponent.button($0) }
+        case .select:
+            return parseFieldInputComponent(comp).map { ParsedEmbedRowComponent.select($0) }
+        default:
+            return nil
+        }
+    }
+
+    private static func parseRowButton(_ comp: [String: Any]) -> ParsedEmbedButton? {
+        let id = (comp["id"] as? String) ?? ""
+        guard let buttonDict = comp["component"] as? [String: Any] else { return nil }
+        let label = (buttonDict["label"] as? String) ?? ""
+        let styleRaw = intValue(buttonDict["style"]) ?? EmbedButtonStyle.primary.rawValue
+        let style = EmbedButtonStyle(rawValue: styleRaw) ?? .primary
+        let url = buttonDict["url"] as? String
+        let disabled = (buttonDict["disable"] as? Bool) ?? false
+        return ParsedEmbedButton(id: id, label: label, style: style, url: url, disabled: disabled)
     }
 }
 

@@ -468,6 +468,10 @@ final class MessageBubbleNode: ASDisplayNode {
                 guard let self else { return }
                 self.interaction.onEmbedButtonClicked?(button, messageId, self.display)
             }
+            en.onEmbedSelectChanged = { [weak self] selectId, value, messageId in
+                guard let self else { return }
+                self.interaction.onEmbedSelectChanged?(selectId, value, messageId, self.display)
+            }
             embedNode = en
             addSubnode(en)
         }
@@ -891,6 +895,10 @@ final class MessageBubbleNode: ASDisplayNode {
                 en.onEmbedButtonTapped = { [weak self] button, messageId in
                     guard let self else { return }
                     self.interaction.onEmbedButtonClicked?(button, messageId, self.display)
+                }
+                en.onEmbedSelectChanged = { [weak self] selectId, value, messageId in
+                    guard let self else { return }
+                    self.interaction.onEmbedSelectChanged?(selectId, value, messageId, self.display)
                 }
                 embedNode = en
                 addSubnode(en)
