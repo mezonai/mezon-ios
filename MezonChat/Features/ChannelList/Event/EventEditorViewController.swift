@@ -44,7 +44,7 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
     private let addressError = UILabel()
     private let startError = UILabel()
     private let endError = UILabel()
-    private var dateFields: [EventEditorFieldButton] = []
+    private var scheduleFields: [EventEditorFieldButton] = []
     private var repeatField: EventEditorFieldButton?
     private var previewImage: UIImage?
 
@@ -399,21 +399,21 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
         body.addArrangedSubview(label(L(L10n.EventEditor.detailsTitle), size: 17, weight: .bold))
         body.addArrangedSubview(label(L(L10n.EventEditor.detailsSubtitle), size: 13))
         body.addArrangedSubview(labeledField(L(L10n.EventEditor.name) + " *", field: nameField, error: nameError))
-        dateFields = [L10n.EventEditor.startDate, L10n.EventEditor.startTime, L10n.EventEditor.endDate, L10n.EventEditor.endTime].enumerated().map { index, key in
+        scheduleFields = [L10n.EventEditor.date, L10n.EventEditor.startTime, L10n.EventEditor.endTime].enumerated().map { index, key in
             let field = EventEditorFieldButton(caption: L(key))
-            field.action = { [weak self] in self?.pickDate(index) }
+            field.action = { [weak self] in self?.pickSchedule(index) }
             return field
         }
         let dates = UIStackView()
         dates.axis = .vertical
         dates.spacing = 8
-        for index in [0, 2] {
-            let row = UIStackView(arrangedSubviews: [dateFields[index], dateFields[index + 1]])
-            row.distribution = .fillEqually
-            row.spacing = 8
-            dates.addArrangedSubview(row)
-            dates.addArrangedSubview(index == 0 ? startError : endError)
-        }
+        dates.addArrangedSubview(scheduleFields[0])
+        let timeRow = UIStackView(arrangedSubviews: [scheduleFields[1], scheduleFields[2]])
+        timeRow.distribution = .fillEqually
+        timeRow.spacing = 8
+        dates.addArrangedSubview(timeRow)
+        dates.addArrangedSubview(startError)
+        dates.addArrangedSubview(endError)
         body.addArrangedSubview(dates)
         let repeatField = EventEditorFieldButton(caption: L(L10n.EventEditor.repeatLabel))
         self.repeatField = repeatField
@@ -615,36 +615,22 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
         present(vc, animated: true)
     }
 
-    private func pickDate(_ index: Int) {
+    private func pickSchedule(_ index: Int) {
         view.endEditing(true)
-        let isStart = index < 2
-        let isDate = index % 2 == 0
-        let current = isStart ? draft.start : draft.end
+        guard scheduleFields.indices.contains(index) else { return }
+        let isDate = index == 0
+        let current = index == 2 ? draft.end : draft.start
         let calendar = Calendar.current
-        let minimum = isDate ? calendar.startOfDay(for: isStart ? Date() : draft.start) : nil
-        let vc = EventEditorDateViewController(title: dateFields[index].captionLabel.text ?? "", date: current, mode: isDate ? .date : .time, minimum: minimum) { [weak self] picked in
+        let minimum = isDate ? calendar.startOfDay(for: Date()) : nil
+        let vc = EventEditorDateViewController(title: scheduleFields[index].captionLabel.text ?? "", date: current, mode: isDate ? .date : .time, minimum: minimum) { [weak self] picked in
             guard let self else { return }
-            let date = isDate ? picked : current
-            let time = isDate ? current : picked
-            var components = calendar.dateComponents([.year, .month, .day], from: date)
-            let clock = calendar.dateComponents([.hour, .minute], from: time)
-            components.hour = clock.hour
-            components.minute = clock.minute
-            components.second = 0
-            guard let combined = calendar.date(from: components) else { return }
-            if isStart {
-                self.draft.start = combined
-                if isDate && calendar.startOfDay(for: combined) > calendar.startOfDay(for: self.draft.end) {
-                    var endComponents = calendar.dateComponents([.year, .month, .day], from: combined)
-                    let endClock = calendar.dateComponents([.hour, .minute], from: self.draft.end)
-                    endComponents.hour = endClock.hour
-                    endComponents.minute = endClock.minute
-                    endComponents.second = 0
-                    if let adjustedEnd = calendar.date(from: endComponents) {
-                        self.draft.end = adjustedEnd
-                    }
-                }
-            } else { self.draft.end = combined }
+            if isDate {
+                self.draft.setDate(picked, calendar: calendar)
+            } else if index == 1 {
+                self.draft.setStartTime(picked, calendar: calendar)
+            } else {
+                self.draft.setEndTime(picked, calendar: calendar)
+            }
             self.refreshDateLabels()
             self.refreshValidation()
         }
@@ -663,11 +649,10 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
     }
 
     private func refreshDateLabels() {
-        guard dateFields.count == 4 else { return }
-        dateFields[0].setValue(formatted(draft.start, template: "MMM d y"))
-        dateFields[1].setValue(formatted(draft.start, template: "jm"))
-        dateFields[2].setValue(formatted(draft.end, template: "MMM d y"))
-        dateFields[3].setValue(formatted(draft.end, template: "jm"))
+        guard scheduleFields.count == 3 else { return }
+        scheduleFields[0].setValue(formatted(draft.start, template: "MMM d y"))
+        scheduleFields[1].setValue(formatted(draft.start, template: "jm"))
+        scheduleFields[2].setValue(formatted(draft.end, template: "jm"))
         repeatField?.setValue(repeatLabel())
     }
     private func repeatLabel() -> String {
