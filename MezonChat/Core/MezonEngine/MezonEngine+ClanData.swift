@@ -130,6 +130,8 @@ extension MezonEngine {
         let clanEventsUpdated = ValuePipe<Int64>()
         let clanPermissionsUpdated = ValuePipe<Int64>()
         let clanVoiceUsersUpdated = ValuePipe<Int64>()
+        private var voiceUsersFreshClanIds = Set<Int64>()
+        private let voiceUsersFreshLock = NSLock()
         let clanStreamUsersUpdated = ValuePipe<Int64>()
         let clanBadgeCountUpdated = ValuePipe<(clanId: Int64, count: Int32)>()
         let clanNotificationUpdated = ValuePipe<Int64>()
@@ -567,10 +569,7 @@ extension MezonEngine {
         private func fetchVoiceChannelUsers(clanId: Int64, token: String) async {
             do {
                 let response = try await network.listChannelVoiceUsers(clanId: clanId, token: token)
-                if let data = try? response.serializedData() {
-                    postbox.setPreferenceData(key: PreferencesKeys.clanVoiceUsers(clanId: clanId), value: data)
-                }
-                clanVoiceUsersUpdated.putNext(clanId)
+                persistVoiceUsersList(response, clanId: clanId)
             } catch {
             }
         }
@@ -827,12 +826,24 @@ extension MezonEngine {
             return voiceChannelUserList(from: streamList)
         }
 
+        func voiceChannelUserIds(clanId: Int64) -> Set<Int64> {
+            guard isVoiceUsersFresh(clanId), let list = getVoiceUsers(clanId: clanId) else { return [] }
+            return Set(list.voiceChannelUsers.flatMap { $0.userIds.compactMap { Int64($0) } })
+        }
+
+        func voiceScreenSharingUserIds(clanId: Int64) -> Set<String> {
+            guard let list = getVoiceUsers(clanId: clanId) else { return [] }
+            return Set(list.voiceChannelUsers.flatMap { entry in
+                entry.shareScreenIds.filter { entry.userIds.contains($0) }
+            })
+        }
+
         func refetchVoiceChannelUsers(clanId: Int64, token: String) async {
             await fetchVoiceChannelUsers(clanId: clanId, token: token)
         }
 
         func applyVoiceJoined(clanId: Int64, channelId: Int64, userId: Int64) {
-            var list = getVoiceUsers(clanId: clanId) ?? Mezon_Api_VoiceChannelUserList()
+            var list = freshVoiceUsersList(clanId: clanId)
             let uid = "\(userId)"
             applyVoiceLeaved(clanId: clanId, channelId: channelId, userId: userId, list: &list, notify: false)
             if let idx = list.voiceChannelUsers.firstIndex(where: { $0.channelID == channelId }) {
@@ -851,7 +862,7 @@ extension MezonEngine {
         }
 
         func applyVoiceLeaved(clanId: Int64, channelId: Int64, userId: Int64) {
-            var list = getVoiceUsers(clanId: clanId) ?? Mezon_Api_VoiceChannelUserList()
+            var list = freshVoiceUsersList(clanId: clanId)
             applyVoiceLeaved(clanId: clanId, channelId: channelId, userId: userId, list: &list, notify: true)
         }
 
@@ -863,6 +874,7 @@ extension MezonEngine {
             }
             var entry = list.voiceChannelUsers[idx]
             entry.userIds.removeAll { $0 == uid }
+            entry.shareScreenIds.removeAll { $0 == uid }
             if entry.userIds.isEmpty {
                 list.voiceChannelUsers.remove(at: idx)
             } else {
@@ -874,8 +886,24 @@ extension MezonEngine {
         }
 
         func applyVoiceEnded(clanId: Int64, channelId: Int64) {
-            var list = getVoiceUsers(clanId: clanId) ?? Mezon_Api_VoiceChannelUserList()
+            var list = freshVoiceUsersList(clanId: clanId)
             list.voiceChannelUsers.removeAll { $0.channelID == channelId }
+            persistVoiceUsersList(list, clanId: clanId)
+        }
+
+        func applyScreenShare(clanId: Int64, channelId: Int64, userId: Int64, isSharing: Bool) {
+            guard isVoiceUsersFresh(clanId), var list = getVoiceUsers(clanId: clanId),
+                  let idx = list.voiceChannelUsers.firstIndex(where: { $0.channelID == channelId }) else { return }
+            let uid = "\(userId)"
+            var entry = list.voiceChannelUsers[idx]
+            guard entry.userIds.contains(uid) else { return }
+            guard entry.shareScreenIds.contains(uid) != isSharing else { return }
+            if isSharing {
+                entry.shareScreenIds.append(uid)
+            } else {
+                entry.shareScreenIds.removeAll { $0 == uid }
+            }
+            list.voiceChannelUsers[idx] = entry
             persistVoiceUsersList(list, clanId: clanId)
         }
 
@@ -906,7 +934,25 @@ extension MezonEngine {
             persistStreamUsersList(list, clanId: clanId)
         }
 
+        private func markVoiceUsersFresh(_ clanId: Int64) {
+            voiceUsersFreshLock.lock()
+            voiceUsersFreshClanIds.insert(clanId)
+            voiceUsersFreshLock.unlock()
+        }
+
+        private func isVoiceUsersFresh(_ clanId: Int64) -> Bool {
+            voiceUsersFreshLock.lock()
+            defer { voiceUsersFreshLock.unlock() }
+            return voiceUsersFreshClanIds.contains(clanId)
+        }
+
+        private func freshVoiceUsersList(clanId: Int64) -> Mezon_Api_VoiceChannelUserList {
+            guard isVoiceUsersFresh(clanId) else { return Mezon_Api_VoiceChannelUserList() }
+            return getVoiceUsers(clanId: clanId) ?? Mezon_Api_VoiceChannelUserList()
+        }
+
         private func persistVoiceUsersList(_ list: Mezon_Api_VoiceChannelUserList, clanId: Int64) {
+            markVoiceUsersFresh(clanId)
             if let data = try? list.serializedData() {
                 postbox.setPreferenceData(key: PreferencesKeys.clanVoiceUsers(clanId: clanId), value: data)
             }

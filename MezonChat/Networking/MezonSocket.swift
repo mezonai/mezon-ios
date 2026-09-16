@@ -34,6 +34,7 @@ enum SocketEvent {
     case voiceJoined(Mezon_Realtime_VoiceJoinedEvent)
     case voiceLeaved(Mezon_Realtime_VoiceLeavedEvent)
     case voiceEnded(Mezon_Realtime_VoiceEndedEvent)
+    case screenShare(Mezon_Realtime_ScreenShareEvent)
     case voiceReaction(Mezon_Realtime_VoiceReactionSend)
     case aiAgentEnabled(Mezon_Realtime_AIAgentEnabledEvent)
     case streamingJoined(Mezon_Realtime_StreamingJoinedEvent)
@@ -640,18 +641,6 @@ final class MezonSocket: NSObject {
         joinedChannelGenerations[JoinedChannelKey(clanId: clanId, channelId: channelId)] = connectGeneration
     }
 
-    func sendVoiceParticipantMeetState(clanId: Int64, channelId: Int64, roomName: String, displayName: String, join: Bool) {
-        var ev = Mezon_Realtime_HandleParticipantMeetStateEvent()
-        ev.clanID = clanId
-        ev.channelID = channelId
-        ev.displayName = displayName
-        ev.roomName = roomName
-        ev.state = join ? 0 : 1
-        var envelope = Mezon_Realtime_Envelope()
-        envelope.handleParticipantMeetStateEvent = ev
-        send(envelope)
-    }
-
     func sendVoiceReaction(channelId: Int64, senderId: Int64, emojis: [String], mediaType: Int32 = 0) {
         guard !emojis.isEmpty else { return }
         var r = Mezon_Realtime_VoiceReactionSend()
@@ -960,6 +949,8 @@ final class MezonSocket: NSObject {
             eventPipe.putNext(.voiceLeaved(m))
         case .voiceEndedEvent(let m):
             eventPipe.putNext(.voiceEnded(m))
+        case .screenShareEvent(let m):
+            eventPipe.putNext(.screenShare(m))
         case .voiceReactionSend(let m):
             eventPipe.putNext(.voiceReaction(m))
         case .aiagentEnabledEvent(let m):

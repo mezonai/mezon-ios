@@ -20,6 +20,11 @@ enum SfuConnectionState {
     case failed
 }
 
+enum SfuRemovalCause {
+    case kicked
+    case aloneTimeout
+}
+
 struct SfuParticipant {
     let id: String
     let userId: String?

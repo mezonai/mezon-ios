@@ -49,6 +49,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
                 let avatarURLCacheChanged = previousState.resolvedAvatarURLByChannelId != newState.resolvedAvatarURLByChannelId
                 let activityHeaderVisibilityChanged = previousState.messageActivityRows.isEmpty != newState.messageActivityRows.isEmpty
                 let incomingCountChanged = previousState.incomingFriendRequestCount != newState.incomingFriendRequestCount
+                let inVoiceChanged = previousState.inVoiceUserIds != newState.inVoiceUserIds
                 self.state = newState
 
                 if activityRowsChanged {
@@ -74,6 +75,8 @@ final class DirectMessagesContainerNode: ASDisplayNode {
                         previous: previousState.directMessages,
                         new: newState.directMessages
                     )
+                } else if inVoiceChanged {
+                    self.reconfigureVisibleCells()
                 }
             })
         )
@@ -456,8 +459,17 @@ final class DirectMessagesContainerNode: ASDisplayNode {
                 continue
             }
             let channel = state.directMessages[indexPath.row]
-            cell.configure(channel: channel, resolvedAvatarURL: state.resolvedAvatarURLByChannelId[channel.channelID])
+            cell.configure(
+                channel: channel,
+                resolvedAvatarURL: state.resolvedAvatarURLByChannelId[channel.channelID],
+                isPeerInVoice: isPeerInVoice(channel)
+            )
         }
+    }
+
+    private func isPeerInVoice(_ channel: Mezon_Api_ChannelDescription) -> Bool {
+        guard channel.type == MezonConstants.ChannelType.dm.rawValue, channel.userIds.count == 1 else { return false }
+        return state.inVoiceUserIds.contains(channel.userIds[0])
     }
 }
 
@@ -481,7 +493,11 @@ extension DirectMessagesContainerNode: UITableViewDataSource, UITableViewDelegat
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: DmListItemCell.reuseId, for: indexPath) as! DmListItemCell
         let channel = state.directMessages[indexPath.row]
-        cell.configure(channel: channel, resolvedAvatarURL: state.resolvedAvatarURLByChannelId[channel.channelID])
+        cell.configure(
+            channel: channel,
+            resolvedAvatarURL: state.resolvedAvatarURLByChannelId[channel.channelID],
+            isPeerInVoice: isPeerInVoice(channel)
+        )
         return cell
     }
 

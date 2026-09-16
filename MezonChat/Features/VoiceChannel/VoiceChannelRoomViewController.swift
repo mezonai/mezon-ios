@@ -5,8 +5,13 @@ import MediaPlayer
 import AsyncDisplayKit
 import WebRTC
 
-private let kVoiceKomuAgentDefaultAvatarURL =
-    ImgproxyURL.create(from: "https://cdn.mezon.vn/0/0/1779484387973271600/1737423959329_undefined173740153013517374015248704886401586613166392.png", width: 100, height: 100)
+private let kVoiceKomuAgentUserId = "2090694093138038784"
+private let kVoiceKomuAgentDisplayName = "KOMU Agent"
+private let kVoiceKomuAgentAvatarURL =
+    "https://cdn.mezon.vn/0/0/1779484387973271600/1737423959329_undefined173740153013517374015248704886401586613166392.png"
+
+@MainActor
+private var voiceAgentEnabledChannelIds = Set<Int64>()
 
 private enum VoiceParticipantTileKind {
     case mainVideo
@@ -69,8 +74,13 @@ private func voiceChannelAvatarURLFromClanUser(_ cu: Mezon_Api_ClanUserList.Clan
     return nil
 }
 
-private func voiceChannelKickedMessage(reason: String?) -> String {
-    reason ?? NSLocalizedString("voiceChannel.kickedFromChannel", tableName: nil, bundle: .main, value: "You have been kicked from the channel.", comment: "")
+private func voiceChannelRemovalMessage(cause: SfuRemovalCause, reason: String?) -> String {
+    switch cause {
+    case .kicked:
+        return reason ?? NSLocalizedString("voiceChannel.kickedFromChannel", tableName: nil, bundle: .main, value: "You have been kicked from the channel.", comment: "")
+    case .aloneTimeout:
+        return L(L10n.VoiceChannel.disconnectedAlone)
+    }
 }
 
 @MainActor
@@ -87,6 +97,7 @@ private func voiceChannelMeetStateDisplayName(context: AccountContext, clanId: I
 
 @MainActor
 private func voiceChannelResolveAvatarURL(context: AccountContext, clanId: Int64, identityKey: String) -> String? {
+    if identityKey == kVoiceKomuAgentUserId { return kVoiceKomuAgentAvatarURL }
     if let cu = voiceChannelFindClanUser(context: context, clanId: clanId, identityKey: identityKey),
        let url = voiceChannelAvatarURLFromClanUser(cu), !url.isEmpty {
         return url
@@ -105,6 +116,7 @@ private func voiceChannelResolveAvatarURL(context: AccountContext, clanId: Int64
 @MainActor
 private func voiceChannelResolveDisplayNameForUserId(context: AccountContext, clanId: Int64, userId: Int64) -> String {
     let key = "\(userId)"
+    if key == kVoiceKomuAgentUserId { return kVoiceKomuAgentDisplayName }
     if let cu = voiceChannelFindClanUser(context: context, clanId: clanId, identityKey: key),
        let name = voiceChannelDisplayNameFromClanUser(cu) {
         return name
@@ -133,6 +145,7 @@ private func voiceChannelShortProfileSubtitleLine(cu: Mezon_Api_ClanUserList.Cla
 @MainActor
 private func voiceChannelResolveDisplayName(context: AccountContext, clanId: Int64, identityKey: String, isLocal: Bool) -> String {
     let idKey = isLocal ? (context.currentUser?.id ?? "") : identityKey
+    if idKey == kVoiceKomuAgentUserId { return kVoiceKomuAgentDisplayName }
     if let cu = voiceChannelFindClanUser(context: context, clanId: clanId, identityKey: idKey),
        let name = voiceChannelDisplayNameFromClanUser(cu) {
         return name
@@ -152,6 +165,7 @@ private func voiceChannelResolveDisplayName(context: AccountContext, clanId: Int
 @MainActor
 private func voiceChannelResolveUsername(context: AccountContext, clanId: Int64, identityKey: String, isLocal: Bool) -> String {
     let idKey = isLocal ? (context.currentUser?.id ?? "") : identityKey
+    if idKey == kVoiceKomuAgentUserId { return kVoiceKomuAgentDisplayName }
     if let cu = voiceChannelFindClanUser(context: context, clanId: clanId, identityKey: idKey) {
         if !cu.user.username.isEmpty { return cu.user.username }
     }
@@ -342,7 +356,7 @@ private final class VoiceHeaderSystemAudioRouteControl: UIView {
         NSLayoutConstraint.activate([
             stateIconView.centerXAnchor.constraint(equalTo: centerXAnchor),
             stateIconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            stateIconView.widthAnchor.constraint(equalToConstant: 15),
+            stateIconView.widthAnchor.constraint(equalToConstant: 18),
             stateIconView.heightAnchor.constraint(equalToConstant: 15),
             volumeView.topAnchor.constraint(equalTo: topAnchor),
             volumeView.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -620,8 +634,8 @@ final class VoiceChannelPiPOverlay: NSObject {
                 self?.dismiss()
             }
         }
-        session.onKicked = { [weak self] reason in
-            Toast.info(voiceChannelKickedMessage(reason: reason))
+        session.onRemoved = { [weak self] cause, reason in
+            Toast.info(voiceChannelRemovalMessage(cause: cause, reason: reason))
             self?.dismiss()
         }
 
@@ -794,7 +808,7 @@ final class VoiceChannelPiPOverlay: NSObject {
         UIApplication.shared.isIdleTimerDisabled = false
         overlayPiPRootViewController = nil
         unbindOverlayAudioSessionObservers()
-        sendMeetLeaveIfNeeded()
+        applyLocalMeetLeaveIfNeeded()
         isRestoringFromSystemPiP = false
         tearDownOverlaySystemCallPiP()
         let s = session
@@ -815,20 +829,13 @@ final class VoiceChannelPiPOverlay: NSObject {
         s?.leave()
     }
 
-    private func sendMeetLeaveIfNeeded() {
+    private func applyLocalMeetLeaveIfNeeded() {
         guard !didAnnounceMeetLeave, didAnnounceMeetJoin else { return }
         guard let ctx = context, let ch = channel else { return }
         didAnnounceMeetLeave = true
         if let uid = Int64(ctx.currentUser?.id ?? "") {
             ctx.engine.clanData.applyVoiceLeaved(clanId: ch.clanID, channelId: ch.channelID, userId: uid)
         }
-        ctx.account.socket.sendVoiceParticipantMeetState(
-            clanId: ch.clanID,
-            channelId: ch.channelID,
-            roomName: "\(ch.channelID)",
-            displayName: voiceChannelMeetStateDisplayName(context: ctx, clanId: ch.clanID),
-            join: false
-        )
     }
 
     fileprivate func takeOverSession() -> (MezonSfuSession, Bool, Bool, VoiceChannelPiPPreservedAudioRoute?)? {
@@ -1517,7 +1524,16 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private let audioRouteControl = VoiceHeaderSystemAudioRouteControl()
     private let agentToggleButton = UIButton(type: .custom)
     private let agentToggleSpinner = UIActivityIndicatorView(style: .medium)
-    private var voiceAgentEnabled = false
+    private var voiceAgentEnabled: Bool {
+        get { voiceAgentEnabledChannelIds.contains(channel.channelID) }
+        set {
+            if newValue {
+                voiceAgentEnabledChannelIds.insert(channel.channelID)
+            } else {
+                voiceAgentEnabledChannelIds.remove(channel.channelID)
+            }
+        }
+    }
     private var isAgentToggleLoading = false
     private let moreButton = UIButton(type: .custom)
     private var voiceMoreToolsHost: UIView?
@@ -2808,8 +2824,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         session.onMutedByModerator = { [weak self] in
             self?.handleMutedByModerator()
         }
-        session.onKicked = { [weak self] reason in
-            self?.handleKickedFromRoom(reason: reason)
+        session.onRemoved = { [weak self] cause, reason in
+            self?.handleRemovedFromRoom(cause: cause, reason: reason)
         }
         let tokenContext = context
         let tokenChannelId = channel.channelID
@@ -2872,7 +2888,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         case .connected:
             hasEverConnected = true
             setConnectingOverlayVisible(false)
-            announceMeetJoinIfNeeded()
+            applyLocalMeetJoinIfNeeded()
             refreshMicButtonIcon()
             refreshCamButtonIcon()
             refreshParticipantRowsFromSession()
@@ -2927,8 +2943,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             value: "You have been muted by a channel moderator.", comment: ""))
     }
 
-    private func handleKickedFromRoom(reason: String?) {
-        Toast.info(voiceChannelKickedMessage(reason: reason))
+    private func handleRemovedFromRoom(cause: SfuRemovalCause, reason: String?) {
+        Toast.info(voiceChannelRemovalMessage(cause: cause, reason: reason))
         popTapped()
     }
 
@@ -3337,7 +3353,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         tearDownScreenSharePresentationAndPiP()
         connectTask?.cancel()
         connectTask = nil
-        sendMeetLeaveIfNeeded()
+        applyLocalMeetLeaveIfNeeded()
         let session = sfuSession
         sfuSession = nil
         session?.clearCallbacks()
@@ -3608,39 +3624,21 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         micButton.setImage(img?.withRenderingMode(.alwaysTemplate), for: .normal)
     }
 
-    private func meetStateDisplayName() -> String {
-        voiceChannelMeetStateDisplayName(context: context, clanId: channel.clanID)
-    }
-
-    private func announceMeetJoinIfNeeded() {
+    private func applyLocalMeetJoinIfNeeded() {
         guard !didAnnounceMeetJoin else { return }
         didAnnounceMeetJoin = true
         if let uid = Int64(context.currentUser?.id ?? "") {
             context.engine.clanData.applyVoiceJoined(clanId: channel.clanID, channelId: channel.channelID, userId: uid)
         }
-        context.account.socket.sendVoiceParticipantMeetState(
-            clanId: channel.clanID,
-            channelId: channel.channelID,
-            roomName: "\(channel.channelID)",
-            displayName: meetStateDisplayName(),
-            join: true
-        )
     }
 
-    private func sendMeetLeaveIfNeeded() {
+    private func applyLocalMeetLeaveIfNeeded() {
         guard !didAnnounceMeetLeave else { return }
         guard didAnnounceMeetJoin else { return }
         didAnnounceMeetLeave = true
         if let uid = Int64(context.currentUser?.id ?? "") {
             context.engine.clanData.applyVoiceLeaved(clanId: channel.clanID, channelId: channel.channelID, userId: uid)
         }
-        context.account.socket.sendVoiceParticipantMeetState(
-            clanId: channel.clanID,
-            channelId: channel.channelID,
-            roomName: "\(channel.channelID)",
-            displayName: meetStateDisplayName(),
-            join: false
-        )
     }
 
     private func updateParticipantTilesInPlace() {
@@ -4184,7 +4182,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         session?.leave()
 
         setConnectingOverlayVisible(false)
-        sendMeetLeaveIfNeeded()
+        applyLocalMeetLeaveIfNeeded()
 
         guard navigationController?.topViewController === self else { return }
 

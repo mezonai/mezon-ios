@@ -379,6 +379,7 @@ struct ChatState {
     var lastSeenMessageId: String?
     var currentUserId: String?
     var parentName: String?
+    var dmPeerInVoice: Bool = false
 
     static let empty = ChatState(
         messages: [], channelLabel: "", channelType: 0, isPrivate: false, isAgeRestricted: false,
@@ -980,6 +981,9 @@ final class ChatViewController: ViewController {
             onMessageNeedsRelayout: nil,
             onEmbedButtonClicked: nil
         )
+        interaction.onInVoiceTapped = { [weak self] in
+            self?.presentJoinVoiceSheetForDirectMessagePeer()
+        }
         interaction.onMediaTapped = { [weak self] index, media, display, previewImage in
             self?.presentMessageMediaGallery(
                 index: index,
@@ -1050,6 +1054,13 @@ final class ChatViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleAttachmentUploadProgress(_:)), name: .mezonAttachmentUploadProgress, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleAttachmentUploadSlotStateChanged(_:)), name: .mezonAttachmentUploadSlotStateChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelMetadataChanged(_:)), name: .mezonChannelDescriptionDidUpdate, object: nil)
+        if channel.type == MezonConstants.ChannelType.dm.rawValue {
+            NotificationCenter.default.addObserver(self, selector: #selector(handleVoicePresenceChangedForDmHeader(_:)), name: .mezonVoicePresenceChanged, object: nil)
+            dmPeerInVoice = resolveDirectMessagePeerInVoice()
+            if dmPeerInVoice {
+                needsReloadPipe.putNext(())
+            }
+        }
     }
 
     private static func userInfoInt64(_ value: Any?) -> Int64? {
@@ -2855,6 +2866,27 @@ final class ChatViewController: ViewController {
         }
     }
 
+    private var dmPeerInVoice = false
+
+    private func resolveDirectMessagePeerInVoice() -> Bool {
+        guard channel.type == MezonConstants.ChannelType.dm.rawValue,
+              channel.userIds.count == 1,
+              let peerId = channel.userIds.first, peerId != 0,
+              String(peerId) != context.currentUser?.id else { return false }
+        let clanIds = context.account.postbox.read { $0.getClans() }.map(\.id)
+        return clanIds.contains { context.engine.clanData.voiceChannelUserIds(clanId: $0).contains(peerId) }
+    }
+
+    @objc private func handleVoicePresenceChangedForDmHeader(_ notification: Notification) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let updated = self.resolveDirectMessagePeerInVoice()
+            guard updated != self.dmPeerInVoice else { return }
+            self.dmPeerInVoice = updated
+            self.needsReloadPipe.putNext(())
+        }
+    }
+
     private var isDirectMessagePeerBlocked: Bool {
         guard channel.type == MezonConstants.ChannelType.dm.rawValue else { return false }
         guard let peerId = channel.userIds.first, peerId != 0 else { return false }
@@ -2920,7 +2952,8 @@ final class ChatViewController: ViewController {
             errorMessage: errorMessage,
             lastSeenMessageId: lastSeenMessageId,
             currentUserId: context.currentUser?.id,
-            parentName: resolvedParentName
+            parentName: resolvedParentName,
+            dmPeerInVoice: dmPeerInVoice
         )
     }
 
@@ -2989,6 +3022,7 @@ final class ChatViewController: ViewController {
             var lastDmPeerDisplayName = self.currentState.dmPeerDisplayName
             var lastDmAvatarURL = self.currentState.dmAvatarURL
             var lastDmGroupAvatarURL = self.currentState.dmGroupAvatarURL
+            var lastDmPeerInVoice = self.currentState.dmPeerInVoice
             subscriber.putNext(self.currentState)
             let merged = Signal<Void, NoError> { subscriber in
                 let d1 = self.needsReloadPipe.signal().start(next: { subscriber.putNext(()) })
@@ -3026,6 +3060,7 @@ final class ChatViewController: ViewController {
                         || newState.dmPeerDisplayName != lastDmPeerDisplayName
                         || newState.dmAvatarURL != lastDmAvatarURL
                         || newState.dmGroupAvatarURL != lastDmGroupAvatarURL
+                        || newState.dmPeerInVoice != lastDmPeerInVoice
                     guard changed else { return }
                     lastIds = newIds
                     lastSendingStates = newSendingStates
@@ -3049,6 +3084,7 @@ final class ChatViewController: ViewController {
                     lastDmPeerDisplayName = newState.dmPeerDisplayName
                     lastDmAvatarURL = newState.dmAvatarURL
                     lastDmGroupAvatarURL = newState.dmGroupAvatarURL
+                    lastDmPeerInVoice = newState.dmPeerInVoice
                     subscriber.putNext(newState)
                 })
         }
@@ -5385,6 +5421,33 @@ final class ChatViewController: ViewController {
             voiceChannelCrossClanExitAlignClanId: nil
         )
         pushNav.pushViewController(vc, animated: true)
+    }
+
+    private func presentJoinVoiceSheetForDirectMessagePeer() {
+        guard channel.type == MezonConstants.ChannelType.dm.rawValue,
+              channel.userIds.count == 1,
+              let peerId = channel.userIds.first, peerId != 0 else { return }
+        let peerKey = String(peerId)
+        let clanIds = context.account.postbox.read { $0.getClans() }.map(\.id)
+        for voiceClanId in clanIds where context.engine.clanData.voiceChannelUserIds(clanId: voiceClanId).contains(peerId) {
+            guard let list = context.engine.clanData.getVoiceUsers(clanId: voiceClanId),
+                  let entry = list.voiceChannelUsers.first(where: { $0.userIds.contains(peerKey) }) else { continue }
+            var voiceChannel: Mezon_Api_ChannelDescription
+            if let stored = context.account.postbox.resolvedChannelDescription(clanId: voiceClanId, channelId: entry.channelID) {
+                voiceChannel = stored
+            } else if let cached = cachedChannelDescriptionForHashtag(channelId: entry.channelID, clanId: voiceClanId) {
+                voiceChannel = cached
+            } else {
+                voiceChannel = Mezon_Api_ChannelDescription()
+                voiceChannel.channelID = entry.channelID
+                voiceChannel.type = MezonConstants.ChannelType.mezonVoice.rawValue
+            }
+            if voiceChannel.clanID == 0 {
+                voiceChannel.clanID = voiceClanId
+            }
+            presentJoinVoiceSheet(for: voiceChannel)
+            return
+        }
     }
 
     private func presentJoinVoiceSheet(for channel: Mezon_Api_ChannelDescription) {

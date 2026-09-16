@@ -1246,6 +1246,7 @@ final class ChannelListViewController: ViewController {
             self.voicePresenceReloadScheduled = false
             guard self.clanId != 0 else { return }
             self.needsReloadPipe.putNext(())
+            self.channelListNode.reloadVoiceMemberRows()
         }
     }
 
@@ -3236,7 +3237,8 @@ final class ChannelListViewController: ViewController {
             }
         }
 
-        return VoiceMemberDisplay(name: name, username: username, avatarURL: avatar)
+        let isSharingScreen = context.engine.clanData.voiceScreenSharingUserIds(clanId: clanId).contains(uid)
+        return VoiceMemberDisplay(name: name, username: username, avatarURL: avatar, isSharingScreen: isSharingScreen)
     }
 
     private func topModalPresenter() -> UIViewController? {

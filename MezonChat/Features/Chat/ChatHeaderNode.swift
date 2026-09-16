@@ -8,15 +8,19 @@ final class ChatHeaderNode: ASDisplayNode {
     private let channelIconNode = ASImageNode()
     private let titleNode = ASTextNode2()
     private let subtitleNode = ASTextNode2()
+    private let inVoiceIconNode = ASImageNode()
+    private let inVoiceTapNode = ASControlNode()
     private let callButtonNode = ASButtonNode()
     private let videoCallButtonNode = ASButtonNode()
     private let searchButtonNode = ASButtonNode()
     private let separatorNode = ASDisplayNode()
 
     private var isDM = false
+    private var showsInVoice = false
 
     var onBackTapped: (() -> Void)?
     var onHeaderTapped: (() -> Void)?
+    var onInVoiceTapped: (() -> Void)?
     var onSearchTapped: (() -> Void)?
     var onCallTapped: (() -> Void)?
     var onVideoCallTapped: (() -> Void)?
@@ -61,14 +65,37 @@ final class ChatHeaderNode: ASDisplayNode {
         subtitleNode.maximumNumberOfLines = 1
         subtitleNode.truncationMode = .byTruncatingTail
 
+        inVoiceIconNode.contentMode = .scaleAspectFit
+        inVoiceIconNode.isHidden = true
+        inVoiceTapNode.isHidden = true
+        inVoiceTapNode.addTarget(self, action: #selector(inVoicePressed), forControlEvents: .touchUpInside)
+
         titleContainerNode.addSubnode(channelIconNode)
         titleContainerNode.addSubnode(titleNode)
         titleContainerNode.addSubnode(subtitleNode)
+        titleContainerNode.addSubnode(inVoiceIconNode)
+        titleContainerNode.addSubnode(inVoiceTapNode)
+    }
+
+    private static func inVoiceSubtitleText() -> NSAttributedString {
+        NSAttributedString(
+            string: L(L10n.ChannelDetail.inVoice),
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 12.sf, weight: .regular),
+                .foregroundColor: UIColor.theme.textStrong.withAlphaComponent(0.6),
+            ]
+        )
+    }
+
+    private static func inVoiceIconImage() -> UIImage? {
+        (UIImage(named: "Chat/SpeakerIcon") ?? UIImage(systemName: "speaker.wave.2.fill"))?
+            .withTintColor(UIColor.theme.textSuccess.withAlphaComponent(0.6), renderingMode: .alwaysOriginal)
     }
 
     func configure(
         title: String, subtitle: String? = nil, channelType: Int32, isPrivate: Bool,
-        isAgeRestricted: Bool, isDM: Bool = false, isBlocked: Bool = false
+        isAgeRestricted: Bool, isDM: Bool = false, isBlocked: Bool = false,
+        isInVoice: Bool = false
     ) {
         let t = UIColor.theme
 
@@ -80,8 +107,17 @@ final class ChatHeaderNode: ASDisplayNode {
             ]
         )
 
+        showsInVoice = isInVoice && channelType == MezonConstants.ChannelType.dm.rawValue
+        inVoiceIconNode.isHidden = !showsInVoice
+        inVoiceTapNode.isHidden = !showsInVoice
+        inVoiceIconNode.image = showsInVoice ? Self.inVoiceIconImage() : nil
+
         let isSubtitleVisible: Bool
-        if let subtitle = subtitle, !subtitle.isEmpty {
+        if showsInVoice {
+            subtitleNode.attributedText = Self.inVoiceSubtitleText()
+            subtitleNode.isHidden = false
+            isSubtitleVisible = true
+        } else if let subtitle = subtitle, !subtitle.isEmpty {
             subtitleNode.attributedText = NSAttributedString(
                 string: subtitle,
                 attributes: [
@@ -149,7 +185,10 @@ final class ChatHeaderNode: ASDisplayNode {
                 ]
             )
         }
-        if let currentSubtitle = subtitleNode.attributedText {
+        if showsInVoice {
+            subtitleNode.attributedText = Self.inVoiceSubtitleText()
+            inVoiceIconNode.image = Self.inVoiceIconImage()
+        } else if let currentSubtitle = subtitleNode.attributedText {
             subtitleNode.attributedText = NSAttributedString(
                 string: currentSubtitle.string,
                 attributes: [
@@ -166,6 +205,10 @@ final class ChatHeaderNode: ASDisplayNode {
 
     @objc private func headerPressed() {
         onHeaderTapped?()
+    }
+
+    @objc private func inVoicePressed() {
+        onInVoiceTapped?()
     }
 
     @objc private func searchPressed() {
@@ -188,13 +231,30 @@ final class ChatHeaderNode: ASDisplayNode {
         searchButtonNode.style.preferredSize = CGSize(width: 44, height: 44)
         titleNode.style.flexShrink = 1
         subtitleNode.style.flexShrink = 1
+        inVoiceIconNode.style.preferredSize = CGSize(width: 12.sf, height: 12.sf)
+
+        let subtitleElement: ASLayoutElement
+        if showsInVoice {
+            let voiceRow = ASStackLayoutSpec(
+                direction: .horizontal,
+                spacing: 4.sw,
+                justifyContent: .start,
+                alignItems: .center,
+                children: [inVoiceIconNode, subtitleNode]
+            )
+            let tappableVoiceRow = ASOverlayLayoutSpec(child: voiceRow, overlay: inVoiceTapNode)
+            tappableVoiceRow.style.flexShrink = 1
+            subtitleElement = tappableVoiceRow
+        } else {
+            subtitleElement = subtitleNode
+        }
 
         let titleStack = ASStackLayoutSpec(
             direction: .vertical,
-            spacing: 0,
+            spacing: showsInVoice ? 3 : 0,
             justifyContent: .center,
             alignItems: .start,
-            children: [titleNode, subtitleNode]
+            children: [titleNode, subtitleElement]
         )
         titleStack.style.flexShrink = 1
         titleStack.style.flexGrow = 1

@@ -55,7 +55,6 @@ final class MezonSfuSession: NSObject {
         "unsupported_participant_action",
         "auth_not_configured",
     ]
-    private static let kickedCloseCode = 4006
 
     private static var sslInitialized = false
     private static var _factory: RTCPeerConnectionFactory?
@@ -82,6 +81,14 @@ final class MezonSfuSession: NSObject {
         sslInitialized = true
     }
 
+    private static func removalCause(for closeCode: Int) -> SfuRemovalCause? {
+        switch closeCode {
+        case 4006: return .kicked
+        case 4011: return .aloneTimeout
+        default: return nil
+        }
+    }
+
     var onConnectionState: ((SfuConnectionState) -> Void)?
     var onParticipants: (([SfuParticipant]) -> Void)?
     var onRoleChanged: ((SfuRole) -> Void)?
@@ -91,7 +98,7 @@ final class MezonSfuSession: NSObject {
     var onPushToTalkActive: ((Bool) -> Void)?
     var onParticipantActionFailed: ((String) -> Void)?
     var onMutedByModerator: (() -> Void)?
-    var onKicked: ((String?) -> Void)?
+    var onRemoved: ((SfuRemovalCause, String?) -> Void)?
     var tokenProvider: (() async -> String?)?
 
     private(set) var role: SfuRole = .speaker
@@ -202,7 +209,7 @@ final class MezonSfuSession: NSObject {
         onPushToTalkActive = nil
         onParticipantActionFailed = nil
         onMutedByModerator = nil
-        onKicked = nil
+        onRemoved = nil
     }
 
     func join(channelId: Int64, clanId: Int64, userId: String, token: String, role: SfuRole) {
@@ -260,8 +267,8 @@ final class MezonSfuSession: NSObject {
                 }
                 self.reconnectAttempts += 1
                 if self.tokenNeedsRefresh(), self.tokenRefreshes < Self.maxTokenRefreshes {
-                    self.tokenRefreshes += 1
                     if let fresh = await self.tokenProvider?(), !fresh.isEmpty {
+                        self.tokenRefreshes += 1
                         self.token = fresh
                         self.tokenRejected = false
                     }
@@ -660,8 +667,8 @@ final class MezonSfuSession: NSObject {
                 }
             } catch {
                 if !Task.isCancelled {
-                    if task.closeCode.rawValue == Self.kickedCloseCode {
-                        handleKicked(gen: gen, reason: task.closeReason)
+                    if let cause = Self.removalCause(for: task.closeCode.rawValue) {
+                        handleRemoved(gen: gen, cause: cause, reason: task.closeReason)
                     } else {
                         handleSocketClosed(gen: gen)
                     }
@@ -682,13 +689,13 @@ final class MezonSfuSession: NSObject {
         }
     }
 
-    private func handleKicked(gen: Int, reason: Data?) {
+    private func handleRemoved(gen: Int, cause: SfuRemovalCause, reason: Data?) {
         guard gen == connectionGen, active else { return }
         active = false
         socketOpen = false
         connecting = false
         let text = reason.flatMap { String(data: $0, encoding: .utf8) }?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        onKicked?(text.isEmpty ? nil : text)
+        onRemoved?(cause, text.isEmpty ? nil : text)
     }
 
     private func handleMessage(_ text: String) {
@@ -767,7 +774,9 @@ final class MezonSfuSession: NSObject {
                 localAudioTrack?.isEnabled = false
                 onPushToTalkActive?(false)
             } else if detail == "stale_offer_generation" || detail == "future_offer_generation" {
-                armOfferReissueDeadline()
+                if !negotiating && pendingOffer == nil {
+                    armOfferReissueDeadline()
+                }
             } else if admitted && Self.participantActionErrors.contains(detail) {
                 onParticipantActionFailed?(detail)
             } else if (detail == "invalid_token" || detail == "missing_token") && active && joined && tokenRefreshes >= Self.maxTokenRefreshes {

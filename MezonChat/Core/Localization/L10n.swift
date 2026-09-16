@@ -1299,6 +1299,7 @@ enum L10n {
         static let canvas  = "channelDetail.canvas"
         static let online  = "channelDetail.online"
         static let offline = "channelDetail.offline"
+        static let inVoice = "channelDetail.inVoice"
         static let inviteMembers = "channelDetail.inviteMembers"
         static let newGroup = "channelDetail.newGroup"
         static let addMembers = "channelDetail.addMembers"
@@ -1493,6 +1494,10 @@ enum L10n {
         static let createdBy        = "webhook.createdBy"
         static let resetToken       = "webhook.resetToken"
         static let resetSuccess     = "webhook.resetSuccess"
+    }
+
+    enum VoiceChannel {
+        static let disconnectedAlone = "voiceChannel.disconnectedAlone"
     }
 }
 
@@ -2677,6 +2682,7 @@ extension L10n {
         "channelDetail.canvas":  "Canvas",
         "channelDetail.online":  "Online",
         "channelDetail.offline": "Offline",
+        "channelDetail.inVoice": "In voice",
         "channelDetail.inviteMembers": "Invite Members",
         "channelDetail.newGroup": "New Group",
         "channelDetail.addMembers": "Add Members",
@@ -2845,6 +2851,8 @@ extension L10n {
         "mediaPanel.findReaction": "Find the perfect reaction",
         "mediaPanel.trendingGifs": "Trending GIFs",
         "mediaPanel.emptyGifs": "GIFs will appear here",
+
+        "voiceChannel.disconnectedAlone": "You were disconnected from the voice channel because you were alone in it for too long.",
     ]
 
     private static let vi: [String: String] = [
@@ -4019,6 +4027,7 @@ extension L10n {
         "channelDetail.canvas":  "Canvas",
         "channelDetail.online":  "Trực tuyến",
         "channelDetail.offline": "Ngoại tuyến",
+        "channelDetail.inVoice": "Đang trong thoại",
         "channelDetail.inviteMembers": "Mời thành viên",
         "channelDetail.newGroup": "Nhóm mới",
         "channelDetail.addMembers": "Thêm thành viên",
@@ -4187,5 +4196,7 @@ extension L10n {
         "mediaPanel.findReaction": "Tìm kiếm biểu cảm",
         "mediaPanel.trendingGifs": "Thịnh hành",
         "mediaPanel.emptyGifs": "GIF sẽ xuất hiện ở đây",
+
+        "voiceChannel.disconnectedAlone": "Bạn đã bị ngắt khỏi kênh thoại vì ở một mình quá lâu.",
     ]
 }
