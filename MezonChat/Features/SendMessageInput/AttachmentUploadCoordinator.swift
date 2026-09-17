@@ -897,7 +897,7 @@ final class AttachmentUploadCoordinator {
             do {
                 _ = try await context.account.network.updateChannelMessage(
                     clanId: p.clanId,
-                    channelId: p.topicId != 0 ? p.topicId : p.channelId,
+                    channelId: p.channelId,
                     mode: p.mode,
                     isPublic: p.isPublic,
                     messageId: session.serverMessageId,

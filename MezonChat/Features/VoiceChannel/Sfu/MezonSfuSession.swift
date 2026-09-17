@@ -172,6 +172,8 @@ final class MezonSfuSession: NSObject {
     private var roleByMid: [String: SfuRole] = [:]
     private var memberByPeerId: [String: MemberState] = [:]
     private var remote: [String: RemoteEntry] = [:]
+    private var cameraTierIndex = 0
+    private var cameraTierTask: Task<Void, Never>?
     private var remoteOrder: [String] = []
 
     private final class RemoteEntry {
@@ -494,6 +496,7 @@ final class MezonSfuSession: NSObject {
 
     func setCameraEnabled(_ on: Bool) {
         cameraEnabled = on
+        scheduleCameraTier()
         if on {
             if peerConnection != nil {
                 prepareVideoSender()
@@ -1029,6 +1032,7 @@ final class MezonSfuSession: NSObject {
         guard let tc = findTransceiver(mid: Self.midCamera, kind: "video") else { return }
         if tc.sender.track !== cameraTrack {
             tc.sender.track = cameraTrack
+            tc.sender.applyCameraTier(cameraTierIndex)
             setTransceiverDirection(tc, .sendOnly)
         }
     }
@@ -1321,7 +1325,25 @@ final class MezonSfuSession: NSObject {
             guard let participantId = existing ?? mids.first.map({ remoteParticipantId($0) }) else { continue }
             applyMemberState(to: remoteEntry(id: participantId), peerId: peerId)
         }
+        scheduleCameraTier()
         return revivedMids
+    }
+
+    private func activeCameraCount() -> Int {
+        remote.values.filter { $0.cameraActive }.count + (cameraEnabled ? 1 : 0)
+    }
+
+    private func scheduleCameraTier() {
+        let next = resolveCameraTier(activeCameraCount(), current: cameraTierIndex)
+        guard next != cameraTierIndex else { return }
+        let delayNanos: UInt64 = next > cameraTierIndex ? 1_500_000_000 : 6_000_000_000
+        cameraTierTask?.cancel()
+        cameraTierTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: delayNanos)
+            guard let self, !Task.isCancelled else { return }
+            self.cameraTierIndex = next
+            self.findTransceiver(mid: Self.midCamera, kind: "video")?.sender.applyCameraTier(next)
+        }
     }
 
     private func memberState(peerId: String) -> MemberState {
@@ -1823,5 +1845,43 @@ enum VoiceChannelCameraPermission {
         default:
             return false
         }
+    }
+}
+
+private struct CameraTier {
+    let maxCameras: Int
+    let scaleDown: Double
+    let maxBitrateBps: Int
+    let maxFps: Int
+    let uncapped: Bool
+}
+
+private let cameraTiers: [CameraTier] = [
+    CameraTier(maxCameras: 2, scaleDown: 1.0, maxBitrateBps: 1_000_000, maxFps: 30, uncapped: true),
+    CameraTier(maxCameras: 4, scaleDown: 1.333, maxBitrateBps: 500_000, maxFps: 24, uncapped: false),
+    CameraTier(maxCameras: 8, scaleDown: 2.0, maxBitrateBps: 300_000, maxFps: 20, uncapped: false),
+    CameraTier(maxCameras: Int.max, scaleDown: 2.0, maxBitrateBps: 200_000, maxFps: 15, uncapped: false)
+]
+
+private func cameraTierIndexFor(_ cameras: Int, margin: Int = 0) -> Int {
+    cameraTiers.firstIndex(where: { cameras <= $0.maxCameras - margin }) ?? cameraTiers.count - 1
+}
+
+func resolveCameraTier(_ cameras: Int, current: Int) -> Int {
+    let target = cameraTierIndexFor(cameras)
+    return target >= current ? target : min(current, cameraTierIndexFor(cameras, margin: 1))
+}
+
+extension RTCRtpSender {
+    func applyCameraTier(_ index: Int) {
+        let tier = cameraTiers.indices.contains(index) ? cameraTiers[index] : cameraTiers[0]
+        let parameters = self.parameters
+        parameters.degradationPreference = NSNumber(value: RTCDegradationPreference.maintainFramerate.rawValue)
+        for encoding in parameters.encodings {
+            encoding.maxBitrateBps = tier.uncapped ? nil : NSNumber(value: tier.maxBitrateBps)
+            encoding.maxFramerate = tier.uncapped ? nil : NSNumber(value: tier.maxFps)
+            encoding.scaleResolutionDownBy = tier.uncapped ? nil : NSNumber(value: tier.scaleDown)
+        }
+        self.parameters = parameters
     }
 }
