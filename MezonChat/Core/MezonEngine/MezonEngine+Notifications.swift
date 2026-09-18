@@ -39,5 +39,14 @@ extension MezonEngine {
                 }
             }
         }
+
+        func deleteNotifications(
+            ids: [Int64], clanId: Int64, category: Int32, token: String
+        ) async throws {
+            try await network.deleteNotifications(ids: ids, category: category, token: token)
+            postbox.write { tx in
+                tx.removeNotifications(ids: ids, clanId: clanId, category: category)
+            }
+        }
     }
 }

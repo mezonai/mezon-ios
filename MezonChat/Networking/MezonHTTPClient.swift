@@ -901,6 +901,17 @@ final class MezonHTTPClient {
         return response.notifications
     }
 
+    func deleteNotifications(ids: [Int64], category: Int32, token: String) async throws {
+        var req = Mezon_Api_DeleteNotificationsRequest()
+        req.ids = ids
+        req.category = category
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/DeleteNotifications",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func listSdTopics(clanID: Int64, token: String) async throws -> [Mezon_Api_SdTopic] {
         var req = Mezon_Api_ListSdTopicRequest()
         req.clanID = clanID

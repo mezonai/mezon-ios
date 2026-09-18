@@ -392,6 +392,7 @@ enum L10n {
         static let topicOriginalInteractiveMessage = "notifications.topicOriginalInteractiveMessage"
         static let sender = "notifications.sender"
         static let unreachableMessage = "notifications.unreachableMessage"
+        static let removeNotification = "notifications.removeNotification"
     }
 
     enum OTPVerify {
@@ -1716,6 +1717,7 @@ extension L10n {
         "notifications.topicOriginalInteractiveMessage": "[Interactive message]",
         "notifications.sender": "Sender: ",
         "notifications.unreachableMessage": "Unreachable message",
+        "notifications.removeNotification": "Remove notification",
 
         "otpVerify.loginToMezon":      "Log in to Mezon account",
         "otpVerify.enterCodeFrom":     "Enter code from",
@@ -3058,6 +3060,7 @@ extension L10n {
         "notifications.topicOriginalInteractiveMessage": "[Tin nhắn tương tác]",
         "notifications.sender": "Người gửi: ",
         "notifications.unreachableMessage": "Tin nhắn không khả dụng",
+        "notifications.removeNotification": "Gỡ bỏ thông báo",
 
         "otpVerify.loginToMezon":      "Đăng nhập tài khoản Mezon",
         "otpVerify.enterCodeFrom":     "Nhập mã từ",
