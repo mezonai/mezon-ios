@@ -135,18 +135,18 @@ final class AccountContextImpl: AccountContext {
     }
 
     func submitCustomStatus(text: String, minutes: Int32, noClear: Bool) async throws {
-        guard await getToken() != nil else {
+        guard let token = await getToken() else {
             throw MezonError.socketError("Not authenticated")
         }
-        let clanId = resolvedClanIdForCustomStatus()
-        account.socket.writeCustomStatus(
-            clanId: clanId,
-            status: text,
-            minutes: minutes,
-            noClear: noClear
-        )
+
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var req = Mezon_Api_UserStatusUpdate()
+        req.status = trimmed
+        req.minutes = minutes
+        req.untilTurnOn = noClear
+        try await account.network.updateUserCustomStatus(req, token: token)
+
         if var u = currentUser {
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty {
                 u.customStatus = nil
                 u.customStatusTimeReset = nil
@@ -174,13 +174,6 @@ final class AccountContextImpl: AccountContext {
             }
         } catch {
         }
-    }
-
-    private func resolvedClanIdForCustomStatus() -> Int64 {
-        if currentClanId != 0 { return currentClanId }
-        if let v = UserDefaults.standard.object(forKey: "mezon_selectedClanId") as? Int64 { return v }
-        if let v = UserDefaults.standard.object(forKey: "mezon_selectedClanId") as? Int { return Int64(v) }
-        return 0
     }
 
     func getToken() async -> String? {
