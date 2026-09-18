@@ -256,6 +256,7 @@ struct NotificationsInteraction {
     let onTabSelected: (Int32) -> Void
     let onLoadMore: () -> Void
     let onItemSelected: (NotificationItem) -> Void
+    let onNotificationLongPressed: (NotificationRecord) -> Void
 }
 
 
@@ -755,6 +756,9 @@ final class NotificationsContainerNode: ASDisplayNode {
         tableView.dataSource = self
         tableView.delegate = self
         tableView.prefetchDataSource = self
+        tableView.addGestureRecognizer(
+            UILongPressGestureRecognizer(target: self, action: #selector(notificationLongPressed(_:)))
+        )
 
 
         emptyImageView.image = UIImage(named: "Notifications/emptyNotifications")
@@ -972,6 +976,16 @@ final class NotificationsContainerNode: ASDisplayNode {
         selectedTabIndex = index
         updateTabStyles()
         interaction.onTabSelected(tabs[index].tag)
+    }
+
+    @objc private func notificationLongPressed(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began else { return }
+        let point = gesture.location(in: tableView)
+        guard let indexPath = tableView.indexPathForRow(at: point),
+              indexPath.row < state.items.count,
+              case .notification(let record) = state.items[indexPath.row]
+        else { return }
+        interaction.onNotificationLongPressed(record)
     }
 
     func applyTheme() {

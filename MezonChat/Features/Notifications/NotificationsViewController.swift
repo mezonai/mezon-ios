@@ -18,6 +18,7 @@ final class NotificationsViewController: ViewController {
     private(set) var isLoadingMore: Bool = false
     private(set) var currentCategory: Int32 = 1
     private var lastLoadedClanId: Int64 = 0
+    private var notificationItemsClanId: Int64 = 0
 
     private var loadedCategories: Set<Int32> = []
 
@@ -50,6 +51,9 @@ final class NotificationsViewController: ViewController {
             onItemSelected: { [weak self] item in
                 guard let self else { return }
                 self.processItemDetail(item)
+            },
+            onNotificationLongPressed: { [weak self] record in
+                self?.presentNotificationActions(for: record)
             }
         )
         displayNode = NotificationsContainerNode(signal: stateSignal(), interaction: interaction)
@@ -151,7 +155,7 @@ final class NotificationsViewController: ViewController {
                 (context.engine.data.subscribe(
                     MezonEngine.EngineData.Item.NotificationList(clanId: clanId, category: category)
                 ) |> deliverOnMainQueue).start(next: { [weak self] notifications in
-                    self?.setNotifications(notifications)
+                    self?.setNotifications(notifications, clanId: clanId)
                 })
         }
 
@@ -190,7 +194,8 @@ final class NotificationsViewController: ViewController {
         dataDisposable?.dispose()
     }
 
-    private func setNotifications(_ v: [NotificationRecord]) {
+    private func setNotifications(_ v: [NotificationRecord], clanId: Int64) {
+        notificationItemsClanId = clanId
         self.items = enrichNotificationItems(v)
         needsReloadPipe.putNext(())
     }
@@ -282,6 +287,49 @@ final class NotificationsViewController: ViewController {
                 clanId: record.clanID, channel: channel, context: self.context)
             vc.topicId = record.id
             self.hostingNavigationController()?.pushViewController(vc, animated: true)
+        }
+    }
+
+    private func presentNotificationActions(for record: NotificationRecord) {
+        let clanId = notificationItemsClanId
+        let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        alert.addAction(
+            UIAlertAction(
+                title: L(L10n.Notifications.removeNotification),
+                style: .destructive,
+                handler: { [weak self] _ in
+                    self?.deleteNotification(record, clanId: clanId)
+                }
+            )
+        )
+        alert.addAction(UIAlertAction(title: L(L10n.Common.cancel), style: .cancel))
+
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = view
+            popover.sourceRect = CGRect(
+                x: view.bounds.midX,
+                y: max(0, view.bounds.maxY - 1),
+                width: 1,
+                height: 1
+            )
+            popover.permittedArrowDirections = []
+        }
+        present(alert, animated: true)
+    }
+
+    private func deleteNotification(_ record: NotificationRecord, clanId: Int64) {
+        Task { [weak self] in
+            guard let self, let token = await self.context.getToken() else { return }
+            do {
+                try await self.context.engine.notifications.deleteNotifications(
+                    ids: [record.id],
+                    clanId: clanId,
+                    category: record.category,
+                    token: token
+                )
+            } catch {
+                Toast.error(error.localizedDescription)
+            }
         }
     }
 

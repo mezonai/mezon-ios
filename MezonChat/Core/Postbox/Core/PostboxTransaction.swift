@@ -188,6 +188,11 @@ final class PostboxTransaction {
         updatedNotificationKeys.insert("\(clanId)_\(category)")
     }
 
+    func removeNotifications(ids: [Int64], clanId: Int64, category: Int32) {
+        notificationTable.removeNotificationRecords(ids: ids, clanId: clanId, category: category)
+        updatedNotificationKeys.insert("\(clanId)_\(category)")
+    }
+
     func updateTopics(_ topics: [TopicRecord], clanId: Int64) {
         topicTable.updateTopics(topics, clanId: clanId)
         updatedTopicClanIds.insert(clanId)

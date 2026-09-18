@@ -104,6 +104,14 @@ final class NotificationTable: Table {
         pendingWrites.insert(key)
     }
 
+    func removeNotificationRecords(ids: [Int64], clanId: Int64, category: Int32) {
+        let key = cacheKey(clanId: clanId, category: category)
+        let removedIds = Set(ids)
+        let existing = cache[key] ?? getNotificationRecord(clanId: clanId, category: category)
+        cache[key] = existing.filter { !removedIds.contains($0.id) }
+        pendingWrites.insert(key)
+    }
+
     override func beforeCommit() {
         guard !pendingWrites.isEmpty else { return }
         db.beginTransaction()
