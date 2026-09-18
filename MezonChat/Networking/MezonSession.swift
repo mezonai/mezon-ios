@@ -165,6 +165,22 @@ struct MezonSession: Codable {
         )
     }
 
+    func withEndpoints(apiURL: String?, wsURL: String?, tcpURL: String?) -> MezonSession {
+        MezonSession(
+            token: token,
+            refreshToken: refreshToken,
+            expiresAt: expiresAt,
+            created: created,
+            apiURL: apiURL,
+            wsURL: wsURL,
+            userId: userId,
+            username: username,
+            idToken: idToken,
+            isRemember: isRemember,
+            tcpURL: tcpURL
+        )
+    }
+
     func mergedPreservingLocalCredentials(from previous: MezonSession) -> MezonSession {
         var mergedIdToken = idToken
         if mergedIdToken?.isEmpty != false, let p = previous.idToken, !p.isEmpty {

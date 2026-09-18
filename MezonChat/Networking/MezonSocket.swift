@@ -96,6 +96,9 @@ final class MezonSocket: NSObject {
     private(set) var isConnected = false
     private var reconnectAttempts = 0
     private let maxReconnectDelaySeconds = 30
+    private var hasConfirmedConnection = false
+    private let failedReconnectsBeforeUnreachableReport = 2
+    private let neverConnectedFailsBeforeUnreachableReport = 6
     private var backgroundedAt: Date?
     private let suspendedSocketDistrustSeconds: TimeInterval = 15
     private let stableReconnectResetNanoseconds: UInt64 = 10_000_000_000
@@ -318,6 +321,8 @@ final class MezonSocket: NSObject {
         handshakeRejections = 0
         connectionStartedAt = nil
         currentEndpoint = nil
+        hasConfirmedConnection = false
+        EndpointFailover.shared.reset()
         stopHeartbeat()
         cancelLivenessProbe()
         cancelConnectWatchdog()
@@ -354,6 +359,25 @@ final class MezonSocket: NSObject {
     private func handleNetworkBecameReachable() {
         guard !isConnected else { return }
         forceReconnect()
+    }
+
+    var targetEndpoint: RealtimeEndpoint? {
+        currentEndpoint.map { RealtimeEndpoint(id: 0, host: $0.host, port: $0.port) }
+    }
+
+    func reconnectForEndpointChange() {
+        forceReconnect()
+    }
+
+    private func reportTransportLoss(unclean: Bool) {
+        let threshold = hasConfirmedConnection
+            ? failedReconnectsBeforeUnreachableReport
+            : neverConnectedFailsBeforeUnreachableReport
+        if unclean, reconnectAttempts >= threshold {
+            EndpointFailover.shared.onUnreachable(targetEndpoint)
+        } else {
+            EndpointFailover.shared.onDisconnected()
+        }
     }
 
     func ensureFreshConnection() {
@@ -705,6 +729,7 @@ final class MezonSocket: NSObject {
         guard transport === t else { return }
         cleanupForReconnect()
         eventPipe.putNext(.error(error))
+        reportTransportLoss(unclean: true)
         scheduleReconnect()
     }
 
@@ -772,6 +797,7 @@ final class MezonSocket: NSObject {
                 handshakeRejections = 0
             }
         }
+        reportTransportLoss(unclean: !wasClean)
         scheduleReconnect()
     }
 
@@ -790,6 +816,9 @@ final class MezonSocket: NSObject {
         guard connectAckPending else { return }
         connectAckPending = false
         handshakeRejections = 0
+        hasConfirmedConnection = true
+        EndpointFailover.shared.onConnected(targetEndpoint)
+        SessionRefreshManager.shared.releaseRefreshThrottle()
         connectAckTask?.cancel()
         connectAckTask = nil
         SentryLogger.addBreadcrumb(
@@ -803,9 +832,17 @@ final class MezonSocket: NSObject {
     }
 
     private func handlePong(cid: UInt16) {
-        lastPongAt = Date()
+        let now = Date()
+        lastPongAt = now
         cancelLivenessProbe()
         confirmConnectAck(source: "pong")
+        if let sentAt = lastPingSentAt {
+            lastPingSentAt = nil
+            let rttMs = now.timeIntervalSince(sentAt) * 1_000
+            if rttMs > 0 {
+                EndpointFailover.shared.onProbeRtt(rttMs)
+            }
+        }
     }
 
     private func handleTransportMessage(cid: UInt32, code: UInt32, payload: Data) {

@@ -184,6 +184,8 @@ targets:
           - fetch
         NSUserActivityTypes:
           - INSendMessageIntent
+        MEZON_ENDPOINT_FAILOVER: true
+        MEZON_ENDPOINT_FAILOVER_SLOW: false
 
   NotificationService:
     type: app-extension

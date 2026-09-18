@@ -4,6 +4,15 @@ import AsyncDisplayKit
 import AVFoundation
 import MobileVLCKit
 
+private final class VLCDrawableHostView: UIView {
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        for subview in subviews {
+            subview.frame = bounds
+        }
+    }
+}
+
 final class VLCVideoPlayerNode: ASDisplayNode {
     
     private let playerContainerNode: ASDisplayNode
@@ -60,7 +69,7 @@ final class VLCVideoPlayerNode: ASDisplayNode {
     
     init(url: URL, posterURL: String) {
         self.sourceURL = url
-        self.playerContainerNode = ASDisplayNode()
+        self.playerContainerNode = ASDisplayNode(viewBlock: { VLCDrawableHostView() })
         self.playerContainerNode.backgroundColor = .black
         
         self.posterNode = TransformImageNode()
@@ -145,22 +154,13 @@ final class VLCVideoPlayerNode: ASDisplayNode {
 
         downloadSpinner.color = .white
         downloadSpinner.hidesWhenStopped = true
-        downloadSpinner.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(downloadSpinner)
 
         downloadProgressLabel.textColor = .white
         downloadProgressLabel.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
         downloadProgressLabel.textAlignment = .center
         downloadProgressLabel.isHidden = true
-        downloadProgressLabel.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(downloadProgressLabel)
-
-        NSLayoutConstraint.activate([
-            downloadSpinner.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            downloadSpinner.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            downloadProgressLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            downloadProgressLabel.topAnchor.constraint(equalTo: downloadSpinner.bottomAnchor, constant: 8),
-        ])
 
         if isPreparingDownload {
             showDownloadIndicator()
@@ -550,6 +550,11 @@ final class VLCVideoPlayerNode: ASDisplayNode {
         if let errorNode = errorOverlayNode {
             errorNode.frame = b
         }
+        
+        downloadSpinner.sizeToFit()
+        downloadSpinner.center = CGPoint(x: b.midX, y: b.midY)
+        let progressLabelHeight = ceil(downloadProgressLabel.font.lineHeight)
+        downloadProgressLabel.frame = CGRect(x: 0, y: downloadSpinner.frame.maxY + 8, width: b.width, height: progressLabelHeight)
         
         let args = TransformImageArguments(corners: ImageCorners(), imageSize: b.size, boundingSize: b.size, intrinsicInsets: .zero)
         let apply = posterNode.asyncLayout()(args)

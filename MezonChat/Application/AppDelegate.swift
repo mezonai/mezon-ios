@@ -447,6 +447,37 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         return nil
     }
 
+    static func pushPayloadMessageId(_ userInfo: [AnyHashable: Any]) -> Int64 {
+        guard let raw = pushPayloadString(userInfo, keys: ["message"]) else { return 0 }
+        guard let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let id = object["id"] else { return 0 }
+        if let s = id as? String { return Int64(s) ?? 0 }
+        if let n = id as? NSNumber { return n.int64Value }
+        return 0
+    }
+
+    @MainActor
+    private static func applyDmBadgeFromPush(_ userInfo: [AnyHashable: Any]) {
+        let (channelId, _, isDM) = parseFCMPayload(userInfo)
+        guard isDM, let raw = channelId, let channelIdValue = Int64(raw), channelIdValue != 0 else { return }
+        guard ActiveChannelTracker.currentChannelId != channelIdValue else { return }
+        guard DmBadgeMessageDedup.markCounted(pushPayloadMessageId(userInfo)) else { return }
+        let senderId = pushPayloadString(userInfo, keys: ["sender", "sender_id", "senderId"]) ?? ""
+        guard !senderId.isEmpty else { return }
+        NotificationCenter.default.post(
+            name: Notification.Name("MezonDmBadgePushReceived"), object: nil,
+            userInfo: [
+                "channelId": channelIdValue,
+                "clanId": Int64(0),
+                "senderId": senderId,
+                "incrementDmBadge": true,
+                "timestampSeconds": UInt32(Date().timeIntervalSince1970),
+                "topicId": Int64(0)
+            ] as [String: Any]
+        )
+    }
+
     private static func parseFCMLink(_ link: String) -> (channelId: String?, clanId: String?, isDM: Bool) {
         let lowered = link.lowercased()
         var channelId: String?
@@ -545,6 +576,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         }()
 
         Task { @MainActor in
+            Self.applyDmBadgeFromPush(userInfo)
             let suppressPeerCallToast = WebRTCCallManager.shared.isPeerCallDetailScreenActive
             if !isViewingChannel, !suppressPeerCallToast {
                 Toast.notification(title: title, message: body) {

@@ -6401,7 +6401,7 @@ final class SendMessageInputViewController: UIViewController {
                     }()
                     let ack = try await self.context.account.network.updateChannelMessage(
                         clanId: clanId,
-                        channelId: self.topicId != 0 ? self.topicId : channel.channelID,
+                        channelId: channel.channelID,
                         mode: mode,
                         isPublic: isPublic,
                         messageId: editingMessageId,

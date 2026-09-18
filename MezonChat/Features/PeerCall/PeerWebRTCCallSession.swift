@@ -743,7 +743,7 @@ final class PeerWebRTCCallSession: NSObject {
                 }
                 let vi = RTCRtpTransceiverInit()
                 vi.direction = .sendRecv
-                pc.addTransceiver(with: vt, init: vi)
+                pc.addTransceiver(with: vt, init: vi)?.sender.preferMaintainFramerate()
                 needsRenegotiation = true
                 addedVideoTransceiver = true
             } else if videoTrackExistedDisabled {
@@ -1182,6 +1182,7 @@ final class PeerWebRTCCallSession: NSObject {
             return
         }
         tx.sender.track = vt
+        tx.sender.preferMaintainFramerate()
         if tx.sender.streamIds.isEmpty {
             tx.sender.streamIds = ["mezon_local_video"]
         }
@@ -1282,7 +1283,7 @@ final class PeerWebRTCCallSession: NSObject {
         if wantsVideo, let vt = localVideoTrack {
             let vi = RTCRtpTransceiverInit()
             vi.direction = .sendRecv
-            pc.addTransceiver(with: vt, init: vi)
+            pc.addTransceiver(with: vt, init: vi)?.sender.preferMaintainFramerate()
         }
 
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
