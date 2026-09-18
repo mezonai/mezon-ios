@@ -7,6 +7,7 @@ struct ChannelListInteraction {
     let onToggleCollapse: (Int64) -> Void
     let onRefresh: (() -> Void)?
     let onPresentSettings: (() -> Void)?
+    let onPresentClanNotifications: (() -> Void)?
     let onInviteClan: (() -> Void)?
     let onCreateCategory: (() -> Void)?
     let onCreateEvent: (() -> Void)?
@@ -2004,6 +2005,8 @@ final class ChannelListContainerNode: ASDisplayNode {
                 switch action {
                 case .settings:
                     self.interaction.onPresentSettings?()
+                case .notifications:
+                    self.interaction.onPresentClanNotifications?()
                 case .invite:
                     self.interaction.onInviteClan?()
                 case .createCategory:

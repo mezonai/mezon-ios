@@ -310,8 +310,7 @@ final class MuteDurationViewController: ViewController {
             channelId: channelId,
             clanId: clanId,
             context: context,
-            currentType: currentType,
-            defaultLabel: L(L10n.NotificationSettings.allMessages)
+            currentType: currentType
         )
         if let window = self.view.window as? WindowHost {
             window.present(sheet, on: .root, blockInteraction: false, completion: {})
