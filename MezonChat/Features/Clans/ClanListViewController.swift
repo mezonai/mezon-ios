@@ -93,6 +93,12 @@ final class ClanListViewController: ViewController {
             self, selector: #selector(handleNewMessageReceived(_:)),
             name: Notification.Name("MezonNewMessageReceived"), object: nil)
         NotificationCenter.default.addObserver(
+            self, selector: #selector(handleNewMessageReceived(_:)),
+            name: Notification.Name("MezonDmBadgePushReceived"), object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleWillEnterForegroundForUnreadDMs),
+            name: UIApplication.willEnterForegroundNotification, object: nil)
+        NotificationCenter.default.addObserver(
             self, selector: #selector(handleMentionReceived(_:)),
             name: Notification.Name("MezonMentionReceived"), object: nil)
         NotificationCenter.default.addObserver(
@@ -312,8 +318,7 @@ final class ClanListViewController: ViewController {
             var header = unreadDMs[idx].lastSentMessage
             header.timestampSeconds = ts
             unreadDMs[idx].lastSentMessage = header
-            unreadDMsPipe.putNext(unreadDMs)
-            needsReloadPipe.putNext(())
+            setUnreadDMs(unreadDMs)
             return
         }
 
@@ -324,11 +329,6 @@ final class ClanListViewController: ViewController {
             ch.lastSentMessage = header
             var next = unreadDMs
             next.append(ch)
-            next.sort { a, b in
-                let ta = a.hasLastSentMessage ? a.lastSentMessage.timestampSeconds : 0
-                let tb = b.hasLastSentMessage ? b.lastSentMessage.timestampSeconds : 0
-                return ta > tb
-            }
             setUnreadDMs(next)
             scheduleFetchUnreadDMsDebounced()
             return
@@ -433,7 +433,21 @@ final class ClanListViewController: ViewController {
         needsReloadPipe.putNext(())
         refreshDiscoverEmptyOverlayFlag()
     }
-    private func setUnreadDMs(_ v: [Mezon_Api_ChannelDescription]) { unreadDMs = v; unreadDMsPipe.putNext(v); needsReloadPipe.putNext(()) }
+    private static func orderedUnreadDmStrip(_ dms: [Mezon_Api_ChannelDescription]) -> [Mezon_Api_ChannelDescription] {
+        dms.sorted { a, b in
+            let ta = a.hasLastSentMessage ? a.lastSentMessage.timestampSeconds : 0
+            let tb = b.hasLastSentMessage ? b.lastSentMessage.timestampSeconds : 0
+            if ta != tb { return ta > tb }
+            return a.channelID > b.channelID
+        }
+    }
+
+    private func setUnreadDMs(_ v: [Mezon_Api_ChannelDescription]) {
+        let ordered = Self.orderedUnreadDmStrip(v)
+        unreadDMs = ordered
+        unreadDMsPipe.putNext(ordered)
+        needsReloadPipe.putNext(())
+    }
 
     private func refreshDiscoverEmptyOverlayFlag() {
         let show = completedRemoteClanListFetch && !isLoading && clans.isEmpty
@@ -597,7 +611,25 @@ final class ClanListViewController: ViewController {
         navigationController?.pushViewController(vc, animated: true)
     }
 
+    @objc private func handleWillEnterForegroundForUnreadDMs() {
+        fetchUnreadDMs()
+    }
+
     private func applyUnreadDMsFromCache() {
+        guard unreadDMs.isEmpty else { return }
+        let cached = context.account.postbox.getCachedDMChannelList()
+            .filter { $0.countMessUnread > 0 }
+        guard !cached.isEmpty else { return }
+        setUnreadDMs(cached)
+    }
+
+    private func persistUnreadDmCountsToCache(_ channels: [Mezon_Api_ChannelDescription]) {
+        guard !channels.isEmpty else { return }
+        let counts = Dictionary(
+            channels.map { ($0.channelID, $0.countMessUnread) },
+            uniquingKeysWith: { _, new in new }
+        )
+        context.account.postbox.updateCachedDMUnreadCounts(counts)
     }
 
     private var fetchUnreadDMsTask: Task<Void, Never>?
@@ -627,6 +659,7 @@ final class ClanListViewController: ViewController {
             do {
                 var channels = try await self.context.account.network.listDirectMessageChannels(token: token)
                 guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
+                DirectMessageListGate.markServed()
                 do {
                     let badgeRows = try await self.context.account.network.listChannelBadgeCount(clanId: 0, token: token)
                         .channeldesc
@@ -636,6 +669,7 @@ final class ClanListViewController: ViewController {
                 }
                 let unread = channels.filter { $0.countMessUnread > 0 }
 
+                self.persistUnreadDmCountsToCache(channels)
                 let merged = Self.mergeUnreadDmStrip(serverUnread: unread, previousStrip: self.unreadDMs)
                 self.setUnreadDMs(merged)
             } catch {

@@ -1873,6 +1873,12 @@ func resolveCameraTier(_ cameras: Int, current: Int) -> Int {
 }
 
 extension RTCRtpSender {
+    func preferMaintainFramerate() {
+        let parameters = self.parameters
+        parameters.degradationPreference = NSNumber(value: RTCDegradationPreference.maintainFramerate.rawValue)
+        self.parameters = parameters
+    }
+
     func applyCameraTier(_ index: Int) {
         let tier = cameraTiers.indices.contains(index) ? cameraTiers[index] : cameraTiers[0]
         let parameters = self.parameters

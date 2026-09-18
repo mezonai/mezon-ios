@@ -449,6 +449,44 @@ final class MezonHTTPClient {
         return try await execute(req, allowBearerRetry: false)
     }
 
+    func getHealthyEndpoint(token: String, currentEndpointId: Int32, reasonCode: Int32) async throws -> HealthyEndpoint {
+        var request = try buildRequest(
+            method: "GET",
+            path: "/v2/healthy/endpoint",
+            queryItems: [
+                URLQueryItem(name: "currentEndpointId", value: String(currentEndpointId)),
+                URLQueryItem(name: "reasonCode", value: String(reasonCode)),
+                URLQueryItem(name: "geoIp", value: ""),
+            ],
+            body: Optional<EmptyBody>.none,
+            auth: .bearer(token)
+        )
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 5
+
+        let (data, response) = try await httpData(request)
+        guard let http = response as? HTTPURLResponse else { throw MezonError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else {
+            throw HealthyEndpointStatusError(statusCode: http.statusCode)
+        }
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw MezonError.invalidResponse
+        }
+        func field(_ snake: String, _ camel: String) -> String {
+            let value = (object[snake] as? String) ?? (object[camel] as? String) ?? ""
+            return value.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let endpoint = HealthyEndpoint(
+            apiURL: field("api_url", "apiUrl"),
+            wsURL: field("ws_url", "wsUrl"),
+            tcpURL: field("tcp_url", "tcpUrl")
+        )
+        guard !endpoint.wsURL.isEmpty || !endpoint.tcpURL.isEmpty else {
+            throw MezonError.invalidResponse
+        }
+        return endpoint
+    }
+
     func joinClanWithInvite(code: String, token: String) async throws -> Mezon_Api_InviteUserRes {
         var req = Mezon_Api_InviteUserRequest()
         req.inviteID = Int64(code) ?? 0
@@ -1041,6 +1079,13 @@ final class MezonHTTPClient {
         token: String,
         httpOnly: Bool = false
     ) async throws -> Mezon_Realtime_ChannelMessageAck {
+        #if DEBUG
+        let traceId = UUID().uuidString
+        #else
+        let traceId = ""
+        #endif
+        let started = Date()
+        Self.debugMessageSend(traceId, "START channel=\(channelId) clan=\(clanId) topic=\(topicId) contentBytes=\(content.utf8.count) attachments=\(attachments.count) httpOnly=\(httpOnly)")
         var req = Mezon_Realtime_ChannelMessageSend()
         req.clanID = clanId
         req.channelID = channelId
@@ -1056,29 +1101,51 @@ final class MezonHTTPClient {
         req.topicID = topicId
         req.code = code
 
-        if !httpOnly,
-           await MezonSocket.shared.canSendChannelMessageRealtime(clanId: clanId, channelId: channelId),
-           let ack = await sendChannelMessageOverSocket(req) {
-            return ack
+        if !httpOnly {
+            if await MezonSocket.shared.canSendChannelMessageRealtime(clanId: clanId, channelId: channelId) {
+                if let ack = await sendChannelMessageOverSocket(req, traceId: traceId) {
+                    return ack
+                }
+            } else {
+                Self.debugMessageSend(traceId, "SOCKET SKIPPED reason=realtime_not_ready_for_channel")
+            }
+        } else {
+            Self.debugMessageSend(traceId, "SOCKET SKIPPED reason=httpOnly")
         }
 
-        return try await postProtoHTTP(
-            path: "/mezon.api.Mezon/\(Self.sendChannelMessageApiName)",
-            message: req,
-            auth: .bearer(token)
-        )
+        Self.debugMessageSend(traceId, "HTTP SEND channel=\(channelId)")
+        do {
+            let ack: Mezon_Realtime_ChannelMessageAck = try await postProtoHTTP(
+                path: "/mezon.api.Mezon/\(Self.sendChannelMessageApiName)",
+                message: req,
+                auth: .bearer(token)
+            )
+            Self.debugMessageSend(traceId, "HTTP ACK messageId=\(ack.messageID) valid=\(ack.messageID > 0) totalElapsedMs=\(Int(Date().timeIntervalSince(started) * 1000))")
+            return ack
+        } catch {
+            Self.debugMessageSend(traceId, "HTTP ERROR error=\(error) cancelled=\(Task.isCancelled) totalElapsedMs=\(Int(Date().timeIntervalSince(started) * 1000))")
+            throw error
+        }
+    }
+
+    private static func debugMessageSend(_ traceId: String, _ message: @autoclosure () -> String) {
+        #if DEBUG
+        print("[SendMessage][\(traceId)] \(message())")
+        #endif
     }
 
     private static let sendChannelMessageApiName = "SendChannelMessage"
     private static let realtimeSendAckTimeoutNanoseconds: UInt64 = 5_000_000_000
 
     private func sendChannelMessageOverSocket(
-        _ req: Mezon_Realtime_ChannelMessageSend
+        _ req: Mezon_Realtime_ChannelMessageSend,
+        traceId: String
     ) async -> Mezon_Realtime_ChannelMessageAck? {
         var envelope = Mezon_Realtime_Envelope()
         envelope.channelMessageSend = req
         let started = Date()
         let fallbackReason: String
+        Self.debugMessageSend(traceId, "SOCKET SEND channel=\(req.channelID) timeoutMs=\(Self.realtimeSendAckTimeoutNanoseconds / 1_000_000)")
         do {
             let reply = try await MezonSocket.shared.sendAwaitingReply(
                 envelope,
@@ -1086,6 +1153,7 @@ final class MezonHTTPClient {
             )
             await MezonSocket.shared.noteApiRequestSucceeded()
             if case .some(.channelMessageAck(let ack)) = reply.message, ack.messageID > 0 {
+                Self.debugMessageSend(traceId, "SOCKET ACK cid=\(reply.cid) messageId=\(ack.messageID) elapsedMs=\(Int(Date().timeIntervalSince(started) * 1000))")
                 return ack
             }
             fallbackReason = Self.realtimeRejectionReason(reply)
@@ -1095,6 +1163,7 @@ final class MezonHTTPClient {
             }
             fallbackReason = "\(error)"
         }
+        Self.debugMessageSend(traceId, "SOCKET -> HTTP FALLBACK reason=\(fallbackReason) cancelled=\(Task.isCancelled) elapsedMs=\(Int(Date().timeIntervalSince(started) * 1000))")
         SentryLogger.addBreadcrumb(
             category: "socket.send",
             message: "channel_message_send_fallback_http",

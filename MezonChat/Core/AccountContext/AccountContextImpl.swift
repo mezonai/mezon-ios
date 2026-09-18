@@ -372,6 +372,8 @@ final class AccountContextImpl: AccountContext {
         MandatoryUsernamePendingStore.clearPending()
         MmnWalletStore.shared.clear()
         SessionRefreshManager.shared.reset()
+        DirectMessageListGate.reset()
+        DmBadgeMessageDedup.reset()
         account.network.resetProtoBaseURLToDefault()
         session = nil
         currentUser = nil
@@ -466,6 +468,19 @@ final class AccountContextImpl: AccountContext {
             throw SessionError.noSession
         }
         return token
+    }
+
+    private func applyEndpointMove(apiURL: String?, wsURL: String?, tcpURL: String) -> Bool {
+        guard let current = session else { return false }
+        let updated = current.withEndpoints(
+            apiURL: apiURL ?? current.apiURL,
+            wsURL: wsURL ?? current.wsURL,
+            tcpURL: tcpURL
+        )
+        session = updated
+        SessionStore.save(updated)
+        account.network.updateBaseURL(from: updated)
+        return true
     }
 
     private func recoverBearerTokenAfterUnauthorized(failedToken: String, statusCode: Int) async -> String? {
@@ -699,6 +714,18 @@ final class AccountContextImpl: AccountContext {
             account.socket.sessionProvider = { [weak self] in
                 self?.session
             }
+            EndpointFailover.shared.sessionProvider = { [weak self] in
+                self?.session
+            }
+            EndpointFailover.shared.refreshTokenProvider = { [weak self] in
+                guard let self else { throw SessionError.noSession }
+                try await self.refreshSession()
+                guard let token = self.session?.token, !token.isEmpty else { throw SessionError.noSession }
+                return token
+            }
+            EndpointFailover.shared.applyEndpoints = { [weak self] apiURL, wsURL, tcpURL in
+                self?.applyEndpointMove(apiURL: apiURL, wsURL: wsURL, tcpURL: tcpURL) ?? false
+            }
             account.socket.connect(token: session.token, wsHostOverride: nil)
             if !session.token.isEmpty {
                 hasCompletedInitialSetup = true
@@ -816,7 +843,12 @@ final class AccountContextImpl: AccountContext {
     }
 
     private func joinDirectMessageSocketRoomOnSocketConnected() {
-        account.socket.joinClanChat(clanId: 0)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await DirectMessageListGate.ensureFetchedBeforeJoin(context: self)
+            guard self.account.socket.isConnected else { return }
+            self.account.socket.joinClanChat(clanId: 0)
+        }
     }
 
     private func rejoinCurrentChannel() {
@@ -1186,7 +1218,7 @@ final class AccountContextImpl: AccountContext {
                 let incrementDmBadge = !isSelf && Self.shouldIncrementDmBadgeForSocketMessage(
                     messageCopy, channelId: channelId,
                     currentUserId: self.currentUser?.id, currentClanId: self.currentClanId
-                )
+                ) && DmBadgeMessageDedup.markCounted(messageCopy.messageID)
                 var userInfo: [String: Any] = [
                     "channelId": channelId, "clanId": clanId,
                     "senderId": String(messageCopy.senderID), "mode": messageCopy.mode,
