@@ -1026,6 +1026,7 @@ final class ChannelListViewController: ViewController {
             onToggleCollapse: { [weak self] id in self?.toggleCollapse(categoryId: id) },
             onRefresh: { [weak self] in self?.fetchChannels() },
             onPresentSettings: { [weak self] in self?.presentSettings() },
+            onPresentClanNotifications: { [weak self] in self?.presentClanNotificationSettings() },
             onInviteClan: { [weak self] in self?.presentInviteClanSheet() },
             onCreateCategory: { [weak self] in self?.presentCreateCategory() },
             onCreateEvent: { [weak self] in self?.presentCreateEvent() },
@@ -2289,8 +2290,32 @@ final class ChannelListViewController: ViewController {
             channelId: channel.channelID,
             clanId: channel.clanID,
             context: context,
-            currentType: currentType,
-            defaultLabel: L(L10n.NotificationSettings.allMessages)
+            currentType: currentType
+        )
+        if let window = self.view.window as? WindowHost {
+            window.present(sheet, on: .root, blockInteraction: false, completion: {})
+            sheet.animateIn()
+        }
+    }
+
+    private func presentClanNotificationSettings() {
+        guard clanId != 0 else { return }
+        let currentTypeInt = context.account.postbox.read { tx in
+            tx.getNotificationSetting(entityId: clanId)?.notificationSettingType
+        }
+        let currentType: ChannelNotificationType
+        if let currentTypeInt,
+           let storedType = ChannelNotificationType(rawValue: currentTypeInt),
+           storedType != .useDefault {
+            currentType = storedType
+        } else {
+            currentType = .allMessages
+        }
+
+        let sheet = NotificationSettingsSheetController(
+            clanId: clanId,
+            context: context,
+            currentType: currentType
         )
         if let window = self.view.window as? WindowHost {
             window.present(sheet, on: .root, blockInteraction: false, completion: {})
