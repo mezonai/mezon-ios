@@ -38,6 +38,8 @@ enum L10n {
         static let sendTokenNote         = "profile.sendTokenNote"
         static let sendTokenDefaultNote  = "profile.sendTokenDefaultNote"
         static let sendTokenSelectAccount = "profile.sendTokenSelectAccount"
+        static let sendTokenNoUserMatch  = "profile.sendTokenNoUserMatch"
+        static let sendTokenTypeToSearch = "profile.sendTokenTypeToSearch"
         static let sendTokenCopyAddressSuccess = "profile.sendTokenCopyAddressSuccess"
         static let sendTokenConfirmTitle = "profile.sendTokenConfirmTitle"
         static let sendTokenConfirmMessage = "profile.sendTokenConfirmMessage"
@@ -2528,6 +2530,8 @@ extension L10n {
         "profile.sendTokenNote": "Note",
         "profile.sendTokenDefaultNote": "Transfer funds",
         "profile.sendTokenSelectAccount": "Select an account",
+        "profile.sendTokenNoUserMatch": "No matching users",
+        "profile.sendTokenTypeToSearch": "Type a name or username to search",
         "profile.sendTokenCopyAddressSuccess": "Address copied",
         "profile.sendTokenConfirmTitle": "Confirm transfer",
         "profile.sendTokenConfirmMessage": "Transfer %1$@ %2$@ to %3$@?",
@@ -3894,6 +3898,8 @@ extension L10n {
         "profile.sendTokenNote": "Ghi chú",
         "profile.sendTokenDefaultNote": "Chuyển khoản",
         "profile.sendTokenSelectAccount": "Chọn người dùng để chuyển khoản",
+        "profile.sendTokenNoUserMatch": "Không tìm thấy người dùng phù hợp",
+        "profile.sendTokenTypeToSearch": "Nhập tên hoặc username để tìm kiếm",
         "profile.sendTokenCopyAddressSuccess": "Đã sao chép địa chỉ",
         "profile.sendTokenConfirmTitle": "Xác nhận chuyển khoản",
         "profile.sendTokenConfirmMessage": "Chuyển khoản %1$@ %2$@ đến %3$@?",

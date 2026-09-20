@@ -51,12 +51,33 @@ private struct VoiceParticipantTileDescriptor {
 @MainActor
 private func voiceChannelFindClanUser(context: AccountContext, clanId: Int64, identityKey: String) -> Mezon_Api_ClanUserList.ClanUser? {
     let key = identityKey.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !key.isEmpty, let list = context.engine.clanData.getClanUsers(clanId: clanId) else { return nil }
-    if let uid = Int64(key) {
-        for cu in list.clanUsers where cu.user.id == uid { return cu }
+    guard let uid = Int64(key) else { return nil }
+    return voiceChannelClanUserIndex(context: context, clanId: clanId)?[uid]
+}
+
+private let voiceChannelClanUserIndexTTL: TimeInterval = 2
+
+@MainActor
+private var voiceChannelClanUserIndexMemo: (clanId: Int64, builtAt: Date, byId: [Int64: Mezon_Api_ClanUserList.ClanUser])? = nil
+
+@MainActor
+private func voiceChannelClanUserIndex(context: AccountContext, clanId: Int64) -> [Int64: Mezon_Api_ClanUserList.ClanUser]? {
+    if let memo = voiceChannelClanUserIndexMemo,
+       memo.clanId == clanId,
+       Date().timeIntervalSince(memo.builtAt) < voiceChannelClanUserIndexTTL {
+        return memo.byId
     }
-    for cu in list.clanUsers where String(cu.user.id) == key { return cu }
-    return nil
+    guard let list = context.engine.clanData.getClanUsers(clanId: clanId) else {
+        voiceChannelClanUserIndexMemo = nil
+        return nil
+    }
+    var byId: [Int64: Mezon_Api_ClanUserList.ClanUser] = [:]
+    byId.reserveCapacity(list.clanUsers.count)
+    for cu in list.clanUsers where byId[cu.user.id] == nil {
+        byId[cu.user.id] = cu
+    }
+    voiceChannelClanUserIndexMemo = (clanId: clanId, builtAt: Date(), byId: byId)
+    return byId
 }
 
 @MainActor
@@ -261,14 +282,6 @@ private func voiceChannelSessionConfigurationIsForeign(desiredMode: String) -> B
     return session.category != .playAndRecord || session.mode.rawValue != desiredMode
 }
 
-private func voiceChannelAudioSessionSummary() -> String {
-    let session = AVAudioSession.sharedInstance()
-    let outputs = session.currentRoute.outputs.map(\.portType.rawValue).joined(separator: ",")
-    let inputs = session.currentRoute.inputs.map(\.portType.rawValue).joined(separator: ",")
-    let preferred = session.preferredInput?.portType.rawValue ?? "none"
-    return "mode=\(session.mode.rawValue) options=\(session.categoryOptions.rawValue) out=\(outputs) in=\(inputs) preferredIn=\(preferred)"
-}
-
 private func voiceChannelInputPort(matching types: [AVAudioSession.Port]) -> AVAudioSessionPortDescription? {
     AVAudioSession.sharedInstance().availableInputs?.first { types.contains($0.portType) }
 }
@@ -284,44 +297,33 @@ fileprivate func applyVoiceChannelPreservedAudioRouteToSession(_ route: VoiceCha
         return
     }
     let hadForeignConfiguration = voiceChannelSessionConfigurationIsForeign(desiredMode: cfg.mode)
-    NSLog("%@", "[sfu-audio] apply route=\(route) foreign=\(hadForeignConfiguration) requestedOptions=\(cfg.categoryOptions.rawValue) \(voiceChannelAudioSessionSummary())" as NSString)
     let rtc = RTCAudioSession.sharedInstance()
     rtc.lockForConfiguration()
     defer { rtc.unlockForConfiguration() }
-    var configurationApplied = false
-    do {
-        try rtc.setConfiguration(cfg, active: true)
-        configurationApplied = true
-    } catch {
-        NSLog("%@", "[sfu-audio] apply route=\(route) configuration failed: \(error)" as NSString)
-    }
-    do {
-        switch route {
-        case .speaker:
-            try rtc.overrideOutputAudioPort(.speaker)
-        case .bluetooth:
-            try rtc.overrideOutputAudioPort(.none)
-            if let bluetooth = voiceChannelInputPort(matching: [.bluetoothHFP, .bluetoothLE]) {
-                try rtc.setPreferredInput(bluetooth)
-            }
-        case .earpiece:
-            try rtc.overrideOutputAudioPort(.none)
-            if voiceChannelInputPort(matching: [.bluetoothHFP, .bluetoothLE]) != nil,
-               let builtInMic = voiceChannelInputPort(matching: [.builtInMic]) {
-                try rtc.setPreferredInput(builtInMic)
-            }
-        }
-    } catch {
-        NSLog("%@", "[sfu-audio] apply route=\(route) port override failed: \(error)" as NSString)
-    }
-    NSLog("%@", "[sfu-audio] applied route=\(route) \(voiceChannelAudioSessionSummary())" as NSString)
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-        NSLog("%@", "[sfu-audio] settled route=\(route) \(voiceChannelAudioSessionSummary())" as NSString)
-    }
+    let configurationApplied = (try? rtc.setConfiguration(cfg, active: true)) != nil
+    try? voiceChannelApplyPreferredPorts(for: route, on: rtc)
     if hadForeignConfiguration, configurationApplied, rtc.isAudioEnabled, WebRTCCallManager.shared.signalingSession == nil {
-        NSLog("%@", "[sfu-audio] restarting audio unit after foreign configuration" as NSString)
         rtc.isAudioEnabled = false
         rtc.isAudioEnabled = true
+    }
+}
+
+@MainActor
+private func voiceChannelApplyPreferredPorts(for route: VoiceChannelPiPPreservedAudioRoute, on rtc: RTCAudioSession) throws {
+    switch route {
+    case .speaker:
+        try rtc.overrideOutputAudioPort(.speaker)
+    case .bluetooth:
+        try rtc.overrideOutputAudioPort(.none)
+        if let bluetooth = voiceChannelInputPort(matching: [.bluetoothHFP, .bluetoothLE]) {
+            try rtc.setPreferredInput(bluetooth)
+        }
+    case .earpiece:
+        try rtc.overrideOutputAudioPort(.none)
+        if voiceChannelInputPort(matching: [.bluetoothHFP, .bluetoothLE]) != nil,
+           let builtInMic = voiceChannelInputPort(matching: [.builtInMic]) {
+            try rtc.setPreferredInput(builtInMic)
+        }
     }
 }
 
@@ -1921,10 +1923,6 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             guard let self else { return }
             let rawReason = (notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt) ?? 0
             let reason = AVAudioSession.RouteChangeReason(rawValue: rawReason) ?? .unknown
-            let routeSession = AVAudioSession.sharedInstance()
-            let routeOutputs = routeSession.currentRoute.outputs.map(\.portType.rawValue).joined(separator: ",")
-            let routeLine = "[sfu-audio] route change reason=\(rawReason) mode=\(routeSession.mode.rawValue) out=\(routeOutputs) preferred=\(self.currentAudioOutput)"
-            NSLog("%@", routeLine as NSString)
             switch reason {
             case .newDeviceAvailable, .oldDeviceUnavailable, .override:
                 if reason != .override {
@@ -3956,11 +3954,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         cfg.mode = voiceChannelDesiredMode(for: pipPreservedRouteFromCurrentOutput()).rawValue
         cfg.categoryOptions = voiceChannelCategoryOptions(for: pipPreservedRouteFromCurrentOutput())
         RTCAudioSessionConfiguration.setWebRTC(cfg)
-        do {
-            try rtc.setConfiguration(cfg, active: true)
-        } catch {
-            NSLog("%@", "[sfu-audio] ensure category failed: \(error)" as NSString)
-        }
+        try? rtc.setConfiguration(cfg, active: true)
     }
 
     private func syncCurrentAudioOutputFromSession() {
@@ -4031,7 +4025,6 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         unconfirmedAudioOutput = next
         requestedAudioOutputDeadline = Date().addingTimeInterval(Self.requestedAudioOutputGrace)
         currentAudioOutput = next
-        NSLog("%@", "[sfu-audio] toggle output from \(base) to \(next)" as NSString)
         applyAudioRoute()
     }
 
