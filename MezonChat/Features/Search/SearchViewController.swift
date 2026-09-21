@@ -1273,6 +1273,7 @@ final class SearchViewController: ViewController {
             chatUnreadCount: Int(channel.countMessUnread),
             members: resolvedMembers,
             kind: .streaming,
+            canJoin: !streamUserIds.isEmpty,
             onChat: { [weak self] in self?.pushChatFromVoiceSheet(for: channel) },
             onJoinVoice: { [weak self] _ in self?.pushStreamingRoom(for: channel) },
             onInvite: {}
@@ -1340,26 +1341,26 @@ final class SearchViewController: ViewController {
 
         Task { @MainActor [weak self] in
             guard let self else { return }
-            guard let token = await self.context.getToken(),
-                  let userId = self.context.currentUser?.id,
-                  let username = self.context.currentUser?.username else { return }
+            guard let sessionToken = await self.context.getToken() else { return }
+            guard let meetToken = try? await self.context.account.network.generateMeetToken(
+                channelId: channel.channelID,
+                roomName: "\(channel.channelID)",
+                token: sessionToken
+            ), !meetToken.isEmpty else { return }
+            let tokenContext = self.context
 
             await StreamingWebRTCSession.shared.join(
-                clanId: self.effectiveClanId(for: channel),
                 channelId: channel.channelID,
-                streamId: channel.channelID,
-                userId: userId,
-                username: username,
-                token: token
+                token: meetToken,
+                tokenProvider: {
+                    guard let token = await tokenContext.getToken() else { return nil }
+                    return try? await tokenContext.account.network.generateMeetToken(
+                        channelId: channel.channelID,
+                        roomName: "\(channel.channelID)",
+                        token: token
+                    )
+                }
             )
-
-            if let uid = Int64(userId) {
-                self.context.engine.clanData.applyStreamJoined(
-                    clanId: self.effectiveClanId(for: channel),
-                    channelId: channel.channelID,
-                    userId: uid
-                )
-            }
 
             let vc = StreamingRoomViewController(
                 context: self.context,

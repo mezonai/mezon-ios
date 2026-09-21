@@ -18,7 +18,6 @@ enum MezonConfig {
     static var dongServiceAPIURL: URL { env.dongServiceAPIURL }
 
     static var meetWebSocketURLString: String { env.meetWebSocketURLString }
-    static var streamWebSocketURLString: String { env.streamWebSocketURLString }
     static var sfuWebSocketURLString: String { env.sfuWebSocketURLString }
     static var ogpURL: URL { env.ogpURL }
 
