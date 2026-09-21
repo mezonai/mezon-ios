@@ -783,12 +783,6 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
 
         guard clanId != 0, channelType != MezonConstants.ChannelType.dm.rawValue else { return }
         let vc = ClanInviteSheetViewController(context: context, clanId: clanId, channelId: channelId)
-        vc.modalPresentationStyle = .pageSheet
-        if #available(iOS 15.0, *), let sheet = vc.sheetPresentationController {
-            sheet.prefersGrabberVisible = true
-            sheet.detents = [.medium(), .large()]
-            sheet.selectedDetentIdentifier = .medium
-        }
         host.present(vc, animated: true)
     }
 
