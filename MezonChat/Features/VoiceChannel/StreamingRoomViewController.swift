@@ -426,10 +426,12 @@ final class StreamingRoomViewController: ViewController {
         membersContainer.subviews.forEach { $0.removeFromSuperview() }
 
         let memberIds = streamMemberUserIds()
+        StreamingSfuLog.write("room members channel=\(channel.channelID) count=\(memberIds.count) hadMembers=\(hadStreamMembers)")
         if !memberIds.isEmpty {
             hadStreamMembers = true
         } else if hadStreamMembers {
             hadStreamMembers = false
+            StreamingSfuLog.write("room auto leave, member list became empty channel=\(channel.channelID)")
             Self.endStream(
                 context: context,
                 clanId: resolvedClanId,
