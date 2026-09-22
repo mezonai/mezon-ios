@@ -1322,6 +1322,10 @@ final class ChannelListContainerNode: ASDisplayNode {
         headerUIView.onClanTitleTap = { [weak self] in
             self?.presentClanActionSheetIfNeeded()
         }
+        headerUIView.frame = CGRect(
+            x: 0, y: 0,
+            width: max(view.bounds.width, UIScreen.main.bounds.width),
+            height: currentHeaderH)
         view.addSubview(headerUIView)
         headerUIView.layer.zPosition = 100
 
@@ -2873,10 +2877,17 @@ final class ChannelListHeaderView: UIView {
             equalTo: topAnchor, constant: mainStackTopBase)
         mainStackTopConstraint.isActive = true
 
+        let mainStackTrailing = mainStack.trailingAnchor.constraint(
+            equalTo: trailingAnchor, constant: -12)
+        let mainStackBottom = mainStack.bottomAnchor.constraint(
+            equalTo: bottomAnchor, constant: -16)
+        mainStackTrailing.priority = UILayoutPriority(999)
+        mainStackBottom.priority = UILayoutPriority(999)
+
         NSLayoutConstraint.activate([
             mainStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            mainStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            mainStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16),
+            mainStackTrailing,
+            mainStackBottom,
 
             communityDot.widthAnchor.constraint(equalToConstant: 4),
             communityDot.heightAnchor.constraint(equalToConstant: 4),

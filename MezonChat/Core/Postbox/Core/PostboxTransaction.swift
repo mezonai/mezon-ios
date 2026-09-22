@@ -97,8 +97,16 @@ final class PostboxTransaction {
         for m in messages { updatedMessageChannelIds.insert(m.channelId) }
     }
 
-    func replaceAllMessages(_ messages: [MessageRecord], channelId: String) {
-        messageTable.replaceAllMessages(messages, channelId: channelId)
+    func replaceAllMessages(
+        _ messages: [MessageRecord],
+        channelId: String,
+        preservingContiguousHistory: Bool = false
+    ) {
+        messageTable.replaceAllMessages(
+            messages,
+            channelId: channelId,
+            preservingContiguousHistory: preservingContiguousHistory
+        )
         updatedMessageChannelIds.insert(channelId)
     }
 

@@ -89,7 +89,7 @@ final class ChatHeaderNode: ASDisplayNode {
 
     private static func inVoiceIconImage() -> UIImage? {
         (UIImage(named: "Chat/SpeakerIcon") ?? UIImage(systemName: "speaker.wave.2.fill"))?
-            .withTintColor(UIColor.theme.textSuccess.withAlphaComponent(0.6), renderingMode: .alwaysOriginal)
+            .withTintColor(.mezonVoiceActive, renderingMode: .alwaysOriginal)
     }
 
     func configure(

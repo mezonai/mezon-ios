@@ -1082,7 +1082,7 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         inVoiceIconNode.style.preferredSize = CGSize(width: 12.sf, height: 12.sf)
         inVoiceIconNode.contentMode = .scaleAspectFit
         inVoiceIconNode.image = (UIImage(named: "Chat/SpeakerIcon") ?? UIImage(systemName: "speaker.wave.2.fill"))?
-            .withTintColor(UIColor.theme.textSuccess.withAlphaComponent(0.6), renderingMode: .alwaysOriginal)
+            .withTintColor(.mezonVoiceActive, renderingMode: .alwaysOriginal)
 
         self.updateUI(displayName: displayName, avatarUrl: avatarUrl, isOnline: false, status: 0)
 

@@ -45,10 +45,9 @@ final class ChannelItemCellNode: ASCellNode {
                     < channel.lastSentMessage.timestampSeconds))
         let unread = isVoiceType ? 0 : channel.countMessUnread
 
-        let voiceActiveGreen = UIColor(red: 22/255, green: 163/255, blue: 74/255, alpha: 1)
         let iconColor: UIColor
         if isVoiceActive {
-            iconColor = voiceActiveGreen
+            iconColor = .mezonVoiceActive
         } else if isUnread {
             iconColor = t.channelUnread
         } else {
@@ -380,7 +379,7 @@ final class VoiceMemberExpandedCellNode: ASCellNode {
         shareScreenNode.style.preferredSize = CGSize(width: 16, height: 16)
         shareScreenNode.contentMode = .scaleAspectFit
         shareScreenNode.image = UIImage(named: "Channel/VoiceScreenShare")?
-            .withTintColor(UIColor.theme.textSuccess, renderingMode: .alwaysOriginal)
+            .withTintColor(.mezonVoiceActive, renderingMode: .alwaysOriginal)
 
         nameNode.maximumNumberOfLines = 1
         nameNode.truncationMode = .byTruncatingTail
