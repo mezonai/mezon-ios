@@ -257,7 +257,7 @@ final class DmListItemCell: UITableViewCell {
         let font = inVoiceFont
         let result = NSMutableAttributedString()
         if let icon = (UIImage(named: "Chat/SpeakerIcon") ?? UIImage(systemName: "speaker.wave.2.fill"))?
-            .withTintColor(UIColor.theme.textSuccess.withAlphaComponent(0.6), renderingMode: .alwaysOriginal) {
+            .withTintColor(.mezonVoiceActive, renderingMode: .alwaysOriginal) {
             let attachment = NSTextAttachment()
             attachment.image = icon
             let side = font.pointSize

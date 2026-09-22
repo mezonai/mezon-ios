@@ -46,6 +46,8 @@ final class ClanListContainerNode: ASDisplayNode {
     }()
 
     private var state: ClanListState = .empty
+    private var hasRenderedUnreadDMs = false
+    private var railContentWidth: CGFloat = Constants.Layout.clanSidebarWidth
     private let interaction: ClanListInteraction
     private let disposables = DisposableSet()
     private var sidebarLogoLoadTask: URLSessionDataTask?
@@ -95,6 +97,12 @@ final class ClanListContainerNode: ASDisplayNode {
                     self.state = newState
                     self.collectionView.reloadData()
                 } else if clanBadgesChanged {
+                    if dmIdentityChanged {
+                        self.state = newState
+                        self.collectionView.reloadData()
+                        self.hasRenderedUnreadDMs = !newState.unreadDMs.isEmpty
+                        return
+                    }
                     self.state = newState
                     let paths = Self.changedClanBadgeIndexPaths(previous: prevState.clans, current: newState.clans)
                     if !paths.isEmpty, self.collectionView.numberOfSections > 1 {
@@ -107,16 +115,13 @@ final class ClanListContainerNode: ASDisplayNode {
                         }
                     }
                 } else if dmIdentityChanged {
-                    self.applyDmStripIdentityChange(prevDMs: prevDMs, newState: newState)
-                } else if dmContentChanged {
-                    self.state = newState
-                    if self.collectionView.numberOfSections > 0 {
-                        UIView.performWithoutAnimation {
-                            self.collectionView.reloadSections(IndexSet(integer: 0))
-                        }
+                    if self.hasRenderedUnreadDMs {
+                        self.applyDmStripIdentityChange(prevDMs: prevDMs, newState: newState)
                     } else {
-                        self.collectionView.reloadData()
+                        self.applyUnreadDmSectionWithoutAnimation(newState: newState)
                     }
+                } else if dmContentChanged {
+                    self.applyUnreadDmSectionWithoutAnimation(newState: newState)
                 } else if prevClanId != newState.selectedClanId {
                     self.state = newState
                     var paths: [IndexPath] = []
@@ -132,6 +137,10 @@ final class ClanListContainerNode: ASDisplayNode {
                 } else {
                     self.state = newState
                 }
+
+                if !newState.unreadDMs.isEmpty {
+                    self.hasRenderedUnreadDMs = true
+                }
             })
         )
     }
@@ -146,6 +155,10 @@ final class ClanListContainerNode: ASDisplayNode {
 
         layer.addSublayer(gradientLayer)
 
+        collectionView.frame = CGRect(
+            x: 0, y: 0,
+            width: Constants.Layout.clanSidebarWidth,
+            height: max(view.bounds.height, UIScreen.main.bounds.height))
         collectionView.backgroundColor = .clear
         collectionView.showsVerticalScrollIndicator = false
         collectionView.translatesAutoresizingMaskIntoConstraints = false
@@ -173,6 +186,7 @@ final class ClanListContainerNode: ASDisplayNode {
         view.layoutIfNeeded()
         let topY: CGFloat = 0
         let contentWidth = effectiveContentDimension(layoutSize: layout.size.width, viewDimension: view.bounds.width)
+        railContentWidth = contentWidth
         let containerHeight = effectiveContentDimension(layoutSize: layout.size.height, viewDimension: view.bounds.height)
 
         CATransaction.begin()
@@ -197,11 +211,21 @@ final class ClanListContainerNode: ASDisplayNode {
             x: (contentWidth - sepW) / 2, y: sepY, width: sepW, height: sepScale
         )
 
+        let previousCollectionWidth = collectionView.bounds.width
         transition.updateFrame(view: collectionView, frame: CGRect(
             x: 0, y: topY + logoHeaderHeight, width: contentWidth,
             height: containerHeight - topY - logoHeaderHeight - layout.intrinsicInsets.bottom
         ))
         collectionView.collectionViewLayout.invalidateLayout()
+        if abs(previousCollectionWidth - contentWidth) > 0.5 {
+            UIView.performWithoutAnimation {
+                collectionView.layoutIfNeeded()
+            }
+        }
+    }
+
+    private var railWidth: CGFloat {
+        max(collectionView.bounds.width, railContentWidth, Constants.Layout.clanSidebarWidth)
     }
 
     private func effectiveContentDimension(layoutSize: CGFloat, viewDimension: CGFloat) -> CGFloat {
@@ -297,6 +321,19 @@ final class ClanListContainerNode: ASDisplayNode {
         return paths
     }
 
+    private func applyUnreadDmSectionWithoutAnimation(newState: ClanListState) {
+        guard collectionView.numberOfSections > 0 else {
+            state = newState
+            collectionView.reloadData()
+            return
+        }
+        state = newState
+        UIView.performWithoutAnimation {
+            collectionView.collectionViewLayout.invalidateLayout()
+            collectionView.reloadSections(IndexSet(integer: 0))
+        }
+    }
+
     private func applyDmStripIdentityChange(
         prevDMs: [Mezon_Api_ChannelDescription],
         newState: ClanListState
@@ -322,10 +359,8 @@ final class ClanListContainerNode: ASDisplayNode {
         let survivorsPrevOrder = prevIds.filter { newIdSet.contains($0) }
         let survivorsNewOrder = newIds.filter { prevIdSet.contains($0) }
         guard survivorsPrevOrder == survivorsNewOrder else {
-            UIView.animate(withDuration: 0.15, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
-                self.collectionView.performBatchUpdates {
-                    self.collectionView.reloadSections(IndexSet(integer: 0))
-                }
+            collectionView.performBatchUpdates {
+                self.collectionView.reloadSections(IndexSet(integer: 0))
             }
             return
         }
@@ -335,11 +370,9 @@ final class ClanListContainerNode: ASDisplayNode {
         let inserts = newIds.enumerated()
             .filter { !prevIdSet.contains($0.element) }
             .map { IndexPath(item: $0.offset, section: 0) }
-        UIView.animate(withDuration: 0.15, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
-            self.collectionView.performBatchUpdates {
-                if !deletes.isEmpty { self.collectionView.deleteItems(at: deletes) }
-                if !inserts.isEmpty { self.collectionView.insertItems(at: inserts) }
-            }
+        collectionView.performBatchUpdates {
+            if !deletes.isEmpty { self.collectionView.deleteItems(at: deletes) }
+            if !inserts.isEmpty { self.collectionView.insertItems(at: inserts) }
         }
         let prevItemById = Dictionary(prevDMs.map { ($0.channelID, $0) }, uniquingKeysWith: { _, new in new })
         var staleSurvivorPaths: [IndexPath] = []
@@ -411,16 +444,19 @@ extension ClanListContainerNode: UICollectionViewDataSource, UICollectionViewDel
     }
 
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
-        CGSize(width: Self.iconSize, height: Self.iconSize)
+        if indexPath.section == 0 {
+            return CGSize(width: max(railWidth, Self.iconSize), height: Self.iconSize)
+        }
+        return CGSize(width: Self.iconSize, height: Self.iconSize)
     }
 
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, insetForSectionAt section: Int) -> UIEdgeInsets {
-        let sideInset = (collectionView.bounds.width - Self.iconSize) / 2
         if section == 0 {
             return state.unreadDMs.isEmpty
                 ? .zero
-                : UIEdgeInsets(top: 4.sh, left: sideInset, bottom: 0, right: sideInset)
+                : UIEdgeInsets(top: 4.sh, left: 0, bottom: 0, right: 0)
         }
+        let sideInset = max(0, (railWidth - Self.iconSize) / 2)
         return UIEdgeInsets(top: 0, left: sideInset, bottom: 80.sh, right: sideInset)
     }
 
@@ -430,7 +466,7 @@ extension ClanListContainerNode: UICollectionViewDataSource, UICollectionViewDel
 
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, referenceSizeForFooterInSection section: Int) -> CGSize {
         if section == 0 && !state.unreadDMs.isEmpty {
-            return CGSize(width: collectionView.bounds.width, height: 16.sh)
+            return CGSize(width: railWidth, height: 16.sh)
         }
         return .zero
     }

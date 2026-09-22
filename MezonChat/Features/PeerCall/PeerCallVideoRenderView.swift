@@ -71,7 +71,7 @@ final class PeerCallVideoRenderView: UIView {
     private func configureEmbeddedMTKViewIfPresent() {
         guard let mtk = mtlVideoView.subviews.compactMap({ $0 as? MTKView }).first else { return }
         mtk.preferredFramesPerSecond = 60
-        mtk.isPaused = false
+        mtk.isPaused = attachedTrack == nil
         mtk.contentMode = renderContentMode == .fill ? .scaleAspectFill : .scaleAspectFit
         mtk.contentScaleFactor = contentScaleFactor
     }
@@ -81,6 +81,8 @@ final class PeerCallVideoRenderView: UIView {
             attachedTrack?.remove(renderSurface)
             attachedTrack?.remove(mtlVideoView)
             attachedTrack = nil
+            mtlVideoView.isEnabled = false
+            configureEmbeddedMTKViewIfPresent()
             renderSurface.flushContent()
             return
         }
@@ -91,9 +93,11 @@ final class PeerCallVideoRenderView: UIView {
             cur.remove(renderSurface)
             cur.remove(mtlVideoView)
             attachedTrack = track
+            mtlVideoView.isEnabled = true
             renderSurface.flushContent()
             track.add(renderSurface)
             track.add(mtlVideoView)
+            VideoTrackLastFrameStore.replayLastFrame(of: track, to: [renderSurface, mtlVideoView])
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.configureEmbeddedMTKViewIfPresent()
@@ -109,9 +113,11 @@ final class PeerCallVideoRenderView: UIView {
         attachedTrack?.remove(renderSurface)
         attachedTrack?.remove(mtlVideoView)
         attachedTrack = track
+        mtlVideoView.isEnabled = true
         renderSurface.flushContent()
         track.add(renderSurface)
         track.add(mtlVideoView)
+        VideoTrackLastFrameStore.replayLastFrame(of: track, to: [renderSurface, mtlVideoView])
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.configureEmbeddedMTKViewIfPresent()
@@ -131,6 +137,7 @@ final class PeerCallVideoRenderView: UIView {
         renderSurface.flushContent()
         track.add(renderSurface)
         track.add(mtlVideoView)
+        VideoTrackLastFrameStore.replayLastFrame(of: track, to: [renderSurface, mtlVideoView])
         configureEmbeddedMTKViewIfPresent()
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -146,6 +153,67 @@ final class PeerCallVideoRenderView: UIView {
     deinit {
         attachedTrack?.remove(renderSurface)
         attachedTrack?.remove(mtlVideoView)
+    }
+}
+
+final class VideoTrackFrameKeeper: NSObject, RTCVideoRenderer {
+
+    private let lock = NSLock()
+    private var frame: RTCVideoFrame?
+    weak var track: RTCVideoTrack?
+
+    var lastFrame: RTCVideoFrame? {
+        lock.lock()
+        defer { lock.unlock() }
+        return frame
+    }
+
+    func setSize(_ size: CGSize) {}
+
+    func renderFrame(_ frame: RTCVideoFrame?) {
+        guard let frame else { return }
+        lock.lock()
+        self.frame = frame
+        lock.unlock()
+    }
+}
+
+@MainActor
+enum VideoTrackLastFrameStore {
+
+    private static var keepers: [String: VideoTrackFrameKeeper] = [:]
+    private static var replayCount: Int64 = 0
+
+    static func observe(_ track: RTCVideoTrack) -> VideoTrackFrameKeeper {
+        let trackId = track.trackId
+        keepers = keepers.filter { $0.key == trackId || $0.value.track != nil }
+        if let keeper = keepers[trackId] {
+            if keeper.track !== track {
+                keeper.track?.remove(keeper)
+                keeper.track = track
+                track.add(keeper)
+            }
+            return keeper
+        }
+        let keeper = VideoTrackFrameKeeper()
+        keeper.track = track
+        track.add(keeper)
+        keepers[trackId] = keeper
+        return keeper
+    }
+
+    static func replayLastFrame(of track: RTCVideoTrack, to renderers: [RTCVideoRenderer]) {
+        guard let frame = observe(track).lastFrame else { return }
+        replayCount += 1
+        let replay = RTCVideoFrame(buffer: frame.buffer, rotation: frame.rotation, timeStampNs: frame.timeStampNs + replayCount)
+        let rotated = frame.rotation == ._90 || frame.rotation == ._270
+        let size = rotated
+            ? CGSize(width: CGFloat(frame.height), height: CGFloat(frame.width))
+            : CGSize(width: CGFloat(frame.width), height: CGFloat(frame.height))
+        for renderer in renderers {
+            renderer.setSize(size)
+            renderer.renderFrame(replay)
+        }
     }
 }
 

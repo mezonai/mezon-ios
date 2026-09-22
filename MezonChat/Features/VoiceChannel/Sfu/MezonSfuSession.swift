@@ -3,23 +3,30 @@ import Foundation
 import Network
 import WebRTC
 
-private struct SfuAudioHealth: Sendable {
-    var sourceLevel = 0.0
-    var packetsSent = 0.0
-    var inboundStreams = 0
-    var packetsReceived = 0.0
-    var packetsLost = 0.0
-    var samplesReceived = 0.0
-    var concealedSamples = 0.0
-    var playoutSynthesized = 0.0
-    var playoutDuration = 0.0
-    var roundTripTime = 0.0
-    var dtlsState = ""
-}
-
 private struct SfuInboundAudioCounters: Sendable {
     var packetsReceived: Double
     var samplesReceived: Double
+}
+
+private struct SfuPeerConnectionBox: @unchecked Sendable {
+    let peerConnection: RTCPeerConnection
+}
+
+private struct SfuTransceiverBatch: @unchecked Sendable {
+    let transceivers: [RTCRtpTransceiver]
+}
+
+private struct SfuUncheckedBox<Value>: @unchecked Sendable {
+    let value: Value
+}
+
+private let sfuWebRTCQueue = DispatchQueue(label: "com.mezon.sfu.webrtc", qos: .userInitiated)
+
+private struct SfuRemoteTransceiverSnapshot: @unchecked Sendable {
+    let mid: String
+    let direction: RTCRtpTransceiverDirection
+    let track: RTCMediaStreamTrack?
+    let trackId: String?
 }
 
 @MainActor
@@ -32,7 +39,8 @@ final class MezonSfuSession: NSObject {
     private static let captureHeight: Int32 = 360
     private static let captureFps = 24
     private static let speakingPollNanos: UInt64 = 300_000_000
-    private static let audioDiagnosticsNanos: UInt64 = 5_000_000_000
+    private static let largeRoomSpeakingPollNanos: UInt64 = 1_000_000_000
+    private static let largeRoomRemoteCount = 16
     private static let reconnectPollNanos: UInt64 = 3_000_000_000
     private static let maxReconnectAttempts = 40
     private static let maxTokenRefreshes = 3
@@ -150,8 +158,6 @@ final class MezonSfuSession: NSObject {
     private var negotiating = false
     private var pendingOffer: (Int64, String)?
     private var offerReissueTask: Task<Void, Never>?
-    private var lastAudioHealth: SfuAudioHealth?
-    private var audioProcessingLogger: RTCCallbackLogger?
 
     private var retiringPeerConnection: RTCPeerConnection?
     private var iceRecoveryTask: Task<Void, Never>?
@@ -166,6 +172,8 @@ final class MezonSfuSession: NSObject {
     private var pathSatisfied = true
 
     private var transceiverCache: [RTCRtpTransceiver] = []
+    private var remoteSnapshot: [SfuRemoteTransceiverSnapshot] = []
+    private var remoteMediaSyncScheduled = false
 
     private var userIdByMid: [String: String] = [:]
     private var peerIdByMid: [String: String] = [:]
@@ -185,6 +193,9 @@ final class MezonSfuSession: NSObject {
         var audio: RTCAudioTrack?
         var video: RTCVideoTrack?
         var screen: RTCVideoTrack?
+        var audioTrackId: String?
+        var videoTrackId: String?
+        var screenTrackId: String?
         var screenActive = false
         var cameraActive = false
 
@@ -233,11 +244,6 @@ final class MezonSfuSession: NSObject {
         tokenRejected = false
         Self.liveSession = self
         resetPlayoutWatchdog()
-
-        lastAudioHealth = nil
-        if audioProcessingLogger == nil {
-            audioProcessingLogger = Self.makeAudioProcessingLogger()
-        }
         Self.ensureSSL()
         createLocalAudioTrack()
 
@@ -249,7 +255,8 @@ final class MezonSfuSession: NSObject {
 
         let speakingTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: Self.speakingPollNanos)
+                let delayNanos = self?.speakingPollDelayNanos() ?? Self.speakingPollNanos
+                try? await Task.sleep(nanoseconds: delayNanos)
                 guard !Task.isCancelled, let self else { break }
                 if let pc = self.peerConnection {
                     self.pollSpeaking(pc)
@@ -279,15 +286,6 @@ final class MezonSfuSession: NSObject {
                 self.openConnection(initial: false)
             }
         }
-        let audioDiagnosticsTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: Self.audioDiagnosticsNanos)
-                guard !Task.isCancelled, let self else { break }
-                if let pc = self.peerConnection {
-                    self.logAudioHealth(pc)
-                }
-            }
-        }
         let playoutWatchdogTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: Self.playoutWatchdogNanos)
@@ -297,7 +295,7 @@ final class MezonSfuSession: NSObject {
                 }
             }
         }
-        pollTasks = [speakingTask, reconnectTask, audioDiagnosticsTask, playoutWatchdogTask]
+        pollTasks = [speakingTask, reconnectTask, playoutWatchdogTask]
         startPathMonitor()
     }
 
@@ -409,7 +407,7 @@ final class MezonSfuSession: NSObject {
             self.retiringCloseTask = nil
             guard let current = self.retiringPeerConnection, ObjectIdentifier(current) == retiringId else { return }
             self.retiringPeerConnection = nil
-            current.close()
+            Self.closeOffMain(current)
         }
     }
 
@@ -418,7 +416,7 @@ final class MezonSfuSession: NSObject {
         retiringPeerConnection = nil
         retiringCloseTask?.cancel()
         retiringCloseTask = nil
-        previous.close()
+        Self.closeOffMain(previous)
     }
 
     func leave() {
@@ -448,8 +446,6 @@ final class MezonSfuSession: NSObject {
         clearDeferredRestart()
         retiringCloseTask?.cancel()
         retiringCloseTask = nil
-        audioProcessingLogger?.stop()
-        audioProcessingLogger = nil
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
         urlSession?.invalidateAndCancel()
@@ -461,15 +457,17 @@ final class MezonSfuSession: NSObject {
         localCameraTrack = nil
         localAudioTrack = nil
         audioSource = nil
-        transceiverCache = []
+        discardTransceiverState()
         iceRecoveryTask?.cancel()
         iceRecoveryTask = nil
         pathMonitor?.cancel()
         pathMonitor = nil
-        peerConnection?.close()
-        retiringPeerConnection?.close()
+        let closingPeerConnection = peerConnection
+        let closingRetiringPeerConnection = retiringPeerConnection
         peerConnection = nil
         retiringPeerConnection = nil
+        Self.closeOffMain(closingPeerConnection)
+        Self.closeOffMain(closingRetiringPeerConnection)
         localTracksAdded = false
         negotiating = false
         pendingOffer = nil
@@ -584,7 +582,7 @@ final class MezonSfuSession: NSObject {
             webSocketTask?.cancel(with: .goingAway, reason: nil)
             urlSession?.invalidateAndCancel()
             if let previous = peerConnection {
-                retiringPeerConnection?.close()
+                Self.closeOffMain(retiringPeerConnection)
                 retiringPeerConnection = previous
                 scheduleRetiringPeerConnectionClose()
             }
@@ -592,7 +590,6 @@ final class MezonSfuSession: NSObject {
             negotiating = false
             pendingOffer = nil
             localTracksAdded = false
-            lastAudioHealth = nil
             userIdByMid.removeAll()
             peerIdByMid.removeAll()
             roleByMid.removeAll()
@@ -601,7 +598,7 @@ final class MezonSfuSession: NSObject {
             remoteOrder.removeAll()
             emitParticipants()
         }
-        transceiverCache = []
+        discardTransceiverState()
         guard let pc = createPeerConnection() else {
             connecting = false
             emitState(.failed)
@@ -826,7 +823,6 @@ final class MezonSfuSession: NSObject {
             self.transportWatchdogTask = nil
             guard gen == self.connectionGen, let current = self.peerConnection, self.active, self.joined else { return }
             guard current.connectionState != .connected else { return }
-            NSLog("%@", "[sfu-audio] dtls never completed after ice connected; restarting the session" as NSString)
             self.restartSession()
         }
     }
@@ -845,7 +841,7 @@ final class MezonSfuSession: NSObject {
     private func checkPlayout(_ pc: RTCPeerConnection) {
         guard isConnected, joined else { return }
         let gen = connectionGen
-        pc.statistics { [weak self] report in
+        Self.requestStatistics(pc) { [weak self] report in
             let counters = Self.inboundAudioCounters(in: report)
             Task { @MainActor [weak self] in
                 self?.evaluatePlayout(counters, gen: gen)
@@ -894,7 +890,6 @@ final class MezonSfuSession: NSObject {
               StreamingWebRTCSession.shared.activeStreamChannelId == nil else { return }
         stalledPlayoutTicks = 0
         playoutRestarts += 1
-        NSLog("%@", "[sfu-audio] remote audio arrives but nothing is played; restarting the audio unit, attempt \(playoutRestarts)" as NSString)
         let rtc = RTCAudioSession.sharedInstance()
         rtc.lockForConfiguration()
         rtc.isAudioEnabled = false
@@ -922,26 +917,42 @@ final class MezonSfuSession: NSObject {
             guard gen == connectionGen else { return }
             guard let pc = peerConnection else { break }
             let (generation, sdp) = current
+            var answerSent = false
             do {
-                let stableSdp = stabilizeInactiveVideoSections(offerSdp: sdp, currentRemoteSdp: pc.remoteDescription?.sdp)
-                try await awaitSetRemote(pc, RTCSessionDescription(type: .offer, sdp: stableSdp))
+                let previousRemoteSdp = await Self.remoteDescriptionSdp(pc)
                 guard isCurrentConnection(pc, gen: gen) else { return }
-                transceiverCache = pc.transceivers
+                let stableSdp = stabilizeInactiveVideoSections(offerSdp: sdp, currentRemoteSdp: previousRemoteSdp)
+                try await Self.awaitSetRemote(pc, RTCSessionDescription(type: .offer, sdp: stableSdp))
+                guard isCurrentConnection(pc, gen: gen) else { return }
                 attachLocalTracks(pc)
-                let answer = try await awaitCreateAnswer(pc)
+                let answer = try await Self.awaitCreateAnswer(pc)
                 guard isCurrentConnection(pc, gen: gen) else { return }
-                try await awaitSetLocal(pc, RTCSessionDescription(type: .answer, sdp: answer.sdp))
+                send([
+                    "type": "answer",
+                    "offer_generation": NSNumber(value: generation),
+                    "sdp": patchAnswerForSfu(answer.sdp),
+                ])
+                answerSent = true
+                try await Self.awaitSetLocal(pc, RTCSessionDescription(type: .answer, sdp: answer.sdp))
                 guard isCurrentConnection(pc, gen: gen) else { return }
+                let transceivers = await Self.fetchTransceivers(pc)
+                guard isCurrentConnection(pc, gen: gen) else { return }
+                let staleTransceivers = transceiverCache
+                transceiverCache = transceivers
+                Self.releaseOffMain(staleTransceivers)
+                let snapshot = await Self.captureRemoteSnapshot(transceivers)
+                guard isCurrentConnection(pc, gen: gen) else { return }
+                let staleTracks = remoteSnapshot.compactMap { $0.track }
+                remoteSnapshot = snapshot
+                Self.releaseOffMain(staleTracks)
                 syncRemoteMedia()
-                if let local = pc.localDescription {
-                    send([
-                        "type": "answer",
-                        "offer_generation": NSNumber(value: generation),
-                        "sdp": patchAnswerForSfu(local.sdp),
-                    ])
-                }
             } catch {
                 guard isCurrentConnection(pc, gen: gen) else { return }
+                if answerSent {
+                    webSocketTask?.cancel(with: .normalClosure, reason: nil)
+                    handleSocketClosed(gen: gen)
+                    return
+                }
                 await rollbackIfStuck(pc)
                 guard isCurrentConnection(pc, gen: gen) else { return }
             }
@@ -972,7 +983,7 @@ final class MezonSfuSession: NSObject {
             }
         }
         if role == .speaker {
-            prepareVideoSender()
+            prepareVideoSender(addingTo: pc)
         }
         localTracksAdded = true
     }
@@ -1027,14 +1038,19 @@ final class MezonSfuSession: NSObject {
         localCameraTrack = track
     }
 
-    private func prepareVideoSender() {
+    private func prepareVideoSender(addingTo pc: RTCPeerConnection? = nil) {
         ensureCameraTrack()
-        guard let tc = findTransceiver(mid: Self.midCamera, kind: "video") else { return }
-        if tc.sender.track !== cameraTrack {
-            tc.sender.track = cameraTrack
-            tc.sender.applyCameraTier(cameraTierIndex)
-            setTransceiverDirection(tc, .sendOnly)
+        guard let cameraTrack else { return }
+        if let tc = findTransceiver(mid: Self.midCamera, kind: "video") {
+            if tc.sender.track !== cameraTrack {
+                tc.sender.track = cameraTrack
+                tc.sender.applyCameraTier(cameraTierIndex)
+                setTransceiverDirection(tc, .sendOnly)
+            }
+            return
         }
+        guard let pc, let sender = pc.add(cameraTrack, streamIds: ["sfu"]) else { return }
+        sender.applyCameraTier(cameraTierIndex)
     }
 
     private func ensureCameraCapturer() {
@@ -1131,114 +1147,8 @@ final class MezonSfuSession: NSObject {
         return components.url
     }
 
-    private nonisolated static func makeAudioProcessingLogger() -> RTCCallbackLogger {
-        let logger = RTCCallbackLogger()
-        logger.severity = .info
-        logger.start { @Sendable message in
-            guard Self.isAudioProcessingLogLine(message) else { return }
-            let line = message.trimmingCharacters(in: .whitespacesAndNewlines)
-            NSLog("%@", "[sfu-audio] webrtc \(line)" as NSString)
-        }
-        return logger
-    }
-
-    private nonisolated static func isAudioProcessingLogLine(_ message: String) -> Bool {
-        let markers = [
-            "WebRtcVoiceEngine::ApplyOptions",
-            "AudioProcessing::ApplyConfig",
-            "Voice Processing I/O",
-            "voice processing",
-            "bypass_voice_processing",
-            "Always disable",
-            "built-in NS",
-            "audio unit",
-            "interruption",
-            "Interruption",
-            "CanPlayOrRecord",
-            "setActive",
-            "activations",
-            "Media services",
-            "sample rate change",
-            "VPAU state",
-            "Audio route changed",
-        ]
-        return markers.contains { message.contains($0) }
-    }
-
-    private func logAudioHealth(_ pc: RTCPeerConnection) {
-        pc.statistics { [weak self] report in
-            let health = Self.audioHealth(in: report)
-            Task { @MainActor [weak self] in
-                self?.emitAudioHealth(health)
-            }
-        }
-    }
-
-    private nonisolated static func audioHealth(in report: RTCStatisticsReport) -> SfuAudioHealth {
-        var health = SfuAudioHealth()
-        for stat in report.statistics.values {
-            let values = stat.values
-            let kind = values["kind"] as? String
-            func number(_ key: String) -> Double {
-                (values[key] as? NSNumber)?.doubleValue ?? 0
-            }
-            switch stat.type {
-            case "media-source" where kind == "audio":
-                health.sourceLevel = number("audioLevel")
-            case "outbound-rtp" where kind == "audio":
-                health.packetsSent += number("packetsSent")
-            case "inbound-rtp" where kind == "audio":
-                health.inboundStreams += 1
-                health.packetsReceived += number("packetsReceived")
-                health.packetsLost += number("packetsLost")
-                health.samplesReceived += number("totalSamplesReceived")
-                health.concealedSamples += number("concealedSamples")
-            case "media-playout":
-                health.playoutSynthesized += number("synthesizedSamplesDuration")
-                health.playoutDuration += number("totalSamplesDuration")
-            case "transport":
-                health.dtlsState = (values["dtlsState"] as? String) ?? ""
-            case "candidate-pair" where (values["nominated"] as? NSNumber)?.boolValue == true:
-                health.roundTripTime = number("currentRoundTripTime")
-            default:
-                break
-            }
-        }
-        return health
-    }
-
-    private func emitAudioHealth(_ health: SfuAudioHealth) {
-        let previous = lastAudioHealth ?? health
-        lastAudioHealth = health
-        let received = health.samplesReceived - previous.samplesReceived
-        let concealed = health.concealedSamples - previous.concealedSamples
-        let concealedPercent = received > 0 ? concealed / received * 100 : 0
-        let session = AVAudioSession.sharedInstance()
-        let rtc = RTCAudioSession.sharedInstance()
-        let inputs = session.currentRoute.inputs.map(\.portType.rawValue).joined(separator: ",")
-        let outputs = session.currentRoute.outputs.map(\.portType.rawValue).joined(separator: ",")
-        let fields: [String] = [
-            "mic=\(micEnabled)",
-            "ptt=\(pttActive)",
-            "audioEnabled=\(rtc.isAudioEnabled)",
-            "active=\(rtc.isActive)",
-            "mode=\(session.mode.rawValue)",
-            "in=\(inputs)",
-            "out=\(outputs)",
-            "rate=\(Int(session.sampleRate))",
-            "io=\(String(format: "%.4f", session.ioBufferDuration))",
-            "srcLevel=\(String(format: "%.3f", health.sourceLevel))",
-            "sent=+\(Int(health.packetsSent - previous.packetsSent))",
-            "inStreams=\(health.inboundStreams)",
-            "recv=+\(Int(health.packetsReceived - previous.packetsReceived))",
-            "lost=+\(Int(health.packetsLost - previous.packetsLost))",
-            "concealed=\(String(format: "%.1f", concealedPercent))%",
-            "synth=+\(String(format: "%.3f", health.playoutSynthesized - previous.playoutSynthesized))s",
-            "played=+\(String(format: "%.1f", health.playoutDuration - previous.playoutDuration))s",
-            "rtt=\(Int(health.roundTripTime * 1000))ms",
-            "dtls=\(health.dtlsState.isEmpty ? "none" : health.dtlsState)",
-        ]
-        NSLog("%@", ("[sfu-audio] " + fields.joined(separator: " ")) as NSString)
+    private func speakingPollDelayNanos() -> UInt64 {
+        remote.count > Self.largeRoomRemoteCount ? Self.largeRoomSpeakingPollNanos : Self.speakingPollNanos
     }
 
     private func pollSpeaking(_ pc: RTCPeerConnection) {
@@ -1247,7 +1157,7 @@ final class MezonSfuSession: NSObject {
         let localAudible = micEnabled || pttActive
         let userIdByMid = self.userIdByMid
         let threshold = Self.speakingThreshold
-        pc.statistics { [weak self] report in
+        Self.requestStatistics(pc) { [weak self] report in
             let speaking = Self.speakingUserIds(
                 in: report,
                 localId: localId,
@@ -1421,21 +1331,49 @@ final class MezonSfuSession: NSObject {
         }
     }
 
+    private func scheduleRemoteMediaSync() {
+        guard !remoteMediaSyncScheduled else { return }
+        remoteMediaSyncScheduled = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.remoteMediaSyncScheduled = false
+            guard self.active, self.peerConnection != nil, !self.negotiating else { return }
+            self.syncRemoteMedia()
+        }
+    }
+
+    private nonisolated static func fetchTransceivers(_ pc: RTCPeerConnection) async -> [RTCRtpTransceiver] {
+        let box = SfuPeerConnectionBox(peerConnection: pc)
+        return await Task.detached(priority: .userInitiated) {
+            SfuTransceiverBatch(transceivers: box.peerConnection.transceivers)
+        }.value.transceivers
+    }
+
+    private nonisolated static func captureRemoteSnapshot(_ transceivers: [RTCRtpTransceiver]) async -> [SfuRemoteTransceiverSnapshot] {
+        let batch = SfuTransceiverBatch(transceivers: transceivers)
+        return await Task.detached(priority: .userInitiated) {
+            batch.transceivers.map { tc -> SfuRemoteTransceiverSnapshot in
+                var current = RTCRtpTransceiverDirection.inactive
+                let direction = tc.currentDirection(&current) ? current : tc.direction
+                let receiving = direction != .inactive && direction != .stopped
+                let track = receiving ? tc.receiver.track : nil
+                return SfuRemoteTransceiverSnapshot(mid: tc.mid, direction: direction, track: track, trackId: track?.trackId)
+            }
+        }.value
+    }
+
     private func syncRemoteMedia() {
-        for tc in transceiverCache {
-            let mid = tc.mid
+        for item in remoteSnapshot {
+            let mid = item.mid
             if mid.isEmpty { continue }
             if mid == Self.midAudio || mid == Self.midCamera || mid == Self.midScreen { continue }
-            var current = RTCRtpTransceiverDirection.inactive
-            let hasCurrent = tc.currentDirection(&current)
-            let direction = hasCurrent ? current : tc.direction
             let id = remoteParticipantId(mid)
             let kind = remoteKind(mid)
-            if direction == .inactive || direction == .stopped {
+            if item.direction == .inactive || item.direction == .stopped {
                 clearRemoteKind(id: id, kind: kind)
                 continue
             }
-            guard let track = tc.receiver.track else { continue }
+            guard let track = item.track else { continue }
             let ownerUserId = userIdByMid[mid]
             let ownerPeerId = peerIdByMid[mid]
             if ownerUserId == nil && ownerPeerId == nil {
@@ -1453,16 +1391,19 @@ final class MezonSfuSession: NSObject {
                 entry.role = peerRole
             }
             if let audio = track as? RTCAudioTrack {
-                if entry.audio?.trackId != audio.trackId {
+                if entry.audioTrackId != item.trackId {
                     entry.audio = audio
+                    entry.audioTrackId = item.trackId
                 }
             } else if kind == "camera", let video = track as? RTCVideoTrack {
-                if entry.video?.trackId != video.trackId {
+                if entry.videoTrackId != item.trackId {
                     entry.video = video
+                    entry.videoTrackId = item.trackId
                 }
             } else if kind == "screen", let video = track as? RTCVideoTrack {
-                if entry.screen?.trackId != video.trackId {
+                if entry.screenTrackId != item.trackId {
                     entry.screen = video
+                    entry.screenTrackId = item.trackId
                 }
             }
             if entry.audio == nil && entry.video == nil && entry.screen == nil {
@@ -1478,10 +1419,13 @@ final class MezonSfuSession: NSObject {
         switch kind {
         case "audio":
             entry.audio = nil
+            entry.audioTrackId = nil
         case "camera":
             entry.video = nil
+            entry.videoTrackId = nil
         case "screen":
             entry.screen = nil
+            entry.screenTrackId = nil
         default:
             break
         }
@@ -1683,50 +1627,109 @@ final class MezonSfuSession: NSObject {
         return nil
     }
 
-    private func awaitSetRemote(_ pc: RTCPeerConnection, _ desc: RTCSessionDescription) async throws {
+    private nonisolated static func awaitSetRemote(_ pc: RTCPeerConnection, _ desc: RTCSessionDescription) async throws {
+        let box = SfuPeerConnectionBox(peerConnection: pc)
+        let description = SfuUncheckedBox(value: desc)
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            pc.setRemoteDescription(desc) { error in
-                if let error {
-                    cont.resume(throwing: error)
-                } else {
-                    cont.resume(returning: ())
+            sfuWebRTCQueue.async {
+                box.peerConnection.setRemoteDescription(description.value) { error in
+                    if let error {
+                        cont.resume(throwing: error)
+                    } else {
+                        cont.resume(returning: ())
+                    }
                 }
             }
         }
     }
 
-    private func awaitSetLocal(_ pc: RTCPeerConnection, _ desc: RTCSessionDescription) async throws {
+    private nonisolated static func awaitSetLocal(_ pc: RTCPeerConnection, _ desc: RTCSessionDescription) async throws {
+        let box = SfuPeerConnectionBox(peerConnection: pc)
+        let description = SfuUncheckedBox(value: desc)
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            pc.setLocalDescription(desc) { error in
-                if let error {
-                    cont.resume(throwing: error)
-                } else {
-                    cont.resume(returning: ())
+            sfuWebRTCQueue.async {
+                box.peerConnection.setLocalDescription(description.value) { error in
+                    if let error {
+                        cont.resume(throwing: error)
+                    } else {
+                        cont.resume(returning: ())
+                    }
                 }
             }
         }
     }
 
-    private func awaitCreateAnswer(_ pc: RTCPeerConnection) async throws -> RTCSessionDescription {
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<RTCSessionDescription, Error>) in
-            let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
-            pc.answer(for: constraints) { sdp, error in
-                if let sdp {
-                    cont.resume(returning: sdp)
-                } else {
-                    cont.resume(throwing: error ?? NSError(
-                        domain: "MezonSfuSession",
-                        code: -1,
-                        userInfo: [NSLocalizedDescriptionKey: "createAnswer returned nil"]
-                    ))
+    private nonisolated static func awaitCreateAnswer(_ pc: RTCPeerConnection) async throws -> RTCSessionDescription {
+        let box = SfuPeerConnectionBox(peerConnection: pc)
+        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<RTCSessionDescription, Error>) in
+            sfuWebRTCQueue.async {
+                let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+                box.peerConnection.answer(for: constraints) { sdp, error in
+                    if let sdp {
+                        cont.resume(returning: sdp)
+                    } else {
+                        cont.resume(throwing: error ?? NSError(
+                            domain: "MezonSfuSession",
+                            code: -1,
+                            userInfo: [NSLocalizedDescriptionKey: "createAnswer returned nil"]
+                        ))
+                    }
                 }
             }
         }
+    }
+
+    private nonisolated static func remoteDescriptionSdp(_ pc: RTCPeerConnection) async -> String? {
+        let box = SfuPeerConnectionBox(peerConnection: pc)
+        return await withCheckedContinuation { (cont: CheckedContinuation<String?, Never>) in
+            sfuWebRTCQueue.async {
+                cont.resume(returning: box.peerConnection.remoteDescription?.sdp)
+            }
+        }
+    }
+
+    private nonisolated static func signalingState(_ pc: RTCPeerConnection) async -> RTCSignalingState {
+        let box = SfuPeerConnectionBox(peerConnection: pc)
+        return await withCheckedContinuation { (cont: CheckedContinuation<RTCSignalingState, Never>) in
+            sfuWebRTCQueue.async {
+                cont.resume(returning: box.peerConnection.signalingState)
+            }
+        }
+    }
+
+    private nonisolated static func requestStatistics(_ pc: RTCPeerConnection, _ handler: @escaping @Sendable (RTCStatisticsReport) -> Void) {
+        let box = SfuPeerConnectionBox(peerConnection: pc)
+        sfuWebRTCQueue.async {
+            box.peerConnection.statistics(completionHandler: handler)
+        }
+    }
+
+    private nonisolated static func closeOffMain(_ pc: RTCPeerConnection?) {
+        guard let pc else { return }
+        let box = SfuPeerConnectionBox(peerConnection: pc)
+        sfuWebRTCQueue.async {
+            box.peerConnection.close()
+        }
+    }
+
+    private nonisolated static func releaseOffMain(_ objects: [AnyObject]) {
+        guard !objects.isEmpty else { return }
+        let batch = SfuUncheckedBox(value: objects)
+        sfuWebRTCQueue.async {
+            withExtendedLifetime(batch) {}
+        }
+    }
+
+    private func discardTransceiverState() {
+        Self.releaseOffMain(transceiverCache)
+        Self.releaseOffMain(remoteSnapshot.compactMap { $0.track })
+        transceiverCache = []
+        remoteSnapshot = []
     }
 
     private func rollbackIfStuck(_ pc: RTCPeerConnection) async {
-        guard pc.signalingState == .haveRemoteOffer else { return }
-        try? await awaitSetLocal(pc, RTCSessionDescription(type: .rollback, sdp: ""))
+        guard await Self.signalingState(pc) == .haveRemoteOffer else { return }
+        try? await Self.awaitSetLocal(pc, RTCSessionDescription(type: .rollback, sdp: ""))
     }
 
     private func deactivateAudioIfIdle() {
@@ -1801,14 +1804,14 @@ extension MezonSfuSession: RTCPeerConnectionDelegate {
     nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didAdd rtpReceiver: RTCRtpReceiver, streams: [RTCMediaStream]) {
         Task { @MainActor [weak self] in
             guard let self, peerConnection === self.peerConnection else { return }
-            self.syncRemoteMedia()
+            self.scheduleRemoteMediaSync()
         }
     }
 
     nonisolated func peerConnection(_ peerConnection: RTCPeerConnection, didStartReceivingOn transceiver: RTCRtpTransceiver) {
         Task { @MainActor [weak self] in
             guard let self, peerConnection === self.peerConnection else { return }
-            self.syncRemoteMedia()
+            self.scheduleRemoteMediaSync()
         }
     }
 

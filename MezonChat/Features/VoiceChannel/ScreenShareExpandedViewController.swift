@@ -135,6 +135,7 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
         setupPttControl()
 
         shareTrack.add(videoView)
+        VideoTrackLastFrameStore.replayLastFrame(of: shareTrack, to: [videoView])
         applyScreenShareLayoutForCurrentBounds()
         setupScreenSharePiP()
     }

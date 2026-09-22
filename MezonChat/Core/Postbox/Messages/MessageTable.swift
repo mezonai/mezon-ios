@@ -468,7 +468,11 @@ final class MessageTable: Table {
         )
     }
 
-    func replaceAllMessages(_ messages: [MessageRecord], channelId: String) {
+    func replaceAllMessages(
+        _ messages: [MessageRecord],
+        channelId: String,
+        preservingContiguousHistory: Bool = false
+    ) {
         let belonging = messages.filter { $0.channelId == channelId }
         let existing = cache[channelId] ?? getMessages(channelId: channelId)
         let existingById = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
@@ -501,6 +505,18 @@ final class MessageTable: Table {
             keptIds.insert(record.id)
             mergedBelonging.append(record)
         }
+        var preservedHistory: [MessageRecord] = []
+        if preservingContiguousHistory,
+           let oldestIncoming = mergedBelonging.min(by: { MessageRecord.isOrderedAscending($0, $1) }),
+           existingById[oldestIncoming.id] != nil {
+            for record in existing where !record.id.hasPrefix("pending-") {
+                guard !keptIds.contains(record.id),
+                      MessageRecord.isOrderedAscending(record, oldestIncoming) else { continue }
+                keptIds.insert(record.id)
+                preservedHistory.append(record)
+            }
+        }
+
         let pendingsToKeep = existing.filter { record in
             guard record.id.hasPrefix("pending-"),
                   record.sendingState == .pending || record.sendingState == .failed,
@@ -511,10 +527,19 @@ final class MessageTable: Table {
         let droppedLocalIds = existing
             .filter { $0.id.hasPrefix("pending-") && !keptPendingIds.contains($0.id) }
             .map { $0.id }
-        cache[channelId] = (mergedBelonging + pendingsToKeep).sorted { MessageRecord.isOrderedAscending($0, $1) }
+        cache[channelId] = (mergedBelonging + preservedHistory + pendingsToKeep)
+            .sorted { MessageRecord.isOrderedAscending($0, $1) }
         pendingWrites.insert(channelId)
-        db.run("DELETE FROM messages WHERE channel_id = ? AND id NOT LIKE 'pending-%'") {
-            sqlite3_bind_text($0, 1, channelId, -1, sqliteTransient)
+        if preservedHistory.isEmpty {
+            db.run("DELETE FROM messages WHERE channel_id = ? AND id NOT LIKE 'pending-%'") {
+                sqlite3_bind_text($0, 1, channelId, -1, sqliteTransient)
+            }
+        } else {
+            for droppedId in existing.filter({ !$0.id.hasPrefix("pending-") && !keptIds.contains($0.id) }).map({ $0.id }) {
+                db.run("DELETE FROM messages WHERE id = ?") {
+                    sqlite3_bind_text($0, 1, droppedId, -1, sqliteTransient)
+                }
+            }
         }
         for droppedId in droppedLocalIds {
             db.run("DELETE FROM messages WHERE id = ?") {
