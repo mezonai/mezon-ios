@@ -72,8 +72,13 @@ final class NotificationsViewController: ViewController {
         super.viewWillAppear(animated)
         notificationsNode.applyTheme()
         let clanId = currentCategory == NotificationTabCategory.topic ? resolvedTopicClanId() : context.currentClanId
-        if items.isEmpty || clanId != lastLoadedClanId {
+        let shouldReset = items.isEmpty || clanId != lastLoadedClanId
+        let hasOnlyPendingMessages = currentCategory == NotificationTabCategory.messages
+            && !items.contains { $0.id > 0 }
+        if shouldReset {
             loadedCategories.removeAll()
+        }
+        if shouldReset || hasOnlyPendingMessages {
             Task { await fetchNotifications(category: currentCategory) }
         }
     }
@@ -140,13 +145,14 @@ final class NotificationsViewController: ViewController {
             return
         }
 
-        var notificationId: Int64 = 0
-        if isLoadMore, let last = items.last {
-            notificationId = last.id
-        }
-
         defer {
             if isLoadMore { setIsLoadingMore(false) } else { setIsLoading(false) }
+        }
+
+        var notificationId: Int64 = 0
+        if isLoadMore {
+            guard let lastServerItem = items.last(where: { $0.id > 0 }) else { return }
+            notificationId = lastServerItem.id
         }
 
         if !isLoadMore {
@@ -269,9 +275,13 @@ final class NotificationsViewController: ViewController {
             if record.clanID == 0, channel.type == 0 {
                 channel.type = MezonConstants.ChannelType.group.rawValue
             }
+            if record.topicID != 0 {
+                channel.channelLabel = L(L10n.MessageAction.topicDiscussion)
+            }
             context.currentClanId = record.clanID
             let vc = ChatViewController(
                 clanId: record.clanID, channel: channel, context: self.context)
+            vc.topicId = record.topicID
             if record.messageID != 0 {
                 vc.pendingJumpToMessageId = String(record.messageID)
             }
@@ -318,6 +328,16 @@ final class NotificationsViewController: ViewController {
     }
 
     private func deleteNotification(_ record: NotificationRecord, clanId: Int64) {
+        if record.id < 0 {
+            context.account.postbox.write { tx in
+                tx.removeNotifications(
+                    ids: [record.id],
+                    clanId: clanId,
+                    category: record.category
+                )
+            }
+            return
+        }
         Task { [weak self] in
             guard let self, let token = await self.context.getToken() else { return }
             do {

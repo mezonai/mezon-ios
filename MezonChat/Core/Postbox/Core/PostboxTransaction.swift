@@ -188,6 +188,15 @@ final class PostboxTransaction {
         updatedNotificationKeys.insert("\(clanId)_\(category)")
     }
 
+    func prependLocalNotification(_ notification: NotificationRecord, clanId: Int64, category: Int32) {
+        notificationTable.prependLocalNotificationRecord(
+            notification,
+            clanId: clanId,
+            category: category
+        )
+        updatedNotificationKeys.insert("\(clanId)_\(category)")
+    }
+
     func removeNotifications(ids: [Int64], clanId: Int64, category: Int32) {
         notificationTable.removeNotificationRecords(ids: ids, clanId: clanId, category: category)
         updatedNotificationKeys.insert("\(clanId)_\(category)")

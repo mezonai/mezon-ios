@@ -6782,6 +6782,8 @@ final class ChatViewController: ViewController {
             saveSingleMessageImage(display: display)
         case .copyImage:
             copySingleMessageImage(display: display)
+        case .addToInbox:
+            performAddToInbox(display: display)
         case .deleteMessage:
             showDeleteMessageConfirm(display: display)
         case .pinMessage:
@@ -6815,6 +6817,84 @@ final class ChatViewController: ViewController {
             sendInputViewController.view.becomeFirstResponder()
         case .report:
             presentReportMessageModal(messageId: display.message.id)
+        }
+    }
+
+    private func performAddToInbox(display: ChatMessageDisplay) {
+        guard let messageId = Int64(display.message.id),
+              messageId > 0,
+              let record = context.account.postbox.read({ tx in
+                  tx.getMessageById(display.message.id, channelId: display.message.channelId)
+              }) else {
+            Toast.error(L(L10n.MessageAction.addToInboxError))
+            return
+        }
+
+        let avatar = display.avatarURL ?? record.senderAvatarURL ?? ""
+        var request = Mezon_Api_Message2InboxRequest()
+        request.messageID = messageId
+        request.channelID = channel.channelID
+        request.clanID = clanId
+        request.avatar = avatar
+        request.content = String(data: record.content, encoding: .utf8) ?? ""
+        request.mentions = Self.parseMentionList(from: record.mentionsJSON)
+        request.attachments = Self.inboxAttachments(record: record, fallback: display.attachments)
+        request.topicID = display.messageCode == Self.messageCodeTopic ? 0 : topicId
+
+        let createTimeSeconds = Int64(record.createdAt.timeIntervalSince1970)
+        let localNotification = NotificationRecord(
+            id: NotificationRecord.pendingID(channelID: request.channelID, messageID: messageId),
+            subject: "Message To Inbox",
+            content: NotificationRecord.extractDisplayText(from: request.content),
+            code: -12,
+            senderID: Int64(record.senderId) ?? 0,
+            createTimeSeconds: UInt32(clamping: createTimeSeconds),
+            persistent: false,
+            clanID: request.clanID,
+            channelID: request.channelID,
+            channelType: channel.type,
+            avatarURL: avatar,
+            topicID: request.topicID,
+            category: NotificationTabCategory.messages,
+            messageID: messageId
+        )
+
+        Task { @MainActor [weak self] in
+            guard let self, let token = await context.getToken() else { return }
+            do {
+                try await context.account.network.createMessage2Inbox(request: request, token: token)
+                context.account.postbox.write { tx in
+                    tx.prependLocalNotification(
+                        localNotification,
+                        clanId: request.clanID,
+                        category: NotificationTabCategory.messages
+                    )
+                }
+                Toast.success(L(L10n.MessageAction.addToInboxSuccess))
+            } catch {
+                Toast.error(L(L10n.MessageAction.addToInboxError))
+            }
+        }
+    }
+
+    private static func inboxAttachments(
+        record: MessageRecord,
+        fallback: [ParsedAttachment]
+    ) -> [Mezon_Api_MessageAttachment] {
+        if let list = try? Mezon_Api_MessageAttachmentList(serializedBytes: record.attachmentsJSON),
+           !list.attachments.isEmpty {
+            return list.attachments
+        }
+        return fallback.map { attachment in
+            var value = Mezon_Api_MessageAttachment()
+            value.url = attachment.url
+            value.filename = attachment.filename
+            value.filetype = attachment.filetype
+            value.width = Int32(attachment.width ?? 0)
+            value.height = Int32(attachment.height ?? 0)
+            value.thumbnail = attachment.thumbnail
+            value.duration = Int32(attachment.durationSeconds ?? 0)
+            return value
         }
     }
 

@@ -2332,6 +2332,25 @@ final class MezonHTTPClient {
         )
     }
 
+    func createMessage2Inbox(request: Mezon_Api_Message2InboxRequest, token: String) async throws {
+        do {
+            try await postProtoIgnoringBody(
+                path: "/mezon.api.Mezon/CreateMessage2Inbox",
+                message: request,
+                auth: .bearer(token)
+            )
+        } catch MezonError.httpError(let statusCode, _) where
+            !request.avatar.isEmpty && statusCode == 400 {
+            var requestWithoutAvatar = request
+            requestWithoutAvatar.avatar = ""
+            try await postProtoIgnoringBody(
+                path: "/mezon.api.Mezon/CreateMessage2Inbox",
+                message: requestWithoutAvatar,
+                auth: .bearer(token)
+            )
+        }
+    }
+
     func reportMessageAbuse(messageId: Int64, abuseType: String, token: String) async throws {
         var req = Mezon_Api_ReportMessageAbuseReqest()
         req.messageID = messageId

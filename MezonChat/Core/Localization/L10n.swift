@@ -1241,6 +1241,9 @@ enum L10n {
         static let saveImage        = "messageAction.saveImage"
         static let saveVideo        = "messageAction.saveVideo"
         static let copyImage        = "messageAction.copyImage"
+        static let addToInbox       = "messageAction.addToInbox"
+        static let addToInboxSuccess = "messageAction.addToInboxSuccess"
+        static let addToInboxError  = "messageAction.addToInboxError"
         static let editMessage      = "messageAction.editMessage"
         static let editingMessage   = "messageAction.editingMessage"
         static let editedSuffix     = "messageAction.editedSuffix"
@@ -2467,6 +2470,9 @@ extension L10n {
         "messageAction.saveImage": "Save Image",
         "messageAction.saveVideo": "Save Video",
         "messageAction.copyImage": "Copy Image",
+        "messageAction.addToInbox": "Add To Inbox",
+        "messageAction.addToInboxSuccess": "Added to Inbox",
+        "messageAction.addToInboxError": "Failed to add to Inbox",
         "messageAction.editMessage": "Edit Message",
         "messageAction.editingMessage": "Editing message",
         "messageAction.editedSuffix": "(edited)",
@@ -3833,6 +3839,9 @@ extension L10n {
         "messageAction.saveImage": "Lưu ảnh",
         "messageAction.saveVideo": "Lưu video",
         "messageAction.copyImage": "Sao chép ảnh",
+        "messageAction.addToInbox": "Thêm vào hộp thư",
+        "messageAction.addToInboxSuccess": "Đã thêm vào hộp thư",
+        "messageAction.addToInboxError": "Thêm vào hộp thư thất bại",
         "messageAction.editMessage": "Chỉnh sửa tin nhắn",
         "messageAction.editingMessage": "Đang chỉnh sửa tin nhắn",
         "messageAction.editedSuffix": "(đã chỉnh sửa)",

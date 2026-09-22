@@ -91,16 +91,42 @@ final class NotificationTable: Table {
 
     func appendNotificationRecord(_ notifications: [NotificationRecord], clanId: Int64, category: Int32) {
         let key = cacheKey(clanId: clanId, category: category)
-        var existing = cache[key] ?? []
+        var existing = cache[key] ?? getNotificationRecord(clanId: clanId, category: category)
+        var changed = false
 
-        var seen = Set(existing.map { $0.id })
         for n in notifications {
-            if !seen.contains(n.id) {
-                existing.append(n)
-                seen.insert(n.id)
+            if existing.contains(where: { $0.id == n.id }) {
+                continue
             }
+            if let index = existing.firstIndex(where: {
+                $0.id < 0 && $0.hasSameMessageIdentity(as: n)
+            }) {
+                existing.remove(at: index)
+            }
+            existing.append(n)
+            changed = true
         }
+        guard changed else { return }
         cache[key] = existing.sorted { $0.createTimeSeconds > $1.createTimeSeconds }
+        pendingWrites.insert(key)
+    }
+
+    func prependLocalNotificationRecord(
+        _ notification: NotificationRecord,
+        clanId: Int64,
+        category: Int32
+    ) {
+        let key = cacheKey(clanId: clanId, category: category)
+        let existing = cache[key] ?? getNotificationRecord(clanId: clanId, category: category)
+        let record = existing.first(where: {
+            $0.id > 0 && $0.hasSameMessageIdentity(as: notification)
+        }) ?? notification
+        let updated = [record] + existing.filter {
+            $0.id != record.id && $0.id != notification.id
+                && !$0.hasSameMessageIdentity(as: notification)
+        }
+        guard updated != existing else { return }
+        cache[key] = updated
         pendingWrites.insert(key)
     }
 
