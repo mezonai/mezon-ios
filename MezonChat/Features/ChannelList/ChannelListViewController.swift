@@ -3549,8 +3549,8 @@ final class ChannelListViewController: ViewController {
             do {
                 meetToken = try await self.context.account.network.generateMeetToken(
                     channelId: streamChannel.channelID,
-                    clanId: clanId,
-                    userId: Int64(self.context.currentUser?.id ?? self.context.session?.userId ?? "") ?? 0,
+                    roomName: String(streamChannel.channelID),
+                    metadata: self.context.meetTokenMetadata(clanId: clanId),
                     token: sessionToken
                 )
             } catch {
@@ -3570,8 +3570,8 @@ final class ChannelListViewController: ViewController {
                     guard let token = await tokenContext.getToken() else { return nil }
                     return try? await tokenContext.account.network.generateMeetToken(
                         channelId: streamChannel.channelID,
-                        clanId: clanId,
-                        userId: Int64(tokenContext.currentUser?.id ?? tokenContext.session?.userId ?? "") ?? 0,
+                        roomName: String(streamChannel.channelID),
+                        metadata: tokenContext.meetTokenMetadata(clanId: clanId),
                         token: token
                     )
                 }
