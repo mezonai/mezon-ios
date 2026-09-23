@@ -378,6 +378,7 @@ final class AccountContextImpl: AccountContext {
         session = nil
         currentUser = nil
         SentryLogger.setUser(username: nil)
+        NotificationCenter.default.post(name: .mezonAccountDidLogout, object: nil)
         NotificationCenter.default.post(name: .mezonAccountCurrentUserDidChange, object: nil)
         currentClanId = 0
         currentChannel = nil
