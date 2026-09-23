@@ -57,6 +57,7 @@ protocol AccountContext: AnyObject {
 }
 
 extension Notification.Name {
+    static let mezonAccountDidLogout = Notification.Name("mezon.account.didLogout")
     static let mezonAccountCurrentUserDidChange = Notification.Name("mezon.account.currentUserDidChange")
     static let mezonChannelPinsNeedRefresh = Notification.Name("mezon.channel.pinsNeedRefresh")
     static let mezonUserChannelAddedFromSocket = Notification.Name("mezon.channels.userChannelAddedFromSocket")

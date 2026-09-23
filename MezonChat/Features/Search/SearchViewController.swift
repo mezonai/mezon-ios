@@ -15,6 +15,40 @@ enum SearchTab: Int, CaseIterable {
     }
 }
 
+private struct SearchScreenState {
+    let selectedTab: SearchTab
+    let query: String
+}
+
+@MainActor
+private final class SearchScreenStateStore: NSObject {
+    static let shared = SearchScreenStateStore()
+
+    private var statesByChannelId: [Int64: SearchScreenState] = [:]
+
+    private override init() {
+        super.init()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(clear),
+            name: .mezonAccountDidLogout,
+            object: nil
+        )
+    }
+
+    func state(for channelId: Int64) -> SearchScreenState? {
+        statesByChannelId[channelId]
+    }
+
+    func save(_ state: SearchScreenState, for channelId: Int64) {
+        statesByChannelId[channelId] = state
+    }
+
+    @objc private func clear() {
+        statesByChannelId.removeAll()
+    }
+}
+
 enum SearchFilterOption {
     case from
     case mentions
@@ -160,6 +194,13 @@ final class SearchViewController: ViewController {
         self.scopedChannelType = channelType
         self.needsChannelMemberFilter = needsChannelMemberFilter
         super.init(navigationBarPresentationData: nil)
+
+        if let state = SearchScreenStateStore.shared.state(for: channelId ?? 0) {
+            searchQuery = state.query
+            if Self.isVisible(tab: state.selectedTab, clanId: clanId, channelId: channelId) {
+                activeTab = state.selectedTab
+            }
+        }
     }
 
     required init(coder aDecoder: NSCoder) { fatalError() }
@@ -174,8 +215,10 @@ final class SearchViewController: ViewController {
         displayNode = SearchContainerNode(hiddenTabs: hiddenTabs, channelBadge: scopedChannelLabel, showFilterButton: isChannelScoped && !isDM)
         if isDM {
             searchNode.tabBar.isHidden = true
-            switchTab(.messages)
+            activeTab = .messages
         }
+        searchNode.searchBar.textField.text = searchQuery
+        searchNode.tabBar.setSelectedTab(activeTab)
         searchNode.searchBar.textField.delegate = self
         searchNode.searchBar.textField.addTarget(self, action: #selector(searchTextChanged(_:)), for: .editingChanged)
         searchNode.tabBar.onTabSelected = { [weak self] tab in
@@ -241,9 +284,28 @@ final class SearchViewController: ViewController {
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        saveScreenState()
         if isMovingFromParent {
             navigationController?.setNavigationBarHidden(false, animated: animated)
         }
+    }
+
+    private static func isVisible(tab: SearchTab, clanId: Int64, channelId: Int64?) -> Bool {
+        if clanId == 0 {
+            return tab == .messages
+        }
+        if channelId != nil {
+            return tab != .channels
+        }
+        return tab != .messages
+    }
+
+    private func saveScreenState() {
+        guard context.currentUser != nil else { return }
+        SearchScreenStateStore.shared.save(
+            SearchScreenState(selectedTab: activeTab, query: searchQuery),
+            for: scopedChannelId ?? 0
+        )
     }
 
     private var channelMemberIds: Set<Int64>?
@@ -283,11 +345,7 @@ final class SearchViewController: ViewController {
             }
         }
 
-        filterMembersByChannel()
-        filteredChannels = emptyQueryChannels()
-        updateTabCounts()
-        reloadSearchTable()
-        schedulePrefetchMemberAvatars(filteredMembers)
+        performSearch()
 
         if needsChannelMemberFilter {
             fetchChannelMembersAndUsers()
@@ -377,7 +435,7 @@ final class SearchViewController: ViewController {
                 }
             } catch {}
             await fetchDMAndGroupChannels()
-            performSearch()
+            performSearch(shouldFetchMessages: false)
         }
     }
 
@@ -484,7 +542,7 @@ final class SearchViewController: ViewController {
 
                 channelMemberIds = Set(response.channelUsers.map { $0.userID })
                 filterMembersByChannel()
-                performSearch()
+                performSearch(shouldFetchMessages: false)
             } catch {
             }
         }
@@ -644,7 +702,7 @@ final class SearchViewController: ViewController {
         return false
     }
 
-    private func performSearch() {
+    private func performSearch(shouldFetchMessages: Bool = true) {
         let rawQuery = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         let query = preparedMatchQuery(from: rawQuery)
 
@@ -692,9 +750,11 @@ final class SearchViewController: ViewController {
 
         let messagesTabAvailable = isChannelScoped || clanId == 0
         if messagesTabAvailable, !query.isEmpty || filterUser != nil {
-            messageCurrentPage = 1
-            searchMessages = []
-            fetchMessages()
+            if shouldFetchMessages {
+                messageCurrentPage = 1
+                searchMessages = []
+                fetchMessages()
+            }
         } else {
             searchMessages = []
             groupedMessages = []
