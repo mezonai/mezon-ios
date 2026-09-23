@@ -1728,10 +1728,12 @@ final class MezonHTTPClient {
         )
     }
 
-    func generateMeetToken(channelId: Int64, roomName: String, token: String) async throws -> String {
+    func generateMeetToken(channelId: Int64, clanId: Int64, userId: Int64, token: String) async throws -> String {
+        // GenerateMeetToken uses user_id=1, channel_id=2 and clan_id=3 in the SFU protocol.
         var req = Mezon_Api_GenerateMeetTokenRequest()
+        req.userID = userId
         req.channelID = channelId
-        req.roomName = roomName
+        req.clanID = clanId
         let path = "/mezon.api.Mezon/GenerateMeetToken"
         if let response: Mezon_Api_GenerateMeetTokenResponse = try? await sendOverSocketIfPossible(path: path, message: req),
            !response.token.isEmpty {

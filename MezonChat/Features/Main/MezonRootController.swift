@@ -930,6 +930,8 @@ final class MezonRootController: NavigationController {
 
     private func performDeepLink(_ route: DeepLinkRoute) {
         switch route {
+        case let .channel(channelId, clanId):
+            AppDelegate.navigateToChannel(channelId: channelId, clanId: clanId)
         case let .channelApp(channelId, clanId, _, _):
             handleDeepLinkChannelApp(channelId: channelId, clanId: clanId)
         case let .invite(code):

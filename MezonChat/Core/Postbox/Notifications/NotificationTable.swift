@@ -118,7 +118,7 @@ final class NotificationTable: Table {
     ) {
         let key = cacheKey(clanId: clanId, category: category)
         let existing = cache[key] ?? getNotificationRecord(clanId: clanId, category: category)
-        let record = existing.first(where: {
+        let record: NotificationRecord = existing.first(where: {
             $0.id > 0 && $0.hasSameMessageIdentity(as: notification)
         }) ?? notification
         let updated = [record] + existing.filter {

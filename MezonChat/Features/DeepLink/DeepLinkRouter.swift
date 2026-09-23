@@ -1,6 +1,7 @@
 import Foundation
 
 enum DeepLinkRoute: Equatable {
+    case channel(channelId: String, clanId: String)
     case channelApp(channelId: String, clanId: String?, code: String?, subpath: String?)
     case invite(code: String)
     case chat(username: String, data: String?)
@@ -51,6 +52,16 @@ enum DeepLinkRouter {
         let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         func query(_ name: String) -> String? {
             queryItems.first(where: { $0.name == name })?.value
+        }
+
+        // Custom schemes put "chat" in the host; universal links put it in the path.
+        let isCustomScheme = ["mezon", "mezon.ai"].contains(url.scheme?.lowercased() ?? "")
+        let path = isCustomScheme ? "/" + (url.host ?? "") + url.path : url.path
+        if path.hasPrefix("/chat/clans/") {
+            guard let match = firstMatch(in: path, pattern: "^/chat/clans/([0-9]+)/channels/([0-9]+)/?$"),
+                  let clanId = Int64(match[1]), clanId > 0,
+                  let channelId = Int64(match[2]), channelId > 0 else { return nil }
+            return .channel(channelId: match[2], clanId: match[1])
         }
 
         if raw.contains("login/") || query("login_id") != nil {
