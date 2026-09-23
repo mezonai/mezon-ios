@@ -11,6 +11,7 @@ enum MessageAction: CaseIterable {
     case shareText
     case saveImage
     case copyImage
+    case addToInbox
     case markUnread
     case topicDiscussion
     case pinMessage
@@ -34,6 +35,7 @@ enum MessageAction: CaseIterable {
         case .shareText:        return L(L10n.MessageAction.shareText)
         case .saveImage:        return L(L10n.MessageAction.saveImage)
         case .copyImage:        return L(L10n.MessageAction.copyImage)
+        case .addToInbox:       return L(L10n.MessageAction.addToInbox)
         case .markUnread:       return L(L10n.MessageAction.markUnread)
         case .topicDiscussion:  return L(L10n.MessageAction.topicDiscussion)
         case .pinMessage:       return L(L10n.MessageAction.pinMessage)
@@ -59,6 +61,7 @@ enum MessageAction: CaseIterable {
         case .shareText:        return nil
         case .saveImage:        return nil
         case .copyImage:        return "Chat/IconCopy"
+        case .addToInbox:       return nil
         case .markUnread:       return "Chat/IconMarkUnread"
         case .topicDiscussion:  return nil
         case .pinMessage:       return "Chat/IconPin"
@@ -78,6 +81,7 @@ enum MessageAction: CaseIterable {
         case .createThread:     return "square.and.pencil"
         case .saveImage:        return "square.and.arrow.down"
         case .shareText:        return "square.and.arrow.up"
+        case .addToInbox:       return "tray.and.arrow.down"
         case .topicDiscussion:  return "text.bubble"
         case .quickMenu:       return "bolt.fill"
         case .unpinMessage:     return "pin.slash"
@@ -100,7 +104,7 @@ enum MessageAction: CaseIterable {
         switch self {
         case .giveACoffee, .reply, .forwardMessage, .forwardAll, .createThread, .resend, .editMessage, .forward:
             return .frequent
-        case .copyText, .shareText, .saveImage, .copyImage, .markUnread, .topicDiscussion, .pinMessage, .unpinMessage, .markMessage, .quickMenu:
+        case .copyText, .shareText, .saveImage, .copyImage, .addToInbox, .markUnread, .topicDiscussion, .pinMessage, .unpinMessage, .markMessage, .quickMenu:
             return .normal
         case .deleteMessage, .report:
             return .warning
@@ -226,6 +230,11 @@ final class MessageActionSheetController: ViewController {
         return true
     }
 
+    private static func canAddToInbox(display: ChatMessageDisplay) -> Bool {
+        if display.message.isDeleted { return false }
+        return Int64(display.message.id).map { $0 > 0 } ?? false
+    }
+
     private static func availableActions(
         display: ChatMessageDisplay,
         isOwnMessage: Bool,
@@ -268,6 +277,9 @@ final class MessageActionSheetController: ViewController {
         if display.singleImageMediaAttachment != nil {
             actions.append(.saveImage)
             actions.append(.copyImage)
+        }
+        if Self.canAddToInbox(display: display) {
+            actions.append(.addToInbox)
         }
 
         // actions.append(.markUnread)

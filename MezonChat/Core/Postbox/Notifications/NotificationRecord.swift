@@ -62,6 +62,18 @@ public struct NotificationRecord: PostboxCoding, Identifiable, Equatable {
         self.category = category
         self.messageID = messageID
     }
+
+    static func pendingID(channelID: Int64, messageID: Int64) -> Int64 {
+        let channelBits = UInt64(bitPattern: channelID)
+        let messageBits = UInt64(bitPattern: messageID)
+        let rotatedMessageBits = (messageBits << 32) | (messageBits >> 32)
+        return Int64(bitPattern: (channelBits ^ rotatedMessageBits) | (UInt64(1) << 63))
+    }
+
+    func hasSameMessageIdentity(as other: NotificationRecord) -> Bool {
+        channelID != 0 && messageID != 0
+            && channelID == other.channelID && messageID == other.messageID
+    }
 }
 
 extension NotificationRecord {
@@ -77,7 +89,6 @@ extension NotificationRecord {
         self.senderID = apiModel.senderID
         self.createTimeSeconds = apiModel.createTimeSeconds
         self.persistent = apiModel.persistent
-        self.topicID = apiModel.topicID
         self.category = apiModel.category
 
         if apiModel.channelType != 0 {
@@ -91,11 +102,19 @@ extension NotificationRecord {
         self.content = decoded.text
         self.avatarURL = apiModel.avatarURL.isEmpty ? decoded.avatar : apiModel.avatarURL
         self.messageID = decoded.messageID
+        self.topicID = apiModel.topicID != 0 ? apiModel.topicID : decoded.topicID
         self.clanID = Self.mergeID(decoded: decoded.clanID, direct: apiModel.clanID, nested: apiModel.hasChannel ? apiModel.channel.clanID : 0)
         self.channelID = Self.mergeID(decoded: decoded.channelID, direct: apiModel.channelID, nested: apiModel.hasChannel ? apiModel.channel.channelID : 0)
     }
 
-    private typealias DecodedContent = (text: String, avatar: String, messageID: Int64, clanID: Int64, channelID: Int64)
+    private typealias DecodedContent = (
+        text: String,
+        avatar: String,
+        messageID: Int64,
+        clanID: Int64,
+        channelID: Int64,
+        topicID: Int64
+    )
 
     private static func mergeID(decoded: Int64, direct: Int64, nested: Int64) -> Int64 {
         if decoded != 0 { return decoded }
@@ -172,21 +191,48 @@ extension NotificationRecord {
         return nil
     }
 
+    private static func topicID(fromJSONObject obj: [String: Any]) -> Int64 {
+        for key in ["topic_id", "tp"] {
+            if let id = parseInt64(obj[key]), id > 0 {
+                return id
+            }
+        }
+        return 0
+    }
+
     private static func decodeContent(from data: Data) -> DecodedContent {
-        guard !data.isEmpty else { return ("", "", 0, 0, 0) }
-        if let channelMessage = try? Mezon_Api_DirectFcmProto(serializedBytes: data) {
+        guard !data.isEmpty else { return ("", "", 0, 0, 0, 0) }
+        let directMessage = try? Mezon_Api_DirectFcmProto(serializedBytes: data)
+        if (directMessage?.messageID ?? 0) == 0,
+            let channelMessage = try? Mezon_Api_ChannelMessage(serializedBytes: data),
+            channelMessage.messageID > 0,
+            channelMessage.channelID > 0
+        {
+            let jsonString = channelMessage.content
+            let base: DecodedContent = (
+                extractDisplayText(from: jsonString), channelMessage.avatar,
+                channelMessage.messageID, channelMessage.clanID, channelMessage.channelID,
+                channelMessage.topicID
+            )
+            guard !jsonString.isEmpty else { return base }
+            return Self.mergeDecodedContent(base, Self.decodeJsonPayload(jsonString))
+        }
+        if let channelMessage = directMessage {
             let jsonString = channelMessage.content
             let text = extractDisplayText(from: jsonString)
             let base: DecodedContent = (
                 text, channelMessage.avatar, channelMessage.messageID, channelMessage.clanID,
-                channelMessage.channelID
+                channelMessage.channelID, channelMessage.topicID
             )
             var merged = base
             if !channelMessage.link.isEmpty {
                 let linkIds = Self.parseRoutingIds(fromLink: channelMessage.link)
                 merged = Self.mergeDecodedContent(
                     merged,
-                    (merged.text, merged.avatar, merged.messageID, linkIds.clanID, linkIds.channelID)
+                    (
+                        merged.text, merged.avatar, merged.messageID, linkIds.clanID,
+                        linkIds.channelID, merged.topicID
+                    )
                 )
             }
             if !jsonString.isEmpty {
@@ -198,13 +244,13 @@ extension NotificationRecord {
             return merged
         }
         guard let utf8 = String(data: data, encoding: .utf8), !utf8.isEmpty else {
-            return ("", "", 0, 0, 0)
+            return ("", "", 0, 0, 0, 0)
         }
         let trimmed = utf8.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.first == "{" {
             return decodeJsonPayload(utf8)
         }
-        return (utf8, "", 0, 0, 0)
+        return (utf8, "", 0, 0, 0, 0)
     }
 
     private static func mergeDecodedContent(_ a: DecodedContent, _ b: DecodedContent) -> DecodedContent {
@@ -213,7 +259,8 @@ extension NotificationRecord {
             a.avatar.isEmpty ? b.avatar : a.avatar,
             a.messageID != 0 ? a.messageID : b.messageID,
             a.clanID != 0 ? a.clanID : b.clanID,
-            a.channelID != 0 ? a.channelID : b.channelID
+            a.channelID != 0 ? a.channelID : b.channelID,
+            a.topicID != 0 ? a.topicID : b.topicID
         )
     }
 
@@ -246,13 +293,21 @@ extension NotificationRecord {
         guard let data = raw.data(using: .utf8),
             let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else {
-            return (extractDisplayText(from: raw), "", 0, 0, 0)
+            return (extractDisplayText(from: raw), "", 0, 0, 0, 0)
         }
         let text = extractDisplayText(from: raw)
         let avatar = extractAvatar(fromJSONObject: obj)
         let messageID =
             parseInt64(obj["message_id"]) ?? parseInt64(obj["messageId"]) ?? parseInt64(obj["messageID"])
             ?? 0
+        var topicID = topicID(fromJSONObject: obj)
+        if topicID == 0,
+            let nestedRaw = obj["content"] as? String,
+            let nestedData = nestedRaw.data(using: .utf8),
+            let nestedObj = try? JSONSerialization.jsonObject(with: nestedData) as? [String: Any]
+        {
+            topicID = Self.topicID(fromJSONObject: nestedObj)
+        }
         var clanID =
             parseInt64(obj["clan_id"]) ?? parseInt64(obj["clanId"]) ?? parseInt64(obj["clanID"]) ?? 0
         var channelID =
@@ -289,7 +344,7 @@ extension NotificationRecord {
             if channelID == 0 { channelID = rid.channelID }
             if clanID == 0 { clanID = rid.clanID }
         }
-        return (text, avatar, messageID, clanID, channelID)
+        return (text, avatar, messageID, clanID, channelID, topicID)
     }
 
     private static func extractAvatar(fromJSONObject obj: [String: Any]) -> String {
