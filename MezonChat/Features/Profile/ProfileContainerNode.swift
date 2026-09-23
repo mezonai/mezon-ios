@@ -73,20 +73,11 @@ final class ProfileContainerNode: ASDisplayNode {
     }()
     private let usernameLabel = UILabel()
 
-    private let headphoneButton: UIButton = {
-        let btn = UIButton(type: .custom)
-        let img = UIImage(named: "Profile/ShopIcon", in: Bundle.main, compatibleWith: nil)?.withRenderingMode(.alwaysOriginal)
-        btn.setImage(img, for: .normal)
-        btn.imageView?.contentMode = .scaleAspectFit
-        btn.contentEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
-        btn.backgroundColor = .mezonPrimary
-        return btn
-    }()
-
     private let micButton: UIButton = {
         let btn = UIButton(type: .custom)
-        let img = UIImage(named: "Profile/SettingIcon", in: Bundle.main, compatibleWith: nil)?.withRenderingMode(.alwaysOriginal)
+        let img = UIImage(named: "Profile/AdminSettingIcon", in: Bundle.main, compatibleWith: nil)?.withRenderingMode(.alwaysTemplate)
         btn.setImage(img, for: .normal)
+        btn.tintColor = .mezonTextStrong
         btn.imageView?.contentMode = .scaleAspectFit
         btn.contentEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
         btn.backgroundColor = .mezonPrimary
@@ -370,8 +361,8 @@ final class ProfileContainerNode: ASDisplayNode {
         chevronDown.tintColor = .mezonTextPrimary
         usernameLabel.textColor = .mezonTextPrimary
 
-        headphoneButton.backgroundColor = .mezonPrimary
         micButton.backgroundColor = .mezonPrimary
+        micButton.tintColor = .mezonTextStrong
 
         for card in [balanceCard, aboutMeCard, friendsCard, copyCard] {
             card.backgroundColor = .mezonPrimary
@@ -485,11 +476,6 @@ final class ProfileContainerNode: ASDisplayNode {
         fixedHeaderView.addSubview(usernameLabel)
 
         let iconBtnSize: CGFloat = 36.swh
-        headphoneButton.layer.cornerRadius = iconBtnSize / 2
-        headphoneButton.clipsToBounds = true
-        headphoneButton.addTarget(self, action: #selector(shopTapped), for: .touchUpInside)
-        fixedHeaderView.addSubview(headphoneButton)
-
         micButton.layer.cornerRadius = iconBtnSize / 2
         micButton.clipsToBounds = true
         micButton.addTarget(self, action: #selector(settingsTapped), for: .touchUpInside)
@@ -1058,16 +1044,9 @@ final class ProfileContainerNode: ASDisplayNode {
         )
 
         let iconBtnSize: CGFloat = 36.swh
-        let iconSpacing: CGFloat = 8.sw
         micButton.frame = CGRect(
             x: width - side - iconBtnSize,
             y: y + (28.sh - iconBtnSize) / 2,
-            width: iconBtnSize,
-            height: iconBtnSize
-        )
-        headphoneButton.frame = CGRect(
-            x: micButton.frame.minX - iconSpacing - iconBtnSize,
-            y: micButton.frame.minY,
             width: iconBtnSize,
             height: iconBtnSize
         )
@@ -1180,10 +1159,6 @@ final class ProfileContainerNode: ASDisplayNode {
         onTransferFundsTapped?()
     }
 
-    @objc private func shopTapped() {
-        showComingSoonToastLine(title: "Shop")
-    }
-
     @objc private func historyTransactionTapped() {
         onHistoryTransactionTapped?()
     }
@@ -1192,10 +1167,6 @@ final class ProfileContainerNode: ASDisplayNode {
         onYourFriendsTapped?()
     }
 
-    private func showComingSoonToastLine(title: String) {
-        let line = "\(title) — \(L(L10n.Common.comingSoon))"
-        Toast.comingSoonLine(line)
-    }
 }
 
 private final class ProfileIconRow: UIView {
