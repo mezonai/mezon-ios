@@ -2340,6 +2340,9 @@ struct Mezon_Realtime_VoiceLeavedEvent: Sendable {
   /// voice user_id
   var voiceUserID: Int64 = 0
 
+  /// peer id
+  var peerID: Int32 = 0
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
@@ -2374,6 +2377,9 @@ struct Mezon_Realtime_VoiceJoinedEvent: Sendable {
 
   /// last screenshot
   var lastScreenshot: String = String()
+
+  /// peer id
+  var peerID: Int32 = 0
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -3352,6 +3358,12 @@ struct Mezon_Realtime_ClanUpdatedEvent: Sendable {
   /// prevent anonymous
   var preventAnonymous: Bool = false
 
+  /// comma-separated clan hashtags
+  var hashtags: String = String()
+
+  /// community vanity short url (clan_discover)
+  var shortURL: String = String()
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
@@ -3923,8 +3935,6 @@ struct Mezon_Realtime_MeetParticipantEvent: Sendable {
   var channelID: Int64 = 0
 
   var clanID: Int64 = 0
-
-  var action: Int32 = 0
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -8027,7 +8037,7 @@ extension Mezon_Realtime_MessageTypingEvent: SwiftProtobuf.Message, SwiftProtobu
 
 extension Mezon_Realtime_VoiceLeavedEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".VoiceLeavedEvent"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{3}clan_id\0\u{3}voice_channel_id\0\u{3}voice_user_id\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{3}clan_id\0\u{3}voice_channel_id\0\u{3}voice_user_id\0\u{3}peer_id\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -8039,6 +8049,7 @@ extension Mezon_Realtime_VoiceLeavedEvent: SwiftProtobuf.Message, SwiftProtobuf.
       case 2: try { try decoder.decodeSingularInt64Field(value: &self.clanID) }()
       case 3: try { try decoder.decodeSingularInt64Field(value: &self.voiceChannelID) }()
       case 4: try { try decoder.decodeSingularInt64Field(value: &self.voiceUserID) }()
+      case 5: try { try decoder.decodeSingularInt32Field(value: &self.peerID) }()
       default: break
       }
     }
@@ -8057,6 +8068,9 @@ extension Mezon_Realtime_VoiceLeavedEvent: SwiftProtobuf.Message, SwiftProtobuf.
     if self.voiceUserID != 0 {
       try visitor.visitSingularInt64Field(value: self.voiceUserID, fieldNumber: 4)
     }
+    if self.peerID != 0 {
+      try visitor.visitSingularInt32Field(value: self.peerID, fieldNumber: 5)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -8065,6 +8079,7 @@ extension Mezon_Realtime_VoiceLeavedEvent: SwiftProtobuf.Message, SwiftProtobuf.
     if lhs.clanID != rhs.clanID {return false}
     if lhs.voiceChannelID != rhs.voiceChannelID {return false}
     if lhs.voiceUserID != rhs.voiceUserID {return false}
+    if lhs.peerID != rhs.peerID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -8072,7 +8087,7 @@ extension Mezon_Realtime_VoiceLeavedEvent: SwiftProtobuf.Message, SwiftProtobuf.
 
 extension Mezon_Realtime_VoiceJoinedEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".VoiceJoinedEvent"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}clan_id\0\u{3}clan_name\0\u{1}id\0\u{1}participant\0\u{3}user_id\0\u{3}voice_channel_label\0\u{3}voice_channel_id\0\u{3}last_screenshot\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}clan_id\0\u{3}clan_name\0\u{1}id\0\u{1}participant\0\u{3}user_id\0\u{3}voice_channel_label\0\u{3}voice_channel_id\0\u{3}last_screenshot\0\u{3}peer_id\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -8088,6 +8103,7 @@ extension Mezon_Realtime_VoiceJoinedEvent: SwiftProtobuf.Message, SwiftProtobuf.
       case 6: try { try decoder.decodeSingularStringField(value: &self.voiceChannelLabel) }()
       case 7: try { try decoder.decodeSingularInt64Field(value: &self.voiceChannelID) }()
       case 8: try { try decoder.decodeSingularStringField(value: &self.lastScreenshot) }()
+      case 9: try { try decoder.decodeSingularInt32Field(value: &self.peerID) }()
       default: break
       }
     }
@@ -8118,6 +8134,9 @@ extension Mezon_Realtime_VoiceJoinedEvent: SwiftProtobuf.Message, SwiftProtobuf.
     if !self.lastScreenshot.isEmpty {
       try visitor.visitSingularStringField(value: self.lastScreenshot, fieldNumber: 8)
     }
+    if self.peerID != 0 {
+      try visitor.visitSingularInt32Field(value: self.peerID, fieldNumber: 9)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -8130,6 +8149,7 @@ extension Mezon_Realtime_VoiceJoinedEvent: SwiftProtobuf.Message, SwiftProtobuf.
     if lhs.voiceChannelLabel != rhs.voiceChannelLabel {return false}
     if lhs.voiceChannelID != rhs.voiceChannelID {return false}
     if lhs.lastScreenshot != rhs.lastScreenshot {return false}
+    if lhs.peerID != rhs.peerID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -9787,7 +9807,7 @@ extension Mezon_Realtime_ClanCreatedEvent: SwiftProtobuf.Message, SwiftProtobuf.
 
 extension Mezon_Realtime_ClanUpdatedEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".ClanUpdatedEvent"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}clan_id\0\u{3}clan_name\0\u{1}logo\0\u{1}banner\0\u{1}status\0\u{3}is_onboarding\0\u{3}welcome_channel_id\0\u{3}onboarding_banner\0\u{3}community_banner\0\u{3}is_community\0\u{1}about\0\u{1}description\0\u{3}prevent_anonymous\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}clan_id\0\u{3}clan_name\0\u{1}logo\0\u{1}banner\0\u{1}status\0\u{3}is_onboarding\0\u{3}welcome_channel_id\0\u{3}onboarding_banner\0\u{3}community_banner\0\u{3}is_community\0\u{1}about\0\u{1}description\0\u{3}prevent_anonymous\0\u{1}hashtags\0\u{3}short_url\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -9808,6 +9828,8 @@ extension Mezon_Realtime_ClanUpdatedEvent: SwiftProtobuf.Message, SwiftProtobuf.
       case 11: try { try decoder.decodeSingularStringField(value: &self.about) }()
       case 12: try { try decoder.decodeSingularStringField(value: &self.description_p) }()
       case 13: try { try decoder.decodeSingularBoolField(value: &self.preventAnonymous) }()
+      case 14: try { try decoder.decodeSingularStringField(value: &self.hashtags) }()
+      case 15: try { try decoder.decodeSingularStringField(value: &self.shortURL) }()
       default: break
       }
     }
@@ -9853,6 +9875,12 @@ extension Mezon_Realtime_ClanUpdatedEvent: SwiftProtobuf.Message, SwiftProtobuf.
     if self.preventAnonymous != false {
       try visitor.visitSingularBoolField(value: self.preventAnonymous, fieldNumber: 13)
     }
+    if !self.hashtags.isEmpty {
+      try visitor.visitSingularStringField(value: self.hashtags, fieldNumber: 14)
+    }
+    if !self.shortURL.isEmpty {
+      try visitor.visitSingularStringField(value: self.shortURL, fieldNumber: 15)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -9870,6 +9898,8 @@ extension Mezon_Realtime_ClanUpdatedEvent: SwiftProtobuf.Message, SwiftProtobuf.
     if lhs.about != rhs.about {return false}
     if lhs.description_p != rhs.description_p {return false}
     if lhs.preventAnonymous != rhs.preventAnonymous {return false}
+    if lhs.hashtags != rhs.hashtags {return false}
+    if lhs.shortURL != rhs.shortURL {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -10985,7 +11015,7 @@ extension Mezon_Realtime_ListDataSocket: SwiftProtobuf.Message, SwiftProtobuf._M
 
 extension Mezon_Realtime_MeetParticipantEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".MeetParticipantEvent"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}user_id\0\u{3}room_name\0\u{3}channel_id\0\u{3}clan_id\0\u{1}action\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}user_id\0\u{3}room_name\0\u{3}channel_id\0\u{3}clan_id\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -10997,7 +11027,6 @@ extension Mezon_Realtime_MeetParticipantEvent: SwiftProtobuf.Message, SwiftProto
       case 2: try { try decoder.decodeSingularStringField(value: &self.roomName) }()
       case 3: try { try decoder.decodeSingularInt64Field(value: &self.channelID) }()
       case 4: try { try decoder.decodeSingularInt64Field(value: &self.clanID) }()
-      case 5: try { try decoder.decodeSingularInt32Field(value: &self.action) }()
       default: break
       }
     }
@@ -11016,9 +11045,6 @@ extension Mezon_Realtime_MeetParticipantEvent: SwiftProtobuf.Message, SwiftProto
     if self.clanID != 0 {
       try visitor.visitSingularInt64Field(value: self.clanID, fieldNumber: 4)
     }
-    if self.action != 0 {
-      try visitor.visitSingularInt32Field(value: self.action, fieldNumber: 5)
-    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -11027,7 +11053,6 @@ extension Mezon_Realtime_MeetParticipantEvent: SwiftProtobuf.Message, SwiftProto
     if lhs.roomName != rhs.roomName {return false}
     if lhs.channelID != rhs.channelID {return false}
     if lhs.clanID != rhs.clanID {return false}
-    if lhs.action != rhs.action {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

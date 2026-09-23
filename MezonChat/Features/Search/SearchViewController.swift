@@ -1349,7 +1349,8 @@ final class SearchViewController: ViewController {
             do {
                 meetToken = try await self.context.account.network.generateMeetToken(
                     channelId: channel.channelID,
-                    roomName: "\(channel.channelID)",
+                    clanId: clanId,
+                    userId: Int64(self.context.currentUser?.id ?? self.context.session?.userId ?? "") ?? 0,
                     token: sessionToken
                 )
             } catch {
@@ -1369,7 +1370,8 @@ final class SearchViewController: ViewController {
                     guard let token = await tokenContext.getToken() else { return nil }
                     return try? await tokenContext.account.network.generateMeetToken(
                         channelId: channel.channelID,
-                        roomName: "\(channel.channelID)",
+                        clanId: clanId,
+                        userId: Int64(tokenContext.currentUser?.id ?? tokenContext.session?.userId ?? "") ?? 0,
                         token: token
                     )
                 }

@@ -30,6 +30,7 @@ open class TabBarControllerImpl: ViewController, TabBarController {
         }
     }
 
+    // UIKit forwards appearance transitions to this controller through addChild(_:).
     public var currentController: ViewController?
 
     override public var transitionNavigationBar: NavigationBar? {
@@ -243,25 +244,5 @@ open class TabBarControllerImpl: ViewController, TabBarController {
             self.selectedIndex = updatedSelectedIndex
             updateSelectedIndex()
         }
-    }
-
-    override open func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
-        currentController?.viewWillAppear(animated)
-    }
-
-    override open func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-        currentController?.viewDidAppear(animated)
-    }
-
-    override open func viewWillDisappear(_ animated: Bool) {
-        super.viewWillDisappear(animated)
-        currentController?.viewWillDisappear(animated)
-    }
-
-    override open func viewDidDisappear(_ animated: Bool) {
-        super.viewDidDisappear(animated)
-        currentController?.endAppearanceTransition()
     }
 }
