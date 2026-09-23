@@ -196,16 +196,6 @@ enum MezonEnvironment {
         }
     }
 
-    var streamWebSocketURLString: String {
-        if let override = Self.infoPlistString("STREAM_WS_URL"), !override.isEmpty {
-            return override
-        }
-        switch self {
-        case .dev: return "wss://stn.nccsoft.vn"
-        case .prod: return "wss://stn.mezon.ai"
-        }
-    }
-
     var sfuWebSocketURLString: String {
         if let override = Self.infoPlistString("MEZON_SFU_WS_URL"), !override.isEmpty {
             return override

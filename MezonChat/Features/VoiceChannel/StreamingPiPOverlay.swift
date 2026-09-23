@@ -1,5 +1,4 @@
 import UIKit
-import WebRTC
 
 @MainActor
 final class StreamingPiPOverlay: NSObject {
@@ -18,7 +17,6 @@ final class StreamingPiPOverlay: NSObject {
     private let pipChromeBackdrop = UIView()
     private let backgroundImageView = UIImageView()
     private let streamBannerView = UIImageView()
-    private let videoView = PeerCallVideoRenderView()
     private let placeholderView = UIImageView()
     private let badgeContainer = UIView()
     private let badgeIcon = UIImageView()
@@ -29,6 +27,8 @@ final class StreamingPiPOverlay: NSObject {
     private var backgroundLoadToken = 0
     private var isLoadingBackground = false
     private var didFetchRemoteChannel = false
+    private var hadStreamMembers = false
+    private var presenceObserver: NSObjectProtocol?
 
     private override init() {
         super.init()
@@ -38,11 +38,6 @@ final class StreamingPiPOverlay: NSObject {
 
         pipChromeBackdrop.translatesAutoresizingMaskIntoConstraints = false
         pipChromeBackdrop.isUserInteractionEnabled = false
-
-        videoView.translatesAutoresizingMaskIntoConstraints = false
-        videoView.isMirrored = true
-        videoView.isUserInteractionEnabled = false
-        videoView.isHidden = true
 
         backgroundImageView.translatesAutoresizingMaskIntoConstraints = false
         backgroundImageView.contentMode = .scaleAspectFill
@@ -82,7 +77,6 @@ final class StreamingPiPOverlay: NSObject {
         pipView.addSubview(pipChromeBackdrop)
         pipView.addSubview(backgroundImageView)
         pipView.addSubview(streamBannerView)
-        pipView.addSubview(videoView)
         pipView.addSubview(placeholderView)
         pipView.addSubview(badgeContainer)
         badgeContainer.addSubview(badgeIcon)
@@ -93,11 +87,6 @@ final class StreamingPiPOverlay: NSObject {
             pipChromeBackdrop.leadingAnchor.constraint(equalTo: pipView.leadingAnchor),
             pipChromeBackdrop.trailingAnchor.constraint(equalTo: pipView.trailingAnchor),
             pipChromeBackdrop.bottomAnchor.constraint(equalTo: pipView.bottomAnchor),
-
-            videoView.topAnchor.constraint(equalTo: pipView.topAnchor),
-            videoView.leadingAnchor.constraint(equalTo: pipView.leadingAnchor),
-            videoView.trailingAnchor.constraint(equalTo: pipView.trailingAnchor),
-            videoView.bottomAnchor.constraint(equalTo: pipView.bottomAnchor),
 
             backgroundImageView.topAnchor.constraint(equalTo: pipView.topAnchor),
             backgroundImageView.leadingAnchor.constraint(equalTo: pipView.leadingAnchor),
@@ -162,6 +151,7 @@ final class StreamingPiPOverlay: NSObject {
         backgroundLoadToken = 0
         isLoadingBackground = false
         didFetchRemoteChannel = false
+        hadStreamMembers = false
         backgroundImageView.image = nil
 
         badgeLabel.text = channel.channelLabel
@@ -202,6 +192,7 @@ final class StreamingPiPOverlay: NSObject {
         pipWindow = w
 
         applyPiPChromeTheme()
+        installPresenceObserver()
         bindSession()
         refreshContent()
         UIApplication.shared.isIdleTimerDisabled = true
@@ -212,7 +203,10 @@ final class StreamingPiPOverlay: NSObject {
         let ctx = context
         let ch = channel
         unbindSession()
-        videoView.attach(track: nil)
+        if let presenceObserver {
+            NotificationCenter.default.removeObserver(presenceObserver)
+            self.presenceObserver = nil
+        }
         pipView.removeFromSuperview()
         pipWindow?.isHidden = true
         pipWindow = nil
@@ -223,6 +217,7 @@ final class StreamingPiPOverlay: NSObject {
         backgroundLoadToken = 0
         isLoadingBackground = false
         didFetchRemoteChannel = false
+        hadStreamMembers = false
         backgroundImageView.image = nil
         if disconnectSession {
             if let ctx, let ch,
@@ -236,6 +231,10 @@ final class StreamingPiPOverlay: NSObject {
 
     func prepareForFullScreenRestore() {
         unbindSession()
+        if let presenceObserver {
+            NotificationCenter.default.removeObserver(presenceObserver)
+            self.presenceObserver = nil
+        }
         pipView.alpha = 0
         pipView.isUserInteractionEnabled = false
         pipWindow?.isHidden = true
@@ -247,38 +246,67 @@ final class StreamingPiPOverlay: NSObject {
         StreamingWebRTCSession.shared.onStreamingStateChanged = { [weak self] in
             self?.refreshContent()
         }
-        StreamingWebRTCSession.shared.onRemoteVideoTrackChanged = { [weak self] track in
-            self?.videoView.attach(track: track)
-            self?.refreshContent()
-        }
     }
 
     private func unbindSession() {
         if StreamingWebRTCSession.shared.onStreamingStateChanged != nil {
             StreamingWebRTCSession.shared.onStreamingStateChanged = nil
         }
-        if StreamingWebRTCSession.shared.onRemoteVideoTrackChanged != nil {
-            StreamingWebRTCSession.shared.onRemoteVideoTrackChanged = nil
-        }
     }
 
     private func refreshContent() {
         let session = StreamingWebRTCSession.shared
-        let hasVideo = session.isRemoteVideoStream
         let isActive = session.isStreaming
         let avatarURL = resolvedStreamChannelAvatarURL()
-        let showBackground = isActive && !hasVideo && (backgroundImageView.image != nil || !avatarURL.isEmpty)
+        let showBackground = isActive && (backgroundImageView.image != nil || !avatarURL.isEmpty)
 
-        videoView.isHidden = !hasVideo
         backgroundImageView.isHidden = !showBackground
         streamBannerView.isHidden = true
         placeholderView.isHidden = true
 
-        if hasVideo {
-            videoView.attach(track: session.remoteVideoTrack)
-        } else if backgroundImageView.image == nil && !isLoadingBackground {
+        if backgroundImageView.image == nil && !isLoadingBackground {
             loadStreamBackgroundIfNeeded()
         }
+
+        let memberIds = streamMemberUserIds()
+        if !memberIds.isEmpty {
+            hadStreamMembers = true
+        } else if hadStreamMembers {
+            dismiss(disconnectSession: true)
+        }
+    }
+
+    private func installPresenceObserver() {
+        if let presenceObserver {
+            NotificationCenter.default.removeObserver(presenceObserver)
+        }
+        presenceObserver = NotificationCenter.default.addObserver(
+            forName: .mezonVoicePresenceChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let updatedClanId = (notification.userInfo?["clanId"] as? NSNumber)?.int64Value ?? 0
+                let channelClanId = self.channel?.clanID ?? 0
+                let expectedClanId = channelClanId != 0 ? channelClanId : self.context?.currentClanId ?? 0
+                guard updatedClanId == expectedClanId else { return }
+                self.refreshContent()
+            }
+        }
+    }
+
+    private func streamMemberUserIds() -> [String] {
+        guard let channel, let context else { return [] }
+        let clanId = channel.clanID != 0 ? channel.clanID : context.currentClanId
+        guard let list = context.engine.clanData.getStreamUsers(clanId: clanId) else { return [] }
+        var userIds: [String] = []
+        for entry in list.voiceChannelUsers where entry.channelID == channel.channelID {
+            for userId in entry.userIds where !userId.isEmpty && !userIds.contains(userId) {
+                userIds.append(userId)
+            }
+        }
+        return userIds
     }
 
     private func resolvedStreamChannelAvatarURL() -> String {

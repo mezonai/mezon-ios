@@ -1,5 +1,4 @@
 import UIKit
-import WebRTC
 
 final class StreamingRoomViewController: ViewController {
 
@@ -16,8 +15,8 @@ final class StreamingRoomViewController: ViewController {
     private var backgroundLoadToken = 0
     private var isLoadingBackground = false
     private var didFetchRemoteChannel = false
+    private var hadStreamMembers = false
 
-    private let videoView = PeerCallVideoRenderView()
     private let backgroundImageView = UIImageView()
     private let streamBannerView = UIImageView()
     private let placeholderView = UIImageView()
@@ -97,10 +96,6 @@ final class StreamingRoomViewController: ViewController {
         placeholderView.tintColor = UIColor.theme.textStrong
         placeholderView.image = UIImage(named: "Channel/channelStream")?.withRenderingMode(.alwaysTemplate)
 
-        videoView.translatesAutoresizingMaskIntoConstraints = false
-        videoView.isMirrored = true
-        videoView.isHidden = true
-
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
         statusLabel.font = .systemFont(ofSize: 16, weight: .medium)
         statusLabel.textColor = UIColor.theme.textDisabled
@@ -159,7 +154,6 @@ final class StreamingRoomViewController: ViewController {
         footerRow.addArrangedSubview(leaveButton)
         bottomChrome.addSubview(footerRow)
 
-        view.addSubview(videoView)
         view.addSubview(backgroundImageView)
         view.addSubview(streamBannerView)
         view.addSubview(placeholderView)
@@ -176,11 +170,6 @@ final class StreamingRoomViewController: ViewController {
             chatButton.heightAnchor.constraint(equalToConstant: 50),
             leaveButton.widthAnchor.constraint(equalToConstant: 50),
             leaveButton.heightAnchor.constraint(equalToConstant: 50),
-
-            videoView.topAnchor.constraint(equalTo: view.topAnchor),
-            videoView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            videoView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            videoView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
             backgroundImageView.topAnchor.constraint(equalTo: view.topAnchor),
             backgroundImageView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -292,7 +281,6 @@ final class StreamingRoomViewController: ViewController {
         if isMinimizingToPiP { return }
         if isMovingFromParent || isBeingDismissed {
             StreamingWebRTCSession.shared.onStreamingStateChanged = nil
-            StreamingWebRTCSession.shared.onRemoteVideoTrackChanged = nil
         }
     }
 
@@ -304,27 +292,20 @@ final class StreamingRoomViewController: ViewController {
         StreamingWebRTCSession.shared.onStreamingStateChanged = { [weak self] in
             self?.refreshPlaybackUI()
         }
-        StreamingWebRTCSession.shared.onRemoteVideoTrackChanged = { [weak self] track in
-            self?.videoView.attach(track: track)
-            self?.refreshPlaybackUI()
-        }
-        videoView.attach(track: StreamingWebRTCSession.shared.remoteVideoTrack)
     }
 
     private func refreshPlaybackUI() {
         let session = StreamingWebRTCSession.shared
-        let hasVideo = session.isRemoteVideoStream
         let isActive = session.isStreaming
         let avatarURL = resolvedStreamChannelAvatarURL()
-        let showBackground = isActive && !hasVideo && (backgroundImageView.image != nil || !avatarURL.isEmpty)
+        let showBackground = isActive && (backgroundImageView.image != nil || !avatarURL.isEmpty)
 
-        videoView.isHidden = !hasVideo
         backgroundImageView.isHidden = !showBackground
         streamBannerView.isHidden = true
         placeholderView.isHidden = true
-        statusLabel.isHidden = isActive || hasVideo
+        statusLabel.isHidden = isActive
 
-        if !hasVideo && backgroundImageView.image == nil && !isLoadingBackground {
+        if backgroundImageView.image == nil && !isLoadingBackground {
             loadStreamBackgroundIfNeeded()
         }
 
@@ -444,7 +425,23 @@ final class StreamingRoomViewController: ViewController {
     private func refreshMembersRow() {
         membersContainer.subviews.forEach { $0.removeFromSuperview() }
 
-        let members = streamMemberUserIds().compactMap { resolveStreamMember($0) }
+        let memberIds = streamMemberUserIds()
+        StreamingSfuLog.write("room members channel=\(channel.channelID) count=\(memberIds.count) hadMembers=\(hadStreamMembers)")
+        if !memberIds.isEmpty {
+            hadStreamMembers = true
+        } else if hadStreamMembers {
+            hadStreamMembers = false
+            StreamingSfuLog.write("room auto leave, member list became empty channel=\(channel.channelID)")
+            Self.endStream(
+                context: context,
+                clanId: resolvedClanId,
+                channelId: channel.channelID,
+                navigationController: navigationController
+            )
+            return
+        }
+
+        let members = memberIds.compactMap { resolveStreamMember($0) }
         membersOverflowLabel.isHidden = true
 
         guard !members.isEmpty else {
@@ -524,7 +521,6 @@ final class StreamingRoomViewController: ViewController {
 
     @objc private func minimizeTapped() {
         StreamingWebRTCSession.shared.onStreamingStateChanged = nil
-        StreamingWebRTCSession.shared.onRemoteVideoTrackChanged = nil
         isMinimizingToPiP = true
         StreamingPiPOverlay.shared.show(
             context: context,
@@ -569,7 +565,6 @@ final class StreamingRoomViewController: ViewController {
             context.engine.clanData.applyStreamLeaved(clanId: clanId, channelId: channelId, userId: userId)
         }
         StreamingWebRTCSession.shared.onStreamingStateChanged = nil
-        StreamingWebRTCSession.shared.onRemoteVideoTrackChanged = nil
         StreamingWebRTCSession.shared.leave()
         if StreamingPiPOverlay.shared.isActive {
             StreamingPiPOverlay.shared.dismiss(disconnectSession: false)

@@ -31,6 +31,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
     private let chatUnreadCount: Int
     private let members: [VoiceMemberDisplay]
     private let kind: JoinChannelSheetKind
+    private let canJoin: Bool
     private let onChat: () -> Void
     private let onJoinVoice: (SfuRole) -> Void
     private let onInvite: () -> Void
@@ -67,6 +68,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         chatUnreadCount: Int = 0,
         members: [VoiceMemberDisplay] = [],
         kind: JoinChannelSheetKind = .voice,
+        canJoin: Bool = true,
         onChat: @escaping () -> Void,
         onJoinVoice: @escaping (SfuRole) -> Void,
         onInvite: @escaping () -> Void = {}
@@ -75,6 +77,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         self.chatUnreadCount = chatUnreadCount
         self.members = members
         self.kind = kind
+        self.canJoin = canJoin
         self.onChat = onChat
         self.onJoinVoice = onJoinVoice
         self.onInvite = onInvite
@@ -157,10 +160,14 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         statusLabel.lineBreakMode = .byTruncatingTail
         statusLabel.isUserInteractionEnabled = false
         statusLabel.setContentCompressionResistancePriority(.required, for: .vertical)
-        if members.isEmpty {
+        let hasActiveStream = kind == .streaming && canJoin
+        if members.isEmpty && !hasActiveStream {
             statusLabel.text = NSLocalizedString(
-                "voiceChannel.joinSheet.emptyRoom", tableName: nil, bundle: .main,
-                value: "No one is currently in room", comment: "")
+                kind == .streaming ? "streamingRoom.joinSheet.emptyStream" : "voiceChannel.joinSheet.emptyRoom",
+                tableName: nil,
+                bundle: .main,
+                value: kind == .streaming ? "No one is currently in stream" : "No one is currently in room",
+                comment: "")
         } else {
             statusLabel.text = NSLocalizedString(
                 "voiceChannel.joinSheet.waiting", tableName: nil, bundle: .main,
@@ -344,7 +351,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         case .voice:
             return true
         case .streaming:
-            return true
+            return canJoin
         }
     }
 
