@@ -1728,12 +1728,11 @@ final class MezonHTTPClient {
         )
     }
 
-    func generateMeetToken(channelId: Int64, clanId: Int64, userId: Int64, token: String) async throws -> String {
-        // GenerateMeetToken uses user_id=1, channel_id=2 and clan_id=3 in the SFU protocol.
+    func generateMeetToken(channelId: Int64, roomName: String, metadata: String, token: String) async throws -> String {
         var req = Mezon_Api_GenerateMeetTokenRequest()
-        req.userID = userId
         req.channelID = channelId
-        req.clanID = clanId
+        req.roomName = roomName
+        req.metadata = metadata
         let path = "/mezon.api.Mezon/GenerateMeetToken"
         if let response: Mezon_Api_GenerateMeetTokenResponse = try? await sendOverSocketIfPossible(path: path, message: req),
            !response.token.isEmpty {
@@ -1746,8 +1745,7 @@ final class MezonHTTPClient {
         if text.hasPrefix("eyJ"), text.filter({ $0 == "." }).count == 2 {
             return text
         }
-        let response = try Mezon_Api_GenerateMeetTokenResponse(serializedBytes: data)
-        return response.token
+        return try Mezon_Api_GenerateMeetTokenResponse(serializedBytes: data).token
     }
 
     func muteMezonMeetParticipant(clanId: Int64, channelId: Int64, userId: Int64, token: String) async throws -> String {
@@ -2703,6 +2701,18 @@ final class MezonHTTPClient {
             await MezonSocket.shared.noteApiRequestSucceeded()
             if Response.self == SwiftProtobuf.Google_Protobuf_Empty.self {
                 return SwiftProtobuf.Google_Protobuf_Empty() as? Response
+            }
+            // Accept raw JWT from the proto server as well as protobuf responses.
+            if apiName == "GenerateMeetToken",
+               Response.self == Mezon_Api_GenerateMeetTokenResponse.self {
+                let text = String(data: respBytes, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "\"")) ?? ""
+                if text.hasPrefix("eyJ"), text.filter({ $0 == "." }).count == 2 {
+                    var response = Mezon_Api_GenerateMeetTokenResponse()
+                    response.token = text
+                    return response as? Response
+                }
             }
             do {
                 return try Response(serializedBytes: respBytes)

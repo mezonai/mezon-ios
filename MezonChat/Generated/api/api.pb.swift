@@ -7682,11 +7682,9 @@ struct Mezon_Api_GenerateMeetTokenRequest: Sendable {
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
-  var userID: Int64 = 0
-
   var channelID: Int64 = 0
 
-  var clanID: Int64 = 0
+  var roomName: String = String()
 
   var metadata: String = String()
 
@@ -23659,7 +23657,7 @@ extension Mezon_Api_DeleteSdTopicRequest: SwiftProtobuf.Message, SwiftProtobuf._
 
 extension Mezon_Api_GenerateMeetTokenRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".GenerateMeetTokenRequest"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}user_id\0\u{3}channel_id\0\u{3}clan_id\0\u{1}metadata\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}channel_id\0\u{3}room_name\0\u{1}metadata\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -23667,35 +23665,30 @@ extension Mezon_Api_GenerateMeetTokenRequest: SwiftProtobuf.Message, SwiftProtob
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 1: try { try decoder.decodeSingularInt64Field(value: &self.userID) }()
-      case 2: try { try decoder.decodeSingularInt64Field(value: &self.channelID) }()
-      case 3: try { try decoder.decodeSingularInt64Field(value: &self.clanID) }()
-      case 4: try { try decoder.decodeSingularStringField(value: &self.metadata) }()
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.channelID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.roomName) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.metadata) }()
       default: break
       }
     }
   }
 
   func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if self.userID != 0 {
-      try visitor.visitSingularInt64Field(value: self.userID, fieldNumber: 1)
-    }
     if self.channelID != 0 {
-      try visitor.visitSingularInt64Field(value: self.channelID, fieldNumber: 2)
+      try visitor.visitSingularInt64Field(value: self.channelID, fieldNumber: 1)
     }
-    if self.clanID != 0 {
-      try visitor.visitSingularInt64Field(value: self.clanID, fieldNumber: 3)
+    if !self.roomName.isEmpty {
+      try visitor.visitSingularStringField(value: self.roomName, fieldNumber: 2)
     }
     if !self.metadata.isEmpty {
-      try visitor.visitSingularStringField(value: self.metadata, fieldNumber: 4)
+      try visitor.visitSingularStringField(value: self.metadata, fieldNumber: 3)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Mezon_Api_GenerateMeetTokenRequest, rhs: Mezon_Api_GenerateMeetTokenRequest) -> Bool {
-    if lhs.userID != rhs.userID {return false}
     if lhs.channelID != rhs.channelID {return false}
-    if lhs.clanID != rhs.clanID {return false}
+    if lhs.roomName != rhs.roomName {return false}
     if lhs.metadata != rhs.metadata {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true

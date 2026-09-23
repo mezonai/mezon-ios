@@ -2832,8 +2832,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             guard let token = await tokenContext.getToken() else { return nil }
             return try? await tokenContext.account.network.generateMeetToken(
                 channelId: tokenChannelId,
-                clanId: tokenClanId,
-                userId: Int64(tokenContext.currentUser?.id ?? tokenContext.session?.userId ?? "") ?? 0,
+                roomName: String(tokenChannelId),
+                metadata: tokenContext.meetTokenMetadata(clanId: tokenClanId),
                 token: token
             )
         }
@@ -3443,8 +3443,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         do {
             let jwt = try await context.account.network.generateMeetToken(
                 channelId: channel.channelID,
-                clanId: channel.clanID,
-                userId: Int64(context.currentUser?.id ?? context.session?.userId ?? "") ?? 0,
+                roomName: String(channel.channelID),
+                metadata: context.meetTokenMetadata(clanId: channel.clanID),
                 token: sessionToken
             )
             guard !jwt.isEmpty else {
