@@ -24,10 +24,13 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         MezonEnvironment.current = .prod
         SentryLogger.start()
         CallKitManager.shared.configure()
+        VoiceAudioDiagnostics.install()
         DispatchQueue.main.async {
             PeerWebRTCCallSession.prewarmWebRTCInfrastructure()
         }
         NotificationCenter.default.addObserver(self, selector: #selector(handleVoIPTokenDidUpdate), name: .mezonVoIPTokenDidUpdate, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleSocketStatusForVoiceMembers(_:)), name: .mezonSocketStatusChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleNetworkStatusForVoiceMembers(_:)), name: NetworkMonitor.statusDidChangeNotification, object: nil)
         NotificationCenter.default.addObserver(
             forName: UIApplication.protectedDataDidBecomeAvailableNotification,
             object: nil,
@@ -313,11 +316,22 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         guard let ctx = accountContext, ctx.isLoggedIn else { return }
         let clanId = ctx.currentClanId
         guard clanId != 0 else { return }
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard let token = await self.accountContext?.getTokenPreferringCachedSkipSessionReadyWait() else { return }
-            await self.accountContext?.engine.clanData.refetchVoiceChannelUsers(clanId: clanId, token: token)
+        let sessionEpoch = ctx.sessionEpoch
+        Task { @MainActor [weak ctx] in
+            guard let ctx, let token = await ctx.getTokenPreferringCachedSkipSessionReadyWait(),
+                  ctx.isLoggedIn, ctx.sessionEpoch == sessionEpoch, ctx.currentClanId == clanId else { return }
+            await ctx.engine.clanData.refetchVoiceChannelUsers(clanId: clanId, token: token)
         }
+    }
+
+    @objc private func handleSocketStatusForVoiceMembers(_ notification: Notification) {
+        guard notification.userInfo?["isConnected"] as? Bool == true else { return }
+        refreshVoiceChannelMembersOnForeground()
+    }
+
+    @objc private func handleNetworkStatusForVoiceMembers(_ notification: Notification) {
+        guard notification.userInfo?["isConnected"] as? Bool == true else { return }
+        refreshVoiceChannelMembersOnForeground()
     }
 
     @objc private func handleDidBecomeActive() {

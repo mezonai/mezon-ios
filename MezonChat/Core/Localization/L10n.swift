@@ -422,6 +422,14 @@ enum L10n {
         static let skipUpdateBack = "updateUsername.skipUpdateBack"
     }
 
+    enum DeepLink {
+        static let openingChannel = "deepLink.openingChannel"
+        static let checkingAccess = "deepLink.checkingAccess"
+        static let channelUnavailableTitle = "deepLink.channelUnavailableTitle"
+        static let channelUnavailableMessage = "deepLink.channelUnavailableMessage"
+        static let gotIt = "deepLink.gotIt"
+    }
+
     enum Clan {
         static let createClan     = "clan.createClan"
         static let joinClanTitle   = "clan.joinClanTitle"
@@ -1751,6 +1759,11 @@ extension L10n {
         "clan.newClanNamePlaceholder": "Clan name",
         "clan.joinAction": "Join",
         "clan.inviteInvalid": "Enter a valid invite link or code",
+        "deepLink.openingChannel": "Opening channel…",
+        "deepLink.checkingAccess": "Checking your access",
+        "deepLink.channelUnavailableTitle": "Channel unavailable",
+        "deepLink.channelUnavailableMessage": "You may not have access to this channel, or it may no longer exist. Please check with the person who shared the link.",
+        "deepLink.gotIt": "Got it",
         "clan.nameRequired": "Enter a clan name",
         "clan.createClanBannerTitle": "Banner",
         "clan.createClanLogoTitle": "Clan icon",
@@ -3099,6 +3112,11 @@ extension L10n {
         "clan.newClanNamePlaceholder": "Tên clan",
         "clan.joinAction": "Tham gia",
         "clan.inviteInvalid": "Nhập liên kết hoặc mã mời hợp lệ",
+        "deepLink.openingChannel": "Đang mở kênh…",
+        "deepLink.checkingAccess": "Đang kiểm tra quyền truy cập",
+        "deepLink.channelUnavailableTitle": "Không thể mở kênh",
+        "deepLink.channelUnavailableMessage": "Có thể bạn chưa có quyền xem kênh này hoặc kênh không còn tồn tại. Hãy kiểm tra lại với người gửi liên kết.",
+        "deepLink.gotIt": "Đã hiểu",
         "clan.nameRequired": "Nhập tên clan",
         "clan.createClanBannerTitle": "Ảnh bìa",
         "clan.createClanLogoTitle": "Biểu tượng clan",

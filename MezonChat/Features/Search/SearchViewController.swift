@@ -1206,6 +1206,15 @@ final class SearchViewController: ViewController {
     }
 
     private func resolveVoiceMember(uid: String, clanIdForChannel: Int64) -> VoiceMemberDisplay? {
+        if VoiceAgentIdentity.isAgent(uid) {
+            return VoiceMemberDisplay(
+                name: VoiceAgentIdentity.displayName,
+                username: VoiceAgentIdentity.displayName,
+                avatarURL: VoiceAgentIdentity.avatarURL,
+                isSharingScreen: context.engine.clanData.voiceScreenSharingUserIds(clanId: clanIdForChannel).contains(uid)
+            )
+        }
+
         guard let uidInt = Int64(uid) else { return nil }
 
         let profile = context.account.postbox.read { $0.getProfile(userId: uid) }
