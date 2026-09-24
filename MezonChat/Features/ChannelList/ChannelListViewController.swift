@@ -3258,6 +3258,15 @@ final class ChannelListViewController: ViewController {
     }
 
     private func resolveVoiceMember(_ uid: String) -> VoiceMemberDisplay? {
+        if VoiceAgentIdentity.isAgent(uid) {
+            return VoiceMemberDisplay(
+                name: VoiceAgentIdentity.displayName,
+                username: VoiceAgentIdentity.displayName,
+                avatarURL: VoiceAgentIdentity.avatarURL,
+                isSharingScreen: context.engine.clanData.voiceScreenSharingUserIds(clanId: clanId).contains(uid)
+            )
+        }
+
         guard let uidInt = Int64(uid) else { return nil }
 
         let profile = context.account.postbox.read { $0.getProfile(userId: uid) }

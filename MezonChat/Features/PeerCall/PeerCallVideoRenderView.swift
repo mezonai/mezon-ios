@@ -13,6 +13,7 @@ final class PeerCallVideoRenderView: UIView {
     private let mtlVideoView: RTCMTLVideoView
     private let renderSurface: PeerCallSampleBufferRenderSurface
     private var attachedTrack: RTCVideoTrack?
+    private var lastReplaySize: CGSize = .zero
 
     var isMirrored: Bool = false {
         didSet {
@@ -66,6 +67,22 @@ final class PeerCallVideoRenderView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         configureEmbeddedMTKViewIfPresent()
+        guard bounds.width > 0, bounds.height > 0, bounds.size != lastReplaySize else { return }
+        lastReplaySize = bounds.size
+        replayAttachedFrame()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil else { return }
+        setNeedsLayout()
+        layoutIfNeeded()
+        replayAttachedFrame()
+    }
+
+    private func replayAttachedFrame() {
+        guard let track = attachedTrack, bounds.width > 0, bounds.height > 0 else { return }
+        VideoTrackLastFrameStore.replayLastFrame(of: track, to: [renderSurface, mtlVideoView])
     }
 
     private func configureEmbeddedMTKViewIfPresent() {
@@ -81,6 +98,7 @@ final class PeerCallVideoRenderView: UIView {
             attachedTrack?.remove(renderSurface)
             attachedTrack?.remove(mtlVideoView)
             attachedTrack = nil
+            lastReplaySize = .zero
             mtlVideoView.isEnabled = false
             configureEmbeddedMTKViewIfPresent()
             renderSurface.flushContent()
@@ -107,6 +125,7 @@ final class PeerCallVideoRenderView: UIView {
                 self.mtlVideoView.layoutIfNeeded()
                 self.renderSurface.setNeedsLayout()
                 self.renderSurface.layoutIfNeeded()
+                self.replayAttachedFrame()
             }
             return
         }
@@ -127,6 +146,7 @@ final class PeerCallVideoRenderView: UIView {
             self.mtlVideoView.layoutIfNeeded()
             self.renderSurface.setNeedsLayout()
             self.renderSurface.layoutIfNeeded()
+            self.replayAttachedFrame()
         }
     }
 
@@ -147,6 +167,7 @@ final class PeerCallVideoRenderView: UIView {
             self.mtlVideoView.layoutIfNeeded()
             self.renderSurface.setNeedsLayout()
             self.renderSurface.layoutIfNeeded()
+            self.replayAttachedFrame()
         }
     }
 

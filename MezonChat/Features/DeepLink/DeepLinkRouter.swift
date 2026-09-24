@@ -27,7 +27,14 @@ enum DeepLinkRouter {
 
     @discardableResult
     static func handle(_ url: URL) -> Bool {
-        guard isDeepLink(url), let route = route(from: url) else { return false }
+        guard isDeepLink(url) else { return false }
+        guard let route = route(from: url) else {
+            print("[DeepLink] Unhandled path: scheme=\(url.scheme ?? "") host=\(url.host ?? "") path=\(url.path)")
+            return false
+        }
+        if case let .channel(channelId, clanId) = route {
+            print("[DeepLink] Received channel \(channelId) in clan \(clanId)")
+        }
         pending = route
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: .mezonHandleDeepLink, object: nil)

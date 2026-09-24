@@ -596,11 +596,11 @@ final class MezonHTTPClient {
         )
     }
 
-    func listChannelDescs(clanId: Int64, token: String) async throws -> [Mezon_Api_ChannelDescription] {
+    func listChannelDescs(clanId: Int64, token: String, force: Bool = false) async throws -> [Mezon_Api_ChannelDescription] {
         if clanId == 0 {
             return try await performListChannelDescs(clanId: clanId, token: token)
         }
-        return try await MezonSocketRequestCoalescer.shared.coalesceChannelDescs(clanId: clanId) {
+        return try await MezonSocketRequestCoalescer.shared.coalesceChannelDescs(clanId: clanId, force: force) {
             try await self.performListChannelDescs(clanId: clanId, token: token)
         }
     }
@@ -1705,11 +1705,11 @@ final class MezonHTTPClient {
         )
     }
 
-    func listChannelVoiceUsers(clanId: Int64, token: String) async throws -> Mezon_Api_VoiceChannelUserList {
+    func listChannelVoiceUsers(clanId: Int64, token: String, force: Bool = false) async throws -> Mezon_Api_VoiceChannelUserList {
         guard clanId != 0 else {
             return try await performListChannelVoiceUsers(clanId: clanId, token: token)
         }
-        return try await MezonSocketRequestCoalescer.shared.coalesceChannelVoiceUsers(clanId: clanId) {
+        return try await MezonSocketRequestCoalescer.shared.coalesceChannelVoiceUsers(clanId: clanId, force: force) {
             try await self.performListChannelVoiceUsers(clanId: clanId, token: token)
         }
     }
@@ -1738,7 +1738,10 @@ final class MezonHTTPClient {
            !response.token.isEmpty {
             return response.token
         }
-        let data = try await postProtoRawHTTP(path: path, message: req, auth: .bearer(token))
+        // A pooled connection may have been closed while the app was suspended.
+        let data = try await retryingTransientRequest(operationName: "GenerateMeetToken") {
+            try await self.postProtoRawHTTP(path: path, message: req, auth: .bearer(token))
+        }
         let text = String(data: data, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: "\"")) ?? ""

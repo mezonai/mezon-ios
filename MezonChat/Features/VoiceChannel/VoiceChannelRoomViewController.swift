@@ -5,13 +5,16 @@ import MediaPlayer
 import AsyncDisplayKit
 import WebRTC
 
-private let kVoiceKomuAgentUserId = "2090694093138038784"
-private let kVoiceKomuAgentDisplayName = "KOMU Agent"
-private let kVoiceKomuAgentAvatarURL =
-    "https://cdn.mezon.vn/0/0/1779484387973271600/1737423959329_undefined173740153013517374015248704886401586613166392.png"
+enum VoiceAgentIdentity {
+    static let userIds: Set<String> = ["2037383744142184448", "2090694093138038784"]
+    static let displayName = "KOMU Agent"
+    static let avatarURL =
+        "https://cdn.mezon.vn/0/0/1779484387973271600/1737423959329_undefined173740153013517374015248704886401586613166392.png"
 
-@MainActor
-private var voiceAgentEnabledChannelIds = Set<Int64>()
+    static func isAgent(_ userId: String) -> Bool {
+        userIds.contains(userId)
+    }
+}
 
 private enum VoiceParticipantTileKind {
     case mainVideo
@@ -118,7 +121,7 @@ private func voiceChannelMeetStateDisplayName(context: AccountContext, clanId: I
 
 @MainActor
 private func voiceChannelResolveAvatarURL(context: AccountContext, clanId: Int64, identityKey: String) -> String? {
-    if identityKey == kVoiceKomuAgentUserId { return kVoiceKomuAgentAvatarURL }
+    if VoiceAgentIdentity.isAgent(identityKey) { return VoiceAgentIdentity.avatarURL }
     if let cu = voiceChannelFindClanUser(context: context, clanId: clanId, identityKey: identityKey),
        let url = voiceChannelAvatarURLFromClanUser(cu), !url.isEmpty {
         return url
@@ -137,7 +140,7 @@ private func voiceChannelResolveAvatarURL(context: AccountContext, clanId: Int64
 @MainActor
 private func voiceChannelResolveDisplayNameForUserId(context: AccountContext, clanId: Int64, userId: Int64) -> String {
     let key = "\(userId)"
-    if key == kVoiceKomuAgentUserId { return kVoiceKomuAgentDisplayName }
+    if VoiceAgentIdentity.isAgent(key) { return VoiceAgentIdentity.displayName }
     if let cu = voiceChannelFindClanUser(context: context, clanId: clanId, identityKey: key),
        let name = voiceChannelDisplayNameFromClanUser(cu) {
         return name
@@ -166,7 +169,7 @@ private func voiceChannelShortProfileSubtitleLine(cu: Mezon_Api_ClanUserList.Cla
 @MainActor
 private func voiceChannelResolveDisplayName(context: AccountContext, clanId: Int64, identityKey: String, isLocal: Bool) -> String {
     let idKey = isLocal ? (context.currentUser?.id ?? "") : identityKey
-    if idKey == kVoiceKomuAgentUserId { return kVoiceKomuAgentDisplayName }
+    if VoiceAgentIdentity.isAgent(idKey) { return VoiceAgentIdentity.displayName }
     if let cu = voiceChannelFindClanUser(context: context, clanId: clanId, identityKey: idKey),
        let name = voiceChannelDisplayNameFromClanUser(cu) {
         return name
@@ -186,7 +189,7 @@ private func voiceChannelResolveDisplayName(context: AccountContext, clanId: Int
 @MainActor
 private func voiceChannelResolveUsername(context: AccountContext, clanId: Int64, identityKey: String, isLocal: Bool) -> String {
     let idKey = isLocal ? (context.currentUser?.id ?? "") : identityKey
-    if idKey == kVoiceKomuAgentUserId { return kVoiceKomuAgentDisplayName }
+    if VoiceAgentIdentity.isAgent(idKey) { return VoiceAgentIdentity.displayName }
     if let cu = voiceChannelFindClanUser(context: context, clanId: clanId, identityKey: idKey) {
         if !cu.user.username.isEmpty { return cu.user.username }
     }
@@ -300,8 +303,14 @@ fileprivate func applyVoiceChannelPreservedAudioRouteToSession(_ route: VoiceCha
     let rtc = RTCAudioSession.sharedInstance()
     rtc.lockForConfiguration()
     defer { rtc.unlockForConfiguration() }
-    let configurationApplied = (try? rtc.setConfiguration(cfg, active: true)) != nil
-    try? voiceChannelApplyPreferredPorts(for: route, on: rtc)
+    VoiceAudioDiagnostics.snapshot("route.before")
+    VoiceAudioDiagnostics.log("route.request", "route=\(route) category=\(cfg.category) mode=\(cfg.mode) options=\(cfg.categoryOptions.rawValue)")
+    var configurationApplied = false
+    do { try rtc.setConfiguration(cfg, active: true); configurationApplied = true }
+    catch { VoiceAudioDiagnostics.error("route.configure.failed", error) }
+    do { try voiceChannelApplyPreferredPorts(for: route, on: rtc) }
+    catch { VoiceAudioDiagnostics.error("route.ports.failed", error) }
+    VoiceAudioDiagnostics.snapshot("route.after")
     if hadForeignConfiguration, configurationApplied, rtc.isAudioEnabled, WebRTCCallManager.shared.signalingSession == nil {
         rtc.isAudioEnabled = false
         rtc.isAudioEnabled = true
@@ -833,11 +842,9 @@ final class VoiceChannelPiPOverlay: NSObject {
 
     private func applyLocalMeetLeaveIfNeeded() {
         guard !didAnnounceMeetLeave, didAnnounceMeetJoin else { return }
-        guard let ctx = context, let ch = channel else { return }
+        guard context != nil, channel != nil else { return }
         didAnnounceMeetLeave = true
-        if let uid = Int64(ctx.currentUser?.id ?? "") {
-            ctx.engine.clanData.applyVoiceLeaved(clanId: ch.clanID, channelId: ch.channelID, userId: uid)
-        }
+        // Sidebar membership is updated by realtime events with the actual peer ID.
     }
 
     fileprivate func takeOverSession() -> (MezonSfuSession, Bool, Bool, VoiceChannelPiPPreservedAudioRoute?)? {
@@ -1526,14 +1533,10 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private let audioRouteControl = VoiceHeaderSystemAudioRouteControl()
     private let agentToggleButton = UIButton(type: .custom)
     private let agentToggleSpinner = UIActivityIndicatorView(style: .medium)
-    private var voiceAgentEnabled: Bool {
-        get { voiceAgentEnabledChannelIds.contains(channel.channelID) }
-        set {
-            if newValue {
-                voiceAgentEnabledChannelIds.insert(channel.channelID)
-            } else {
-                voiceAgentEnabledChannelIds.remove(channel.channelID)
-            }
+    // The button reflects the same live participants used to render room tiles.
+    private var voiceAgentPresent: Bool {
+        sfuParticipants.contains { participant in
+            participant.userId.map(VoiceAgentIdentity.isAgent) == true
         }
     }
     private var isAgentToggleLoading = false
@@ -2322,11 +2325,6 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             case .voiceReaction(let msg):
                 guard msg.channelID == self.channel.channelID else { return }
                 self.voiceReactionOverlay.handle(message: msg, context: self.context, clanId: self.channel.clanID)
-            case .aiAgentEnabled(let ev):
-                guard ev.channelID == self.channel.channelID else { return }
-                if ev.clanID != 0, ev.clanID != self.channel.clanID { return }
-                if !ev.roomName.isEmpty, ev.roomName != "\(self.channel.channelID)" { return }
-                self.applyVoiceAgentEnabledFromServer(ev.enabled)
             default:
                 break
             }
@@ -3403,6 +3401,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         Task { @MainActor in
             if !currentlyOn {
                 let ok = await VoiceChannelMicPermission.requestIfNeeded()
+                VoiceAudioDiagnostics.log("mic.permission", "granted=\(ok)")
                 if !ok {
                     self.presentMicrophoneSettingsAlert()
                     return
@@ -3459,7 +3458,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                 return
             }
 
-            _ = await VoiceChannelMicPermission.requestIfNeeded()
+            let microphoneGranted = await VoiceChannelMicPermission.requestIfNeeded()
+            VoiceAudioDiagnostics.log("join.mic_permission", "granted=\(microphoneGranted)")
             guard !Task.isCancelled else {
                 setConnectingOverlayVisible(false)
                 return
@@ -3626,18 +3626,14 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private func applyLocalMeetJoinIfNeeded() {
         guard !didAnnounceMeetJoin else { return }
         didAnnounceMeetJoin = true
-        if let uid = Int64(context.currentUser?.id ?? "") {
-            context.engine.clanData.applyVoiceJoined(clanId: channel.clanID, channelId: channel.channelID, userId: uid)
-        }
+        // Sidebar membership is updated by realtime events with the actual peer ID.
     }
 
     private func applyLocalMeetLeaveIfNeeded() {
         guard !didAnnounceMeetLeave else { return }
         guard didAnnounceMeetJoin else { return }
         didAnnounceMeetLeave = true
-        if let uid = Int64(context.currentUser?.id ?? "") {
-            context.engine.clanData.applyVoiceLeaved(clanId: channel.clanID, channelId: channel.channelID, userId: uid)
-        }
+        // Sidebar membership is updated by realtime events with the actual peer ID.
     }
 
     private func updateParticipantTilesInPlace() {
@@ -3685,6 +3681,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
     private func refreshParticipantRowsFromSession() {
         guard sfuSession != nil else { return }
+        refreshVoiceAgentButtonAppearance()
         let entries = orderedTileEntries()
         let descriptors = voiceTileDescriptors(entries: entries)
         var orderedKeys: [String] = []
@@ -3955,7 +3952,10 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         cfg.mode = voiceChannelDesiredMode(for: pipPreservedRouteFromCurrentOutput()).rawValue
         cfg.categoryOptions = voiceChannelCategoryOptions(for: pipPreservedRouteFromCurrentOutput())
         RTCAudioSessionConfiguration.setWebRTC(cfg)
-        try? rtc.setConfiguration(cfg, active: true)
+        VoiceAudioDiagnostics.snapshot("room.configure.before")
+        do { try rtc.setConfiguration(cfg, active: true); VoiceAudioDiagnostics.log("room.configure.ok") }
+        catch { VoiceAudioDiagnostics.error("room.configure.failed", error) }
+        VoiceAudioDiagnostics.snapshot("room.configure.after")
     }
 
     private func syncCurrentAudioOutputFromSession() {
@@ -4216,13 +4216,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         return context.rolePermissions.canManageChannel(clanId: clanId)
     }
 
-    private func applyVoiceAgentEnabledFromServer(_ enabled: Bool) {
-        voiceAgentEnabled = enabled
-        refreshVoiceAgentButtonAppearance()
-    }
-
     private func refreshVoiceAgentButtonAppearance() {
-        let iconTint = voiceAgentEnabled ? UIColor.theme.white : UIColor.theme.textStrong
+        let iconTint = voiceAgentPresent ? UIColor.theme.white : UIColor.theme.textStrong
         if isAgentToggleLoading {
             agentToggleSpinner.startAnimating()
             agentToggleButton.setImage(nil, for: .normal)
@@ -4240,7 +4235,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             }
         }
         agentToggleButton.isEnabled = !isAgentToggleLoading
-        if voiceAgentEnabled {
+        if voiceAgentPresent {
             agentToggleButton.backgroundColor = UIColor.theme.bgViolet
             agentToggleButton.layer.borderColor = UIColor.theme.borderHighlight.cgColor
             agentToggleButton.layer.borderWidth = 1.5
@@ -4255,9 +4250,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
     @objc private func agentToggleTapped() {
         guard !isAgentToggleLoading, voiceChannelCanManageVoice(), !agentToggleButton.isHidden else { return }
-        let wasEnabled = voiceAgentEnabled
+        let wasPresent = voiceAgentPresent
         isAgentToggleLoading = true
-        voiceAgentEnabled.toggle()
         refreshVoiceAgentButtonAppearance()
         let ch = channel
         let roomName = "\(ch.channelID)"
@@ -4268,22 +4262,18 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                 self.refreshVoiceAgentButtonAppearance()
             }
             guard let token = await self.context.getToken() else {
-                self.voiceAgentEnabled = wasEnabled
-                self.refreshVoiceAgentButtonAppearance()
                 self.presentVoiceAlert(
                     title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Error", comment: ""),
                     message: NSLocalizedString("voiceChannel.agentNoSession", tableName: nil, bundle: .main, value: "Could not verify your session.", comment: ""))
                 return
             }
             do {
-                if wasEnabled {
+                if wasPresent {
                     try await self.context.account.network.disconnectAgentFromVoiceChannel(channelId: ch.channelID, roomName: roomName, token: token)
                 } else {
                     try await self.context.account.network.addAgentToVoiceChannel(channelId: ch.channelID, roomName: roomName, token: token)
                 }
             } catch {
-                self.voiceAgentEnabled = wasEnabled
-                self.refreshVoiceAgentButtonAppearance()
                 self.presentVoiceAlert(
                     title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Error", comment: ""),
                     message: error.localizedDescription)
