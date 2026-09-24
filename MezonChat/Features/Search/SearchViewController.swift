@@ -1107,6 +1107,64 @@ final class SearchViewController: ViewController {
         alignChannelListSidebarAfterSearchJump(clanId: targetClanId, channelId: channel.channelID)
     }
 
+    private func resolvedChannelForNavigation(
+        _ searchResult: Mezon_Api_ChannelDescription
+    ) -> Mezon_Api_ChannelDescription {
+        let targetClanId = effectiveClanId(for: searchResult)
+
+        if let channel = allChannels.first(where: {
+            $0.channelID == searchResult.channelID && $0.type != 0
+        }) {
+            return mergingSearchMetadata(from: searchResult, into: channel, fallbackClanId: targetClanId)
+        }
+
+        if let channel = context.engine.clanData.getAllChannelsByUser()?.channeldesc.first(where: {
+            $0.channelID == searchResult.channelID && $0.type != 0
+        }) {
+            return mergingSearchMetadata(from: searchResult, into: channel, fallbackClanId: targetClanId)
+        }
+
+        if let channel = context.account.postbox.resolvedChannelDescription(
+            clanId: targetClanId,
+            channelId: searchResult.channelID
+        ), channel.type != 0 {
+            return mergingSearchMetadata(from: searchResult, into: channel, fallbackClanId: targetClanId)
+        }
+
+        return searchResult
+    }
+
+    private func mergingSearchMetadata(
+        from searchResult: Mezon_Api_ChannelDescription,
+        into resolvedChannel: Mezon_Api_ChannelDescription,
+        fallbackClanId: Int64
+    ) -> Mezon_Api_ChannelDescription {
+        var channel = resolvedChannel
+        if channel.clanID == 0 {
+            channel.clanID = fallbackClanId
+        }
+        if channel.clanName.isEmpty {
+            channel.clanName = searchResult.clanName
+        }
+        if channel.channelLabel.isEmpty {
+            channel.channelLabel = searchResult.channelLabel
+        }
+        return channel
+    }
+
+    private func handleSearchChannelJoinTap(_ searchResult: Mezon_Api_ChannelDescription) {
+        let channel = resolvedChannelForNavigation(searchResult)
+
+        switch channel.type {
+        case MezonConstants.ChannelType.mezonVoice.rawValue:
+            presentJoinVoiceSheet(for: channel)
+        case MezonConstants.ChannelType.streaming.rawValue:
+            presentJoinStreamSheet(for: channel)
+        default:
+            navigateToChannel(channel)
+        }
+    }
+
     private func navigateToMessage(_ doc: Mezon_Api_SearchMessageDocument) {
         guard let channelId = Int64(doc.channelID) else { return }
         let docClanId = Int64(doc.clanID) ?? clanId
@@ -1672,11 +1730,21 @@ extension SearchViewController: ASTableDataSource, ASTableDelegate {
                 }
                 return { SearchEmptyCellNode(text: "No channels found") }
             }
-            let channel = filteredChannels[row]
+            let channel = resolvedChannelForNavigation(filteredChannels[row])
             let count = filteredChannels.count
             let isFirst = row == 0
             let isLast = row == count - 1
-            return { ChannelSearchCellNode(channel: channel, isFirst: isFirst, isLast: isLast) }
+            return { [weak self] in
+                let cell = ChannelSearchCellNode(
+                    channel: channel,
+                    isFirst: isFirst,
+                    isLast: isLast
+                )
+                cell.onJoinTapped = { [weak self] in
+                    self?.handleSearchChannelJoinTap(channel)
+                }
+                return cell
+            }
 
         case .messages:
             if groupedMessages.isEmpty {
@@ -1721,16 +1789,7 @@ extension SearchViewController: ASTableDataSource, ASTableDelegate {
 
         case .channels:
             guard indexPath.row < filteredChannels.count else { return }
-            let channel = filteredChannels[indexPath.row]
-            if channel.type == MezonConstants.ChannelType.mezonVoice.rawValue {
-                presentJoinVoiceSheet(for: channel)
-                return
-            }
-            if channel.type == MezonConstants.ChannelType.streaming.rawValue {
-                presentJoinStreamSheet(for: channel)
-                return
-            }
-            navigateToChannel(channel)
+            navigateToChannel(resolvedChannelForNavigation(filteredChannels[indexPath.row]))
 
         case .messages:
             let section = indexPath.section
@@ -2461,10 +2520,14 @@ final class ChannelSearchCellNode: ASCellNode {
     private let iconImgNode = ASImageNode()
     private let nameNode = ASTextNode2()
     private let clanNameNode = ASTextNode2()
+    private let joinButtonNode = ASButtonNode()
     private let cardNode = ASDisplayNode()
     private let isFirst: Bool
     private let isLast: Bool
     private let hasClanName: Bool
+    private let showsJoinAction: Bool
+
+    var onJoinTapped: (() -> Void)?
 
     init(channel: Mezon_Api_ChannelDescription, isFirst: Bool = false, isLast: Bool = false) {
         let isDMOrGroup = channel.type == MezonConstants.ChannelType.dm.rawValue
@@ -2472,6 +2535,8 @@ final class ChannelSearchCellNode: ASCellNode {
         self.isFirst = isFirst
         self.isLast = isLast
         self.hasClanName = !channel.clanName.isEmpty && !isDMOrGroup
+        self.showsJoinAction = channel.type == MezonConstants.ChannelType.mezonVoice.rawValue
+            || channel.type == MezonConstants.ChannelType.streaming.rawValue
         super.init()
         selectionStyle = .none
         let t = UIColor.theme
@@ -2550,6 +2615,24 @@ final class ChannelSearchCellNode: ASCellNode {
         addSubnode(iconImgNode)
         addSubnode(nameNode)
         if hasClanName { addSubnode(clanNameNode) }
+        if showsJoinAction {
+            joinButtonNode.setTitle(
+                L(L10n.Clan.joinAction),
+                with: .systemFont(ofSize: 14.sf, weight: .semibold),
+                with: t.bgViolet,
+                for: .normal
+            )
+            joinButtonNode.addTarget(
+                self,
+                action: #selector(joinTapped),
+                forControlEvents: .touchUpInside
+            )
+            addSubnode(joinButtonNode)
+        }
+    }
+
+    @objc private func joinTapped() {
+        onJoinTapped?()
     }
 
     override func calculateSizeThatFits(_ constrainedSize: CGSize) -> CGSize {
@@ -2570,7 +2653,20 @@ final class ChannelSearchCellNode: ASCellNode {
         iconImgNode.frame = CGRect(x: contentX, y: iconY, width: iconSz, height: iconSz)
 
         let textX = contentX + iconSz + 10.sw
-        let textW = bounds.width - textX - m - p
+        let trailingContentX = cardFrame.maxX - p
+        let joinActionWidth: CGFloat = showsJoinAction ? 72.sw : 0
+        if showsJoinAction {
+            joinButtonNode.frame = CGRect(
+                x: trailingContentX - joinActionWidth,
+                y: 0,
+                width: joinActionWidth,
+                height: bounds.height
+            )
+        }
+        let textTrailingX = showsJoinAction
+            ? joinButtonNode.frame.minX - 8.sw
+            : trailingContentX
+        let textW = max(0, textTrailingX - textX)
         if hasClanName {
             let nameSize = nameNode.measure(CGSize(width: textW, height: 20))
             let clanSize = clanNameNode.measure(CGSize(width: textW, height: 16))
