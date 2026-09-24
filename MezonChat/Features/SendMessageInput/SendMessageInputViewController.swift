@@ -1249,6 +1249,25 @@ final class SendMessageInputViewController: UIViewController {
                     self.rebuildMentionSuggestionItems()
                 })
         )
+        mentionDisposables.add(
+            (context.engine.clanData.clanUsersUpdated.signal() |> deliverOnMainQueue)
+                .start(next: { [weak self] updatedClanId in
+                    guard let self, updatedClanId == self.clanId else { return }
+                    self.reloadMentionMembersForClanUpdate()
+                })
+        )
+    }
+
+    private func reloadMentionMembersForClanUpdate() {
+        if !preferChannelScopedMentions, !isPrivateOrThread,
+           let clanUsers = context.engine.clanData.getClanUsers(clanId: clanId) {
+            buildMentionMembers(from: clanUsers)
+        } else if let records = mergedChannelMemberRecordsForMentions() {
+            buildMentionMembers(from: records)
+        } else if let clanUsers = context.engine.clanData.getClanUsers(clanId: clanId) {
+            buildMentionMembers(from: clanUsers)
+        }
+        rebuildMentionSuggestionItems()
     }
 
     private func rebindMentionForCurrentChannel() {
@@ -4259,11 +4278,22 @@ final class SendMessageInputViewController: UIViewController {
     private func buildMentionMembers(from records: [ChannelMemberRecord]) {
         let filtered = records.filter { !$0.isBanned }
         let cid = clanId
+        let cachedClanByUser: [Int64: ClanMemberRecord] = {
+            guard cid > 0,
+                  let clanUsers = context.engine.clanData.getClanUsers(clanId: cid) else {
+                return [:]
+            }
+            var result: [Int64: ClanMemberRecord] = [:]
+            for member in clanUsers.clanUsers where member.user.id != 0 {
+                result[member.user.id] = ClanMemberRecord(from: member)
+            }
+            return result
+        }()
         allMentionMembers = context.account.postbox.read { tx -> [MentionMember] in
             let clanByUser: [Int64: ClanMemberRecord] = {
                 guard cid > 0 else { return [:] }
-                var d: [Int64: ClanMemberRecord] = [:]
-                for m in tx.getClanMembers(clanId: cid) {
+                var d = cachedClanByUser
+                for m in tx.getClanMembers(clanId: cid) where d[m.userId] == nil {
                     d[m.userId] = m
                 }
                 return d
@@ -4279,35 +4309,53 @@ final class SendMessageInputViewController: UIViewController {
                 let ru = r.username.trimmingCharacters(in: .whitespacesAndNewlines)
                 let cd = cm?.displayName.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 let cu = cm?.username.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                let mergedDisplay = rd.isEmpty ? cd : rd
-                let mergedUsername = ru.isEmpty ? cu : ru
+                let recordMatchesCurrentClan = cid == 0 || r.clanId == 0 || r.clanId == cid
+                let mergedDisplay = cm == nil ? (recordMatchesCurrentClan ? rd : "") : cd
+                let mergedUsername = cm == nil ? (recordMatchesCurrentClan ? ru : "") : cu
+                let canUseRecordClanPersona = cm == nil
+                    && recordMatchesCurrentClan
+                let currentClanNick = cm?.clanNick.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let recordClanNick = canUseRecordClanPersona
+                    ? r.clanNick.trimmingCharacters(in: .whitespacesAndNewlines)
+                    : ""
                 let display = Self.layeredClanVisibleName(
-                    clanNick: r.clanNick,
+                    clanNick: currentClanNick.isEmpty ? recordClanNick : currentClanNick,
                     displayName: mergedDisplay,
                     username: mergedUsername,
                     userId: r.userId,
-                    profile: profile,
+                    profile: cid == 0 ? profile : nil,
                     sender: nil
                 )
                 let un: String = {
                     if !mergedUsername.isEmpty { return mergedUsername }
+                    guard cid == 0 else { return "" }
                     return profile?.username.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 }()
-                let av: String?
-                if !r.clanAvatar.isEmpty {
-                    av = r.clanAvatar
-                } else if let u = profile?.avatarUrl, !u.isEmpty {
-                    av = u
-                } else if let cm {
+                let currentClanAvatar: String? = {
+                    guard let cm else { return nil }
                     let ca = cm.clanAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !ca.isEmpty {
-                        av = ca
-                    } else {
-                        let ua = cm.userAvatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
-                        av = ua.isEmpty ? nil : ua
-                    }
+                    return ca.isEmpty ? nil : ca
+                }()
+                let recordClanAvatar: String? = {
+                    guard canUseRecordClanPersona else { return nil }
+                    let ca = r.clanAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return ca.isEmpty ? nil : ca
+                }()
+                let clanUserAvatar: String? = {
+                    guard let cm else { return nil }
+                    let ua = cm.userAvatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return ua.isEmpty ? nil : ua
+                }()
+                let profileAvatar: String? = {
+                    guard let raw = profile?.avatarUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
+                          !raw.isEmpty else { return nil }
+                    return raw
+                }()
+                let av: String?
+                if cid == 0 {
+                    av = recordClanAvatar ?? profileAvatar
                 } else {
-                    av = nil
+                    av = currentClanAvatar ?? clanUserAvatar ?? recordClanAvatar
                 }
                 out.append(MentionMember(userId: r.userId, displayName: display, username: un, avatarURL: av))
             }
