@@ -117,5 +117,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>MEZON_ENDPOINT_FAILOVER</key>
+	<true/>
+	<key>MEZON_ENDPOINT_FAILOVER_SLOW</key>
+	<false/>
 </dict>
 </plist>
