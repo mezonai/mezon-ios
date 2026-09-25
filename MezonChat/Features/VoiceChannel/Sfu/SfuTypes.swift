@@ -23,6 +23,8 @@ enum SfuConnectionState {
 enum SfuRemovalCause {
     case kicked
     case aloneTimeout
+    case duplicateSession
+    case disconnected
 }
 
 struct SfuParticipant {

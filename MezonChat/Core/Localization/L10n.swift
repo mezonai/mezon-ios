@@ -1511,6 +1511,8 @@ enum L10n {
 
     enum VoiceChannel {
         static let disconnectedAlone = "voiceChannel.disconnectedAlone"
+        static let disconnectedOtherDevice = "voiceChannel.disconnectedOtherDevice"
+        static let disconnectedRejoin = "voiceChannel.disconnectedRejoin"
     }
 }
 
@@ -2876,6 +2878,8 @@ extension L10n {
         "mediaPanel.emptyGifs": "GIFs will appear here",
 
         "voiceChannel.disconnectedAlone": "You were disconnected from the voice channel because you were alone in it for too long.",
+        "voiceChannel.disconnectedOtherDevice": "You joined the voice channel on another device, so this session was disconnected.",
+        "voiceChannel.disconnectedRejoin": "You were disconnected from the voice channel.",
     ]
 
     private static let vi: [String: String] = [
@@ -4231,5 +4235,7 @@ extension L10n {
         "mediaPanel.emptyGifs": "GIF sẽ xuất hiện ở đây",
 
         "voiceChannel.disconnectedAlone": "Bạn đã bị ngắt khỏi kênh thoại vì ở một mình quá lâu.",
+        "voiceChannel.disconnectedOtherDevice": "Bạn đã tham gia kênh thoại trên thiết bị khác nên phiên này bị ngắt kết nối.",
+        "voiceChannel.disconnectedRejoin": "Bạn đã bị ngắt khỏi kênh thoại.",
     ]
 }

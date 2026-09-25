@@ -148,9 +148,11 @@ final class MezonSfuSession: NSObject {
 
     private static func removalCause(for closeCode: Int) -> SfuRemovalCause? {
         switch closeCode {
+        case 4001, 4002, 4008, 4010: return nil
         case 4006: return .kicked
         case 4011: return .aloneTimeout
-        default: return nil
+        case 4012: return .duplicateSession
+        default: return .disconnected
         }
     }
 
@@ -376,7 +378,17 @@ final class MezonSfuSession: NSObject {
         pathMonitor = monitor
         monitor.pathUpdateHandler = { [weak self] path in
             let satisfied = path.status == .satisfied
-            let signature = path.availableInterfaces.first?.name ?? ""
+            // availableInterfaces includes idle radios; only the route in use matters here.
+            let signature: String
+            if path.usesInterfaceType(.wifi) {
+                signature = "wifi"
+            } else if path.usesInterfaceType(.cellular) {
+                signature = "cellular"
+            } else if path.usesInterfaceType(.wiredEthernet) {
+                signature = "wired"
+            } else {
+                signature = "other"
+            }
             guard let self else { return }
             Task { @MainActor in
                 self.handlePathUpdate(satisfied: satisfied, signature: signature)
@@ -389,13 +401,20 @@ final class MezonSfuSession: NSObject {
         pathSatisfied = satisfied
         guard active else { return }
         guard satisfied else {
+            VoiceAudioDiagnostics.log("network.path", "status=unsatisfied")
             pathWasUnsatisfied = true
             return
         }
         let changed = pathWasUnsatisfied || (lastPathSignature != nil && lastPathSignature != signature)
+        VoiceAudioDiagnostics.log("network.path", "status=satisfied route=\(signature) previous=\(lastPathSignature ?? "none") changed=\(changed)")
         lastPathSignature = signature
         pathWasUnsatisfied = false
         guard changed, joined else { return }
+        if connecting {
+            // A second route change during reconnect must not be discarded.
+            deferRestart(after: Self.minSessionRestartSpacingSeconds)
+            return
+        }
         restartSession()
     }
 
@@ -754,7 +773,7 @@ final class MezonSfuSession: NSObject {
                     break
                 }
             } catch {
-                if !Task.isCancelled {
+                if !Task.isCancelled, gen == connectionGen, webSocketTask === task {
                     if let cause = Self.removalCause(for: task.closeCode.rawValue) {
                         handleRemoved(gen: gen, cause: cause, reason: task.closeReason)
                     } else {
@@ -871,17 +890,9 @@ final class MezonSfuSession: NSObject {
                 }
             } else if admitted && Self.participantActionErrors.contains(detail) {
                 onParticipantActionFailed?(detail)
-            } else if (detail == "invalid_token" || detail == "missing_token") && active && joined && tokenRefreshes >= Self.maxTokenRefreshes {
-                active = false
-                webSocketTask?.cancel(with: .normalClosure, reason: nil)
-                onError?(detail, detail)
-                emitState(.failed)
-            } else if active && (joined || retryingRejectedToken()) {
-                webSocketTask?.cancel(with: .normalClosure, reason: nil)
-                handleSocketClosed(gen: connectionGen)
             } else {
                 onError?(detail, detail)
-                emitState(.failed)
+                handleRemoved(gen: connectionGen, cause: .disconnected, reason: nil)
             }
         default:
             break

@@ -104,6 +104,10 @@ private func voiceChannelRemovalMessage(cause: SfuRemovalCause, reason: String?)
         return reason ?? NSLocalizedString("voiceChannel.kickedFromChannel", tableName: nil, bundle: .main, value: "You have been kicked from the channel.", comment: "")
     case .aloneTimeout:
         return L(L10n.VoiceChannel.disconnectedAlone)
+    case .duplicateSession:
+        return L(L10n.VoiceChannel.disconnectedOtherDevice)
+    case .disconnected:
+        return L(L10n.VoiceChannel.disconnectedRejoin)
     }
 }
 
@@ -642,6 +646,7 @@ final class VoiceChannelPiPOverlay: NSObject {
         }
         session.onConnectionState = { [weak self] state in
             if state == .failed {
+                Toast.info(L(L10n.VoiceChannel.disconnectedRejoin))
                 self?.dismiss()
             }
         }
@@ -2896,11 +2901,10 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         case .disconnected:
             setConnectingOverlayVisible(true)
         case .failed:
-            performSfuFinalTeardown(message: hasEverConnected
-                ? NSLocalizedString(
-                    "voiceChannel.disconnectDefault", tableName: nil, bundle: .main,
-                    value: "The connection to the voice room was lost.", comment: "")
-                : nil)
+            if hasEverConnected {
+                Toast.info(L(L10n.VoiceChannel.disconnectedRejoin))
+            }
+            performSfuFinalTeardown(message: nil)
         case .connecting, .joining, .awaitingOffer:
             if !hasEverConnected {
                 setConnectingOverlayVisible(true)
