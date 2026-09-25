@@ -97,8 +97,9 @@ final class MezonSfuSession: NSObject {
     private static let largeRoomSpeakingPollNanos: UInt64 = 1_000_000_000
     private static let largeRoomRemoteCount = 16
     private static let reconnectPollNanos: UInt64 = 3_000_000_000
-    private static let maxReconnectAttempts = 40
+    private static let maxReconnectAttempts = 4
     private static let maxInitialConnectAttempts = 3
+    private static let healthySessionNanos: UInt64 = 30_000_000_000
     private static let joinConnectDeadlineNanos: UInt64 = 12_000_000_000
     private static let maxTokenRefreshes = 3
     private static let tokenExpiryMarginSeconds: TimeInterval = 60
@@ -208,6 +209,7 @@ final class MezonSfuSession: NSObject {
     private var connectionGen = 0
     private var stateRestored = false
     private var reconnectAttempts = 0
+    private var healthySessionResetTask: Task<Void, Never>?
     private var tokenRefreshes = 0
     private var tokenRejected = false
     private var lastConnectionOpenedUptime: TimeInterval?
@@ -345,7 +347,6 @@ final class MezonSfuSession: NSObject {
                     self.emitState(.failed)
                     break
                 }
-                self.reconnectAttempts += 1
                 if self.tokenNeedsRefresh(), self.tokenRefreshes < Self.maxTokenRefreshes {
                     if let fresh = await self.tokenProvider?(), !fresh.isEmpty {
                         self.tokenRefreshes += 1
@@ -559,6 +560,8 @@ final class MezonSfuSession: NSObject {
         discardTransceiverState()
         iceRecoveryTask?.cancel()
         iceRecoveryTask = nil
+        healthySessionResetTask?.cancel()
+        healthySessionResetTask = nil
         pathMonitor?.cancel()
         pathMonitor = nil
         let closingPeerConnection = peerConnection
@@ -660,6 +663,17 @@ final class MezonSfuSession: NSObject {
     }
 
     private func openConnection(initial: Bool) {
+        if !initial {
+            let maxAttempts = joined ? Self.maxReconnectAttempts : Self.maxInitialConnectAttempts
+            guard reconnectAttempts < maxAttempts else {
+                active = false
+                emitState(.failed)
+                return
+            }
+            reconnectAttempts += 1
+        }
+        healthySessionResetTask?.cancel()
+        healthySessionResetTask = nil
         VoiceAudioDiagnostics.log("connection.open", "initial=\(initial) generation=\(connectionGen)")
         connecting = true
         isConnected = false
@@ -828,7 +842,6 @@ final class MezonSfuSession: NSObject {
                 syncRemoteMedia()
             }
             joined = true
-            reconnectAttempts = 0
             tokenRefreshes = 0
             tokenRejected = false
             if !stateRestored {
@@ -2061,7 +2074,21 @@ extension MezonSfuSession: RTCPeerConnectionDelegate {
                 self.schedulePostConnectAudioRecovery(gen: self.connectionGen)
                 self.emitState(.connected)
                 self.armTransportWatchdog(peerConnection)
+                if self.healthySessionResetTask == nil {
+                    let generation = self.connectionGen
+                    self.healthySessionResetTask = Task { @MainActor [weak self] in
+                        try? await Task.sleep(nanoseconds: Self.healthySessionNanos)
+                        guard !Task.isCancelled, let self else { return }
+                        self.healthySessionResetTask = nil
+                        if self.active, self.connectionGen == generation, self.isConnected, self.socketOpen {
+                            self.reconnectAttempts = 0
+                        }
+                    }
+                }
             case .failed:
+                self.isConnected = false
+                self.healthySessionResetTask?.cancel()
+                self.healthySessionResetTask = nil
                 self.iceRecoveryTask?.cancel()
                 self.iceRecoveryTask = nil
                 if self.active && self.joined {
@@ -2071,6 +2098,9 @@ extension MezonSfuSession: RTCPeerConnectionDelegate {
                     self.emitState(.failed)
                 }
             case .disconnected:
+                self.isConnected = false
+                self.healthySessionResetTask?.cancel()
+                self.healthySessionResetTask = nil
                 self.emitState(.disconnected)
                 if self.active, self.joined, self.iceRecoveryTask == nil {
                     self.iceRecoveryTask = Task { @MainActor [weak self] in
@@ -2094,6 +2124,9 @@ extension MezonSfuSession: RTCPeerConnectionDelegate {
             case .connected:
                 self.clearTransportWatchdog()
             case .failed:
+                self.isConnected = false
+                self.healthySessionResetTask?.cancel()
+                self.healthySessionResetTask = nil
                 self.clearTransportWatchdog()
                 if self.active && self.joined {
                     self.emitState(.disconnected)
