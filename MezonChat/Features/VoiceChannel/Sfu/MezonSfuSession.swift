@@ -1,4 +1,5 @@
 import AVFoundation
+import CallKit
 import Foundation
 import Network
 import UIKit
@@ -432,6 +433,10 @@ final class MezonSfuSession: NSObject {
     private func clearDeferredRestart() {
         deferredRestartTask?.cancel()
         deferredRestartTask = nil
+    }
+
+    private func retryingRejectedToken() -> Bool {
+        tokenRejected && tokenRefreshes < Self.maxTokenRefreshes && tokenProvider != nil
     }
 
     private func tokenNeedsRefresh() -> Bool {
@@ -871,7 +876,7 @@ final class MezonSfuSession: NSObject {
                 webSocketTask?.cancel(with: .normalClosure, reason: nil)
                 onError?(detail, detail)
                 emitState(.failed)
-            } else if active && joined {
+            } else if active && (joined || retryingRejectedToken()) {
                 webSocketTask?.cancel(with: .normalClosure, reason: nil)
                 handleSocketClosed(gen: connectionGen)
             } else {
@@ -1031,7 +1036,7 @@ final class MezonSfuSession: NSObject {
         }
         stalledPlayoutTicks += 1
         guard stalledPlayoutTicks >= Self.playoutStallTicksBeforeRestart, playoutRestarts < Self.maxPlayoutRestarts else { return }
-        guard !CallKitManager.shared.hasTrackedActiveCall,
+        guard !callKitCallOwnsAudio,
               WebRTCCallManager.shared.signalingSession == nil,
               StreamingWebRTCSession.shared.activeStreamChannelId == nil else { return }
         stalledPlayoutTicks = 0
@@ -1062,6 +1067,7 @@ final class MezonSfuSession: NSObject {
             let (generation, sdp) = current
             remoteMediaRevision += 1
             var answerSent = false
+            let negotiateStarted = Date()
             do {
                 let previousRemoteSdp = await Self.remoteDescriptionSdp(pc)
                 guard isCurrentConnection(pc, gen: gen) else { return }
@@ -1077,6 +1083,7 @@ final class MezonSfuSession: NSObject {
                     "sdp": patchAnswerForSfu(answer.sdp),
                 ])
                 answerSent = true
+                VoiceAudioDiagnostics.log("negotiate.answer", "generation=\(generation) ms=\(Int(Date().timeIntervalSince(negotiateStarted) * 1000))")
                 try await Self.awaitSetLocal(pc, RTCSessionDescription(type: .answer, sdp: answer.sdp))
                 guard isCurrentConnection(pc, gen: gen) else { return }
                 let transceivers = await Self.fetchTransceivers(pc)
@@ -1918,6 +1925,12 @@ final class MezonSfuSession: NSObject {
         try? await Self.awaitSetLocal(pc, RTCSessionDescription(type: .rollback, sdp: ""))
     }
 
+    private static let callKitObserver = CXCallObserver()
+
+    private var callKitCallOwnsAudio: Bool {
+        CallKitManager.shared.hasTrackedActiveCall && Self.callKitObserver.calls.contains { !$0.hasEnded }
+    }
+
     private func installAudioRecoveryObservers() {
         let center = NotificationCenter.default
         audioRecoveryObservers.append(center.addObserver(
@@ -1960,7 +1973,7 @@ final class MezonSfuSession: NSObject {
         VoiceAudioDiagnostics.snapshot("recovery.before")
         VoiceAudioDiagnostics.log("recovery.request", "active=\(active) restart=\(restartAudio) ownsActivation=\(audioRecoveryOwnsActivation)")
         guard active,
-              !CallKitManager.shared.hasTrackedActiveCall,
+              !callKitCallOwnsAudio,
               WebRTCCallManager.shared.signalingSession == nil,
               StreamingWebRTCSession.shared.activeStreamChannelId == nil else {
             VoiceAudioDiagnostics.log("recovery.skipped", "inactive_or_other_call")
@@ -1993,7 +2006,7 @@ final class MezonSfuSession: NSObject {
     private func releaseAudioRecoveryActivation() {
         guard audioRecoveryOwnsActivation else { return }
         guard Self.liveSession == nil || Self.liveSession === self,
-              !CallKitManager.shared.hasTrackedActiveCall,
+              !callKitCallOwnsAudio,
               WebRTCCallManager.shared.signalingSession == nil,
               StreamingWebRTCSession.shared.activeStreamChannelId == nil else {
             audioRecoveryOwnsActivation = false
@@ -2008,7 +2021,7 @@ final class MezonSfuSession: NSObject {
     }
 
     private func deactivateAudioIfIdle() {
-        if CallKitManager.shared.hasTrackedActiveCall { return }
+        if callKitCallOwnsAudio { return }
         if WebRTCCallManager.shared.signalingSession != nil { return }
         if StreamingWebRTCSession.shared.activeStreamChannelId != nil { return }
         if Self.liveSession != nil && Self.liveSession !== self { return }
