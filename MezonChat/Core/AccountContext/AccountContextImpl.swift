@@ -1307,10 +1307,10 @@ final class AccountContextImpl: AccountContext {
             )
 
         case .voiceJoined(let ev):
-            engine.clanData.applyVoiceJoined(clanId: ev.clanID, channelId: ev.voiceChannelID, userId: ev.userID, peerId: ev.peerID)
+            engine.clanData.applyVoiceJoined(clanId: ev.clanID, channelId: ev.voiceChannelID, userId: ev.userID)
 
         case .voiceLeaved(let ev):
-            engine.clanData.applyVoiceLeaved(clanId: ev.clanID, channelId: ev.voiceChannelID, userId: ev.voiceUserID, peerId: ev.peerID)
+            engine.clanData.applyVoiceLeaved(clanId: ev.clanID, channelId: ev.voiceChannelID, userId: ev.voiceUserID)
 
         case .screenShare(let ev):
             engine.clanData.applyScreenShare(clanId: ev.clanID, channelId: ev.voiceChannelID, userId: ev.userID, isSharing: ev.isSharing)
