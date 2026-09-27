@@ -747,6 +747,7 @@ final class ChatContainerNode: ASDisplayNode {
                 return "\(embed.title ?? "")|\(embed.description ?? "")|\(fields)|\(embed.actionRows.count)|\(buttons)|\(selects)"
             }.joined(separator: "§")
         }()
+        let channelTokenHash = m.parsedContent.tokens.map { "\($0.start):\($0.end):\($0.kind):\(String(describing: $0.channelIsAccessible))" }.joined(separator: ";")
         let ogpHash = m.parsedContent.ogpPreviews.map {
             "\($0.url)|\($0.title)|\($0.description)|\($0.imageURL)"
         }.joined(separator: "§")
@@ -755,7 +756,7 @@ final class ChatContainerNode: ASDisplayNode {
             return "\(topic.topicId)|\(topic.creatorId)|\(topic.replyCount)"
         }()
         let sendFeedback = m.showsSendingFeedback ? "1" : "0"
-        return "\(m.id)|\(m.message.senderId)|\(m.message.createdAt.timeIntervalSince1970)|\(edited)|\(m.senderDisplayName)|\(m.avatarURL ?? "")|\(m.messageCode)|\(grouping)|\(m.parsedContent.text)|\(att)|\(presignHash)|\(pin)|\(pollHash)|\(embedHash)|\(ogpHash)|\(topicHash)|\(sendFeedback)|\(m.sendingState.rawValue)"
+        return "\(m.id)|\(m.message.senderId)|\(m.message.createdAt.timeIntervalSince1970)|\(edited)|\(m.senderDisplayName)|\(m.avatarURL ?? "")|\(m.messageCode)|\(grouping)|\(m.parsedContent.text)|\(att)|\(presignHash)|\(pin)|\(pollHash)|\(embedHash)|\(ogpHash)|\(channelTokenHash)|\(topicHash)|\(sendFeedback)|\(m.sendingState.rawValue)"
     }
 
     private static func welcomeFingerprint(_ state: ChatState) -> String {

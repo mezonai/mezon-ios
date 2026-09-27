@@ -310,8 +310,11 @@ enum RichTextBuilder {
                 let chAge = ageRestricted ?? 0
                 let cid = channelId ?? ""
                 let gidForAccess = (clanId ?? "").isEmpty ? nil : clanId
-                var accessible = !cid.isEmpty && (hashtagChannelAccess?(cid, gidForAccess) ?? true)
-                if !accessible, hasEmbeddedLabel, chPriv == 0,
+                let hasSentDetails = hasEmbeddedLabel && channelType != nil && chPriv == 0
+                    && !(clanId ?? "").isEmpty && clanId != "0"
+                var accessible = token.channelIsAccessible
+                    ?? (!cid.isEmpty && (hasSentDetails || (hashtagChannelAccess?(cid, gidForAccess) ?? true)))
+                if token.channelIsAccessible == nil, !accessible, hasEmbeddedLabel, chPriv == 0,
                    let pid = parentId, !pid.isEmpty, pid != "0",
                    let access = hashtagChannelAccess {
                     accessible = access(pid, gidForAccess)
@@ -366,7 +369,8 @@ enum RichTextBuilder {
 
             case .mezonChannelLink(let isVk, let channelId, let clanId):
                 let gidForAccess = clanId.isEmpty ? nil : clanId
-                let accessible = !channelId.isEmpty && (hashtagChannelAccess?(channelId, gidForAccess) ?? true)
+                let accessible = token.channelIsAccessible
+                    ?? (!channelId.isEmpty && (hashtagChannelAccess?(channelId, gidForAccess) ?? true))
                 let chType: Int32 = isVk ? MezonConstants.ChannelType.mezonVoice.rawValue : MezonConstants.ChannelType.channel.rawValue
                 let iconName: String
                 if accessible {
@@ -548,7 +552,8 @@ enum RichTextBuilder {
         let slicedTokens = content.tokens.compactMap { token -> ContentToken? in
             if case .codeBlock = token.kind { return nil }
             guard token.start >= clampedFrom && token.end <= clampedTo else { return nil }
-            return ContentToken(start: token.start - clampedFrom, end: token.end - clampedFrom, kind: token.kind)
+            return ContentToken(start: token.start - clampedFrom, end: token.end - clampedFrom, kind: token.kind,
+                                channelIsAccessible: token.channelIsAccessible)
         }
 
         return ParsedContent(text: slicedText, tokens: slicedTokens, embeds: [], ogpPreviews: [])

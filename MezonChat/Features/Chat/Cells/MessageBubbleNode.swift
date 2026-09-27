@@ -620,6 +620,7 @@ final class MessageBubbleNode: ASDisplayNode {
         let newTimeText = Self.timeText(for: newDisplay)
         let timeChanged = oldTimeText != newTimeText
         let textChanged = oldDisplay.parsedContent.text != newDisplay.parsedContent.text
+            || oldDisplay.parsedContent.tokens != newDisplay.parsedContent.tokens
             || oldDisplay.isBuzzMessage != newDisplay.isBuzzMessage
         let ogpPreviewChanged = oldDisplay.parsedContent.ogpPreviews != newDisplay.parsedContent.ogpPreviews
             || Self.shouldShowOgpPreview(for: oldDisplay) != Self.shouldShowOgpPreview(for: newDisplay)

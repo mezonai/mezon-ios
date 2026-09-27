@@ -1415,11 +1415,11 @@ final class AccountContextImpl: AccountContext {
             engine.clanData.applyLocallyCreatedChannel(ch)
 
         case .channelDeleted(let ev):
-            NotificationCenter.default.post(
-                name: .mezonChannelDeletedLocally,
-                object: nil,
-                userInfo: ["clanId": ev.clanID, "channelId": ev.channelID]
-            )
+            engine.clanData.removeChannelLocally(clanId: ev.clanID, channelId: ev.channelID)
+
+        case .userChannelRemoved(let ev):
+            guard let myId = currentUserNumericId() else { break }
+            engine.clanData.applyUserChannelRemovedFromSocket(ev, currentUserNumericId: myId)
 
         case .userChannelAdded(let ev):
             guard let myId = currentUserNumericId() else { break }

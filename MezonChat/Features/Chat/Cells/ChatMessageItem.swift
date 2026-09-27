@@ -68,6 +68,7 @@ final class ChatMessageItem: ListViewItem {
             && self.display.topicData == other.display.topicData
             && self.display.clanInviteLinkCode == other.display.clanInviteLinkCode
             && self.display.parsedContent.text == other.display.parsedContent.text
+            && self.display.parsedContent.tokens == other.display.parsedContent.tokens
             && self.display.attachments == other.display.attachments
             && self.display.reactions == other.display.reactions
             && (self.display.replyRef != nil) == (other.display.replyRef != nil)
@@ -86,6 +87,7 @@ final class ChatMessageItemNode: ListViewItemNode, UIGestureRecognizerDelegate {
         let editedA = existing.message.editedAt?.timeIntervalSince1970
         let editedB = item.message.editedAt?.timeIntervalSince1970
         return existing.parsedContent.text == item.parsedContent.text
+            && existing.parsedContent.tokens == item.parsedContent.tokens
             && editedA == editedB
             && existing.pollData?.totalVotes == item.pollData?.totalVotes
             && existing.pollData?.answerCounts == item.pollData?.answerCounts

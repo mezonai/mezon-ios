@@ -25,6 +25,7 @@ final class Postbox {
     let clanMemberTable: ClanMemberTable
 
     private let viewTracker = ViewTracker()
+    let channelLinkDataUpdated = ValuePipe<Void>()
 
     private init() {
         let dir = FileManager.default
@@ -99,6 +100,9 @@ final class Postbox {
         notificationSettingTable.beforeCommit()
         notificationTable.beforeCommit()
         viewTracker.replay(transaction: tx)
+        if !tx.updatedChannelClanIds.isEmpty || tx.updatedClans {
+            channelLinkDataUpdated.putNext(())
+        }
     }
 
     @discardableResult
@@ -370,10 +374,18 @@ final class Postbox {
         }
     }
 
+    private func writeSettingData(key: String, value: Data?) {
+        let affectsChannelLinks = key == PreferencesKeys.allChannelsByUser
+            || key.hasPrefix("channelList_") || key.hasPrefix("threadList_")
+        let channelLinksChanged = affectsChannelLinks && settingsTable.get(key: key) != value
+        settingsTable.set(key: key, value: value)
+        settingsTable.beforeCommit()
+        if channelLinksChanged { channelLinkDataUpdated.putNext(()) }
+    }
+
     func setSettingData(key: String, value: Data?) {
         queue.async { [self] in
-            settingsTable.set(key: key, value: value)
-            settingsTable.beforeCommit()
+            writeSettingData(key: key, value: value)
         }
     }
 
@@ -393,8 +405,7 @@ final class Postbox {
     func setPreferenceData(key: String, value: Data?)             { setSettingData(key: key, value: value) }
     func setPreferenceDataSync(key: String, value: Data?) {
         queue.sync { [self] in
-            settingsTable.set(key: key, value: value)
-            settingsTable.beforeCommit()
+            writeSettingData(key: key, value: value)
         }
     }
     func clearPreferencesSync(withPrefix prefix: String) {

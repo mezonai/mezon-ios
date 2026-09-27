@@ -111,6 +111,9 @@ final class ThreadListViewController: ViewController {
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleUserChannelAddedFromSocket(_:)),
             name: .mezonUserChannelAddedFromSocket, object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleChannelDeletedLocally(_:)),
+            name: .mezonChannelDeletedLocally, object: nil)
 
         applyCachedThreadsIfAny()
         rebuildSections()
@@ -167,6 +170,18 @@ final class ThreadListViewController: ViewController {
             return
         }
         applyLocalThreadChannelUpdate(updated)
+    }
+
+    @objc private func handleChannelDeletedLocally(_ notification: Notification) {
+        guard let updatedClanId = Self.int64UserInfo(notification.userInfo?["clanId"]),
+              updatedClanId == clanId,
+              let channelId = Self.int64UserInfo(notification.userInfo?["channelId"]) else { return }
+        let removedIds = Set(notification.userInfo?["channelIds"] as? [Int64] ?? [channelId])
+        allThreads.removeAll { removedIds.contains($0.channelID) || removedIds.contains($0.parentID) }
+        searchResults.removeAll { removedIds.contains($0.channelID) || removedIds.contains($0.parentID) }
+        cachedClanMembersList = nil
+        rebuildSections()
+        tableView.reloadData()
     }
 
     private func applyLocalThreadChannelUpdate(_ updated: Mezon_Api_ChannelDescription) {

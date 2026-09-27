@@ -65,11 +65,15 @@ final class SettingsTable: Table {
         pendingWrites.removeAll()
     }
 
-    func removeKeys(withPrefix prefix: String) {
+    func keys(withPrefix prefix: String) -> [String] {
         beforeCommit()
-        let keys = db.query("SELECT key FROM settings") { stmt -> String in
+        return db.query("SELECT key FROM settings") { stmt -> String in
             sqlite3_column_text(stmt, 0).map { String(cString: $0) } ?? ""
         }.filter { $0.hasPrefix(prefix) }
+    }
+
+    func removeKeys(withPrefix prefix: String) {
+        let keys = keys(withPrefix: prefix)
         if !keys.isEmpty {
             db.beginTransaction()
             for key in keys {
