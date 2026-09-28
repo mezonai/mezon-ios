@@ -57,7 +57,7 @@ final class CreateChannelViewController: BaseViewController {
                 }
                 
                 let finalPrivate: Int32
-                if type != MezonConstants.ChannelType.channel.rawValue {
+                if type != MezonConstants.ChannelType.channel.rawValue && type != MezonConstants.ChannelType.mezonVoice.rawValue {
                     finalPrivate = 0
                 } else {
                     finalPrivate = isPrivate ? 1 : 0
@@ -72,7 +72,8 @@ final class CreateChannelViewController: BaseViewController {
                     token: token
                 )
                 
-                await self.context.engine.clanData.applyLocallyCreatedChannel(newChannel)
+                self.context.engine.channels.grantVoiceChannelAccess(newChannel)
+                self.context.engine.clanData.applyLocallyCreatedChannel(newChannel)
                 
                 await MainActor.run {
                     self.createNode.setLoading(false)

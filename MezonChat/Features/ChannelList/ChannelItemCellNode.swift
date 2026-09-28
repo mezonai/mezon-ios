@@ -65,7 +65,8 @@ final class ChannelItemCellNode: ASCellNode {
                 iconName = "Channel/channelWarning"
             }
             let image = UIImage(named: iconName) ?? UIImage(systemName: iconName)
-            iconImgNode.image = image?.withRenderingMode(.alwaysTemplate)
+            let displayImage = chType == .voice && channel.channelPrivate != 0 ? Self.lockedVoiceIcon(image) : image
+            iconImgNode.image = displayImage?.withRenderingMode(.alwaysTemplate)
             iconImgNode.tintColor = iconColor
             iconImgNode.isHidden = false
             iconNode.isHidden = true
@@ -128,6 +129,13 @@ final class ChannelItemCellNode: ASCellNode {
         backgroundColor = .clear
 
         isUserInteractionEnabled = true
+    }
+
+    private static func lockedVoiceIcon(_ voice: UIImage?) -> UIImage {
+        UIGraphicsImageRenderer(size: CGSize(width: 24, height: 24)).image { _ in
+            voice?.draw(in: CGRect(x: 0, y: 2, width: 17, height: 20))
+            UIImage(systemName: "lock.fill")?.draw(in: CGRect(x: 15, y: 12, width: 9, height: 11))
+        }
     }
 
     func applyListSelectionState(selected: Bool) {

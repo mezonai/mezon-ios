@@ -40,6 +40,7 @@ final class AccountContextImpl: AccountContext {
 
     let account: Account
     let engine: MezonEngine
+    private var voiceAccessSelfRoles: [Int64: Set<Int64>] = [:]
     private(set) lazy var rolePermissions: RolePermissionService = {
         let service = RolePermissionService(
             engine: self.engine,
@@ -284,6 +285,7 @@ final class AccountContextImpl: AccountContext {
         self.currentUser = user
 
         _ = self.rolePermissions
+        NotificationCenter.default.addObserver(self, selector: #selector(handleDeletedVoiceChannel(_:)), name: .mezonChannelDeletedLocally, object: nil)
 
         if let session {
             restoreAndRefreshSession(saved: session, onReady: onReady)
@@ -367,6 +369,8 @@ final class AccountContextImpl: AccountContext {
         }
         engine.friendsData.resetForLogout()
         engine.clanData.resetForLogout()
+        engine.channels.resetForLogout()
+        voiceAccessSelfRoles.removeAll()
         rolePermissions.resetForLogout()
         SessionStore.clear()
         MandatoryUsernamePendingStore.clearPending()
@@ -570,6 +574,9 @@ final class AccountContextImpl: AccountContext {
         lastRecoverTime = now
 
         engine.friendsData.scheduleRefreshFromSocket()
+        if let active = engine.channels.activeVoiceChannel {
+            engine.channels.refreshVoiceChannelAccess(clanId: active.clanID, context: self)
+        }
 
         let needsRefresh = session?.isExpired ?? true
 
@@ -801,6 +808,7 @@ final class AccountContextImpl: AccountContext {
 
     private func fetchAllUserClansAndChannels(token: String) {
         let startEpoch = sessionEpoch
+        let accessSnapshot = engine.channels.accessSnapshot
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
@@ -811,7 +819,9 @@ final class AccountContextImpl: AccountContext {
                 if let data = try? users.serializedData() {
                     self.account.postbox.setPreferenceData(key: PreferencesKeys.allUserClans, value: data)
                 }
-                if let data = try? channels.serializedData() {
+                var accessibleChannels = channels
+                accessibleChannels.channeldesc = self.engine.channels.mergingVoiceAccess(channels.channeldesc, since: accessSnapshot)
+                if let data = try? accessibleChannels.serializedData() {
                     self.account.postbox.setPreferenceData(key: PreferencesKeys.allChannelsByUser, value: data)
                 }
                 Task { [weak self] in
@@ -1078,6 +1088,7 @@ final class AccountContextImpl: AccountContext {
             SessionStore.save(updated)
 
         case .connected:
+            refreshSelectedAndActiveVoiceAccess()
             let joinDelayNanos: UInt64 = 250_000_000
             let isMinimalChrome = VoIPMinimalCallBootstrap.isMinimalChromeActive
             Task { @MainActor [weak self] in
@@ -1399,6 +1410,11 @@ final class AccountContextImpl: AccountContext {
             )
 
         case .channelCreated(let ev):
+            if ev.channelType == MezonConstants.ChannelType.mezonVoice.rawValue && ev.channelPrivate != 0 &&
+                ev.creatorID != currentUserNumericId() && !rolePermissions.hasClanPermission(.administrator, clanId: ev.clanID) {
+                engine.channels.refreshVoiceChannelAccess(clanId: ev.clanID, context: self)
+                break
+            }
             var ch = Mezon_Api_ChannelDescription()
             ch.clanID = ev.clanID
             ch.categoryID = ev.categoryID
@@ -1412,17 +1428,24 @@ final class AccountContextImpl: AccountContext {
             ch.clanName = ev.clanName
             ch.channelAvatar = ev.channelAvatar
             ch.active = 1
+            engine.channels.grantVoiceChannelAccess(ch)
             engine.clanData.applyLocallyCreatedChannel(ch)
 
         case .channelDeleted(let ev):
+            let deletedType = account.postbox.resolvedChannelDescription(clanId: ev.clanID, channelId: ev.channelID)?.type ?? 0
             NotificationCenter.default.post(
                 name: .mezonChannelDeletedLocally,
                 object: nil,
-                userInfo: ["clanId": ev.clanID, "channelId": ev.channelID]
+                userInfo: ["clanId": ev.clanID, "channelId": ev.channelID, "channelType": deletedType]
             )
 
         case .userChannelAdded(let ev):
             guard let myId = currentUserNumericId() else { break }
+            if myId != 0, ev.users.contains(where: { $0.userID == myId }), ev.hasChannelDesc {
+                var channel = ev.channelDesc
+                if channel.clanID == 0 { channel.clanID = ev.clanID }
+                engine.channels.grantVoiceChannelAccess(channel)
+            }
             if let desc = engine.clanData.applyUserChannelAddedFromSocket(ev, currentUserNumericId: myId) {
                 subscribeSocketRoomsForMergedChannel(desc)
             }
@@ -1431,10 +1454,49 @@ final class AccountContextImpl: AccountContext {
                 observingClanId: currentClanId
             )
 
+        case .userChannelRemoved(let ev):
+            guard PrivateVoiceChannelAccess.targetsUser(currentUserNumericId() ?? 0, ids: ev.userIds) else { break }
+            let channel = account.postbox.resolvedChannelDescription(clanId: ev.clanID, channelId: ev.channelID)
+            if ev.channelType == MezonConstants.ChannelType.mezonVoice.rawValue || channel?.type == MezonConstants.ChannelType.mezonVoice.rawValue || engine.channels.activeVoiceChannel?.channelID == ev.channelID {
+                let clanId = ev.clanID != 0 ? ev.clanID : (channel?.clanID ?? engine.channels.activeVoiceChannel?.clanID ?? 0)
+                engine.channels.removeVoiceChannelAccess(clanId: clanId, channelId: ev.channelID)
+            }
+
+        case .roleAssign(let ev):
+            if PrivateVoiceChannelAccess.targetsUser(currentUserNumericId() ?? 0, ids: ev.userIdsAssigned + ev.userIdsRemoved), let clanId = Int64(ev.clanID) {
+                voiceAccessSelfRoles[clanId, default: []].insert(ev.roleID)
+                engine.channels.refreshVoiceChannelAccess(clanId: clanId, context: self)
+            }
+
+        case .roleEvent(let ev):
+            if ev.hasRole {
+                let userId = currentUserNumericId() ?? 0
+                let selfRoles = account.postbox.read { $0.getClanMembers(clanId: ev.role.clanID).first { $0.userId == userId }?.roleIds }
+                let targetsSelf = PrivateVoiceChannelAccess.targetsUser(userId, ids: ev.userAddIds + ev.userRemoveIds)
+                if targetsSelf { voiceAccessSelfRoles[ev.role.clanID, default: []].insert(ev.role.id) }
+                let needsSnapshot = selfRoles == nil && (currentClanId == ev.role.clanID || engine.channels.activeVoiceChannel?.clanID == ev.role.clanID)
+                if targetsSelf || selfRoles?.contains(ev.role.id) == true ||
+                    voiceAccessSelfRoles[ev.role.clanID]?.contains(ev.role.id) == true || needsSnapshot {
+                    engine.channels.refreshVoiceChannelAccess(clanId: ev.role.clanID, context: self)
+                }
+            }
+
+        case .permissionSet(let ev):
+            refreshVoiceAccessForPermissionEvent(channelId: ev.channelID)
+
+        case .permissionChanged(let ev):
+            refreshVoiceAccessForPermissionEvent(channelId: ev.channelID)
+
         case .userClanAdded(let ev):
             engine.clanData.applyClanUserAddedFromSocket(ev)
 
+        case .clanDeleted(let ev):
+            removeVoiceChannelsInClan(ev.clanID)
+
         case .userClanRemoved(let ev):
+            if PrivateVoiceChannelAccess.targetsUser(currentUserNumericId() ?? 0, ids: ev.userIds) {
+                removeVoiceChannelsInClan(ev.clanID)
+            }
             engine.clanData.applyClanUserRemovedFromSocket(ev)
 
         case .clanEventCreated(let ev):
@@ -1471,6 +1533,7 @@ final class AccountContextImpl: AccountContext {
             NotificationCenter.default.post(name: Notification.Name("MezonClanDescUpdated"), object: nil, userInfo: ["clanId": ev.clanID])
 
         case .channelUpdated(let ev):
+            if engine.channels.handleVoiceChannelUpdated(ev, context: self) { break }
             guard ev.clanID != 0, ev.channelID != 0 else { break }
             let clanId = ev.clanID
             let channelId = ev.channelID
@@ -1546,6 +1609,44 @@ final class AccountContextImpl: AccountContext {
         default:
             break
         }
+    }
+
+    private func refreshSelectedAndActiveVoiceAccess() {
+        let clanIds = Set([currentClanId, engine.channels.activeVoiceChannel?.clanID ?? 0])
+        for clanId in clanIds where clanId != 0 {
+            engine.channels.refreshVoiceChannelAccess(clanId: clanId, context: self)
+        }
+    }
+
+    private func removeVoiceChannelsInClan(_ clanId: Int64) {
+        guard clanId != 0 else { return }
+        var channels = engine.clanData.getAllChannelsByUser()?.channeldesc ?? []
+        if let data = account.postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId)) {
+            channels += ChannelPreferenceListCodec.decode(data)
+        }
+        if let active = engine.channels.activeVoiceChannel { channels.append(active) }
+        let ids = Set(channels.filter {
+            $0.clanID == clanId && $0.type == MezonConstants.ChannelType.mezonVoice.rawValue
+        }.map(\.channelID))
+        for channelId in ids { engine.channels.removeVoiceChannelAccess(clanId: clanId, channelId: channelId) }
+    }
+
+    @objc private func handleDeletedVoiceChannel(_ notification: Notification) {
+        guard let clanId = notification.userInfo?["clanId"] as? Int64,
+              let channelId = notification.userInfo?["channelId"] as? Int64 else { return }
+        let channel = account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channelId)
+        let deletedType = notification.userInfo?["channelType"] as? Int32
+        if deletedType == MezonConstants.ChannelType.mezonVoice.rawValue ||
+            channel?.type == MezonConstants.ChannelType.mezonVoice.rawValue || engine.channels.activeVoiceChannel?.channelID == channelId {
+            engine.channels.removeVoiceChannelAccess(clanId: clanId, channelId: channelId)
+        }
+    }
+
+    private func refreshVoiceAccessForPermissionEvent(channelId: Int64) {
+        let channel = account.postbox.getChannelDescription(channelId: channelId)?.channel
+            ?? (engine.channels.activeVoiceChannel?.channelID == channelId ? engine.channels.activeVoiceChannel : nil)
+        guard let channel, channel.type == MezonConstants.ChannelType.mezonVoice.rawValue else { return }
+        engine.channels.refreshVoiceChannelAccess(clanId: channel.clanID, context: self)
     }
 
     private static func notificationSuggestsFriendRelation(_ noti: Mezon_Api_Notification) -> Bool {

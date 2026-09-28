@@ -20,6 +20,7 @@ final class ChannelPermissionsViewController: BaseViewController {
     private var channelMembers: [ClanMemberRecord] = []
 
     private var fetchMembersTask: Task<Void, Never>?
+    private var socketDisposable: Disposable?
     private var privacyUpdateInFlight = false
 
     private var currentTab: Tab = .basic
@@ -75,6 +76,22 @@ final class ChannelPermissionsViewController: BaseViewController {
     }
 
     override func setupBindings() {
+        if channelType == MezonConstants.ChannelType.mezonVoice.rawValue {
+            socketDisposable = (context.account.socket.events() |> deliverOnMainQueue).start(next: { [weak self] event in
+                guard let self else { return }
+                let affected: Bool
+                switch event {
+                case .userChannelAdded(let event): affected = event.channelDesc.channelID == self.channelId
+                case .userChannelRemoved(let event): affected = event.channelID == self.channelId
+                case .roleEvent(let event): affected = event.role.clanID == self.clanId
+                case .roleAssign(let event): affected = Int64(event.clanID) == self.clanId
+                default: affected = false
+                }
+                guard affected, !self.privacyUpdateInFlight else { return }
+                self.fetchMembersTask?.cancel()
+                self.fetchMembersTask = Task { [weak self] in await self?.refresh() }
+            })
+        }
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleRolesChanged),
             name: .mezonRolesDidChange, object: nil
@@ -86,6 +103,8 @@ final class ChannelPermissionsViewController: BaseViewController {
     }
 
     deinit {
+        socketDisposable?.dispose()
+        fetchMembersTask?.cancel()
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -350,7 +369,13 @@ final class ChannelPermissionsViewController: BaseViewController {
             return nil
         }()
         guard nid == channelId else { return }
+        let wasPrivate = isPrivate
         reloadLocalData()
+        if wasPrivate != isPrivate, resolvedChannelTypeForPermissions() == MezonConstants.ChannelType.mezonVoice.rawValue,
+           !privacyUpdateInFlight {
+            fetchMembersTask?.cancel()
+            fetchMembersTask = Task { [weak self] in await self?.refresh() }
+        }
     }
 
     private func channelSnapshotFromStores() -> Mezon_Api_ChannelDescription? {
@@ -373,7 +398,7 @@ final class ChannelPermissionsViewController: BaseViewController {
     }
 
     @objc private func selectAdvancedTab() {
-        guard isPrivate else { return }
+        guard isPrivate, resolvedChannelTypeForPermissions() != MezonConstants.ChannelType.mezonVoice.rawValue else { return }
         guard currentTab != .advanced else { return }
         currentTab = .advanced
         applyTabSelection()
@@ -390,7 +415,7 @@ final class ChannelPermissionsViewController: BaseViewController {
         }
         advancedTabButton.isHidden = !isPrivate
 
-        let showTabs = isPrivate
+        let showTabs = isPrivate && resolvedChannelTypeForPermissions() != MezonConstants.ChannelType.mezonVoice.rawValue
         tabContainer.isHidden = !showTabs
         tabContainerHeightConstraint?.constant = showTabs ? 40.sh : 0
 
@@ -426,11 +451,23 @@ final class ChannelPermissionsViewController: BaseViewController {
         rebuildList()
     }
 
+    private func accessOwnerId() -> Int64? {
+        if resolvedChannelTypeForPermissions() == MezonConstants.ChannelType.mezonVoice.rawValue {
+            return channelSnapshotFromStores()?.creatorID
+        }
+        return repository.clanOwnerId(clanId: clanId).flatMap(Int64.init)
+    }
+
     private func rebuildChannelMembers() {
         let clanOwnerId = repository.clanOwnerId(clanId: clanId)
         let allClanMembers = repository.clanMembers(clanId: clanId)
         if isPrivate {
             channelMembers = allClanMembers.filter { channelMemberIds.contains($0.userId) }
+            if resolvedChannelTypeForPermissions() == MezonConstants.ChannelType.mezonVoice.rawValue,
+               let owner = allClanMembers.first(where: { $0.userId == accessOwnerId() }),
+               !channelMembers.contains(where: { $0.userId == owner.userId }) {
+                channelMembers.insert(owner, at: 0)
+            }
         } else if let ownerId = clanOwnerId, let oid = Int64(ownerId),
             let owner = allClanMembers.first(where: { $0.userId == oid }) {
             channelMembers = [owner]
@@ -441,8 +478,11 @@ final class ChannelPermissionsViewController: BaseViewController {
 
     private func refresh() async {
         guard !Task.isCancelled else { return }
-        let ids = await repository.fetchChannelMembers(
-            clanId: clanId, channelId: channelId, channelType: resolvedChannelTypeForPermissions())
+        if resolvedChannelTypeForPermissions() == MezonConstants.ChannelType.mezonVoice.rawValue {
+            await repository.refreshRoles(clanId: clanId)
+        }
+        guard !Task.isCancelled, let ids = await repository.fetchChannelMembers(
+            clanId: clanId, channelId: channelId, channelType: resolvedChannelTypeForPermissions()) else { return }
         guard !Task.isCancelled else { return }
         channelMemberIds = Set(ids)
         reloadLocalData()
@@ -500,7 +540,10 @@ final class ChannelPermissionsViewController: BaseViewController {
                 try await self.repository.changeChannelPrivate(
                     clanId: self.clanId, channelId: self.channelId, makePrivate: newPrivate)
                 self.isPrivate = newPrivate
-                if newPrivate, let uid = self.context.currentUser?.id, let cuid = Int64(uid) {
+                if self.resolvedChannelTypeForPermissions() == MezonConstants.ChannelType.mezonVoice.rawValue {
+                    let ownerId = self.accessOwnerId()
+                    self.channelMemberIds = newPrivate ? Set(ownerId.map { [$0] } ?? []) : []
+                } else if newPrivate, let uid = self.context.currentUser?.id, let cuid = Int64(uid) {
                     self.channelMemberIds.insert(cuid)
                 }
                 self.rebuildChannelMembers()
@@ -540,6 +583,7 @@ final class ChannelPermissionsViewController: BaseViewController {
     }
 
     private func performAdd(memberIds: [Int64], roleIds: [Int64]) {
+        fetchMembersTask?.cancel()
         Task { [weak self] in
             guard let self else { return }
             do {
@@ -555,16 +599,23 @@ final class ChannelPermissionsViewController: BaseViewController {
                 Toast.success(L(L10n.ChannelPermission.toastSuccess))
             } catch {
                 Toast.error(L(L10n.ChannelPermission.toastFailed))
+                await self.refresh()
             }
         }
     }
 
     private func removeMember(_ member: ClanMemberRecord) {
+        fetchMembersTask?.cancel()
         Task { [weak self] in
             guard let self else { return }
             do {
                 try await self.repository.removeChannelUser(
-                    channelId: self.channelId, userId: member.userId)
+                    clanId: self.clanId, channelId: self.channelId, userId: member.userId)
+                if self.resolvedChannelTypeForPermissions() == MezonConstants.ChannelType.mezonVoice.rawValue,
+                   String(member.userId) == self.context.currentUser?.id {
+                    self.navigationController?.popToRootViewController(animated: true)
+                    return
+                }
                 self.channelMemberIds.remove(member.userId)
                 self.reloadLocalData()
                 Toast.success(L(L10n.ChannelPermission.toastSuccess))
@@ -575,6 +626,7 @@ final class ChannelPermissionsViewController: BaseViewController {
     }
 
     private func removeRole(_ role: Mezon_Api_Role) {
+        fetchMembersTask?.cancel()
         Task { [weak self] in
             guard let self else { return }
             do {
@@ -642,16 +694,12 @@ final class ChannelPermissionsViewController: BaseViewController {
     }
 
     private func makeMemberRow(_ member: ClanMemberRecord, advanced: Bool) -> UIView {
-        let ownerId = repository.clanOwnerId(clanId: clanId)
-        let isOwner: Bool = {
-            if let ownerId, let oid = Int64(ownerId) { return oid == member.userId }
-            return false
-        }()
+        let isOwner = accessOwnerId() == member.userId
         let isCurrentUser: Bool = {
             if let uid = context.currentUser?.id, let cuid = Int64(uid) { return cuid == member.userId }
             return false
         }()
-        let canRemove = !isOwner && !isCurrentUser
+        let canRemove = !isOwner && (!isCurrentUser || resolvedChannelTypeForPermissions() == MezonConstants.ChannelType.mezonVoice.rawValue)
         let row = ChannelPermissionsRowView(
             kind: .member(
                 name: RoleMemberDisplay.displayName(member),

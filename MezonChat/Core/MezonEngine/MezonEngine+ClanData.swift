@@ -1043,6 +1043,17 @@ extension MezonEngine {
             _ ch: Mezon_Api_ChannelDescription,
             skipChannelListFetch: Bool = false
         ) {
+            if ch.type == MezonConstants.ChannelType.mezonVoice.rawValue {
+                guard !engine.channels.isAccessRevoked(channelId: ch.channelID) else { return }
+                postbox.writeSync { tx in
+                    var records = tx.getChannels(clanId: ch.clanID)
+                    records.removeAll { $0.id == ch.channelID }
+                    records.append(ChannelRecord(proto: ch))
+                    tx.updateChannels(records, clanId: ch.clanID)
+                }
+                postbox.setPreferenceDataSync(key: PreferencesKeys.channelListDisplay(clanId: ch.clanID), value: nil)
+                postbox.setPreferenceDataSync(key: PreferencesKeys.channelListCategories(clanId: ch.clanID), value: nil)
+            }
             upsertAllChannelsByUserCache(ch)
             if ch.clanID != 0 {
                 mergeIntoClanChannelListPreferenceIfPresent(clanId: ch.clanID, channel: ch)
@@ -1065,6 +1076,10 @@ extension MezonEngine {
                     "skipChannelListFetch": skipChannelListFetch
                 ]
             )
+            if ch.type == MezonConstants.ChannelType.mezonVoice.rawValue {
+                NotificationCenter.default.post(name: .mezonChannelDescriptionDidUpdate, object: nil,
+                    userInfo: ["clanId": ch.clanID, "channelId": ch.channelID, "channelType": ch.type])
+            }
         }
 
         private func upsertAllChannelsByUserCache(_ ch: Mezon_Api_ChannelDescription) {
@@ -1075,7 +1090,11 @@ extension MezonEngine {
                 list.channeldesc.append(ch)
             }
             guard let data = try? list.serializedData() else { return }
-            postbox.setPreferenceData(key: PreferencesKeys.allChannelsByUser, value: data)
+            if ch.type == MezonConstants.ChannelType.mezonVoice.rawValue {
+                postbox.setPreferenceDataSync(key: PreferencesKeys.allChannelsByUser, value: data)
+            } else {
+                postbox.setPreferenceData(key: PreferencesKeys.allChannelsByUser, value: data)
+            }
         }
 
         func updateChannelPrivateLocally(clanId: Int64, channelId: Int64, isPrivate: Bool) {
@@ -1108,10 +1127,28 @@ extension MezonEngine {
             )
         }
 
+        func clearChannelRoleGrants(clanId: Int64, channelId: Int64) {
+            guard var container = getClanRoles(clanId: clanId) else { return }
+            var changed = false
+            for index in container.roles.roles.indices {
+                if container.roles.roles[index].channelIds.contains(channelId) {
+                    container.roles.roles[index].channelIds.removeAll { $0 == channelId }
+                    changed = true
+                }
+            }
+            guard changed, let data = try? container.serializedData() else { return }
+            postbox.setPreferenceDataSync(key: PreferencesKeys.clanRoles(clanId: clanId), value: data)
+            clanRolesUpdated.putNext(clanId)
+        }
+
         private func mergeIntoClanChannelListPreferenceIfPresent(clanId: Int64, channel: Mezon_Api_ChannelDescription) {
-            guard let blob = postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId)), !blob.isEmpty else { return }
-            var arr = ChannelPreferenceListCodec.decode(blob)
-            guard !arr.isEmpty, arr.allSatisfy({ $0.clanID == 0 || $0.clanID == clanId }) else { return }
+            let blob = postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId))
+            var arr = blob.map(ChannelPreferenceListCodec.decode) ?? []
+            if arr.isEmpty, channel.type == MezonConstants.ChannelType.mezonVoice.rawValue {
+                arr = getAllChannelsByUser()?.channeldesc.filter { $0.clanID == clanId } ?? []
+            }
+            guard !arr.isEmpty || channel.type == MezonConstants.ChannelType.mezonVoice.rawValue,
+                  arr.allSatisfy({ $0.clanID == 0 || $0.clanID == clanId }) else { return }
             if let idx = arr.firstIndex(where: { $0.channelID == channel.channelID }) {
                 arr[idx] = channel
             } else if channel.parentID != 0,

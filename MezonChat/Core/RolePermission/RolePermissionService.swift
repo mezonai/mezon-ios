@@ -399,6 +399,14 @@ final class RolePermissionService {
         return hasClanPermission(.manageChannel, clanId: clanId)
     }
 
+    func canManageChannel(_ channel: Mezon_Api_ChannelDescription) -> Bool {
+        guard channel.type == MezonConstants.ChannelType.mezonVoice.rawValue else {
+            return canManageChannel(clanId: channel.clanID)
+        }
+        if channel.creatorID != 0, String(channel.creatorID) == userIdProvider() { return true }
+        return isClanOwner(clanId: channel.clanID) || hasClanPermission(.administrator, clanId: channel.clanID) || canManageChannel(clanId: channel.clanID)
+    }
+
     func canManageClan(clanId: Int64) -> Bool {
         return hasClanPermission(.manageClan, clanId: clanId)
     }

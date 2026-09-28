@@ -9,7 +9,7 @@ final class ChannelSettingsViewController: BaseViewController {
     private var categoryId: Int64
     private var categoryName: String
     private let channelType: Int32
-    private let channelPrivate: Bool
+    private var channelPrivate: Bool
     private let initialName: String
     private let initialTopic: String
 
@@ -48,16 +48,15 @@ final class ChannelSettingsViewController: BaseViewController {
         }
 
         let isThread = channelType == MezonConstants.ChannelType.thread.rawValue
-        let isPublicChannel = !channelPrivate
-        let canManageChannel = context.rolePermissions.canManageChannel(clanId: clanId)
+        let channel = context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channelId)
+        let canManageChannel = channel.map { context.rolePermissions.canManageChannel($0) } ?? context.rolePermissions.canManageChannel(clanId: clanId)
         let isAdministrator = context.rolePermissions.hasClanPermission(.administrator, clanId: clanId) || context.rolePermissions.isClanOwner(clanId: clanId)
         
         let showPermissions = canManageChannel &&
                               !isThread &&
                               !isGeneralChannel &&
                               channelType != MezonConstants.ChannelType.app.rawValue &&
-                              channelType != MezonConstants.ChannelType.streaming.rawValue &&
-                              channelType != MezonConstants.ChannelType.mezonVoice.rawValue
+                              channelType != MezonConstants.ChannelType.streaming.rawValue
         let showChangeCategory = canManageChannel && !isThread
         
         let showWebhook = canManageChannel &&
@@ -69,7 +68,7 @@ final class ChannelSettingsViewController: BaseViewController {
                                channelType == MezonConstants.ChannelType.thread.rawValue ||
                                channelType == MezonConstants.ChannelType.app.rawValue)
                                
-        let showBanList = isAdministrator
+        let showBanList = isAdministrator && channelType != MezonConstants.ChannelType.mezonVoice.rawValue
 
         displayNode = ChannelSettingsContainerNode(
             channelName: initialName,
@@ -132,7 +131,7 @@ final class ChannelSettingsViewController: BaseViewController {
                 NotificationCenter.default.post(
                     name: .mezonChannelDeletedLocally,
                     object: nil,
-                    userInfo: ["clanId": clanId, "channelId": channelId]
+                    userInfo: ["clanId": clanId, "channelId": channelId, "channelType": channelType]
                 )
                 self.navigateBackAfterDelete()
             } catch {
@@ -157,6 +156,7 @@ final class ChannelSettingsViewController: BaseViewController {
         if let idx = stack.lastIndex(where: { $0 is ChatViewController }) {
             stack.remove(at: idx)
         }
+        stack.removeAll { ($0 as? VoiceChannelRoomViewController)?.voiceChannelId == channelId }
         if stack.isEmpty {
             nav.popToRoot(animated: true)
         } else {
@@ -176,14 +176,17 @@ final class ChannelSettingsViewController: BaseViewController {
     }
 
     private func openChangeCategory() {
+        let voiceChannel = channelType == MezonConstants.ChannelType.mezonVoice.rawValue
+            ? context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channelId) : nil
         let vc = ChangeCategoryViewController(
             context: context,
             clanId: clanId,
             channelId: channelId,
             currentCategoryId: categoryId,
             currentCategoryName: categoryName,
-            channelLabel: initialName,
-            channelTopic: initialTopic
+            channelLabel: voiceChannel?.channelLabel ?? initialName,
+            channelTopic: voiceChannel?.topic ?? initialTopic,
+            channelType: channelType
         )
         navigationController?.pushViewController(vc, animated: true)
     }
@@ -200,6 +203,19 @@ final class ChannelSettingsViewController: BaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         settingsNode.applyTheme()
+        if channelType == MezonConstants.ChannelType.mezonVoice.rawValue {
+            NotificationCenter.default.addObserver(self, selector: #selector(handleVoiceAccessLost(_:)), name: .mezonVoiceChannelAccessLost, object: nil)
+        }
+    }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    @objc private func handleVoiceAccessLost(_ notification: Notification) {
+        guard notification.userInfo?["clanId"] as? Int64 == clanId,
+              notification.userInfo?["channelId"] as? Int64 == channelId,
+              let nav = navigationController,
+              let index = nav.viewControllers.firstIndex(where: { $0 === self }), index > 0 else { return }
+        nav.setViewControllers(Array(nav.viewControllers.prefix(index)), animated: false)
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -207,6 +223,10 @@ final class ChannelSettingsViewController: BaseViewController {
         if let ch = context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channelId) {
             categoryId = ch.categoryID
             categoryName = ch.categoryName
+            if channelType == MezonConstants.ChannelType.mezonVoice.rawValue {
+                channelPrivate = ch.channelPrivate != 0
+                settingsNode.updateSnapshot(name: ch.channelLabel, topic: ch.topic)
+            }
         }
     }
 
@@ -214,12 +234,22 @@ final class ChannelSettingsViewController: BaseViewController {
         Task {
             do {
                 guard let token = await self.context.getToken() else { return }
+                let isVoice = self.channelType == MezonConstants.ChannelType.mezonVoice.rawValue
+                let latest = isVoice ? self.context.account.postbox.resolvedChannelDescription(clanId: self.clanId, channelId: self.channelId) : nil
+                let updatedName = isVoice ? name.trimmingCharacters(in: .whitespacesAndNewlines) : name
+                let updatedCategoryId = isVoice ? (latest?.categoryID ?? self.categoryId) : self.categoryId
+                if isVoice, updatedName != (latest?.channelLabel ?? self.initialName),
+                   try await self.context.account.network.checkDuplicateName(
+                    name: updatedName, type: 2, conditionId: updatedCategoryId, token: token) {
+                    Toast.error(L(L10n.ChannelSetting.channelNameDuplicate))
+                    return
+                }
                 try await self.context.engine.channels.updateChannelDescription(
                     clanId: self.clanId,
                     channelId: self.channelId,
-                    name: name,  
+                    name: updatedName,
                     topic: topic, 
-                    categoryId: self.categoryId,
+                    categoryId: updatedCategoryId,
                     token: token
                 )
 
@@ -234,4 +264,3 @@ final class ChannelSettingsViewController: BaseViewController {
         }
     }
 }
-

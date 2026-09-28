@@ -144,16 +144,24 @@ final class ChannelPermissionsRepository {
 
     // MARK: - Channel members / roles fetching
 
-    func fetchChannelMembers(clanId: Int64, channelId: Int64, channelType: Int32) async -> [Int64] {
-        guard let token = await context.getToken() else { return [] }
+    func fetchChannelMembers(clanId: Int64, channelId: Int64, channelType: Int32) async -> [Int64]? {
+        guard let token = await context.getToken() else { return nil }
         do {
             let response = try await context.engine.account.network.listChannelUsersUC(
                 channelId: channelId,
                 token: token)
             return response.userIds
         } catch {
-            return []
+            return nil
         }
+    }
+
+    func refreshRoles(clanId: Int64) async {
+        let epoch = context.sessionEpoch
+        guard let token = await context.getToken() else { return }
+        guard let roles = try? await context.account.network.listRoles(clanId: clanId, token: token),
+              !Task.isCancelled, context.isStillCurrentSession(epoch: epoch) else { return }
+        persistLocalRoles(roles, clanId: clanId)
     }
 
     func channelRoles(clanId: Int64, channelId: Int64) -> [Mezon_Api_Role] {
@@ -170,7 +178,10 @@ final class ChannelPermissionsRepository {
         guard let token = await context.getToken() else {
             throw NSError(domain: "session", code: -1)
         }
-        let uid: Int64 = (context.currentUser?.id).flatMap(Int64.init) ?? 0
+        let channel = context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channelId)
+        let isVoice = channel?.type == MezonConstants.ChannelType.mezonVoice.rawValue
+        let creatorId = channel?.creatorID ?? 0
+        let uid: Int64 = isVoice && creatorId != 0 ? creatorId : ((context.currentUser?.id).flatMap(Int64.init) ?? 0)
         // UpdateChannelPrivate uses an action flag: 0 makes private, 1 publishes.
         try await context.engine.account.network.changeChannelPrivate(
             clanId: clanId,
@@ -180,25 +191,31 @@ final class ChannelPermissionsRepository {
             roleIds: [],
             token: token
         )
-        if makePrivate {
+        if (isVoice && !makePrivate) || (!isVoice && makePrivate) {
             clearLocalRoleChannels(clanId: clanId, channelId: channelId)
         }
         context.engine.clanData.updateChannelPrivateLocally(
             clanId: clanId, channelId: channelId, isPrivate: makePrivate
         )
+        if isVoice { context.engine.channels.refreshVoiceChannelAccess(clanId: clanId, context: context) }
     }
 
-    func removeChannelUser(channelId: Int64, userId: Int64) async throws {
-        guard let token = await context.getToken() else { return }
+    func removeChannelUser(clanId: Int64, channelId: Int64, userId: Int64) async throws {
+        guard let token = await context.getToken() else { throw NSError(domain: "session", code: -1) }
+        let channel = context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channelId)
         try await context.engine.account.network.removeChannelUsers(
             channelId: channelId,
             userIds: [userId],
             token: token
         )
+        if channel?.type == MezonConstants.ChannelType.mezonVoice.rawValue,
+           PrivateVoiceChannelAccess.targetsUser(Int64(context.currentUser?.id ?? "") ?? 0, ids: [userId]) {
+            context.engine.channels.removeVoiceChannelAccess(clanId: clanId, channelId: channelId)
+        }
     }
 
     func removeChannelRole(channelId: Int64, clanId: Int64, roleId: Int64) async throws {
-        guard let token = await context.getToken() else { return }
+        guard let token = await context.getToken() else { throw NSError(domain: "session", code: -1) }
         try await context.engine.account.network.deleteRoleChannelDesc(
             roleId: roleId,
             clanId: clanId,
@@ -206,10 +223,12 @@ final class ChannelPermissionsRepository {
             token: token
         )
         removeLocalRoleChannel(clanId: clanId, roleId: roleId, channelId: channelId)
+        refreshVoiceAccessIfNeeded(clanId: clanId, channelId: channelId)
     }
 
     func addChannelMembers(channelId: Int64, userIds: [Int64]) async throws {
-        guard !userIds.isEmpty, let token = await context.getToken() else { return }
+        guard !userIds.isEmpty else { return }
+        guard let token = await context.getToken() else { throw NSError(domain: "session", code: -1) }
         try await context.engine.account.network.addChannelUsers(
             channelId: channelId,
             userIds: userIds,
@@ -218,7 +237,8 @@ final class ChannelPermissionsRepository {
     }
 
     func addChannelRoles(channelId: Int64, clanId: Int64, roleIds: [Int64]) async throws {
-        guard !roleIds.isEmpty, let token = await context.getToken() else { return }
+        guard !roleIds.isEmpty else { return }
+        guard let token = await context.getToken() else { throw NSError(domain: "session", code: -1) }
         try await context.engine.account.network.addRoleChannelDesc(
             channelId: channelId,
             roleIds: roleIds,
@@ -226,6 +246,13 @@ final class ChannelPermissionsRepository {
         )
         for roleId in roleIds {
             addLocalRoleChannel(clanId: clanId, roleId: roleId, channelId: channelId)
+        }
+        refreshVoiceAccessIfNeeded(clanId: clanId, channelId: channelId)
+    }
+
+    private func refreshVoiceAccessIfNeeded(clanId: Int64, channelId: Int64) {
+        if context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channelId)?.type == MezonConstants.ChannelType.mezonVoice.rawValue {
+            context.engine.channels.refreshVoiceChannelAccess(clanId: clanId, context: context)
         }
     }
 
@@ -300,17 +327,8 @@ final class ChannelPermissionsRepository {
     }
 
     private func clearLocalRoleChannels(clanId: Int64, channelId: Int64) {
-        var container = context.engine.clanData.getClanRoles(clanId: clanId) ?? Mezon_Api_RoleListEventResponse()
-        var changed = false
-        for idx in container.roles.roles.indices {
-            let before = container.roles.roles[idx].channelIds.count
-            container.roles.roles[idx].channelIds.removeAll { $0 == channelId }
-            if container.roles.roles[idx].channelIds.count != before {
-                changed = true
-            }
-        }
-        guard changed else { return }
-        persistLocalRoles(container, clanId: clanId)
+        context.engine.clanData.clearChannelRoleGrants(clanId: clanId, channelId: channelId)
+        context.rolePermissions.invalidateRolesCache()
     }
 
     private func persistLocalRoles(_ container: Mezon_Api_RoleListEventResponse, clanId: Int64) {

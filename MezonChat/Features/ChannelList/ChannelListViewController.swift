@@ -1115,6 +1115,7 @@ final class ChannelListViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleUserChannelAddedFromSocket(_:)), name: .mezonUserChannelAddedFromSocket, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelDescriptionDidUpdate(_:)), name: .mezonChannelDescriptionDidUpdate, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelDeletedLocally(_:)), name: .mezonChannelDeletedLocally, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleChannelDeletedLocally(_:)), name: .mezonVoiceChannelAccessLost, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleMemberOnboardingDidUpdate(_:)), name: .mezonMemberOnboardingDidUpdate, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleAccountCurrentUserDidChangeForOnboarding(_:)), name: .mezonAccountCurrentUserDidChange, object: nil)
         clanUsersDisposable.set(
@@ -1168,7 +1169,13 @@ final class ChannelListViewController: ViewController {
     @objc private func handleChannelDeletedLocally(_ notification: Notification) {
         guard let gid = notification.userInfo?["clanId"] as? Int64, gid == self.clanId else { return }
         guard let cid = notification.userInfo?["channelId"] as? Int64 else { return }
-        removeChannelLocally(channelId: cid)
+        let isVoice = notification.name == .mezonVoiceChannelAccessLost ||
+            notification.userInfo?["channelType"] as? Int32 == MezonConstants.ChannelType.mezonVoice.rawValue
+        if isVoice {
+            channelListFavoriteIds.remove(cid)
+            allChannels = channelsIncludingCachedVoiceUpdateBase()
+        }
+        removeChannelLocally(channelId: cid, pruneMissingChannels: !isVoice)
     }
 
     private func effectiveClanIdForChannelAppsHydration() -> Int64 {
@@ -1198,6 +1205,15 @@ final class ChannelListViewController: ViewController {
         return 0
     }
 
+    private func channelsIncludingCachedVoiceUpdateBase() -> [Mezon_Api_ChannelDescription] {
+        let cached = context.account.postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId))
+            .map(ChannelPreferenceListCodec.decode)
+            ?? context.engine.clanData.getAllChannelsByUser()?.channeldesc.filter { $0.clanID == clanId } ?? []
+        var ids = Set(allChannels.map(\.channelID))
+        return (allChannels + cached.filter { ids.insert($0.channelID).inserted })
+            .filter { !context.engine.channels.isAccessRevoked(channelId: $0.channelID) }
+    }
+
     @objc private func handleUserChannelAddedFromSocket(_ notification: Notification) {
         guard let gid = notification.userInfo?["clanId"] as? Int64 else { return }
         guard gid == clanId, clanId != 0 else { return }
@@ -1206,7 +1222,8 @@ final class ChannelListViewController: ViewController {
             insertJoinedThreadIntoCategoriesSnapshotIfNeeded(ch)
         }
         if let ch = notification.userInfo?["channel"] as? Mezon_Api_ChannelDescription {
-            var merged = allChannels
+            let isVoice = ch.type == MezonConstants.ChannelType.mezonVoice.rawValue
+            var merged = isVoice ? channelsIncludingCachedVoiceUpdateBase() : allChannels
             if let idx = merged.firstIndex(where: { $0.channelID == ch.channelID }) {
                 merged[idx] = ch
             } else {
@@ -1225,7 +1242,8 @@ final class ChannelListViewController: ViewController {
                 channels: allChannels,
                 categoryDescs: channelListCategoryDescs,
                 favoriteIds: channelListFavoriteIds,
-                categories: cats
+                categories: cats,
+                pruneMissingChannels: !isVoice
             )
         } else if NetworkMonitor.shared.isConnected {
             lastChannelFetchAtByClanId.removeValue(forKey: clanId)
@@ -2101,7 +2119,7 @@ final class ChannelListViewController: ViewController {
             canManage = (isCreator && canManageThread) || isAdmin || isOwner
             canLeaveThread = !isCreator
         } else {
-            canManage = self.context.rolePermissions.canManageChannel(clanId: self.clanId)
+            canManage = self.context.rolePermissions.canManageChannel(channel)
             canLeaveThread = false
         }
 
@@ -2364,7 +2382,7 @@ final class ChannelListViewController: ViewController {
         }
     }
 
-    private func removeChannelLocally(channelId: Int64) {
+    private func removeChannelLocally(channelId: Int64, pruneMissingChannels: Bool = true) {
         clearPendingMentionUnreadFloor(clanId: clanId, channelId: channelId)
         allChannels.removeAll { $0.channelID == channelId }
 
@@ -2375,7 +2393,7 @@ final class ChannelListViewController: ViewController {
         )
         categories = cats
         categoriesPipe.putNext(categories)
-        persistFullChannelListCache(clanId: clanId, channels: allChannels, categoryDescs: channelListCategoryDescs, favoriteIds: channelListFavoriteIds, categories: categories)
+        persistFullChannelListCache(clanId: clanId, channels: allChannels, categoryDescs: channelListCategoryDescs, favoriteIds: channelListFavoriteIds, categories: categories, pruneMissingChannels: pruneMissingChannels)
         reconcileSelectionWithLoadedChannels()
         needsReloadPipe.putNext(())
     }
@@ -2388,7 +2406,7 @@ final class ChannelListViewController: ViewController {
                 NotificationCenter.default.post(
                     name: .mezonChannelDeletedLocally,
                     object: nil,
-                    userInfo: ["clanId": channel.clanID, "channelId": channel.channelID]
+                    userInfo: ["clanId": channel.clanID, "channelId": channel.channelID, "channelType": channel.type]
                 )
             } catch {
                 Toast.error(error.localizedDescription)
@@ -2669,7 +2687,8 @@ final class ChannelListViewController: ViewController {
         channelListFavoriteIds = resolvedFavoriteIds
 
         let previousChannels = allChannels
-        var immediate = preservePendingMentionUnread(in: channels, clanId: clanId)
+        let accessibleChannels = channels.filter { !context.engine.channels.isAccessRevoked(channelId: $0.channelID) }
+        var immediate = preservePendingMentionUnread(in: accessibleChannels, clanId: clanId)
         immediate = mergeCachedUnreadCounts(into: immediate, cached: previousChannels)
         allChannels = immediate
         emptyChannelRetryCountByClanId[clanId] = 0
@@ -3001,7 +3020,8 @@ final class ChannelListViewController: ViewController {
         inflightChannelFetchClanId = clanId
         lastChannelFetchAtByClanId[clanId] = Date()
 
-        let signal = channelListSignal(clanId: clanId)
+        let accessRevision = context.engine.channels.accessRevision(clanId: clanId)
+        let signal = channelListSignal(clanId: clanId, accessRevision: accessRevision)
             |> map { payload -> FetchResult in .success(payload.channels, payload.categoryDescs, payload.favoriteChannelIds) }
             |> `catch` { (error: ChannelFetchError) -> Signal<FetchResult, NoError> in .single(.failure(error.localizedDescription)) }
             |> deliverOnMainQueue
@@ -3024,6 +3044,11 @@ final class ChannelListViewController: ViewController {
                 self.isLoading = false
                 switch result {
                 case .success(let channels, let categoryDescs, let favoriteIds):
+                    guard self.context.engine.channels.reconcileVoiceChannelAccess(channels, clanId: clanId, revision: accessRevision) else {
+                        self.clearInflightChannelFetchIfMatches(clanId: clanId)
+                        self.fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: allowEmptyApps, force: true)
+                        return
+                    }
                     if channels.isEmpty && hadCachedChannels {
                         if !categoryDescs.isEmpty || !favoriteIds.isEmpty {
                             let resolvedCategoryDescs = categoryDescs.isEmpty ? self.channelListCategoryDescs : categoryDescs
@@ -3162,6 +3187,7 @@ final class ChannelListViewController: ViewController {
     }
 
     private func handleChannelTap(_ channel: Mezon_Api_ChannelDescription) {
+        guard !context.engine.channels.isAccessRevoked(channelId: channel.channelID) else { return }
         if channel.type == MezonConstants.ChannelType.mezonVoice.rawValue {
             presentJoinVoiceSheet(for: channel)
             if lastMemberOnboardingState.isVisible {
@@ -3787,7 +3813,7 @@ final class ChannelListViewController: ViewController {
         let favoriteChannelIds: Set<Int64>
     }
 
-    private func channelListSignal(clanId: Int64) -> Signal<ChannelListFetchPayload, ChannelFetchError> {
+    private func channelListSignal(clanId: Int64, accessRevision: UInt64) -> Signal<ChannelListFetchPayload, ChannelFetchError> {
         let context = self.context
         return Signal { subscriber in
             let task = Task {
@@ -3807,7 +3833,7 @@ final class ChannelListViewController: ViewController {
                 }
                 let network = MezonHTTPClient.shared
                 do {
-                    async let channelsTask = network.listChannelDescs(clanId: clanId, token: token)
+                    async let channelsTask = network.listChannelDescs(clanId: clanId, token: token, accessRevision: accessRevision)
                     async let categoriesTask = Self.listCategoryDescsOrEmpty(network: network, clanId: clanId, token: token)
                     async let favoritesTask = Self.listFavoriteChannelIdsOrEmpty(network: network, clanId: clanId, token: token)
                     let channels = try await channelsTask
@@ -4465,7 +4491,8 @@ final class ChannelListViewController: ViewController {
         channels: [Mezon_Api_ChannelDescription],
         categoryDescs: [Mezon_Api_CategoryDesc],
         favoriteIds: Set<Int64>,
-        categories: [ChannelCategory]
+        categories: [ChannelCategory],
+        pruneMissingChannels: Bool = true
     ) {
         guard isCurrentSessionAlive else { return }
         guard clanId != 0 else { return }
@@ -4477,7 +4504,9 @@ final class ChannelListViewController: ViewController {
             key: PreferencesKeys.channelListDisplay(clanId: clanId),
             value: encodeChannelListDisplay(channels: layoutOrdered, categoryDescs: displayDescs, favoriteIds: favoriteIds)
         )
-        pruneAllChannelsByUserCache(clanId: clanId, keeping: Set(channels.map(\.channelID)))
+        if pruneMissingChannels {
+            pruneAllChannelsByUserCache(clanId: clanId, keeping: Set(channels.map(\.channelID)))
+        }
         context.account.postbox.setPreferenceDataSync(
             key: PreferencesKeys.channelList(clanId: clanId),
             value: encodeChannelList(layoutOrdered)

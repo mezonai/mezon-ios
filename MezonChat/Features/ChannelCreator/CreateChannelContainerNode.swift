@@ -336,7 +336,7 @@ final class CreateChannelContainerNode: ASDisplayNode {
         voiceTypeBtn.setSelected(selectedType == MezonConstants.ChannelType.mezonVoice.rawValue)
         streamTypeBtn.setSelected(selectedType == MezonConstants.ChannelType.streaming.rawValue)
         
-        if selectedType == MezonConstants.ChannelType.channel.rawValue {
+        if selectedType == MezonConstants.ChannelType.channel.rawValue || selectedType == MezonConstants.ChannelType.mezonVoice.rawValue {
             privateSection.superview?.isHidden = false
         } else {
             privateSection.superview?.isHidden = true
