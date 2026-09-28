@@ -382,6 +382,12 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        ScreenShareTrace.log("expanded_visible", ["trackId": shareTrack.trackId,
+            "hasCachedFrame": VideoTrackLastFrameStore.cachedFrame(of: shareTrack) != nil,
+            "width": Double(videoView.bounds.width), "height": Double(videoView.bounds.height)])
+        // The initial replay in viewDidLoad can precede a drawable Metal surface.
+        view.layoutIfNeeded()
+        VideoTrackLastFrameStore.replayLastFrame(of: shareTrack, to: [videoView])
         UIViewController.attemptRotationToDeviceOrientation()
         if #available(iOS 16.0, *) {
             setNeedsUpdateOfSupportedInterfaceOrientations()

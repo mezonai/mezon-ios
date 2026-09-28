@@ -18,10 +18,6 @@ private enum AbridgedTCPLog {
         NSLog("%@", message as NSString)
     }
 
-    static func milliseconds(_ interval: TimeInterval) -> Int {
-        Int((interval * 1000).rounded())
-    }
-
     static func elapsedMilliseconds(since start: DispatchTime) -> UInt64 {
         (DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000
     }
@@ -203,7 +199,6 @@ private final class HappyEyeballsConnector {
 
     func start(completion: @escaping (Result<NWConnection, Error>) -> Void) {
         self.completion = completion
-        log("happy eyeballs \(hostName):\(port.rawValue) attemptDelay=\(AbridgedTCPLog.milliseconds(connectionAttemptDelay))ms resolutionDelay=\(AbridgedTCPLog.milliseconds(resolutionDelay))ms enableFastOpen=true")
         if let literal = IPv6Address(hostName) {
             ipv6Hosts = [NWEndpoint.Host.ipv6(literal)]
             ipv4Hosts = []
@@ -243,8 +238,6 @@ private final class HappyEyeballsConnector {
         switch result {
         case .success(let resolved):
             hosts = resolved
-            let list = resolved.map { "\($0)" }.joined(separator: ", ")
-            log("dns \(family.recordType) -> \(resolved.count) addresses [\(list)] at +\(elapsedMilliseconds)ms")
         case .failure(let error):
             hosts = []
             lastError = error
@@ -271,7 +264,6 @@ private final class HappyEyeballsConnector {
         let work = DispatchWorkItem { [weak self] in
             guard let self, !self.isFinished else { return }
             self.resolutionDelayTimer = nil
-            self.log("AAAA still pending after \(AbridgedTCPLog.milliseconds(self.resolutionDelay))ms resolution delay, starting with IPv4")
             self.scheduleNextAttempt()
         }
         resolutionDelayTimer = work
@@ -311,7 +303,6 @@ private final class HappyEyeballsConnector {
 
         let connection = NWConnection(host: host, port: port, using: makeParameters())
         attempts[number] = connection
-        log("attempt #\(number) \(family.label) \(host) started at +\(elapsedMilliseconds)ms")
         connection.stateUpdateHandler = { [weak self] state in
             self?.handleAttemptState(state, number: number, host: host, connection: connection)
         }
@@ -345,7 +336,6 @@ private final class HappyEyeballsConnector {
     private func succeed(with connection: NWConnection, number: Int, host: NWEndpoint.Host) {
         attempts[number] = nil
         let losers = Array(attempts.values)
-        log("attempt #\(number) \(AddressFamily(host).label) \(host) won at +\(elapsedMilliseconds)ms, cancelling \(losers.count) other attempts")
         let completion = self.completion
         isFinished = true
         self.completion = nil
@@ -427,7 +417,6 @@ final class AbridgedTCPTransport {
                 self.failConnection(MezonError.socketError("Invalid abridged port \(port)"))
                 return
             }
-            let startedAt = DispatchTime.now()
             let connector = HappyEyeballsConnector(hostName: host, port: nwPort, queue: self.queue, logTag: self.logTag)
             self.connector = connector
             connector.start { [weak self] result in
@@ -440,7 +429,7 @@ final class AbridgedTCPTransport {
                 self.connector = nil
                 switch result {
                 case .success(let connection):
-                    self.adopt(connection, credential: credential, startedAt: startedAt)
+                    self.adopt(connection, credential: credential)
                 case .failure(let error):
                     self.failConnection(error)
                 }
@@ -468,7 +457,6 @@ final class AbridgedTCPTransport {
     func close() {
         queue.async { [weak self] in
             guard let self, !self.isClosed else { return }
-            AbridgedTCPLog.line("\(self.logTag) close requested")
             self.isClosed = true
             self.connector?.cancel()
             self.connector = nil
@@ -481,20 +469,16 @@ final class AbridgedTCPTransport {
         }
     }
 
-    private func adopt(_ connection: NWConnection, credential: String, startedAt: DispatchTime) {
+    private func adopt(_ connection: NWConnection, credential: String) {
         self.connection = connection
-        let tag = logTag
-        AbridgedTCPLog.line("\(tag) ready at +\(AbridgedTCPLog.elapsedMilliseconds(since: startedAt))ms")
         connection.stateUpdateHandler = { [weak self] state in
             self?.queue.async {
                 guard let self, self.connection === connection, !self.isClosed else { return }
-                AbridgedTCPLog.line("\(tag) state \(state) at +\(AbridgedTCPLog.elapsedMilliseconds(since: startedAt))ms")
                 if case .failed(let error) = state {
                     self.failConnection(error)
                 }
             }
         }
-        logEstablishment(of: connection)
         sendRaw(AbridgedFrameCodec.frameHandshake(credential: credential)) { [weak self] error in
             guard let self, self.connection === connection, !self.isClosed else { return }
             if let error {
@@ -504,22 +488,6 @@ final class AbridgedTCPTransport {
             }
         }
         receiveLoop(connection)
-    }
-
-    private func logEstablishment(of connection: NWConnection) {
-        let tag = logTag
-        let remote = connection.currentPath?.remoteEndpoint.map { "\($0)" } ?? "unknown"
-        connection.requestEstablishmentReport(queue: queue) { report in
-            guard let report else {
-                AbridgedTCPLog.line("\(tag) establishment report unavailable, remote \(remote)")
-                return
-            }
-            let handshakes = report.handshakes.map { handshake in
-                "\(handshake.definition.name) \(AbridgedTCPLog.milliseconds(handshake.handshakeDuration))ms rtt \(AbridgedTCPLog.milliseconds(handshake.handshakeRTT))ms"
-            }
-            let handshakeSummary = handshakes.isEmpty ? "none" : handshakes.joined(separator: ", ")
-            AbridgedTCPLog.line("\(tag) established via \(remote) in \(AbridgedTCPLog.milliseconds(report.duration))ms, usedProxy=\(report.usedProxy), handshakes: \(handshakeSummary)")
-        }
     }
 
     private func sendRaw(_ data: Data, completion: ((Error?) -> Void)?) {
@@ -580,8 +548,10 @@ final class AbridgedTCPTransport {
     private func closeInternally(wasClean: Bool, error: Error?) {
         guard !isClosed else { return }
         isClosed = true
-        let reason = error.map { "\($0)" } ?? "none"
-        AbridgedTCPLog.line("\(logTag) closed wasClean=\(wasClean) error=\(reason)")
+        if !wasClean || error != nil {
+            let reason = error.map { "\($0)" } ?? "none"
+            AbridgedTCPLog.line("\(logTag) closed wasClean=\(wasClean) error=\(reason)")
+        }
         connector?.cancel()
         connector = nil
         connection?.cancel()
