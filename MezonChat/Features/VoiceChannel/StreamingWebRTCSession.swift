@@ -543,6 +543,7 @@ final class StreamingWebRTCSession: NSObject {
         let rtc = RTCAudioSession.sharedInstance()
         guard hasActivatedAudioSession else { return }
         hasActivatedAudioSession = false
+        guard !MezonSfuSession.hasLiveSession else { return }
         rtc.lockForConfiguration()
         defer { rtc.unlockForConfiguration() }
         rtc.isAudioEnabled = false

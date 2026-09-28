@@ -1705,27 +1705,42 @@ final class MezonHTTPClient {
         )
     }
 
-    func listChannelVoiceUsers(clanId: Int64, token: String, force: Bool = false) async throws -> Mezon_Api_VoiceChannelUserList {
-        guard clanId != 0 else {
-            return try await performListChannelVoiceUsers(clanId: clanId, token: token)
+    enum VoiceUsersTransport {
+        case socketFirst
+        case httpOnly
+    }
+
+    func listChannelVoiceUsers(
+        clanId: Int64,
+        token: String,
+        force: Bool = false,
+        transport: VoiceUsersTransport = .socketFirst
+    ) async throws -> Mezon_Api_VoiceChannelUserList {
+        guard clanId != 0, transport == .socketFirst else {
+            return try await performListChannelVoiceUsers(clanId: clanId, token: token, transport: transport)
         }
         return try await MezonSocketRequestCoalescer.shared.coalesceChannelVoiceUsers(clanId: clanId, force: force) {
-            try await self.performListChannelVoiceUsers(clanId: clanId, token: token)
+            try await self.performListChannelVoiceUsers(clanId: clanId, token: token, transport: .socketFirst)
         }
     }
 
-    private func performListChannelVoiceUsers(clanId: Int64, token: String) async throws -> Mezon_Api_VoiceChannelUserList {
+    private func performListChannelVoiceUsers(
+        clanId: Int64,
+        token: String,
+        transport: VoiceUsersTransport
+    ) async throws -> Mezon_Api_VoiceChannelUserList {
         var req = Mezon_Api_ListChannelUsersRequest()
         req.clanID = clanId
         req.channelID = 0
         req.channelType = MezonConstants.ChannelType.mezonVoice.rawValue
         req.limit = 100
         req.state = 1
-        return try await postProto(
-            path: "/mezon.api.Mezon/ListChannelVoiceUsers",
-            message: req,
-            auth: .bearer(token)
-        )
+        let path = "/mezon.api.Mezon/ListChannelVoiceUsers"
+        if transport == .socketFirst,
+           let response: Mezon_Api_VoiceChannelUserList = try await sendOverSocketIfPossible(path: path, message: req) {
+            return response
+        }
+        return try await postProtoHTTP(path: path, message: req, auth: .bearer(token))
     }
 
     func generateMeetToken(channelId: Int64, roomName: String, metadata: String, token: String) async throws -> String {
@@ -2720,10 +2735,12 @@ final class MezonHTTPClient {
             do {
                 return try Response(serializedBytes: respBytes)
             } catch {
+                NSLog("%@", "[MezonSocket] api '\(apiName)' response decode failed (\(respBytes.count) bytes), falling back to HTTP: \(error)" as NSString)
                 return nil
             }
         } catch {
             let ms = Int(Date().timeIntervalSince(started) * 1000)
+            NSLog("%@", "[MezonSocket] api '\(apiName)' failed after \(ms)ms, falling back to HTTP: \(error)" as NSString)
             if ms >= profile.degradeAfterMilliseconds {
                 await MezonSocket.shared.noteApiRequestTimedOut()
             }
