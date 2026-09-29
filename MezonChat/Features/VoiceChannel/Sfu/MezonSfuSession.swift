@@ -59,6 +59,51 @@ private struct SfuUncheckedBox<Value>: @unchecked Sendable {
 }
 
 private let sfuWebRTCQueue = DispatchQueue(label: "com.mezon.sfu.webrtc", qos: .userInitiated)
+private let sfuNativeCleanupGroup = DispatchGroup()
+
+private final class SfuNativeCleanupWaiter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Bool, Never>?
+    private var result: Bool?
+
+    func install(_ continuation: CheckedContinuation<Bool, Never>) {
+        lock.lock()
+        if let result {
+            lock.unlock()
+            continuation.resume(returning: result)
+        } else {
+            self.continuation = continuation
+            lock.unlock()
+        }
+    }
+
+    func finish(_ result: Bool) {
+        lock.lock()
+        guard self.result == nil else { lock.unlock(); return }
+        self.result = result
+        let continuation = self.continuation
+        self.continuation = nil
+        lock.unlock()
+        continuation?.resume(returning: result)
+    }
+}
+
+private func waitForSfuNativeCleanup(_ group: DispatchGroup, timeout: TimeInterval) async -> Bool {
+    let waiter = SfuNativeCleanupWaiter()
+    return await withTaskCancellationHandler(operation: {
+        await withCheckedContinuation { continuation in
+            waiter.install(continuation)
+            group.notify(queue: .global(qos: .userInitiated)) { waiter.finish(true) }
+            DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + timeout) {
+                waiter.finish(false)
+            }
+        }
+    }, onCancel: {
+        // Resume immediately even if a native close is stuck; never cancel cleanup itself.
+        waiter.finish(false)
+    })
+}
+
 
 private struct SfuRemoteTransceiverSnapshot: @unchecked Sendable {
     let mid: String
@@ -236,8 +281,9 @@ final class MezonSfuSession: NSObject {
     private static let largeRoomSpeakingPollNanos: UInt64 = 1_000_000_000
     private static let largeRoomRemoteCount = 16
     private static let reconnectPollNanos: UInt64 = 3_000_000_000
-    private static let maxReconnectAttempts = 4
-    private static let maxInitialConnectAttempts = 3
+    // Three connection attempts total: initial join + two automatic retries.
+    private static let maxReconnectAttempts = 2
+    private static let nativeCleanupTimeoutSeconds: TimeInterval = 5
     private static let healthySessionNanos: UInt64 = 30_000_000_000
     private static let joinConnectDeadlineNanos: UInt64 = 12_000_000_000
     private static let maxTokenRefreshes = 3
@@ -274,6 +320,7 @@ final class MezonSfuSession: NSObject {
     private static var sslInitialized = false
     // Keep native audio-device state within one call. Leaving and joining again
     // must not reuse a device that was stuck in an earlier call.
+    private var connectionStartupTask: Task<Void, Never>?
     private var _factory: RTCPeerConnectionFactory?
     private let noiseAudioDevice = MezonNSAudioDevice()
     private var noiseApplyGeneration = 0
@@ -581,6 +628,17 @@ final class MezonSfuSession: NSObject {
             emitState(.failed)
             return
         }
+        connecting = true
+        emitState(.connecting)
+        let gen = connectionGen
+        connectionStartupTask = Task { @MainActor [weak self] in
+            guard let self, await self.awaitNativeCleanup(gen: gen) else { return }
+            self.connectionStartupTask = nil
+            self.startInitialSession()
+        }
+    }
+
+    private func startInitialSession() {
         // Prepare the OS session before constructing this call's audio device.
         // Configuration can fail during a permission/inactive transition; retry
         // through the lifecycle recovery task instead of assuming success.
@@ -723,10 +781,9 @@ final class MezonSfuSession: NSObject {
     }
 
     private func recoverTransport(gen: Int) {
-        guard active, gen == connectionGen, transportRecoveryTask == nil else { return }
+        guard active, gen == connectionGen, transportRecoveryTask == nil, connectionStartupTask == nil else { return }
         discardFailedTransport()
-        let maxAttempts = joined ? Self.maxReconnectAttempts : Self.maxInitialConnectAttempts
-        guard reconnectAttempts < maxAttempts else {
+        guard reconnectAttempts < Self.maxReconnectAttempts else {
             leave()
             emitState(.failed)
             return
@@ -899,6 +956,8 @@ final class MezonSfuSession: NSObject {
     }
 
     func leave() {
+        connectionStartupTask?.cancel()
+        connectionStartupTask = nil
         noiseApplyGeneration += 1
         noiseApplying = false
         noiseRequestedEnabled = false
@@ -949,6 +1008,8 @@ final class MezonSfuSession: NSObject {
         urlSession?.invalidateAndCancel()
         urlSession = nil
         stopCameraCapture()
+        let retiredMedia: [AnyObject] = [cameraCapturer, cameraTrack, cameraSource,
+                                         localCameraTrack, localAudioTrack, audioSource].compactMap { $0 }
         cameraCapturer = nil
         cameraTrack = nil
         cameraSource = nil
@@ -968,6 +1029,7 @@ final class MezonSfuSession: NSObject {
         retiringPeerConnection = nil
         Self.closeOffMain(closingPeerConnection)
         Self.closeOffMain(closingRetiringPeerConnection)
+        Self.releaseOffMain(retiredMedia)
         if let retiredFactory = _factory {
             _factory = nil
             Self.releaseOffMain([retiredFactory])
@@ -1122,12 +1184,11 @@ final class MezonSfuSession: NSObject {
     }
 
     private func openConnection(initial: Bool) {
-        guard active, transportRecoveryTask == nil else { return }
+        guard active, transportRecoveryTask == nil, connectionStartupTask == nil else { return }
         cancelAudioResumeRecovery()
         if !initial {
-            let maxAttempts = joined ? Self.maxReconnectAttempts : Self.maxInitialConnectAttempts
-            guard reconnectAttempts < maxAttempts else {
-                active = false
+            guard reconnectAttempts < Self.maxReconnectAttempts else {
+                leave()
                 emitState(.failed)
                 return
             }
@@ -1163,11 +1224,11 @@ final class MezonSfuSession: NSObject {
             socketOpen = false
             webSocketTask?.cancel(with: .goingAway, reason: nil)
             urlSession?.invalidateAndCancel()
-            if let previous = peerConnection {
-                Self.closeOffMain(retiringPeerConnection)
-                retiringPeerConnection = previous
-                scheduleRetiringPeerConnectionClose()
-            }
+            Self.closeOffMain(peerConnection)
+            Self.closeOffMain(retiringPeerConnection)
+            retiringPeerConnection = nil
+            retiringCloseTask?.cancel()
+            retiringCloseTask = nil
             peerConnection = nil
             negotiating = false
             pendingOffer = nil
@@ -1181,6 +1242,16 @@ final class MezonSfuSession: NSObject {
             emitParticipants()
         }
         discardTransceiverState()
+        emitState(initial ? .connecting : .disconnected)
+        connectionStartupTask = Task { @MainActor [weak self] in
+            guard let self, await self.awaitNativeCleanup(gen: gen) else { return }
+            self.connectionStartupTask = nil
+            self.finishOpenConnection(initial: initial, gen: gen)
+        }
+    }
+
+    private func finishOpenConnection(initial: Bool, gen: Int) {
+        guard active, connectionGen == gen else { return }
         guard let pc = createPeerConnection() else {
             connecting = false
             emitState(.failed)
@@ -2308,7 +2379,12 @@ final class MezonSfuSession: NSObject {
 
     private func stopCameraCapture() {
         guard cameraCapturing else { return }
-        cameraCapturer?.stopCapture()
+        if let capturer = cameraCapturer {
+            sfuNativeCleanupGroup.enter()
+            capturer.stopCapture {
+                sfuNativeCleanupGroup.leave()
+            }
+        }
         cameraCapturing = false
     }
 
@@ -2868,19 +2944,38 @@ final class MezonSfuSession: NSObject {
         }
     }
 
+    private func awaitNativeCleanup(gen: Int) async -> Bool {
+        let completed = await waitForSfuNativeCleanup(sfuNativeCleanupGroup, timeout: Self.nativeCleanupTimeoutSeconds)
+        guard !Task.isCancelled, active, gen == connectionGen else { return false }
+        if !completed {
+            leave()
+            emitState(.failed)
+        }
+        return completed
+    }
+
     private nonisolated static func closeOffMain(_ pc: RTCPeerConnection?) {
         guard let pc else { return }
         let box = SfuPeerConnectionBox(peerConnection: pc)
+        sfuNativeCleanupGroup.enter()
         sfuWebRTCQueue.async {
             box.peerConnection.close()
+            sfuWebRTCQueue.async {
+                sfuNativeCleanupGroup.leave()
+            }
         }
     }
 
     private nonisolated static func releaseOffMain(_ objects: [AnyObject]) {
         guard !objects.isEmpty else { return }
         let batch = SfuUncheckedBox(value: objects)
+        sfuNativeCleanupGroup.enter()
         sfuWebRTCQueue.async {
             withExtendedLifetime(batch) {}
+            // The following block runs after this block and its captured native objects release.
+            sfuWebRTCQueue.async {
+                sfuNativeCleanupGroup.leave()
+            }
         }
     }
 
