@@ -216,6 +216,13 @@ private enum SfuSdp {
     }
 }
 
+enum NoiseSuppressionState {
+    case off
+    case applying
+    case on
+    case error
+}
+
 @MainActor
 final class MezonSfuSession: NSObject {
 
@@ -240,6 +247,7 @@ final class MezonSfuSession: NSObject {
     private static let iceRecoveryGraceNanos: UInt64 = 4_000_000_000
     private static let offerReissueNanos: UInt64 = 8_000_000_000
     private static let dtlsConnectDeadlineNanos: UInt64 = 15_000_000_000
+    private static let roomConfirmationDeadlineNanos: UInt64 = 20_000_000_000
     private static let dtlsFailureCloseCode = 4013 // SFU_DISCONNECT_DTLS_FAILED
     private static let playoutWatchdogNanos: UInt64 = 5_000_000_000
     private static let playoutStallTicksBeforeRestart = 2
@@ -267,6 +275,13 @@ final class MezonSfuSession: NSObject {
     // Keep native audio-device state within one call. Leaving and joining again
     // must not reuse a device that was stuck in an earlier call.
     private var _factory: RTCPeerConnectionFactory?
+    private let noiseAudioDevice = MezonNSAudioDevice()
+    private var noiseApplyGeneration = 0
+    private var noiseApplying = false
+    private var noiseRequestedEnabled = false
+    private(set) var noiseCaptureConfirmed = false
+    private var micBeforeNoiseApply = false
+    private var noiseApplyTimeoutTask: Task<Void, Never>?
     private static weak var liveSession: MezonSfuSession?
 
     static var hasLiveSession: Bool {
@@ -282,7 +297,8 @@ final class MezonSfuSession: NSObject {
         Self.ensureSSL()
         let f = RTCPeerConnectionFactory(
             encoderFactory: RTCDefaultVideoEncoderFactory(),
-            decoderFactory: RTCDefaultVideoDecoderFactory()
+            decoderFactory: RTCDefaultVideoDecoderFactory(),
+            audioDevice: noiseAudioDevice
         )
         _factory = f
         return f
@@ -292,6 +308,40 @@ final class MezonSfuSession: NSObject {
         guard !sslInitialized else { return }
         RTCInitializeSSL()
         sslInitialized = true
+    }
+
+    static func handleVoiceJoined(_ event: Mezon_Realtime_VoiceJoinedEvent) {
+        let session = liveSession
+        let matches = session.map {
+            $0.active && event.clanID == $0.clanId && event.voiceChannelID == $0.channelId && String(event.userID) == $0.userId
+        } ?? false
+        guard matches, let session else { return }
+        session.connectionReadiness.confirmVoiceJoined(peerId: event.peerID == 0 ? nil : String(event.peerID))
+        session.updateConnectionReadiness()
+    }
+
+    private func updateConnectionReadiness() {
+        guard active, let pc = peerConnection else { return }
+        connectionReadiness.peerId = selfPeerId
+        connectionReadiness.roomConfirmed = admitted && stateRestored
+        connectionReadiness.iceConnected = pc.iceConnectionState == .connected || pc.iceConnectionState == .completed
+        connectionReadiness.transportConnected = pc.connectionState == .connected
+        guard connectionReadiness.isReady else {
+            if connectionReadiness.iceConnected && connectionReadiness.transportConnected {
+                emitState(.awaitingConfirmation)
+            }
+            return
+        }
+        guard !isConnected else { return }
+        isConnected = true
+        hasReachedConnected = true
+        clearJoinWatchdog()
+        clearTransportWatchdog()
+        restoreAudioSession(restartAudio: true)
+        schedulePostConnectAudioRecovery(gen: connectionGen)
+        scheduleHealthyConnectionReset()
+        requestMissingScreenKeyframes()
+        emitState(.connected)
     }
 
     private static func removalCause(for closeCode: Int) -> SfuRemovalCause? {
@@ -319,9 +369,14 @@ final class MezonSfuSession: NSObject {
     var onParticipantActionFailed: ((String) -> Void)?
     var onMutedByModerator: (() -> Void)?
     var onRemoved: ((SfuRemovalCause, String?) -> Void)?
+    var onNoiseStateChanged: ((NoiseSuppressionState) -> Void)?
+    private(set) var noiseState: NoiseSuppressionState = .off
     var tokenProvider: (() async -> String?)?
 
     private(set) var role: SfuRole = .speaker
+    private(set) var connectionState: SfuConnectionState = .disconnected
+    private var connectionReadiness = SfuConnectionReadiness()
+    private(set) var hasReachedConnected = false
     private(set) var isConnected = false
     private(set) var micEnabled = false
     private(set) var cameraEnabled = false
@@ -468,6 +523,7 @@ final class MezonSfuSession: NSObject {
         onParticipantActionFailed = nil
         onMutedByModerator = nil
         onRemoved = nil
+        onNoiseStateChanged = nil
     }
 
     init(channelId: Int64, clanId: Int64, userId: String) {
@@ -475,10 +531,34 @@ final class MezonSfuSession: NSObject {
         self.clanId = clanId
         self.userId = userId
         super.init()
+        noiseAudioDevice.onProcessingError = { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.active, self.noiseRequestedEnabled else { return }
+                if self.noiseApplying {
+                    self.noiseApplyGeneration += 1
+                    self.noiseApplyTimeoutTask?.cancel()
+                    self.noiseApplyTimeoutTask = nil
+                    self.noiseApplying = false
+                    if self.micBeforeNoiseApply, self.role == .speaker { self.applyMicEnabled(true) }
+                }
+                self.noiseRequestedEnabled = false
+                self.noiseCaptureConfirmed = false
+                self.noiseState = .error
+                self.onNoiseStateChanged?(self.noiseState)
+            }
+        }
+        noiseAudioDevice.onFirstProcessedFrame = { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, self.active, self.noiseRequestedEnabled else { return }
+                self.noiseCaptureConfirmed = true
+                self.onNoiseStateChanged?(self.noiseState)
+            }
+        }
     }
 
     func join(token: String, role: SfuRole) {
         leave()
+        hasReachedConnected = false
         self.token = token
         self.role = role
         micEnabled = false
@@ -692,6 +772,7 @@ final class MezonSfuSession: NSObject {
         // Invalidate callbacks before closing: no old SDP/candidate/receiver
         // callback may mutate the replacement connection during backoff.
         connectionGen += 1
+        connectionReadiness = SfuConnectionReadiness()
         socketOpen = false
         connecting = false
         isConnected = false
@@ -818,6 +899,14 @@ final class MezonSfuSession: NSObject {
     }
 
     func leave() {
+        noiseApplyGeneration += 1
+        noiseApplying = false
+        noiseRequestedEnabled = false
+        noiseCaptureConfirmed = false
+        noiseApplyTimeoutTask?.cancel()
+        noiseApplyTimeoutTask = nil
+        noiseAudioDevice.setNoiseSuppressionEnabled(false) { _ in }
+        noiseState = .off
         transportRecoveryTask?.cancel()
         transportRecoveryTask = nil
         cancelAudioResumeRecovery()
@@ -903,7 +992,16 @@ final class MezonSfuSession: NSObject {
     }
 
     func setMicEnabled(_ on: Bool) {
+        guard isConnected else { return }
+        applyMicEnabled(on)
+    }
+
+    private func applyMicEnabled(_ on: Bool) {
         guard active, role == .speaker else { return }
+        if noiseApplying {
+            micBeforeNoiseApply = on
+            return
+        }
         micEnabled = on
         let attached = synchronizeLocalAudioTrack()
         if on { restoreAudioSession(restartAudio: false) }
@@ -912,6 +1010,47 @@ final class MezonSfuSession: NSObject {
             return
         }
         send(["type": "mute", "is_mute": !on])
+    }
+
+    func setNoiseSuppressionEnabled(_ enabled: Bool) {
+        guard active else { return }
+        noiseRequestedEnabled = enabled
+        noiseCaptureConfirmed = false
+        noiseApplyGeneration += 1
+        let generation = noiseApplyGeneration
+        if !noiseApplying {
+            micBeforeNoiseApply = micEnabled
+            if micEnabled { applyMicEnabled(false) }
+        }
+        noiseApplying = true
+        noiseState = .applying
+        onNoiseStateChanged?(noiseState)
+        noiseApplyTimeoutTask?.cancel()
+        noiseApplyTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 15_000_000_000)
+            guard !Task.isCancelled, let self, self.active,
+                  self.noiseApplying, self.noiseApplyGeneration == generation else { return }
+            self.noiseApplyGeneration += 1
+            self.noiseRequestedEnabled = false
+            self.noiseCaptureConfirmed = false
+            self.noiseAudioDevice.setNoiseSuppressionEnabled(false) { _ in }
+            self.noiseApplying = false
+            self.noiseState = .error
+            if self.micBeforeNoiseApply, self.role == .speaker { self.applyMicEnabled(true) }
+            self.onNoiseStateChanged?(self.noiseState)
+        }
+        noiseAudioDevice.setNoiseSuppressionEnabled(enabled) { [weak self] success in
+            guard let self, self.active, self.noiseApplyGeneration == generation else { return }
+            self.noiseApplyTimeoutTask?.cancel()
+            self.noiseApplyTimeoutTask = nil
+            self.noiseApplying = false
+            self.noiseState = success ? (enabled ? .on : .off) : .error
+            if !success { self.noiseRequestedEnabled = false }
+            if self.micBeforeNoiseApply, self.role == .speaker {
+                self.applyMicEnabled(true)
+            }
+            self.onNoiseStateChanged?(self.noiseState)
+        }
     }
 
     func setCameraEnabled(_ on: Bool) {
@@ -942,7 +1081,7 @@ final class MezonSfuSession: NSObject {
     }
 
     func pttPress() {
-        guard role == .audience else { return }
+        guard active, isConnected, role == .audience else { return }
         pttRequested = true
         send(["type": "mute", "is_mute": false])
         send(["type": "push_to_talk", "active": true])
@@ -974,7 +1113,7 @@ final class MezonSfuSession: NSObject {
             self.moderatorMuteTask = nil
             guard gen == self.connectionGen, self.micEnabled || (self.pttActive && self.pttRequested) else { return }
             if self.micEnabled {
-                self.setMicEnabled(false)
+                self.applyMicEnabled(false)
             } else {
                 self.pttRelease()
             }
@@ -1000,6 +1139,7 @@ final class MezonSfuSession: NSObject {
         isConnected = false
         connectionGen += 1
         let gen = connectionGen
+        connectionReadiness = SfuConnectionReadiness(requiresVoiceJoined: !hasReachedConnected)
         stateRestored = false
         admitted = false
         selfPeerId = nil
@@ -1162,10 +1302,15 @@ final class MezonSfuSession: NSObject {
         case "pong":
             break
         case "joined":
+            if let peerId = stringValue(msg["peer_id"]), peerId != "0", !peerId.isEmpty {
+                selfPeerId = peerId
+            }
             emitState(.awaitingOffer)
         case "room_snapshot":
             admitted = true
-            selfPeerId = stringValue(msg["self_peer_id"])
+            if let peerId = stringValue(msg["self_peer_id"]), peerId != "0", !peerId.isEmpty {
+                selfPeerId = peerId
+            }
             if let members = msg["members"] as? [[String: Any]], applyPeers(members) {
                 syncRemoteMedia()
             }
@@ -1189,6 +1334,7 @@ final class MezonSfuSession: NSObject {
                 }
                 send(["type": "visibility", "visible": true])
             }
+            updateConnectionReadiness()
             emitParticipants()
         case "peer_joined", "peer_updated":
             if let peer = msg["peer"] as? [String: Any], applyPeers([peer]) {
@@ -1298,10 +1444,11 @@ final class MezonSfuSession: NSObject {
         transportWatchdogTask = nil
     }
 
-    private func armJoinWatchdog(gen: Int) {
+    private func armJoinWatchdog(gen: Int, timeout: UInt64? = nil) {
         clearJoinWatchdog()
+        let deadline = timeout ?? Self.joinConnectDeadlineNanos
         joinWatchdogTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: Self.joinConnectDeadlineNanos)
+            try? await Task.sleep(nanoseconds: deadline)
             guard !Task.isCancelled, let self else { return }
             self.joinWatchdogTask = nil
             guard gen == self.connectionGen, self.active, !self.isConnected else { return }
@@ -2170,7 +2317,7 @@ final class MezonSfuSession: NSObject {
         localAudioTrack?.isEnabled = false
         let constraints = RTCMediaConstraints(
             mandatoryConstraints: [
-                "googNoiseSuppression": "true",
+                "googNoiseSuppression": "false",
                 "googEchoCancellation": "true",
                 "googAutoGainControl": "true"
             ],
@@ -2622,6 +2769,13 @@ final class MezonSfuSession: NSObject {
     }
 
     private func emitState(_ state: SfuConnectionState) {
+        // Late signaling callbacks must not move the UI back from transport setup.
+        if state == .joining || state == .awaitingOffer {
+            guard connectionState != .iceConnected, connectionState != .dtlsHandshake,
+                  connectionState != .awaitingConfirmation, connectionState != .connected else { return }
+        }
+        guard state != connectionState else { return }
+        connectionState = state
         onConnectionState?(state)
     }
 
@@ -2899,25 +3053,24 @@ extension MezonSfuSession: RTCPeerConnectionDelegate {
             case .connected, .completed:
                 self.iceRecoveryTask?.cancel()
                 self.iceRecoveryTask = nil
-                let wasConnected = self.isConnected
-                self.isConnected = true
-                self.clearJoinWatchdog()
-                self.restoreAudioSession(restartAudio: !wasConnected)
-                self.schedulePostConnectAudioRecovery(gen: self.connectionGen)
-                self.requestMissingScreenKeyframes()
-                self.emitState(.connected)
-                self.armTransportWatchdog(peerConnection)
+                if !self.isConnected {
+                    if self.connectionState != .dtlsHandshake && self.connectionState != .awaitingConfirmation {
+                        self.emitState(.iceConnected)
+                        // Allow DTLS (15s) and the current SFU room snapshot to finish.
+                        self.armJoinWatchdog(gen: self.connectionGen, timeout: Self.roomConfirmationDeadlineNanos)
+                        self.emitState(.dtlsHandshake)
+                    }
+                    self.armTransportWatchdog(peerConnection)
+                    self.updateConnectionReadiness()
+                }
             case .failed:
                 self.isConnected = false
                 self.healthySessionResetTask?.cancel()
                 self.healthySessionResetTask = nil
                 self.iceRecoveryTask?.cancel()
                 self.iceRecoveryTask = nil
-                if self.active && self.joined {
-                    self.emitState(.disconnected)
+                if self.active {
                     self.recoverTransport(gen: self.connectionGen)
-                } else if self.active {
-                    self.emitState(.failed)
                 }
             case .disconnected:
                 self.isConnected = false
@@ -2937,21 +3090,14 @@ extension MezonSfuSession: RTCPeerConnectionDelegate {
             switch newState {
             case .connected:
                 self.clearTransportWatchdog()
-                self.scheduleHealthyConnectionReset()
+                self.updateConnectionReadiness()
             case .failed:
-                if peerConnection.iceConnectionState == .connected || peerConnection.iceConnectionState == .completed {
-                    self.recoverTransport(gen: self.connectionGen)
-                    return
-                }
-                self.isConnected = false
-                self.healthySessionResetTask?.cancel()
-                self.healthySessionResetTask = nil
-                self.clearTransportWatchdog()
-                if self.active && self.joined {
-                    self.emitState(.disconnected)
+                if self.active {
                     self.recoverTransport(gen: self.connectionGen)
                 }
             case .disconnected, .closed:
+                self.isConnected = false
+                self.emitState(.disconnected)
                 self.healthySessionResetTask?.cancel()
                 self.healthySessionResetTask = nil
             default:

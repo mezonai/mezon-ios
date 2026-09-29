@@ -1307,6 +1307,7 @@ final class AccountContextImpl: AccountContext {
             )
 
         case .voiceJoined(let ev):
+            MezonSfuSession.handleVoiceJoined(ev)
             engine.clanData.applyVoiceJoined(clanId: ev.clanID, channelId: ev.voiceChannelID, userId: ev.userID)
 
         case .voiceLeaved(let ev):

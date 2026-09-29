@@ -96,6 +96,7 @@
 		270D14C6DAD8D958931BD844 /* dialtone.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = 68618084F1CAD3B02FDD5349 /* dialtone.mp3 */; };
 		285F431CF445346553D9D919 /* VoIPMinimalCallBootstrap.swift in Sources */ = {isa = PBXBuildFile; fileRef = C760AB3DB8EE79760C0E5352 /* VoIPMinimalCallBootstrap.swift */; };
 		2895706E6E15283A5E928A91 /* NotificationCenterUtils.m in Sources */ = {isa = PBXBuildFile; fileRef = 06FFAFBBA23556931B1237A2 /* NotificationCenterUtils.m */; };
+		28BC56DC41EE62B862622FBB /* MezonNSAudioDevice.mm in Sources */ = {isa = PBXBuildFile; fileRef = 85291A43AB30C952AD7D6B5B /* MezonNSAudioDevice.mm */; };
 		28FE25A4DAC9F57215BA3FCA /* Signal_Timing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A264BB4E0457188124F711E /* Signal_Timing.swift */; };
 		2912D50C20140A4F102F33FA /* CategoryActionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 626DCD4F21BD21F0F8A43000 /* CategoryActionSheet.swift */; };
 		2974C7C27CE3C377340386F3 /* PresentationContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E9002B9CF1B449422C695AC /* PresentationContext.swift */; };
@@ -203,6 +204,7 @@
 		55DA70E054D16536911DD3F4 /* ImageCorners.swift in Sources */ = {isa = PBXBuildFile; fileRef = A459BEA5D3BB2E577802BD86 /* ImageCorners.swift */; };
 		55DC44C64B152DA89F254750 /* SSignal+SideEffects.m in Sources */ = {isa = PBXBuildFile; fileRef = 71FF3805251350D77FDA96A3 /* SSignal+SideEffects.m */; };
 		560D299ED9FD6BBC848B4756 /* VoIPMinimalShellViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AC31CEE54C9389301AEF2FA /* VoIPMinimalShellViewController.swift */; };
+		5642BA3A389D11CE19B81CA4 /* mezon_ns_asym_babble.onnx in Resources */ = {isa = PBXBuildFile; fileRef = 06042E75816DC662CAC3A4FE /* mezon_ns_asym_babble.onnx */; };
 		568AB3BAD76C2CAE1192688B /* SharingSuggestionItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0969AFF9C9D23DF1E457B711 /* SharingSuggestionItem.swift */; };
 		569A11EF7A857829A1CF3456 /* ListViewTransactionQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D47B224E9E6247257B6E55A /* ListViewTransactionQueue.swift */; };
 		57511433EF3400308F528084 /* RoleColorPickerSheetController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A8CFD3D34322FB0A4DA3DEE /* RoleColorPickerSheetController.swift */; };
@@ -253,6 +255,7 @@
 		6C9621D5FE230B54C3D12E87 /* SMetaDisposable.m in Sources */ = {isa = PBXBuildFile; fileRef = 58E7BAE5D31DB404A0EEB2B1 /* SMetaDisposable.m */; };
 		6CA3EFED14724D95CF906DA6 /* DmActionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C2EE97BD0CD02439CBE2694 /* DmActionSheet.swift */; };
 		6CB7E463E27D52BBF8F9C781 /* StickersPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B0E91F2B0512B11BAB5ABC8 /* StickersPanel.swift */; };
+		6CD987860719E4B7CDFAE4C3 /* mezon_ns_c_api.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 28A19E6BC140EC20457ECDA1 /* mezon_ns_c_api.cpp */; };
 		6D189DA053B9C919B0E5E3F4 /* FileListNode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8BB4644E0853C6E628F688FB /* FileListNode.swift */; };
 		6D62E1B52A696A10039B80A6 /* RuntimeUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91B282C71181CC075A6EF957 /* RuntimeUtils.swift */; };
 		6D9A560457920A15771DF86A /* HistoryTransactionViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69FD841E2DD8E05DFF427338 /* HistoryTransactionViewController.swift */; };
@@ -463,6 +466,7 @@
 		C45436F0A879D0414551FD7B /* ListViewScroller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67D38AEAA671049436A2060B /* ListViewScroller.swift */; };
 		C496B1E4FE9ED136C5AC1D54 /* StreamingWebRTCSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6D7A069B2CAFE9BF5197CD02 /* StreamingWebRTCSession.swift */; };
 		C499A08CBCB6446F88C893A6 /* Signal_Materialize.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA83A35C616BE973FE2BA94F /* Signal_Materialize.swift */; };
+		C4C8C70BE2E5FF8190737340 /* MezonNS.mm in Sources */ = {isa = PBXBuildFile; fileRef = FE4E675232A95C48FDE6D33C /* MezonNS.mm */; };
 		C5C1BD9913E05426D9A21F60 /* GridNodeScroller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D21EF8735E3ABC31AC0B6CE /* GridNodeScroller.swift */; };
 		C610D1C8E8DE61EFF62AE6FF /* ClanListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16EC4DCBD8214E1A780B8507 /* ClanListView.swift */; };
 		C6B64699C598DF0F8C141636 /* KeyboardManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75BECB8140F86CE29EBEEEC7 /* KeyboardManager.swift */; };
@@ -526,6 +530,7 @@
 		E074C4C27ECDA927FD04F68B /* ContainableController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D2086548C262955D6BD2326 /* ContainableController.swift */; };
 		E0F90269B36B52F3FC93919D /* LoginViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF035A6BEFA75E8C186FF23D /* LoginViewController.swift */; };
 		E198763D3F940271D8AC6957 /* SwiftProtobuf in Frameworks */ = {isa = PBXBuildFile; productRef = A259DAEA74BD10BB6C982FAC /* SwiftProtobuf */; };
+		E225A134961B08B0D1F7B05A /* mezon_ns_engine.cpp in Sources */ = {isa = PBXBuildFile; fileRef = E835E3066E746DA6FE3B9DFA /* mezon_ns_engine.cpp */; };
 		E2D979E073147845D0E8146C /* UIView+Layout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 267A903865A2A46F3B23A2F4 /* UIView+Layout.swift */; };
 		E342C0D1E50231FFFAA2DFDC /* MezonSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1416EB5037A997A574CCF342 /* MezonSession.swift */; };
 		E3F180581313F14D501282F8 /* ImgproxyURL.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE9D8F28CA0779EA4210FF84 /* ImgproxyURL.swift */; };
@@ -655,6 +660,7 @@
 		048A73E4A31294A642150856 /* CreateClanViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CreateClanViewController.swift; sourceTree = "<group>"; };
 		05EE769520B412CDDF7E5E4B /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
 		05F2F6E737907C08A74FF471 /* AuditLogConstants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuditLogConstants.swift; sourceTree = "<group>"; };
+		06042E75816DC662CAC3A4FE /* mezon_ns_asym_babble.onnx */ = {isa = PBXFileReference; path = mezon_ns_asym_babble.onnx; sourceTree = "<group>"; };
 		06F27EDEEEF489B37AB5023B /* StickerItemCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StickerItemCell.swift; sourceTree = "<group>"; };
 		06FFAFBBA23556931B1237A2 /* NotificationCenterUtils.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = NotificationCenterUtils.m; sourceTree = "<group>"; };
 		07D5AAFC3CDBD0156ABEF70F /* SSignal+Take.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "SSignal+Take.h"; sourceTree = "<group>"; };
@@ -695,6 +701,7 @@
 		16D5184E6EC691C059B60305 /* ClanMemberRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClanMemberRecord.swift; sourceTree = "<group>"; };
 		16E60777456DDAD63B416663 /* ClanListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClanListViewController.swift; sourceTree = "<group>"; };
 		16EC4DCBD8214E1A780B8507 /* ClanListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClanListView.swift; sourceTree = "<group>"; };
+		176FFE6314BC4CF60B71FA3F /* MezonNSAudioDevice.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MezonNSAudioDevice.h; sourceTree = "<group>"; };
 		1781A4247453C898AE7F0ACB /* TapLongTapOrDoubleTapGestureRecognizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapLongTapOrDoubleTapGestureRecognizer.swift; sourceTree = "<group>"; };
 		18D1B6A4BAC45689BE5BFA9C /* ClanGraphicImageUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClanGraphicImageUtils.swift; sourceTree = "<group>"; };
 		1962C0F4ACBDF65103CC9DBE /* MmnWalletStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MmnWalletStore.swift; sourceTree = "<group>"; };
@@ -733,6 +740,7 @@
 		27755E998831708535B097F6 /* NotificationRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationRecord.swift; sourceTree = "<group>"; };
 		27819E3F1F1AFCB0A7816C6F /* SetPasswordViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetPasswordViewController.swift; sourceTree = "<group>"; };
 		27D2AB257C6D80326329B3D0 /* ChatEmojiPickerPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatEmojiPickerPresenter.swift; sourceTree = "<group>"; };
+		28A19E6BC140EC20457ECDA1 /* mezon_ns_c_api.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = mezon_ns_c_api.cpp; sourceTree = "<group>"; };
 		28E905BE83781946540AFC28 /* SettingsTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsTable.swift; sourceTree = "<group>"; };
 		2A199E8A243E3D16E1F37F1C /* ChatHeaderNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHeaderNode.swift; sourceTree = "<group>"; };
 		2A73981564014BE43BF03EFE /* STimer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = STimer.h; sourceTree = "<group>"; };
@@ -749,6 +757,7 @@
 		2FFE6D95CAA9CFB42FCE1D46 /* IntegrationsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntegrationsViewController.swift; sourceTree = "<group>"; };
 		302498AFBA5F967114416FC4 /* AdvancedPermissionOverridesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdvancedPermissionOverridesViewController.swift; sourceTree = "<group>"; };
 		302D392C69131278AB8950E0 /* PortalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalView.swift; sourceTree = "<group>"; };
+		304BED1BCAAB2F1351D0886C /* MezonNS.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = MezonNS.h; sourceTree = "<group>"; };
 		30F4DEDADFA3EC6A32D9ADAB /* Invite.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Invite.swift; sourceTree = "<group>"; };
 		3121EBA43F5D2A8FA6882DE6 /* MessageSystemNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageSystemNode.swift; sourceTree = "<group>"; };
 		3132F4C213E7459D43A35BB2 /* TapGesture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TapGesture.swift; sourceTree = "<group>"; };
@@ -757,6 +766,7 @@
 		332ADF2280DAB35563A75600 /* WebhookListViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebhookListViewController.swift; sourceTree = "<group>"; };
 		334E37ED61EB2B23530C2BEF /* Toast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Toast.swift; sourceTree = "<group>"; };
 		33647BAA1A8AE969D54BCD0A /* VerifyEmailOTPViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VerifyEmailOTPViewController.swift; sourceTree = "<group>"; };
+		336EB5870D5B230CBADF1617 /* mezon_ns.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = mezon_ns.h; sourceTree = "<group>"; };
 		337F130BAE7F072DE577231C /* TextFieldComponent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextFieldComponent.swift; sourceTree = "<group>"; };
 		33BE07DFDECB19FC874C5333 /* MessageSendTokenLogNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageSendTokenLogNode.swift; sourceTree = "<group>"; };
 		3525A44A685FFBAA6BDC2B66 /* NSBag.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = NSBag.h; sourceTree = "<group>"; };
@@ -864,6 +874,7 @@
 		5EB095C226A650FE111E464E /* DeepLinkNodeOverlayController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepLinkNodeOverlayController.swift; sourceTree = "<group>"; };
 		5EB2999E4CD60069A40CC551 /* Multicast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Multicast.swift; sourceTree = "<group>"; };
 		5EF7CD288601E8B65316F6F5 /* ChannelPermissionsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelPermissionsViewController.swift; sourceTree = "<group>"; };
+		5EFA61A38E6D03C7B9C5D472 /* fast_fft.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = fast_fft.hpp; sourceTree = "<group>"; };
 		5F9F7DAE5406769E4C06E420 /* NavigationBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationBar.swift; sourceTree = "<group>"; };
 		6087FB5E7B9B13A419E4E02D /* AccessibilityAreaNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessibilityAreaNode.swift; sourceTree = "<group>"; };
 		609D7CC11C5F4EDFE9EEFF2A /* TabBarControllerImpl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabBarControllerImpl.swift; sourceTree = "<group>"; };
@@ -966,6 +977,7 @@
 		840A801B19E76D025522E600 /* DmMessageActivityStripView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DmMessageActivityStripView.swift; sourceTree = "<group>"; };
 		8444940B88A7BCA485E1F06B /* BuzzMessageViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuzzMessageViewController.swift; sourceTree = "<group>"; };
 		845C5E3AF84A8BA0BB3ED96B /* MessageContentParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageContentParser.swift; sourceTree = "<group>"; };
+		85291A43AB30C952AD7D6B5B /* MezonNSAudioDevice.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MezonNSAudioDevice.mm; sourceTree = "<group>"; };
 		859F5D7416A27DC41E2B263B /* PortalSourceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortalSourceView.swift; sourceTree = "<group>"; };
 		85A1FD53749AF15825DDD0B8 /* NavigationLayoutEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationLayoutEnvironment.swift; sourceTree = "<group>"; };
 		85E37BDA7D556E4FBF714479 /* AttachmentUploadCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentUploadCoordinator.swift; sourceTree = "<group>"; };
@@ -1223,6 +1235,7 @@
 		E6CDBA72E34A64EF53E75CCE /* NavigationBarTitleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationBarTitleView.swift; sourceTree = "<group>"; };
 		E6D884F09186A95EED7C9064 /* Notification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Notification.swift; sourceTree = "<group>"; };
 		E7C16892A200167A8055A7BD /* MezonEngine+TopicDiscussion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MezonEngine+TopicDiscussion.swift"; sourceTree = "<group>"; };
+		E835E3066E746DA6FE3B9DFA /* mezon_ns_engine.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = mezon_ns_engine.cpp; sourceTree = "<group>"; };
 		E850F413482D68E3D14AD0E2 /* WindowPanRecognizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowPanRecognizer.swift; sourceTree = "<group>"; };
 		E8A06F85BD45CABD421A9FCC /* Signal_Single.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Signal_Single.swift; sourceTree = "<group>"; };
 		E8B6B0D6D0EE2DE694B48A8C /* NavigationController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NavigationController.swift; sourceTree = "<group>"; };
@@ -1255,6 +1268,7 @@
 		F14B92009857D96E83CD8F15 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
 		F156C71998F2AC6F3CFDF6C0 /* ChannelRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelRecord.swift; sourceTree = "<group>"; };
 		F178B60FCDEA18D0A0446101 /* realtime.pb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = realtime.pb.swift; sourceTree = "<group>"; };
+		F235BEAC46A87F6A0D1E40D1 /* mezon_ns_engine.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = mezon_ns_engine.hpp; sourceTree = "<group>"; };
 		F317F5A4A753C758360E2B7C /* ClanActionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClanActionSheet.swift; sourceTree = "<group>"; };
 		F31F689C5C9B1D1F82FF39B7 /* ChannelsData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelsData.swift; sourceTree = "<group>"; };
 		F334ACD09B6F2E134A5030CA /* Subscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Subscriber.swift; sourceTree = "<group>"; };
@@ -1282,6 +1296,7 @@
 		FE0DA430895BEA13E908DF7E /* AuditLogItemCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuditLogItemCell.swift; sourceTree = "<group>"; };
 		FE19D465AF7DBDACFEDFDFEF /* Message.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Message.swift; sourceTree = "<group>"; };
 		FE2035DC3876E92758D5C2E6 /* UINavigationItem+Proxy.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "UINavigationItem+Proxy.h"; sourceTree = "<group>"; };
+		FE4E675232A95C48FDE6D33C /* MezonNS.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = MezonNS.mm; sourceTree = "<group>"; };
 		FE9D8F28CA0779EA4210FF84 /* ImgproxyURL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImgproxyURL.swift; sourceTree = "<group>"; };
 		FEFCDB2717CD2B32FAEBE9B2 /* MezonEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MezonEngine.swift; sourceTree = "<group>"; };
 		FFC984FAEFCAD0688DC1F29C /* UINavigationItem+Proxy.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = "UINavigationItem+Proxy.m"; sourceTree = "<group>"; };
@@ -1308,6 +1323,7 @@
 			children = (
 				8F648F472EE933F22D29778D /* MezonSfuSession.swift */,
 				E5A35B4FD1540E6170798674 /* SfuTypes.swift */,
+				BF93F57D817084505FB66CDA /* MezonNS */,
 			);
 			path = Sfu;
 			sourceTree = "<group>";
@@ -2432,6 +2448,23 @@
 			path = "Pods-MezonChat";
 			sourceTree = "<group>";
 		};
+		BF93F57D817084505FB66CDA /* MezonNS */ = {
+			isa = PBXGroup;
+			children = (
+				5EFA61A38E6D03C7B9C5D472 /* fast_fft.hpp */,
+				06042E75816DC662CAC3A4FE /* mezon_ns_asym_babble.onnx */,
+				28A19E6BC140EC20457ECDA1 /* mezon_ns_c_api.cpp */,
+				E835E3066E746DA6FE3B9DFA /* mezon_ns_engine.cpp */,
+				F235BEAC46A87F6A0D1E40D1 /* mezon_ns_engine.hpp */,
+				336EB5870D5B230CBADF1617 /* mezon_ns.h */,
+				304BED1BCAAB2F1351D0886C /* MezonNS.h */,
+				FE4E675232A95C48FDE6D33C /* MezonNS.mm */,
+				176FFE6314BC4CF60B71FA3F /* MezonNSAudioDevice.h */,
+				85291A43AB30C952AD7D6B5B /* MezonNSAudioDevice.mm */,
+			);
+			path = MezonNS;
+			sourceTree = "<group>";
+		};
 		C0FD1E8BFC48749FCD96F0F2 /* DirectMessages */ = {
 			isa = PBXGroup;
 			children = (
@@ -2942,6 +2975,7 @@
 				F9FCF5011BB515B38C379A10 /* LaunchScreen.storyboard in Resources */,
 				270D14C6DAD8D958931BD844 /* dialtone.mp3 in Resources */,
 				1081F6A2FD7EB12618CE88C9 /* mezon_callkit_silent.caf in Resources */,
+				5642BA3A389D11CE19B81CA4 /* mezon_ns_asym_babble.onnx in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3344,6 +3378,8 @@
 				118337452C56BC933F3ADA76 /* MezonEngineData.swift in Sources */,
 				0570B32ECD3073171ADB876E /* MezonEnvironment.swift in Sources */,
 				01DA7547F5DFD51C2EEF3D32 /* MezonHTTPClient.swift in Sources */,
+				C4C8C70BE2E5FF8190737340 /* MezonNS.mm in Sources */,
+				28BC56DC41EE62B862622FBB /* MezonNSAudioDevice.mm in Sources */,
 				51075F325A298CD6AD229CFF /* MezonRootController.swift in Sources */,
 				E342C0D1E50231FFFAA2DFDC /* MezonSession.swift in Sources */,
 				7ED9114718DB7F7EA837DC54 /* MezonSfuSession.swift in Sources */,
@@ -3630,6 +3666,8 @@
 				F7D8F6541F3DB321A1DF604E /* ZkProverClient.swift in Sources */,
 				1AFDA7CF41FCE5FF0BF3019E /* ZoomableContentGalleryItemNode.swift in Sources */,
 				3287AC5C18B31DD1DCF7B888 /* api.pb.swift in Sources */,
+				6CD987860719E4B7CDFAE4C3 /* mezon_ns_c_api.cpp in Sources */,
+				E225A134961B08B0D1F7B05A /* mezon_ns_engine.cpp in Sources */,
 				A585745863D22A16A52173D7 /* realtime.pb.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -3733,6 +3771,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++17";
 				CODE_SIGN_ENTITLEMENTS = MezonChat/MezonChat.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
@@ -3855,6 +3894,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++17";
 				CODE_SIGN_ENTITLEMENTS = MezonChat/MezonChat.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
