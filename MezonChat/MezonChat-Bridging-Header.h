@@ -43,5 +43,6 @@
 #import "ASCGImageBuffer.h"
 
 #import <sqlcipher/sqlite3.h>
+#import "Features/VoiceChannel/Sfu/MezonNS/MezonNSAudioDevice.h"
 
 #endif

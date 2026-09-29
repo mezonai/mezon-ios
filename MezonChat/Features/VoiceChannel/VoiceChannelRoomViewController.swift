@@ -22,11 +22,10 @@ private enum VoiceParticipantTileKind {
 }
 
 private enum VoiceMoreToolsPopoverMetrics {
-    static let buttonSide: CGFloat = 40
-    static let imageInset: CGFloat = 11
-    static var panelContentWidth: CGFloat { buttonSide + 20 }
-    static var buttonCornerRadius: CGFloat { buttonSide / 2 }
-    static var symbolPointSize: CGFloat { 16 }
+    static var panelContentWidth: CGFloat { 216 }
+    static let actionHeight: CGFloat = 44
+    static let actionCornerRadius: CGFloat = 11
+    static let symbolPointSize: CGFloat = 16
 }
 
 private struct VoiceTileEntry {
@@ -645,8 +644,7 @@ final class VoiceChannelPiPOverlay: NSObject {
         }
         session.onConnectionState = { [weak self] state in
             if state == .failed {
-                Toast.info(L(L10n.VoiceChannel.disconnectedRejoin))
-                self?.dismiss()
+                self?.restoreFailedCallIfActive()
             }
         }
         session.onRemoved = { [weak self] cause, reason in
@@ -1032,6 +1030,14 @@ final class VoiceChannelPiPOverlay: NSObject {
         restoreFullScreen(animated: true)
     }
 
+    private func restoreFailedCallIfActive() {
+        guard session?.connectionState == .failed,
+              UIApplication.shared.applicationState == .active else { return }
+        // Transfer the failed session so the room can offer a manual rejoin.
+        // If backgrounded, retain it until foreground or the user's PiP tap.
+        restoreFullScreen(animated: true)
+    }
+
     @discardableResult
     private func restoreFullScreen(animated: Bool) -> Bool {
         guard let ctx = context, let ch = channel else { return false }
@@ -1135,6 +1141,7 @@ final class VoiceChannelPiPOverlay: NSObject {
         ) { [weak self] _ in
             DispatchQueue.main.async {
                 self?.stopSystemPiPOnForeground()
+                self?.restoreFailedCallIfActive()
             }
         }
         updateOverlaySystemCallPiPStatusFromSession()
@@ -1534,6 +1541,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private var callPiPForegroundObserver: NSObjectProtocol?
     private var callPiPActiveObserver: NSObjectProtocol?
     private var isEndingVoiceRoom = false
+    private var pendingRejoinPrompt = false
+    private weak var rejoinPromptController: MezonConfirmController?
     private var isRestoringCallPiP = false
 
     private let connectingOverlay = UIView()
@@ -1561,6 +1570,10 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private var isAgentToggleLoading = false
     private let moreButton = UIButton(type: .custom)
     private var voiceMoreToolsHost: UIView?
+    private weak var noisePopoverButton: UIButton?
+    private weak var noisePopoverStatusLabel: UILabel?
+    private weak var noisePopoverSpinner: UIActivityIndicatorView?
+    private var noiseFeedbackWorkItem: DispatchWorkItem?
     private weak var voiceReactionEmojiPickerSheet: ReactionEmojiPickerSheetController?
     private weak var voiceReactionSoundStickerPickerSheet: ReactionSoundStickerPickerSheetController?
 
@@ -1697,6 +1710,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        NotificationCenter.default.addObserver(self, selector: #selector(presentRejoinPromptIfNeeded),
+                                               name: UIApplication.didBecomeActiveNotification, object: nil)
         Self.currentLiveRoom = self
         view.backgroundColor = UIColor.theme.black
 
@@ -1792,6 +1807,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         camButton = cam
         let mic = makeControlBarIconButton(systemName: "mic.slash.fill", action: #selector(micTapped))
         micButton = mic
+        mic.isEnabled = false
+        mic.alpha = 0.45
         let chat = makeControlBarIconButton(systemName: "bubble.left.and.bubble.right.fill", action: #selector(openChatTapped))
         let hand = makeControlBarIconButton(systemName: "hand.raised.fill", action: #selector(raiseHandTapped))
         raiseHandButton = hand
@@ -2078,6 +2095,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         pttContainer.alignment = .fill
         pttContainer.isHidden = true
 
+        pttMicPill.isEnabled = false
+        pttMicPill.alpha = 0.45
         pttMicPill.translatesAutoresizingMaskIntoConstraints = false
         pttMicPill.backgroundColor = UIColor.theme.tertiary
         pttMicPill.layer.cornerRadius = 30
@@ -2189,7 +2208,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         pttHoldWork?.cancel()
         pttHoldTriggered = false
         let work = DispatchWorkItem { [weak self] in
-            guard let self, let session = self.sfuSession else { return }
+            guard let self, let session = self.sfuSession, session.isConnected else { return }
             self.pttHoldWork = nil
             self.pttHoldTriggered = true
             self.setPttPillPressed(true)
@@ -2308,6 +2327,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         callPiPController?.delegate = nil
         callPiPController = nil
         NotificationCenter.default.removeObserver(self, name: ThemeManager.didChangeNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: UIApplication.didBecomeActiveNotification, object: nil)
         if let audioRouteObserver {
             NotificationCenter.default.removeObserver(audioRouteObserver)
         }
@@ -2404,8 +2424,12 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     @objc private func dismissVoiceMoreToolsPopover() {
+        noiseFeedbackWorkItem?.cancel()
         voiceMoreToolsHost?.removeFromSuperview()
         voiceMoreToolsHost = nil
+        noisePopoverButton = nil
+        noisePopoverStatusLabel = nil
+        noisePopoverSpinner = nil
     }
 
     private func presentationWindowHost() -> WindowHost? {
@@ -2446,30 +2470,83 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         }()
         let blur = UIVisualEffectView(effect: UIBlurEffect(style: blurStyle))
         blur.translatesAutoresizingMaskIntoConstraints = false
-        blur.layer.cornerRadius = 20
+        blur.layer.cornerRadius = 18
         blur.clipsToBounds = true
         blur.isUserInteractionEnabled = false
 
         let panel = UIView()
         panel.translatesAutoresizingMaskIntoConstraints = false
         panel.backgroundColor = .clear
-        panel.layer.cornerRadius = 20
+        panel.layer.cornerRadius = 18
         panel.clipsToBounds = true
         panel.isUserInteractionEnabled = true
 
         let stack = UIStackView()
         stack.axis = .vertical
-        stack.spacing = 12
-        stack.alignment = .center
+        stack.spacing = 8
+        stack.alignment = .fill
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.isUserInteractionEnabled = true
 
-        let emojiBtn = makeVoiceMoreToolCircleButton(image: UIImage(named: "Chat/FaceIcon"), fallbackSystemName: "face.smiling")
+        let emojiBtn = makeVoiceMoreToolButton(title: "Emoji", image: UIImage(named: "Chat/FaceIcon"), fallbackSystemName: "face.smiling")
         emojiBtn.addTarget(self, action: #selector(voiceMoreToolsEmojiTapped), for: .touchUpInside)
-        let soundBtn = makeVoiceMoreToolCircleButton(image: UIImage(named: "Chat/SpeakerIcon"), fallbackSystemName: "speaker.wave.2.fill")
+        let soundBtn = makeVoiceMoreToolButton(title: "Sounds", image: UIImage(named: "Chat/SpeakerIcon"), fallbackSystemName: "speaker.wave.2.fill")
         soundBtn.addTarget(self, action: #selector(voiceMoreToolsSoundTapped), for: .touchUpInside)
-        stack.addArrangedSubview(emojiBtn)
-        stack.addArrangedSubview(soundBtn)
+        let toolsRow = UIStackView(arrangedSubviews: [emojiBtn, soundBtn])
+        toolsRow.axis = .horizontal
+        toolsRow.spacing = 8
+        toolsRow.alignment = .fill
+        toolsRow.distribution = .fillEqually
+        stack.addArrangedSubview(toolsRow)
+
+        let noiseButton = UIButton(type: .custom)
+        noiseButton.translatesAutoresizingMaskIntoConstraints = false
+        noiseButton.backgroundColor = UIColor.white.withAlphaComponent(0.10)
+        noiseButton.layer.cornerRadius = VoiceMoreToolsPopoverMetrics.actionCornerRadius
+        noiseButton.accessibilityLabel = "Noise suppression"
+        noiseButton.addTarget(self, action: #selector(noisePopoverButtonTapped), for: .touchUpInside)
+        let noiseIcon = UIImageView(image: UIImage(systemName: "waveform"))
+        noiseIcon.translatesAutoresizingMaskIntoConstraints = false
+        noiseIcon.tintColor = .white
+        noiseIcon.contentMode = .scaleAspectFit
+        let noiseTitle = UILabel()
+        noiseTitle.translatesAutoresizingMaskIntoConstraints = false
+        noiseTitle.text = "Noise suppression"
+        noiseTitle.textColor = .white
+        noiseTitle.font = .systemFont(ofSize: 12, weight: .medium)
+        noiseTitle.lineBreakMode = .byTruncatingTail
+        noiseTitle.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let noiseStatus = UILabel()
+        noiseStatus.translatesAutoresizingMaskIntoConstraints = false
+        noiseStatus.textColor = UIColor.white.withAlphaComponent(0.7)
+        noiseStatus.font = .systemFont(ofSize: 11, weight: .medium)
+        noiseStatus.textAlignment = .right
+        noiseStatus.setContentCompressionResistancePriority(.required, for: .horizontal)
+        let noiseSpinner = UIActivityIndicatorView(style: .medium)
+        noiseSpinner.translatesAutoresizingMaskIntoConstraints = false
+        noiseSpinner.color = UIColor.white
+        noiseButton.addSubview(noiseIcon)
+        noiseButton.addSubview(noiseTitle)
+        noiseButton.addSubview(noiseStatus)
+        noiseButton.addSubview(noiseSpinner)
+        NSLayoutConstraint.activate([
+            noiseButton.heightAnchor.constraint(equalToConstant: VoiceMoreToolsPopoverMetrics.actionHeight),
+            noiseIcon.leadingAnchor.constraint(equalTo: noiseButton.leadingAnchor, constant: 8),
+            noiseIcon.centerYAnchor.constraint(equalTo: noiseButton.centerYAnchor),
+            noiseIcon.widthAnchor.constraint(equalToConstant: 16),
+            noiseIcon.heightAnchor.constraint(equalToConstant: 16),
+            noiseTitle.leadingAnchor.constraint(equalTo: noiseIcon.trailingAnchor, constant: 6),
+            noiseTitle.centerYAnchor.constraint(equalTo: noiseButton.centerYAnchor),
+            noiseStatus.trailingAnchor.constraint(equalTo: noiseButton.trailingAnchor, constant: -8),
+            noiseStatus.centerYAnchor.constraint(equalTo: noiseButton.centerYAnchor),
+            noiseStatus.leadingAnchor.constraint(greaterThanOrEqualTo: noiseTitle.trailingAnchor, constant: 6),
+            noiseSpinner.trailingAnchor.constraint(equalTo: noiseButton.trailingAnchor, constant: -8),
+            noiseSpinner.centerYAnchor.constraint(equalTo: noiseButton.centerYAnchor),
+        ])
+        stack.addArrangedSubview(noiseButton)
+        noisePopoverButton = noiseButton
+        noisePopoverStatusLabel = noiseStatus
+        noisePopoverSpinner = noiseSpinner
 
         panel.addSubview(stack)
         view.addSubview(host)
@@ -2489,20 +2566,26 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         let anchor = moreButton.convert(moreButton.bounds, to: host)
         let blurW = VoiceMoreToolsPopoverMetrics.panelContentWidth
         let panelTrailingInset = max(0, host.bounds.width - anchor.maxX)
+        let preferredWidth = panel.widthAnchor.constraint(equalToConstant: blurW)
+        preferredWidth.priority = UILayoutPriority(999)
+        let anchoredTrailing = panel.trailingAnchor.constraint(equalTo: host.trailingAnchor, constant: -panelTrailingInset)
+        anchoredTrailing.priority = .defaultHigh
         NSLayoutConstraint.activate([
             dismissTap.topAnchor.constraint(equalTo: host.topAnchor),
             dismissTap.leadingAnchor.constraint(equalTo: host.leadingAnchor),
             dismissTap.trailingAnchor.constraint(equalTo: host.trailingAnchor),
             dismissTap.bottomAnchor.constraint(equalTo: host.bottomAnchor),
 
-            stack.topAnchor.constraint(equalTo: panel.topAnchor, constant: 10),
-            stack.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 10),
-            stack.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -10),
-            stack.bottomAnchor.constraint(equalTo: panel.bottomAnchor, constant: -10),
+            stack.topAnchor.constraint(equalTo: panel.topAnchor, constant: 8),
+            stack.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 8),
+            stack.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -8),
+            stack.bottomAnchor.constraint(equalTo: panel.bottomAnchor, constant: -8),
 
-            panel.widthAnchor.constraint(equalToConstant: blurW),
+            preferredWidth,
             panel.topAnchor.constraint(equalTo: host.topAnchor, constant: anchor.maxY + 6),
-            panel.trailingAnchor.constraint(equalTo: host.trailingAnchor, constant: -panelTrailingInset),
+            anchoredTrailing,
+            panel.leadingAnchor.constraint(greaterThanOrEqualTo: host.safeAreaLayoutGuide.leadingAnchor, constant: 8),
+            panel.trailingAnchor.constraint(lessThanOrEqualTo: host.safeAreaLayoutGuide.trailingAnchor, constant: -8),
 
             blur.leadingAnchor.constraint(equalTo: panel.leadingAnchor),
             blur.trailingAnchor.constraint(equalTo: panel.trailingAnchor),
@@ -2512,28 +2595,84 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
         host.layoutIfNeeded()
         voiceMoreToolsHost = host
+        updateNoisePopoverState(sfuSession?.noiseState ?? .off, showApplied: false)
     }
 
-    private func makeVoiceMoreToolCircleButton(image: UIImage?, fallbackSystemName: String) -> UIButton {
-        let b = UIButton(type: .custom)
-        b.translatesAutoresizingMaskIntoConstraints = false
-        let inset = VoiceMoreToolsPopoverMetrics.imageInset
-        b.imageEdgeInsets = UIEdgeInsets(top: inset, left: inset, bottom: inset, right: inset)
-        b.imageView?.contentMode = .scaleAspectFit
+    @objc private func noisePopoverButtonTapped() {
+        guard let session = sfuSession, session.noiseState != .applying else { return }
+        session.setNoiseSuppressionEnabled(session.noiseState != .on)
+    }
+
+    private func updateNoisePopoverState(_ state: NoiseSuppressionState, showApplied: Bool = true) {
+        noiseFeedbackWorkItem?.cancel()
+        guard let statusLabel = noisePopoverStatusLabel else { return }
+        noisePopoverButton?.isEnabled = state != .applying && sfuSession != nil
+        noisePopoverButton?.accessibilityValue = String(describing: state)
+        noisePopoverSpinner?.isHidden = state != .applying
+        if state == .applying { noisePopoverSpinner?.startAnimating() }
+        else { noisePopoverSpinner?.stopAnimating() }
+        let label: String
+        switch state {
+        case .off: label = "Off"
+        case .applying: label = ""
+        case .on:
+            label = (sfuSession?.noiseCaptureConfirmed ?? false)
+                ? (showApplied ? "Applied" : "On") : "Ready"
+        case .error: label = "Error"
+        }
+        UIView.transition(with: statusLabel, duration: 0.2, options: .transitionCrossDissolve) {
+            statusLabel.text = label
+        }
+        if state == .on && showApplied && (sfuSession?.noiseCaptureConfirmed ?? false) {
+            let item = DispatchWorkItem { [weak self] in
+                guard let self, self.sfuSession?.noiseState == .on else { return }
+                guard let currentLabel = self.noisePopoverStatusLabel else { return }
+                UIView.transition(with: currentLabel, duration: 0.35, options: .transitionCrossDissolve) {
+                    currentLabel.text = "On"
+                }
+            }
+            noiseFeedbackWorkItem = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.3, execute: item)
+        }
+    }
+
+    private func makeVoiceMoreToolButton(title: String, image: UIImage?, fallbackSystemName: String) -> UIButton {
+        let button = UIButton(type: .custom)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.backgroundColor = UIColor.white.withAlphaComponent(0.10)
+        button.layer.cornerRadius = VoiceMoreToolsPopoverMetrics.actionCornerRadius
+        button.accessibilityLabel = title
+
         let cfg = UIImage.SymbolConfiguration(pointSize: VoiceMoreToolsPopoverMetrics.symbolPointSize, weight: .medium)
         let resolved = image?.withRenderingMode(.alwaysTemplate)
             ?? UIImage(systemName: fallbackSystemName, withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate)
-        b.setImage(resolved, for: .normal)
-        b.tintColor = .white
-        b.backgroundColor = UIColor.white.withAlphaComponent(0.14)
-        let side = VoiceMoreToolsPopoverMetrics.buttonSide
-        b.layer.cornerRadius = VoiceMoreToolsPopoverMetrics.buttonCornerRadius
-        b.clipsToBounds = true
+        let icon = UIImageView(image: resolved)
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        icon.tintColor = .white
+        icon.contentMode = .scaleAspectFit
+
+        let label = UILabel()
+        label.text = title
+        label.textColor = .white
+        label.font = .systemFont(ofSize: 13, weight: .medium)
+
+        let content = UIStackView(arrangedSubviews: [icon, label])
+        content.translatesAutoresizingMaskIntoConstraints = false
+        content.axis = .horizontal
+        content.alignment = .center
+        content.spacing = 6
+        content.isUserInteractionEnabled = false
+        button.addSubview(content)
         NSLayoutConstraint.activate([
-            b.widthAnchor.constraint(equalToConstant: side),
-            b.heightAnchor.constraint(equalToConstant: side),
+            button.heightAnchor.constraint(equalToConstant: VoiceMoreToolsPopoverMetrics.actionHeight),
+            content.centerXAnchor.constraint(equalTo: button.centerXAnchor),
+            content.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+            content.leadingAnchor.constraint(greaterThanOrEqualTo: button.leadingAnchor, constant: 8),
+            content.trailingAnchor.constraint(lessThanOrEqualTo: button.trailingAnchor, constant: -8),
+            icon.widthAnchor.constraint(equalToConstant: 16),
+            icon.heightAnchor.constraint(equalToConstant: 16),
         ])
-        return b
+        return button
     }
 
     @objc private func voiceMoreToolsEmojiTapped() {
@@ -2828,6 +2967,9 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     private func wireSessionCallbacks(_ session: MezonSfuSession) {
+        session.onNoiseStateChanged = { [weak self] state in
+            self?.updateNoisePopoverState(state)
+        }
         session.onConnectionState = { [weak self] state in
             self?.handleSfuState(state)
         }
@@ -2888,7 +3030,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         didAnnounceMeetJoin = joinFlag
         didAnnounceMeetLeave = leaveFlag
         isMinimizingToPiP = false
-        hasEverConnected = session.isConnected
+        hasEverConnected = session.hasReachedConnected
         sfuParticipants = session.participants
         wireSessionCallbacks(session)
         applyRole(session.role)
@@ -2908,6 +3050,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         applyAudioRoute()
         scheduleVoiceRoomDeferredAudioRouteEnforcement()
         bindVoiceReactionSocketIfActive()
+        handleSfuState(session.connectionState)
     }
 
     private func scheduleVoiceRoomDeferredAudioRouteEnforcement() {
@@ -2923,6 +3066,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     private func handleSfuState(_ state: SfuConnectionState) {
+        refreshMicButtonIcon()
         switch state {
         case .connected:
             hasEverConnected = true
@@ -2934,17 +3078,11 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             if callPiPController == nil, !isScreenShareDetailCoveringVoiceRoom {
                 setupCallPiP()
             }
-        case .disconnected:
+        case .connecting, .joining, .awaitingOffer, .iceConnected, .dtlsHandshake, .awaitingConfirmation, .disconnected:
             setConnectingOverlayVisible(true)
         case .failed:
-            if hasEverConnected {
-                Toast.info(L(L10n.VoiceChannel.disconnectedRejoin))
-            }
-            performSfuFinalTeardown(message: nil)
-        case .connecting, .joining, .awaitingOffer:
-            if !hasEverConnected {
-                setConnectingOverlayVisible(true)
-            }
+            guard !isEndingVoiceRoom else { return }
+            performSfuFinalTeardown(message: nil, offerRejoin: true)
         }
     }
 
@@ -3053,6 +3191,10 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        if pendingRejoinPrompt {
+            presentRejoinPromptIfNeeded()
+            return
+        }
         // PiP takeover creates/attaches the grid before the navigation animation finishes.
         // Replay once the destination is on screen even if the same rows stayed attached.
         syncParticipantVideoVisibility(refreshRenderers: true)
@@ -3419,7 +3561,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
     @objc private func micTapped() {
         guard currentRole == .speaker else { return }
-        guard let session = sfuSession else { return }
+        guard let session = sfuSession, session.isConnected else { return }
+        guard session.noiseState != .applying else { return }
         let currentlyOn = session.micEnabled
         Task { @MainActor in
             if !currentlyOn {
@@ -3429,6 +3572,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                     return
                 }
             }
+            guard self.sfuSession === session, session.isConnected else { return }
             session.setMicEnabled(!currentlyOn)
             self.refreshMicButtonIcon()
             self.refreshCamButtonIcon()
@@ -3449,11 +3593,10 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private func runVoiceConnectionPipeline() async {
         setConnectingOverlayVisible(true)
         await context.waitForSessionReady()
-        guard !Task.isCancelled else {
-            setConnectingOverlayVisible(false)
-            return
-        }
-        guard let sessionToken = await context.getToken() else {
+        guard !Task.isCancelled else { return }
+        let availableToken = await context.getToken()
+        guard !Task.isCancelled else { return }
+        guard let sessionToken = availableToken else {
             setConnectingOverlayVisible(false)
             presentVoiceAlert(
                 title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Voice", comment: ""),
@@ -3468,6 +3611,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                 metadata: context.meetTokenMetadata(clanId: channel.clanID),
                 token: sessionToken
             )
+            guard !Task.isCancelled else { return }
             guard !jwt.isEmpty else {
                 setConnectingOverlayVisible(false)
                 presentVoiceAlert(
@@ -3475,16 +3619,9 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                     message: NSLocalizedString("voiceChannel.errorNoToken", tableName: nil, bundle: .main, value: "Could not get a room token.", comment: ""))
                 return
             }
-            guard !Task.isCancelled else {
-                setConnectingOverlayVisible(false)
-                return
-            }
 
             let microphoneGranted = await VoiceChannelMicPermission.requestIfNeeded()
-            guard !Task.isCancelled else {
-                setConnectingOverlayVisible(false)
-                return
-            }
+            guard !Task.isCancelled else { return }
 
             let session = MezonSfuSession(
                 channelId: channel.channelID,
@@ -3499,18 +3636,19 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                 token: jwt,
                 role: joinRole
             )
+            // A synchronous join failure can already have torn this session down.
+            guard !Task.isCancelled, sfuSession === session else { return }
 
             refreshMicButtonIcon()
             detectInitialAudioRoute()
             refreshCamButtonIcon()
             refreshParticipantRowsFromSession()
         } catch {
+            guard !Task.isCancelled else { return }
             setConnectingOverlayVisible(false)
-            if !Task.isCancelled {
-                presentVoiceAlert(
-                    title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Voice", comment: ""),
-                    message: error.localizedDescription)
-            }
+            presentVoiceAlert(
+                title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Voice", comment: ""),
+                message: error.localizedDescription)
             sfuSession = nil
         }
     }
@@ -3518,6 +3656,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private func setConnectingOverlayVisible(_ visible: Bool) {
         connectingOverlay.isHidden = !visible
         if visible {
+            connectingLabel.text = NSLocalizedString("voiceChannel.connectingShort", tableName: nil, bundle: .main, value: "Connecting…", comment: "")
             connectingSpinner.startAnimating()
         } else {
             connectingSpinner.stopAnimating()
@@ -3525,6 +3664,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     private func setupCallPiP() {
+        guard !isEndingVoiceRoom else { return }
         guard #available(iOS 15.0, *) else {
             return
         }
@@ -3634,6 +3774,11 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     private func refreshMicButtonIcon() {
+        let ready = sfuSession?.isConnected == true
+        micButton?.isEnabled = ready
+        micButton?.alpha = ready ? 1 : 0.45
+        pttMicPill.isEnabled = ready
+        pttMicPill.alpha = ready ? 1 : 0.45
         guard let session = sfuSession else {
             setMicButtonIcon(muted: true)
             return
@@ -4272,7 +4417,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         cameraSwitchButton.isHidden = !cameraOn
     }
 
-    private func performSfuFinalTeardown(message: String?) {
+    private func performSfuFinalTeardown(message: String?, offerRejoin: Bool = false) {
         isEndingVoiceRoom = true
         tearDownCallPiP()
         tearDownScreenSharePresentationAndPiP()
@@ -4293,6 +4438,16 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
         setConnectingOverlayVisible(false)
         applyLocalMeetLeaveIfNeeded()
+        refreshMicButtonIcon()
+        refreshCamButtonIcon()
+
+        if offerRejoin {
+            pendingRejoinPrompt = true
+            sfuParticipants = []
+            discardParticipantRows()
+            DispatchQueue.main.async { [weak self] in self?.presentRejoinPromptIfNeeded() }
+            return
+        }
 
         guard navigationController?.topViewController === self else { return }
 
@@ -4306,6 +4461,55 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         } else {
             popVoiceRoomOrAlignHomeAfterCrossClanVoice()
         }
+    }
+
+    @objc private func presentRejoinPromptIfNeeded() {
+        guard pendingRejoinPrompt, rejoinPromptController == nil, isViewLoaded, view.window != nil,
+              UIApplication.shared.applicationState == .active,
+              navigationController?.topViewController === self else { return }
+        if let presented = presentedViewController {
+            // Close a room-owned sheet before presenting the terminal failure.
+            if presented.isBeingDismissed {
+                presented.transitionCoordinator?.animate(alongsideTransition: nil) { [weak self] _ in
+                    self?.presentRejoinPromptIfNeeded()
+                }
+            } else {
+                presented.dismiss(animated: false) { [weak self] in self?.presentRejoinPromptIfNeeded() }
+            }
+            return
+        }
+        let configuration = MezonConfirmConfiguration(
+            title: L(L10n.VoiceChannel.rejoinTitle),
+            content: L(L10n.VoiceChannel.rejoinBody),
+            confirmTitle: L(L10n.VoiceChannel.retry),
+            cancelTitle: L(L10n.VoiceChannel.leaveRoom),
+            onConfirm: { [weak self] in
+                guard let self, self.pendingRejoinPrompt else { return }
+                self.pendingRejoinPrompt = false
+                self.rejoinPromptController = nil
+                self.isEndingVoiceRoom = false
+                self.hasEverConnected = false
+                self.didAnnounceMeetJoin = false
+                self.didAnnounceMeetLeave = false
+                self.didStartVoiceConnection = true
+                // Retry the immutable room owned by this controller, after the
+                // custom popup finishes dismissing.
+                self.connectTask = Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    await self.runVoiceConnectionPipeline()
+                }
+            },
+            onCancel: { [weak self] in
+                guard let self, self.pendingRejoinPrompt else { return }
+                self.pendingRejoinPrompt = false
+                self.rejoinPromptController = nil
+                self.popVoiceRoomOrAlignHomeAfterCrossClanVoice()
+            }
+        )
+        let popup = MezonConfirmController(configuration: configuration)
+        popup.view.accessibilityViewIsModal = true
+        rejoinPromptController = popup
+        present(popup, animated: true)
     }
 
     private func prefetchVoiceChannelPermissions() async {

@@ -1513,6 +1513,10 @@ enum L10n {
         static let disconnectedAlone = "voiceChannel.disconnectedAlone"
         static let disconnectedOtherDevice = "voiceChannel.disconnectedOtherDevice"
         static let disconnectedRejoin = "voiceChannel.disconnectedRejoin"
+        static let rejoinTitle = "voiceChannel.rejoinTitle"
+        static let rejoinBody = "voiceChannel.rejoinBody"
+        static let retry = "voiceChannel.retry"
+        static let leaveRoom = "voiceChannel.leaveRoom"
     }
 }
 
@@ -2880,6 +2884,10 @@ extension L10n {
         "voiceChannel.disconnectedAlone": "You were disconnected from the voice channel because you were alone in it for too long.",
         "voiceChannel.disconnectedOtherDevice": "You joined the voice channel on another device, so this session was disconnected.",
         "voiceChannel.disconnectedRejoin": "You were disconnected from the voice channel.",
+        "voiceChannel.rejoinTitle": "Unable to connect to voice",
+        "voiceChannel.rejoinBody": "The voice connection could not be restored. Check your connection and try joining again.",
+        "voiceChannel.retry": "Rejoin",
+        "voiceChannel.leaveRoom": "Exit",
     ]
 
     private static let vi: [String: String] = [
@@ -4237,5 +4245,9 @@ extension L10n {
         "voiceChannel.disconnectedAlone": "Bạn đã bị ngắt khỏi kênh thoại vì ở một mình quá lâu.",
         "voiceChannel.disconnectedOtherDevice": "Bạn đã tham gia kênh thoại trên thiết bị khác nên phiên này bị ngắt kết nối.",
         "voiceChannel.disconnectedRejoin": "Bạn đã bị ngắt khỏi kênh thoại.",
+        "voiceChannel.rejoinTitle": "Không thể kết nối thoại",
+        "voiceChannel.rejoinBody": "Không thể khôi phục kết nối thoại. Hãy kiểm tra kết nối và thử tham gia lại.",
+        "voiceChannel.retry": "Tham gia lại",
+        "voiceChannel.leaveRoom": "Thoát",
     ]
 }
