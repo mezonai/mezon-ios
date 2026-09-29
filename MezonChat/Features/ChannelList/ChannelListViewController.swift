@@ -1141,6 +1141,7 @@ final class ChannelListViewController: ViewController {
     @objc private func handleChannelDescriptionDidUpdate(_ notification: Notification) {
         guard let gid = notification.userInfo?["clanId"] as? Int64 else { return }
         guard gid == clanId, clanId != 0 else { return }
+        if notification.userInfo?["channelType"] as? Int32 == MezonConstants.ChannelType.mezonVoice.rawValue { return }
         if let channelId = notification.userInfo?["channelId"] as? Int64,
            let idx = allChannels.firstIndex(where: { $0.channelID == channelId }),
            let data = context.account.postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId)),

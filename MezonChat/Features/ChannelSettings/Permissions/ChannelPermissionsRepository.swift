@@ -43,8 +43,11 @@ final class ChannelPermissionsRepository {
         role.slug == "everyone-\(role.clanID)"
     }
 
-    func roleIsInChannel(_ role: Mezon_Api_Role, channelId: Int64) -> Bool {
-        role.channelIds.contains(channelId)
+    func roleIsInChannel(_ role: Mezon_Api_Role, channelId: Int64, channelType: Int32) -> Bool {
+        if channelType == MezonConstants.ChannelType.mezonVoice.rawValue {
+            return role.roleChannelActive == 1 && role.channelIds.contains(channelId)
+        }
+        return role.channelIds.contains(channelId)
     }
 
     func clanOwnerId(clanId: Int64) -> String? {
@@ -164,8 +167,8 @@ final class ChannelPermissionsRepository {
         persistLocalRoles(roles, clanId: clanId)
     }
 
-    func channelRoles(clanId: Int64, channelId: Int64) -> [Mezon_Api_Role] {
-        roles(clanId: clanId).filter { roleIsInChannel($0, channelId: channelId) && !isEveryone($0) }
+    func channelRoles(clanId: Int64, channelId: Int64, channelType: Int32) -> [Mezon_Api_Role] {
+        roles(clanId: clanId).filter { roleIsInChannel($0, channelId: channelId, channelType: channelType) && !isEveryone($0) }
     }
 
     // MARK: - Mutations
@@ -312,6 +315,9 @@ final class ChannelPermissionsRepository {
         var role = container.roles.roles[idx]
         if !role.channelIds.contains(channelId) {
             role.channelIds.append(channelId)
+        }
+        if context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channelId)?.type == MezonConstants.ChannelType.mezonVoice.rawValue {
+            role.roleChannelActive = 1
         }
         container.roles.roles[idx] = role
         persistLocalRoles(container, clanId: clanId)

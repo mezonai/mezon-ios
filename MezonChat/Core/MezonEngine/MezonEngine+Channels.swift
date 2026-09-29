@@ -129,17 +129,11 @@ extension MezonEngine {
             guard event.channelType == MezonConstants.ChannelType.mezonVoice.rawValue ||
                     previous?.type == MezonConstants.ChannelType.mezonVoice.rawValue else { return false }
             guard event.clanID != 0, event.channelID != 0, !event.isError else { return true }
-            let privacyChanged = previous?.channelPrivate != (event.channelPrivate ? 1 : 0)
-            let needsAuthoritativeDescription = previous == nil || privacyChanged ||
-                (event.topic.isEmpty && previous?.topic.isEmpty == false) || event.categoryID != previous?.categoryID
-            if needsAuthoritativeDescription {
-                refreshVoiceChannelAccess(clanId: event.clanID, context: context)
-            } else {
-                voiceAccess.invalidate(clanId: event.clanID)
-            }
+            voiceAccess.invalidate(clanId: event.clanID)
             if event.channelPrivate && previous?.channelPrivate != 1 {
                 let userId = Int64(context.currentUser?.id ?? "") ?? 0
                 let roleIds = postbox.read { $0.getClanMembers(clanId: event.clanID).first { $0.userId == userId }?.roleIds }
+                    ?? engine.clanData.getUserPermissions(clanId: event.clanID)?.roles.map(\.id)
                 let access = PrivateVoiceChannelAccess.afterPrivacyUpdate(
                     userId: userId, creatorId: event.creatorID, memberIds: event.userIds, roleIds: event.roleIds,
                     selfRoleIds: roleIds,
@@ -149,7 +143,10 @@ extension MezonEngine {
                     removeVoiceChannelAccess(clanId: event.clanID, channelId: event.channelID)
                     return true
                 }
-                if access == nil { return true }
+                if access == nil {
+                    removeVoiceChannelAccess(clanId: event.clanID, channelId: event.channelID)
+                    return true
+                }
             }
             var channel = previous ?? Mezon_Api_ChannelDescription()
             channel.clanID = event.clanID
@@ -158,7 +155,7 @@ extension MezonEngine {
             channel.channelPrivate = event.channelPrivate ? 1 : 0
             if event.creatorID != 0 { channel.creatorID = event.creatorID }
             if !event.channelLabel.isEmpty { channel.channelLabel = event.channelLabel }
-            if !event.topic.isEmpty { channel.topic = event.topic }
+            if event.channelType != 0 || !event.topic.isEmpty { channel.topic = event.topic }
             if event.categoryID != 0 { channel.categoryID = event.categoryID }
             channel.active = event.active == 0 ? 1 : event.active
             if !event.channelPrivate {

@@ -79,17 +79,20 @@ final class ChannelPermissionsViewController: BaseViewController {
         if channelType == MezonConstants.ChannelType.mezonVoice.rawValue {
             socketDisposable = (context.account.socket.events() |> deliverOnMainQueue).start(next: { [weak self] event in
                 guard let self else { return }
-                let affected: Bool
                 switch event {
-                case .userChannelAdded(let event): affected = event.channelDesc.channelID == self.channelId
-                case .userChannelRemoved(let event): affected = event.channelID == self.channelId
-                case .roleEvent(let event): affected = event.role.clanID == self.clanId
-                case .roleAssign(let event): affected = Int64(event.clanID) == self.clanId
-                default: affected = false
+                case .userChannelAdded(let event) where event.channelDesc.channelID == self.channelId &&
+                    event.status != "Add Role Channel":
+                    self.fetchMembersTask?.cancel()
+                    self.channelMemberIds.formUnion(event.users.map(\.userID))
+                    self.reloadLocalData()
+                case .channelUpdated(let event) where event.channelID == self.channelId &&
+                    event.channelType == MezonConstants.ChannelType.mezonVoice.rawValue &&
+                    event.channelPrivate != self.isPrivate:
+                    self.fetchMembersTask?.cancel()
+                    self.channelMemberIds = event.channelPrivate ? Set(event.userIds) : []
+                    self.reloadLocalData()
+                default: break
                 }
-                guard affected, !self.privacyUpdateInFlight else { return }
-                self.fetchMembersTask?.cancel()
-                self.fetchMembersTask = Task { [weak self] in await self?.refresh() }
             })
         }
         NotificationCenter.default.addObserver(
@@ -369,13 +372,7 @@ final class ChannelPermissionsViewController: BaseViewController {
             return nil
         }()
         guard nid == channelId else { return }
-        let wasPrivate = isPrivate
         reloadLocalData()
-        if wasPrivate != isPrivate, resolvedChannelTypeForPermissions() == MezonConstants.ChannelType.mezonVoice.rawValue,
-           !privacyUpdateInFlight {
-            fetchMembersTask?.cancel()
-            fetchMembersTask = Task { [weak self] in await self?.refresh() }
-        }
     }
 
     private func channelSnapshotFromStores() -> Mezon_Api_ChannelDescription? {
@@ -444,7 +441,9 @@ final class ChannelPermissionsViewController: BaseViewController {
         if let latest = channelSnapshotFromStores() {
             isPrivate = latest.channelPrivate == 1
         }
-        channelRoles = repository.channelRoles(clanId: clanId, channelId: channelId)
+        channelRoles = repository.channelRoles(
+            clanId: clanId, channelId: channelId, channelType: resolvedChannelTypeForPermissions()
+        )
         rebuildChannelMembers()
         privateSwitch.setOn(isPrivate, animated: false)
         refreshVisibility()
@@ -570,7 +569,9 @@ final class ChannelPermissionsViewController: BaseViewController {
         let allRoles = repository.roles(clanId: clanId)
         let memberPool = allMembers.filter { !channelMemberIds.contains($0.userId) }
         let rolePool = allRoles.filter { role in
-            !repository.isEveryone(role) && !repository.roleIsInChannel(role, channelId: channelId)
+            !repository.isEveryone(role) && !repository.roleIsInChannel(
+                role, channelId: channelId, channelType: resolvedChannelTypeForPermissions()
+            )
         }
         let sheet = AddMemberOrRoleSheetController(
             availableMembers: memberPool,
