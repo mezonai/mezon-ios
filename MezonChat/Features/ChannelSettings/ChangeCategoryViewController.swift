@@ -350,6 +350,7 @@ final class ChangeCategoryViewController: BaseViewController {
         let name: String? = channelType == MezonConstants.ChannelType.mezonVoice.rawValue
             ? (nameField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines) : nil
         let currentName = context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channelId)?.channelLabel ?? channelLabel
+        if category == nil, name == currentName { return }
         if let name, name != currentName {
             let pattern = "^(?![_\\-\\s])(?:(?!')[a-zA-Z0-9\\p{L}\\p{N}\\p{So}_\\-\\s]){1,64}$"
             guard name.range(of: pattern, options: .regularExpression) != nil else {

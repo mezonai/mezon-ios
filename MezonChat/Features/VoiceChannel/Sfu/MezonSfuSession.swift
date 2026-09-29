@@ -348,9 +348,7 @@ final class MezonSfuSession: NSObject {
                     break
                 }
                 if self.tokenNeedsRefresh(), self.tokenRefreshes < Self.maxTokenRefreshes {
-                    let tokenGeneration = self.connectionGen
                     if let fresh = await self.tokenProvider?(), !fresh.isEmpty {
-                        guard !Task.isCancelled, self.active, tokenGeneration == self.connectionGen else { continue }
                         self.tokenRefreshes += 1
                         self.token = fresh
                         self.tokenRejected = false
