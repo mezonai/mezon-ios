@@ -7716,6 +7716,8 @@ struct Mezon_Api_GenerateMeetTokenResponse: Sendable {
 
   var token: String = String()
 
+  var url: String = String()
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
@@ -9401,6 +9403,56 @@ struct Mezon_Api_SearchCtrlKResponse: Sendable {
   var users: [Mezon_Api_User] = []
 
   var channels: [Mezon_Api_ChannelDescription] = []
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Mezon_Api_SearchMentionUsersRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var clanID: Int64 = 0
+
+  var channelID: Int64 = 0
+
+  var text: String = String()
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Mezon_Api_MentionUser: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var id: Int64 = 0
+
+  var username: String = String()
+
+  var displayName: String = String()
+
+  var avatarURL: String = String()
+
+  var clanNick: String = String()
+
+  var clanAvatar: String = String()
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Mezon_Api_SearchMentionUsersResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var users: [Mezon_Api_MentionUser] = []
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -23737,7 +23789,7 @@ extension Mezon_Api_MeetParticipantRequest: SwiftProtobuf.Message, SwiftProtobuf
 
 extension Mezon_Api_GenerateMeetTokenResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".GenerateMeetTokenResponse"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}token\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}token\0\u{1}url\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -23746,6 +23798,7 @@ extension Mezon_Api_GenerateMeetTokenResponse: SwiftProtobuf.Message, SwiftProto
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.token) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.url) }()
       default: break
       }
     }
@@ -23755,11 +23808,15 @@ extension Mezon_Api_GenerateMeetTokenResponse: SwiftProtobuf.Message, SwiftProto
     if !self.token.isEmpty {
       try visitor.visitSingularStringField(value: self.token, fieldNumber: 1)
     }
+    if !self.url.isEmpty {
+      try visitor.visitSingularStringField(value: self.url, fieldNumber: 2)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Mezon_Api_GenerateMeetTokenResponse, rhs: Mezon_Api_GenerateMeetTokenResponse) -> Bool {
     if lhs.token != rhs.token {return false}
+    if lhs.url != rhs.url {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -27161,6 +27218,131 @@ extension Mezon_Api_SearchCtrlKResponse: SwiftProtobuf.Message, SwiftProtobuf._M
   static func ==(lhs: Mezon_Api_SearchCtrlKResponse, rhs: Mezon_Api_SearchCtrlKResponse) -> Bool {
     if lhs.users != rhs.users {return false}
     if lhs.channels != rhs.channels {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Api_SearchMentionUsersRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".SearchMentionUsersRequest"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}clan_id\0\u{3}channel_id\0\u{1}text\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.clanID) }()
+      case 2: try { try decoder.decodeSingularInt64Field(value: &self.channelID) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.text) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.clanID != 0 {
+      try visitor.visitSingularInt64Field(value: self.clanID, fieldNumber: 1)
+    }
+    if self.channelID != 0 {
+      try visitor.visitSingularInt64Field(value: self.channelID, fieldNumber: 2)
+    }
+    if !self.text.isEmpty {
+      try visitor.visitSingularStringField(value: self.text, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Api_SearchMentionUsersRequest, rhs: Mezon_Api_SearchMentionUsersRequest) -> Bool {
+    if lhs.clanID != rhs.clanID {return false}
+    if lhs.channelID != rhs.channelID {return false}
+    if lhs.text != rhs.text {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Api_MentionUser: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".MentionUser"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}username\0\u{3}display_name\0\u{3}avatar_url\0\u{3}clan_nick\0\u{3}clan_avatar\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.id) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.username) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.displayName) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.avatarURL) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.clanNick) }()
+      case 6: try { try decoder.decodeSingularStringField(value: &self.clanAvatar) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.id != 0 {
+      try visitor.visitSingularInt64Field(value: self.id, fieldNumber: 1)
+    }
+    if !self.username.isEmpty {
+      try visitor.visitSingularStringField(value: self.username, fieldNumber: 2)
+    }
+    if !self.displayName.isEmpty {
+      try visitor.visitSingularStringField(value: self.displayName, fieldNumber: 3)
+    }
+    if !self.avatarURL.isEmpty {
+      try visitor.visitSingularStringField(value: self.avatarURL, fieldNumber: 4)
+    }
+    if !self.clanNick.isEmpty {
+      try visitor.visitSingularStringField(value: self.clanNick, fieldNumber: 5)
+    }
+    if !self.clanAvatar.isEmpty {
+      try visitor.visitSingularStringField(value: self.clanAvatar, fieldNumber: 6)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Api_MentionUser, rhs: Mezon_Api_MentionUser) -> Bool {
+    if lhs.id != rhs.id {return false}
+    if lhs.username != rhs.username {return false}
+    if lhs.displayName != rhs.displayName {return false}
+    if lhs.avatarURL != rhs.avatarURL {return false}
+    if lhs.clanNick != rhs.clanNick {return false}
+    if lhs.clanAvatar != rhs.clanAvatar {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Api_SearchMentionUsersResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".SearchMentionUsersResponse"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}users\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeRepeatedMessageField(value: &self.users) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.users.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.users, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Api_SearchMentionUsersResponse, rhs: Mezon_Api_SearchMentionUsersResponse) -> Bool {
+    if lhs.users != rhs.users {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

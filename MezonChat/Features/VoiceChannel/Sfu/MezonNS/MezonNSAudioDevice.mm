@@ -3,6 +3,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <AudioUnit/AudioUnit.h>
 #import <mach/mach_time.h>
+#include <algorithm>
 #include <atomic>
 
 static constexpr double kAudioSampleRate = 16000;
@@ -18,6 +19,10 @@ static constexpr int kModelFrameSamples = 160;
     BOOL _recordingInitialized;
     std::atomic<bool> _playing;
     std::atomic<bool> _recording;
+    BOOL _unitRunning;
+    std::atomic<uint64_t> _capturedFrames;
+    std::atomic<int32_t> _lastCaptureStatus;
+    std::atomic<int32_t> _inputPeak;
     BOOL _hardwareInterrupted;
     std::atomic<bool> _noiseEnabled;
     std::atomic<bool> _resetPending;
@@ -51,6 +56,9 @@ static void disableNoiseAfterFailure(MezonNSAudioDevice *device, NSString *reaso
         _noiseEnabled.store(false);
         _playing.store(false);
         _recording.store(false);
+        _capturedFrames.store(0);
+        _lastCaptureStatus.store(noErr);
+        _inputPeak.store(0);
         _resetPending.store(false);
         _model.store(nullptr);
         _requestGeneration.store(0);
@@ -72,6 +80,14 @@ static void disableNoiseAfterFailure(MezonNSAudioDevice *device, NSString *reaso
 }
 
 - (BOOL)noiseSuppressionEnabled { return _noiseEnabled.load(); }
+- (uint64_t)capturedFrameCount { return _capturedFrames.load(); }
+- (NSDictionary<NSString *, NSNumber *> *)captureDiagnostics {
+    return @{@"device_recording": @(_recording.load()),
+             @"device_playing": @(_playing.load()),
+             @"captured_frames": @(_capturedFrames.load()),
+             @"capture_status": @(_lastCaptureStatus.load()),
+             @"input_peak": @(_inputPeak.load())};
+}
 
 - (void)setNoiseSuppressionEnabled:(BOOL)enabled completion:(void (^)(BOOL))completion {
     const uint64_t request = _requestGeneration.fetch_add(1) + 1;
@@ -149,7 +165,10 @@ static OSStatus inputCallback(void *context, AudioUnitRenderActionFlags *flags,
                               AudioBufferList *ignoredData) {
     MezonNSAudioDevice *device = (__bridge MezonNSAudioDevice *)context;
     if (!device->_recording.load() || !device->_delegate) return noErr;
-    if (frames > kMaxCallbackFrames) return kAudio_ParamError;
+    if (frames > kMaxCallbackFrames) {
+        device->_lastCaptureStatus.store(kAudio_ParamError);
+        return kAudio_ParamError;
+    }
     int16_t samples[kMaxCallbackFrames];
     AudioBufferList data = {};
     data.mNumberBuffers = 1;
@@ -157,7 +176,16 @@ static OSStatus inputCallback(void *context, AudioUnitRenderActionFlags *flags,
     data.mBuffers[0].mDataByteSize = frames * sizeof(int16_t);
     data.mBuffers[0].mData = samples;
     OSStatus status = AudioUnitRender(device->_audioUnit, flags, timeStamp, 1, frames, &data);
-    if (status != noErr) return status;
+    if (status != noErr) {
+        device->_lastCaptureStatus.store(status);
+        return status;
+    }
+    int32_t peak = 0;
+    for (UInt32 i = 0; i < frames; i++) {
+        const int32_t sample = samples[i];
+        peak = std::max(peak, sample < 0 ? -sample : sample);
+    }
+    device->_inputPeak.store(peak);
 
     if (device->_noiseEnabled.load() && device->_model.load() != nullptr) {
         MezonNS *engine = (__bridge MezonNS *)device->_model.load();
@@ -200,7 +228,10 @@ static OSStatus inputCallback(void *context, AudioUnitRenderActionFlags *flags,
             }
         }
     }
-    return device->_delegate.deliverRecordedData(flags, timeStamp, bus, frames, &data, nullptr, nil);
+    status = device->_delegate.deliverRecordedData(flags, timeStamp, bus, frames, &data, nullptr, nil);
+    device->_lastCaptureStatus.store(status);
+    if (status == noErr) device->_capturedFrames.fetch_add(frames);
+    return status;
 }
 
 static OSStatus outputCallback(void *context, AudioUnitRenderActionFlags *flags,
@@ -218,8 +249,7 @@ static OSStatus outputCallback(void *context, AudioUnitRenderActionFlags *flags,
     return device->_delegate.getPlayoutData(flags, timeStamp, bus, frames, data);
 }
 
-- (BOOL)initializeWithDelegate:(id<RTCAudioDeviceDelegate>)delegate {
-    if (_initialized) return YES;
+- (BOOL)createAudioUnit {
     AudioComponentDescription description = {};
     description.componentType = kAudioUnitType_Output;
     description.componentSubType = kAudioUnitSubType_VoiceProcessingIO;
@@ -246,6 +276,12 @@ static OSStatus outputCallback(void *context, AudioUnitRenderActionFlags *flags,
         NSLog(@"[MezonNS][iOS] failed to initialize WebRTC audio device");
         return NO;
     }
+    return YES;
+}
+
+- (BOOL)initializeWithDelegate:(id<RTCAudioDeviceDelegate>)delegate {
+    if (_initialized) return YES;
+    if (![self createAudioUnit]) return NO;
     _delegate = delegate;
     _initialized = YES;
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(audioSessionInterrupted:)
@@ -259,15 +295,18 @@ static OSStatus outputCallback(void *context, AudioUnitRenderActionFlags *flags,
     if (!_initialized) return YES;
     [[NSNotificationCenter defaultCenter] removeObserver:self name:AVAudioSessionInterruptionNotification object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:AVAudioSessionRouteChangeNotification object:nil];
-    if (_playing || _recording) AudioOutputUnitStop(_audioUnit);
+    if (_audioUnit) AudioOutputUnitStop(_audioUnit);
+    _unitRunning = NO;
     _playing = NO;
     _recording = NO;
     _hardwareInterrupted = NO;
     _playoutInitialized = NO;
     _recordingInitialized = NO;
     _initialized = NO;
-    AudioUnitUninitialize(_audioUnit);
-    AudioComponentInstanceDispose(_audioUnit);
+    if (_audioUnit) {
+        AudioUnitUninitialize(_audioUnit);
+        AudioComponentInstanceDispose(_audioUnit);
+    }
     _audioUnit = nullptr;
     _delegate = nil;
     return YES;
@@ -277,38 +316,101 @@ static OSStatus outputCallback(void *context, AudioUnitRenderActionFlags *flags,
 - (BOOL)initializeRecording { _recordingInitialized = _initialized; return _recordingInitialized; }
 - (BOOL)startPlayout {
     if (!_initialized) return NO;
-    if (!_playing && !_recording && !_hardwareInterrupted) {
+    if (!_unitRunning && !_hardwareInterrupted) {
+        if (!_audioUnit && ![self createAudioUnit]) return NO;
         OSStatus status = AudioOutputUnitStart(_audioUnit);
         if (status != noErr) {
             NSLog(@"[MezonNS][iOS] startPlayout failed: %d", (int)status);
             return NO;
         }
+        _unitRunning = YES;
     }
     _playing = YES;
     return YES;
 }
 - (BOOL)startRecording {
     if (!_initialized) return NO;
-    if (!_recording && !_playing && !_hardwareInterrupted) {
+    if (!_unitRunning && !_hardwareInterrupted) {
+        if (!_audioUnit && ![self createAudioUnit]) return NO;
         OSStatus status = AudioOutputUnitStart(_audioUnit);
         if (status != noErr) {
             NSLog(@"[MezonNS][iOS] startRecording failed: %d", (int)status);
             return NO;
         }
+        _unitRunning = YES;
     }
     _recording = YES;
     return YES;
 }
 - (BOOL)stopPlayout {
     _playing = NO;
-    if (!_recording && _audioUnit) AudioOutputUnitStop(_audioUnit);
+    if (!_recording && _audioUnit) {
+        AudioOutputUnitStop(_audioUnit);
+        _unitRunning = NO;
+    }
     return YES;
 }
 - (BOOL)stopRecording {
     _recording = NO;
     _resetPending.store(true);
-    if (!_playing && _audioUnit) AudioOutputUnitStop(_audioUnit);
+    if (!_playing && _audioUnit) {
+        AudioOutputUnitStop(_audioUnit);
+        _unitRunning = NO;
+    }
     return YES;
+}
+
+- (void)prepareForAudioSessionRestart {
+    id<RTCAudioDeviceDelegate> delegate = _delegate;
+    if (!delegate) return;
+    // Do not hold RTCAudioSession's configuration lock while waiting for ADM.
+    [delegate dispatchSync:^{
+        if (!self->_initialized || self->_delegate != delegate) return;
+        self->_hardwareInterrupted = YES;
+        if (self->_audioUnit) AudioOutputUnitStop(self->_audioUnit);
+        self->_unitRunning = NO;
+        [delegate notifyAudioInputInterrupted];
+        [delegate notifyAudioOutputInterrupted];
+        self->_resetPending.store(true);
+    }];
+}
+
+- (void)recoverAudio {
+    id<RTCAudioDeviceDelegate> delegate = _delegate;
+    if (!delegate) return;
+    [delegate dispatchAsync:^{
+        if (!self->_initialized || self->_delegate != delegate) return;
+        // A successful session restore also covers suspension without an
+        // interruption-ended notification. RTCAudioSession's audio-enabled
+        // switch does not restart a custom RTCAudioDevice.
+        self->_hardwareInterrupted = NO;
+        [self rebuildAudioUnit];
+    }];
+}
+
+// Runs on the ADM thread. Keep WebRTC's requested playout/recording state even
+// if a hardware restart fails, so the next recovery can retry both directions.
+- (void)rebuildAudioUnit {
+    if (_audioUnit) {
+        AudioOutputUnitStop(_audioUnit);
+        AudioUnitUninitialize(_audioUnit);
+        AudioComponentInstanceDispose(_audioUnit);
+        _audioUnit = nullptr;
+    }
+    _unitRunning = NO;
+    [_delegate notifyAudioInputInterrupted];
+    [_delegate notifyAudioOutputInterrupted];
+    _resetPending.store(true);
+    if (![self createAudioUnit]) return;
+    // Update WebRTC's buffers before the new unit starts invoking callbacks.
+    [_delegate notifyAudioInputParametersChange];
+    [_delegate notifyAudioOutputParametersChange];
+    if (_playing || _recording) {
+        OSStatus status = AudioOutputUnitStart(_audioUnit);
+        _unitRunning = status == noErr;
+        NSLog(@"[SFU audio] device_recovery status=%d recording=%d playing=%d",
+              (int)status, (int)_recording.load(), (int)_playing.load());
+    }
 }
 
 - (void)audioSessionInterrupted:(NSNotification *)notification {
@@ -316,20 +418,16 @@ static OSStatus outputCallback(void *context, AudioUnitRenderActionFlags *flags,
     if (!delegate) return;
     NSNumber *type = notification.userInfo[AVAudioSessionInterruptionTypeKey];
     [delegate dispatchAsync:^{
-        if (!self->_initialized) return;
+        if (!self->_initialized || self->_delegate != delegate) return;
         if (type.unsignedIntegerValue == AVAudioSessionInterruptionTypeBegan) {
             self->_hardwareInterrupted = YES;
-            AudioOutputUnitStop(self->_audioUnit);
+            if (self->_audioUnit) AudioOutputUnitStop(self->_audioUnit);
+            self->_unitRunning = NO;
             [delegate notifyAudioInputInterrupted];
             [delegate notifyAudioOutputInterrupted];
             self->_resetPending.store(true);
-        } else if (self->_hardwareInterrupted) {
-            self->_hardwareInterrupted = NO;
-            if (self->_playing || self->_recording) {
-                OSStatus status = AudioOutputUnitStart(self->_audioUnit);
-                if (status != noErr) NSLog(@"[MezonNS][iOS] audio restart failed: %d", (int)status);
-            }
         }
+        // The session owner activates AVAudioSession before calling recoverAudio.
     }];
 }
 
@@ -337,17 +435,25 @@ static OSStatus outputCallback(void *context, AudioUnitRenderActionFlags *flags,
     id<RTCAudioDeviceDelegate> delegate = _delegate;
     if (!delegate) return;
     [delegate dispatchAsync:^{
-        if (!self->_initialized || self->_hardwareInterrupted) return;
-        if (self->_playing || self->_recording) {
-            AudioOutputUnitStop(self->_audioUnit);
-            [delegate notifyAudioInputInterrupted];
-            [delegate notifyAudioOutputInterrupted];
-            self->_resetPending.store(true);
-            OSStatus status = AudioOutputUnitStart(self->_audioUnit);
-            if (status != noErr) NSLog(@"[MezonNS][iOS] route restart failed: %d", (int)status);
+        if (!self->_initialized || self->_delegate != delegate || self->_hardwareInterrupted) return;
+        if (!self->_audioUnit) {
+            [self rebuildAudioUnit];
+            return;
         }
+        // Ordinary route notifications only restart the existing unit. Creating
+        // a new VoiceProcessingIO can itself trigger another route notification.
+        AudioOutputUnitStop(self->_audioUnit);
+        self->_unitRunning = NO;
+        [delegate notifyAudioInputInterrupted];
+        [delegate notifyAudioOutputInterrupted];
+        self->_resetPending.store(true);
         [delegate notifyAudioInputParametersChange];
         [delegate notifyAudioOutputParametersChange];
+        if (self->_playing || self->_recording) {
+            OSStatus status = AudioOutputUnitStart(self->_audioUnit);
+            self->_unitRunning = status == noErr;
+            if (status != noErr) NSLog(@"[SFU audio] route_restart status=%d", (int)status);
+        }
     }];
 }
 @end

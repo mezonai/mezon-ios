@@ -1753,17 +1753,30 @@ final class MezonHTTPClient {
            !response.token.isEmpty {
             return response.token
         }
-        // A pooled connection may have been closed while the app was suspended.
         let data = try await retryingTransientRequest(operationName: "GenerateMeetToken") {
             try await self.postProtoRawHTTP(path: path, message: req, auth: .bearer(token))
+        }
+        guard let response = Self.decodeMeetTokenResponse(data) else {
+            throw MezonError.invalidResponse
+        }
+        return response.token
+    }
+
+    private static let meetTokenProtobufFieldTag: UInt8 = 0x0A
+
+    private static func decodeMeetTokenResponse(_ data: Data) -> Mezon_Api_GenerateMeetTokenResponse? {
+        if data.first == meetTokenProtobufFieldTag,
+           let response = try? Mezon_Api_GenerateMeetTokenResponse(serializedBytes: data),
+           !response.token.isEmpty {
+            return response
         }
         let text = String(data: data, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: "\"")) ?? ""
-        if text.hasPrefix("eyJ"), text.filter({ $0 == "." }).count == 2 {
-            return text
-        }
-        return try Mezon_Api_GenerateMeetTokenResponse(serializedBytes: data).token
+        guard text.hasPrefix("eyJ"), text.filter({ $0 == "." }).count == 2 else { return nil }
+        var response = Mezon_Api_GenerateMeetTokenResponse()
+        response.token = text
+        return response
     }
 
     func muteMezonMeetParticipant(clanId: Int64, channelId: Int64, userId: Int64, token: String) async throws -> String {
@@ -2720,17 +2733,13 @@ final class MezonHTTPClient {
             if Response.self == SwiftProtobuf.Google_Protobuf_Empty.self {
                 return SwiftProtobuf.Google_Protobuf_Empty() as? Response
             }
-            // Accept raw JWT from the proto server as well as protobuf responses.
             if apiName == "GenerateMeetToken",
                Response.self == Mezon_Api_GenerateMeetTokenResponse.self {
-                let text = String(data: respBytes, encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                    .trimmingCharacters(in: CharacterSet(charactersIn: "\"")) ?? ""
-                if text.hasPrefix("eyJ"), text.filter({ $0 == "." }).count == 2 {
-                    var response = Mezon_Api_GenerateMeetTokenResponse()
-                    response.token = text
-                    return response as? Response
+                guard let response = Self.decodeMeetTokenResponse(respBytes) else {
+                    NSLog("%@", "[MezonSocket] api '\(apiName)' response decode failed (\(respBytes.count) bytes), falling back to HTTP" as NSString)
+                    return nil
                 }
+                return response as? Response
             }
             do {
                 return try Response(serializedBytes: respBytes)
