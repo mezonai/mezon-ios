@@ -499,6 +499,7 @@ final class MezonSfuSession: NSObject {
     private var transportWatchdogTask: Task<Void, Never>?
     private var lastInboundAudioCounters: [String: SfuInboundAudioCounters] = [:]
     private var lastOutboundAudioPackets: Double?
+    private var lastCapturedAudioFrames: UInt64?
     private var audioWatchdogGeneration = -1
     private var stalledPlayoutTicks = 0
     private var playoutRestarts = 0
@@ -1072,6 +1073,8 @@ final class MezonSfuSession: NSObject {
             return
         }
         send(["type": "mute", "is_mute": !on])
+        NSLog("[SFU audio] mic enabled=%@ attached=%@ capture=%@", String(on), String(attached),
+              String(describing: noiseAudioDevice.captureDiagnostics))
     }
 
     func setNoiseSuppressionEnabled(_ enabled: Bool) {
@@ -1549,6 +1552,7 @@ final class MezonSfuSession: NSObject {
     private func resetPlayoutWatchdog() {
         lastInboundAudioCounters = [:]
         lastOutboundAudioPackets = nil
+        lastCapturedAudioFrames = nil
         audioWatchdogGeneration = -1
         stalledPlayoutTicks = 0
         playoutRestarts = 0
@@ -1979,7 +1983,7 @@ final class MezonSfuSession: NSObject {
         var outboundPacketsSent: Double = 0
         for (id, stat) in report.statistics {
             let values = stat.values
-            guard (values["kind"] as? String) == "audio" else { continue }
+            guard (values["kind"] as? String ?? values["mediaType"] as? String) == "audio" else { continue }
             if stat.type == "inbound-rtp" {
                 inbound[id] = SfuInboundAudioCounters(
                     packetsReceived: (values["packetsReceived"] as? NSNumber)?.doubleValue ?? 0,
@@ -1996,8 +2000,11 @@ final class MezonSfuSession: NSObject {
         guard gen == connectionGen else { return }
         let previousInbound = lastInboundAudioCounters
         let previousOutbound = lastOutboundAudioPackets
+        let previousCapturedFrames = lastCapturedAudioFrames
+        let capturedFrames = noiseAudioDevice.capturedFrameCount
         lastInboundAudioCounters = flow.inbound
         lastOutboundAudioPackets = flow.outboundPacketsSent
+        lastCapturedAudioFrames = capturedFrames
         guard audioWatchdogGeneration == gen else {
             audioWatchdogGeneration = gen
             stalledPlayoutTicks = 0
@@ -2028,6 +2035,14 @@ final class MezonSfuSession: NSObject {
         // Use intent, so a disabled/missing sender is detected as a capture stall.
         let sendsAudio = localTracksAdded && shouldSendAudio
         let captureAdvanced = previousOutbound.map { flow.outboundPacketsSent > $0 } ?? false
+        let deviceCaptureAdvanced = previousCapturedFrames.map { capturedFrames > $0 } ?? true
+#if DEBUG
+        if sendsAudio {
+            NSLog("[SFU audio] capture=%@ outboundPackets=%.0f trackEnabled=%@",
+                  String(describing: noiseAudioDevice.captureDiagnostics), flow.outboundPacketsSent,
+                  String(localAudioTrack?.isEnabled ?? false))
+        }
+#endif
 
         if !inboundAdvanced && hasUnmutedRemoteSpeaker {
             silentInboundTicks += 1
@@ -2060,7 +2075,7 @@ final class MezonSfuSession: NSObject {
         if packetsWithoutPlayout && !playoutAdvanced {
             reasons.append("playout")
         }
-        if sendsAudio && !captureAdvanced {
+        if sendsAudio && (!captureAdvanced || !deviceCaptureAdvanced) {
             reasons.append("capture")
         }
         guard !reasons.isEmpty else {
@@ -2079,6 +2094,7 @@ final class MezonSfuSession: NSObject {
             return
         }
         playoutRestarts += 1
+        NSLog("[SFU audio] recovery %@", String(describing: details))
         SentryLogger.addBreadcrumb(category: "voice.audio", message: "restore", data: details)
         if reasons.contains("capture") {
             // Replace a stuck source on repeated recovery, preserving mic/PTT intent.
@@ -2139,6 +2155,7 @@ final class MezonSfuSession: NSObject {
             "restarts": playoutRestarts,
             "app_state": UIApplication.shared.applicationState.rawValue,
             "generation": connectionGen,
+            "capture_device": noiseAudioDevice.captureDiagnostics,
         ]
     }
 
@@ -3092,14 +3109,17 @@ final class MezonSfuSession: NSObject {
             return false
         }
         let rtc = RTCAudioSession.sharedInstance()
+        let restartDevice = restartAudio || !rtc.isAudioEnabled || !rtc.isActive
+        // Stop the custom unit before taking the configuration lock or
+        // deactivating the OS session. Its requested mic/playout state survives.
+        if restartDevice { noiseAudioDevice.prepareForAudioSessionRestart() }
         rtc.lockForConfiguration()
         defer { rtc.unlockForConfiguration() }
         rtc.useManualAudio = true
-        if restartAudio { rtc.isAudioEnabled = false }
-        // A stale `isActive == true` does not prove audio I/O is running. On a
-        // recovery, balance our activation before reacquiring it. Never release
-        // references owned by CallKit, peer calls or streaming sessions.
-        if audioRecoveryOwnsActivation && (restartAudio || !rtc.isActive) {
+        // The custom audio device owns VoiceProcessingIO. Toggling this flag
+        // does not stop that unit. Balance our activation after stopping the
+        // device, including when isActive is stale after an interruption.
+        if audioRecoveryOwnsActivation && (restartDevice || !rtc.isActive) {
             try? rtc.setActive(false)
             audioRecoveryOwnsActivation = false
         }
@@ -3115,6 +3135,7 @@ final class MezonSfuSession: NSObject {
         }
         let ready = configured && audioRecoveryOwnsActivation && rtc.isActive
         rtc.isAudioEnabled = ready
+        if ready && restartDevice { noiseAudioDevice.recoverAudio() }
         return ready
     }
 
