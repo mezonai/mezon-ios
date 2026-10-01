@@ -1295,6 +1295,20 @@ final class AccountContextImpl: AccountContext {
             )
 
         case .lastSeen(let e):
+            if e.clanID != 0, account.postbox.getChannelDescription(channelId: e.channelID)?.channel.type != 7 {
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    let cached = self.account.postbox.getChannelDescription(channelId: e.channelID)?.channel
+                    let request = BadgeReadCountRequest(clanId: e.clanID, channelId: e.channelID,
+                        fallback: max(cached?.countMessUnread ?? 0, e.badgeCount))
+                    NotificationCenter.default.post(name: Notification.Name("MezonBadgeReadCountRequested"), object: request)
+                    NotificationCenter.default.post(name: Notification.Name("MezonChannelMarkedAsRead"), object: nil,
+                        userInfo: ["channelId": e.channelID, "clanId": e.clanID, "channelUnreadCount": e.badgeCount,
+                                   "localBadgeCount": request.count, "messageId": String(e.messageID),
+                                   "timestampSeconds": e.timestampSeconds, "mode": e.mode])
+                }
+                return
+            }
             NotificationCenter.default.post(
                 name: Notification.Name("MezonChannelMarkedAsRead"), object: nil,
                 userInfo: [
@@ -1346,7 +1360,11 @@ final class AccountContextImpl: AccountContext {
             applyTopicInMessageEvent(event)
 
         case .notification(let noti):
-            handleSocketNotification(noti)
+            if noti.clanID != 0, noti.topicID == 0, noti.code == -9 || noti.code == -11 {
+                Task { @MainActor [weak self] in self?.handleSocketNotification(noti) }
+            } else {
+                handleSocketNotification(noti)
+            }
 
         case .webRTC(let msg):
             WebRTCCallManager.shared.handleSignalingMessage(msg, currentUserId: currentUserNumericId() ?? 0)
@@ -1602,7 +1620,11 @@ final class AccountContextImpl: AccountContext {
         }
 
         guard noti.channelID != 0 else { return }
-        if currentChannel?.channelID == noti.channelID, noti.clanID != 0 { return }
+        if noti.clanID != 0, noti.topicID == 0 {
+            if ClanListViewController.isViewingBadgeChannel(noti.channelID) {
+                return
+            }
+        } else if currentChannel?.channelID == noti.channelID, noti.clanID != 0 { return }
 
         let skipTypes: [Int32] = [
             MezonConstants.ChannelType.app.rawValue,
@@ -1615,8 +1637,12 @@ final class AccountContextImpl: AccountContext {
         guard noti.code == notificationCodeMentioned || noti.code == notificationCodeReplied else { return }
 
         var messageId: String = ""
+        var messageTimestamp = noti.createTimeSeconds
         if !noti.content.isEmpty,
            let json = try? JSONSerialization.jsonObject(with: noti.content) as? [String: Any] {
+            if noti.topicID == 0, let timestamp = UInt32("\(json["create_time_seconds"] ?? "")"), timestamp != 0 {
+                messageTimestamp = timestamp
+            }
             for key in ["message_id", "messageId", "messageID", "msg_id", "id"] {
                 if let v = json[key], !(v is NSNull) {
                     let s = "\(v)".trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1628,6 +1654,14 @@ final class AccountContextImpl: AccountContext {
             }
         }
 
+        if noti.topicID == 0, messageId.isEmpty, let fcm = try? Mezon_Api_DirectFcmProto(serializedBytes: noti.content), fcm.messageID != 0 {
+            messageId = String(fcm.messageID)
+            if fcm.createTimeSeconds != 0 { messageTimestamp = UInt32(bitPattern: fcm.createTimeSeconds) }
+        }
+        if noti.topicID == 0, messageId.isEmpty, let message = try? Mezon_Api_ChannelMessage(serializedBytes: noti.content), message.messageID != 0 {
+            messageId = String(message.messageID)
+            if message.createTimeSeconds != 0 { messageTimestamp = message.createTimeSeconds }
+        }
         let clanId = noti.clanID
         let channelId = noti.channelID
         let topicId = noti.topicID
@@ -1658,7 +1692,7 @@ final class AccountContextImpl: AccountContext {
                 userInfo: [
                     "channelId": channelId, "clanId": clanId,
                     "senderId": String(noti.senderID), "mode": noti.channelType,
-                    "timestampSeconds": noti.createTimeSeconds,
+                    "timestampSeconds": messageTimestamp,
                     "messageId": messageId
                 ] as [String: Any]
             )
