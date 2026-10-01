@@ -60,7 +60,8 @@ final class WebRTCCallManager {
         bufferedSignaling.removeAll()
         pendingIncomingPeerCallUserInfo = nil
         if let warm = preWarmedIncomingSession {
-            warm.hangUp()
+            guard !warm.isAnsweredOrConnectingOnThisDevice else { return }
+            warm.dismissUnansweredRing()
         }
         preWarmedIncomingSession = nil
         preWarmedIncomingKey = nil
@@ -152,23 +153,14 @@ final class WebRTCCallManager {
         guard payload.isStaleIncomingRing(maxAgeMs: PeerCallIncomingFreshness.maxOfferAgeMs) else {
             return false
         }
+        guard !hasIncomingPeerCallAnsweredOnThisDevice(channelId: payload.channelId, callerId: payload.callerId) else {
+            return false
+        }
         awaitingIncomingAttachment = false
         expectedIncomingBufferKey = nil
         bufferedSignaling.removeAll()
         pendingIncomingPeerCallUserInfo = nil
-        if let warm = preWarmedIncomingSession,
-            warm.isSameIncomingPeerCall(channelId: payload.channelId, callerId: payload.callerId)
-        {
-            warm.hangUp()
-            preWarmedIncomingSession = nil
-            preWarmedIncomingKey = nil
-        }
-        if let session = signalingSession,
-            session.isSameIncomingPeerCall(channelId: payload.channelId, callerId: payload.callerId),
-            session.isRingingIncomingPeerCallMatching(channelId: payload.channelId, callerId: payload.callerId)
-        {
-            session.hangUp()
-        }
+        dismissUnansweredIncomingRing(channelId: payload.channelId, callerId: payload.callerId)
         CallKitManager.shared.endRingingCallIfMatching(
             channelId: payload.channelId,
             callerId: payload.callerId,
@@ -306,22 +298,10 @@ final class WebRTCCallManager {
                c < r {
                 return
             }
-            if let session = signalingSession,
-               session.isSameIncomingPeerCall(channelId: push.channelID, callerId: push.callerID) {
-                let isRinging = session.isRingingIncomingPeerCallMatching(
-                    channelId: push.channelID,
-                    callerId: push.callerID
-                )
-                if isRinging || !isConnectedFlag {
-                    session.hangUp()
-                }
+            if hasAnsweredIncomingPeerCall(channelId: push.channelID, callerId: push.callerID) {
+                return
             }
-            if let warm = preWarmedIncomingSession,
-               warm.isSameIncomingPeerCall(channelId: push.channelID, callerId: push.callerID) {
-                warm.hangUp()
-                preWarmedIncomingSession = nil
-                preWarmedIncomingKey = nil
-            }
+            dismissUnansweredIncomingRing(channelId: push.channelID, callerId: push.callerID)
             bufferedSignaling.removeAll()
             awaitingIncomingAttachment = false
             expectedIncomingBufferKey = nil
@@ -339,6 +319,34 @@ final class WebRTCCallManager {
         }
         awaitingIncomingAttachment = true
         expectedIncomingBufferKey = (push.channelID, currentUserId)
+    }
+
+    private func hasAnsweredIncomingPeerCall(channelId: Int64, callerId: Int64) -> Bool {
+        if CallKitManager.shared.wasAnsweredLocallyForVoIPCallKit() {
+            return true
+        }
+        return hasIncomingPeerCallAnsweredOnThisDevice(channelId: channelId, callerId: callerId)
+    }
+
+    private func hasIncomingPeerCallAnsweredOnThisDevice(channelId: Int64, callerId: Int64) -> Bool {
+        [signalingSession, preWarmedIncomingSession].contains { session in
+            guard let session else { return false }
+            return session.isSameIncomingPeerCall(channelId: channelId, callerId: callerId)
+                && session.isAnsweredOrConnectingOnThisDevice
+        }
+    }
+
+    func dismissUnansweredIncomingRing(channelId: Int64, callerId: Int64) {
+        if let session = signalingSession,
+           session.isUnansweredIncomingRing(channelId: channelId, callerId: callerId) {
+            session.dismissUnansweredRing()
+        }
+        if let warm = preWarmedIncomingSession,
+           warm.isUnansweredIncomingRing(channelId: channelId, callerId: callerId) {
+            warm.dismissUnansweredRing()
+            preWarmedIncomingSession = nil
+            preWarmedIncomingKey = nil
+        }
     }
 
     private static func incomingCallPushIsCancel(_ jsonData: String) -> Bool {
@@ -367,12 +375,22 @@ final class WebRTCCallManager {
 
     private func deliverSignaling(_ msg: Mezon_Realtime_WebrtcSignalingFwd, currentUserId: Int64) {
 
+        if msg.dataType == WebRTCSignalingDataType.sdpAnswer, msg.callerID != currentUserId {
+            PeerCallKnownSessions.shared.remember(peerUserId: msg.callerID, compressedSignal: msg.jsonData)
+        }
+
         if msg.dataType == WebRTCSignalingDataType.sdpOffer,
            msg.callerID != currentUserId,
            msg.callerID != 0,
            msg.channelID != 0,
            (msg.receiverID == currentUserId || msg.receiverID == 0),
            isBusyWithDifferentPeer(channelId: msg.channelID, callerId: msg.callerID) {
+            guard !PeerCallKnownSessions.shared.contains(
+                peerUserId: msg.callerID,
+                compressedSignal: msg.jsonData
+            ) else {
+                return
+            }
             MezonSocket.shared.forwardWebrtcSignaling(
                 receiverId: msg.callerID,
                 dataType: WebRTCSignalingDataType.sdpJoinedOtherCall,
@@ -398,6 +416,12 @@ final class WebRTCCallManager {
            msg.channelID != 0,
            msg.callerID != 0,
            (msg.receiverID == currentUserId || msg.receiverID == 0) {
+            guard !PeerCallKnownSessions.shared.contains(
+                peerUserId: msg.callerID,
+                compressedSignal: msg.jsonData
+            ) else {
+                return
+            }
             if !awaitingIncomingAttachment {
                 awaitingIncomingAttachment = true
                 expectedIncomingBufferKey = (msg.channelID, currentUserId)
@@ -436,12 +460,7 @@ final class WebRTCCallManager {
         awaitingIncomingAttachment = false
         expectedIncomingBufferKey = nil
         pendingIncomingPeerCallUserInfo = nil
-        if let warm = preWarmedIncomingSession,
-           warm.isSameIncomingPeerCall(channelId: msg.channelID, callerId: msg.callerID) {
-            warm.hangUp()
-            preWarmedIncomingSession = nil
-            preWarmedIncomingKey = nil
-        }
+        dismissUnansweredIncomingRing(channelId: msg.channelID, callerId: msg.callerID)
         CallKitManager.shared.endRingingCallIfMatching(
             channelId: msg.channelID,
             callerId: msg.callerID
@@ -651,6 +670,65 @@ enum IncomingPeerCallPayloadParser {
         guard let sdp else { return false }
         return sdp.range(of: "\nm=video ", options: .literal) != nil
                 || sdp.uppercased().contains("M=VIDEO")
+    }
+
+    static func sdpSessionId(_ sdp: String?) -> String? {
+        guard let sdp else { return nil }
+        for line in sdp.split(whereSeparator: { $0.isNewline }) where line.hasPrefix("o=") {
+            let fields = line.split(whereSeparator: { $0.isWhitespace })
+            return fields.count > 1 ? String(fields[1]) : nil
+        }
+        return nil
+    }
+}
+
+final class PeerCallKnownSessions: @unchecked Sendable {
+    static let shared = PeerCallKnownSessions()
+
+    private struct Entry: Equatable {
+        let peerUserId: Int64
+        let sessionId: String
+    }
+
+    private let capacity = 8
+    private let lock = NSLock()
+    private var entries: [Entry] = []
+
+    private init() {}
+
+    func remember(peerUserId: Int64, sdp: String?) {
+        guard let entry = Self.entry(peerUserId: peerUserId, sdp: sdp) else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        guard !entries.contains(entry) else { return }
+        entries.append(entry)
+        if entries.count > capacity {
+            entries.removeFirst(entries.count - capacity)
+        }
+    }
+
+    func remember(peerUserId: Int64, compressedSignal: String) {
+        remember(peerUserId: peerUserId, sdp: Self.sdp(fromCompressedSignal: compressedSignal))
+    }
+
+    func contains(peerUserId: Int64, compressedSignal: String) -> Bool {
+        guard let entry = Self.entry(peerUserId: peerUserId, sdp: Self.sdp(fromCompressedSignal: compressedSignal)) else {
+            return false
+        }
+        lock.lock()
+        defer { lock.unlock() }
+        return entries.contains(entry)
+    }
+
+    private static func sdp(fromCompressedSignal compressedSignal: String) -> String? {
+        IncomingPeerCallPayloadParser.callerDisplayFromCompressedOffer(compressedSignal).sdpHint
+    }
+
+    private static func entry(peerUserId: Int64, sdp: String?) -> Entry? {
+        guard peerUserId != 0, let sessionId = IncomingPeerCallPayloadParser.sdpSessionId(sdp) else {
+            return nil
+        }
+        return Entry(peerUserId: peerUserId, sessionId: sessionId)
     }
 }
 

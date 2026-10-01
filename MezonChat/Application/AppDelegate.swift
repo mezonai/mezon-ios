@@ -293,6 +293,17 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
     }
 
+    func application(
+        _ application: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
+        Task { @MainActor in
+            let handled = CallKitManager.shared.handleCallCancelRemoteNotification(userInfo)
+            completionHandler(handled ? .newData : .noData)
+        }
+    }
+
     @objc private func handleDidEnterBackground() {
         MezonSocket.shared.noteEnteredBackground()
     }
