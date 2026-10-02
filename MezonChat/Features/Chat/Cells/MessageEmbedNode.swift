@@ -108,13 +108,11 @@ final class EmbedItemNode: ASDisplayNode {
     private var authorIconNode: TransformImageNode?
     private var authorNameNode: ASTextNode2?
     private var titleNode: ASTextNode2?
-    private var descriptionNode: ASTextNode2?
-    private var descriptionRichNode: MessageTextContentNode?
+    private var descriptionNode: MessageTextContentNode?
 
     private struct FieldItemNodes {
         var nameNode: ASTextNode2?
-        var valueTextNode: ASTextNode2?
-        var valueRichNode: MessageTextContentNode?
+        var valueNode: MessageTextContentNode?
         var inputNode: ASDisplayNode?
         var cachedNameSize: CGSize
         var cachedValueSize: CGSize
@@ -184,7 +182,7 @@ final class EmbedItemNode: ASDisplayNode {
                     .foregroundColor: t.textStrong,
                 ]
             )
-            node.maximumNumberOfLines = 1
+            node.maximumNumberOfLines = 3
             authorNameNode = node
             addSubnode(node)
 
@@ -213,30 +211,14 @@ final class EmbedItemNode: ASDisplayNode {
                 attrs = [.font: UIFont.systemFont(ofSize: 16, weight: .semibold), .foregroundColor: t.textStrong]
             }
             node.attributedText = NSAttributedString(string: title, attributes: attrs)
-            node.maximumNumberOfLines = 3
+            node.maximumNumberOfLines = 12
             titleNode = node
             addSubnode(node)
         }
         
-        if let desc = embed.description, !desc.isEmpty {
-            if Self.containsLocalCodeFence(desc) {
-                let node = MessageTextContentNode()
-                node.configure(parsedContent: MessageContentParser.parseLocalCodeBlocks(text: desc))
-                descriptionRichNode = node
-                addSubnode(node)
-            } else {
-                let node = ASTextNode2()
-                node.attributedText = NSAttributedString(
-                    string: desc,
-                    attributes: [
-                        .font: UIFont.systemFont(ofSize: 14),
-                        .foregroundColor: t.text,
-                    ]
-                )
-                node.maximumNumberOfLines = 10
-                descriptionNode = node
-                addSubnode(node)
-            }
+        if let desc = embed.description, let node = Self.makeRichTextNode(desc) {
+            descriptionNode = node
+            addSubnode(node)
         }
 
         fieldItems = []
@@ -256,29 +238,11 @@ final class EmbedItemNode: ASDisplayNode {
                 nameNode = node
             }
 
-            var valueTextNode: ASTextNode2? = nil
-            var valueRichNode: MessageTextContentNode? = nil
-            if !field.value.isEmpty {
-                if Self.containsLocalCodeFence(field.value) {
-                    let node = MessageTextContentNode()
-                    node.configure(parsedContent: MessageContentParser.parseLocalCodeBlocks(text: field.value))
-                    valueRichNode = node
-                    addSubnode(node)
-                } else {
-                    let node = ASTextNode2()
-                    node.attributedText = NSAttributedString(
-                        string: field.value,
-                        attributes: [
-                            .font: UIFont.systemFont(ofSize: 14),
-                            .foregroundColor: t.text,
-                        ]
-                    )
-                    node.maximumNumberOfLines = 0
-                    addSubnode(node)
-                    valueTextNode = node
-                }
+            let valueNode = Self.makeRichTextNode(field.value)
+            if let valueNode {
+                addSubnode(valueNode)
             }
-            
+
             var iNode: ASDisplayNode? = nil
             if let inputComp = field.inputComponent {
                 switch inputComp.type {
@@ -292,8 +256,7 @@ final class EmbedItemNode: ASDisplayNode {
             }
             fieldItems.append(FieldItemNodes(
                 nameNode: nameNode,
-                valueTextNode: valueTextNode,
-                valueRichNode: valueRichNode,
+                valueNode: valueNode,
                 inputNode: iNode,
                 cachedNameSize: .zero,
                 cachedValueSize: .zero,
@@ -339,21 +302,16 @@ final class EmbedItemNode: ASDisplayNode {
             addSubnode(node)
         }
 
-        if let footerText = embed.footerText, !footerText.isEmpty {
+        if let footerText = embed.footerDisplayText {
             let node = ASTextNode2()
-            var text = footerText
-            if let ts = embed.timestamp, !ts.isEmpty {
-                let dateStr = Self.formatTimestamp(ts)
-                if !dateStr.isEmpty { text += " • \(dateStr)" }
-            }
             node.attributedText = NSAttributedString(
-                string: text,
+                string: footerText,
                 attributes: [
                     .font: UIFont.systemFont(ofSize: 12),
                     .foregroundColor: t.text,
                 ]
             )
-            node.maximumNumberOfLines = 1
+            node.maximumNumberOfLines = 3
             footerTextNode = node
             addSubnode(node)
 
@@ -424,7 +382,7 @@ final class EmbedItemNode: ASDisplayNode {
 
 
         if let authorNameNode {
-            cachedAuthorNameSize = authorNameNode.measure(CGSize(width: contentMaxW - 36, height: 30))
+            cachedAuthorNameSize = authorNameNode.measure(CGSize(width: contentMaxW - 36, height: .greatestFiniteMagnitude))
             cachedAuthorIconSize = authorIconNode != nil ? CGSize(width: 28, height: 28) : .zero
             let rowH = max(cachedAuthorIconSize.height, cachedAuthorNameSize.height)
             contentH += rowH + spacing
@@ -438,10 +396,7 @@ final class EmbedItemNode: ASDisplayNode {
         }
 
         if let descriptionNode {
-            cachedDescSize = descriptionNode.measure(CGSize(width: contentMaxW, height: .greatestFiniteMagnitude))
-            contentH += cachedDescSize.height + spacing
-        } else if let descriptionRichNode {
-            cachedDescSize = descriptionRichNode.measureSize(maxWidth: contentMaxW)
+            cachedDescSize = descriptionNode.measureSize(maxWidth: contentMaxW)
             contentH += cachedDescSize.height + spacing
         }
 
@@ -450,11 +405,8 @@ final class EmbedItemNode: ASDisplayNode {
                 fieldItems[i].cachedNameSize = nNode.measure(CGSize(width: contentMaxW, height: .greatestFiniteMagnitude))
                 contentH += fieldItems[i].cachedNameSize.height + 2
             }
-            if let vNode = fieldItems[i].valueTextNode {
-                fieldItems[i].cachedValueSize = vNode.measure(CGSize(width: contentMaxW, height: .greatestFiniteMagnitude))
-                contentH += fieldItems[i].cachedValueSize.height + spacing
-            } else if let rich = fieldItems[i].valueRichNode {
-                fieldItems[i].cachedValueSize = rich.measureSize(maxWidth: contentMaxW)
+            if let vNode = fieldItems[i].valueNode {
+                fieldItems[i].cachedValueSize = vNode.measureSize(maxWidth: contentMaxW)
                 contentH += fieldItems[i].cachedValueSize.height + spacing
             }
             if let iNode = fieldItems[i].inputNode as? EmbedFormInputNode {
@@ -465,7 +417,7 @@ final class EmbedItemNode: ASDisplayNode {
 
 
         if let footerTextNode {
-            cachedFooterTextSize = footerTextNode.measure(CGSize(width: contentMaxW - 30, height: 30))
+            cachedFooterTextSize = footerTextNode.measure(CGSize(width: contentMaxW - 30, height: .greatestFiniteMagnitude))
             cachedFooterIconSize = footerIconNode != nil ? CGSize(width: 24, height: 24) : .zero
             let rowH = max(cachedFooterIconSize.height, cachedFooterTextSize.height)
             contentH += rowH + spacing
@@ -536,11 +488,11 @@ final class EmbedItemNode: ASDisplayNode {
 
         if let authorNameNode {
             var ax = contentX
+            let rowH = max(cachedAuthorIconSize.height, cachedAuthorNameSize.height)
             if let authorIconNode {
-                authorIconNode.frame = CGRect(x: ax, y: y, width: cachedAuthorIconSize.width, height: cachedAuthorIconSize.height)
+                authorIconNode.frame = CGRect(x: ax, y: y + (rowH - cachedAuthorIconSize.height) / 2, width: cachedAuthorIconSize.width, height: cachedAuthorIconSize.height)
                 ax += cachedAuthorIconSize.width + 8
             }
-            let rowH = max(cachedAuthorIconSize.height, cachedAuthorNameSize.height)
             authorNameNode.frame = CGRect(x: ax, y: y + (rowH - cachedAuthorNameSize.height) / 2, width: cachedAuthorNameSize.width, height: cachedAuthorNameSize.height)
             y += rowH + spacing
         }
@@ -551,10 +503,7 @@ final class EmbedItemNode: ASDisplayNode {
         }
 
         if let descriptionNode {
-            descriptionNode.frame = CGRect(x: contentX, y: y, width: cachedDescSize.width, height: cachedDescSize.height)
-            y += cachedDescSize.height + spacing
-        } else if let descriptionRichNode {
-            descriptionRichNode.frame = CGRect(x: contentX, y: y, width: contentMaxW, height: cachedDescSize.height)
+            descriptionNode.frame = CGRect(x: contentX, y: y, width: contentMaxW, height: cachedDescSize.height)
             y += cachedDescSize.height + spacing
         }
 
@@ -563,11 +512,8 @@ final class EmbedItemNode: ASDisplayNode {
                 nNode.frame = CGRect(x: contentX, y: y, width: item.cachedNameSize.width, height: item.cachedNameSize.height)
                 y += item.cachedNameSize.height + 2
             }
-            if let vNode = item.valueTextNode {
-                vNode.frame = CGRect(x: contentX, y: y, width: item.cachedValueSize.width, height: item.cachedValueSize.height)
-                y += item.cachedValueSize.height + spacing
-            } else if let rich = item.valueRichNode {
-                rich.frame = CGRect(x: contentX, y: y, width: contentMaxW, height: item.cachedValueSize.height)
+            if let vNode = item.valueNode {
+                vNode.frame = CGRect(x: contentX, y: y, width: contentMaxW, height: item.cachedValueSize.height)
                 y += item.cachedValueSize.height + spacing
             }
             if let iNode = item.inputNode {
@@ -579,11 +525,11 @@ final class EmbedItemNode: ASDisplayNode {
 
         if let footerTextNode {
             var fx = contentX
+            let rowH = max(cachedFooterIconSize.height, cachedFooterTextSize.height)
             if let footerIconNode {
-                footerIconNode.frame = CGRect(x: fx, y: y, width: cachedFooterIconSize.width, height: cachedFooterIconSize.height)
+                footerIconNode.frame = CGRect(x: fx, y: y + (rowH - cachedFooterIconSize.height) / 2, width: cachedFooterIconSize.width, height: cachedFooterIconSize.height)
                 fx += cachedFooterIconSize.width + 6
             }
-            let rowH = max(cachedFooterIconSize.height, cachedFooterTextSize.height)
             footerTextNode.frame = CGRect(x: fx, y: y + (rowH - cachedFooterTextSize.height) / 2, width: cachedFooterTextSize.width, height: cachedFooterTextSize.height)
             y += rowH + spacing
         }
@@ -598,27 +544,18 @@ final class EmbedItemNode: ASDisplayNode {
         }
     }
 
-    private static func formatTimestamp(_ ts: String) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: ts) {
-            let df = DateFormatter()
-            df.dateStyle = .medium
-            df.timeStyle = .none
-            return df.string(from: date)
+    private static func makeRichTextNode(_ raw: String) -> MessageTextContentNode? {
+        let segments = RichTextBuilder.buildEmbedSegments(
+            from: raw, font: .systemFont(ofSize: 14), color: UIColor.theme.text)
+        guard !segments.isEmpty else { return nil }
+        let node = MessageTextContentNode()
+        node.configure(segments: segments)
+        node.onLinkTapped = { url in
+            let scheme = url.scheme?.lowercased() ?? ""
+            guard scheme == "https" || scheme == "http" else { return }
+            UIApplication.shared.open(url)
         }
-        formatter.formatOptions = [.withInternetDateTime]
-        if let date = formatter.date(from: ts) {
-            let df = DateFormatter()
-            df.dateStyle = .medium
-            df.timeStyle = .none
-            return df.string(from: date)
-        }
-        return ""
-    }
-
-    private static func containsLocalCodeFence(_ text: String) -> Bool {
-        text.contains("```")
+        return node
     }
 }
 

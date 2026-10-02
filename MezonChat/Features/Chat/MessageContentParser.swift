@@ -106,6 +106,51 @@ struct ParsedEmbed: Equatable {
     let actionRows: [ParsedEmbedActionRow]
 }
 
+extension ParsedEmbed {
+    var footerDisplayText: String? {
+        guard let footerText, !footerText.isEmpty else { return nil }
+        guard let timestamp, !timestamp.isEmpty else { return footerText }
+        let date = Self.formattedTimestamp(timestamp)
+        return date.isEmpty ? footerText : "\(footerText) • \(date)"
+    }
+
+    var copyableText: String {
+        var parts: [String] = []
+        func appendPart(_ value: String?) {
+            guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return }
+            parts.append(trimmed)
+        }
+        appendPart(authorName)
+        appendPart(title)
+        appendPart(description.map { RichTextBuilder.embedPlainText(from: $0) })
+        for field in fields {
+            appendPart(field.name)
+            appendPart(RichTextBuilder.embedPlainText(from: field.value))
+        }
+        appendPart(footerDisplayText)
+        return parts.joined(separator: "\n")
+    }
+
+    private static func formattedTimestamp(_ timestamp: String) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: timestamp) {
+            let df = DateFormatter()
+            df.dateStyle = .medium
+            df.timeStyle = .none
+            return df.string(from: date)
+        }
+        formatter.formatOptions = [.withInternetDateTime]
+        if let date = formatter.date(from: timestamp) {
+            let df = DateFormatter()
+            df.dateStyle = .medium
+            df.timeStyle = .none
+            return df.string(from: date)
+        }
+        return ""
+    }
+}
+
 struct ParsedOgpPreview: Equatable {
     let title: String
     let description: String
@@ -257,19 +302,6 @@ enum MessageContentParser {
             .replacingOccurrences(of: "\\\"", with: "\"")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return value.isEmpty ? nil : value
-    }
-
-    static func parseLocalCodeBlocks(text: String) -> ParsedContent {
-        var tokens: [ContentToken] = []
-        let pattern = "(?s)```(.*?)```"
-        if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
-            let nsString = text as NSString
-            let results = regex.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
-            for match in results {
-                tokens.append(ContentToken(start: match.range.location, end: NSMaxRange(match.range), kind: .codeBlock))
-            }
-        }
-        return ParsedContent(text: text, tokens: tokens, embeds: [], ogpPreviews: [])
     }
 
     static func parse(data: Data, mentionsData: Data = Data()) -> ParsedContent {
