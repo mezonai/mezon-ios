@@ -3,21 +3,6 @@ import WebRTC
 import MetalKit
 import UIKit
 
-@MainActor
-enum ScreenShareTrace {
-    private static var sequence = 0
-    static func log(_ event: String, _ fields: [String: Any] = [:]) {
-        sequence += 1
-        var payload = fields
-        payload["sequence"] = sequence
-        payload["uptimeMs"] = Int(ProcessInfo.processInfo.systemUptime * 1000)
-        guard JSONSerialization.isValidJSONObject(payload),
-              let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
-              let text = String(data: data, encoding: .utf8) else { return }
-        NSLog("[SFU screen-keyframe] %@ %@", event, text)
-    }
-}
-
 final class PeerCallVideoRenderView: UIView {
 
     enum RenderContentMode {
@@ -29,42 +14,6 @@ final class PeerCallVideoRenderView: UIView {
     private let renderSurface: PeerCallSampleBufferRenderSurface?
     private var attachedTrack: RTCVideoTrack?
     private var lastReplaySize: CGSize = .zero
-    var screenTraceSource: String?
-    private var screenTraceTasks: [DispatchWorkItem] = []
-
-    private func traceRenderer(_ event: String) {
-        guard let source = screenTraceSource else { return }
-        let frame = attachedTrack.flatMap { VideoTrackLastFrameStore.cachedFrame(of: $0) }
-        let metal = mtlVideoView.subviews.compactMap { $0 as? MTKView }.first
-        var ancestor: UIView? = self
-        var hiddenAncestor = false
-        while let view = ancestor {
-            hiddenAncestor = hiddenAncestor || view.isHidden || view.alpha <= 0.01
-            ancestor = view.superview
-        }
-        ScreenShareTrace.log(event, ["source": source, "rendererId": String(describing: ObjectIdentifier(self)),
-            "trackId": attachedTrack?.trackId ?? "none",
-            "trackObject": attachedTrack.map { String(describing: ObjectIdentifier($0)) } ?? "none",
-            "inWindow": window != nil, "hiddenAncestor": hiddenAncestor,
-            "width": Double(bounds.width), "height": Double(bounds.height),
-            "metalEnabled": mtlVideoView.isEnabled, "metalPaused": metal?.isPaused ?? true,
-            "sampleBufferStatus": renderSurface?.diagnosticStatus ?? -1,
-            "sampleBufferErrorCode": renderSurface?.diagnosticErrorCode ?? 0,
-            "drawableWidth": Double(metal?.drawableSize.width ?? 0), "drawableHeight": Double(metal?.drawableSize.height ?? 0),
-            "hasCachedFrame": frame != nil, "frameWidth": frame?.width ?? 0, "frameHeight": frame?.height ?? 0])
-    }
-
-    private func scheduleRendererTrace() {
-        screenTraceTasks.forEach { $0.cancel() }
-        screenTraceTasks.removeAll()
-        guard screenTraceSource != nil else { return }
-        traceRenderer("renderer_attached")
-        for delay in [0.5, 3.0, 10.0] {
-            let work = DispatchWorkItem { [weak self] in self?.traceRenderer("renderer_snapshot") }
-            screenTraceTasks.append(work)
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
-        }
-    }
 
     private var renderers: [RTCVideoRenderer] {
         guard let renderSurface else { return [mtlVideoView] }
@@ -142,7 +91,6 @@ final class PeerCallVideoRenderView: UIView {
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        traceRenderer("renderer_window_changed")
         guard window != nil else { return }
         setNeedsLayout()
         layoutIfNeeded()
@@ -177,9 +125,6 @@ final class PeerCallVideoRenderView: UIView {
 
     func attach(track: RTCVideoTrack?) {
         guard let track else {
-            if attachedTrack != nil { traceRenderer("renderer_detached") }
-            screenTraceTasks.forEach { $0.cancel() }
-            screenTraceTasks.removeAll()
             unsubscribe(attachedTrack)
             attachedTrack = nil
             lastReplaySize = .zero
@@ -199,7 +144,6 @@ final class PeerCallVideoRenderView: UIView {
             configureEmbeddedMTKViewIfPresent()
             layoutIfNeeded()
             subscribe(track)
-            scheduleRendererTrace()
             VideoTrackLastFrameStore.replayLastFrame(of: track, to: renderers)
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
@@ -221,7 +165,6 @@ final class PeerCallVideoRenderView: UIView {
         configureEmbeddedMTKViewIfPresent()
         layoutIfNeeded()
         subscribe(track)
-        scheduleRendererTrace()
         VideoTrackLastFrameStore.replayLastFrame(of: track, to: renderers)
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -243,7 +186,6 @@ final class PeerCallVideoRenderView: UIView {
         configureEmbeddedMTKViewIfPresent()
         layoutIfNeeded()
         subscribe(track)
-        scheduleRendererTrace()
         VideoTrackLastFrameStore.replayLastFrame(of: track, to: renderers)
         configureEmbeddedMTKViewIfPresent()
         DispatchQueue.main.async { [weak self] in
@@ -259,7 +201,6 @@ final class PeerCallVideoRenderView: UIView {
     }
 
     deinit {
-        screenTraceTasks.forEach { $0.cancel() }
         if let renderSurface {
             attachedTrack?.remove(renderSurface)
         }
@@ -401,8 +342,6 @@ private extension CMSampleBuffer {
 private final class PeerCallSampleBufferRenderSurface: UIView, RTCVideoRenderer {
 
     private let displayLayer = AVSampleBufferDisplayLayer()
-    var diagnosticStatus: Int { displayLayer.status.rawValue }
-    var diagnosticErrorCode: Int { (displayLayer.error as NSError?)?.code ?? 0 }
     private var mirrored = false
     private var videoRotation: RTCVideoRotation = ._0
 

@@ -185,6 +185,7 @@ final class VLCVideoPlayerNode: ASDisplayNode {
         }
         let localURL = Self.cachedFileURL(for: url)
         if FileManager.default.fileExists(atPath: localURL.path) {
+            try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: localURL.path)
             attachVLCPlayer(fileURL: localURL)
             return
         }
@@ -193,6 +194,7 @@ final class VLCVideoPlayerNode: ASDisplayNode {
     }
 
     private func attachVLCPlayer(fileURL: URL) {
+        retainStreamCacheFile(fileURL)
         vlcMedia = VLCMedia(url: fileURL)
         vlcPlayer = VLCMediaPlayer()
         vlcPlayer?.media = vlcMedia
@@ -220,9 +222,43 @@ final class VLCVideoPlayerNode: ASDisplayNode {
         return hash
     }
 
+    static let streamCacheDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("VideoStreamCache", isDirectory: true)
+
+    private static let attachedStreamCacheLock = NSLock()
+    private static var attachedStreamCacheFileCounts: [String: Int] = [:]
+    private var attachedStreamCacheFileName: String?
+
+    static func attachedStreamCacheFileNames() -> Set<String> {
+        attachedStreamCacheLock.lock()
+        defer { attachedStreamCacheLock.unlock() }
+        return Set(attachedStreamCacheFileCounts.keys)
+    }
+
+    private func retainStreamCacheFile(_ fileURL: URL) {
+        guard attachedStreamCacheFileName == nil,
+              fileURL.deletingLastPathComponent().path == VLCVideoPlayerNode.streamCacheDirectory.path else { return }
+        let name = fileURL.lastPathComponent
+        attachedStreamCacheFileName = name
+        VLCVideoPlayerNode.attachedStreamCacheLock.lock()
+        VLCVideoPlayerNode.attachedStreamCacheFileCounts[name, default: 0] += 1
+        VLCVideoPlayerNode.attachedStreamCacheLock.unlock()
+    }
+
+    private func releaseStreamCacheFile() {
+        guard let name = attachedStreamCacheFileName else { return }
+        attachedStreamCacheFileName = nil
+        VLCVideoPlayerNode.attachedStreamCacheLock.lock()
+        if let count = VLCVideoPlayerNode.attachedStreamCacheFileCounts[name], count > 1 {
+            VLCVideoPlayerNode.attachedStreamCacheFileCounts[name] = count - 1
+        } else {
+            VLCVideoPlayerNode.attachedStreamCacheFileCounts.removeValue(forKey: name)
+        }
+        VLCVideoPlayerNode.attachedStreamCacheLock.unlock()
+    }
+
     private static func cachedFileURL(for remoteURL: URL) -> URL {
-        let dir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("VideoStreamCache", isDirectory: true)
+        let dir = streamCacheDirectory
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let ext = remoteURL.pathExtension.isEmpty ? "mkv" : remoteURL.pathExtension
         let name = "\(stableHash(remoteURL.absoluteString)).\(ext)"
@@ -243,6 +279,11 @@ final class VLCVideoPlayerNode: ASDisplayNode {
                     moved = true
                 } catch {
                     moved = false
+                }
+                if moved {
+                    try? FileManager.default.setAttributes([.modificationDate: Date()], ofItemAtPath: localURL.path)
+                    let downloadedBytes = ((try? FileManager.default.attributesOfItem(atPath: localURL.path))?[.size] as? NSNumber)?.intValue ?? 0
+                    StorageMaintenance.shared.noteDiskCacheWrite(byteCount: downloadedBytes)
                 }
                 DispatchQueue.main.async {
                     guard let self else { return }
@@ -343,6 +384,7 @@ final class VLCVideoPlayerNode: ASDisplayNode {
     }
     
     deinit {
+        releaseStreamCacheFile()
         downloadTask?.cancel()
         downloadProgressObservation?.invalidate()
         loadingTimeoutTimer?.invalidate()

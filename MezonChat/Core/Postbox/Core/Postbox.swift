@@ -416,6 +416,13 @@ final class Postbox {
     func getPreference<T: PostboxCoding>(key: String, type: T.Type) -> T? { getSetting(key: key, type: type) }
     func getPreferenceData(key: String) -> Data?                  { getSettingData(key: key) }
 
+    func compactSettingsStorage(completion: @escaping () -> Void) {
+        queue.async { [self] in
+            settingsTable.compactStorage()
+            completion()
+        }
+    }
+
     func allChannelClanIds() -> [Int64] {
         var result: [Int64] = []
         queue.sync { [self] in

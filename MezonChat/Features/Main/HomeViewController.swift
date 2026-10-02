@@ -218,11 +218,14 @@ final class HomeViewController: BaseViewController {
         channelListVC.view.translatesAutoresizingMaskIntoConstraints = false
         channelListVC.didMove(toParent: self)
 
+        let clanSidebarWidthConstraint = clanListVC.view.widthAnchor.constraint(equalToConstant: clanSidebarWidth)
+        clanSidebarWidthConstraint.priority = UILayoutPriority(999)
+
         NSLayoutConstraint.activate([
             clanListVC.view.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             clanListVC.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             clanListVC.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            clanListVC.view.widthAnchor.constraint(equalToConstant: clanSidebarWidth),
+            clanSidebarWidthConstraint,
 
             channelListVC.view.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             channelListVC.view.leadingAnchor.constraint(equalTo: clanListVC.view.trailingAnchor),

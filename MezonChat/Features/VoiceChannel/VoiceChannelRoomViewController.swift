@@ -491,7 +491,6 @@ final class VoiceChannelPiPOverlay: NSObject {
         pipChromeBackdrop.isUserInteractionEnabled = false
 
         videoView.translatesAutoresizingMaskIntoConstraints = false
-        videoView.screenTraceSource = "mini-overlay"
         videoView.renderContentMode = .fill
         videoView.isOpaque = false
         videoView.backgroundColor = .clear
@@ -499,7 +498,6 @@ final class VoiceChannelPiPOverlay: NSObject {
         videoView.clipsToBounds = true
 
         systemCallPiPVideoView.translatesAutoresizingMaskIntoConstraints = false
-        systemCallPiPVideoView.screenTraceSource = "system-pip"
         systemCallPiPVideoView.renderContentMode = .fill
         systemCallPiPVideoView.isOpaque = false
         systemCallPiPVideoView.backgroundColor = .clear
@@ -1528,7 +1526,6 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private var callPiPRecoveryTrack: RTCVideoTrack?
     private let callPiPVideoView: PeerCallVideoRenderView = {
         let v = PeerCallVideoRenderView()
-        v.screenTraceSource = "room-system-pip"
         v.translatesAutoresizingMaskIntoConstraints = false
         v.renderContentMode = .fill
         v.isOpaque = false
@@ -3333,7 +3330,6 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                   self.isParticipantGridVisible, self.sfuSession != nil,
                   !self.isScreenShareDetailCoveringVoiceRoom else { return }
             self.contentScroll.layoutIfNeeded()
-            ScreenShareTrace.log("grid_resumed_after_detail", ["visibleCells": self.contentScroll.visibleCells.count])
             self.syncParticipantVideoVisibility(refreshRenderers: true)
         }
     }
@@ -5464,9 +5460,6 @@ private final class VoiceParticipantRowView: UIView {
     func refreshVisibleVideoRenderer() {
         guard isOnScreen, window != nil, let track = currentVideoTrack,
               attachedVideoTrack === track, let videoView else { return }
-        ScreenShareTrace.log("room_renderer_restored", ["trackId": track.trackId,
-            "screenShare": tileKind == .screenShare,
-            "hasCachedFrame": VideoTrackLastFrameStore.cachedFrame(of: track) != nil])
         videoView.isHidden = false
         card.layoutIfNeeded()
         videoView.refreshAttachedRenderers()
@@ -5497,7 +5490,6 @@ private final class VoiceParticipantRowView: UIView {
     private func ensureVideoView() -> PeerCallVideoRenderView {
         if let videoView { return videoView }
         let renderView = PeerCallVideoRenderView(sampleBufferSurface: tileKind == .screenShare)
-        renderView.screenTraceSource = tileKind == .screenShare ? "room-screen-tile" : nil
         renderView.translatesAutoresizingMaskIntoConstraints = false
         renderView.renderContentMode = tileKind == .screenShare ? .fit : .fill
         renderView.isUserInteractionEnabled = false

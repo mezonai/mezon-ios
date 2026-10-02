@@ -384,6 +384,7 @@ final class AccountContextImpl: AccountContext {
         currentChannel = nil
         account.postbox.clearAllSync()
         ImageCache.shared.purgeAccountScopedCaches()
+        StorageMaintenance.shared.purgeAccountScopedCaches()
         WKWebsiteDataStore.default().removeData(
             ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(),
             modifiedSince: .distantPast,

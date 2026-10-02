@@ -4784,6 +4784,9 @@ struct Mezon_Api_UploadAttachmentRequest: Sendable {
   /// part count
   var partCount: Int32 = 0
 
+  /// channel id
+  var channelID: Int64 = 0
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
@@ -9453,6 +9456,30 @@ struct Mezon_Api_SearchMentionUsersResponse: Sendable {
   // methods supported on all messages.
 
   var users: [Mezon_Api_MentionUser] = []
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Mezon_Api_GenerateCDNSignatureRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var channelID: Int64 = 0
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Mezon_Api_GenerateCDNSignatureResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var signature: String = String()
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -17584,7 +17611,7 @@ extension Mezon_Api_UploadAttachmentBatch: SwiftProtobuf.Message, SwiftProtobuf.
 
 extension Mezon_Api_UploadAttachmentRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".UploadAttachmentRequest"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}filename\0\u{1}filetype\0\u{1}size\0\u{1}width\0\u{1}height\0\u{3}part_count\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}filename\0\u{1}filetype\0\u{1}size\0\u{1}width\0\u{1}height\0\u{3}part_count\0\u{3}channel_id\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -17598,6 +17625,7 @@ extension Mezon_Api_UploadAttachmentRequest: SwiftProtobuf.Message, SwiftProtobu
       case 4: try { try decoder.decodeSingularInt32Field(value: &self.width) }()
       case 5: try { try decoder.decodeSingularInt32Field(value: &self.height) }()
       case 6: try { try decoder.decodeSingularInt32Field(value: &self.partCount) }()
+      case 7: try { try decoder.decodeSingularInt64Field(value: &self.channelID) }()
       default: break
       }
     }
@@ -17622,6 +17650,9 @@ extension Mezon_Api_UploadAttachmentRequest: SwiftProtobuf.Message, SwiftProtobu
     if self.partCount != 0 {
       try visitor.visitSingularInt32Field(value: self.partCount, fieldNumber: 6)
     }
+    if self.channelID != 0 {
+      try visitor.visitSingularInt64Field(value: self.channelID, fieldNumber: 7)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -17632,6 +17663,7 @@ extension Mezon_Api_UploadAttachmentRequest: SwiftProtobuf.Message, SwiftProtobu
     if lhs.width != rhs.width {return false}
     if lhs.height != rhs.height {return false}
     if lhs.partCount != rhs.partCount {return false}
+    if lhs.channelID != rhs.channelID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -27343,6 +27375,66 @@ extension Mezon_Api_SearchMentionUsersResponse: SwiftProtobuf.Message, SwiftProt
 
   static func ==(lhs: Mezon_Api_SearchMentionUsersResponse, rhs: Mezon_Api_SearchMentionUsersResponse) -> Bool {
     if lhs.users != rhs.users {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Api_GenerateCDNSignatureRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".GenerateCDNSignatureRequest"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}channel_id\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.channelID) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.channelID != 0 {
+      try visitor.visitSingularInt64Field(value: self.channelID, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Api_GenerateCDNSignatureRequest, rhs: Mezon_Api_GenerateCDNSignatureRequest) -> Bool {
+    if lhs.channelID != rhs.channelID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Api_GenerateCDNSignatureResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".GenerateCDNSignatureResponse"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}signature\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.signature) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.signature.isEmpty {
+      try visitor.visitSingularStringField(value: self.signature, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Api_GenerateCDNSignatureResponse, rhs: Mezon_Api_GenerateCDNSignatureResponse) -> Bool {
+    if lhs.signature != rhs.signature {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

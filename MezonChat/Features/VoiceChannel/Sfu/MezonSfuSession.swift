@@ -474,10 +474,6 @@ final class MezonSfuSession: NSObject {
     private var joinWatchdogTask: Task<Void, Never>?
     private var postConnectAudioRecoveryTask: Task<Void, Never>?
     private var lastPostConnectAudioRecoveryGeneration = -1
-    private var screenTraceStates: [String: String] = [:]
-    private var screenTraceRequestSequence = 0
-    private var screenTraceStatsRemaining = 0
-    private var nextScreenTraceStatsAt: TimeInterval = 0
     private var screenKeyframeRequests: [String: SfuScreenKeyframeRequest] = [:]
     private var screenKeyframeCheckTask: Task<Void, Never>?
     private var lastKeyframeRequestUptime: TimeInterval?
@@ -1073,8 +1069,6 @@ final class MezonSfuSession: NSObject {
             return
         }
         send(["type": "mute", "is_mute": !on])
-        NSLog("[SFU audio] mic enabled=%@ attached=%@ capture=%@", String(on), String(attached),
-              String(describing: noiseAudioDevice.captureDiagnostics))
     }
 
     func setNoiseSuppressionEnabled(_ enabled: Bool) {
@@ -1281,9 +1275,6 @@ final class MezonSfuSession: NSObject {
     }
 
     private func sendJoin(gen: Int) {
-        ScreenShareTrace.log("flow_active", ["revision": "ios-screen-trace-v1", "generation": gen,
-            "maxInitialRequests": Self.screenKeyframeRetryDelays.count + 1,
-            "retryDelaysSeconds": Self.screenKeyframeRetryDelays])
         let payload: [String: Any] = [
             "type": "join",
             "room": String(channelId),
@@ -1328,9 +1319,6 @@ final class MezonSfuSession: NSObject {
             } catch {
                 let current = !Task.isCancelled && gen == connectionGen && webSocketTask === task
                 if current {
-                    let failure = error as NSError
-                    ScreenShareTrace.log("sfu_socket_receive_failed", ["generation": gen,
-                        "errorDomain": failure.domain, "errorCode": failure.code])
                     handleSocketClosed(gen: gen)
                 }
                 return
@@ -1468,16 +1456,11 @@ final class MezonSfuSession: NSObject {
             } else if Self.keyframeRequestErrors.contains(detail),
                       let requestedAt = lastKeyframeRequestUptime,
                       ProcessInfo.processInfo.systemUptime - requestedAt < Self.keyframeRequestErrorWindow {
-                ScreenShareTrace.log("request_rejected", ["generation": connectionGen, "code": detail])
                 break
             } else {
                 onError?(detail, detail)
                 handleRemoved(gen: connectionGen, cause: .disconnected, reason: nil)
             }
-        case "keyframe_requested":
-            ScreenShareTrace.log("server_ack", ["generation": connectionGen,
-                "success": msg["success"] as? Bool ?? false, "cached": msg["cached"] as? Bool ?? false,
-                "kind": msg["kind"] as? String ?? "unknown", "publisherIdAvailable": false])
         default:
             break
         }
@@ -1593,16 +1576,7 @@ final class MezonSfuSession: NSObject {
         }
     }
 
-    /// Each renderer owns a source token, so hiding a tile cannot hide its focused/PiP view.
     func setVideoTrackVisible(_ track: RTCVideoTrack, visible: Bool, source: String, focused: Bool = false) {
-        let previousExposure = videoExposures[source]
-        if remote.values.contains(where: { $0.screen === track }),
-           (visible ? previousExposure?.track !== track || previousExposure?.focused != focused : previousExposure?.track === track) {
-            ScreenShareTrace.log("renderer_visibility", ["generation": connectionGen, "source": source,
-                "trackId": track.trackId, "trackObject": String(describing: ObjectIdentifier(track)),
-                "visible": visible, "focused": focused])
-            if visible { screenTraceStatsRemaining = 3 }
-        }
         if visible {
             let previous = videoExposures[source]
             videoExposures[source] = SfuVideoExposure(track: track, focused: focused)
@@ -1712,30 +1686,13 @@ final class MezonSfuSession: NSObject {
                                       "publisher_id": NSNumber(value: publisherId)]
         guard let data = try? JSONSerialization.data(withJSONObject: payload),
               let text = String(data: data, encoding: .utf8) else { return false }
-        let previousSentAt = lastVideoKeyframeRequests[key]
         lastVideoKeyframeRequests[key] = now
         lastKeyframeRequestUptime = now
         let gen = connectionGen
-        screenTraceRequestSequence += 1
-        let traceId = screenTraceRequestSequence
-        if kind == "screen" {
-            screenTraceStatsRemaining = 3
-            ScreenShareTrace.log("request_dispatched", ["generation": gen, "localRequestId": traceId,
-                "publisherId": publisherId, "kind": kind,
-                "attempt": (screenKeyframeRequests[String(publisherId)]?.attempts ?? 0) + 1,
-                "sincePreviousMs": previousSentAt.map { Int((now - $0) * 1000) } ?? -1])
-        }
         socket.send(.string(text)) { [weak self] error in
             Task { @MainActor [weak self] in
                 guard let self, gen == self.connectionGen, socket === self.webSocketTask else { return }
-                if kind == "screen" {
-                    let failure = error as NSError?
-                    ScreenShareTrace.log(error == nil ? "request_send_completed" : "request_send_failed",
-                        ["generation": gen, "localRequestId": traceId, "publisherId": publisherId,
-                         "errorDomain": failure?.domain ?? "", "errorCode": failure?.code ?? 0])
-                }
                 guard error != nil else { return }
-                // Keep the send timestamp as backoff even if enqueue fails.
                 if let track = self.remote.values.first(where: { $0.peerId == String(publisherId) })
                     .flatMap({ kind == "screen" ? $0.screen : $0.video }),
                    let check = self.videoRecoveryCheck(for: track), self.videoPriority(track) != nil {
@@ -1821,7 +1778,6 @@ final class MezonSfuSession: NSObject {
     }
 
     private func requestMissingScreenKeyframes() {
-        defer { traceScreenRecoveryState() }
         guard canRequestVideoKeyframes else { return }
         let recoveryCheckAt = recoverVideoIfNeeded()
         let now = ProcessInfo.processInfo.systemUptime
@@ -1871,7 +1827,6 @@ final class MezonSfuSession: NSObject {
         }
         screenRecoveryStartedAt = screenRecoveryStartedAt.filter { sharingPeerIds.contains($0.key) }
         if let queuedAt = drainVideoKeyframes() { nextCheckAt = min(nextCheckAt ?? queuedAt, queuedAt) }
-        // Retry deadlines depend on actual dispatch, including requests sent from the queue.
         for entry in remote.values {
             guard let track = entry.screen, videoPriority(track) != nil, let peer = entry.peerId,
                   let request = screenKeyframeRequests[peer], !request.satisfied,
@@ -1887,34 +1842,6 @@ final class MezonSfuSession: NSObject {
         }
     }
 
-    private func traceScreenRecoveryState() {
-        var currentStates: [String: String] = [:]
-        for entry in remote.values {
-            guard entry.screenActive, let track = entry.screen, let peer = entry.peerId else { continue }
-            let request = screenKeyframeRequests[peer]
-            let visible = videoPriority(track) != nil
-            let frameAt = VideoTrackLastFrameStore.cachedFrameUptime(of: track)
-            let since = request?.activeSince ?? max(entry.screenActiveSince, lastConnectionOpenedUptime ?? 0)
-            let hasFrame = frameAt.map { $0 >= since } ?? false
-            let event = hasFrame ? "frame_available" : !visible ? "view_paused"
-                : !canRequestVideoKeyframes ? "transport_blocked"
-                : (request?.attempts ?? 0) > Self.screenKeyframeRetryDelays.count ? "retry_budget_exhausted" : "waiting_for_frame"
-            let signature = "\(ObjectIdentifier(track))|\(since)|\(event)|\(request?.attempts ?? 0)|\(visible)"
-            currentStates[peer] = signature
-            guard screenTraceStates[peer] != signature else { continue }
-            ScreenShareTrace.log("recovery_state", ["generation": connectionGen, "publisherId": peer,
-                "trackId": track.trackId, "trackObject": String(describing: ObjectIdentifier(track)),
-                "state": event, "visible": visible, "attempts": request?.attempts ?? 0,
-                "cachedFrameAgeMs": frameAt.map { Int((ProcessInfo.processInfo.systemUptime - $0) * 1000) } ?? -1,
-                "joined": joined, "socketOpen": socketOpen, "connected": isConnected, "negotiating": negotiating,
-                "applicationState": UIApplication.shared.applicationState.rawValue])
-        }
-        for peer in screenTraceStates.keys where currentStates[peer] == nil {
-            ScreenShareTrace.log("source_removed", ["generation": connectionGen, "publisherId": peer])
-        }
-        screenTraceStates = currentStates
-    }
-
     private func scheduleScreenKeyframeCheck(after delay: TimeInterval) {
         screenKeyframeCheckTask?.cancel()
         screenKeyframeCheckTask = Task { @MainActor [weak self] in
@@ -1926,10 +1853,6 @@ final class MezonSfuSession: NSObject {
     }
 
     private func resetScreenKeyframeRequests() {
-        ScreenShareTrace.log("transport_reset", ["generation": connectionGen, "sources": screenKeyframeRequests.count])
-        screenTraceStates.removeAll()
-        screenTraceStatsRemaining = 0
-        nextScreenTraceStatsAt = 0
         screenKeyframeCheckTask?.cancel()
         screenKeyframeCheckTask = nil
         screenKeyframeRequests.removeAll()
@@ -1946,35 +1869,12 @@ final class MezonSfuSession: NSObject {
         guard isConnected, joined, pc.connectionState == .connected else { return }
         requestMissingScreenKeyframes()
         let gen = connectionGen
-        let now = ProcessInfo.processInfo.systemUptime
-        let traceStats = screenTraceStatsRemaining > 0 && now >= nextScreenTraceStatsAt
-        if traceStats {
-            screenTraceStatsRemaining -= 1
-            nextScreenTraceStatsAt = now + 5
-        }
         Self.requestStatistics(pc) { [weak self] report in
             let flow = Self.audioFlow(in: report)
-            let videoStats = traceStats ? Self.screenTraceStatistics(in: report) : []
             Task { @MainActor [weak self] in
                 guard let self, self.active, self.connectionGen == gen else { return }
-                for stats in videoStats { ScreenShareTrace.log("inbound_video_stats", ["generation": gen, "stats": stats]) }
                 self.evaluatePlayout(flow, gen: gen)
             }
-        }
-    }
-
-    private nonisolated static func screenTraceStatistics(in report: RTCStatisticsReport) -> [String] {
-        let fields = ["mid", "trackIdentifier", "ssrc", "packetsReceived", "bytesReceived", "framesReceived",
-                      "framesDecoded", "keyFramesDecoded", "framesDropped", "pliCount", "nackCount"]
-        // One screen track per line: a room-wide JSON exceeds Xcode's log line limit.
-        return report.statistics.values.compactMap { stat in
-            guard stat.type == "inbound-rtp",
-                  (stat.values["kind"] as? String ?? stat.values["mediaType"] as? String) == "video",
-                  (stat.values["trackIdentifier"] as? String)?.hasPrefix("screen-") != false else { return nil }
-            var row: [String: Any] = [:]
-            for field in fields { if let value = stat.values[field] { row[field] = value } }
-            guard let data = try? JSONSerialization.data(withJSONObject: row, options: [.sortedKeys]) else { return nil }
-            return String(data: data, encoding: .utf8)
         }
     }
 
@@ -2032,17 +1932,9 @@ final class MezonSfuSession: NSObject {
                 packetsWithoutPlayout = true
             }
         }
-        // Use intent, so a disabled/missing sender is detected as a capture stall.
         let sendsAudio = localTracksAdded && shouldSendAudio
         let captureAdvanced = previousOutbound.map { flow.outboundPacketsSent > $0 } ?? false
         let deviceCaptureAdvanced = previousCapturedFrames.map { capturedFrames > $0 } ?? true
-#if DEBUG
-        if sendsAudio {
-            NSLog("[SFU audio] capture=%@ outboundPackets=%.0f trackEnabled=%@",
-                  String(describing: noiseAudioDevice.captureDiagnostics), flow.outboundPacketsSent,
-                  String(localAudioTrack?.isEnabled ?? false))
-        }
-#endif
 
         if !inboundAdvanced && hasUnmutedRemoteSpeaker {
             silentInboundTicks += 1
@@ -2094,7 +1986,6 @@ final class MezonSfuSession: NSObject {
             return
         }
         playoutRestarts += 1
-        NSLog("[SFU audio] recovery %@", String(describing: details))
         SentryLogger.addBreadcrumb(category: "voice.audio", message: "restore", data: details)
         if reasons.contains("capture") {
             // Replace a stuck source on repeated recovery, preserving mic/PTT intent.
@@ -2528,7 +2419,7 @@ final class MezonSfuSession: NSObject {
                 state.cameraActive = cameraActive
             }
             if let screenActive = boolValue(peer["screen_active"]) {
-                state.screenActive = screenActive
+                state.screenActive = screenActive && (boolValue(peer["screen_requested"]) ?? true)
             }
             var mids: [String] = []
             for key in ["mid_audio", "mid_video", "mid_screen"] {
@@ -2752,13 +2643,6 @@ final class MezonSfuSession: NSObject {
                 }
             } else if kind == "screen", let video = track as? RTCVideoTrack {
                 let canonical = VideoTrackLastFrameStore.canonicalTrack(video)
-                if canonical !== video {
-                    ScreenShareTrace.log("track_wrapper_reused", ["generation": connectionGen,
-                        "trackId": video.trackId,
-                        "trackObject": String(describing: ObjectIdentifier(video)),
-                        "canonicalTrackObject": String(describing: ObjectIdentifier(canonical)),
-                        "hasCachedFrame": VideoTrackLastFrameStore.cachedFrame(of: canonical) != nil])
-                }
                 if entry.screenTrackId != item.trackId || entry.screen !== canonical {
                     entry.screen = canonical
                     entry.screenTrackId = item.trackId

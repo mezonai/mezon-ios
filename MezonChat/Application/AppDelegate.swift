@@ -1,4 +1,5 @@
 import UIKit
+import AsyncDisplayKit
 import FirebaseCore
 import FirebaseMessaging
 import UserNotifications
@@ -21,6 +22,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
+        ASDisableLogging()
+        StorageMaintenance.shared.noteProcessLaunch()
         MezonEnvironment.current = .prod
         SentryLogger.start()
         CallKitManager.shared.configure()
@@ -306,6 +309,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
 
     @objc private func handleDidEnterBackground() {
         MezonSocket.shared.noteEnteredBackground()
+        StorageMaintenance.shared.runBackgroundPass()
     }
 
     @objc private func handleWillEnterForeground() {
