@@ -1441,7 +1441,8 @@ enum MezonApiNameRegistry {
         "DeletePinMessage",
         "MarkAsRead",
         "UploadBatchAttachmentFile",
-        "SearchCtrlK"
+        "SearchCtrlK",
+        "SearchMentionUsers"
     ]
 
     private static let nameToIndex: [String: Int32] = {
