@@ -1712,27 +1712,42 @@ final class MezonHTTPClient {
         )
     }
 
-    func listChannelVoiceUsers(clanId: Int64, token: String, force: Bool = false) async throws -> Mezon_Api_VoiceChannelUserList {
-        guard clanId != 0 else {
-            return try await performListChannelVoiceUsers(clanId: clanId, token: token)
+    enum VoiceUsersTransport {
+        case socketFirst
+        case httpOnly
+    }
+
+    func listChannelVoiceUsers(
+        clanId: Int64,
+        token: String,
+        force: Bool = false,
+        transport: VoiceUsersTransport = .socketFirst
+    ) async throws -> Mezon_Api_VoiceChannelUserList {
+        guard clanId != 0, transport == .socketFirst else {
+            return try await performListChannelVoiceUsers(clanId: clanId, token: token, transport: transport)
         }
         return try await MezonSocketRequestCoalescer.shared.coalesceChannelVoiceUsers(clanId: clanId, force: force) {
-            try await self.performListChannelVoiceUsers(clanId: clanId, token: token)
+            try await self.performListChannelVoiceUsers(clanId: clanId, token: token, transport: .socketFirst)
         }
     }
 
-    private func performListChannelVoiceUsers(clanId: Int64, token: String) async throws -> Mezon_Api_VoiceChannelUserList {
+    private func performListChannelVoiceUsers(
+        clanId: Int64,
+        token: String,
+        transport: VoiceUsersTransport
+    ) async throws -> Mezon_Api_VoiceChannelUserList {
         var req = Mezon_Api_ListChannelUsersRequest()
         req.clanID = clanId
         req.channelID = 0
         req.channelType = MezonConstants.ChannelType.mezonVoice.rawValue
         req.limit = 100
         req.state = 1
-        return try await postProto(
-            path: "/mezon.api.Mezon/ListChannelVoiceUsers",
-            message: req,
-            auth: .bearer(token)
-        )
+        let path = "/mezon.api.Mezon/ListChannelVoiceUsers"
+        if transport == .socketFirst,
+           let response: Mezon_Api_VoiceChannelUserList = try await sendOverSocketIfPossible(path: path, message: req) {
+            return response
+        }
+        return try await postProtoHTTP(path: path, message: req, auth: .bearer(token))
     }
 
     func generateMeetToken(channelId: Int64, roomName: String, metadata: String, token: String) async throws -> String {
@@ -1745,17 +1760,30 @@ final class MezonHTTPClient {
            !response.token.isEmpty {
             return response.token
         }
-        // A pooled connection may have been closed while the app was suspended.
         let data = try await retryingTransientRequest(operationName: "GenerateMeetToken") {
             try await self.postProtoRawHTTP(path: path, message: req, auth: .bearer(token))
+        }
+        guard let response = Self.decodeMeetTokenResponse(data) else {
+            throw MezonError.invalidResponse
+        }
+        return response.token
+    }
+
+    private static let meetTokenProtobufFieldTag: UInt8 = 0x0A
+
+    private static func decodeMeetTokenResponse(_ data: Data) -> Mezon_Api_GenerateMeetTokenResponse? {
+        if data.first == meetTokenProtobufFieldTag,
+           let response = try? Mezon_Api_GenerateMeetTokenResponse(serializedBytes: data),
+           !response.token.isEmpty {
+            return response
         }
         let text = String(data: data, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: "\"")) ?? ""
-        if text.hasPrefix("eyJ"), text.filter({ $0 == "." }).count == 2 {
-            return text
-        }
-        return try Mezon_Api_GenerateMeetTokenResponse(serializedBytes: data).token
+        guard text.hasPrefix("eyJ"), text.filter({ $0 == "." }).count == 2 else { return nil }
+        var response = Mezon_Api_GenerateMeetTokenResponse()
+        response.token = text
+        return response
     }
 
     func muteMezonMeetParticipant(clanId: Int64, channelId: Int64, userId: Int64, token: String) async throws -> String {
@@ -2712,25 +2740,23 @@ final class MezonHTTPClient {
             if Response.self == SwiftProtobuf.Google_Protobuf_Empty.self {
                 return SwiftProtobuf.Google_Protobuf_Empty() as? Response
             }
-            // Accept raw JWT from the proto server as well as protobuf responses.
             if apiName == "GenerateMeetToken",
                Response.self == Mezon_Api_GenerateMeetTokenResponse.self {
-                let text = String(data: respBytes, encoding: .utf8)?
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                    .trimmingCharacters(in: CharacterSet(charactersIn: "\"")) ?? ""
-                if text.hasPrefix("eyJ"), text.filter({ $0 == "." }).count == 2 {
-                    var response = Mezon_Api_GenerateMeetTokenResponse()
-                    response.token = text
-                    return response as? Response
+                guard let response = Self.decodeMeetTokenResponse(respBytes) else {
+                    NSLog("%@", "[MezonSocket] api '\(apiName)' response decode failed (\(respBytes.count) bytes), falling back to HTTP" as NSString)
+                    return nil
                 }
+                return response as? Response
             }
             do {
                 return try Response(serializedBytes: respBytes)
             } catch {
+                NSLog("%@", "[MezonSocket] api '\(apiName)' response decode failed (\(respBytes.count) bytes), falling back to HTTP: \(error)" as NSString)
                 return nil
             }
         } catch {
             let ms = Int(Date().timeIntervalSince(started) * 1000)
+            NSLog("%@", "[MezonSocket] api '\(apiName)' failed after \(ms)ms, falling back to HTTP: \(error)" as NSString)
             if ms >= profile.degradeAfterMilliseconds {
                 await MezonSocket.shared.noteApiRequestTimedOut()
             }

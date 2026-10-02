@@ -1,52 +1,6 @@
 import Foundation
 import SwiftProtobuf
 
-// Presence belongs to peer connections; sidebar membership is grouped by user.
-struct VoicePeerPresence {
-    struct Key: Hashable {
-        let clan: Int64
-        let channel: Int64
-        let user: Int64
-    }
-    private var peers: [Key: Set<Int32>] = [:]
-    private var revisions: [Int64: UInt64] = [:]
-
-    func revision(_ clan: Int64) -> UInt64 { revisions[clan, default: 0] }
-    func peerIds(clan: Int64, channel: Int64, user: Int64) -> [Int32] {
-        (peers[Key(clan: clan, channel: channel, user: user)] ?? []).sorted()
-    }
-    mutating func joined(clan: Int64, channel: Int64, user: Int64, peer: Int32) {
-        revisions[clan, default: 0] &+= 1
-        if peer > 0 { peers[Key(clan: clan, channel: channel, user: user), default: []].insert(peer) }
-    }
-    // Unknown/duplicate leaves cannot remove another known connection.
-    mutating func left(clan: Int64, channel: Int64, user: Int64, peer: Int32) -> Bool {
-        revisions[clan, default: 0] &+= 1
-        let key = Key(clan: clan, channel: channel, user: user)
-        peers[key]?.remove(peer)
-        if let ids = peers[key], !ids.isEmpty { return false }
-        peers[key] = nil
-        return true
-    }
-    mutating func removeRoom(clan: Int64, channel: Int64) {
-        revisions[clan, default: 0] &+= 1
-        peers = peers.filter { $0.key.clan != clan || $0.key.channel != channel }
-    }
-    mutating func replaceClan(_ clan: Int64, entries: [(channel: Int64, user: Int64, peer: Int32)]) {
-        var next: [Key: Set<Int32>] = [:]
-        for entry in entries {
-            let key = Key(clan: clan, channel: entry.channel, user: entry.user)
-            if next[key] == nil { next[key] = [] }
-            if entry.peer > 0 { next[key]?.insert(entry.peer) }
-        }
-        // An older API response without peer IDs cannot replace IDs learned from events.
-        for key in Array(next.keys) where next[key]?.isEmpty == true { next[key] = peers[key] ?? [] }
-        peers = peers.filter { $0.key.clan != clan }
-        peers.merge(next) { _, new in new }
-        revisions[clan, default: 0] &+= 1
-    }
-}
-
 enum ChannelPreferenceListCodec {
     static func decode(_ data: Data) -> [Mezon_Api_ChannelDescription] {
         guard data.count >= 4 else { return [] }
@@ -177,7 +131,9 @@ extension MezonEngine {
         let clanPermissionsUpdated = ValuePipe<Int64>()
         let clanVoiceUsersUpdated = ValuePipe<Int64>()
         private var voiceUsersFreshClanIds = Set<Int64>()
-        private var voicePresence = VoicePeerPresence()
+        private var voiceSnapshotJournalByClanId: [Int64: [VoicePresenceEvent]] = [:]
+        private var voiceSnapshotInflightByClanId: [Int64: Int] = [:]
+        private var voiceSnapshotTasks: [Int64: Task<Void, Never>] = [:]
         private var voicePresenceGeneration: UInt64 = 0
         private let voiceUsersFreshLock = NSLock()
         let clanStreamUsersUpdated = ValuePipe<Int64>()
@@ -283,7 +239,10 @@ extension MezonEngine {
             linkedChannelDetails.removeAll()
             rejectedLinkedChannels.removeAll()
             voicePresenceGeneration &+= 1
-            voicePresence = VoicePeerPresence()
+            voiceSnapshotTasks.values.forEach { $0.cancel() }
+            voiceSnapshotTasks.removeAll()
+            voiceSnapshotJournalByClanId.removeAll()
+            voiceSnapshotInflightByClanId.removeAll()
             voiceUsersFreshLock.lock()
             voiceUsersFreshClanIds.removeAll()
             voiceUsersFreshLock.unlock()
@@ -701,42 +660,84 @@ extension MezonEngine {
             }
         }
 
-        private func fetchVoiceChannelUsers(clanId: Int64, token: String, force: Bool = false) async {
+        private func beginVoiceSnapshotJournal(clanId: Int64) -> Int {
+            voiceSnapshotInflightByClanId[clanId, default: 0] += 1
+            if voiceSnapshotJournalByClanId[clanId] == nil {
+                voiceSnapshotJournalByClanId[clanId] = []
+            }
+            return voiceSnapshotJournalByClanId[clanId]?.count ?? 0
+        }
+
+        private func endVoiceSnapshotJournal(clanId: Int64) {
+            let remaining = (voiceSnapshotInflightByClanId[clanId] ?? 1) - 1
+            if remaining > 0 {
+                voiceSnapshotInflightByClanId[clanId] = remaining
+            } else {
+                voiceSnapshotInflightByClanId[clanId] = nil
+                voiceSnapshotJournalByClanId[clanId] = nil
+            }
+        }
+
+        private func recordVoiceEvent(_ event: VoicePresenceEvent, clanId: Int64) {
+            guard voiceSnapshotJournalByClanId[clanId] != nil else { return }
+            voiceSnapshotJournalByClanId[clanId]?.append(event)
+        }
+
+        private func replayVoiceSnapshotJournal(clanId: Int64, from startIndex: Int, into list: inout Mezon_Api_VoiceChannelUserList) -> Int {
+            guard let journal = voiceSnapshotJournalByClanId[clanId], journal.count > startIndex else { return 0 }
+            let pending = journal[startIndex...]
+            for event in pending {
+                Self.mutate(&list, applying: event)
+            }
+            return pending.count
+        }
+
+        private func fetchVoiceChannelUsers(clanId: Int64, token: String) async {
+            // Share the journal and persistence, not just the network response.
+            if let existing = voiceSnapshotTasks[clanId] {
+                await existing.value
+                return
+            }
             let generation = voicePresenceGeneration
+            let journalStart = beginVoiceSnapshotJournal(clanId: clanId)
+            let task = Task<Void, Never> { @MainActor [weak self] in
+                guard let self, !Task.isCancelled, generation == self.voicePresenceGeneration else { return }
+                await self.performVoiceSnapshot(clanId: clanId, token: token, journalStart: journalStart)
+            }
+            voiceSnapshotTasks[clanId] = task
+            await task.value
+            if generation == voicePresenceGeneration {
+                voiceSnapshotTasks[clanId] = nil
+            }
+        }
+
+        private func performVoiceSnapshot(clanId: Int64, token: String, journalStart: Int) async {
+            let generation = voicePresenceGeneration
+            defer {
+                if generation == voicePresenceGeneration { endVoiceSnapshotJournal(clanId: clanId) }
+            }
             do {
-                for attempt in 0..<3 {
-                    let revision = voicePresence.revision(clanId)
-                    var response = try await network.listChannelVoiceUsers(clanId: clanId, token: token, force: force || attempt > 0)
-                    guard !Task.isCancelled, generation == voicePresenceGeneration else { return }
-                    guard revision == voicePresence.revision(clanId) else { continue }
-                    let hadMembers = getVoiceUsers(clanId: clanId)?.voiceChannelUsers.contains {
-                        !$0.userIds.isEmpty
-                    } == true
-                    let responseHasMembers = response.voiceChannelUsers.contains { !$0.userIds.isEmpty }
-                    if hadMembers && !responseHasMembers && attempt == 0 {
-                        try? await Task.sleep(nanoseconds: 500_000_000)
-                        continue
-                    }
-                    var peers: [(channel: Int64, user: Int64, peer: Int32)] = []
-                    for index in response.voiceChannelUsers.indices {
-                        var room = response.voiceChannelUsers[index]
-                        let aligned = room.userIds.count == room.peerIds.count
-                        print("[MezonSFU][presence] snapshot clan=\(clanId) channel=\(room.channelID) users=\(room.userIds) peers=\(room.peerIds) aligned=\(aligned)")
-                        for (offset, user) in room.userIds.enumerated() {
-                            guard let user = Int64(user) else { continue }
-                            peers.append((room.channelID, user, aligned ? room.peerIds[offset] : 0))
-                        }
-                        // Keep the UI cache user-based. Connection IDs live in voicePresence.
-                        var seen = Set<String>()
-                        room.userIds = room.userIds.filter { seen.insert($0).inserted }
-                        room.peerIds = []
-                        response.voiceChannelUsers[index] = room
-                    }
-                    voicePresence.replaceClan(clanId, entries: peers)
-                    persistVoiceUsersList(response, clanId: clanId)
+                var response = try await network.listChannelVoiceUsers(clanId: clanId, token: token, force: true)
+                guard !Task.isCancelled, generation == voicePresenceGeneration else {
                     return
                 }
-                print("[MezonSFU][presence] snapshot skipped: membership changed during refresh clan=\(clanId)")
+                let cachedHasMembers = getVoiceUsers(clanId: clanId)?.voiceChannelUsers.contains { !$0.userIds.isEmpty } == true
+                let responseHasMembers = response.voiceChannelUsers.contains { !$0.userIds.isEmpty }
+                if cachedHasMembers && !responseHasMembers {
+                    response = try await network.listChannelVoiceUsers(clanId: clanId, token: token, force: true, transport: .httpOnly)
+                    guard !Task.isCancelled, generation == voicePresenceGeneration else {
+                        return
+                    }
+                }
+                for index in response.voiceChannelUsers.indices {
+                    var room = response.voiceChannelUsers[index]
+                    var seen = Set<String>()
+                    room.userIds = room.userIds.filter { seen.insert($0).inserted }
+                    response.voiceChannelUsers[index] = room
+                }
+                _ = replayVoiceSnapshotJournal(clanId: clanId, from: journalStart, into: &response)
+                markVoiceUsersFresh(clanId)
+                persistVoiceUsersList(response, clanId: clanId)
             } catch {
             }
         }
@@ -1006,66 +1007,90 @@ extension MezonEngine {
         }
 
         func refetchVoiceChannelUsers(clanId: Int64, token: String) async {
-            await fetchVoiceChannelUsers(clanId: clanId, token: token, force: true)
+            await fetchVoiceChannelUsers(clanId: clanId, token: token)
         }
 
-        func applyVoiceJoined(clanId: Int64, channelId: Int64, userId: Int64, peerId: Int32) {
-            guard clanId != 0, channelId != 0, userId != 0 else { return }
-            var list = freshVoiceUsersList(clanId: clanId)
-            let before = voicePresence.peerIds(clan: clanId, channel: channelId, user: userId)
-            voicePresence.joined(clan: clanId, channel: channelId, user: userId, peer: peerId)
-            let uid = "\(userId)"
-            if let idx = list.voiceChannelUsers.firstIndex(where: { $0.channelID == channelId }) {
-                if !list.voiceChannelUsers[idx].userIds.contains(uid) {
-                    list.voiceChannelUsers[idx].userIds.append(uid)
-                }
-            } else {
-                var entry = Mezon_Api_VoiceChannelUser()
-                entry.channelID = channelId
-                entry.userIds = [uid]
-                list.voiceChannelUsers.append(entry)
+        func applyVoiceJoined(clanId: Int64, channelId: Int64, userId: Int64) {
+            guard clanId != 0, channelId != 0, userId != 0 else {
+                return
             }
-            print("[MezonSFU][presence] joined clan=\(clanId) channel=\(channelId) user=\(userId) peer=\(peerId) before=\(before) after=\(voicePresence.peerIds(clan: clanId, channel: channelId, user: userId))")
-            persistVoiceUsersList(list, clanId: clanId)
+            applyVoiceEvent(.joined(channelId: channelId, userId: "\(userId)"), clanId: clanId)
         }
 
-        func applyVoiceLeaved(clanId: Int64, channelId: Int64, userId: Int64, peerId: Int32) {
-            guard clanId != 0, channelId != 0, userId != 0 else { return }
-            let before = voicePresence.peerIds(clan: clanId, channel: channelId, user: userId)
-            let removeUser = voicePresence.left(clan: clanId, channel: channelId, user: userId, peer: peerId)
-            print("[MezonSFU][presence] leaved clan=\(clanId) channel=\(channelId) user=\(userId) peer=\(peerId) before=\(before) after=\(voicePresence.peerIds(clan: clanId, channel: channelId, user: userId)) removeUser=\(removeUser)")
-            guard removeUser else { return }
-            var list = freshVoiceUsersList(clanId: clanId)
-            let uid = "\(userId)"
-            if let idx = list.voiceChannelUsers.firstIndex(where: { $0.channelID == channelId }) {
-                list.voiceChannelUsers[idx].userIds.removeAll { $0 == uid }
-                list.voiceChannelUsers[idx].shareScreenIds.removeAll { $0 == uid }
-                if list.voiceChannelUsers[idx].userIds.isEmpty { list.voiceChannelUsers.remove(at: idx) }
+        func applyVoiceLeaved(clanId: Int64, channelId: Int64, userId: Int64) {
+            guard clanId != 0, channelId != 0, userId != 0 else {
+                return
             }
-            persistVoiceUsersList(list, clanId: clanId)
+            applyVoiceEvent(.left(channelId: channelId, userId: "\(userId)"), clanId: clanId)
         }
 
         func applyVoiceEnded(clanId: Int64, channelId: Int64) {
-            voicePresence.removeRoom(clan: clanId, channel: channelId)
-            var list = freshVoiceUsersList(clanId: clanId)
-            list.voiceChannelUsers.removeAll { $0.channelID == channelId }
-            persistVoiceUsersList(list, clanId: clanId)
+            applyVoiceEvent(.ended(channelId: channelId), clanId: clanId)
         }
 
         func applyScreenShare(clanId: Int64, channelId: Int64, userId: Int64, isSharing: Bool) {
-            guard isVoiceUsersFresh(clanId), var list = getVoiceUsers(clanId: clanId),
-                  let idx = list.voiceChannelUsers.firstIndex(where: { $0.channelID == channelId }) else { return }
-            let uid = "\(userId)"
-            var entry = list.voiceChannelUsers[idx]
-            guard entry.userIds.contains(uid) else { return }
-            guard entry.shareScreenIds.contains(uid) != isSharing else { return }
-            if isSharing {
-                entry.shareScreenIds.append(uid)
-            } else {
-                entry.shareScreenIds.removeAll { $0 == uid }
-            }
-            list.voiceChannelUsers[idx] = entry
+            applyVoiceEvent(
+                .screenShare(channelId: channelId, userId: "\(userId)", isSharing: isSharing),
+                clanId: clanId
+            )
+        }
+
+        private func applyVoiceEvent(_ event: VoicePresenceEvent, clanId: Int64) {
+            recordVoiceEvent(event, clanId: clanId)
+            var list = getVoiceUsers(clanId: clanId) ?? Mezon_Api_VoiceChannelUserList()
+            guard Self.mutate(&list, applying: event) else { return }
             persistVoiceUsersList(list, clanId: clanId)
+        }
+
+        @discardableResult
+        private static func mutate(_ list: inout Mezon_Api_VoiceChannelUserList, applying event: VoicePresenceEvent) -> Bool {
+            switch event {
+            case .joined(let channelId, let userId):
+                if let idx = list.voiceChannelUsers.firstIndex(where: { $0.channelID == channelId }),
+                   list.voiceChannelUsers[idx].userIds.contains(userId),
+                   !list.voiceChannelUsers.contains(where: { $0.channelID != channelId && $0.userIds.contains(userId) }) {
+                    return false
+                }
+                for idx in list.voiceChannelUsers.indices where list.voiceChannelUsers[idx].channelID != channelId {
+                    list.voiceChannelUsers[idx].userIds.removeAll { $0 == userId }
+                    list.voiceChannelUsers[idx].shareScreenIds.removeAll { $0 == userId }
+                }
+                list.voiceChannelUsers.removeAll { $0.channelID != channelId && $0.userIds.isEmpty }
+                if let idx = list.voiceChannelUsers.firstIndex(where: { $0.channelID == channelId }) {
+                    if !list.voiceChannelUsers[idx].userIds.contains(userId) {
+                        list.voiceChannelUsers[idx].userIds.append(userId)
+                    }
+                } else {
+                    var entry = Mezon_Api_VoiceChannelUser()
+                    entry.channelID = channelId
+                    entry.userIds = [userId]
+                    list.voiceChannelUsers.append(entry)
+                }
+                return true
+            case .left(let channelId, let userId):
+                guard let idx = list.voiceChannelUsers.firstIndex(where: { $0.channelID == channelId }),
+                      list.voiceChannelUsers[idx].userIds.contains(userId) else { return false }
+                list.voiceChannelUsers[idx].userIds.removeAll { $0 == userId }
+                list.voiceChannelUsers[idx].shareScreenIds.removeAll { $0 == userId }
+                if list.voiceChannelUsers[idx].userIds.isEmpty {
+                    list.voiceChannelUsers.remove(at: idx)
+                }
+                return true
+            case .ended(let channelId):
+                guard list.voiceChannelUsers.contains(where: { $0.channelID == channelId }) else { return false }
+                list.voiceChannelUsers.removeAll { $0.channelID == channelId }
+                return true
+            case .screenShare(let channelId, let userId, let isSharing):
+                guard let idx = list.voiceChannelUsers.firstIndex(where: { $0.channelID == channelId }),
+                      list.voiceChannelUsers[idx].userIds.contains(userId),
+                      list.voiceChannelUsers[idx].shareScreenIds.contains(userId) != isSharing else { return false }
+                if isSharing {
+                    list.voiceChannelUsers[idx].shareScreenIds.append(userId)
+                } else {
+                    list.voiceChannelUsers[idx].shareScreenIds.removeAll { $0 == userId }
+                }
+                return true
+            }
         }
 
         func applyStreamJoined(
@@ -1107,13 +1132,7 @@ extension MezonEngine {
             return voiceUsersFreshClanIds.contains(clanId)
         }
 
-        private func freshVoiceUsersList(clanId: Int64) -> Mezon_Api_VoiceChannelUserList {
-            guard isVoiceUsersFresh(clanId) else { return Mezon_Api_VoiceChannelUserList() }
-            return getVoiceUsers(clanId: clanId) ?? Mezon_Api_VoiceChannelUserList()
-        }
-
         private func persistVoiceUsersList(_ list: Mezon_Api_VoiceChannelUserList, clanId: Int64) {
-            markVoiceUsersFresh(clanId)
             if let data = try? list.serializedData() {
                 postbox.setPreferenceData(key: PreferencesKeys.clanVoiceUsers(clanId: clanId), value: data)
             }
@@ -1654,4 +1673,11 @@ extension MezonEngine {
             }
         }
     }
+}
+
+private enum VoicePresenceEvent {
+    case joined(channelId: Int64, userId: String)
+    case left(channelId: Int64, userId: String)
+    case ended(channelId: Int64)
+    case screenShare(channelId: Int64, userId: String, isSharing: Bool)
 }

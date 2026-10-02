@@ -2271,7 +2271,12 @@ final class ChatViewController: ViewController {
         lastMarkedAsReadMessageId = messageId
         pendingMarkAsRead = false
 
-        let channelUnreadCount = channel.countMessUnread
+        var channelUnreadCount = channel.countMessUnread
+        if clanId != 0, topicId == 0 {
+            let request = BadgeReadCountRequest(clanId: clanId, channelId: channel.channelID, fallback: channelUnreadCount)
+            NotificationCenter.default.post(name: Notification.Name("MezonBadgeReadCountRequested"), object: request)
+            channelUnreadCount = request.count
+        }
 
         let mode: Int32
         if clanId != 0 {
@@ -2289,7 +2294,7 @@ final class ChatViewController: ViewController {
             mode: mode,
             messageId: messageId,
             timestampSeconds: now,
-            badgeCount: 0
+            badgeCount: clanId != 0 && topicId == 0 ? channelUnreadCount : 0
         )
 
         NotificationCenter.default.post(
@@ -2299,6 +2304,7 @@ final class ChatViewController: ViewController {
                 "channelId": channel.channelID,
                 "clanId": clanId,
                 "channelUnreadCount": channelUnreadCount,
+                "localBadgeCount": channelUnreadCount,
                 "mode": mode,
                 "messageId": String(messageId),
                 "timestampSeconds": now

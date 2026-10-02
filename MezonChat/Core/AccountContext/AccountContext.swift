@@ -2,7 +2,7 @@ import Foundation
 import SwiftProtobuf
 
 extension AccountContext {
-    func meetTokenMetadata(clanId: Int64) throws -> String {
+    func meetTokenMetadata(clanId: Int64) -> String {
         let userId = Int64(currentUser?.id ?? session?.userId ?? "")
         let member = engine.clanData.getClanUsers(clanId: clanId)?.clanUsers.first {
             $0.user.id == userId
@@ -14,8 +14,7 @@ extension AccountContext {
         let avatar = [member?.clanAvatar, member?.user.avatarURL, currentUser?.avatarURL?.absoluteString]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty } ?? ""
-        let data = try JSONSerialization.data(withJSONObject: ["username": name, "avatar": avatar])
-        return String(decoding: data, as: UTF8.self)
+        return "\(name);\(avatar)"
     }
 }
 
