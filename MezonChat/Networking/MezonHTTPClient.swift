@@ -13,6 +13,9 @@ final class MezonHTTPClient {
     private let uploadURLSession: URLSession
     private var authBaseURL: URL = MezonConfig.authBaseURL
     private var protoBaseURL: URL = MezonConfig.protoBaseURL
+    static let listClanUsersCap = 1000
+    private let rosterCapLock = NSLock()
+    private var rosterCappedByClanId: [Int64: Bool] = [:]
 
     private init() {
         MezonHTTPClient.observeCoalescedCacheInvalidations()
@@ -1542,11 +1545,25 @@ final class MezonHTTPClient {
     func listClanUsers(clanId: Int64, token: String) async throws -> Mezon_Api_ClanUserList {
         var req = Mezon_Api_ListClanUsersRequest()
         req.clanID = clanId
-        return try await postProto(
+        let response: Mezon_Api_ClanUserList = try await postProto(
             path: "/mezon.api.Mezon/ListClanUsers",
             message: req,
             auth: .bearer(token)
         )
+        recordClanRosterCap(clanId: clanId, rows: response.clanUsers.count)
+        return response
+    }
+
+    private func recordClanRosterCap(clanId: Int64, rows: Int) {
+        rosterCapLock.lock()
+        defer { rosterCapLock.unlock() }
+        rosterCappedByClanId[clanId] = rows >= Self.listClanUsersCap
+    }
+
+    func isClanRosterCapped(clanId: Int64) -> Bool? {
+        rosterCapLock.lock()
+        defer { rosterCapLock.unlock() }
+        return rosterCappedByClanId[clanId]
     }
 
     func listOnboarding(clanId: Int64, limit: Int32 = 100, token: String) async throws -> [Mezon_Api_OnboardingItem] {
@@ -2185,6 +2202,23 @@ final class MezonHTTPClient {
         req.type = type
         return try await postProto(
             path: "/mezon.api.Mezon/SearchCtrlK",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func searchMentionUsers(
+        clanId: Int64,
+        channelId: Int64,
+        text: String,
+        token: String
+    ) async throws -> Mezon_Api_SearchMentionUsersResponse {
+        var req = Mezon_Api_SearchMentionUsersRequest()
+        req.clanID = clanId
+        req.channelID = channelId
+        req.text = text
+        return try await postProto(
+            path: "/mezon.api.Mezon/SearchMentionUsers",
             message: req,
             auth: .bearer(token)
         )

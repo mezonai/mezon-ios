@@ -110,7 +110,7 @@ static void disableNoiseAfterFailure(MezonNSAudioDevice *device, NSString *reaso
             NSString *path = [[NSBundle mainBundle] pathForResource:@"mezon_ns_asym_babble" ofType:@"onnx"];
             MezonNS *engine = path ? [[MezonNS alloc] initWithModelPath:path attenuationLimitDb:15.0f numThreads:1] : nil;
             if (engine) {
-                [engine setNoiseGate:YES];
+                [engine setNoiseGate:NO];
                 [engine setSuppressionIntensity:1.6f];
                 [engine setModelInputTargetDbfs:-20.0f];
                 int16_t probe[kModelFrameSamples] = {};

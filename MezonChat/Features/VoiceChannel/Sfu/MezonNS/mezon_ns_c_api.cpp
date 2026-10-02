@@ -19,7 +19,7 @@ void mezon_ns_config_init(MezonNSConfig* config) {
     config->attenuation_limit_db = 0.0f;
     config->num_threads = 1;
     config->suppression_intensity = 1.0f;
-    config->enable_noise_gate = 1;
+    config->enable_noise_gate = 0;
 }
 
 MezonNSEngine* mezon_ns_create(const char* model_path, const MezonNSConfig* config) {

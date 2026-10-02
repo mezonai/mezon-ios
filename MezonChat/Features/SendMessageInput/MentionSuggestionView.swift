@@ -291,3 +291,195 @@ private final class MentionSuggestionCell: UITableViewCell {
         avatarImageView.isHidden = false
     }
 }
+
+@MainActor
+final class MentionRemoteSearch {
+
+    struct Result {
+        let users: [Mezon_Api_MentionUser]
+        let pending: Bool
+
+        static let none = Result(users: [], pending: false)
+    }
+
+    typealias Fetch = @MainActor (_ clanId: Int64, _ channelId: Int64, _ text: String) async throws -> [Mezon_Api_MentionUser]
+
+    private struct Answer {
+        let users: [Mezon_Api_MentionUser]
+        let complete: Bool
+        let failed: Bool
+    }
+
+    private static let minQueryCharacters = 2
+    private static let maxQueryCharacters = 64
+    private static let serverPageSize = 50
+    private static let debounceInterval: TimeInterval = 0.2
+    private static let unsupportedRetryInterval: TimeInterval = 600
+    private static let maxCachedAnswers = 32
+    private static let unknownApiStatusCode = 404
+    private static var unsupportedUntil = Date.distantPast
+
+    var onAnswer: (() -> Void)?
+
+    private let fetch: Fetch
+    private var scopeClanId: Int64 = 0
+    private var scopeChannelId: Int64 = 0
+    private var generation = 0
+    private var answers: [String: Answer] = [:]
+    private var answerOrder: [String] = []
+    private var wantedKey: String?
+    private var wantedText = ""
+    private var lastInputAt = Date.distantPast
+    private var debounceToken = 0
+    private var requestInFlight = false
+
+    init(fetch: @escaping Fetch) {
+        self.fetch = fetch
+    }
+
+    func search(clanId: Int64, channelId: Int64, rosterCapped: Bool, keyword: String) -> Result {
+        let text = keyword
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .precomposedStringWithCanonicalMapping
+        let now = Date()
+        guard clanId != 0, rosterCapped, Self.isSearchable(text), now >= Self.unsupportedUntil else {
+            cancelPending()
+            return .none
+        }
+        if scopeClanId != clanId || scopeChannelId != channelId {
+            reset()
+            scopeClanId = clanId
+            scopeChannelId = channelId
+        }
+        let key = text.lowercased()
+        if let known = lookup(key) {
+            cancelPending()
+            return Result(users: known, pending: false)
+        }
+        if wantedKey != key {
+            wantedKey = key
+            wantedText = text
+            lastInputAt = now
+            schedule(now: now)
+        }
+        return Result(users: [], pending: true)
+    }
+
+    func cancelPending() {
+        wantedKey = nil
+        wantedText = ""
+        debounceToken += 1
+    }
+
+    func endSession() {
+        cancelPending()
+        let failedKeys = Set(answerOrder.filter { answers[$0]?.failed == true })
+        guard !failedKeys.isEmpty else { return }
+        for key in failedKeys {
+            answers[key] = nil
+        }
+        answerOrder.removeAll { failedKeys.contains($0) }
+    }
+
+    func containsUser(_ userId: Int64) -> Bool {
+        answers.values.contains { answer in answer.users.contains { $0.id == userId } }
+    }
+
+    private func reset() {
+        generation += 1
+        answers.removeAll()
+        answerOrder.removeAll()
+        cancelPending()
+    }
+
+    private static func isSearchable(_ text: String) -> Bool {
+        if text.contains("  ") || text.contains(where: \.isNewline) { return false }
+        let characters = text.unicodeScalars.filter { $0.properties.generalCategory != .control }.count
+        return (minQueryCharacters...maxQueryCharacters).contains(characters)
+    }
+
+    private static func folded(_ text: String) -> String {
+        text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
+            .replacingOccurrences(of: "đ", with: "d")
+    }
+
+    private static func matches(_ user: Mezon_Api_MentionUser, words: [String]) -> Bool {
+        let fields = [user.username, user.displayName, user.clanNick].map(folded)
+        return words.allSatisfy { word in fields.contains { $0.contains(word) } }
+    }
+
+    private static func uniqueUsers(_ users: [Mezon_Api_MentionUser]) -> [Mezon_Api_MentionUser] {
+        var seen = Set<Int64>()
+        return users.filter { $0.id != 0 && seen.insert($0.id).inserted }
+    }
+
+    private static func isUnknownApi(_ error: Error) -> Bool {
+        if case MezonError.httpError(let statusCode, _) = error {
+            return statusCode == unknownApiStatusCode
+        }
+        return false
+    }
+
+    private func lookup(_ key: String) -> [Mezon_Api_MentionUser]? {
+        if let answer = answers[key] { return answer.users }
+        for prefix in answerOrder {
+            guard let answer = answers[prefix], answer.complete, key.hasPrefix(prefix) else { continue }
+            let words = Self.folded(key).split(separator: " ").map(String.init)
+            return answer.users.filter { Self.matches($0, words: words) }
+        }
+        return nil
+    }
+
+    private func store(_ answer: Answer, for key: String) {
+        if answers[key] == nil { answerOrder.append(key) }
+        answers[key] = answer
+        if answerOrder.count > Self.maxCachedAnswers {
+            answers[answerOrder.removeFirst()] = nil
+        }
+    }
+
+    private func schedule(now: Date) {
+        debounceToken += 1
+        let token = debounceToken
+        guard !requestInFlight else { return }
+        let wait = max(0, Self.debounceInterval - now.timeIntervalSince(lastInputAt))
+        Task { @MainActor [weak self] in
+            if wait > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+            }
+            await self?.runRequest(token: token)
+        }
+    }
+
+    private func runRequest(token: Int) async {
+        guard token == debounceToken, !requestInFlight, let key = wantedKey, lookup(key) == nil else { return }
+        requestInFlight = true
+        let requestGeneration = generation
+        let text = wantedText
+        let answer: Answer
+        do {
+            let users = try await fetch(scopeClanId, scopeChannelId, text)
+            answer = Answer(
+                users: Self.uniqueUsers(users),
+                complete: users.count < Self.serverPageSize,
+                failed: false
+            )
+        } catch {
+            if Self.isUnknownApi(error) {
+                Self.unsupportedUntil = Date().addingTimeInterval(Self.unsupportedRetryInterval)
+            }
+            answer = Answer(users: [], complete: false, failed: true)
+        }
+        requestInFlight = false
+        let answersCurrentScope = requestGeneration == generation
+        if answersCurrentScope {
+            store(answer, for: key)
+        }
+        if let wanted = wantedKey, lookup(wanted) == nil {
+            schedule(now: Date())
+        }
+        if answersCurrentScope {
+            onAnswer?()
+        }
+    }
+}
