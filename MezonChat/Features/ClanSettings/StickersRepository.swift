@@ -28,9 +28,11 @@ final class StickersRepository {
     static let maxSlots = 250
 
     private let context: AccountContext
+    private let mediaType: StickerMediaType
 
-    init(context: AccountContext) {
+    init(context: AccountContext, mediaType: StickerMediaType = .sticker) {
         self.context = context
+        self.mediaType = mediaType
     }
 
     func stickers(clanId: Int64) -> [CachedClanStickerRecord] {
@@ -38,7 +40,7 @@ final class StickersRepository {
             return []
         }
         return list.stickers
-            .filter { $0.clanID == clanId && $0.mediaType == StickerMediaType.sticker.rawValue }
+            .filter { $0.clanID == clanId && $0.mediaType == mediaType.rawValue }
             .sorted { $0.createTimeSeconds > $1.createTimeSeconds }
     }
 
@@ -124,7 +126,7 @@ final class StickersRepository {
         req.source = source
         req.shortname = shortname
         req.category = category
-        req.mediaType = StickerMediaType.sticker.rawValue
+        req.mediaType = mediaType.rawValue
         req.isForSale = isForSale
         req.id = id ?? Int64(Date().timeIntervalSince1970 * 1000)
         guard let token = await context.getToken() else {
@@ -143,6 +145,7 @@ final class StickersRepository {
             )
         } else {
             var parsed = created.toCachedRecord()
+            parsed.mediaType = mediaType.rawValue
             parsed.isForSale = isForSale
             record = parsed
         }
@@ -155,7 +158,9 @@ final class StickersRepository {
                     fallbackShortname: shortname
                 )
             } else if let idx = stickers.firstIndex(where: {
-                $0.shortname == shortname && $0.clanID == clanId
+                $0.shortname == shortname
+                    && $0.clanID == clanId
+                    && $0.mediaType == mediaType.rawValue
             }) {
                 stickers[idx] = Self.mergeStickerRecord(
                     existing: stickers[idx],

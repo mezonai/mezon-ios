@@ -1,10 +1,17 @@
 import UIKit
+import AVFoundation
 
-final class ClanStickerPreviewViewController: UIViewController {
+final class ClanStickerPreviewViewController: UIViewController, AVAudioPlayerDelegate {
 
     var onConfirm: ((String, Bool) -> Void)?
 
     private let previewImage: UIImage
+    private let soundData: Data?
+    private var audioPlayer: AVAudioPlayer?
+
+    private var isSoundSticker: Bool {
+        soundData != nil
+    }
 
     private lazy var backdropView: UIView = {
         let view = UIView()
@@ -27,7 +34,9 @@ final class ClanStickerPreviewViewController: UIViewController {
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
         label.font = .systemFont(ofSize: 15.sf, weight: .bold)
-        label.text = L(L10n.ClanSetting.Stickers.previewTitle)
+        label.text = isSoundSticker
+            ? L(L10n.ClanSetting.SoundStickers.previewTitle)
+            : L(L10n.ClanSetting.Stickers.previewTitle)
         return label
     }()
 
@@ -36,6 +45,12 @@ final class ClanStickerPreviewViewController: UIViewController {
         view.translatesAutoresizingMaskIntoConstraints = false
         view.contentMode = .scaleAspectFit
         view.clipsToBounds = true
+        if isSoundSticker {
+            view.image = UIImage(systemName: "play.fill")
+            view.isUserInteractionEnabled = true
+            view.layer.cornerRadius = 20.swh
+            view.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handlePlayTapped)))
+        }
         return view
     }()
 
@@ -43,7 +58,9 @@ final class ClanStickerPreviewViewController: UIViewController {
         let label = UILabel()
         label.translatesAutoresizingMaskIntoConstraints = false
         label.font = .systemFont(ofSize: 15.sf, weight: .bold)
-        label.text = L(L10n.ClanSetting.Stickers.previewNameLabel)
+        label.text = isSoundSticker
+            ? L(L10n.ClanSetting.SoundStickers.previewNameLabel)
+            : L(L10n.ClanSetting.Stickers.previewNameLabel)
         return label
     }()
 
@@ -88,7 +105,12 @@ final class ClanStickerPreviewViewController: UIViewController {
     private lazy var uploadButton: UIButton = {
         let button = UIButton(type: .system)
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.setTitle(L(L10n.ClanSetting.Stickers.previewUpload), for: .normal)
+        button.setTitle(
+            isSoundSticker
+                ? L(L10n.ClanSetting.SoundStickers.previewUpload)
+                : L(L10n.ClanSetting.Stickers.previewUpload),
+            for: .normal
+        )
         button.titleLabel?.font = .systemFont(ofSize: 15.sf, weight: .semibold)
         button.setTitleColor(.white, for: .normal)
         button.layer.cornerRadius = 30.sh
@@ -99,6 +121,15 @@ final class ClanStickerPreviewViewController: UIViewController {
 
     init(image: UIImage) {
         self.previewImage = image
+        self.soundData = nil
+        super.init(nibName: nil, bundle: nil)
+        modalPresentationStyle = .overFullScreen
+        modalTransitionStyle = .crossDissolve
+    }
+
+    init(soundData: Data) {
+        self.previewImage = UIImage(systemName: "play.fill") ?? UIImage()
+        self.soundData = soundData
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .overFullScreen
         modalTransitionStyle = .crossDissolve
@@ -108,7 +139,8 @@ final class ClanStickerPreviewViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        nameTextField.text = "sticker_\(Int(Date().timeIntervalSince1970 * 1000))"
+        let prefix = isSoundSticker ? "sound" : "sticker"
+        nameTextField.text = "\(prefix)_\(Int(Date().timeIntervalSince1970 * 1000))"
         setupLayout()
         applyTheme()
     }
@@ -123,11 +155,16 @@ final class ClanStickerPreviewViewController: UIViewController {
         forSaleRow.alignment = .center
         forSaleRow.spacing = 10.sw
 
-        [titleLabel, imagePreviewView, nameTitleLabel, nameTextField, errorLabel, forSaleRow, uploadButton].forEach {
+        var contentViews: [UIView] = [titleLabel, imagePreviewView, nameTitleLabel, nameTextField, errorLabel]
+        if !isSoundSticker {
+            contentViews.append(forSaleRow)
+        }
+        contentViews.append(uploadButton)
+        contentViews.forEach {
             containerView.addSubview($0)
         }
 
-        NSLayoutConstraint.activate([
+        var constraints = [
             backdropView.topAnchor.constraint(equalTo: view.topAnchor),
             backdropView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             backdropView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -158,16 +195,21 @@ final class ClanStickerPreviewViewController: UIViewController {
             errorLabel.topAnchor.constraint(equalTo: nameTextField.bottomAnchor, constant: 6.sh),
             errorLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor, constant: 4.sw),
             errorLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
-
-            forSaleRow.topAnchor.constraint(equalTo: errorLabel.bottomAnchor, constant: 14.sh),
-            forSaleRow.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-
-            uploadButton.topAnchor.constraint(equalTo: forSaleRow.bottomAnchor, constant: 16.sh),
             uploadButton.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 20.sw),
             uploadButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -20.sw),
             uploadButton.heightAnchor.constraint(equalToConstant: 44.sh),
             uploadButton.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -20.sh)
-        ])
+        ]
+        if isSoundSticker {
+            constraints.append(uploadButton.topAnchor.constraint(equalTo: errorLabel.bottomAnchor, constant: 16.sh))
+        } else {
+            constraints.append(contentsOf: [
+                forSaleRow.topAnchor.constraint(equalTo: errorLabel.bottomAnchor, constant: 14.sh),
+                forSaleRow.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
+                uploadButton.topAnchor.constraint(equalTo: forSaleRow.bottomAnchor, constant: 16.sh)
+            ])
+        }
+        NSLayoutConstraint.activate(constraints)
     }
 
     private func applyTheme() {
@@ -181,10 +223,44 @@ final class ClanStickerPreviewViewController: UIViewController {
         errorLabel.textColor = .systemRed
         uploadButton.backgroundColor = theme.bgViolet
         forSaleSwitch.onTintColor = theme.bgViolet
+        if isSoundSticker {
+            imagePreviewView.tintColor = theme.bgViolet
+            imagePreviewView.backgroundColor = theme.primary
+        }
     }
 
     @objc private func handleDismiss() {
+        audioPlayer?.stop()
         dismiss(animated: true)
+    }
+
+    @objc private func handlePlayTapped() {
+        guard let soundData else { return }
+        if audioPlayer?.isPlaying == true {
+            audioPlayer?.pause()
+            updateSoundPreviewIcon(isPlaying: false)
+            return
+        }
+        do {
+            if audioPlayer == nil {
+                audioPlayer = try AVAudioPlayer(data: soundData)
+                audioPlayer?.delegate = self
+            }
+            try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try? AVAudioSession.sharedInstance().setActive(true)
+            audioPlayer?.play()
+            updateSoundPreviewIcon(isPlaying: true)
+        } catch {
+            updateSoundPreviewIcon(isPlaying: false)
+        }
+    }
+
+    private func updateSoundPreviewIcon(isPlaying: Bool) {
+        imagePreviewView.image = UIImage(systemName: isPlaying ? "pause.fill" : "play.fill")
+    }
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        updateSoundPreviewIcon(isPlaying: false)
     }
 
     @objc private func nameTextChanged() {
@@ -195,8 +271,16 @@ final class ClanStickerPreviewViewController: UIViewController {
         let name = ClanStickerNameValidator.normalized(nameTextField.text ?? "")
         guard ClanStickerNameValidator.isValidForPreview(name) else {
             errorLabel.text = String(
-                format: L(L10n.ClanSetting.Stickers.previewLengthError),
-                L(L10n.ClanSetting.Stickers.previewTypeSticker),
+                format: L(
+                    isSoundSticker
+                        ? L10n.ClanSetting.SoundStickers.previewLengthError
+                        : L10n.ClanSetting.Stickers.previewLengthError
+                ),
+                L(
+                    isSoundSticker
+                        ? L10n.ClanSetting.SoundStickers.previewTypeSound
+                        : L10n.ClanSetting.Stickers.previewTypeSticker
+                ),
                 ClanStickerNameValidator.minLength,
                 ClanStickerNameValidator.previewMaxLength
             )
@@ -204,6 +288,10 @@ final class ClanStickerPreviewViewController: UIViewController {
             return
         }
         errorLabel.isHidden = true
-        onConfirm?(name, forSaleSwitch.isOn)
+        if isSoundSticker {
+            audioPlayer?.stop()
+            updateSoundPreviewIcon(isPlaying: false)
+        }
+        onConfirm?(name, !isSoundSticker && forSaleSwitch.isOn)
     }
 }
