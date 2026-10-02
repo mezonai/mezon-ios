@@ -26,7 +26,7 @@ typedef struct {
     float attenuation_limit_db;  /* Maximum attenuation limit in dB (0.0 = unlimited) */
     int num_threads;             /* Number of CPU threads for inference (default: 1) */
     float suppression_intensity; /* Psychoacoustic mask power shaping gamma [1.0 - 2.5] (default: 1.6f) */
-    int enable_noise_gate;       /* Enable adaptive noise floor tracking & VAD gating (1=on, 0=off, default: 1) */
+    int enable_noise_gate;
 } MezonNSConfig;
 
 /**
