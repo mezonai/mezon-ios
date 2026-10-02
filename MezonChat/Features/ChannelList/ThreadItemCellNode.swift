@@ -4,15 +4,25 @@ import UIKit
 final class ThreadItemCellNode: ASCellNode {
 
     private let connectorNode = ASImageNode()
+    private let eventIconNode = ASImageNode()
     private let nameNode = ASTextNode2()
     private let badgeNode = ASTextNode2()
     private let badgeBackground = ASDisplayNode()
     private let selectionNode = ASDisplayNode()
     var onLongPress: (() -> Void)?
     private let isLast: Bool
+    private var eventStatus: Int32?
+    let channelId: Int64
 
-    init(channel: Mezon_Api_ChannelDescription, isSelected: Bool, isLast: Bool) {
+    init(
+        channel: Mezon_Api_ChannelDescription,
+        isSelected: Bool,
+        isLast: Bool,
+        eventStatus: Int32? = nil
+    ) {
         self.isLast = isLast
+        self.eventStatus = ChannelEventIcon.normalizedStatus(eventStatus)
+        self.channelId = channel.channelID
         super.init()
         automaticallyManagesSubnodes = true
         neverShowPlaceholders = true
@@ -31,6 +41,10 @@ final class ThreadItemCellNode: ASCellNode {
         connectorNode.image = UIImage(named: connectorName)
         connectorNode.tintColor = t.channelNormal.withAlphaComponent(0.6)
         connectorNode.contentMode = .scaleAspectFit
+
+        eventIconNode.image = ChannelEventIcon.image(for: eventStatus)
+        eventIconNode.contentMode = .scaleAspectFit
+        eventIconNode.isHidden = eventIconNode.image == nil
 
         let nameColor =
             isUnread ? t.channelUnread : t.channelNormal
@@ -77,6 +91,15 @@ final class ThreadItemCellNode: ASCellNode {
         isUserInteractionEnabled = true
     }
 
+    func applyEventStatus(_ status: Int32?) {
+        let normalized = ChannelEventIcon.normalizedStatus(status)
+        guard eventStatus != normalized else { return }
+        eventStatus = normalized
+        eventIconNode.image = ChannelEventIcon.image(for: normalized)
+        eventIconNode.isHidden = eventIconNode.image == nil
+        setNeedsLayout()
+    }
+
     func applyListSelectionState(selected: Bool) {
         let t = UIColor.theme
         selectionNode.isHidden = !selected
@@ -119,6 +142,7 @@ final class ThreadItemCellNode: ASCellNode {
         badge.style.minSize = CGSize(width: 20.swh, height: 20.swh)
 
         nameNode.style.flexShrink = 1
+        eventIconNode.style.preferredSize = CGSize(width: 16.swh, height: 16.swh)
         let spacer = ASLayoutSpec()
         spacer.style.flexGrow = 1
 
@@ -128,7 +152,11 @@ final class ThreadItemCellNode: ASCellNode {
             insets: UIEdgeInsets(top: topInset, left: leftInset, bottom: 0, right: 0),
             child: connectorNode)
 
-        var contentChildren: [ASLayoutElement] = [nameNode]
+        var contentChildren: [ASLayoutElement] = []
+        if !eventIconNode.isHidden {
+            contentChildren.append(eventIconNode)
+        }
+        contentChildren.append(nameNode)
         if !badgeNode.isHidden {
             contentChildren.append(contentsOf: [spacer, badge])
         }
