@@ -6114,9 +6114,8 @@ final class ChatViewController: ViewController {
         let displays: [ChatMessageDisplay] = includeAdjacentNewer
             ? forwardDisplaysAdjacentNewer(from: selected)
             : [selected]
-        let ids = displays.map(\.id)
         return context.account.postbox.read { tx in
-            ids.compactMap { tx.getMessageById($0) }
+            displays.compactMap { tx.getMessageById($0.id, channelId: $0.message.channelId) }
         }
     }
 
