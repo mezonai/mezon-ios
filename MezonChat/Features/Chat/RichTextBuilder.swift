@@ -301,7 +301,7 @@ enum RichTextBuilder {
                 let displayText = rawText.isEmpty ? "@unknown" : rawText
                 result.append(NSAttributedString(string: displayText, attributes: attrs))
 
-            case .hashtag(let channelId, let clanId, let parentId, let channelLabel, let channelType, let channelPrivate, let ageRestricted):
+            case .hashtag(let channelId, let clanId, _, let channelLabel, let channelType, let channelPrivate, let ageRestricted):
                 let hasEmbeddedLabel = !(channelLabel ?? "").isEmpty
                 let chType = channelType ?? (hasEmbeddedLabel
                     ? MezonConstants.ChannelType.thread.rawValue
@@ -310,15 +310,8 @@ enum RichTextBuilder {
                 let chAge = ageRestricted ?? 0
                 let cid = channelId ?? ""
                 let gidForAccess = (clanId ?? "").isEmpty ? nil : clanId
-                let hasSentDetails = hasEmbeddedLabel && channelType != nil && chPriv == 0
-                    && !(clanId ?? "").isEmpty && clanId != "0"
-                var accessible = token.channelIsAccessible
-                    ?? (!cid.isEmpty && (hasSentDetails || (hashtagChannelAccess?(cid, gidForAccess) ?? true)))
-                if token.channelIsAccessible == nil, !accessible, hasEmbeddedLabel, chPriv == 0,
-                   let pid = parentId, !pid.isEmpty, pid != "0",
-                   let access = hashtagChannelAccess {
-                    accessible = access(pid, gidForAccess)
-                }
+                let accessible = token.channelIsAccessible
+                    ?? (!cid.isEmpty && (hashtagChannelAccess?(cid, gidForAccess) ?? false))
                 let iconName: String
                 if accessible {
                     iconName = Mezon_Api_ChannelDescription.channelListIconAssetName(
@@ -370,7 +363,7 @@ enum RichTextBuilder {
             case .mezonChannelLink(let isVk, let channelId, let clanId):
                 let gidForAccess = clanId.isEmpty ? nil : clanId
                 let accessible = token.channelIsAccessible
-                    ?? (!channelId.isEmpty && (hashtagChannelAccess?(channelId, gidForAccess) ?? true))
+                    ?? (!channelId.isEmpty && (hashtagChannelAccess?(channelId, gidForAccess) ?? false))
                 let chType: Int32 = isVk ? MezonConstants.ChannelType.mezonVoice.rawValue : MezonConstants.ChannelType.channel.rawValue
                 let iconName: String
                 if accessible {

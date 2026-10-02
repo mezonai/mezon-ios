@@ -182,13 +182,11 @@ enum MessageContentParser {
             let clanId: String?
             let parentId: String?
             let label: String?
-            let type: Int32?
-            let privacy: Int32?
             switch token.kind {
-            case let .hashtag(cid, clan, parent, name, channelType, channelPrivate, _):
-                (channelId, clanId, parentId, label, type, privacy) = (cid, clan, parent, name, channelType, channelPrivate)
+            case let .hashtag(cid, clan, parent, name, _, _, _):
+                (channelId, clanId, parentId, label) = (cid, clan, parent, name)
             case let .mezonChannelLink(_, cid, clan):
-                (channelId, clanId, parentId, label, type, privacy) = (cid, clan, nil, nil, nil, nil)
+                (channelId, clanId, parentId, label) = (cid, clan, nil, nil)
             default:
                 return token
             }
@@ -210,12 +208,8 @@ enum MessageContentParser {
                     ageRestricted: channel.ageRestricted
                 ), channelIsAccessible: true)
             } else {
-                let hasSentDetails = !(label ?? "").isEmpty && type != nil && (privacy ?? 0) == 0
-                    && !(clanId ?? "").isEmpty && clanId != "0"
-                if !hasSentDetails { requestChannel(id, clan) }
-                let hasAccessibleParent = (privacy ?? 0) == 0 && parent != 0
-                    && findChannel(parent, clan, 0) != nil
-                result.channelIsAccessible = hasSentDetails || hasAccessibleParent
+                // Sent metadata and access to a parent do not establish access to this channel.
+                requestChannel(id, clan)
             }
             return result
         }

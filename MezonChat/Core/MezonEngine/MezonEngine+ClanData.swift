@@ -167,6 +167,20 @@ extension MezonEngine {
             linkedChannelDetails[channelId]
         }
 
+        private func invalidateLinkedChannels(_ channelIds: Set<Int64>) {
+            for id in channelIds {
+                linkedChannelDetails[id] = nil
+                rejectedLinkedChannels.remove(id)
+                pendingLinkedChannels.remove(id)
+                linkedChannelTasks.removeValue(forKey: id)?.cancel()
+            }
+            linkedChannelQueue.removeAll { channelIds.contains($0.id) }
+            for id in channelIds {
+                linkedChannelUpdated.putNext(id)
+            }
+            pumpLinkedChannels()
+        }
+
         func isLinkedClanMember(_ clanId: Int64) -> Bool {
             clanId == 0 || postbox.read { $0.getClans() }.contains { $0.id == clanId }
         }
@@ -189,7 +203,7 @@ extension MezonEngine {
                 linkedChannelTasks[next.id] = Task { @MainActor [weak self] in
                     guard let self else { return }
                     defer {
-                        if self.linkedChannelGeneration == generation {
+                        if !Task.isCancelled, self.linkedChannelGeneration == generation {
                             self.linkedChannelTasks[next.id] = nil
                             self.pendingLinkedChannels.remove(next.id)
                             self.pumpLinkedChannels()
@@ -1232,10 +1246,18 @@ extension MezonEngine {
             guard channelId != 0 else { return }
             let resolvedClanId = clanId != 0 ? clanId : (
                 getAllChannelsByUser()?.channeldesc.first(where: { $0.channelID == channelId && $0.clanID != 0 })?.clanID
-                    ?? postbox.getChannelDescription(channelId: channelId)?.clanId ?? 0
+                    ?? postbox.getChannelDescription(channelId: channelId)?.clanId
+                    ?? linkedChannelDetails[channelId]?.clanID ?? 0
             )
-            guard resolvedClanId != 0 else { return }
             var removedIds: Set<Int64> = [channelId]
+            for ch in linkedChannelDetails.values where ch.parentID == channelId
+                && (resolvedClanId == 0 || ch.clanID == 0 || ch.clanID == resolvedClanId) {
+                removedIds.insert(ch.channelID)
+            }
+            guard resolvedClanId != 0 else {
+                invalidateLinkedChannels(removedIds)
+                return
+            }
             postbox.writeSync { tx in
                 let settings = tx.settingsTable
                 let listKey = PreferencesKeys.channelList(clanId: resolvedClanId)
@@ -1288,6 +1310,7 @@ extension MezonEngine {
                 }
                 tx.updateChannels(records.filter { !removedIds.contains($0.id) }, clanId: resolvedClanId)
             }
+            invalidateLinkedChannels(removedIds)
             NotificationCenter.default.post(
                 name: .mezonChannelDeletedLocally,
                 object: nil,
