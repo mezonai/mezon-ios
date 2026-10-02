@@ -83,7 +83,6 @@ struct User: Identifiable, Equatable, Codable, Hashable {
         case 240: return 240
         case 60: return 60
         case 30: return 30
-        case 0: return 0
         default: return -1
         }
     }

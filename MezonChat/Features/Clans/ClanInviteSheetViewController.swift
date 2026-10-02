@@ -891,11 +891,213 @@ private final class ClanInviteFriendCellNode: ASCellNode {
     }
 }
 
+private var channelInviteCompactContentHeight: CGFloat { 200.sh }
+
+private final class ClanInviteCompactTransitionAnimator: NSObject,
+    UIViewControllerAnimatedTransitioning
+{
+    private let isPresenting: Bool
+    private let contentHeight: CGFloat
+
+    init(isPresenting: Bool, contentHeight: CGFloat) {
+        self.isPresenting = isPresenting
+        self.contentHeight = contentHeight
+        super.init()
+    }
+
+    func transitionDuration(using transitionContext: UIViewControllerContextTransitioning?) -> TimeInterval {
+        isPresenting ? 0.3 : 0.25
+    }
+
+    func animateTransition(using transitionContext: UIViewControllerContextTransitioning) {
+        let containerView = transitionContext.containerView
+        let key: UITransitionContextViewKey = isPresenting ? .to : .from
+        guard let sheetView = transitionContext.view(forKey: key) else {
+            transitionContext.completeTransition(false)
+            return
+        }
+
+        let height = min(
+            contentHeight + containerView.safeAreaInsets.bottom,
+            containerView.bounds.height
+        )
+        let finalFrame = CGRect(
+            x: 0,
+            y: containerView.bounds.height - height,
+            width: containerView.bounds.width,
+            height: height
+        )
+
+        if isPresenting {
+            sheetView.frame = finalFrame
+            sheetView.transform = CGAffineTransform(translationX: 0, y: height)
+            containerView.addSubview(sheetView)
+        }
+
+        UIView.animate(
+            withDuration: transitionDuration(using: transitionContext),
+            delay: 0,
+            options: [isPresenting ? .curveEaseOut : .curveEaseIn, .beginFromCurrentState],
+            animations: {
+                sheetView.transform = self.isPresenting
+                    ? .identity
+                    : CGAffineTransform(translationX: 0, y: height)
+            },
+            completion: { _ in
+                let completed = !transitionContext.transitionWasCancelled
+                if self.isPresenting && !completed {
+                    sheetView.removeFromSuperview()
+                } else if !self.isPresenting && !completed {
+                    sheetView.transform = .identity
+                }
+                transitionContext.completeTransition(completed)
+            }
+        )
+    }
+}
+
+private final class ClanInviteCompactPresentationController: UIPresentationController,
+    UIGestureRecognizerDelegate
+{
+    private let contentHeight: CGFloat
+    private let dimmingView = UIView()
+    private weak var panGestureRecognizer: UIPanGestureRecognizer?
+
+    init(
+        presentedViewController: UIViewController,
+        presenting presentingViewController: UIViewController?,
+        contentHeight: CGFloat
+    ) {
+        self.contentHeight = contentHeight
+        super.init(
+            presentedViewController: presentedViewController,
+            presenting: presentingViewController
+        )
+    }
+
+    override var frameOfPresentedViewInContainerView: CGRect {
+        guard let containerView else { return .zero }
+        let bounds = containerView.bounds
+        let height = min(contentHeight + containerView.safeAreaInsets.bottom, bounds.height)
+        return CGRect(x: 0, y: bounds.height - height, width: bounds.width, height: height)
+    }
+
+    override func presentationTransitionWillBegin() {
+        guard let containerView, let presentedView else { return }
+
+        dimmingView.backgroundColor = UIColor.black.withAlphaComponent(0.45)
+        dimmingView.alpha = 0
+        dimmingView.frame = containerView.bounds
+        dimmingView.addGestureRecognizer(
+            UITapGestureRecognizer(target: self, action: #selector(dimmingViewTapped))
+        )
+        containerView.insertSubview(dimmingView, at: 0)
+
+        presentedView.layer.cornerRadius = 24.swh
+        presentedView.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        presentedView.clipsToBounds = true
+        presentedView.accessibilityViewIsModal = true
+
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        pan.cancelsTouchesInView = false
+        pan.delegate = self
+        presentedView.addGestureRecognizer(pan)
+        panGestureRecognizer = pan
+
+        let animations = { self.dimmingView.alpha = 1 }
+        if let coordinator = presentedViewController.transitionCoordinator {
+            coordinator.animate(alongsideTransition: { _ in animations() })
+        } else {
+            UIView.animate(
+                withDuration: 0.3,
+                delay: 0,
+                options: [.curveEaseOut],
+                animations: animations
+            )
+        }
+    }
+
+    override func dismissalTransitionWillBegin() {
+        let animations = { self.dimmingView.alpha = 0 }
+        if let coordinator = presentedViewController.transitionCoordinator {
+            coordinator.animate(alongsideTransition: { _ in animations() })
+        } else {
+            UIView.animate(
+                withDuration: 0.25,
+                delay: 0,
+                options: [.curveEaseIn],
+                animations: animations
+            )
+        }
+    }
+
+    override func dismissalTransitionDidEnd(_ completed: Bool) {
+        if completed {
+            dimmingView.removeFromSuperview()
+        }
+    }
+
+    override func containerViewWillLayoutSubviews() {
+        super.containerViewWillLayoutSubviews()
+        dimmingView.frame = containerView?.bounds ?? .zero
+        presentedView?.frame = frameOfPresentedViewInContainerView
+    }
+
+    @objc private func dimmingViewTapped() {
+        presentedViewController.dismiss(animated: true)
+    }
+
+    @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
+        guard let presentedView else { return }
+        let translationY = max(0, recognizer.translation(in: presentedView).y)
+        let sheetHeight = max(presentedView.bounds.height, 1)
+
+        switch recognizer.state {
+        case .changed:
+            presentedView.transform = CGAffineTransform(translationX: 0, y: translationY)
+            dimmingView.alpha = max(0, 1 - translationY / sheetHeight)
+        case .ended, .cancelled:
+            let velocityY = recognizer.velocity(in: presentedView).y
+            let shouldDismiss = recognizer.state == .ended
+                && (translationY > sheetHeight * 0.25 || velocityY > 800)
+            if shouldDismiss {
+                presentedViewController.dismiss(animated: true)
+            } else {
+                UIView.animate(
+                    withDuration: 0.25,
+                    delay: 0,
+                    usingSpringWithDamping: 0.9,
+                    initialSpringVelocity: 0,
+                    options: [.curveEaseOut],
+                    animations: {
+                        presentedView.transform = .identity
+                        self.dimmingView.alpha = 1
+                    }
+                )
+            }
+        default:
+            break
+        }
+    }
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer === panGestureRecognizer,
+              let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
+        let velocity = pan.velocity(in: presentedView)
+        return velocity.y > 0 && abs(velocity.y) > abs(velocity.x)
+    }
+}
+
 private final class ClanInviteSheetContainerNode: ASDisplayNode {
+    private let showsQRCode: Bool
+    private let isChannelInvite: Bool
     let titleNode = ASTextNode()
     let shareButton: ClanInviteActionButtonNode
     let copyButton: ClanInviteActionButtonNode
     let qrButton: ClanInviteActionButtonNode
+    let grabberNode = ASDisplayNode()
+    let inviteLinkContainerNode = ASDisplayNode()
+    let inviteLinkNode = ASTextNode()
     let dividerNode = ASDisplayNode()
     let searchWrapNode = ClanInviteSearchWrapNode()
     let listContainerNode = ASDisplayNode()
@@ -904,11 +1106,13 @@ private final class ClanInviteSheetContainerNode: ASDisplayNode {
     let loadingSpinner = UIActivityIndicatorView(style: .medium)
     let loadingLabel = UILabel()
 
-    override init() {
+    init(showsQRCode: Bool, isChannelInvite: Bool) {
+        self.showsQRCode = showsQRCode
+        self.isChannelInvite = isChannelInvite
         shareButton = ClanInviteActionButtonNode(
             iconAsset: "Invite/ShareIcon",
             fallbackSystemIcon: "square.and.arrow.up",
-            title: L(L10n.ClanInviteSheet.share)
+            title: isChannelInvite ? L(L10n.Common.share) : L(L10n.ClanInviteSheet.share)
         )
         copyButton = ClanInviteActionButtonNode(
             iconAsset: "ClanSetting/Invite",
@@ -922,9 +1126,13 @@ private final class ClanInviteSheetContainerNode: ASDisplayNode {
         )
 
         super.init()
+        qrButton.isHidden = !showsQRCode
         automaticallyManagesSubnodes = false
 
         titleNode.isLayerBacked = true
+        grabberNode.isLayerBacked = true
+        inviteLinkContainerNode.isLayerBacked = true
+        inviteLinkNode.isLayerBacked = true
         dividerNode.isLayerBacked = true
 
         backgroundColor = UIColor.theme.primary
@@ -934,13 +1142,24 @@ private final class ClanInviteSheetContainerNode: ASDisplayNode {
         let center = NSMutableParagraphStyle()
         center.alignment = .center
         titleNode.attributedText = NSAttributedString(
-            string: L(L10n.ClanInviteSheet.title),
+            string: isChannelInvite
+                ? L(L10n.ChannelDetail.inviteMembers)
+                : L(L10n.ClanInviteSheet.title),
             attributes: [
                 .font: UIFont.systemFont(ofSize: 15.sf, weight: .bold),
                 .foregroundColor: UIColor.theme.textStrong,
                 .paragraphStyle: center,
             ]
         )
+
+        grabberNode.backgroundColor = UIColor.theme.textDisabled.withAlphaComponent(0.7)
+        grabberNode.cornerRadius = 2.5.swh
+
+        inviteLinkContainerNode.backgroundColor = UIColor.theme.secondary
+        inviteLinkContainerNode.cornerRadius = 8.swh
+        inviteLinkContainerNode.clipsToBounds = true
+        inviteLinkNode.maximumNumberOfLines = 2
+        inviteLinkNode.truncationMode = .byTruncatingMiddle
 
         listContainerNode.backgroundColor = UIColor.theme.secondary
         listContainerNode.cornerRadius = 10.swh
@@ -956,11 +1175,17 @@ private final class ClanInviteSheetContainerNode: ASDisplayNode {
         addSubnode(shareButton)
         addSubnode(copyButton)
         addSubnode(qrButton)
-        addSubnode(dividerNode)
-        addSubnode(searchWrapNode)
-        addSubnode(listContainerNode)
-        listContainerNode.addSubnode(tableNode)
-        listContainerNode.addSubnode(emptyStateNode)
+        if isChannelInvite {
+            addSubnode(grabberNode)
+            addSubnode(inviteLinkContainerNode)
+            inviteLinkContainerNode.addSubnode(inviteLinkNode)
+        } else {
+            addSubnode(dividerNode)
+            addSubnode(searchWrapNode)
+            addSubnode(listContainerNode)
+            listContainerNode.addSubnode(tableNode)
+            listContainerNode.addSubnode(emptyStateNode)
+        }
     }
 
     override func didLoad() {
@@ -983,7 +1208,9 @@ private final class ClanInviteSheetContainerNode: ASDisplayNode {
         let center = NSMutableParagraphStyle()
         center.alignment = .center
         titleNode.attributedText = NSAttributedString(
-            string: L(L10n.ClanInviteSheet.title),
+            string: isChannelInvite
+                ? L(L10n.ChannelDetail.inviteMembers)
+                : L(L10n.ClanInviteSheet.title),
             attributes: [
                 .font: UIFont.systemFont(ofSize: 15.sf, weight: .bold),
                 .foregroundColor: UIColor.theme.textStrong,
@@ -992,6 +1219,9 @@ private final class ClanInviteSheetContainerNode: ASDisplayNode {
         )
 
         dividerNode.backgroundColor = UIColor.theme.border.withAlphaComponent(0.6)
+        grabberNode.backgroundColor = UIColor.theme.textDisabled.withAlphaComponent(0.7)
+        inviteLinkContainerNode.backgroundColor = UIColor.theme.secondary
+        updateInviteLinkText(inviteLinkNode.attributedText?.string)
         searchWrapNode.applyTheme()
         loadingSpinner.color = UIColor.theme.textDisabled
         loadingLabel.textColor = UIColor.theme.textDisabled
@@ -1007,12 +1237,21 @@ private final class ClanInviteSheetContainerNode: ASDisplayNode {
         let w = b.width
         var y: CGFloat = 0
 
-        titleNode.frame = CGRect(x: 16.sw, y: 20.sh, width: w - 32.sw, height: 24.sh)
+        if isChannelInvite {
+            grabberNode.frame = CGRect(
+                x: (w - 36.sw) / 2,
+                y: 8.sh,
+                width: 36.sw,
+                height: 5.sh
+            )
+        }
+        let titleY = isChannelInvite ? 44.sh : 20.sh
+        titleNode.frame = CGRect(x: 16.sw, y: titleY, width: w - 32.sw, height: 24.sh)
         y = 60.sh
 
         let aLead: CGFloat = 16.sw
         let aTrail: CGFloat = 16.sw
-        let aTop = y + 16.sh
+        let aTop = isChannelInvite ? 76.sh : y + 16.sh
 
         let shareSz = shareButton.calculateSizeThatFits(CGSize(width: w, height: 62.sh))
         let copySz = copyButton.calculateSizeThatFits(CGSize(width: w, height: 62.sh))
@@ -1022,9 +1261,44 @@ private final class ClanInviteSheetContainerNode: ASDisplayNode {
         let copyW = copySz.width
         let qrW = qrSz.width
 
-        shareButton.frame = CGRect(x: aLead, y: aTop, width: shareW, height: 62.sh)
-        copyButton.frame = CGRect(x: (w - copyW) / 2, y: aTop, width: copyW, height: 62.sh)
-        qrButton.frame = CGRect(x: w - aTrail - qrW, y: aTop, width: qrW, height: 62.sh)
+        if isChannelInvite {
+            shareButton.frame = CGRect(x: w / 3 - shareW / 2, y: aTop, width: shareW, height: 62.sh)
+            copyButton.frame = CGRect(x: w * 2 / 3 - copyW / 2, y: aTop, width: copyW, height: 62.sh)
+            qrButton.frame = .zero
+
+            let linkX: CGFloat = 16.sw
+            let linkWidth = w - 32.sw
+            let linkHeight: CGFloat = 50.sh
+            let linkBottomInset: CGFloat = 4.sh
+            let viewSafeBottom = isNodeLoaded ? view.safeAreaInsets.bottom : 0
+            let windowSafeBottom = isNodeLoaded ? view.window?.safeAreaInsets.bottom ?? 0 : 0
+            let safeContentBottom = b.height - max(viewSafeBottom, windowSafeBottom)
+            let linkY = max(0, safeContentBottom - linkBottomInset - linkHeight)
+            inviteLinkContainerNode.frame = CGRect(
+                x: linkX,
+                y: linkY,
+                width: linkWidth,
+                height: linkHeight
+            )
+            let textSize = inviteLinkNode.calculateSizeThatFits(
+                CGSize(width: linkWidth - 24.sw, height: linkHeight - 16.sh)
+            )
+            inviteLinkNode.frame = CGRect(
+                x: 12.sw,
+                y: (linkHeight - textSize.height) / 2,
+                width: linkWidth - 24.sw,
+                height: textSize.height
+            )
+            return
+        } else if showsQRCode {
+            shareButton.frame = CGRect(x: aLead, y: aTop, width: shareW, height: 62.sh)
+            copyButton.frame = CGRect(x: (w - copyW) / 2, y: aTop, width: copyW, height: 62.sh)
+            qrButton.frame = CGRect(x: w - aTrail - qrW, y: aTop, width: qrW, height: 62.sh)
+        } else {
+            shareButton.frame = CGRect(x: w / 3 - shareW / 2, y: aTop, width: shareW, height: 62.sh)
+            copyButton.frame = CGRect(x: w * 2 / 3 - copyW / 2, y: aTop, width: copyW, height: 62.sh)
+            qrButton.frame = .zero
+        }
         dividerNode.frame = CGRect(
             x: 0,
             y: y + 94.sh - 1 / UIScreen.main.scale,
@@ -1048,10 +1322,33 @@ private final class ClanInviteSheetContainerNode: ASDisplayNode {
         emptyStateNode.isHidden = !isEmpty
         tableNode.isHidden = isEmpty
     }
+
+    func updateInviteLink(_ link: String?) {
+        updateInviteLinkText(link)
+        setNeedsLayout()
+    }
+
+    private func updateInviteLinkText(_ link: String?) {
+        let center = NSMutableParagraphStyle()
+        center.alignment = .center
+        center.lineBreakMode = .byCharWrapping
+        inviteLinkNode.attributedText = NSAttributedString(
+            string: link ?? "",
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 14.sf, weight: .regular),
+                .foregroundColor: UIColor.theme.textDisabled,
+                .paragraphStyle: center,
+            ]
+        )
+    }
 }
 
 final class ClanInviteSheetViewController: ViewController {
     private static let inviteIdRegex = try? NSRegularExpression(pattern: "/invite/(\\d+)", options: [])
+    @available(iOS 16.0, *)
+    private static let channelInviteDetentIdentifier = UISheetPresentationController.Detent.Identifier(
+        "mezon.channelInvite.content"
+    )
 
     private enum InviteTarget: Hashable {
         case friend(userId: Int64)
@@ -1068,7 +1365,10 @@ final class ClanInviteSheetViewController: ViewController {
 
     private let context: AccountContext
     private let clanId: Int64
-    private let nativeModalPresenter = UIViewController()
+    private let channelId: Int64?
+    private let externalEventURL: URL?
+
+    private var isChannelInvite: Bool { channelId != nil }
 
     private var inviteLink: String?
     private var clanName = ""
@@ -1083,10 +1383,23 @@ final class ClanInviteSheetViewController: ViewController {
 
     private var containerNode: ClanInviteSheetContainerNode { displayNode as! ClanInviteSheetContainerNode }
 
-    init(context: AccountContext, clanId: Int64) {
+    init(context: AccountContext, clanId: Int64, channelId: Int64? = nil, externalEventURL: URL? = nil) {
         self.context = context
         self.clanId = clanId
+        self.channelId = channelId
+        self.externalEventURL = externalEventURL
         super.init(navigationBarPresentationData: nil)
+
+        if channelId != nil {
+            let contentHeight = channelInviteCompactContentHeight
+            preferredContentSize = CGSize(width: preferredContentSize.width, height: contentHeight)
+            if #available(iOS 16.0, *) {
+                modalPresentationStyle = .pageSheet
+            } else {
+                modalPresentationStyle = .custom
+                transitioningDelegate = self
+            }
+        }
     }
 
     required init(coder: NSCoder) {
@@ -1094,7 +1407,10 @@ final class ClanInviteSheetViewController: ViewController {
     }
 
     override func loadDisplayNode() {
-        let node = ClanInviteSheetContainerNode()
+        let node = ClanInviteSheetContainerNode(
+            showsQRCode: channelId == nil && externalEventURL == nil,
+            isChannelInvite: isChannelInvite
+        )
         displayNode = node
 
         node.shareButton.onTap = { [weak self] in self?.shareInvite() }
@@ -1103,57 +1419,69 @@ final class ClanInviteSheetViewController: ViewController {
         node.shareButton.setEnabled(false)
         node.copyButton.setEnabled(false)
         node.qrButton.setEnabled(false)
-        node.emptyStateNode.actionButtonNode.addTarget(
-            self,
-            action: #selector(emptyActionTapped),
-            forControlEvents: .touchUpInside
-        )
-
-        node.tableNode.dataSource = self
-        node.tableNode.delegate = self
+        if !isChannelInvite {
+            node.emptyStateNode.actionButtonNode.addTarget(
+                self,
+                action: #selector(emptyActionTapped),
+                forControlEvents: .touchUpInside
+            )
+            node.tableNode.dataSource = self
+            node.tableNode.delegate = self
+        }
     }
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        attachNativeModalPresenter()
-        containerNode.searchWrapNode.textField.addTarget(self, action: #selector(searchChanged), for: .editingChanged)
-        containerNode.searchWrapNode.clearButton.addTarget(self, action: #selector(clearSearchTapped), for: .touchUpInside)
+        if isChannelInvite {
+            configureChannelInviteSheet()
+        } else {
+            containerNode.searchWrapNode.textField.addTarget(
+                self,
+                action: #selector(searchChanged),
+                for: .editingChanged
+            )
+            containerNode.searchWrapNode.clearButton.addTarget(
+                self,
+                action: #selector(clearSearchTapped),
+                for: .touchUpInside
+            )
+        }
         applyTheme()
         loadData()
     }
 
     override func dismiss(animated flag: Bool, completion: (() -> Void)? = nil) {
-        if let modal = nativeModalPresenter.presentedViewController ?? presentedViewController {
+        if let modal = presentedViewController {
             modal.dismiss(animated: flag, completion: completion)
         } else {
             super.dismiss(animated: flag, completion: completion)
         }
     }
 
-    private func attachNativeModalPresenter() {
-        nativeModalPresenter.definesPresentationContext = true
-        nativeModalPresenter.view.backgroundColor = .clear
-        nativeModalPresenter.view.isUserInteractionEnabled = false
-        nativeModalPresenter.view.translatesAutoresizingMaskIntoConstraints = false
-
-        addChild(nativeModalPresenter)
-        view.insertSubview(nativeModalPresenter.view, at: 0)
-        NSLayoutConstraint.activate([
-            nativeModalPresenter.view.topAnchor.constraint(equalTo: view.topAnchor),
-            nativeModalPresenter.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            nativeModalPresenter.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            nativeModalPresenter.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
-        nativeModalPresenter.didMove(toParent: self)
-    }
-
     private func presentNativeModal(_ controller: UIViewController) {
-        guard nativeModalPresenter.presentedViewController == nil else { return }
-        nativeModalPresenter.present(controller, animated: true)
+        guard presentedViewController == nil else { return }
+        presentNativeController(controller, animated: true)
     }
 
     private func applyTheme() {
         containerNode.applyTheme()
+    }
+
+    private func configureChannelInviteSheet() {
+        let contentHeight = channelInviteCompactContentHeight
+
+        if #available(iOS 16.0, *), let sheet = sheetPresentationController {
+            sheet.prefersGrabberVisible = false
+            sheet.preferredCornerRadius = 24.swh
+
+            let identifier = Self.channelInviteDetentIdentifier
+            let contentDetent = UISheetPresentationController.Detent.custom(
+                identifier: identifier
+            ) { context in
+                return min(context.maximumDetentValue, contentHeight)
+            }
+            sheet.detents = [contentDetent]
+        }
     }
 
     private func loadData() {
@@ -1163,10 +1491,15 @@ final class ClanInviteSheetViewController: ViewController {
                 return
             }
             inviteLink = await resolveInviteLink(token: token)
+            if isChannelInvite {
+                containerNode.updateInviteLink(inviteLink)
+            }
             updateInviteActionState()
             if inviteLink == nil {
                 showSimpleAlert(message: L(L10n.ClanInviteSheet.cannotCreateInvite))
             }
+
+            guard !isChannelInvite else { return }
 
             do {
                 async let friendsTask = context.account.network.listFriends(
@@ -1178,9 +1511,10 @@ final class ClanInviteSheetViewController: ViewController {
                 let friends = try await friendsTask
                 let directs = try await directsTask
 
-                let memberIds = Set(context.account.postbox.read { tx in
-                    tx.getClanMembers(clanId: self.clanId).map { $0.userId }
-                })
+                let clanMembers = context.account.postbox.read { tx in tx.getClanMembers(clanId: self.clanId) }
+                let excludedUserIds = externalEventURL == nil
+                    ? Set(clanMembers.map(\.userId))
+                    : context.engine.friendsData.blockedUserIds()
                 cacheDirectChannels(directs)
 
                 let currentUserId = Int64(context.currentUser?.id ?? "") ?? 0
@@ -1191,7 +1525,7 @@ final class ClanInviteSheetViewController: ViewController {
                     guard friend.hasUser else { continue }
                     let u = friend.user
                     let uid = u.id
-                    guard uid != 0, uid != currentUserId, !memberIds.contains(uid) else { continue }
+                    guard uid != 0, uid != currentUserId, !excludedUserIds.contains(uid) else { continue }
                     let name = !u.displayName.isEmpty ? u.displayName : (u.username.isEmpty ? "Unknown" : u.username)
                     let avatar = u.avatarURL.isEmpty ? nil : u.avatarURL
                     merged["user_\(uid)"] = FriendItem(
@@ -1210,7 +1544,7 @@ final class ClanInviteSheetViewController: ViewController {
 
                     if isDM {
                         guard let uid = dm.userIds.first else { continue }
-                        guard uid != 0, uid != currentUserId, !memberIds.contains(uid) else { continue }
+                        guard uid != 0, uid != currentUserId, !excludedUserIds.contains(uid) else { continue }
                         guard dm.channelID != 0 else { continue }
                         let name = !dm.channelLabel.isEmpty
                             ? dm.channelLabel
@@ -1236,6 +1570,21 @@ final class ClanInviteSheetViewController: ViewController {
                             avatarURL: avatar,
                             isGroupDM: true,
                             target: .direct(channelId: dm.channelID, type: dm.type, isPublic: dm.channelPrivate == 0)
+                        )
+                    }
+                }
+
+                if externalEventURL != nil {
+                    for member in clanMembers where member.userId != 0 && member.userId != currentUserId {
+                        guard !excludedUserIds.contains(member.userId), merged["user_\(member.userId)"] == nil else { continue }
+                        let name = !member.clanNick.isEmpty ? member.clanNick : (!member.displayName.isEmpty ? member.displayName : member.username)
+                        let avatar = !member.clanAvatar.isEmpty ? member.clanAvatar : member.userAvatarURL
+                        merged["user_\(member.userId)"] = FriendItem(
+                            id: member.userId,
+                            name: name,
+                            avatarURL: avatar.isEmpty ? nil : avatar,
+                            isGroupDM: false,
+                            target: .friend(userId: member.userId)
                         )
                     }
                 }
@@ -1268,6 +1617,11 @@ final class ClanInviteSheetViewController: ViewController {
     }
 
     private func resolveInviteLink(token: String) async -> String? {
+        if let externalEventURL { return externalEventURL.absoluteString }
+        if let channelId {
+            return "\(MezonConfig.chatWebAppBaseURL)/chat/clans/\(clanId)/channels/\(channelId)"
+        }
+
         guard let inviteContext = await resolveInviteContext(token: token) else {
             return nil
         }
@@ -1389,7 +1743,7 @@ final class ClanInviteSheetViewController: ViewController {
                 _ = try await context.account.network.sendChannelMessage(
                     clanId: 0,
                     channelId: dm.channelID,
-                    mode: MezonConstants.ChannelStreamMode.dm.rawValue,
+                    mode: item.isGroupDM ? MezonConstants.ChannelStreamMode.group.rawValue : MezonConstants.ChannelStreamMode.dm.rawValue,
                     isPublic: isPublic,
                     content: content,
                     token: token
@@ -1408,7 +1762,7 @@ final class ClanInviteSheetViewController: ViewController {
         ]
         var payload: [String: Any] = ["t": url]
 
-        if let inviteId = extractInviteId(from: url), !inviteId.isEmpty {
+        if externalEventURL == nil, let inviteId = extractInviteId(from: url), !inviteId.isEmpty {
             do {
                 let inviteInfo = try await context.account.network.getInviteInfo(code: inviteId, token: token)
                 let memberCount = inviteInfo.member_count ?? 0
@@ -1535,6 +1889,51 @@ final class ClanInviteSheetViewController: ViewController {
         let ac = UIAlertController(title: nil, message: message, preferredStyle: .alert)
         ac.addAction(UIAlertAction(title: "OK", style: .default))
         presentNativeModal(ac)
+    }
+}
+
+extension ClanInviteSheetViewController: UIViewControllerTransitioningDelegate {
+    func animationController(
+        forPresented presented: UIViewController,
+        presenting: UIViewController,
+        source: UIViewController
+    ) -> UIViewControllerAnimatedTransitioning? {
+        guard usesLegacyCompactPresentation else { return nil }
+        return ClanInviteCompactTransitionAnimator(
+            isPresenting: true,
+            contentHeight: channelInviteCompactContentHeight
+        )
+    }
+
+    func animationController(
+        forDismissed dismissed: UIViewController
+    ) -> UIViewControllerAnimatedTransitioning? {
+        guard usesLegacyCompactPresentation else { return nil }
+        return ClanInviteCompactTransitionAnimator(
+            isPresenting: false,
+            contentHeight: channelInviteCompactContentHeight
+        )
+    }
+
+    func presentationController(
+        forPresented presented: UIViewController,
+        presenting: UIViewController?,
+        source: UIViewController
+    ) -> UIPresentationController? {
+        guard usesLegacyCompactPresentation else { return nil }
+        return ClanInviteCompactPresentationController(
+            presentedViewController: presented,
+            presenting: presenting,
+            contentHeight: channelInviteCompactContentHeight
+        )
+    }
+
+    private var usesLegacyCompactPresentation: Bool {
+        guard isChannelInvite else { return false }
+        if #available(iOS 16.0, *) {
+            return false
+        }
+        return true
     }
 }
 

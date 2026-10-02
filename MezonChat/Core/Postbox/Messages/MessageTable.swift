@@ -1,8 +1,13 @@
 import Foundation
+import os.log
 
 final class MessageTable: Table {
 
+    private static let reactionLog = OSLog(subsystem: "mezon.postbox", category: "reaction-scope")
+
     private static let topicMessageCode: Int32 = 9
+
+    private static let topicChannelKeyPrefix = "topic-"
 
     private struct TopicMetaValue {
         var rpl: Int
@@ -463,16 +468,26 @@ final class MessageTable: Table {
         )
     }
 
-    func replaceAllMessages(_ messages: [MessageRecord], channelId: String) {
+    func replaceAllMessages(
+        _ messages: [MessageRecord],
+        channelId: String,
+        preservingContiguousHistory: Bool = false
+    ) {
         let belonging = messages.filter { $0.channelId == channelId }
         let existing = cache[channelId] ?? getMessages(channelId: channelId)
         let existingById = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
         let mergedRaw = belonging.map { incoming -> MessageRecord in
-            guard let previous = existingById[incoming.id] else { return incoming }
-            return MessageRecord.mergingIncomingPreservingEmptyAttachments(
-                incoming: incoming,
-                previous: previous
-            )
+            let merged: MessageRecord
+            if let previous = existingById[incoming.id] {
+                merged = MessageRecord.mergingIncomingPreservingEmptyAttachments(
+                    incoming: incoming,
+                    previous: previous
+                )
+            } else {
+                merged = incoming
+            }
+
+            return enrichTopicMeta(merged)
         }
         var mergedBelonging: [MessageRecord] = []
         var keptIds = Set<String>()
@@ -490,6 +505,18 @@ final class MessageTable: Table {
             keptIds.insert(record.id)
             mergedBelonging.append(record)
         }
+        var preservedHistory: [MessageRecord] = []
+        if preservingContiguousHistory,
+           let oldestIncoming = mergedBelonging.min(by: { MessageRecord.isOrderedAscending($0, $1) }),
+           existingById[oldestIncoming.id] != nil {
+            for record in existing where !record.id.hasPrefix("pending-") {
+                guard !keptIds.contains(record.id),
+                      MessageRecord.isOrderedAscending(record, oldestIncoming) else { continue }
+                keptIds.insert(record.id)
+                preservedHistory.append(record)
+            }
+        }
+
         let pendingsToKeep = existing.filter { record in
             guard record.id.hasPrefix("pending-"),
                   record.sendingState == .pending || record.sendingState == .failed,
@@ -500,10 +527,19 @@ final class MessageTable: Table {
         let droppedLocalIds = existing
             .filter { $0.id.hasPrefix("pending-") && !keptPendingIds.contains($0.id) }
             .map { $0.id }
-        cache[channelId] = (mergedBelonging + pendingsToKeep).sorted { MessageRecord.isOrderedAscending($0, $1) }
+        cache[channelId] = (mergedBelonging + preservedHistory + pendingsToKeep)
+            .sorted { MessageRecord.isOrderedAscending($0, $1) }
         pendingWrites.insert(channelId)
-        db.run("DELETE FROM messages WHERE channel_id = ? AND id NOT LIKE 'pending-%'") {
-            sqlite3_bind_text($0, 1, channelId, -1, sqliteTransient)
+        if preservedHistory.isEmpty {
+            db.run("DELETE FROM messages WHERE channel_id = ? AND id NOT LIKE 'pending-%'") {
+                sqlite3_bind_text($0, 1, channelId, -1, sqliteTransient)
+            }
+        } else {
+            for droppedId in existing.filter({ !$0.id.hasPrefix("pending-") && !keptIds.contains($0.id) }).map({ $0.id }) {
+                db.run("DELETE FROM messages WHERE id = ?") {
+                    sqlite3_bind_text($0, 1, droppedId, -1, sqliteTransient)
+                }
+            }
         }
         for droppedId in droppedLocalIds {
             db.run("DELETE FROM messages WHERE id = ?") {
@@ -546,6 +582,17 @@ final class MessageTable: Table {
             }
         }
 
+        if preferredChannelIds.isEmpty {
+            os_log(.error, log: Self.reactionLog,
+                   "unscoped msg=%{public}@ emoji=%{public}@ targets=%{public}@",
+                   messageId, reaction.emoji, cacheTargets.joined(separator: ","))
+        }
+        if cacheTargets.count > 1 {
+            os_log(.error, log: Self.reactionLog,
+                   "multi msg=%{public}@ ch=%{public}lld topic=%{public}lld targets=%{public}@",
+                   messageId, reaction.channelID, reaction.topicID, cacheTargets.joined(separator: ","))
+        }
+
         var updatedChannelIds = Set<String>()
         for channelId in cacheTargets {
             if updateCachedMessageReaction(messageId: messageId, channelId: channelId, reaction: reaction) {
@@ -554,12 +601,22 @@ final class MessageTable: Table {
         }
 
         if updatedChannelIds.isEmpty {
-            let fallbackCacheTargets = cache.keys
+            let unscopedMatches = cache.keys
                 .filter { channelId in
                     !cacheTargets.contains(channelId)
                         && cache[channelId]?.contains(where: { $0.id == messageId && !$0.isDeleted }) == true
                 }
                 .sorted()
+            let fallbackCacheTargets = unscopedMatches
+                .filter { $0.hasPrefix(Self.topicChannelKeyPrefix) }
+            let blockedCrossChannelTargets = unscopedMatches
+                .filter { !$0.hasPrefix(Self.topicChannelKeyPrefix) }
+            if !blockedCrossChannelTargets.isEmpty {
+                os_log(.error, log: Self.reactionLog,
+                       "blocked msg=%{public}@ ch=%{public}lld topic=%{public}lld emoji=%{public}@ wouldWrite=%{public}@",
+                       messageId, reaction.channelID, reaction.topicID, reaction.emoji,
+                       blockedCrossChannelTargets.joined(separator: ","))
+            }
             for channelId in fallbackCacheTargets {
                 if updateCachedMessageReaction(messageId: messageId, channelId: channelId, reaction: reaction) {
                     updatedChannelIds.insert(channelId)
@@ -597,7 +654,7 @@ final class MessageTable: Table {
     private static func preferredReactionChannelIds(for reaction: Mezon_Api_MessageReaction) -> [String] {
         var ids: [String] = []
         if reaction.topicID != 0 {
-            ids.append("topic-\(reaction.topicID)")
+            ids.append("\(Self.topicChannelKeyPrefix)\(reaction.topicID)")
         }
         if reaction.channelID != 0 {
             let channelId = "\(reaction.channelID)"

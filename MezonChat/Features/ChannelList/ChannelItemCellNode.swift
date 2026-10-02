@@ -157,10 +157,9 @@ final class ChannelItemCellNode: ASCellNode {
                     < channel.lastSentMessage.timestampSeconds))
         let unread = isVoiceType ? 0 : channel.countMessUnread
 
-        let voiceActiveGreen = UIColor(red: 22/255, green: 163/255, blue: 74/255, alpha: 1)
         let iconColor: UIColor
         if isVoiceActive {
-            iconColor = voiceActiveGreen
+            iconColor = .mezonVoiceActive
         } else if isUnread {
             iconColor = t.channelUnread
         } else {
@@ -363,6 +362,7 @@ struct VoiceMemberDisplay: Equatable {
     let name: String
     let username: String
     let avatarURL: String?
+    var isSharingScreen: Bool = false
 }
 
 final class VoiceAvatarNode: ASDisplayNode, ASNetworkImageNodeDelegate {
@@ -507,13 +507,21 @@ final class VoiceMemberExpandedCellNode: ASCellNode {
 
     private let avatarNode: VoiceAvatarNode
     private let nameNode = ASTextNode2()
+    private let shareScreenNode = ASImageNode()
+    private let isSharingScreen: Bool
 
     init(member: VoiceMemberDisplay) {
         avatarNode = VoiceAvatarNode(member: member, size: Self.avatarSize)
+        isSharingScreen = member.isSharingScreen
         super.init()
         automaticallyManagesSubnodes = true
         selectionStyle = .none
         backgroundColor = .clear
+
+        shareScreenNode.style.preferredSize = CGSize(width: 16, height: 16)
+        shareScreenNode.contentMode = .scaleAspectFit
+        shareScreenNode.image = UIImage(named: "Channel/VoiceScreenShare")?
+            .withTintColor(.mezonVoiceActive, renderingMode: .alwaysOriginal)
 
         nameNode.maximumNumberOfLines = 1
         nameNode.truncationMode = .byTruncatingTail
@@ -531,12 +539,17 @@ final class VoiceMemberExpandedCellNode: ASCellNode {
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         nameNode.style.flexShrink = 1
+        var children: [ASLayoutElement] = [avatarNode, nameNode]
+        if isSharingScreen {
+            nameNode.style.flexGrow = 1
+            children.append(shareScreenNode)
+        }
         let row = ASStackLayoutSpec(
             direction: .horizontal,
             spacing: 10,
             justifyContent: .start,
             alignItems: .center,
-            children: [avatarNode, nameNode]
+            children: children
         )
         return ASInsetLayoutSpec(
             insets: UIEdgeInsets(top: 2, left: 40, bottom: 2, right: 12),

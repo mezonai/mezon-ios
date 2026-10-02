@@ -28,6 +28,7 @@ final class PeerCallViewController: ViewController {
 
     private let avatarBlock = UIView()
     private let ringContainer = UIView()
+    private let textAvatarView = TextAvatarView(username: "", size: 100, fontSize: 40)
     private let avatarImageView = UIImageView()
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
@@ -200,6 +201,7 @@ final class PeerCallViewController: ViewController {
         ringContainer.translatesAutoresizingMaskIntoConstraints = false
         ringContainer.backgroundColor = .clear
 
+        textAvatarView.translatesAutoresizingMaskIntoConstraints = false
         avatarImageView.translatesAutoresizingMaskIntoConstraints = false
         avatarImageView.contentMode = .scaleAspectFill
         avatarImageView.clipsToBounds = true
@@ -335,7 +337,8 @@ final class PeerCallViewController: ViewController {
         headerBar.addSubview(headerRightStack)
 
         avatarBlock.addSubview(ringContainer)
-        avatarBlock.addSubview(avatarImageView)
+        avatarBlock.addSubview(textAvatarView)
+        textAvatarView.addSubview(avatarImageView)
         avatarBlock.addSubview(titleLabel)
         avatarBlock.addSubview(subtitleLabel)
 
@@ -398,10 +401,15 @@ final class PeerCallViewController: ViewController {
             ringContainer.widthAnchor.constraint(equalToConstant: 200),
             ringContainer.heightAnchor.constraint(equalToConstant: 200),
 
-            avatarImageView.topAnchor.constraint(equalTo: avatarBlock.topAnchor),
-            avatarImageView.centerXAnchor.constraint(equalTo: avatarBlock.centerXAnchor),
-            avatarImageView.widthAnchor.constraint(equalToConstant: 100),
-            avatarImageView.heightAnchor.constraint(equalToConstant: 100),
+            textAvatarView.topAnchor.constraint(equalTo: avatarBlock.topAnchor),
+            textAvatarView.centerXAnchor.constraint(equalTo: avatarBlock.centerXAnchor),
+            textAvatarView.widthAnchor.constraint(equalToConstant: 100),
+            textAvatarView.heightAnchor.constraint(equalToConstant: 100),
+
+            avatarImageView.topAnchor.constraint(equalTo: textAvatarView.topAnchor),
+            avatarImageView.leadingAnchor.constraint(equalTo: textAvatarView.leadingAnchor),
+            avatarImageView.trailingAnchor.constraint(equalTo: textAvatarView.trailingAnchor),
+            avatarImageView.bottomAnchor.constraint(equalTo: textAvatarView.bottomAnchor),
 
             titleLabel.topAnchor.constraint(equalTo: avatarImageView.bottomAnchor, constant: 22),
             titleLabel.leadingAnchor.constraint(equalTo: avatarBlock.leadingAnchor),
@@ -544,7 +552,7 @@ final class PeerCallViewController: ViewController {
         gradientLayer.colors = [theme.primary.cgColor, theme.primaryGradient.cgColor]
         remoteBackdrop.backgroundColor = UIColor.black.withAlphaComponent(0.92)
         localVideoView.layer.borderColor = theme.border.cgColor
-        avatarImageView.backgroundColor = theme.secondaryLight
+        avatarImageView.backgroundColor = .clear
         if avatarImageView.contentMode == .center {
             avatarImageView.tintColor = theme.iconSecondary
         }
@@ -1048,11 +1056,10 @@ final class PeerCallViewController: ViewController {
     }
 
     private func loadRemoteAvatar() {
+        textAvatarView.configure(username: remoteDisplayNameForBanner, fontSize: 40)
+        avatarImageView.image = nil
         let urlString = remoteAvatarURLString() ?? ""
         guard !urlString.isEmpty else {
-            avatarImageView.image = UIImage(systemName: "person.fill")
-            avatarImageView.tintColor = UIColor.theme.iconSecondary
-            avatarImageView.contentMode = .center
             return
         }
         ImageCache.shared.loadAvatar(urlString: urlString) { [weak self] image in
@@ -1061,6 +1068,7 @@ final class PeerCallViewController: ViewController {
                 self.avatarImageView.image = image
                 self.avatarImageView.contentMode = .scaleAspectFill
                 self.avatarImageView.tintColor = nil
+                self.textAvatarView.showImageMode()
             }
         }
     }

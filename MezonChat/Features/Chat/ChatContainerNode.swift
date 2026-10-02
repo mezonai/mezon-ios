@@ -65,9 +65,11 @@ struct ChatInteraction {
     let resolveSenderRoleIconURL: (_ senderId: String) -> String?
     var onMessagesReloaded: (() -> Void)?
     var onMessageNeedsRelayout: ((String) -> Void)?
-    var onEmbedButtonClicked: ((ParsedEmbedButton, String, ChatMessageDisplay) -> Void)?  
+    var onEmbedButtonClicked: ((ParsedEmbedButton, String, ChatMessageDisplay) -> Void)?
+    var onEmbedSelectChanged: ((_ selectId: String, _ value: String, _ messageId: String, _ display: ChatMessageDisplay) -> Void)? = nil
     var onMediaTapped: ((_ index: Int, _ media: [ParsedAttachment], _ display: ChatMessageDisplay, _ previewImage: UIImage?) -> Void)? = nil
     var onMediaRetryTapped: ((_ index: Int, _ display: ChatMessageDisplay) -> Void)? = nil
+    var onInVoiceTapped: (() -> Void)? = nil
 }
 
 final class ChatContainerNode: ASDisplayNode {
@@ -99,6 +101,8 @@ final class ChatContainerNode: ASDisplayNode {
     private let isDM: Bool
     private let disposables = DisposableSet()
     var pendingJumpMessageId: String?
+    var onPendingJumpCompleted: ((String) -> Void)?
+    private var scheduledJumpMessageId: String?
     private(set) var didAutoScrollForNewMessages = false
     private var isLoadMoreGuardActive = false
     private var lastKnownDistanceFromBottom: CGFloat = 0
@@ -149,6 +153,7 @@ final class ChatContainerNode: ASDisplayNode {
         headerNode.onHeaderTapped = { interaction.onHeaderTapped() }
         headerNode.onSearchTapped = { interaction.onSearchTapped() }
         headerNode.onCallTapped = { interaction.onCallTapped?() }
+        headerNode.onInVoiceTapped = { interaction.onInVoiceTapped?() }
         headerNode.onVideoCallTapped = { interaction.onVideoCallTapped?() }
         addSubnode(headerNode)
         addSubnode(listView)
@@ -292,7 +297,8 @@ final class ChatContainerNode: ASDisplayNode {
             isPrivate: state.isPrivate,
             isAgeRestricted: state.isAgeRestricted,
             isDM: isDM,
-            isBlocked: state.isPeerBlocked
+            isBlocked: state.isPeerBlocked,
+            isInVoice: state.dmPeerInVoice
         )
     }
 
@@ -320,20 +326,31 @@ final class ChatContainerNode: ASDisplayNode {
         if hadZeroFrame && listView.bounds.width > 0 || needsReloadAfterLayout {
             needsReloadAfterLayout = false
             reloadAllItems()
+            triggerPendingJump()
         }
     }
 
     func triggerPendingJump() {
-        guard let jumpId = pendingJumpMessageId,
-              state.messages.contains(where: { $0.id == jumpId }) else { return }
-        pendingJumpMessageId = nil
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            self?.scrollToMessage(id: jumpId)
+        guard let jumpId = pendingJumpMessageId else { return }
+        guard state.messages.contains(where: { $0.id == jumpId }),
+              committedMessageIds.contains(jumpId),
+              scheduledJumpMessageId != jumpId else { return }
+        scheduledJumpMessageId = jumpId
+        listView.addAfterTransactionsCompleted { [weak self] in
+            guard let self else { return }
+            guard self.pendingJumpMessageId == jumpId else {
+                self.scheduledJumpMessageId = nil
+                return
+            }
+            if !self.scrollToMessage(id: jumpId) {
+                self.scheduledJumpMessageId = nil
+            }
         }
     }
 
-    func scrollToMessage(id: String) {
-        guard let row = committedMessageIds.firstIndex(of: id) else { return }
+    @discardableResult
+    func scrollToMessage(id: String) -> Bool {
+        guard let row = committedMessageIds.firstIndex(of: id) else { return false }
         listView.transaction(
             deleteIndices: [],
             insertIndicesAndItems: [],
@@ -341,7 +358,13 @@ final class ChatContainerNode: ASDisplayNode {
             options: [.Synchronous],
             scrollToItem: ListViewScrollToItem(index: row, position: .center(.top), animated: true, curve: .Default(duration: nil), directionHint: .Down),
             updateOpaqueState: nil,
-            completion: { _ in }
+            completion: { [weak self] _ in
+                guard let self else { return }
+                self.scheduledJumpMessageId = nil
+                guard self.pendingJumpMessageId == id else { return }
+                self.pendingJumpMessageId = nil
+                self.onPendingJumpCompleted?(id)
+            }
         )
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
@@ -355,6 +378,7 @@ final class ChatContainerNode: ASDisplayNode {
                 }
             }
         }
+        return true
     }
 
     func captureVisibleMessageAnchor() -> VisibleMessageAnchor? {
@@ -487,9 +511,6 @@ final class ChatContainerNode: ASDisplayNode {
         let newIds = buildIds(from: state)
 
         if !committedMessageIds.isEmpty, committedMessageIds == newIds {
-#if DEBUG
-            print("[ChatScroll] reloadAllItems update-in-place count=\(newIds.count)")
-#endif
             let updateItems = items.enumerated().map { index, item in
                 ListViewUpdateItem(
                     index: index,
@@ -522,9 +543,6 @@ final class ChatContainerNode: ASDisplayNode {
                 directionHint: .Down
             )
         }
-#if DEBUG
-        print("[ChatScroll] reloadAllItems full-reload old=\(committedMessageIds.count) new=\(newIds.count) anchor=\(visibleMessageAnchor?.messageId ?? "nil")")
-#endif
 
         var deleteItems: [ListViewDeleteItem] = []
         for i in (0..<committedMessageIds.count).reversed() {
@@ -670,9 +688,6 @@ final class ChatContainerNode: ASDisplayNode {
 
         var scrollToItem: ListViewScrollToItem?
         if hasNewAtBottom && !isLoadMoreResult && !new.hasMoreNewer && (isAtBottom || newestMessageIsMe) {
-#if DEBUG
-            print("[ChatScroll] applyTransition auto-bottom isAtBottom=\(isAtBottom) newestIsMe=\(newestMessageIsMe)")
-#endif
             didAutoScrollForNewMessages = true
             scrollToItem = ListViewScrollToItem(index: 0, position: .top(0), animated: true, curve: .Spring(duration: 0.3), directionHint: .Up)
         }
@@ -728,7 +743,8 @@ final class ChatContainerNode: ASDisplayNode {
             return embeds.map { embed in
                 let fields = embed.fields.map { "\($0.name):\($0.value)" }.joined(separator: ",")
                 let buttons = embed.actionRows.flatMap { $0.buttons }.map { "\($0.id):\($0.label):\($0.style):\($0.disabled)" }.joined(separator: ";")
-                return "\(embed.title ?? "")|\(embed.description ?? "")|\(fields)|\(embed.actionRows.count)|\(buttons)"
+                let selects = embed.actionRows.flatMap { $0.selects }.map { "\($0.id):\($0.placeholder ?? ""):\($0.selectOptions?.count ?? 0):\($0.disabled)" }.joined(separator: ";")
+                return "\(embed.title ?? "")|\(embed.description ?? "")|\(fields)|\(embed.actionRows.count)|\(buttons)|\(selects)"
             }.joined(separator: "§")
         }()
         let ogpHash = m.parsedContent.ogpPreviews.map {

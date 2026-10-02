@@ -30,6 +30,11 @@ final class ImageCache {
     }()
 
     private let ioQueue = DispatchQueue(label: "mezon.imagecache.io", qos: .utility)
+    private let avatarDecodeQueue = DispatchQueue(
+        label: "mezon.imagecache.avatar-decode",
+        qos: .userInitiated,
+        attributes: .concurrent
+    )
 
     private let avatarSession: URLSession = {
         let config = URLSessionConfiguration.default
@@ -46,6 +51,11 @@ final class ImageCache {
     }()
 
     private var inflightCallbacks: [String: [(UIImage?) -> Void]] = [:]
+    private struct OptimizedAvatarCallback {
+        let preview: ((UIImage) -> Void)?
+        let completion: (UIImage?) -> Void
+    }
+    private var optimizedAvatarCallbacks: [String: [OptimizedAvatarCallback]] = [:]
     private let inflightLock = NSLock()
 
     init() {
@@ -144,6 +154,7 @@ final class ImageCache {
         memoryCache.removeAllObjects()
         inflightLock.lock()
         inflightCallbacks.removeAll()
+        optimizedAvatarCallbacks.removeAll()
         inflightLock.unlock()
         ioQueue.sync {
             try? FileManager.default.removeItem(at: diskCacheURL)
@@ -228,6 +239,14 @@ final class ImageCache {
     static func isCancellation(_ error: Error?) -> Bool {
         guard let e = error as NSError? else { return false }
         return e.domain == NSURLErrorDomain && e.code == NSURLErrorCancelled
+    }
+
+    static func shouldRetryMediaRequest(response: URLResponse?, error: Error?) -> Bool {
+        if error != nil { return true }
+        guard let http = response as? HTTPURLResponse else { return true }
+        return http.statusCode == 408
+            || http.statusCode == 429
+            || (500..<600).contains(http.statusCode)
     }
 
     private static func retryDelay(forAttempt attempt: Int) -> TimeInterval {
@@ -339,6 +358,188 @@ final class ImageCache {
         } else {
             downloadAvatar(url: url, key: urlString, deliver: fetchAndDeliver)
         }
+    }
+
+    func memoryOptimizedAvatar(forURL urlString: String, targetPixelSize: Int) -> UIImage? {
+        let variantKey = optimizedAvatarKey(
+            urlString: urlString,
+            targetPixelSize: targetPixelSize
+        )
+        return memoryCache.object(forKey: variantKey as NSString)
+            ?? memoryCache.object(forKey: urlString as NSString)
+    }
+
+    func hasOptimizedAvatarDiskCache(forURL urlString: String, targetPixelSize: Int) -> Bool {
+        let variantKey = optimizedAvatarKey(
+            urlString: urlString,
+            targetPixelSize: targetPixelSize
+        )
+        return hasDiskCache(forKey: variantKey) || hasDiskCache(forKey: urlString)
+    }
+
+    func loadOptimizedAvatar(
+        urlString: String,
+        targetPixelSize: Int,
+        preview: ((UIImage) -> Void)? = nil,
+        completion: @escaping (UIImage?) -> Void
+    ) {
+        guard let url = URL(string: urlString), !urlString.isEmpty else {
+            completion(nil)
+            return
+        }
+
+        let pixelSize = max(targetPixelSize, 1)
+        let variantKey = optimizedAvatarKey(
+            urlString: urlString,
+            targetPixelSize: pixelSize
+        )
+        if let cached = memoryCache.object(forKey: variantKey as NSString)
+            ?? memoryCache.object(forKey: urlString as NSString) {
+            completion(cached)
+            return
+        }
+
+        let callback = OptimizedAvatarCallback(preview: preview, completion: completion)
+        inflightLock.lock()
+        if optimizedAvatarCallbacks[variantKey] != nil {
+            optimizedAvatarCallbacks[variantKey]?.append(callback)
+            inflightLock.unlock()
+            return
+        }
+        optimizedAvatarCallbacks[variantKey] = [callback]
+        inflightLock.unlock()
+
+        avatarDecodeQueue.async { [weak self] in
+            guard let self else { return }
+            if let data = self.cachedData(forKey: variantKey) {
+                self.decodeOptimizedAvatar(
+                    data: data,
+                    variantKey: variantKey,
+                    targetPixelSize: pixelSize,
+                    shouldCacheVariant: false
+                )
+            } else if let data = self.cachedData(forKey: urlString) {
+                self.decodeOptimizedAvatar(
+                    data: data,
+                    variantKey: variantKey,
+                    targetPixelSize: pixelSize,
+                    shouldCacheVariant: true
+                )
+            } else {
+                self.downloadOptimizedAvatar(
+                    url: url,
+                    rawKey: urlString,
+                    variantKey: variantKey,
+                    targetPixelSize: pixelSize,
+                    attempt: 0
+                )
+            }
+        }
+    }
+
+    private func optimizedAvatarKey(urlString: String, targetPixelSize: Int) -> String {
+        "optimized-avatar:\(max(targetPixelSize, 1)):\(urlString)"
+    }
+
+    private func decodeOptimizedAvatar(
+        data: Data,
+        variantKey: String,
+        targetPixelSize: Int,
+        shouldCacheVariant: Bool
+    ) {
+        avatarDecodeQueue.async { [weak self] in
+            guard let self else { return }
+            let preview = UIImage.avatarPreviewImage(
+                from: data,
+                maxPixelSize: targetPixelSize
+            )
+            if let preview {
+                self.emitOptimizedAvatarPreview(preview, variantKey: variantKey)
+            }
+
+            let image = UIImage.optimizedAvatarImage(
+                from: data,
+                maxPixelSize: targetPixelSize
+            ) ?? preview
+            if let image {
+                self.setImage(image, data: nil, forKey: variantKey)
+            }
+            self.finishOptimizedAvatar(image, variantKey: variantKey)
+            if shouldCacheVariant,
+               let image,
+               let optimizedData = UIImage.optimizedAvatarCacheData(from: image) {
+                self.persistData(optimizedData, forKey: variantKey)
+            }
+        }
+    }
+
+    private func emitOptimizedAvatarPreview(_ image: UIImage, variantKey: String) {
+        inflightLock.lock()
+        let previews = optimizedAvatarCallbacks[variantKey]?.compactMap(\.preview) ?? []
+        inflightLock.unlock()
+        DispatchQueue.main.async {
+            previews.forEach { $0(image) }
+        }
+    }
+
+    private func finishOptimizedAvatar(_ image: UIImage?, variantKey: String) {
+        inflightLock.lock()
+        let callbacks = optimizedAvatarCallbacks.removeValue(forKey: variantKey) ?? []
+        inflightLock.unlock()
+        DispatchQueue.main.async {
+            callbacks.forEach { $0.completion(image) }
+        }
+    }
+
+    private func downloadOptimizedAvatar(
+        url: URL,
+        rawKey: String,
+        variantKey: String,
+        targetPixelSize: Int,
+        attempt: Int
+    ) {
+        avatarSession.dataTask(with: url) { [weak self] data, response, error in
+            guard let self else { return }
+            if Self.isCancellation(error) {
+                self.finishOptimizedAvatar(nil, variantKey: variantKey)
+                return
+            }
+
+            if Self.responseStatusAcceptable(response), let data {
+                self.persistData(data, forKey: rawKey)
+                self.decodeOptimizedAvatar(
+                    data: data,
+                    variantKey: variantKey,
+                    targetPixelSize: targetPixelSize,
+                    shouldCacheVariant: true
+                )
+                return
+            }
+
+            if let error {
+                SentryLogger.captureMediaError(error, extras: [
+                    "where": "ImageCache.downloadOptimizedAvatar",
+                    "url": url.absoluteString,
+                    "attempt": "\(attempt)",
+                ])
+            }
+
+            if attempt < Self.maxImageDownloadRetries,
+               Self.shouldRetryMediaRequest(response: response, error: error) {
+                let delay = Self.retryDelay(forAttempt: attempt)
+                ioQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    self?.downloadOptimizedAvatar(
+                        url: url,
+                        rawKey: rawKey,
+                        variantKey: variantKey,
+                        targetPixelSize: targetPixelSize,
+                        attempt: attempt + 1
+                    )
+                }
+            } else {
+                finishOptimizedAvatar(nil, variantKey: variantKey)
+            }
+        }.resume()
     }
 
     private func downloadAvatar(url: URL, key: String, deliver: @escaping (UIImage?) -> Void) {

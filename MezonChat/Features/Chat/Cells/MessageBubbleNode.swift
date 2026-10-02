@@ -468,6 +468,10 @@ final class MessageBubbleNode: ASDisplayNode {
                 guard let self else { return }
                 self.interaction.onEmbedButtonClicked?(button, messageId, self.display)
             }
+            en.onEmbedSelectChanged = { [weak self] selectId, value, messageId in
+                guard let self else { return }
+                self.interaction.onEmbedSelectChanged?(selectId, value, messageId, self.display)
+            }
             embedNode = en
             addSubnode(en)
         }
@@ -892,6 +896,10 @@ final class MessageBubbleNode: ASDisplayNode {
                     guard let self else { return }
                     self.interaction.onEmbedButtonClicked?(button, messageId, self.display)
                 }
+                en.onEmbedSelectChanged = { [weak self] selectId, value, messageId in
+                    guard let self else { return }
+                    self.interaction.onEmbedSelectChanged?(selectId, value, messageId, self.display)
+                }
                 embedNode = en
                 addSubnode(en)
             }
@@ -1209,6 +1217,9 @@ final class MessageBubbleNode: ASDisplayNode {
             interaction.onMediaRetryTapped?(index, display)
             return
         }
+        if index >= 0, index < media.count, media[index].isSticker {
+            return
+        }
         if let onMediaTapped = interaction.onMediaTapped {
             let previewImage = mediaContentNode?.displayImage(at: index)
             onMediaTapped(index, media, display, previewImage)
@@ -1221,12 +1232,19 @@ final class MessageBubbleNode: ASDisplayNode {
                     url: att.url,
                     sourceURL: att.url,
                     image: preview ?? (itemIndex == index ? att.localImage : nil),
+                    pixelSize: GalleryItemInfo.pixelSize(width: att.width, height: att.height),
                     placeholderURL: nil,
                     senderName: display.senderDisplayName,
                     senderId: display.message.senderId,
                     senderAvatarURL: display.avatarURL,
                     timestamp: display.message.createdAt,
-                    isVideo: true
+                    isVideo: true,
+                    videoShareMetadata: GalleryVideoShareMetadata(
+                        filename: att.filename,
+                        filetype: att.filetype,
+                        durationSeconds: att.durationSeconds ?? 0,
+                        thumbnail: att.thumbnail
+                    )
                 )
             }
             return GalleryItemInfo.imageItem(

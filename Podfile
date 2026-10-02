@@ -9,6 +9,7 @@ target 'MezonChat' do
   pod 'SQLCipher', '~> 4.0'
   pod 'FirebaseMessaging', '~> 10.0'
   pod 'MobileVLCKit', '~> 3.6.0'
+  pod 'onnxruntime-c', '~> 1.20.0'
 end
 
 post_install do |installer|

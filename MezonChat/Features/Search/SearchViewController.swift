@@ -15,6 +15,40 @@ enum SearchTab: Int, CaseIterable {
     }
 }
 
+private struct SearchScreenState {
+    let selectedTab: SearchTab
+    let query: String
+}
+
+@MainActor
+private final class SearchScreenStateStore: NSObject {
+    static let shared = SearchScreenStateStore()
+
+    private var statesByChannelId: [Int64: SearchScreenState] = [:]
+
+    private override init() {
+        super.init()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(clear),
+            name: .mezonAccountDidLogout,
+            object: nil
+        )
+    }
+
+    func state(for channelId: Int64) -> SearchScreenState? {
+        statesByChannelId[channelId]
+    }
+
+    func save(_ state: SearchScreenState, for channelId: Int64) {
+        statesByChannelId[channelId] = state
+    }
+
+    @objc private func clear() {
+        statesByChannelId.removeAll()
+    }
+}
+
 enum SearchFilterOption {
     case from
     case mentions
@@ -88,6 +122,19 @@ final class SearchViewController: ViewController {
     private let needsChannelMemberFilter: Bool
     private var isChannelScoped: Bool { scopedChannelId != nil }
 
+    private var recentMembers: [Mezon_Api_User] = []
+    private var recentGroups: [Mezon_Api_ChannelDescription] = []
+    private var ctrlKUsers: [Mezon_Api_User] = []
+    private var ctrlKChannels: [Mezon_Api_ChannelDescription] = []
+    private var ctrlKGeneration: UInt64 = 0
+    private lazy var clanNamesById: [Int64: String] = {
+        var map: [Int64: String] = [:]
+        for clan in context.account.postbox.read({ tx in tx.getClans() }) {
+            map[clan.id] = clan.name
+        }
+        return map
+    }()
+
     private var memberAvatarPrefetchWorkItem: DispatchWorkItem?
 
     private func reloadSearchTable() {
@@ -147,12 +194,19 @@ final class SearchViewController: ViewController {
         self.scopedChannelType = channelType
         self.needsChannelMemberFilter = needsChannelMemberFilter
         super.init(navigationBarPresentationData: nil)
+
+        if let state = SearchScreenStateStore.shared.state(for: channelId ?? 0) {
+            searchQuery = state.query
+            if Self.isVisible(tab: state.selectedTab, clanId: clanId, channelId: channelId) {
+                activeTab = state.selectedTab
+            }
+        }
     }
 
     required init(coder aDecoder: NSCoder) { fatalError() }
 
     override func loadDisplayNode() {
-        var hiddenTabs: Set<SearchTab> = isChannelScoped ? [.channels] : []
+        var hiddenTabs: Set<SearchTab> = isChannelScoped ? [.channels] : [.messages]
         let isDM = clanId == 0
         if isDM {
             hiddenTabs.insert(.members)
@@ -161,8 +215,10 @@ final class SearchViewController: ViewController {
         displayNode = SearchContainerNode(hiddenTabs: hiddenTabs, channelBadge: scopedChannelLabel, showFilterButton: isChannelScoped && !isDM)
         if isDM {
             searchNode.tabBar.isHidden = true
-            switchTab(.messages)
+            activeTab = .messages
         }
+        searchNode.searchBar.textField.text = searchQuery
+        searchNode.tabBar.setSelectedTab(activeTab)
         searchNode.searchBar.textField.delegate = self
         searchNode.searchBar.textField.addTarget(self, action: #selector(searchTextChanged(_:)), for: .editingChanged)
         searchNode.tabBar.onTabSelected = { [weak self] tab in
@@ -194,37 +250,84 @@ final class SearchViewController: ViewController {
         navigationController?.setNavigationBarHidden(true, animated: animated)
     }
 
+    private static let recentInitLimit = 20
+
+    private func seedUnscopedInitData() {
+        let cachedDMs = context.account.postbox.getCachedDMChannelList()
+        let recents = cachedDMs.filter { dm in
+            dm.type == MezonConstants.ChannelType.dm.rawValue
+                || dm.type == MezonConstants.ChannelType.group.rawValue
+        }.sorted { $0.lastSentMessage.timestampSeconds > $1.lastSentMessage.timestampSeconds }
+
+        var members: [Mezon_Api_User] = []
+        var groups: [Mezon_Api_ChannelDescription] = []
+        for dm in recents.prefix(Self.recentInitLimit) {
+            if dm.type == MezonConstants.ChannelType.group.rawValue {
+                groups.append(dm)
+                continue
+            }
+            guard let uid = dm.userIds.first, uid != 0 else { continue }
+            var user = Mezon_Api_User()
+            user.id = uid
+            user.username = dm.usernames.first ?? ""
+            user.displayName = dm.displayNames.first ?? ""
+            user.avatarURL = dm.avatars.first ?? ""
+            members.append(user)
+        }
+        let myId = Int64(context.currentUser?.id ?? "") ?? 0
+        recentMembers = Self.uniqueUsers(members).filter { $0.id != 0 && $0.id != myId }
+        recentGroups = Self.uniqueChannels(groups)
+
+        allChannels = initialChannels
+        mergeDMChannelsIntoAllChannels()
+    }
+
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        saveScreenState()
         if isMovingFromParent {
             navigationController?.setNavigationBarHidden(false, animated: animated)
         }
+    }
+
+    private static func isVisible(tab: SearchTab, clanId: Int64, channelId: Int64?) -> Bool {
+        if clanId == 0 {
+            return tab == .messages
+        }
+        if channelId != nil {
+            return tab != .channels
+        }
+        return tab != .messages
+    }
+
+    private func saveScreenState() {
+        guard context.currentUser != nil else { return }
+        SearchScreenStateStore.shared.save(
+            SearchScreenState(selectedTab: activeTab, query: searchQuery),
+            for: scopedChannelId ?? 0
+        )
     }
 
     private var channelMemberIds: Set<Int64>?
 
     private func loadInitialData() {
         let clanUsersCache = context.engine.clanData.getClanUsers(clanId: clanId)
-        let allUsersCache = context.engine.clanData.getAllUserClans()
-        let allChCache = context.engine.clanData.getAllChannelsByUser()
 
         if let clanUsers = clanUsersCache {
             Self.buildClanNicks(from: clanUsers.clanUsers, into: &clanNicks, avatars: &clanAvatars)
         }
 
-        if isChannelScoped {
-            if let clanUsers = clanUsersCache {
-                allMembers = Self.uniqueUsers(clanUsers.clanUsers.map { $0.user })
-            }
-        } else {
-            if let allUsers = allUsersCache {
-                allMembers = Self.uniqueUsers(allUsers.users)
-            } else if let clanUsers = clanUsersCache {
-                allMembers = Self.uniqueUsers(clanUsers.clanUsers.map { $0.user })
-            }
+        guard isChannelScoped else {
+            seedUnscopedInitData()
+            performSearch()
+            return
         }
 
-        if let allCh = allChCache {
+        if let clanUsers = clanUsersCache {
+            allMembers = Self.uniqueUsers(clanUsers.clanUsers.map { $0.user })
+        }
+
+        if let allCh = context.engine.clanData.getAllChannelsByUser() {
             allChannels = allCh.channeldesc
             mergeInitialChannelsIntoAllChannels()
         } else {
@@ -242,17 +345,17 @@ final class SearchViewController: ViewController {
             }
         }
 
-        filterMembersByChannel()
-        filteredChannels = allChannels.filter { $0.parentID == 0 && Self.isServerChannelInChannelsTab($0) }
-        updateTabCounts()
-        reloadSearchTable()
-        schedulePrefetchMemberAvatars(filteredMembers)
+        performSearch()
 
         if needsChannelMemberFilter {
             fetchChannelMembersAndUsers()
         } else {
             fetchFromAPI()
         }
+    }
+
+    private func emptyQueryChannels() -> [Mezon_Api_ChannelDescription] {
+        allChannels.filter { $0.parentID == 0 && Self.isServerChannelInChannelsTab($0) }
     }
 
     private func mergeInitialChannelsIntoAllChannels() {
@@ -294,24 +397,19 @@ final class SearchViewController: ViewController {
             do {
                 let needsClanProfileHydration =
                     clanId > 0
-                    && (clanAvatars.isEmpty || clanNicks.isEmpty || (isChannelScoped && allMembers.isEmpty))
+                    && (clanAvatars.isEmpty || clanNicks.isEmpty || allMembers.isEmpty)
                 if needsClanProfileHydration {
                     if let clanUsers = try? await context.account.network.listClanUsers(clanId: clanId, token: token) {
                         Self.buildClanNicks(from: clanUsers.clanUsers, into: &clanNicks, avatars: &clanAvatars)
-                        if isChannelScoped && allMembers.isEmpty {
+                        if allMembers.isEmpty {
                             allMembers = Self.uniqueUsers(clanUsers.clanUsers.map { $0.user })
                         }
                     }
                 }
                 if allMembers.isEmpty {
-                    if isChannelScoped {
-                        let clanUsers = try await context.account.network.listClanUsers(clanId: clanId, token: token)
-                        allMembers = Self.uniqueUsers(clanUsers.clanUsers.map { $0.user })
-                        Self.buildClanNicks(from: clanUsers.clanUsers, into: &clanNicks, avatars: &clanAvatars)
-                    } else {
-                        let users = try await context.account.network.listUserClansByUserId(token: token)
-                        allMembers = Self.uniqueUsers(users.users)
-                    }
+                    let clanUsers = try await context.account.network.listClanUsers(clanId: clanId, token: token)
+                    allMembers = Self.uniqueUsers(clanUsers.clanUsers.map { $0.user })
+                    Self.buildClanNicks(from: clanUsers.clanUsers, into: &clanNicks, avatars: &clanAvatars)
                     filterMembersByChannel()
                 }
             } catch {}
@@ -337,7 +435,7 @@ final class SearchViewController: ViewController {
                 }
             } catch {}
             await fetchDMAndGroupChannels()
-            performSearch()
+            performSearch(shouldFetchMessages: false)
         }
     }
 
@@ -359,6 +457,51 @@ final class SearchViewController: ViewController {
                 existingIds.insert(g.channelID)
             }
         } catch {
+        }
+    }
+
+    private func fetchCtrlKResults(_ rawQuery: String) {
+        guard !isChannelScoped, clanId != 0 else { return }
+        let type: Int32 = rawQuery.hasPrefix("@") ? 1 : rawQuery.hasPrefix("#") ? 2 : 0
+        let text = type == 0
+            ? rawQuery
+            : String(rawQuery.dropFirst()).trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty, text.utf8.count <= 255 else { return }
+        ctrlKGeneration &+= 1
+        let generation = ctrlKGeneration
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getToken() else { return }
+            do {
+                let response = try await self.context.account.network.searchCtrlK(
+                    text: text, type: type, token: token)
+                guard self.ctrlKGeneration == generation else { return }
+                self.ctrlKUsers = Self.uniqueUsers(response.users.filter { $0.id != 0 })
+                self.ctrlKChannels = Self.uniqueChannels(
+                    response.channels.filter { $0.channelID != 0 }
+                ).map { ch in
+                    var ch = ch
+                    if ch.clanName.isEmpty, ch.clanID != 0, let name = self.clanNamesById[ch.clanID] {
+                        ch.clanName = name
+                    }
+                    return ch
+                }
+                self.applyCtrlKFiltered()
+                self.updateTabCounts()
+                self.reloadSearchTable()
+                self.schedulePrefetchMemberAvatars(self.filteredMembers)
+            } catch {}
+        }
+    }
+
+    private func applyCtrlKFiltered() {
+        filteredMembers = ctrlKUsers
+        filteredDMGroups = ctrlKChannels.filter {
+            $0.type == MezonConstants.ChannelType.group.rawValue
+        }
+        filteredChannels = ctrlKChannels.filter { ch in
+            guard Self.isServerChannelInChannelsTab(ch) else { return false }
+            return ch.parentID == 0 || ch.type == MezonConstants.ChannelType.thread.rawValue
         }
     }
 
@@ -399,18 +542,21 @@ final class SearchViewController: ViewController {
 
                 channelMemberIds = Set(response.channelUsers.map { $0.userID })
                 filterMembersByChannel()
-                performSearch()
+                performSearch(shouldFetchMessages: false)
             } catch {
             }
         }
     }
 
-    private func filterMembersByChannel() {
+    private func searchableMembers() -> [Mezon_Api_User] {
         if let memberIds = channelMemberIds {
-            filteredMembers = allMembers.filter { memberIds.contains($0.id) }
-        } else {
-            filteredMembers = allMembers
+            return allMembers.filter { memberIds.contains($0.id) }
         }
+        return allMembers
+    }
+
+    private func filterMembersByChannel() {
+        filteredMembers = searchableMembers()
     }
 
     private static func buildClanNicks(from clanUsers: [Mezon_Api_ClanUserList.ClanUser], into map: inout [Int64: String], avatars: inout [Int64: String]) {
@@ -433,6 +579,11 @@ final class SearchViewController: ViewController {
     private static func uniqueUsers(_ users: [Mezon_Api_User]) -> [Mezon_Api_User] {
         var seen = Set<Int64>()
         return users.filter { seen.insert($0.id).inserted }
+    }
+
+    private static func uniqueChannels(_ channels: [Mezon_Api_ChannelDescription]) -> [Mezon_Api_ChannelDescription] {
+        var seen = Set<Int64>()
+        return channels.filter { seen.insert($0.channelID).inserted }
     }
 
     static func dmGroupDisplayName(for ch: Mezon_Api_ChannelDescription) -> String {
@@ -525,66 +676,85 @@ final class SearchViewController: ViewController {
         return "Channel \(channelId)"
     }
 
+    private func matchableText(_ s: String) -> String {
+        guard !isChannelScoped else { return s.lowercased() }
+        return s.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: nil)
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "+", with: " ")
+    }
+
+    private func preparedMatchQuery(from rawQuery: String) -> String {
+        var q = rawQuery
+        if !isChannelScoped, let first = q.first, first == "@" || first == "#" {
+            q.removeFirst()
+        }
+        return matchableText(q)
+    }
+
     private func channelTabRowMatchesQuery(_ ch: Mezon_Api_ChannelDescription, query: String) -> Bool {
-        if ch.channelLabel.lowercased().contains(query) { return true }
-        if ch.clanName.lowercased().contains(query) { return true }
+        if matchableText(ch.channelLabel).contains(query) { return true }
+        if matchableText(ch.clanName).contains(query) { return true }
         if ch.type == MezonConstants.ChannelType.thread.rawValue, ch.parentID != 0 {
-            let parentLabel = parentChannelLabel(forParentId: ch.parentID).lowercased()
+            let parentLabel = matchableText(parentChannelLabel(forParentId: ch.parentID))
             if parentLabel.contains(query) { return true }
         }
         return false
     }
 
-    private func performSearch() {
-        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    private func performSearch(shouldFetchMessages: Bool = true) {
+        let rawQuery = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = preparedMatchQuery(from: rawQuery)
 
-        let baseMemberList: [Mezon_Api_User]
-        if let memberIds = channelMemberIds {
-            baseMemberList = allMembers.filter { memberIds.contains($0.id) }
-        } else {
-            baseMemberList = allMembers
-        }
+        if isChannelScoped {
+            let baseMemberList: [Mezon_Api_User] = searchableMembers()
 
-        if query.isEmpty {
-            filteredMembers = baseMemberList
-            filteredDMGroups = []
-        } else {
-            filteredMembers = baseMemberList.filter { user in
-                let nick = (clanNicks[user.id] ?? "").lowercased()
-                let displayName = user.displayName.lowercased()
-                let username = user.username.lowercased()
-                return nick.contains(query) || displayName.contains(query) || username.contains(query)
-            }.sorted { a, b in
-                scoreMember(a, query: query) > scoreMember(b, query: query)
-            }
-            if activeFilterOption != nil {
+            if query.isEmpty {
+                filteredMembers = baseMemberList
                 filteredDMGroups = []
             } else {
-                filteredDMGroups = allChannels.filter { ch in
-                    guard ch.type == MezonConstants.ChannelType.group.rawValue else { return false }
-                    let label = Self.dmGroupDisplayName(for: ch).lowercased()
-                    return label.contains(query)
+                filteredMembers = baseMemberList.filter { user in
+                    let nick = matchableText(clanNicks[user.id] ?? "")
+                    let displayName = matchableText(user.displayName)
+                    let username = matchableText(user.username)
+                    return nick.contains(query) || displayName.contains(query) || username.contains(query)
+                }.sorted { a, b in
+                    scoreMember(a, query: query) > scoreMember(b, query: query)
                 }
+                filteredDMGroups = []
             }
-        }
 
-        if query.isEmpty {
-            filteredChannels = allChannels.filter { $0.parentID == 0 && Self.isServerChannelInChannelsTab($0) }
-        } else {
-            filteredChannels = allChannels.filter { ch in
-                guard Self.isServerChannelInChannelsTab(ch) else { return false }
-                if ch.parentID == 0 {
+            if query.isEmpty {
+                filteredChannels = emptyQueryChannels()
+            } else {
+                filteredChannels = allChannels.filter { ch in
+                    guard Self.isServerChannelInChannelsTab(ch) else { return false }
+                    if ch.parentID == 0 {
+                        return channelTabRowMatchesQuery(ch, query: query)
+                    }
+                    guard ch.type == MezonConstants.ChannelType.thread.rawValue else { return false }
                     return channelTabRowMatchesQuery(ch, query: query)
                 }
-                guard ch.type == MezonConstants.ChannelType.thread.rawValue else { return false }
-                return channelTabRowMatchesQuery(ch, query: query)
+            }
+        } else {
+            if query.isEmpty {
+                ctrlKGeneration &+= 1
+                filteredMembers = recentMembers
+                filteredDMGroups = recentGroups
+                filteredChannels = []
+            } else {
+                fetchCtrlKResults(rawQuery)
+                applyCtrlKFiltered()
             }
         }
 
-        if !query.isEmpty || filterUser != nil {
-            messageCurrentPage = 1
-            searchMessages = []
-            fetchMessages()
+        let messagesTabAvailable = isChannelScoped || clanId == 0
+        if messagesTabAvailable, !query.isEmpty || filterUser != nil {
+            if shouldFetchMessages {
+                messageCurrentPage = 1
+                searchMessages = []
+                fetchMessages()
+            }
         } else {
             searchMessages = []
             groupedMessages = []
@@ -606,19 +776,32 @@ final class SearchViewController: ViewController {
     }
 
     private func prefetchMemberAvatarURLs(_ users: [Mezon_Api_User]) {
-        for user in users.prefix(56) {
-            guard let raw = resolvedMemberAvatarURL(for: user) else { continue }
-            let absolute = ImgproxyURL.absoluteResourceURL(from: raw)
-            guard !absolute.isEmpty else { continue }
-            let proxied = ImgproxyURL.avatarProxyURL(from: absolute, width: 120, height: 120)
-            guard let url = URL(string: proxied) else { continue }
-            URLSession.shared.dataTask(with: url).resume()
+        let snapshot = Array(users.prefix(56))
+        let avatarsById = clanAvatars
+        let searchClanId = clanId
+        let postbox = context.account.postbox
+        DispatchQueue.global(qos: .utility).async {
+            for user in snapshot {
+                let urls = Self.resolveMemberAvatarURLs(
+                    for: user, clanAvatar: avatarsById[user.id], clanId: searchClanId, postbox: postbox)
+                guard let raw = urls.first else { continue }
+                let absolute = ImgproxyURL.absoluteResourceURL(from: raw)
+                guard !absolute.isEmpty else { continue }
+                let proxied = ImgproxyURL.avatarProxyURL(from: absolute, width: 120, height: 120)
+                guard let url = URL(string: proxied) else { continue }
+                URLSession.shared.dataTask(with: url).resume()
+            }
         }
     }
 
-    private func resolvedMemberAvatarURLs(for user: Mezon_Api_User) -> [String] {
+    private static func resolveMemberAvatarURLs(
+        for user: Mezon_Api_User,
+        clanAvatar: String?,
+        clanId: Int64,
+        postbox: Postbox
+    ) -> [String] {
         var values: [String] = []
-        if let clanAvatar = clanAvatars[user.id]?.trimmingCharacters(in: .whitespacesAndNewlines),
+        if let clanAvatar = clanAvatar?.trimmingCharacters(in: .whitespacesAndNewlines),
             !clanAvatar.isEmpty
         {
             values.append(clanAvatar)
@@ -627,7 +810,7 @@ final class SearchViewController: ViewController {
         if !userAvatar.isEmpty {
             values.append(userAvatar)
         }
-        context.account.postbox.read { tx in
+        postbox.read { tx in
             if let profileAvatar = tx.getProfile(userId: String(user.id))?.avatarUrl?
                 .trimmingCharacters(in: .whitespacesAndNewlines),
                 !profileAvatar.isEmpty
@@ -645,14 +828,10 @@ final class SearchViewController: ViewController {
         return values.filter { seen.insert($0).inserted }
     }
 
-    private func resolvedMemberAvatarURL(for user: Mezon_Api_User) -> String? {
-        resolvedMemberAvatarURLs(for: user).first
-    }
-
     private func scoreMember(_ user: Mezon_Api_User, query: String) -> Int {
-        let nick = (clanNicks[user.id] ?? "").lowercased()
-        let displayName = user.displayName.lowercased()
-        let username = user.username.lowercased()
+        let nick = matchableText(clanNicks[user.id] ?? "")
+        let displayName = matchableText(user.displayName)
+        let username = matchableText(user.username)
         var score = 0
         if nick == query { score = 1050 }
         else if nick.hasPrefix(query) { score = 950 }
@@ -810,11 +989,20 @@ final class SearchViewController: ViewController {
 
     private func updateTabCounts() {
         let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        searchNode.tabBar.updateCounts(
-            members: filteredMembers.count + filteredDMGroups.count,
-            channels: filteredChannels.count,
-            messages: query.isEmpty ? nil : Int(messageTotalCount)
-        )
+        let membersCount = filteredMembers.count + filteredDMGroups.count
+        if isTypeToSearchState {
+            searchNode.tabBar.updateCounts(
+                members: membersCount > 0 ? membersCount : nil,
+                channels: nil,
+                messages: nil
+            )
+        } else {
+            searchNode.tabBar.updateCounts(
+                members: membersCount,
+                channels: filteredChannels.count,
+                messages: query.isEmpty ? nil : Int(messageTotalCount)
+            )
+        }
     }
 
     private func showFilterTooltip() {
@@ -870,7 +1058,10 @@ final class SearchViewController: ViewController {
 
     private func navigateToMember(_ user: Mezon_Api_User) {
         var sheetUser = user
-        if let avatarURL = resolvedMemberAvatarURL(for: user) {
+        if let avatarURL = Self.resolveMemberAvatarURLs(
+            for: user, clanAvatar: clanAvatars[user.id], clanId: clanId,
+            postbox: context.account.postbox
+        ).first {
             sheetUser.avatarURL = avatarURL
         }
         let isCurrentUser = "\(sheetUser.id)" == context.currentUser?.id
@@ -914,6 +1105,64 @@ final class SearchViewController: ViewController {
             clanId: targetClanId, channel: channel, context: context, parentName: parentName)
         navigationController?.pushViewController(chatVC, animated: true)
         alignChannelListSidebarAfterSearchJump(clanId: targetClanId, channelId: channel.channelID)
+    }
+
+    private func resolvedChannelForNavigation(
+        _ searchResult: Mezon_Api_ChannelDescription
+    ) -> Mezon_Api_ChannelDescription {
+        let targetClanId = effectiveClanId(for: searchResult)
+
+        if let channel = allChannels.first(where: {
+            $0.channelID == searchResult.channelID && $0.type != 0
+        }) {
+            return mergingSearchMetadata(from: searchResult, into: channel, fallbackClanId: targetClanId)
+        }
+
+        if let channel = context.engine.clanData.getAllChannelsByUser()?.channeldesc.first(where: {
+            $0.channelID == searchResult.channelID && $0.type != 0
+        }) {
+            return mergingSearchMetadata(from: searchResult, into: channel, fallbackClanId: targetClanId)
+        }
+
+        if let channel = context.account.postbox.resolvedChannelDescription(
+            clanId: targetClanId,
+            channelId: searchResult.channelID
+        ), channel.type != 0 {
+            return mergingSearchMetadata(from: searchResult, into: channel, fallbackClanId: targetClanId)
+        }
+
+        return searchResult
+    }
+
+    private func mergingSearchMetadata(
+        from searchResult: Mezon_Api_ChannelDescription,
+        into resolvedChannel: Mezon_Api_ChannelDescription,
+        fallbackClanId: Int64
+    ) -> Mezon_Api_ChannelDescription {
+        var channel = resolvedChannel
+        if channel.clanID == 0 {
+            channel.clanID = fallbackClanId
+        }
+        if channel.clanName.isEmpty {
+            channel.clanName = searchResult.clanName
+        }
+        if channel.channelLabel.isEmpty {
+            channel.channelLabel = searchResult.channelLabel
+        }
+        return channel
+    }
+
+    private func handleSearchChannelJoinTap(_ searchResult: Mezon_Api_ChannelDescription) {
+        let channel = resolvedChannelForNavigation(searchResult)
+
+        switch channel.type {
+        case MezonConstants.ChannelType.mezonVoice.rawValue:
+            presentJoinVoiceSheet(for: channel)
+        case MezonConstants.ChannelType.streaming.rawValue:
+            presentJoinStreamSheet(for: channel)
+        default:
+            navigateToChannel(channel)
+        }
     }
 
     private func navigateToMessage(_ doc: Mezon_Api_SearchMessageDocument) {
@@ -1015,6 +1264,15 @@ final class SearchViewController: ViewController {
     }
 
     private func resolveVoiceMember(uid: String, clanIdForChannel: Int64) -> VoiceMemberDisplay? {
+        if VoiceAgentIdentity.isAgent(uid) {
+            return VoiceMemberDisplay(
+                name: VoiceAgentIdentity.displayName,
+                username: VoiceAgentIdentity.displayName,
+                avatarURL: VoiceAgentIdentity.avatarURL,
+                isSharingScreen: context.engine.clanData.voiceScreenSharingUserIds(clanId: clanIdForChannel).contains(uid)
+            )
+        }
+
         guard let uidInt = Int64(uid) else { return nil }
 
         let profile = context.account.postbox.read { $0.getProfile(userId: uid) }
@@ -1078,7 +1336,7 @@ final class SearchViewController: ViewController {
             chatUnreadCount: Int(channel.countMessUnread),
             members: resolvedMembers,
             onChat: { [weak self] in self?.pushChatFromVoiceSheet(for: channel) },
-            onJoinVoice: { [weak self] in self?.pushVoiceChannelRoom(for: channel) },
+            onJoinVoice: { [weak self] role in self?.pushVoiceChannelRoom(for: channel, role: role) },
             onInvite: {}
         )
         sheet.modalPresentationStyle = UIModalPresentationStyle.pageSheet
@@ -1142,8 +1400,9 @@ final class SearchViewController: ViewController {
             chatUnreadCount: Int(channel.countMessUnread),
             members: resolvedMembers,
             kind: .streaming,
+            canJoin: !streamUserIds.isEmpty,
             onChat: { [weak self] in self?.pushChatFromVoiceSheet(for: channel) },
-            onJoinVoice: { [weak self] in self?.pushStreamingRoom(for: channel) },
+            onJoinVoice: { [weak self] _ in self?.pushStreamingRoom(for: channel) },
             onInvite: {}
         )
         sheet.modalPresentationStyle = UIModalPresentationStyle.pageSheet
@@ -1209,26 +1468,41 @@ final class SearchViewController: ViewController {
 
         Task { @MainActor [weak self] in
             guard let self else { return }
-            guard let token = await self.context.getToken(),
-                  let userId = self.context.currentUser?.id,
-                  let username = self.context.currentUser?.username else { return }
+            guard let sessionToken = await self.context.getToken() else {
+                StreamingSfuLog.write("join aborted, session token unavailable channel=\(channel.channelID)")
+                return
+            }
+            let meetToken: String
+            do {
+                meetToken = try await self.context.account.network.generateMeetToken(
+                    channelId: channel.channelID,
+                    roomName: String(channel.channelID),
+                    metadata: self.context.meetTokenMetadata(clanId: clanId),
+                    token: sessionToken
+                )
+            } catch {
+                StreamingSfuLog.write("generateMeetToken failed channel=\(channel.channelID) error=\(error)")
+                return
+            }
+            guard !meetToken.isEmpty else {
+                StreamingSfuLog.write("generateMeetToken returned empty channel=\(channel.channelID)")
+                return
+            }
+            let tokenContext = self.context
 
             await StreamingWebRTCSession.shared.join(
-                clanId: self.effectiveClanId(for: channel),
                 channelId: channel.channelID,
-                streamId: channel.channelID,
-                userId: userId,
-                username: username,
-                token: token
+                token: meetToken,
+                tokenProvider: {
+                    guard let token = await tokenContext.getToken() else { return nil }
+                    return try? await tokenContext.account.network.generateMeetToken(
+                        channelId: channel.channelID,
+                        roomName: String(channel.channelID),
+                        metadata: tokenContext.meetTokenMetadata(clanId: clanId),
+                        token: token
+                    )
+                }
             )
-
-            if let uid = Int64(userId) {
-                self.context.engine.clanData.applyStreamJoined(
-                    clanId: self.effectiveClanId(for: channel),
-                    channelId: channel.channelID,
-                    userId: uid
-                )
-            }
 
             let vc = StreamingRoomViewController(
                 context: self.context,
@@ -1239,7 +1513,7 @@ final class SearchViewController: ViewController {
         }
     }
 
-    private func pushVoiceChannelRoom(for channel: Mezon_Api_ChannelDescription) {
+    private func pushVoiceChannelRoom(for channel: Mezon_Api_ChannelDescription, role: SfuRole = .speaker) {
         persistSelectedChannelForVoice(channel)
         context.currentClanId = effectiveClanId(for: channel)
         guard let nav = navigationController else { return }
@@ -1261,7 +1535,8 @@ final class SearchViewController: ViewController {
 
         let vc = VoiceChannelRoomViewController(
             context: context, channel: channel,
-            parentChannelName: parentChannelName(for: channel))
+            parentChannelName: parentChannelName(for: channel),
+            joinRole: role)
         nav.pushViewController(vc, animated: true)
     }
 }
@@ -1347,7 +1622,31 @@ extension SearchViewController: ASTableDataSource, ASTableDelegate {
         }
     }
 
+    private var showsRecentHeader: Bool {
+        isTypeToSearchState && (!filteredMembers.isEmpty || !filteredDMGroups.isEmpty)
+    }
+
     func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+        if activeTab == .members, section == 0, showsRecentHeader {
+            let header = UIView()
+            header.backgroundColor = UIColor.theme.primary
+            let titleLabel = UILabel()
+            titleLabel.attributedText = NSAttributedString(
+                string: "RECENT",
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 12.sf, weight: .semibold),
+                    .foregroundColor: UIColor.theme.textDisabled,
+                    .kern: 0.6,
+                ]
+            )
+            titleLabel.translatesAutoresizingMaskIntoConstraints = false
+            header.addSubview(titleLabel)
+            NSLayoutConstraint.activate([
+                titleLabel.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 24.sf),
+                titleLabel.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+            ])
+            return header
+        }
         guard activeTab == .messages, !groupedMessages.isEmpty, section < groupedMessages.count else { return nil }
         let label = nonEmptyChannelLabel(groupedMessages[section].channelLabel)
         let title = label.isEmpty ? "Channel" : label
@@ -1371,8 +1670,24 @@ extension SearchViewController: ASTableDataSource, ASTableDelegate {
     }
 
     func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        if activeTab == .members, section == 0, showsRecentHeader { return 32.sh }
         guard activeTab == .messages, !groupedMessages.isEmpty else { return 0 }
         return 36.sh
+    }
+
+    private var isTypeToSearchState: Bool {
+        !isChannelScoped
+            && preparedMatchQuery(
+                from: searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+            ).isEmpty
+    }
+
+    private static func typeToSearchEmptyCell() -> SearchEmptyCellNode {
+        SearchEmptyCellNode(
+            icon: "magnifyingglass",
+            title: "Search Mezon",
+            subtitle: "Type something to find\nmembers and channels"
+        )
     }
 
     func tableNode(_ tableNode: ASTableNode, nodeBlockForRowAt indexPath: IndexPath) -> ASCellNodeBlock {
@@ -1389,25 +1704,47 @@ extension SearchViewController: ASTableDataSource, ASTableDelegate {
                 return { DMGroupSearchCellNode(channel: ch, isFirst: isFirst, isLast: isLast) }
             }
             if filteredMembers.isEmpty {
+                if isTypeToSearchState {
+                    return { Self.typeToSearchEmptyCell() }
+                }
                 return { SearchEmptyCellNode(text: "No members found") }
             }
             let user = filteredMembers[row]
             let nick = clanNicks[user.id]
-            let avatarURLs = self.resolvedMemberAvatarURLs(for: user)
+            let clanAvatar = clanAvatars[user.id]
+            let searchClanId = clanId
+            let postbox = context.account.postbox
             let count = filteredMembers.count
             let isFirst = row == 0
             let isLast = row == count - 1
-            return { MemberSearchCellNode(user: user, clanNick: nick, avatarURLs: avatarURLs, isFirst: isFirst, isLast: isLast) }
+            return {
+                let avatarURLs = Self.resolveMemberAvatarURLs(
+                    for: user, clanAvatar: clanAvatar, clanId: searchClanId, postbox: postbox)
+                return MemberSearchCellNode(user: user, clanNick: nick, avatarURLs: avatarURLs, isFirst: isFirst, isLast: isLast)
+            }
 
         case .channels:
             if filteredChannels.isEmpty {
+                if isTypeToSearchState {
+                    return { Self.typeToSearchEmptyCell() }
+                }
                 return { SearchEmptyCellNode(text: "No channels found") }
             }
-            let channel = filteredChannels[row]
+            let channel = resolvedChannelForNavigation(filteredChannels[row])
             let count = filteredChannels.count
             let isFirst = row == 0
             let isLast = row == count - 1
-            return { ChannelSearchCellNode(channel: channel, isFirst: isFirst, isLast: isLast) }
+            return { [weak self] in
+                let cell = ChannelSearchCellNode(
+                    channel: channel,
+                    isFirst: isFirst,
+                    isLast: isLast
+                )
+                cell.onJoinTapped = { [weak self] in
+                    self?.handleSearchChannelJoinTap(channel)
+                }
+                return cell
+            }
 
         case .messages:
             if groupedMessages.isEmpty {
@@ -1452,16 +1789,7 @@ extension SearchViewController: ASTableDataSource, ASTableDelegate {
 
         case .channels:
             guard indexPath.row < filteredChannels.count else { return }
-            let channel = filteredChannels[indexPath.row]
-            if channel.type == MezonConstants.ChannelType.mezonVoice.rawValue {
-                presentJoinVoiceSheet(for: channel)
-                return
-            }
-            if channel.type == MezonConstants.ChannelType.streaming.rawValue {
-                presentJoinStreamSheet(for: channel)
-                return
-            }
-            navigateToChannel(channel)
+            navigateToChannel(resolvedChannelForNavigation(filteredChannels[indexPath.row]))
 
         case .messages:
             let section = indexPath.section
@@ -1741,7 +2069,7 @@ final class SearchTabBarNode: ASDisplayNode {
         }
     }
 
-    func updateCounts(members: Int, channels: Int, messages: Int?) {
+    func updateCounts(members: Int?, channels: Int?, messages: Int?) {
         counts[.members] = members
         counts[.channels] = channels
         counts[.messages] = messages
@@ -1874,10 +2202,16 @@ private final class SearchTabItemNode: ASDisplayNode {
 }
 
 final class SearchEmptyCellNode: ASCellNode {
+    private let iconBackplate = ASDisplayNode()
+    private let iconNode = ASImageNode()
+    private let titleNode = ASTextNode2()
     private let textNode = ASTextNode2()
+    private let hasHero: Bool
 
     init(text: String) {
+        hasHero = false
         super.init()
+        selectionStyle = .none
         backgroundColor = UIColor.theme.primary
         textNode.attributedText = NSAttributedString(
             string: text,
@@ -1889,9 +2223,72 @@ final class SearchEmptyCellNode: ASCellNode {
         addSubnode(textNode)
     }
 
+    init(icon: String, title: String, subtitle: String) {
+        hasHero = true
+        super.init()
+        selectionStyle = .none
+        let t = UIColor.theme
+        backgroundColor = t.primary
+
+        iconBackplate.backgroundColor = t.secondary
+        iconBackplate.cornerRadius = 32.sf
+
+        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 26.sf, weight: .medium)
+        iconNode.image = UIImage(systemName: icon, withConfiguration: symbolConfig)?
+            .withTintColor(t.iconSecondary, renderingMode: .alwaysOriginal)
+        iconNode.contentMode = .center
+
+        titleNode.attributedText = NSAttributedString(
+            string: title,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 17, weight: .semibold),
+                .foregroundColor: t.textStrong,
+            ]
+        )
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineSpacing = 3
+        textNode.attributedText = NSAttributedString(
+            string: subtitle,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 14),
+                .foregroundColor: t.textDisabled,
+                .paragraphStyle: paragraph,
+            ]
+        )
+
+        addSubnode(iconBackplate)
+        addSubnode(iconNode)
+        addSubnode(titleNode)
+        addSubnode(textNode)
+    }
+
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        let insets = UIEdgeInsets(top: 40, left: 20, bottom: 40, right: 20)
-        let centered = ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: .minimumXY, child: textNode)
+        guard hasHero else {
+            let insets = UIEdgeInsets(top: 40, left: 20, bottom: 40, right: 20)
+            let centered = ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: .minimumXY, child: textNode)
+            return ASInsetLayoutSpec(insets: insets, child: centered)
+        }
+
+        iconBackplate.style.preferredSize = CGSize(width: 64.sf, height: 64.sf)
+        iconNode.style.preferredSize = CGSize(width: 64.sf, height: 64.sf)
+        let iconSpec = ASOverlayLayoutSpec(
+            child: iconBackplate,
+            overlay: ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: .minimumXY, child: iconNode)
+        )
+
+        titleNode.style.spacingBefore = 16.sf
+        textNode.style.spacingBefore = 6.sf
+        let stack = ASStackLayoutSpec(
+            direction: .vertical,
+            spacing: 0,
+            justifyContent: .center,
+            alignItems: .center,
+            children: [iconSpec, titleNode, textNode]
+        )
+        let insets = UIEdgeInsets(top: 72.sf, left: 32.sf, bottom: 48.sf, right: 32.sf)
+        let centered = ASCenterLayoutSpec(centeringOptions: .X, sizingOptions: .minimumXY, child: stack)
         return ASInsetLayoutSpec(insets: insets, child: centered)
     }
 }
@@ -2123,10 +2520,14 @@ final class ChannelSearchCellNode: ASCellNode {
     private let iconImgNode = ASImageNode()
     private let nameNode = ASTextNode2()
     private let clanNameNode = ASTextNode2()
+    private let joinButtonNode = ASButtonNode()
     private let cardNode = ASDisplayNode()
     private let isFirst: Bool
     private let isLast: Bool
     private let hasClanName: Bool
+    private let showsJoinAction: Bool
+
+    var onJoinTapped: (() -> Void)?
 
     init(channel: Mezon_Api_ChannelDescription, isFirst: Bool = false, isLast: Bool = false) {
         let isDMOrGroup = channel.type == MezonConstants.ChannelType.dm.rawValue
@@ -2134,6 +2535,8 @@ final class ChannelSearchCellNode: ASCellNode {
         self.isFirst = isFirst
         self.isLast = isLast
         self.hasClanName = !channel.clanName.isEmpty && !isDMOrGroup
+        self.showsJoinAction = channel.type == MezonConstants.ChannelType.mezonVoice.rawValue
+            || channel.type == MezonConstants.ChannelType.streaming.rawValue
         super.init()
         selectionStyle = .none
         let t = UIColor.theme
@@ -2212,6 +2615,24 @@ final class ChannelSearchCellNode: ASCellNode {
         addSubnode(iconImgNode)
         addSubnode(nameNode)
         if hasClanName { addSubnode(clanNameNode) }
+        if showsJoinAction {
+            joinButtonNode.setTitle(
+                L(L10n.Clan.joinAction),
+                with: .systemFont(ofSize: 14.sf, weight: .semibold),
+                with: t.bgViolet,
+                for: .normal
+            )
+            joinButtonNode.addTarget(
+                self,
+                action: #selector(joinTapped),
+                forControlEvents: .touchUpInside
+            )
+            addSubnode(joinButtonNode)
+        }
+    }
+
+    @objc private func joinTapped() {
+        onJoinTapped?()
     }
 
     override func calculateSizeThatFits(_ constrainedSize: CGSize) -> CGSize {
@@ -2232,7 +2653,20 @@ final class ChannelSearchCellNode: ASCellNode {
         iconImgNode.frame = CGRect(x: contentX, y: iconY, width: iconSz, height: iconSz)
 
         let textX = contentX + iconSz + 10.sw
-        let textW = bounds.width - textX - m - p
+        let trailingContentX = cardFrame.maxX - p
+        let joinActionWidth: CGFloat = showsJoinAction ? 72.sw : 0
+        if showsJoinAction {
+            joinButtonNode.frame = CGRect(
+                x: trailingContentX - joinActionWidth,
+                y: 0,
+                width: joinActionWidth,
+                height: bounds.height
+            )
+        }
+        let textTrailingX = showsJoinAction
+            ? joinButtonNode.frame.minX - 8.sw
+            : trailingContentX
+        let textW = max(0, textTrailingX - textX)
         if hasClanName {
             let nameSize = nameNode.measure(CGSize(width: textW, height: 20))
             let clanSize = clanNameNode.measure(CGSize(width: textW, height: 16))

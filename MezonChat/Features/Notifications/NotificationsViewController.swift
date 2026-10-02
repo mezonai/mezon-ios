@@ -18,6 +18,7 @@ final class NotificationsViewController: ViewController {
     private(set) var isLoadingMore: Bool = false
     private(set) var currentCategory: Int32 = 1
     private var lastLoadedClanId: Int64 = 0
+    private var notificationItemsClanId: Int64 = 0
 
     private var loadedCategories: Set<Int32> = []
 
@@ -50,6 +51,9 @@ final class NotificationsViewController: ViewController {
             onItemSelected: { [weak self] item in
                 guard let self else { return }
                 self.processItemDetail(item)
+            },
+            onNotificationLongPressed: { [weak self] record in
+                self?.presentNotificationActions(for: record)
             }
         )
         displayNode = NotificationsContainerNode(signal: stateSignal(), interaction: interaction)
@@ -67,9 +71,14 @@ final class NotificationsViewController: ViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         notificationsNode.applyTheme()
-        let clanId = context.currentClanId
-        if items.isEmpty || clanId != lastLoadedClanId {
+        let clanId = currentCategory == NotificationTabCategory.topic ? resolvedTopicClanId() : context.currentClanId
+        let shouldReset = items.isEmpty || clanId != lastLoadedClanId
+        let hasOnlyPendingMessages = currentCategory == NotificationTabCategory.messages
+            && !items.contains { $0.id > 0 }
+        if shouldReset {
             loadedCategories.removeAll()
+        }
+        if shouldReset || hasOnlyPendingMessages {
             Task { await fetchNotifications(category: currentCategory) }
         }
     }
@@ -101,15 +110,22 @@ final class NotificationsViewController: ViewController {
         }
 
         let token = await context.getToken()
-        let clanId = context.currentClanId
+        let clanId = category == NotificationTabCategory.topic ? resolvedTopicClanId() : context.currentClanId
 
         if isLoadMore, token == nil {
             setIsLoadingMore(false)
             return
         }
 
-        if category == 4 {
+        if category == NotificationTabCategory.topic {
             dataDisposable?.dispose()
+            defer { setIsLoading(false) }
+            guard clanId != 0 else {
+                loadedCategories.insert(category)
+                lastLoadedClanId = clanId
+                setItems([])
+                return
+            }
             dataDisposable =
                 (context.engine.data.subscribe(
                     MezonEngine.EngineData.Item.TopicList(clanId: clanId)
@@ -118,7 +134,6 @@ final class NotificationsViewController: ViewController {
                     self.setItems(self.enrichTopicItems(topics))
                 })
 
-            defer { setIsLoading(false) }
             guard let token else { return }
             do {
                 try await context.engine.topicDiscussion.listTopics(
@@ -130,13 +145,14 @@ final class NotificationsViewController: ViewController {
             return
         }
 
-        var notificationId: Int64 = 0
-        if isLoadMore, let last = items.last {
-            notificationId = last.id
-        }
-
         defer {
             if isLoadMore { setIsLoadingMore(false) } else { setIsLoading(false) }
+        }
+
+        var notificationId: Int64 = 0
+        if isLoadMore {
+            guard let lastServerItem = items.last(where: { $0.id > 0 }) else { return }
+            notificationId = lastServerItem.id
         }
 
         if !isLoadMore {
@@ -145,7 +161,7 @@ final class NotificationsViewController: ViewController {
                 (context.engine.data.subscribe(
                     MezonEngine.EngineData.Item.NotificationList(clanId: clanId, category: category)
                 ) |> deliverOnMainQueue).start(next: { [weak self] notifications in
-                    self?.setNotifications(notifications)
+                    self?.setNotifications(notifications, clanId: clanId)
                 })
         }
 
@@ -164,12 +180,28 @@ final class NotificationsViewController: ViewController {
         }
     }
 
+    private func resolvedTopicClanId() -> Int64 {
+        if context.currentClanId != 0 {
+            return context.currentClanId
+        }
+        let storedClanId = UserDefaults.standard.integer(forKey: "mezon_selectedClanId")
+        if storedClanId != 0 {
+            return Int64(storedClanId)
+        }
+        if let data = context.account.postbox.getPreferenceData(key: PreferencesKeys.selectedClanId),
+           data.count >= 8 {
+            return data.withUnsafeBytes { $0.loadUnaligned(as: Int64.self).littleEndian }
+        }
+        return 0
+    }
+
     deinit {
         NotificationCenter.default.removeObserver(self)
         dataDisposable?.dispose()
     }
 
-    private func setNotifications(_ v: [NotificationRecord]) {
+    private func setNotifications(_ v: [NotificationRecord], clanId: Int64) {
+        notificationItemsClanId = clanId
         self.items = enrichNotificationItems(v)
         needsReloadPipe.putNext(())
     }
@@ -243,9 +275,13 @@ final class NotificationsViewController: ViewController {
             if record.clanID == 0, channel.type == 0 {
                 channel.type = MezonConstants.ChannelType.group.rawValue
             }
+            if record.topicID != 0 {
+                channel.channelLabel = L(L10n.MessageAction.topicDiscussion)
+            }
             context.currentClanId = record.clanID
             let vc = ChatViewController(
                 clanId: record.clanID, channel: channel, context: self.context)
+            vc.topicId = record.topicID
             if record.messageID != 0 {
                 vc.pendingJumpToMessageId = String(record.messageID)
             }
@@ -261,6 +297,59 @@ final class NotificationsViewController: ViewController {
                 clanId: record.clanID, channel: channel, context: self.context)
             vc.topicId = record.id
             self.hostingNavigationController()?.pushViewController(vc, animated: true)
+        }
+    }
+
+    private func presentNotificationActions(for record: NotificationRecord) {
+        let clanId = notificationItemsClanId
+        let alert = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        alert.addAction(
+            UIAlertAction(
+                title: L(L10n.Notifications.removeNotification),
+                style: .destructive,
+                handler: { [weak self] _ in
+                    self?.deleteNotification(record, clanId: clanId)
+                }
+            )
+        )
+        alert.addAction(UIAlertAction(title: L(L10n.Common.cancel), style: .cancel))
+
+        if let popover = alert.popoverPresentationController {
+            popover.sourceView = view
+            popover.sourceRect = CGRect(
+                x: view.bounds.midX,
+                y: max(0, view.bounds.maxY - 1),
+                width: 1,
+                height: 1
+            )
+            popover.permittedArrowDirections = []
+        }
+        present(alert, animated: true)
+    }
+
+    private func deleteNotification(_ record: NotificationRecord, clanId: Int64) {
+        if record.id < 0 {
+            context.account.postbox.write { tx in
+                tx.removeNotifications(
+                    ids: [record.id],
+                    clanId: clanId,
+                    category: record.category
+                )
+            }
+            return
+        }
+        Task { [weak self] in
+            guard let self, let token = await self.context.getToken() else { return }
+            do {
+                try await self.context.engine.notifications.deleteNotifications(
+                    ids: [record.id],
+                    clanId: clanId,
+                    category: record.category,
+                    token: token
+                )
+            } catch {
+                Toast.error(error.localizedDescription)
+            }
         }
     }
 

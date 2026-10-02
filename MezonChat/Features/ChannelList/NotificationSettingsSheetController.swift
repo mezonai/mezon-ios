@@ -19,24 +19,53 @@ enum ChannelNotificationType: Int32, CaseIterable {
 
 final class NotificationSettingsSheetController: ViewController {
 
-    private let channelId: Int64
+    private let channelId: Int64?
     private let clanId: Int64
     private let context: AccountContext
     private var selectedType: ChannelNotificationType
     private let defaultLabel: String
+    private var isSaving = false
+    private var notificationObserver: NSObjectProtocol?
+
+    private var isClanTarget: Bool { channelId == nil }
 
     init(
         channelId: Int64,
         clanId: Int64,
         context: AccountContext,
-        currentType: ChannelNotificationType,
-        defaultLabel: String
+        currentType: ChannelNotificationType
     ) {
         self.channelId = channelId
         self.clanId = clanId
         self.context = context
         self.selectedType = currentType
-        self.defaultLabel = defaultLabel
+        let cachedClanTypeRawValue: Int32? = context.account.postbox.read { tx in
+            guard let record = tx.getNotificationSetting(entityId: clanId), record.scope == .clan else {
+                return nil
+            }
+            return record.notificationSettingType
+        }
+        if let cachedClanTypeRawValue,
+           let cachedClanType = ChannelNotificationType(rawValue: cachedClanTypeRawValue),
+           cachedClanType != .useDefault {
+            self.defaultLabel = cachedClanType.title
+        } else {
+            self.defaultLabel = ""
+        }
+        super.init(navigationBarPresentationData: nil)
+        self.statusBar.statusBarStyle = .Ignore
+    }
+
+    init(
+        clanId: Int64,
+        context: AccountContext,
+        currentType: ChannelNotificationType
+    ) {
+        self.channelId = nil
+        self.clanId = clanId
+        self.context = context
+        self.selectedType = currentType == .useDefault ? .allMessages : currentType
+        self.defaultLabel = ""
         super.init(navigationBarPresentationData: nil)
         self.statusBar.statusBarStyle = .Ignore
     }
@@ -51,6 +80,7 @@ final class NotificationSettingsSheetController: ViewController {
         displayNode = NotificationSettingsSheetNode(
             selectedType: selectedType,
             defaultLabel: defaultLabel,
+            includeUseDefault: !isClanTarget,
             onSelect: { [weak self] type in
                 self?.handleSelection(type)
             },
@@ -59,16 +89,22 @@ final class NotificationSettingsSheetController: ViewController {
             }
         )
         displayNodeDidLoad()
+        sheetNode.setOptionsEnabled(false)
         setupSocketListener()
         fetchSetting()
     }
     
     private func setupSocketListener() {
-        NotificationCenter.default.addObserver(forName: .mezonNotificationSettingDidUpdate, object: nil, queue: .main) { [weak self] notification in
+        guard let channelId else { return }
+        notificationObserver = NotificationCenter.default.addObserver(
+            forName: .mezonNotificationSettingDidUpdate,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
             guard let self = self,
                   let userInfo = notification.userInfo,
                   let updatedChannelId = userInfo["channelId"] as? Int64,
-                  updatedChannelId == self.channelId,
+                  updatedChannelId == channelId,
                   let record = userInfo["record"] as? NotificationSettingRecord else { return }
             
             let typeInt = record.notificationSettingType
@@ -80,7 +116,9 @@ final class NotificationSettingsSheetController: ViewController {
     }
     
     deinit {
-        NotificationCenter.default.removeObserver(self)
+        if let notificationObserver {
+            NotificationCenter.default.removeObserver(notificationObserver)
+        }
     }
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
@@ -99,33 +137,97 @@ final class NotificationSettingsSheetController: ViewController {
     }
     
     private func fetchSetting() {
-        Task { @MainActor in
-            guard let token = await context.getToken() else { return }
+        Task { @MainActor [self] in
+            guard let token = await context.getToken() else {
+                if isClanTarget {
+                    handleClanLoadFailure()
+                } else {
+                    sheetNode.setOptionsEnabled(true)
+                }
+                return
+            }
+            if let channelId {
+                async let channelNotifRequest = try? MezonHTTPClient.shared.getNotificationChannel(
+                    channelId: channelId,
+                    token: token
+                )
+                async let clanNotifRequest = try? context.account.network.getNotificationClan(
+                    clanId: clanId,
+                    token: token
+                )
+                let (channelNotif, clanNotif) = await (channelNotifRequest, clanNotifRequest)
+
+                if let channelNotif {
+                    let record = NotificationSettingRecord(
+                        id: 0,
+                        entityId: channelId,
+                        scope: .channel,
+                        notificationSettingType: channelNotif.notificationSettingType,
+                        timeMuteSeconds: UInt32(bitPattern: channelNotif.timeMuteSeconds),
+                        active: channelNotif.active
+                    )
+                    context.account.postbox.write { tx in
+                        tx.updateNotificationSetting(record)
+                    }
+
+                    if let newType = ChannelNotificationType(
+                        rawValue: channelNotif.notificationSettingType
+                    ), newType != self.selectedType {
+                        self.selectedType = newType
+                        self.sheetNode.updateSelection(newType)
+                    }
+                }
+
+                if let clanNotif {
+                    let clanType = normalizedClanType(clanNotif.notificationSettingType)
+                    cacheClanSetting(clanNotif, type: clanType)
+                    sheetNode.updateDefaultLabel(clanType.title)
+                }
+                sheetNode.setOptionsEnabled(true)
+                return
+            }
+
             do {
-                let channelNotif = try await MezonHTTPClient.shared.getNotificationChannel(channelId: channelId, token: token)
-                
-                let record = NotificationSettingRecord(id: 0, entityId: channelId, scope: .channel, notificationSettingType: channelNotif.notificationSettingType, timeMuteSeconds: UInt32(bitPattern: channelNotif.timeMuteSeconds), active: channelNotif.active)
-                context.account.postbox.write { tx in
-                    tx.updateNotificationSetting(record)
-                }
-                
-                if let newType = ChannelNotificationType(rawValue: channelNotif.notificationSettingType), newType != self.selectedType {
-                    self.selectedType = newType
-                    self.sheetNode.updateSelection(newType)
-                }
+                let clanNotif = try await context.account.network.getNotificationClan(
+                    clanId: clanId,
+                    token: token
+                )
+                let newType = normalizedClanType(clanNotif.notificationSettingType)
+                cacheClanSetting(clanNotif, type: newType)
+                selectedType = newType
+                sheetNode.updateSelection(newType)
+                sheetNode.setOptionsEnabled(true)
             } catch {
+                handleClanLoadFailure(error)
             }
         }
     }
 
     private func handleSelection(_ type: ChannelNotificationType) {
+        if let channelId {
+            handleChannelSelection(type, channelId: channelId)
+            return
+        }
+
+        handleClanSelection(type)
+    }
+
+    private func handleChannelSelection(_ type: ChannelNotificationType, channelId: Int64) {
+        guard !isSaving else { return }
         guard type != selectedType else {
             dismissSheet()
             return
         }
 
-        Task { @MainActor in
-            guard let token = await context.getToken() else { return }
+        isSaving = true
+        sheetNode.setOptionsEnabled(false)
+        Task { @MainActor [self] in
+            guard let token = await context.getToken() else {
+                isSaving = false
+                sheetNode.setOptionsEnabled(true)
+                Toast.error(L(L10n.Error.somethingWentWrong))
+                return
+            }
             do {
                 if type == .useDefault {
                     try await MezonHTTPClient.shared.deleteNotificationChannel(
@@ -140,21 +242,124 @@ final class NotificationSettingsSheetController: ViewController {
                         token: token
                     )
                 }
-                
-                let record = NotificationSettingRecord(id: 0, entityId: channelId, scope: .channel, notificationSettingType: type.rawValue, timeMuteSeconds: 0, active: 1)
+
+                let existing: NotificationSettingRecord? = context.account.postbox.read { tx in
+                    guard let record = tx.getNotificationSetting(entityId: channelId),
+                          record.scope == .channel else {
+                        return nil
+                    }
+                    return record
+                }
+                let record = NotificationSettingRecord(
+                    id: existing?.id ?? 0,
+                    entityId: channelId,
+                    scope: .channel,
+                    notificationSettingType: type.rawValue,
+                    timeMuteSeconds: existing?.timeMuteSeconds ?? 0,
+                    active: existing?.active ?? 1
+                )
                 context.account.postbox.write { tx in
                     tx.updateNotificationSetting(record)
                 }
-                
+
                 selectedType = type
                 sheetNode.updateSelection(type)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
                     self?.dismissSheet()
                 }
             } catch {
+                isSaving = false
+                sheetNode.setOptionsEnabled(true)
                 Toast.error(error.localizedDescription)
             }
         }
+    }
+
+    private func handleClanSelection(_ type: ChannelNotificationType) {
+        guard !isSaving else { return }
+        guard type != .useDefault else { return }
+        guard type != selectedType else {
+            dismissSheet()
+            return
+        }
+
+        isSaving = true
+        sheetNode.setOptionsEnabled(false)
+        Task { @MainActor [self] in
+            guard let token = await context.getToken() else {
+                isSaving = false
+                sheetNode.setOptionsEnabled(true)
+                Toast.error(L(L10n.Error.somethingWentWrong))
+                return
+            }
+            do {
+                try await context.account.network.setDefaultNotificationClan(
+                    clanId: clanId,
+                    notificationType: type.rawValue,
+                    token: token
+                )
+
+                let existing = context.account.postbox.read { tx in
+                    tx.getNotificationSetting(entityId: clanId)
+                }
+                let record = NotificationSettingRecord(
+                    id: existing?.id ?? clanId,
+                    entityId: clanId,
+                    scope: .clan,
+                    notificationSettingType: type.rawValue,
+                    timeMuteSeconds: existing?.timeMuteSeconds ?? 0,
+                    active: existing?.active ?? 1
+                )
+                context.account.postbox.write { tx in
+                    tx.updateNotificationSetting(record)
+                }
+
+                selectedType = type
+                sheetNode.updateSelection(type)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                    self?.dismissSheet()
+                }
+            } catch {
+                isSaving = false
+                sheetNode.setOptionsEnabled(true)
+                Toast.error(error.localizedDescription)
+            }
+        }
+    }
+
+    private func normalizedClanType(_ rawValue: Int32) -> ChannelNotificationType {
+        guard let type = ChannelNotificationType(rawValue: rawValue), type != .useDefault else {
+            return .allMessages
+        }
+        return type
+    }
+
+    private func cacheClanSetting(
+        _ clanNotif: Mezon_Api_NotificationUserChannel,
+        type: ChannelNotificationType
+    ) {
+        let existing: NotificationSettingRecord? = context.account.postbox.read { tx in
+            guard let record = tx.getNotificationSetting(entityId: clanId), record.scope == .clan else {
+                return nil
+            }
+            return record
+        }
+        let record = NotificationSettingRecord(
+            id: clanNotif.id == 0 ? (existing?.id ?? clanId) : clanNotif.id,
+            entityId: clanId,
+            scope: .clan,
+            notificationSettingType: type.rawValue,
+            timeMuteSeconds: existing?.timeMuteSeconds ?? 0,
+            active: existing?.active ?? 1
+        )
+        context.account.postbox.write { tx in
+            tx.updateNotificationSetting(record)
+        }
+    }
+
+    private func handleClanLoadFailure(_ error: Error? = nil) {
+        Toast.error(error?.localizedDescription ?? L(L10n.Error.somethingWentWrong))
+        dismissSheet()
     }
 }
 
@@ -164,10 +369,10 @@ private final class NotificationSettingsSheetNode: ASDisplayNode, UIGestureRecog
     private let containerNode = ASDisplayNode()
     private let handleNode = ASDisplayNode()
     private let group2Node = ASDisplayNode()
-    private let separators: [ASDisplayNode] = [ASDisplayNode(), ASDisplayNode(), ASDisplayNode()]
+    private let separators: [ASDisplayNode]
 
     private var selectedType: ChannelNotificationType
-    private let defaultLabel: String
+    private let optionTypes: [ChannelNotificationType]
     private let onSelect: (ChannelNotificationType) -> Void
     private let onDismiss: () -> Void
 
@@ -179,19 +384,24 @@ private final class NotificationSettingsSheetNode: ASDisplayNode, UIGestureRecog
     init(
         selectedType: ChannelNotificationType,
         defaultLabel: String,
+        includeUseDefault: Bool,
         onSelect: @escaping (ChannelNotificationType) -> Void,
         onDismiss: @escaping () -> Void
     ) {
         self.selectedType = selectedType
-        self.defaultLabel = defaultLabel
+        let optionTypes: [ChannelNotificationType] = includeUseDefault
+            ? [.useDefault, .allMessages, .mentionsOnly, .nothing]
+            : [.allMessages, .mentionsOnly, .nothing]
+        self.optionTypes = optionTypes
+        self.separators = (0..<max(0, optionTypes.count - 1)).map { _ in ASDisplayNode() }
         self.onSelect = onSelect
         self.onDismiss = onDismiss
         super.init()
         automaticallyManagesSubnodes = false
-        buildNodes()
+        buildNodes(defaultLabel: defaultLabel)
     }
 
-    private func buildNodes() {
+    private func buildNodes(defaultLabel: String) {
         dimNode.backgroundColor = UIColor.black.withAlphaComponent(0.5)
         dimNode.alpha = 0
         addSubnode(dimNode)
@@ -225,8 +435,7 @@ private final class NotificationSettingsSheetNode: ASDisplayNode, UIGestureRecog
         containerNode.addSubnode(titleNode)
         self.titleNode = titleNode
 
-        let types: [ChannelNotificationType] = [.useDefault, .allMessages, .mentionsOnly, .nothing]
-        for type in types {
+        for type in optionTypes {
             let subtitle: String? = (type == .useDefault) ? defaultLabel : nil
             let row = NotificationOptionRow(
                 type: type,
@@ -246,6 +455,17 @@ private final class NotificationSettingsSheetNode: ASDisplayNode, UIGestureRecog
         selectedType = type
         for (rowType, row) in optionRows {
             row.setSelected(rowType == type)
+        }
+    }
+
+    func updateDefaultLabel(_ label: String) {
+        optionRows[.useDefault]?.setSubtitle(label)
+    }
+
+    func setOptionsEnabled(_ enabled: Bool) {
+        for row in optionRows.values {
+            row.isUserInteractionEnabled = enabled
+            row.alpha = enabled ? 1 : 0.55
         }
     }
 
@@ -288,17 +508,21 @@ private final class NotificationSettingsSheetNode: ASDisplayNode, UIGestureRecog
         let groupW = width - 32
         let groupX: CGFloat = 16
 
-        group2Node.frame = CGRect(x: groupX, y: y, width: groupW, height: rowH * 4)
-        let group2Types: [ChannelNotificationType] = [.useDefault, .allMessages, .mentionsOnly, .nothing]
-        for (i, type) in group2Types.enumerated() {
+        group2Node.frame = CGRect(
+            x: groupX,
+            y: y,
+            width: groupW,
+            height: rowH * rowCount
+        )
+        for (i, type) in optionTypes.enumerated() {
             if let row = optionRows[type] {
                 row.frame = CGRect(x: 0, y: CGFloat(i) * rowH, width: groupW, height: rowH)
             }
-            if i < 3 {
+            if i < separators.count {
                 separators[i].frame = CGRect(x: 0, y: CGFloat(i + 1) * rowH, width: groupW, height: 1.0 / UIScreen.main.scale)
             }
         }
-        y += rowH * 4
+        y += rowH * rowCount
 
         if panGesture == nil {
             panGesture = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
@@ -411,6 +635,25 @@ private final class NotificationOptionRow: ASDisplayNode {
     func setSelected(_ selected: Bool) {
         isSelectedState = selected
         updateRadioAppearance()
+    }
+
+    func setSubtitle(_ subtitle: String?) {
+        guard let subtitle, !subtitle.isEmpty else {
+            subtitleNode.removeFromSupernode()
+            setNeedsLayout()
+            return
+        }
+        subtitleNode.attributedText = NSAttributedString(
+            string: subtitle,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 13, weight: .regular),
+                .foregroundColor: UIColor.mezonTextMuted
+            ]
+        )
+        if subtitleNode.supernode == nil {
+            addSubnode(subtitleNode)
+        }
+        setNeedsLayout()
     }
 
     private func updateRadioAppearance() {

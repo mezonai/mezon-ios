@@ -1,4 +1,5 @@
 import Foundation
+import Sentry
 
 @MainActor
 final class SessionRefreshManager {
@@ -16,7 +17,41 @@ final class SessionRefreshManager {
     private var lastFailedRefresh: (at: Date, error: Error)?
     private let minFailedRefreshInterval: TimeInterval = 1.5
 
+    private let refreshThrottleBaseSeconds: TimeInterval = 60
+    private let refreshThrottleCapSeconds: TimeInterval = 300
+    private var refreshThrottleSeconds: TimeInterval = 60
+    private var refreshHoldUntil: Date?
+    private var lastThrottledError: Error?
+
     private init() {}
+
+    var mayRefresh: Bool {
+        guard let until = refreshHoldUntil else { return true }
+        return Date() >= until
+    }
+
+    func releaseRefreshThrottle() {
+        refreshHoldUntil = nil
+        refreshThrottleSeconds = refreshThrottleBaseSeconds
+        lastThrottledError = nil
+    }
+
+    private func isThrottled(_ error: Error) -> Bool {
+        guard let mezon = error as? MezonError, case .httpError(let code, _) = mezon else { return false }
+        return code == 429 || code == 503
+    }
+
+    private func holdRefresh(after error: Error) {
+        refreshHoldUntil = Date().addingTimeInterval(refreshThrottleSeconds)
+        lastThrottledError = error
+        SentryLogger.addBreadcrumb(
+            category: "session.refresh",
+            message: "throttled",
+            level: .warning,
+            data: ["hold_seconds": Int(refreshThrottleSeconds)]
+        )
+        refreshThrottleSeconds = doubledBackoff(refreshThrottleSeconds, cap: refreshThrottleCapSeconds)
+    }
 
     private func isDefinitiveAuthFailure(_ error: Error) -> Bool {
         guard let mezon = error as? MezonError, case .httpError(let code, let message) = mezon else {
@@ -47,6 +82,9 @@ final class SessionRefreshManager {
     func refresh(session: MezonSession) async throws -> MezonSession {
         if let active = activeTask {
             return try await active.value
+        }
+        if !mayRefresh, let throttled = lastThrottledError {
+            throw throttled
         }
         if let recent = lastSuccessfulRefresh,
            Date().timeIntervalSince(recent.at) < minSuccessfulRefreshInterval,
@@ -88,6 +126,9 @@ final class SessionRefreshManager {
                 }
             } else {
                 lastFailedRefresh = (Date(), error)
+                if isThrottled(error) {
+                    holdRefresh(after: error)
+                }
             }
             throw error
         }
@@ -96,6 +137,7 @@ final class SessionRefreshManager {
         failCount = 0
         lastSuccessfulRefresh = (Date(), merged)
         lastFailedRefresh = nil
+        releaseRefreshThrottle()
         return merged
     }
 
@@ -160,6 +202,7 @@ final class SessionRefreshManager {
         activeTask = nil
         lastSuccessfulRefresh = nil
         lastFailedRefresh = nil
+        releaseRefreshThrottle()
     }
 }
 

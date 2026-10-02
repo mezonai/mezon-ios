@@ -5,6 +5,8 @@ final class MezonRootController: NavigationController {
     private let context: AccountContext
     private static let tabBarBundle = Bundle.main
     private let navigationDisposable = MetaDisposable()
+    private var channelDeepLinkLoadingView: ChannelDeepLinkLoadingView?
+    private var activeChannelDeepLinkID: UUID?
 
     private(set) var rootTabController: TabBarController?
     private(set) var homeController: HomeViewController?
@@ -193,12 +195,14 @@ final class MezonRootController: NavigationController {
 
 
     @objc private func handleQRSelectClanRoot(_ notification: Notification) {
+        guard !isShowingEstablishedPeerCall else { return }
         rootTabController?.selectedIndex = 0
         popToTabBarController()
     }
 
     @objc private func handleQRNavigateToDM(_ notification: Notification) {
         guard let channelIdStr = notification.userInfo?["channelId"] as? String else { return }
+        guard !isShowingEstablishedPeerCall else { return }
         navigateToDM(channelIdStr: channelIdStr)
     }
 
@@ -210,7 +214,10 @@ final class MezonRootController: NavigationController {
 
         AppDelegate.pendingNavigation = nil
 
+        guard !isShowingEstablishedPeerCall else { return }
+
         handoffActiveVoiceRoomToPiPBeforeNavigation()
+        dismissPresentedModalsBeforeNavigation()
 
         if !isDM, let clanId = clanIdStr.flatMap({ Int64($0) }), clanId != 0 {
             context.currentClanId = clanId
@@ -233,7 +240,10 @@ final class MezonRootController: NavigationController {
         AppDelegate.recordFriendRequestNavigationInstanceHandled(userInfo: notification.userInfo)
         AppDelegate.pendingFriendRequestNavigation = nil
 
+        guard !isShowingEstablishedPeerCall else { return }
+
         handoffActiveVoiceRoomToPiPBeforeNavigation()
+        dismissPresentedModalsBeforeNavigation()
         context.account.socket.ensureFreshConnection()
 
         Task { @MainActor [weak self] in
@@ -263,6 +273,17 @@ final class MezonRootController: NavigationController {
             guard let self, let token = await self.context.getToken() else { return }
             await self.context.engine.friendsData.refreshFromNetwork(token: token, force: true)
         }
+    }
+
+    private func dismissPresentedModalsBeforeNavigation() {
+        guard let windowRoot = view.window?.rootViewController else { return }
+        guard windowRoot.presentedViewController != nil else { return }
+        var controller = windowRoot.presentedViewController
+        while let current = controller {
+            if current.isModalInPresentation { return }
+            controller = current.presentedViewController
+        }
+        windowRoot.dismiss(animated: false)
     }
 
     private func handoffActiveVoiceRoomToPiPBeforeNavigation() {
@@ -306,6 +327,23 @@ final class MezonRootController: NavigationController {
         if let tabBarVC = viewControllers.first(where: { $0 is TabBarController }) {
             popToViewController(tabBarVC, animated: false)
         }
+    }
+
+    private var isShowingEstablishedPeerCall: Bool {
+        guard WebRTCCallManager.shared.signalingSession?.didEstablishMediaConnection == true else {
+            return false
+        }
+        if viewControllers.contains(where: { $0 is PeerCallViewController }) {
+            return true
+        }
+        var presented = view.window?.rootViewController?.presentedViewController
+        while let current = presented {
+            if current is PeerCallViewController {
+                return true
+            }
+            presented = current.presentedViewController
+        }
+        return false
     }
 
     @objc private func handleIncomingPeerCall(_ notification: Notification) {
@@ -532,11 +570,15 @@ final class MezonRootController: NavigationController {
 
         guard let homeVC = homeController else { return }
 
-        if let (cachedClanId, cachedChannel) = context.account.postbox.getChannelDescription(channelId: channelIdInt) {
+        let cachedLocation = context.account.postbox.getChannelDescription(channelId: channelIdInt)
+        let cachedChannel = notificationClanId.flatMap {
+            context.account.postbox.resolvedChannelDescription(clanId: $0, channelId: channelIdInt)
+        } ?? cachedLocation?.channel
+        if let cachedChannel {
             let resolvedClanId = resolvedClanIdForOpenChat(
                 notificationClanId: notificationClanId,
                 channel: cachedChannel,
-                fallbackClanId: cachedClanId
+                fallbackClanId: cachedLocation?.clanId ?? cachedChannel.clanID
             )
             switchClanIfNeeded(homeVC: homeVC, toClanId: resolvedClanId)
             homeVC.channelListVC.selectWithoutNavigation(channelId: channelIdInt)
@@ -705,7 +747,6 @@ final class MezonRootController: NavigationController {
                 let categoryDescs = (try? await categoriesTask) ?? []
                 let favoriteIds = Set((try? await favoritesTask) ?? [])
                 let channels = try await channelsTask
-                NSLog("[ChannelList] MezonRoot listChannelDescs clanId=%lld count=%d cats=%d", clanId, channels.count, categoryDescs.count)
                 guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
                 if channels.isEmpty {
                     if let homeVC = self.homeController, homeVC.channelListVC.clanId == clanId {
@@ -775,9 +816,22 @@ final class MezonRootController: NavigationController {
 
         let sharingVC = SharingViewController(context: context, sharedContent: content)
         guard let windowRoot = view.window?.rootViewController else { return }
-
+        let shouldDismissVideoGallery: Bool
+        if case .existingVideo = content {
+            shouldDismissVideoGallery = true
+        } else {
+            shouldDismissVideoGallery = false
+        }
         dismissShareSheetStack(from: windowRoot) { [weak self] anchor in
             guard let self else { return }
+            if shouldDismissVideoGallery, anchor is GalleryController {
+                anchor.dismiss(animated: false) { [weak self] in
+                    guard let self else { return }
+                    let nextAnchor = self.resolvedSharePresentationAnchor(from: windowRoot)
+                    self.presentSharingViewController(sharingVC, on: nextAnchor)
+                }
+                return
+            }
             self.presentSharingViewController(sharingVC, on: anchor)
         }
     }
@@ -851,19 +905,27 @@ final class MezonRootController: NavigationController {
         if let presented = anchor.presentedViewController {
             if presented is SharingViewController {
                 presented.dismiss(animated: false) {
-                    anchor.present(sharingVC, animated: true)
+                    self.presentFromCurrentAnchor(sharingVC, on: anchor)
                 }
                 return
             }
             if isEphemeralShareSheet(presented) {
                 presented.dismiss(animated: false) {
-                    anchor.present(sharingVC, animated: true)
+                    self.presentFromCurrentAnchor(sharingVC, on: anchor)
                 }
                 return
             }
         }
 
-        anchor.present(sharingVC, animated: true)
+        presentFromCurrentAnchor(sharingVC, on: anchor)
+    }
+
+    private func presentFromCurrentAnchor(_ controller: UIViewController, on anchor: UIViewController) {
+        if let anchor = anchor as? ViewController {
+            anchor.presentNativeController(controller, animated: true)
+        } else {
+            anchor.present(controller, animated: true)
+        }
     }
 
     // MARK: - Deep links
@@ -881,6 +943,15 @@ final class MezonRootController: NavigationController {
     private func scheduleDeepLink(_ route: DeepLinkRoute) {
         Task { @MainActor [weak self] in
             guard let self else { return }
+            let loadingID: UUID?
+            if case .channel = route {
+                loadingID = self.showChannelDeepLinkLoading()
+            } else {
+                if let activeID = self.activeChannelDeepLinkID {
+                    self.hideChannelDeepLinkLoading(activeID)
+                }
+                loadingID = nil
+            }
             await withTaskGroup(of: Void.self) { group in
                 group.addTask { @MainActor in
                     await self.context.waitForSessionReady()
@@ -891,12 +962,15 @@ final class MezonRootController: NavigationController {
                 _ = await group.next()
                 group.cancelAll()
             }
-            self.performDeepLink(route)
+            if let loadingID, self.activeChannelDeepLinkID != loadingID { return }
+            self.performDeepLink(route, loadingID: loadingID)
         }
     }
 
-    private func performDeepLink(_ route: DeepLinkRoute) {
+    private func performDeepLink(_ route: DeepLinkRoute, loadingID: UUID? = nil) {
         switch route {
+        case let .channel(channelId, clanId):
+            handleDeepLinkChannel(channelId: channelId, clanId: clanId, loadingID: loadingID)
         case let .channelApp(channelId, clanId, _, _):
             handleDeepLinkChannelApp(channelId: channelId, clanId: clanId)
         case let .invite(code):
@@ -908,6 +982,121 @@ final class MezonRootController: NavigationController {
         case let .login(loginId):
             handleDeepLinkLogin(loginId: loginId)
         }
+    }
+
+    private func showChannelDeepLinkLoading() -> UUID {
+        channelDeepLinkLoadingView?.removeFromSuperview()
+        let loadingView = ChannelDeepLinkLoadingView(frame: .zero)
+        loadingView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(loadingView)
+        NSLayoutConstraint.activate([
+            loadingView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            loadingView.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 20),
+            loadingView.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -20),
+            loadingView.widthAnchor.constraint(lessThanOrEqualToConstant: 340),
+            loadingView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -20)
+        ])
+        loadingView.alpha = 0
+        UIView.animate(withDuration: 0.2) { loadingView.alpha = 1 }
+        channelDeepLinkLoadingView = loadingView
+        let id = UUID()
+        activeChannelDeepLinkID = id
+        return id
+    }
+
+    private func hideChannelDeepLinkLoading(_ id: UUID) {
+        guard activeChannelDeepLinkID == id else { return }
+        activeChannelDeepLinkID = nil
+        channelDeepLinkLoadingView?.removeFromSuperview()
+        channelDeepLinkLoadingView = nil
+    }
+
+    private func handleDeepLinkChannel(channelId: String, clanId: String, loadingID: UUID? = nil) {
+        let loadingID = loadingID ?? showChannelDeepLinkLoading()
+        guard let targetClanId = Int64(clanId), let targetChannelId = Int64(channelId) else {
+            hideChannelDeepLinkLoading(loadingID)
+            return
+        }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let startEpoch = self.context.sessionEpoch
+            let token = await self.context.getToken()
+            guard self.context.isStillCurrentSession(epoch: startEpoch),
+                  self.activeChannelDeepLinkID == loadingID else {
+                self.hideChannelDeepLinkLoading(loadingID)
+                return
+            }
+            guard let token else {
+                self.hideChannelDeepLinkLoading(loadingID)
+                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                return
+            }
+            // A fresh channel list verifies access and gives navigation the full description.
+            var latestChannels: [Mezon_Api_ChannelDescription] = []
+            for attempt in 0..<3 {
+                do {
+                    let channels = try await self.context.account.network.listChannelDescs(
+                        clanId: targetClanId, token: token, force: true
+                    )
+                    guard self.context.isStillCurrentSession(epoch: startEpoch),
+                          self.activeChannelDeepLinkID == loadingID else {
+                        self.hideChannelDeepLinkLoading(loadingID)
+                        return
+                    }
+                    latestChannels = channels
+                    if channels.contains(where: { $0.channelID == targetChannelId }) {
+                        self.context.account.postbox.setPreferenceDataSync(
+                            key: PreferencesKeys.channelList(clanId: targetClanId),
+                            value: self.encodeChannelList(channels)
+                        )
+                        print("[DeepLink] Opening channel \(channelId) in clan \(clanId)")
+                        self.hideChannelDeepLinkLoading(loadingID)
+                        AppDelegate.navigateToChannel(channelId: channelId, clanId: clanId)
+                        return
+                    }
+                } catch {
+                    print("[DeepLink] Failed to list channels in clan \(clanId): \(error)")
+                }
+                if attempt < 2 {
+                    try? await Task.sleep(nanoseconds: 500_000_000)
+                }
+            }
+            do {
+                let userChannels = try await self.context.account.network.listChannelByUserId(token: token)
+                guard self.context.isStillCurrentSession(epoch: startEpoch),
+                      self.activeChannelDeepLinkID == loadingID else {
+                    self.hideChannelDeepLinkLoading(loadingID)
+                    return
+                }
+                if let channel = userChannels.channeldesc.first(where: {
+                    $0.channelID == targetChannelId && $0.clanID == targetClanId
+                }) {
+                    latestChannels.append(channel)
+                    self.context.account.postbox.setPreferenceDataSync(
+                        key: PreferencesKeys.channelList(clanId: targetClanId),
+                        value: self.encodeChannelList(latestChannels)
+                    )
+                    print("[DeepLink] Opening user channel \(channelId) in clan \(clanId)")
+                    self.hideChannelDeepLinkLoading(loadingID)
+                    AppDelegate.navigateToChannel(channelId: channelId, clanId: clanId)
+                    return
+                }
+            } catch {
+                print("[DeepLink] Failed to list user channels: \(error)")
+            }
+            guard self.context.isStillCurrentSession(epoch: startEpoch),
+                  self.activeChannelDeepLinkID == loadingID else {
+                self.hideChannelDeepLinkLoading(loadingID)
+                return
+            }
+            print("[DeepLink] Channel \(channelId) is not accessible in clan \(clanId)")
+            self.hideChannelDeepLinkLoading(loadingID)
+            self.presentUnavailableChannel()
+        }
+    }
+
+    private func presentUnavailableChannel() {
+        presentDeepLinkOverlay(ChannelUnavailableSheetViewController())
     }
 
     private func handleDeepLinkBotInstall(appId: String) {
@@ -1027,9 +1216,15 @@ final class MezonRootController: NavigationController {
                     guard let self else { return }
                     node?.setJoining(true)
                     Task { @MainActor in
-                        let clanId = await ClanInviteJoiner.join(context: self.context, code: code, clanId: inviteInfo.clan_id.flatMap(Int64.init))
+                        let clanId: Int64?
+                        if inviteInfo.user_joined == true, let joinedClanId = inviteInfo.clan_id.flatMap(Int64.init) {
+                            clanId = joinedClanId
+                        } else {
+                            clanId = await ClanInviteJoiner.join(context: self.context, code: code, clanId: inviteInfo.clan_id.flatMap(Int64.init))
+                        }
                         guard let clanId else {
                             overlay?.dismissOverlay()
+                            Toast.error(L(L10n.Error.somethingWentWrong))
                             return
                         }
                         overlay?.dismissOverlay {
@@ -1040,6 +1235,10 @@ final class MezonRootController: NavigationController {
                                 object: nil,
                                 userInfo: ["clanId": "\(clanId)"]
                             )
+                            if let channelId = inviteInfo.channel_id,
+                               let targetChannelId = Int64(channelId), targetChannelId > 0 {
+                                self.handleDeepLinkChannel(channelId: channelId, clanId: "\(clanId)")
+                            }
                         }
                     }
                 }

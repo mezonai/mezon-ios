@@ -1,5 +1,39 @@
 import Foundation
 
+enum AttachmentTypeClassifier {
+    static func uploadType(for filetype: String) -> String {
+        let type = normalized(filetype)
+        if type == "image" || type.hasPrefix("image/") { return "image" }
+        if type == "video" || type.hasPrefix("video/") { return "video" }
+        if type == "audio" || type.hasPrefix("audio/") { return "audio" }
+        return "doc"
+    }
+
+    static func isImage(_ filetype: String) -> Bool {
+        let type = normalized(filetype)
+        return type == "image" || type.hasPrefix("image/")
+    }
+
+    static func isVideo(_ filetype: String) -> Bool {
+        let type = normalized(filetype)
+        return type == "video" || type.hasPrefix("video/")
+    }
+
+    static func isAudio(_ filetype: String) -> Bool {
+        let type = normalized(filetype)
+        return type == "audio" || type.hasPrefix("audio/")
+    }
+
+    static func isSticker(_ filetype: String) -> Bool {
+        normalized(filetype) == "sticker"
+    }
+
+    private static func normalized(_ filetype: String) -> String {
+        let mime = filetype.split(separator: ";", maxSplits: 1).first.map(String.init) ?? filetype
+        return mime.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+}
+
 struct UploadedAttachmentFile {
     let serverFilename: String
     let cdnURL: String

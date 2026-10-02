@@ -109,6 +109,14 @@ enum EStateFriend: Int32 {
     case block = 3
 }
 
+private enum ClanEventSocketAction {
+    static let created: Int32 = 1
+    static let update: Int32 = 2
+    static let delete: Int32 = 3
+    static let interested: Int32 = 4
+    static let uninterested: Int32 = 5
+}
+
 extension MezonEngine {
 
     @MainActor
@@ -122,11 +130,18 @@ extension MezonEngine {
         let clanEventsUpdated = ValuePipe<Int64>()
         let clanPermissionsUpdated = ValuePipe<Int64>()
         let clanVoiceUsersUpdated = ValuePipe<Int64>()
+        private var voiceUsersFreshClanIds = Set<Int64>()
+        private var voiceSnapshotJournalByClanId: [Int64: [VoicePresenceEvent]] = [:]
+        private var voiceSnapshotInflightByClanId: [Int64: Int] = [:]
+        private var voiceSnapshotTasks: [Int64: Task<Void, Never>] = [:]
+        private var voicePresenceGeneration: UInt64 = 0
+        private let voiceUsersFreshLock = NSLock()
         let clanStreamUsersUpdated = ValuePipe<Int64>()
         let clanBadgeCountUpdated = ValuePipe<(clanId: Int64, count: Int32)>()
         let clanNotificationUpdated = ValuePipe<Int64>()
 
         private var inflightFetchAllByClanId: [Int64: Task<Void, Never>] = [:]
+        private var pendingSocketEventsByClanId: [Int64: [Mezon_Api_CreateEventRequest]] = [:]
         private var lastFetchAllAtByClanId: [Int64: Date] = [:]
         private let clanDataCacheTTL: TimeInterval = 300
         private var inflightForceRefreshClanUsersByClanId: [Int64: Task<Void, Never>] = [:]
@@ -144,11 +159,20 @@ extension MezonEngine {
         init(engine: MezonEngine) { self.engine = engine }
 
         func resetForLogout() {
+            voicePresenceGeneration &+= 1
+            voiceSnapshotTasks.values.forEach { $0.cancel() }
+            voiceSnapshotTasks.removeAll()
+            voiceSnapshotJournalByClanId.removeAll()
+            voiceSnapshotInflightByClanId.removeAll()
+            voiceUsersFreshLock.lock()
+            voiceUsersFreshClanIds.removeAll()
+            voiceUsersFreshLock.unlock()
             for (_, task) in inflightFetchAllByClanId {
                 task.cancel()
             }
             inflightFetchAllByClanId.removeAll()
             lastFetchAllAtByClanId.removeAll()
+            pendingSocketEventsByClanId.removeAll()
             for (_, task) in inflightForceRefreshClanUsersByClanId {
                 task.cancel()
             }
@@ -309,6 +333,23 @@ extension MezonEngine {
             }
         }
 
+        func createEvent(draft: EventEditorDraft, clanId: Int64, creatorId: Int64, token: String) async throws {
+            try await network.createEvent(request: draft.createRequest(clanId: clanId, creatorId: creatorId), token: token)
+            await fetchEvents(clanId: clanId, token: token)
+        }
+
+        func updateEvent(draft: EventEditorDraft, clanId: Int64, original: Mezon_Api_EventManagement, token: String) async throws {
+            try await network.updateEvent(request: draft.updateRequest(clanId: clanId, original: original), token: token)
+            if var list = getClanEvents(clanId: clanId), let index = list.events.firstIndex(where: { $0.id == original.id }) {
+                list.events[index] = draft.applying(to: list.events[index])
+                if let data = try? list.serializedData() {
+                    postbox.setPreferenceDataSync(key: PreferencesKeys.clanEvents(clanId: clanId), value: data)
+                }
+                clanEventsUpdated.putNext(clanId)
+            }
+            await fetchEvents(clanId: clanId, token: token)
+        }
+
         func refetchEvents(clanId: Int64, token: String) async {
             await fetchEvents(clanId: clanId, token: token, force: true)
         }
@@ -331,51 +372,35 @@ extension MezonEngine {
         }
 
         @discardableResult
-        func applyClanEventStatusUpdate(_ update: Mezon_Api_CreateEventRequest) -> Bool {
-            let validStatuses: Set<Int32> = [
-                ClanEventStatusValue.upcoming,
-                ClanEventStatusValue.ongoing,
-                ClanEventStatusValue.completed,
-            ]
-            guard update.clanID != 0 else {
-                return false
+        func applyClanEventFromSocket(_ update: Mezon_Api_CreateEventRequest) -> Bool {
+            let clanId = update.clanID
+            guard clanId != 0, update.eventID != 0 else { return false }
+            clanEventSocketVersionsByClanId[clanId, default: 0] += 1
+            if inflightEventFetchesByClanId[clanId] != nil {
+                pendingSocketEventsByClanId[clanId, default: []].append(update)
             }
-            markClanEventSocketUpdate(clanId: update.clanID)
-            guard update.action == 0,
-                  validStatuses.contains(update.eventStatus) else {
-                return false
-            }
-
-            guard var list = getClanEvents(clanId: update.clanID) else {
-                return false
-            }
-            guard let index = list.events.firstIndex(where: { $0.id == update.eventID }) else {
-                return false
-            }
-
-            var event = list.events[index]
-            let updatedStartTime = update.eventStatus == ClanEventStatusValue.completed
-                && update.startTimeSeconds != 0
-                ? update.startTimeSeconds
-                : event.startTimeSeconds
-            guard event.eventStatus != update.eventStatus || event.startTimeSeconds != updatedStartTime else {
-                return true
-            }
-
-            event.eventStatus = update.eventStatus
-            event.startTimeSeconds = updatedStartTime
-            list.events[index] = event
-            guard let data = try? list.serializedData() else { return false }
-            postbox.setPreferenceDataSync(
-                key: PreferencesKeys.clanEvents(clanId: update.clanID),
-                value: data
-            )
-            clanEventsUpdated.putNext(update.clanID)
+            var list = getClanEvents(clanId: clanId) ?? Mezon_Api_EventList()
+            guard applySocketEvent(update, to: &list) else { return false }
+            persistEvents(list, clanId: clanId)
+            clanEventsUpdated.putNext(clanId)
             return true
         }
 
-        private func markClanEventSocketUpdate(clanId: Int64) {
-            clanEventSocketVersionsByClanId[clanId, default: 0] += 1
+        func deleteEvent(_ event: Mezon_Api_EventManagement, clanId: Int64, token: String) async throws {
+            var request = Mezon_Api_DeleteEventRequest()
+            request.eventID = event.id
+            request.clanID = clanId
+            request.creatorID = event.creatorID
+            request.eventLabel = event.title
+            request.channelID = event.channelID
+            try await network.deleteEvent(request: request, token: token)
+            if var list = getClanEvents(clanId: clanId) {
+                list.events.removeAll { $0.id == event.id }
+                if let data = try? list.serializedData() {
+                    postbox.setPreferenceDataSync(key: PreferencesKeys.clanEvents(clanId: clanId), value: data)
+                }
+            }
+            clanEventsUpdated.putNext(clanId)
         }
 
         func setUserEventInterest(
@@ -448,6 +473,7 @@ extension MezonEngine {
                         self.inflightEventFetchesByClanId[clanId] = nil
                         self.clanEventFetchIdsByClanId[clanId] = nil
                         self.pendingForcedEventFetchIdsByClanId[clanId] = nil
+                        self.pendingSocketEventsByClanId[clanId] = nil
                     }
                 }
 
@@ -456,20 +482,22 @@ extension MezonEngine {
                     let socketVersion = self.clanEventSocketVersionsByClanId[clanId] ?? 0
                     var appliedCurrentResponse = false
                     do {
-                        let response = try await self.network.listEvents(clanId: clanId, token: token)
+                        var response = try await self.network.listEvents(clanId: clanId, token: token)
                         guard !Task.isCancelled,
                               self.clanEventFetchIdsByClanId[clanId] == fetchId else {
                             return
                         }
-                        if self.clanEventSocketVersionsByClanId[clanId, default: 0] == socketVersion {
-                            if let data = try? response.serializedData() {
-                                self.postbox.setPreferenceDataSync(
-                                    key: PreferencesKeys.clanEvents(clanId: clanId),
-                                    value: data
-                                )
+                        // Replay socket updates received during this request before publishing the snapshot.
+                        var replayedAllUpdates = true
+                        for update in self.pendingSocketEventsByClanId.removeValue(forKey: clanId) ?? [] {
+                            if !self.applySocketEvent(update, to: &response) {
+                                replayedAllUpdates = false
                             }
+                        }
+                        if replayedAllUpdates {
+                            self.persistEvents(response, clanId: clanId)
                             self.clanEventsUpdated.putNext(clanId)
-                            appliedCurrentResponse = true
+                            appliedCurrentResponse = self.clanEventSocketVersionsByClanId[clanId, default: 0] == socketVersion
                         }
                     } catch {
                     }
@@ -483,6 +511,110 @@ extension MezonEngine {
             }
             inflightEventFetchesByClanId[clanId] = task
             await task.value
+        }
+
+        private func persistEvents(_ list: Mezon_Api_EventList, clanId: Int64) {
+            guard let data = try? list.serializedData() else { return }
+            postbox.setPreferenceDataSync(key: PreferencesKeys.clanEvents(clanId: clanId), value: data)
+        }
+
+        private func applySocketEvent(
+            _ update: Mezon_Api_CreateEventRequest,
+            to list: inout Mezon_Api_EventList
+        ) -> Bool {
+            let index = list.events.firstIndex { $0.id == update.eventID }
+            let existing = index.map { list.events[$0] }
+
+            if update.action == ClanEventSocketAction.created {
+                guard existing == nil else { return true }
+                list.events.append(eventFromSocket(update))
+                return true
+            }
+
+            if update.action == 0 {
+                guard var event = existing, let index else { return false }
+                switch update.eventStatus {
+                case ClanEventStatusValue.upcoming, ClanEventStatusValue.ongoing:
+                    event.eventStatus = update.eventStatus
+                case ClanEventStatusValue.completed:
+                    if update.repeatType == EventRepeatType.doesNotRepeat {
+                        list.events.remove(at: index)
+                        return true
+                    }
+                    event.eventStatus = update.eventStatus
+                    if update.startTimeSeconds != 0 {
+                        event.startTimeSeconds = update.startTimeSeconds
+                    }
+                default:
+                    return false
+                }
+                list.events[index] = event
+                return true
+            }
+
+            if update.action == ClanEventSocketAction.update {
+                let event = eventFromSocket(update, preserving: existing)
+                if let index {
+                    list.events[index] = event
+                } else {
+                    list.events.append(event)
+                }
+                return true
+            }
+
+            if update.action == ClanEventSocketAction.delete {
+                guard let index else { return false }
+                list.events.remove(at: index)
+                return true
+            }
+
+            if update.action == ClanEventSocketAction.interested ||
+                update.action == ClanEventSocketAction.uninterested {
+                guard var event = existing, let index, update.userID != 0 else { return false }
+                var userIds = event.userIds.filter { $0 != 0 }
+                if update.action == ClanEventSocketAction.interested {
+                    guard !userIds.contains(update.userID) else { return true }
+                    userIds.append(update.userID)
+                } else {
+                    guard userIds.contains(update.userID) else { return true }
+                    userIds.removeAll { $0 == update.userID }
+                }
+                event.userIds = userIds
+                list.events[index] = event
+                return true
+            }
+
+            return false
+        }
+
+        private func eventFromSocket(
+            _ update: Mezon_Api_CreateEventRequest,
+            preserving existing: Mezon_Api_EventManagement? = nil
+        ) -> Mezon_Api_EventManagement {
+            var event = existing ?? Mezon_Api_EventManagement()
+            event.id = update.eventID
+            event.title = update.title
+            event.logo = update.logo
+            event.description_p = update.description_p
+            event.clanID = update.clanID
+            event.channelVoiceID = update.channelVoiceID
+            event.address = update.address
+            event.startTimeSeconds = update.startTimeSeconds
+            event.endTimeSeconds = update.endTimeSeconds
+            event.channelID = update.channelID
+            event.repeatType = update.repeatType
+            event.isPrivate = update.isPrivate
+            if update.creatorID != 0 {
+                event.creatorID = update.creatorID
+            }
+            if update.hasMeetRoom {
+                event.meetRoom = update.meetRoom
+            }
+            if existing == nil {
+                event.eventStatus = update.eventStatus
+                event.userIds = update.creatorID == 0 ? [] : [update.creatorID]
+            }
+            return event
         }
 
         private func fetchUserPermissions(clanId: Int64, token: String) async {
@@ -506,13 +638,84 @@ extension MezonEngine {
             }
         }
 
+        private func beginVoiceSnapshotJournal(clanId: Int64) -> Int {
+            voiceSnapshotInflightByClanId[clanId, default: 0] += 1
+            if voiceSnapshotJournalByClanId[clanId] == nil {
+                voiceSnapshotJournalByClanId[clanId] = []
+            }
+            return voiceSnapshotJournalByClanId[clanId]?.count ?? 0
+        }
+
+        private func endVoiceSnapshotJournal(clanId: Int64) {
+            let remaining = (voiceSnapshotInflightByClanId[clanId] ?? 1) - 1
+            if remaining > 0 {
+                voiceSnapshotInflightByClanId[clanId] = remaining
+            } else {
+                voiceSnapshotInflightByClanId[clanId] = nil
+                voiceSnapshotJournalByClanId[clanId] = nil
+            }
+        }
+
+        private func recordVoiceEvent(_ event: VoicePresenceEvent, clanId: Int64) {
+            guard voiceSnapshotJournalByClanId[clanId] != nil else { return }
+            voiceSnapshotJournalByClanId[clanId]?.append(event)
+        }
+
+        private func replayVoiceSnapshotJournal(clanId: Int64, from startIndex: Int, into list: inout Mezon_Api_VoiceChannelUserList) -> Int {
+            guard let journal = voiceSnapshotJournalByClanId[clanId], journal.count > startIndex else { return 0 }
+            let pending = journal[startIndex...]
+            for event in pending {
+                Self.mutate(&list, applying: event)
+            }
+            return pending.count
+        }
+
         private func fetchVoiceChannelUsers(clanId: Int64, token: String) async {
+            // Share the journal and persistence, not just the network response.
+            if let existing = voiceSnapshotTasks[clanId] {
+                await existing.value
+                return
+            }
+            let generation = voicePresenceGeneration
+            let journalStart = beginVoiceSnapshotJournal(clanId: clanId)
+            let task = Task<Void, Never> { @MainActor [weak self] in
+                guard let self, !Task.isCancelled, generation == self.voicePresenceGeneration else { return }
+                await self.performVoiceSnapshot(clanId: clanId, token: token, journalStart: journalStart)
+            }
+            voiceSnapshotTasks[clanId] = task
+            await task.value
+            if generation == voicePresenceGeneration {
+                voiceSnapshotTasks[clanId] = nil
+            }
+        }
+
+        private func performVoiceSnapshot(clanId: Int64, token: String, journalStart: Int) async {
+            let generation = voicePresenceGeneration
+            defer {
+                if generation == voicePresenceGeneration { endVoiceSnapshotJournal(clanId: clanId) }
+            }
             do {
-                let response = try await network.listChannelVoiceUsers(clanId: clanId, token: token)
-                if let data = try? response.serializedData() {
-                    postbox.setPreferenceData(key: PreferencesKeys.clanVoiceUsers(clanId: clanId), value: data)
+                var response = try await network.listChannelVoiceUsers(clanId: clanId, token: token, force: true)
+                guard !Task.isCancelled, generation == voicePresenceGeneration else {
+                    return
                 }
-                clanVoiceUsersUpdated.putNext(clanId)
+                let cachedHasMembers = getVoiceUsers(clanId: clanId)?.voiceChannelUsers.contains { !$0.userIds.isEmpty } == true
+                let responseHasMembers = response.voiceChannelUsers.contains { !$0.userIds.isEmpty }
+                if cachedHasMembers && !responseHasMembers {
+                    response = try await network.listChannelVoiceUsers(clanId: clanId, token: token, force: true, transport: .httpOnly)
+                    guard !Task.isCancelled, generation == voicePresenceGeneration else {
+                        return
+                    }
+                }
+                for index in response.voiceChannelUsers.indices {
+                    var room = response.voiceChannelUsers[index]
+                    var seen = Set<String>()
+                    room.userIds = room.userIds.filter { seen.insert($0).inserted }
+                    response.voiceChannelUsers[index] = room
+                }
+                _ = replayVoiceSnapshotJournal(clanId: clanId, from: journalStart, into: &response)
+                markVoiceUsersFresh(clanId)
+                persistVoiceUsersList(response, clanId: clanId)
             } catch {
             }
         }
@@ -769,56 +972,103 @@ extension MezonEngine {
             return voiceChannelUserList(from: streamList)
         }
 
+        func voiceChannelUserIds(clanId: Int64) -> Set<Int64> {
+            guard isVoiceUsersFresh(clanId), let list = getVoiceUsers(clanId: clanId) else { return [] }
+            return Set(list.voiceChannelUsers.flatMap { $0.userIds.compactMap { Int64($0) } })
+        }
+
+        func voiceScreenSharingUserIds(clanId: Int64) -> Set<String> {
+            guard let list = getVoiceUsers(clanId: clanId) else { return [] }
+            return Set(list.voiceChannelUsers.flatMap { entry in
+                entry.shareScreenIds.filter { entry.userIds.contains($0) }
+            })
+        }
+
         func refetchVoiceChannelUsers(clanId: Int64, token: String) async {
             await fetchVoiceChannelUsers(clanId: clanId, token: token)
         }
 
         func applyVoiceJoined(clanId: Int64, channelId: Int64, userId: Int64) {
-            var list = getVoiceUsers(clanId: clanId) ?? Mezon_Api_VoiceChannelUserList()
-            let uid = "\(userId)"
-            applyVoiceLeaved(clanId: clanId, channelId: channelId, userId: userId, list: &list, notify: false)
-            if let idx = list.voiceChannelUsers.firstIndex(where: { $0.channelID == channelId }) {
-                var entry = list.voiceChannelUsers[idx]
-                if !entry.userIds.contains(uid) {
-                    entry.userIds.append(uid)
-                    list.voiceChannelUsers[idx] = entry
-                }
-            } else {
-                var vu = Mezon_Api_VoiceChannelUser()
-                vu.channelID = channelId
-                vu.userIds = [uid]
-                list.voiceChannelUsers.append(vu)
+            guard clanId != 0, channelId != 0, userId != 0 else {
+                return
             }
-            persistVoiceUsersList(list, clanId: clanId)
+            applyVoiceEvent(.joined(channelId: channelId, userId: "\(userId)"), clanId: clanId)
         }
 
         func applyVoiceLeaved(clanId: Int64, channelId: Int64, userId: Int64) {
-            var list = getVoiceUsers(clanId: clanId) ?? Mezon_Api_VoiceChannelUserList()
-            applyVoiceLeaved(clanId: clanId, channelId: channelId, userId: userId, list: &list, notify: true)
-        }
-
-        private func applyVoiceLeaved(clanId: Int64, channelId: Int64, userId: Int64, list: inout Mezon_Api_VoiceChannelUserList, notify: Bool) {
-            let uid = "\(userId)"
-            guard let idx = list.voiceChannelUsers.firstIndex(where: { $0.channelID == channelId }) else {
-                if notify { persistVoiceUsersList(list, clanId: clanId) }
+            guard clanId != 0, channelId != 0, userId != 0 else {
                 return
             }
-            var entry = list.voiceChannelUsers[idx]
-            entry.userIds.removeAll { $0 == uid }
-            if entry.userIds.isEmpty {
-                list.voiceChannelUsers.remove(at: idx)
-            } else {
-                list.voiceChannelUsers[idx] = entry
-            }
-            if notify {
-                persistVoiceUsersList(list, clanId: clanId)
-            }
+            applyVoiceEvent(.left(channelId: channelId, userId: "\(userId)"), clanId: clanId)
         }
 
         func applyVoiceEnded(clanId: Int64, channelId: Int64) {
+            applyVoiceEvent(.ended(channelId: channelId), clanId: clanId)
+        }
+
+        func applyScreenShare(clanId: Int64, channelId: Int64, userId: Int64, isSharing: Bool) {
+            applyVoiceEvent(
+                .screenShare(channelId: channelId, userId: "\(userId)", isSharing: isSharing),
+                clanId: clanId
+            )
+        }
+
+        private func applyVoiceEvent(_ event: VoicePresenceEvent, clanId: Int64) {
+            recordVoiceEvent(event, clanId: clanId)
             var list = getVoiceUsers(clanId: clanId) ?? Mezon_Api_VoiceChannelUserList()
-            list.voiceChannelUsers.removeAll { $0.channelID == channelId }
+            guard Self.mutate(&list, applying: event) else { return }
             persistVoiceUsersList(list, clanId: clanId)
+        }
+
+        @discardableResult
+        private static func mutate(_ list: inout Mezon_Api_VoiceChannelUserList, applying event: VoicePresenceEvent) -> Bool {
+            switch event {
+            case .joined(let channelId, let userId):
+                if let idx = list.voiceChannelUsers.firstIndex(where: { $0.channelID == channelId }),
+                   list.voiceChannelUsers[idx].userIds.contains(userId),
+                   !list.voiceChannelUsers.contains(where: { $0.channelID != channelId && $0.userIds.contains(userId) }) {
+                    return false
+                }
+                for idx in list.voiceChannelUsers.indices where list.voiceChannelUsers[idx].channelID != channelId {
+                    list.voiceChannelUsers[idx].userIds.removeAll { $0 == userId }
+                    list.voiceChannelUsers[idx].shareScreenIds.removeAll { $0 == userId }
+                }
+                list.voiceChannelUsers.removeAll { $0.channelID != channelId && $0.userIds.isEmpty }
+                if let idx = list.voiceChannelUsers.firstIndex(where: { $0.channelID == channelId }) {
+                    if !list.voiceChannelUsers[idx].userIds.contains(userId) {
+                        list.voiceChannelUsers[idx].userIds.append(userId)
+                    }
+                } else {
+                    var entry = Mezon_Api_VoiceChannelUser()
+                    entry.channelID = channelId
+                    entry.userIds = [userId]
+                    list.voiceChannelUsers.append(entry)
+                }
+                return true
+            case .left(let channelId, let userId):
+                guard let idx = list.voiceChannelUsers.firstIndex(where: { $0.channelID == channelId }),
+                      list.voiceChannelUsers[idx].userIds.contains(userId) else { return false }
+                list.voiceChannelUsers[idx].userIds.removeAll { $0 == userId }
+                list.voiceChannelUsers[idx].shareScreenIds.removeAll { $0 == userId }
+                if list.voiceChannelUsers[idx].userIds.isEmpty {
+                    list.voiceChannelUsers.remove(at: idx)
+                }
+                return true
+            case .ended(let channelId):
+                guard list.voiceChannelUsers.contains(where: { $0.channelID == channelId }) else { return false }
+                list.voiceChannelUsers.removeAll { $0.channelID == channelId }
+                return true
+            case .screenShare(let channelId, let userId, let isSharing):
+                guard let idx = list.voiceChannelUsers.firstIndex(where: { $0.channelID == channelId }),
+                      list.voiceChannelUsers[idx].userIds.contains(userId),
+                      list.voiceChannelUsers[idx].shareScreenIds.contains(userId) != isSharing else { return false }
+                if isSharing {
+                    list.voiceChannelUsers[idx].shareScreenIds.append(userId)
+                } else {
+                    list.voiceChannelUsers[idx].shareScreenIds.removeAll { $0 == userId }
+                }
+                return true
+            }
         }
 
         func applyStreamJoined(
@@ -848,15 +1098,16 @@ extension MezonEngine {
             persistStreamUsersList(list, clanId: clanId)
         }
 
-        func applyStreamLeaved(clanId: Int64, entryId: String) {
-            guard clanId != 0, !entryId.isEmpty else { return }
-            var list = resolvedStreamUsersList(clanId: clanId) ?? Mezon_Api_StreamingChannelUserList()
-            if let numericId = Int64(entryId) {
-                list.streamingChannelUsers.removeAll { $0.id == numericId }
-            } else {
-                list.streamingChannelUsers.removeAll { "\($0.id)" == entryId }
-            }
-            persistStreamUsersList(list, clanId: clanId)
+        private func markVoiceUsersFresh(_ clanId: Int64) {
+            voiceUsersFreshLock.lock()
+            voiceUsersFreshClanIds.insert(clanId)
+            voiceUsersFreshLock.unlock()
+        }
+
+        private func isVoiceUsersFresh(_ clanId: Int64) -> Bool {
+            voiceUsersFreshLock.lock()
+            defer { voiceUsersFreshLock.unlock() }
+            return voiceUsersFreshClanIds.contains(clanId)
         }
 
         private func persistVoiceUsersList(_ list: Mezon_Api_VoiceChannelUserList, clanId: Int64) {
@@ -1233,27 +1484,17 @@ extension MezonEngine {
 
         private func performRefreshFromNetwork(token: String) async {
             let net = network
-            guard let fetched = (try? await net.listFriends(token: token, limit: 100, state: 0))?.friends else {
+            guard let response = try? await net.listFriends(token: token, limit: 0, state: 0) else {
                 return
             }
-            let cached = allFriends()
-
-            guard !fetched.isEmpty || cached.isEmpty else { return }
-
+            let fetched = response.friends
             var dedupByUserId: [Int64: Mezon_Api_Friend] = [:]
             for friend in fetched {
+                guard friend.hasUser, friend.user.id != 0 else { continue }
                 dedupByUserId[friend.user.id] = friend
             }
 
-            for cachedFriend in cached {
-                guard cachedFriend.hasUser, cachedFriend.user.id != 0 else { continue }
-                if dedupByUserId[cachedFriend.user.id] == nil,
-                   cachedFriend.state != EStateFriend.friend.rawValue {
-                    dedupByUserId[cachedFriend.user.id] = cachedFriend
-                }
-            }
-
-            guard !dedupByUserId.isEmpty || cached.isEmpty else { return }
+            if !fetched.isEmpty && dedupByUserId.isEmpty { return }
 
             let merged = dedupByUserId.values.sorted { lhs, rhs in
                 let lName = lhs.user.displayName.isEmpty ? lhs.user.username : lhs.user.displayName
@@ -1335,4 +1576,11 @@ extension MezonEngine {
             }
         }
     }
+}
+
+private enum VoicePresenceEvent {
+    case joined(channelId: Int64, userId: String)
+    case left(channelId: Int64, userId: String)
+    case ended(channelId: Int64)
+    case screenShare(channelId: Int64, userId: String, isSharing: Bool)
 }

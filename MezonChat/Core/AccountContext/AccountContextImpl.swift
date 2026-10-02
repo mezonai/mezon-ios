@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import WebKit
 import UserNotifications
 import FirebaseMessaging
 import SwiftProtobuf
@@ -134,18 +135,18 @@ final class AccountContextImpl: AccountContext {
     }
 
     func submitCustomStatus(text: String, minutes: Int32, noClear: Bool) async throws {
-        guard await getToken() != nil else {
+        guard let token = await getToken() else {
             throw MezonError.socketError("Not authenticated")
         }
-        let clanId = resolvedClanIdForCustomStatus()
-        account.socket.writeCustomStatus(
-            clanId: clanId,
-            status: text,
-            minutes: minutes,
-            noClear: noClear
-        )
+
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var req = Mezon_Api_UserStatusUpdate()
+        req.status = trimmed
+        req.minutes = minutes
+        req.untilTurnOn = noClear
+        try await account.network.updateUserCustomStatus(req, token: token)
+
         if var u = currentUser {
-            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty {
                 u.customStatus = nil
                 u.customStatusTimeReset = nil
@@ -173,13 +174,6 @@ final class AccountContextImpl: AccountContext {
             }
         } catch {
         }
-    }
-
-    private func resolvedClanIdForCustomStatus() -> Int64 {
-        if currentClanId != 0 { return currentClanId }
-        if let v = UserDefaults.standard.object(forKey: "mezon_selectedClanId") as? Int64 { return v }
-        if let v = UserDefaults.standard.object(forKey: "mezon_selectedClanId") as? Int { return Int64(v) }
-        return 0
     }
 
     func getToken() async -> String? {
@@ -378,15 +372,22 @@ final class AccountContextImpl: AccountContext {
         MandatoryUsernamePendingStore.clearPending()
         MmnWalletStore.shared.clear()
         SessionRefreshManager.shared.reset()
+        DirectMessageListGate.reset()
+        DmBadgeMessageDedup.reset()
         account.network.resetProtoBaseURLToDefault()
         session = nil
         currentUser = nil
         SentryLogger.setUser(username: nil)
+        NotificationCenter.default.post(name: .mezonAccountDidLogout, object: nil)
         NotificationCenter.default.post(name: .mezonAccountCurrentUserDidChange, object: nil)
         currentClanId = 0
         currentChannel = nil
         account.postbox.clearAllSync()
         ImageCache.shared.purgeAccountScopedCaches()
+        WKWebsiteDataStore.default().removeData(
+            ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(),
+            modifiedSince: .distantPast,
+            completionHandler: {})
         EmbedFormState.shared.removeAll()
         UserDefaults.standard.removeObject(forKey: "mezon_selectedClanId")
         UserDefaults.standard.removeObject(forKey: "mezon_otp_cooldown_cache_email")
@@ -468,6 +469,19 @@ final class AccountContextImpl: AccountContext {
             throw SessionError.noSession
         }
         return token
+    }
+
+    private func applyEndpointMove(apiURL: String?, wsURL: String?, tcpURL: String) -> Bool {
+        guard let current = session else { return false }
+        let updated = current.withEndpoints(
+            apiURL: apiURL ?? current.apiURL,
+            wsURL: wsURL ?? current.wsURL,
+            tcpURL: tcpURL
+        )
+        session = updated
+        SessionStore.save(updated)
+        account.network.updateBaseURL(from: updated)
+        return true
     }
 
     private func recoverBearerTokenAfterUnauthorized(failedToken: String, statusCode: Int) async -> String? {
@@ -554,6 +568,8 @@ final class AccountContextImpl: AccountContext {
             return
         }
         lastRecoverTime = now
+
+        engine.friendsData.scheduleRefreshFromSocket()
 
         let needsRefresh = session?.isExpired ?? true
 
@@ -699,6 +715,18 @@ final class AccountContextImpl: AccountContext {
             account.socket.sessionProvider = { [weak self] in
                 self?.session
             }
+            EndpointFailover.shared.sessionProvider = { [weak self] in
+                self?.session
+            }
+            EndpointFailover.shared.refreshTokenProvider = { [weak self] in
+                guard let self else { throw SessionError.noSession }
+                try await self.refreshSession()
+                guard let token = self.session?.token, !token.isEmpty else { throw SessionError.noSession }
+                return token
+            }
+            EndpointFailover.shared.applyEndpoints = { [weak self] apiURL, wsURL, tcpURL in
+                self?.applyEndpointMove(apiURL: apiURL, wsURL: wsURL, tcpURL: tcpURL) ?? false
+            }
             account.socket.connect(token: session.token, wsHostOverride: nil)
             if !session.token.isEmpty {
                 hasCompletedInitialSetup = true
@@ -816,7 +844,12 @@ final class AccountContextImpl: AccountContext {
     }
 
     private func joinDirectMessageSocketRoomOnSocketConnected() {
-        account.socket.joinClanChat(clanId: 0)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await DirectMessageListGate.ensureFetchedBeforeJoin(context: self)
+            guard self.account.socket.isConnected else { return }
+            self.account.socket.joinClanChat(clanId: 0)
+        }
     }
 
     private func rejoinCurrentChannel() {
@@ -1186,7 +1219,7 @@ final class AccountContextImpl: AccountContext {
                 let incrementDmBadge = !isSelf && Self.shouldIncrementDmBadgeForSocketMessage(
                     messageCopy, channelId: channelId,
                     currentUserId: self.currentUser?.id, currentClanId: self.currentClanId
-                )
+                ) && DmBadgeMessageDedup.markCounted(messageCopy.messageID)
                 var userInfo: [String: Any] = [
                     "channelId": channelId, "clanId": clanId,
                     "senderId": String(messageCopy.senderID), "mode": messageCopy.mode,
@@ -1262,6 +1295,20 @@ final class AccountContextImpl: AccountContext {
             )
 
         case .lastSeen(let e):
+            if e.clanID != 0, account.postbox.getChannelDescription(channelId: e.channelID)?.channel.type != 7 {
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    let cached = self.account.postbox.getChannelDescription(channelId: e.channelID)?.channel
+                    let request = BadgeReadCountRequest(clanId: e.clanID, channelId: e.channelID,
+                        fallback: max(cached?.countMessUnread ?? 0, e.badgeCount))
+                    NotificationCenter.default.post(name: Notification.Name("MezonBadgeReadCountRequested"), object: request)
+                    NotificationCenter.default.post(name: Notification.Name("MezonChannelMarkedAsRead"), object: nil,
+                        userInfo: ["channelId": e.channelID, "clanId": e.clanID, "channelUnreadCount": e.badgeCount,
+                                   "localBadgeCount": request.count, "messageId": String(e.messageID),
+                                   "timestampSeconds": e.timestampSeconds, "mode": e.mode])
+                }
+                return
+            }
             NotificationCenter.default.post(
                 name: Notification.Name("MezonChannelMarkedAsRead"), object: nil,
                 userInfo: [
@@ -1274,10 +1321,14 @@ final class AccountContextImpl: AccountContext {
             )
 
         case .voiceJoined(let ev):
+            MezonSfuSession.handleVoiceJoined(ev)
             engine.clanData.applyVoiceJoined(clanId: ev.clanID, channelId: ev.voiceChannelID, userId: ev.userID)
 
         case .voiceLeaved(let ev):
             engine.clanData.applyVoiceLeaved(clanId: ev.clanID, channelId: ev.voiceChannelID, userId: ev.voiceUserID)
+
+        case .screenShare(let ev):
+            engine.clanData.applyScreenShare(clanId: ev.clanID, channelId: ev.voiceChannelID, userId: ev.userID, isSharing: ev.isSharing)
 
         case .streamingJoined(let ev):
             engine.clanData.applyStreamJoined(
@@ -1289,7 +1340,13 @@ final class AccountContextImpl: AccountContext {
             )
 
         case .streamingLeaved(let ev):
-            engine.clanData.applyStreamLeaved(clanId: ev.clanID, entryId: ev.streamingUserID)
+            guard let channelId = Int64(ev.streamingChannelID),
+                  let userId = Int64(ev.streamingUserID) else { return }
+            engine.clanData.applyStreamLeaved(
+                clanId: ev.clanID,
+                channelId: channelId,
+                userId: userId
+            )
 
         case .voiceEnded(let ev):
             let cid = Int64(ev.voiceChannelID) ?? 0
@@ -1303,7 +1360,11 @@ final class AccountContextImpl: AccountContext {
             applyTopicInMessageEvent(event)
 
         case .notification(let noti):
-            handleSocketNotification(noti)
+            if noti.clanID != 0, noti.topicID == 0, noti.code == -9 || noti.code == -11 {
+                Task { @MainActor [weak self] in self?.handleSocketNotification(noti) }
+            } else {
+                handleSocketNotification(noti)
+            }
 
         case .webRTC(let msg):
             WebRTCCallManager.shared.handleSignalingMessage(msg, currentUserId: currentUserNumericId() ?? 0)
@@ -1396,8 +1457,9 @@ final class AccountContextImpl: AccountContext {
             engine.clanData.applyClanUserRemovedFromSocket(ev)
 
         case .clanEventCreated(let event):
-            let statusApplied = engine.clanData.applyClanEventStatusUpdate(event)
-            if !statusApplied || event.eventStatus == ClanEventStatusValue.completed {
+            guard event.clanID != 0 else { break }
+            let eventApplied = engine.clanData.applyClanEventFromSocket(event)
+            if !eventApplied || (event.action == 0 && event.eventStatus == ClanEventStatusValue.completed) {
                 Task { @MainActor [weak self] in
                     guard let self,
                           let token = await self.getToken() else { return }
@@ -1512,6 +1574,28 @@ final class AccountContextImpl: AccountContext {
         }
     }
 
+    private static func notificationSuggestsFriendRelation(_ noti: Mezon_Api_Notification) -> Bool {
+        var haystacks: [String] = [noti.subject]
+        if let contentText = String(data: noti.content, encoding: .utf8) {
+            haystacks.append(contentText)
+        }
+        let needles = [
+            "friend_request", "friend-request", "friend request",
+            "add_friend", "add-friend", "add friend", "addfriend", "request_friend",
+            "sent you a friend request", "add you as a friend",
+            "wants to add you", "wants to be your friend",
+            "loi moi ket ban", "muon ket ban", "ket ban"
+        ]
+        for haystack in haystacks {
+            let normalized = haystack
+                .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+                .lowercased()
+            guard !normalized.isEmpty else { continue }
+            if needles.contains(where: { normalized.contains($0) }) { return true }
+        }
+        return false
+    }
+
     private func handleSocketNotification(_ noti: Mezon_Api_Notification) {
         if noti.code == -3 { 
             var senderName = ""
@@ -1537,8 +1621,17 @@ final class AccountContextImpl: AccountContext {
             return
         }
 
+        if noti.channelID == 0, Self.notificationSuggestsFriendRelation(noti) {
+            engine.friendsData.scheduleRefreshFromSocket()
+            return
+        }
+
         guard noti.channelID != 0 else { return }
-        if currentChannel?.channelID == noti.channelID, noti.clanID != 0 { return }
+        if noti.clanID != 0, noti.topicID == 0 {
+            if ClanListViewController.isViewingBadgeChannel(noti.channelID) {
+                return
+            }
+        } else if currentChannel?.channelID == noti.channelID, noti.clanID != 0 { return }
 
         let skipTypes: [Int32] = [
             MezonConstants.ChannelType.app.rawValue,
@@ -1551,8 +1644,12 @@ final class AccountContextImpl: AccountContext {
         guard noti.code == notificationCodeMentioned || noti.code == notificationCodeReplied else { return }
 
         var messageId: String = ""
+        var messageTimestamp = noti.createTimeSeconds
         if !noti.content.isEmpty,
            let json = try? JSONSerialization.jsonObject(with: noti.content) as? [String: Any] {
+            if noti.topicID == 0, let timestamp = UInt32("\(json["create_time_seconds"] ?? "")"), timestamp != 0 {
+                messageTimestamp = timestamp
+            }
             for key in ["message_id", "messageId", "messageID", "msg_id", "id"] {
                 if let v = json[key], !(v is NSNull) {
                     let s = "\(v)".trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1564,6 +1661,14 @@ final class AccountContextImpl: AccountContext {
             }
         }
 
+        if noti.topicID == 0, messageId.isEmpty, let fcm = try? Mezon_Api_DirectFcmProto(serializedBytes: noti.content), fcm.messageID != 0 {
+            messageId = String(fcm.messageID)
+            if fcm.createTimeSeconds != 0 { messageTimestamp = UInt32(bitPattern: fcm.createTimeSeconds) }
+        }
+        if noti.topicID == 0, messageId.isEmpty, let message = try? Mezon_Api_ChannelMessage(serializedBytes: noti.content), message.messageID != 0 {
+            messageId = String(message.messageID)
+            if message.createTimeSeconds != 0 { messageTimestamp = message.createTimeSeconds }
+        }
         let clanId = noti.clanID
         let channelId = noti.channelID
         let topicId = noti.topicID
@@ -1594,7 +1699,7 @@ final class AccountContextImpl: AccountContext {
                 userInfo: [
                     "channelId": channelId, "clanId": clanId,
                     "senderId": String(noti.senderID), "mode": noti.channelType,
-                    "timestampSeconds": noti.createTimeSeconds,
+                    "timestampSeconds": messageTimestamp,
                     "messageId": messageId
                 ] as [String: Any]
             )

@@ -41,6 +41,7 @@ extension UIColor {
     static var textRoleLink:             UIColor { theme.textRoleLink }
     static var mezonError:               UIColor { .systemRed }
     static var mezonSuccess:             UIColor { theme.textSuccess }
+    static var mezonVoiceActive:         UIColor { UIColor(red: 22/255, green: 163/255, blue: 74/255, alpha: 1) }
     static var mezonWarning:             UIColor { theme.textWarning }
 
     static var mezonUnreadBadge:         UIColor { UIColor(hex: 0xC61E1B) }

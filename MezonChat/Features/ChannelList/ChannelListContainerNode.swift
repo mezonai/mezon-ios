@@ -7,8 +7,10 @@ struct ChannelListInteraction {
     let onToggleCollapse: (Int64) -> Void
     let onRefresh: (() -> Void)?
     let onPresentSettings: (() -> Void)?
+    let onPresentClanNotifications: (() -> Void)?
     let onInviteClan: (() -> Void)?
     let onCreateCategory: (() -> Void)?
+    let onCreateEvent: (() -> Void)?
     let canCreateCategory: (() -> Bool)?
     let isClanOwner: (() -> Bool)?
     let onLeaveClan: (() -> Void)?
@@ -1354,6 +1356,10 @@ final class ChannelListContainerNode: ASDisplayNode {
         headerUIView.onClanTitleTap = { [weak self] in
             self?.presentClanActionSheetIfNeeded()
         }
+        headerUIView.frame = CGRect(
+            x: 0, y: 0,
+            width: max(view.bounds.width, UIScreen.main.bounds.width),
+            height: currentHeaderH)
         view.addSubview(headerUIView)
         headerUIView.layer.zPosition = 100
 
@@ -1383,28 +1389,55 @@ final class ChannelListContainerNode: ASDisplayNode {
     @discardableResult
     private func normalizeListElementPresentation(_ view: UIView) -> Bool {
         var changed = false
-        if view.layer.animationKeys()?.isEmpty == false {
-            view.layer.removeAllAnimations()
+        let viewLayer = view.layer
+        if viewLayer.animationKeys()?.isEmpty == false {
+            viewLayer.removeAllAnimations()
+            changed = true
+        }
+        if viewLayer.speed != 1 || viewLayer.timeOffset != 0 {
+            viewLayer.speed = 1
+            viewLayer.timeOffset = 0
             changed = true
         }
         if view.alpha != 1 {
             view.alpha = 1
             changed = true
         }
-        if view.layer.opacity != 1 {
-            view.layer.opacity = 1
+        if viewLayer.opacity != 1 {
+            viewLayer.opacity = 1
             changed = true
         }
         if view.transform != .identity {
             view.transform = .identity
             changed = true
         }
+        if !CATransform3DIsIdentity(viewLayer.transform) {
+            viewLayer.transform = CATransform3DIdentity
+            changed = true
+        }
         return changed
     }
 
     @discardableResult
-    func sanitizeListPresentationArtifacts() -> Bool {
-        guard tableIsInWindow else { return false }
+    private func normalizeListElementTree(_ view: UIView) -> Bool {
+        var changed = normalizeListElementPresentation(view)
+        for sub in view.subviews {
+            if normalizeListElementTree(sub) { changed = true }
+        }
+        return changed
+    }
+
+    @discardableResult
+    func sanitizeListPresentationArtifacts(attempt: Int = 0) -> Bool {
+        guard tableIsInWindow else {
+            if attempt < 8 {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.nodeIsVisible else { return }
+                    self.sanitizeListPresentationArtifacts(attempt: attempt + 1)
+                }
+            }
+            return false
+        }
         var changed = false
         let tableLayer = tableNode.view.layer
         if tableLayer.animationKeys()?.isEmpty == false {
@@ -1423,14 +1456,17 @@ final class ChannelListContainerNode: ASDisplayNode {
         let visibleCells = Set(tableNode.view.visibleCells.map { ObjectIdentifier($0) })
         for sub in tableNode.view.subviews {
             if let cell = sub as? UITableViewCell {
-                if normalizeListElementPresentation(cell) { changed = true }
-                if normalizeListElementPresentation(cell.contentView) { changed = true }
+                var surfaceChanged = normalizeListElementPresentation(cell)
+                if normalizeListElementPresentation(cell.contentView) { surfaceChanged = true }
+                normalizeListElementTree(cell)
+                if surfaceChanged { changed = true }
                 if cell.isHidden, visibleCells.contains(ObjectIdentifier(cell)) {
                     cell.isHidden = false
                     changed = true
                 }
             } else if let header = sub as? CategorySectionHeaderView {
                 if normalizeListElementPresentation(header) { changed = true }
+                normalizeListElementTree(header)
             }
         }
         if tableNode.numberOfSections != totalSections {
@@ -2007,10 +2043,14 @@ final class ChannelListContainerNode: ASDisplayNode {
                 switch action {
                 case .settings:
                     self.interaction.onPresentSettings?()
+                case .notifications:
+                    self.interaction.onPresentClanNotifications?()
                 case .invite:
                     self.interaction.onInviteClan?()
                 case .createCategory:
                     self.interaction.onCreateCategory?()
+                case .createEvent:
+                    self.interaction.onCreateEvent?()
                 case .leaveClan:
                     self.interaction.onLeaveClan?()
                 case .deleteClan:
@@ -2230,17 +2270,16 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private func performVoiceMemberRowsReload() {
-        guard isNodeLoaded else { return }
-        guard committedSectionCount == tableNode.numberOfSections else { return }
+        guard tableIsInWindow, !pendingVisibleReconcile else { return }
+        guard leadingSectionSurgeryIsSafe(committedLeadingSections: leadingTableSectionsCount) else {
+            scheduleReload()
+            return
+        }
         let leading = leadingTableSectionsCount
         var paths: [IndexPath] = []
         for section in leading..<totalSections {
-            guard section < tableNode.numberOfSections else { continue }
             guard !isLoadingPlaceholderTableSection(section) else { continue }
-            let catIdx = categoryIndex(forSection: section)
-            guard catIdx >= 0, catIdx < state.categories.count else { continue }
-            let rows = rowsForSection(catIdx)
-            guard tableNode.numberOfRows(inSection: section) == rows.count else { continue }
+            let rows = rowsForSection(categoryIndex(forSection: section))
             for (r, row) in rows.enumerated() where Self.isVoiceMemberRow(row) {
                 let key = Self.rowDiffKey(row)
                 let displays = resolvedVoiceDisplays(for: row)
@@ -2455,15 +2494,10 @@ extension ChannelListContainerNode: ASTableDelegate {
         while let v = current, !(v is UITableViewCell) {
             current = v.superview
         }
-        guard let cell = current as? UITableViewCell else { return }
-        if cell.layer.animationKeys()?.isEmpty == false {
-            cell.layer.removeAllAnimations()
-        }
-        if cell.alpha != 1 { cell.alpha = 1 }
-        if cell.layer.opacity != 1 { cell.layer.opacity = 1 }
-        if cell.contentView.alpha != 1 { cell.contentView.alpha = 1 }
-        if cell.contentView.layer.animationKeys()?.isEmpty == false {
-            cell.contentView.layer.removeAllAnimations()
+        if let cell = current as? UITableViewCell {
+            normalizeListElementTree(cell)
+        } else {
+            normalizeListElementTree(node.view)
         }
     }
 
@@ -2894,10 +2928,17 @@ final class ChannelListHeaderView: UIView {
             equalTo: topAnchor, constant: mainStackTopBase)
         mainStackTopConstraint.isActive = true
 
+        let mainStackTrailing = mainStack.trailingAnchor.constraint(
+            equalTo: trailingAnchor, constant: -12)
+        let mainStackBottom = mainStack.bottomAnchor.constraint(
+            equalTo: bottomAnchor, constant: -16)
+        mainStackTrailing.priority = UILayoutPriority(999)
+        mainStackBottom.priority = UILayoutPriority(999)
+
         NSLayoutConstraint.activate([
             mainStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            mainStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            mainStack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16),
+            mainStackTrailing,
+            mainStackBottom,
 
             communityDot.widthAnchor.constraint(equalToConstant: 4),
             communityDot.heightAnchor.constraint(equalToConstant: 4),

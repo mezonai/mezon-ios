@@ -38,6 +38,8 @@ enum L10n {
         static let sendTokenNote         = "profile.sendTokenNote"
         static let sendTokenDefaultNote  = "profile.sendTokenDefaultNote"
         static let sendTokenSelectAccount = "profile.sendTokenSelectAccount"
+        static let sendTokenNoUserMatch  = "profile.sendTokenNoUserMatch"
+        static let sendTokenTypeToSearch = "profile.sendTokenTypeToSearch"
         static let sendTokenCopyAddressSuccess = "profile.sendTokenCopyAddressSuccess"
         static let sendTokenConfirmTitle = "profile.sendTokenConfirmTitle"
         static let sendTokenConfirmMessage = "profile.sendTokenConfirmMessage"
@@ -131,6 +133,7 @@ enum L10n {
         static let logOut         = "common.logOut"
         static let deleteAccount  = "common.deleteAccount"
         static let refresh        = "common.refresh"
+        static let retry          = "common.retry"
         static let close          = "common.close"
         static let goBack         = "common.goBack"
         static let copy           = "common.copy"
@@ -296,6 +299,13 @@ enum L10n {
         static let myQRCode = "qrScanner.myQRCode"
         static let qrProfile = "qrScanner.qrProfile"
         static let qrTransfer = "qrScanner.qrTransfer"
+        static let profileBadge = "qrScanner.profileBadge"
+        static let transferBadge = "qrScanner.transferBadge"
+        static let verifiedByMezon = "qrScanner.verifiedByMezon"
+        static let centerImage = "qrScanner.centerImage"
+        static let chooseCenterImage = "qrScanner.chooseCenterImage"
+        static let useProfileAvatar = "qrScanner.useProfileAvatar"
+        static let useMezonLogo = "qrScanner.useMezonLogo"
         static let poweredBy = "qrScanner.poweredBy"
         static let shareWithOthers = "qrScanner.shareWithOthers"
         static let scanProfileHelp = "qrScanner.scanProfileHelp"
@@ -384,6 +394,7 @@ enum L10n {
         static let topicOriginalInteractiveMessage = "notifications.topicOriginalInteractiveMessage"
         static let sender = "notifications.sender"
         static let unreachableMessage = "notifications.unreachableMessage"
+        static let removeNotification = "notifications.removeNotification"
     }
 
     enum OTPVerify {
@@ -409,6 +420,14 @@ enum L10n {
         static let errorGeneric = "updateUsername.errorGeneric"
         static let skipUpdateQuestion = "updateUsername.skipUpdateQuestion"
         static let skipUpdateBack = "updateUsername.skipUpdateBack"
+    }
+
+    enum DeepLink {
+        static let openingChannel = "deepLink.openingChannel"
+        static let checkingAccess = "deepLink.checkingAccess"
+        static let channelUnavailableTitle = "deepLink.channelUnavailableTitle"
+        static let channelUnavailableMessage = "deepLink.channelUnavailableMessage"
+        static let gotIt = "deepLink.gotIt"
     }
 
     enum Clan {
@@ -793,16 +812,11 @@ enum L10n {
         static let title                 = "sharing.title"
         static let suggestionsSection    = "sharing.suggestionsSection"
         static let searchPlaceholderAll  = "sharing.searchPlaceholderAll"
-        static let searchPlaceholderUsers = "sharing.searchPlaceholderUsers"
-        static let searchPlaceholderChannels = "sharing.searchPlaceholderChannels"
         static let emptySuggestions      = "sharing.emptySuggestions"
+        static let noResults             = "sharing.noResults"
         static let commentPlaceholder    = "sharing.commentPlaceholder"
         static let sending               = "sharing.sending"
         static let uploading             = "sharing.uploading"
-        static let filterTitle           = "sharing.filterTitle"
-        static let filterAll             = "sharing.filterAll"
-        static let filterUsers           = "sharing.filterUsers"
-        static let filterChannels        = "sharing.filterChannels"
         static let sessionExpired        = "sharing.sessionExpired"
         static let errorTitle            = "sharing.errorTitle"
         static let alertOK             = "sharing.alertOK"
@@ -810,6 +824,7 @@ enum L10n {
         static let uploadCancelled       = "sharing.uploadCancelled"
         static let uploadNetworkError    = "sharing.uploadNetworkError"
         static let fileUnavailable       = "sharing.fileUnavailable"
+        static let targetUnavailable     = "sharing.targetUnavailable"
     }
 
     enum ChannelApp {
@@ -842,9 +857,74 @@ enum L10n {
         static let unknownClan          = "clan.inviteSheet.unknownClan"
     }
 
+    enum EventEditor {
+        static let create = "eventEditor.create"
+        static let edit = "eventEditor.edit"
+        static let update = "eventEditor.update"
+        static let step = "eventEditor.step"
+        static let location = "eventEditor.location"
+        static let details = "eventEditor.details"
+        static let preview = "eventEditor.preview"
+        static let cancel = "eventEditor.cancel"
+        static let back = "eventEditor.back"
+        static let next = "eventEditor.next"
+        static let close = "eventEditor.close"
+        static let done = "eventEditor.done"
+        static let chooseType = "eventEditor.chooseType"
+        static let chooseTypeSubtitle = "eventEditor.chooseTypeSubtitle"
+        static let voice = "eventEditor.voice"
+        static let voiceSubtitle = "eventEditor.voiceSubtitle"
+        static let elsewhere = "eventEditor.elsewhere"
+        static let elsewhereSubtitle = "eventEditor.elsewhereSubtitle"
+        static let external = "eventEditor.external"
+        static let externalSubtitle = "eventEditor.externalSubtitle"
+        static let address = "eventEditor.address"
+        static let addressPlaceholder = "eventEditor.addressPlaceholder"
+        static let addressError = "eventEditor.addressError"
+        static let announcement = "eventEditor.announcement"
+        static let pickChannel = "eventEditor.pickChannel"
+        static let search = "eventEditor.search"
+        static let noChannels = "eventEditor.noChannels"
+        static let detailsTitle = "eventEditor.detailsTitle"
+        static let detailsSubtitle = "eventEditor.detailsSubtitle"
+        static let name = "eventEditor.name"
+        static let namePlaceholder = "eventEditor.namePlaceholder"
+        static let nameRequired = "eventEditor.nameRequired"
+        static let nameTooLong = "eventEditor.nameTooLong"
+        static let invalidName = "eventEditor.invalidName"
+        static let date = "eventEditor.date"
+        static let startTime = "eventEditor.startTime"
+        static let endTime = "eventEditor.endTime"
+        static let startError = "eventEditor.startError"
+        static let endError = "eventEditor.endError"
+        static let repeatLabel = "eventEditor.repeat"
+        static let repeatNone = "eventEditor.repeatNone"
+        static let repeatWeekly = "eventEditor.repeatWeekly"
+        static let repeatOther = "eventEditor.repeatOther"
+        static let repeatMonthly = "eventEditor.repeatMonthly"
+        static let repeatAnnually = "eventEditor.repeatAnnually"
+        static let repeatWeekday = "eventEditor.repeatWeekday"
+        static let description = "eventEditor.description"
+        static let descriptionPlaceholder = "eventEditor.descriptionPlaceholder"
+        static let cover = "eventEditor.cover"
+        static let addCover = "eventEditor.addCover"
+        static let removeCover = "eventEditor.removeCover"
+        static let coverTooLarge = "eventEditor.coverTooLarge"
+        static let coverFailed = "eventEditor.coverFailed"
+        static let previewTitle = "eventEditor.previewTitle"
+        static let previewVoice = "eventEditor.previewVoice"
+        static let previewLocation = "eventEditor.previewLocation"
+        static let previewExternal = "eventEditor.previewExternal"
+        static let previewEdit = "eventEditor.previewEdit"
+        static let created = "eventEditor.created"
+        static let updated = "eventEditor.updated"
+        static let sessionExpired = "eventEditor.sessionExpired"
+        static let permissionDenied = "eventEditor.permissionDenied"
+    }
+
     enum EventMenu {
-        static let title              = "eventMenu.dashboard.title"
-        static let eventOne           = "eventMenu.dashboard.event_one"
+        static let eventCountOne      = "eventMenu.dashboard.eventCountOne"
+        static let eventCountMany     = "eventMenu.dashboard.eventCountMany"
         static let noEvent            = "eventMenu.dashboard.noEvent"
         static let noEventDescription = "eventMenu.dashboard.noEventDescription"
         static let createButton       = "eventMenu.dashboard.createButton"
@@ -864,6 +944,13 @@ enum L10n {
         static let detailCreatedBy    = "eventMenu.detail.createdBy"
         static let itemInterested     = "eventMenu.item.interested"
         static let itemUninterested   = "eventMenu.item.uninterested"
+        static let actions           = "eventMenu.actions"
+        static let endEvent          = "eventMenu.endEvent"
+        static let deleteEvent       = "eventMenu.deleteEvent"
+        static let deleteTitle       = "eventMenu.deleteTitle"
+        static let deleteMessage     = "eventMenu.deleteMessage"
+        static let deleted           = "eventMenu.deleted"
+        static let openLink          = "eventMenu.openLink"
     }
 
     enum OnboardingClan {
@@ -974,6 +1061,16 @@ enum L10n {
         static let untilTurnedOff     = "muteDuration.untilTurnedOff"
         static let notificationSettings = "muteDuration.notificationSettings"
         static let description        = "muteDuration.description"
+    }
+
+    enum NotificationActions {
+        static let view = "notificationActions.view"
+        static let reply = "notificationActions.reply"
+        static let like = "notificationActions.like"
+        static let send = "notificationActions.send"
+        static let placeholder = "notificationActions.placeholder"
+        static let replyFailed = "notificationActions.replyFailed"
+        static let likeFailed = "notificationActions.likeFailed"
     }
 
     enum NotificationSettings {
@@ -1138,6 +1235,8 @@ enum L10n {
         static let videoSaved = "gallery.videoSaved"
         static let videoSaveFailed = "gallery.videoSaveFailed"
         static let videoDownloading = "gallery.videoDownloading"
+        static let videoPreparingForShare = "gallery.videoPreparingForShare"
+        static let videoShareFailed = "gallery.videoShareFailed"
         static let videoSaving = "gallery.videoSaving"
         static let imageLoadFailed = "gallery.imageLoadFailed"
         static let photoPermissionDenied = "gallery.photoPermissionDenied"
@@ -1148,9 +1247,13 @@ enum L10n {
     enum MessageAction {
         static let reply            = "messageAction.reply"
         static let copyText         = "messageAction.copyText"
+        static let shareText        = "messageAction.shareText"
         static let saveImage        = "messageAction.saveImage"
         static let saveVideo        = "messageAction.saveVideo"
         static let copyImage        = "messageAction.copyImage"
+        static let addToInbox       = "messageAction.addToInbox"
+        static let addToInboxSuccess = "messageAction.addToInboxSuccess"
+        static let addToInboxError  = "messageAction.addToInboxError"
         static let editMessage      = "messageAction.editMessage"
         static let editingMessage   = "messageAction.editingMessage"
         static let editedSuffix     = "messageAction.editedSuffix"
@@ -1200,11 +1303,16 @@ enum L10n {
     enum ChannelDetail {
         static let members = "channelDetail.members"
         static let media   = "channelDetail.media"
+        static let images  = "channelDetail.images"
+        static let videos  = "channelDetail.videos"
         static let files   = "channelDetail.files"
+        static let docs    = "channelDetail.docs"
+        static let audios  = "channelDetail.audios"
         static let pins    = "channelDetail.pins"
         static let canvas  = "channelDetail.canvas"
         static let online  = "channelDetail.online"
         static let offline = "channelDetail.offline"
+        static let inVoice = "channelDetail.inVoice"
         static let inviteMembers = "channelDetail.inviteMembers"
         static let newGroup = "channelDetail.newGroup"
         static let addMembers = "channelDetail.addMembers"
@@ -1256,6 +1364,7 @@ enum L10n {
         static let addByHintFormat    = "friendRequest.addByHintFormat"
         static let addBySending       = "friendRequest.addBySending"
         static let addBySubmit        = "friendRequest.addBySubmit"
+        static let addByGenericError  = "friendRequest.addByGenericError"
         static let toastSelfAddError  = "friendRequest.toastSelfAddError"
         static let toastBlockedError  = "friendRequest.toastBlockedError"
         static let toastAlreadyFriend = "friendRequest.toastAlreadyFriend"
@@ -1399,6 +1508,16 @@ enum L10n {
         static let resetToken       = "webhook.resetToken"
         static let resetSuccess     = "webhook.resetSuccess"
     }
+
+    enum VoiceChannel {
+        static let disconnectedAlone = "voiceChannel.disconnectedAlone"
+        static let disconnectedOtherDevice = "voiceChannel.disconnectedOtherDevice"
+        static let disconnectedRejoin = "voiceChannel.disconnectedRejoin"
+        static let rejoinTitle = "voiceChannel.rejoinTitle"
+        static let rejoinBody = "voiceChannel.rejoinBody"
+        static let retry = "voiceChannel.retry"
+        static let leaveRoom = "voiceChannel.leaveRoom"
+    }
 }
 
 extension L10n {
@@ -1407,6 +1526,10 @@ extension L10n {
         .english: en,
         .vietnamese: vi
     ]
+
+    enum SlashCommand {
+        static let header = "slashCommand.header"
+    }
 
     private static let en: [String: String] = [
         "tab.clans":            "Clans",
@@ -1423,6 +1546,7 @@ extension L10n {
         "common.logOut":        "Log Out",
         "common.deleteAccount": "Delete Account",
         "common.refresh":       "Refresh",
+        "common.retry":         "Retry",
         "common.close":         "Close",
         "common.goBack":        "Go Back",
         "common.copy":          "Copy",
@@ -1590,6 +1714,14 @@ extension L10n {
         "welcome.subtitle":     "The Live, Work, and Play Platform\nCustomize your own space to talk, play and hang out.",
         "welcome.startNow":     "Get started",
 
+        "notificationActions.view": "View",
+        "notificationActions.reply": "Reply",
+        "notificationActions.like": "Like",
+        "notificationActions.send": "Send",
+        "notificationActions.placeholder": "Message",
+        "notificationActions.replyFailed": "Your reply could not be sent. Tap to open the conversation.",
+        "notificationActions.likeFailed": "Your like could not be sent. Tap to open the conversation.",
+
         "notifications.title": "Notifications",
         "notifications.mentions": "Mentions",
         "notifications.messages": "Messages",
@@ -1604,6 +1736,7 @@ extension L10n {
         "notifications.topicOriginalInteractiveMessage": "[Interactive message]",
         "notifications.sender": "Sender: ",
         "notifications.unreachableMessage": "Unreachable message",
+        "notifications.removeNotification": "Remove notification",
 
         "otpVerify.loginToMezon":      "Log in to Mezon account",
         "otpVerify.enterCodeFrom":     "Enter code from",
@@ -1632,6 +1765,11 @@ extension L10n {
         "clan.newClanNamePlaceholder": "Clan name",
         "clan.joinAction": "Join",
         "clan.inviteInvalid": "Enter a valid invite link or code",
+        "deepLink.openingChannel": "Opening channel…",
+        "deepLink.checkingAccess": "Checking your access",
+        "deepLink.channelUnavailableTitle": "Channel unavailable",
+        "deepLink.channelUnavailableMessage": "You may not have access to this channel, or it may no longer exist. Please check with the person who shared the link.",
+        "deepLink.gotIt": "Got it",
         "clan.nameRequired": "Enter a clan name",
         "clan.createClanBannerTitle": "Banner",
         "clan.createClanLogoTitle": "Clan icon",
@@ -1681,8 +1819,71 @@ extension L10n {
         "discover.detail.communityVerified": "Weekly events and updates.",
         "discover.detail.dateUnavailable": "—",
 
-        "eventMenu.dashboard.title":              "Events",
-        "eventMenu.dashboard.event_one":          "Event",
+        "eventEditor.create": "Create Event",
+        "eventEditor.edit": "Edit Event",
+        "eventEditor.update": "Update Event",
+        "eventEditor.step": "Step %d of 3",
+        "eventEditor.location": "Location",
+        "eventEditor.details": "Details",
+        "eventEditor.preview": "Preview",
+        "eventEditor.cancel": "Cancel",
+        "eventEditor.back": "Back",
+        "eventEditor.next": "Next",
+        "eventEditor.close": "Close",
+        "eventEditor.done": "Done",
+        "eventEditor.chooseType": "What type of event is this?",
+        "eventEditor.chooseTypeSubtitle": "Choose how members will join your event.",
+        "eventEditor.voice": "Voice Channel",
+        "eventEditor.voiceSubtitle": "Host the event in a voice channel",
+        "eventEditor.elsewhere": "Somewhere else",
+        "eventEditor.elsewhereSubtitle": "Meet at an offline location",
+        "eventEditor.external": "Create External Event",
+        "eventEditor.externalSubtitle": "Users can join the meeting by link without logging in.",
+        "eventEditor.address": "Address",
+        "eventEditor.addressPlaceholder": "Enter event location",
+        "eventEditor.addressError": "Location must be 100 characters or fewer",
+        "eventEditor.announcement": "Announcement channel (optional)",
+        "eventEditor.pickChannel": "Tap to select a channel",
+        "eventEditor.search": "Search",
+        "eventEditor.noChannels": "No channels available",
+        "eventEditor.detailsTitle": "Tell us about your event",
+        "eventEditor.detailsSubtitle": "Add a name, schedule, and optional cover image.",
+        "eventEditor.name": "Event name",
+        "eventEditor.namePlaceholder": "Enter event name",
+        "eventEditor.nameRequired": "Enter an event name",
+        "eventEditor.nameTooLong": "Event name must be %d characters or fewer",
+        "eventEditor.invalidName": "Event name contains invalid characters",
+        "eventEditor.date": "Date",
+        "eventEditor.startTime": "Start time",
+        "eventEditor.endTime": "End time",
+        "eventEditor.startError": "Start time must be in the future",
+        "eventEditor.endError": "End time must be after start time",
+        "eventEditor.repeat": "Repeat",
+        "eventEditor.repeatNone": "Does not repeat",
+        "eventEditor.repeatWeekly": "Weekly on %@",
+        "eventEditor.repeatOther": "Every other %@",
+        "eventEditor.repeatMonthly": "Monthly on the %d %@",
+        "eventEditor.repeatAnnually": "Annually on %@ %d",
+        "eventEditor.repeatWeekday": "Every weekday",
+        "eventEditor.description": "Description",
+        "eventEditor.descriptionPlaceholder": "Describe your event (optional)",
+        "eventEditor.cover": "Cover image",
+        "eventEditor.addCover": "Add cover image (up to 1 MB)",
+        "eventEditor.removeCover": "Remove cover image",
+        "eventEditor.coverTooLarge": "Cover image must be 1 MB or smaller",
+        "eventEditor.coverFailed": "Could not upload cover image",
+        "eventEditor.previewTitle": "Looking good?",
+        "eventEditor.previewVoice": "Members will join via the selected voice channel.",
+        "eventEditor.previewLocation": "Review your event before creating it.",
+        "eventEditor.previewExternal": "Members can join using the meeting link.",
+        "eventEditor.previewEdit": "Review your changes before saving.",
+        "eventEditor.created": "Event created",
+        "eventEditor.updated": "Event updated",
+        "eventEditor.sessionExpired": "Your session has expired. Please sign in again.",
+        "eventEditor.permissionDenied": "You no longer have permission to edit this event.",
+
+        "eventMenu.dashboard.eventCountOne":      "1 Event",
+        "eventMenu.dashboard.eventCountMany":     "%d Events",
         "eventMenu.dashboard.noEvent":            "There are no upcoming events.",
         "eventMenu.dashboard.noEventDescription": "Feel free to invite other members to contribute their ideas for upcoming events.",
         "eventMenu.dashboard.createButton":     "Create",
@@ -1702,6 +1903,13 @@ extension L10n {
         "eventMenu.detail.createdBy":             "Created by ",
         "eventMenu.item.interested":              "Interested",
         "eventMenu.item.uninterested":            "Uninterested",
+        "eventMenu.actions":                      "Event actions",
+        "eventMenu.endEvent":                     "End Event",
+        "eventMenu.deleteEvent":                  "Delete Event",
+        "eventMenu.deleteTitle":                  "Delete event?",
+        "eventMenu.deleteMessage":                "Are you sure you want to delete \"%@\"?",
+        "eventMenu.deleted":                      "Event deleted",
+        "eventMenu.openLink":                     "Open Link",
 
         "clan.action.invite":               "Invite",
         "clan.action.markAsRead":           "Mark as Read",
@@ -1934,16 +2142,11 @@ extension L10n {
         "sharing.title":                    "Share",
         "sharing.suggestionsSection":       "Suggestions",
         "sharing.searchPlaceholderAll":     "Select a channel or user",
-        "sharing.searchPlaceholderUsers":   "Select user",
-        "sharing.searchPlaceholderChannels":"Select channel",
         "sharing.emptySuggestions":         "No channels or conversations yet. Open the app and browse your servers, then try again.",
+        "sharing.noResults":                "No results found",
         "sharing.commentPlaceholder":       "Add a comment (optional)",
         "sharing.sending":                  "Sending…",
         "sharing.uploading":                "Uploading",
-        "sharing.filterTitle":              "Filter",
-        "sharing.filterAll":                "All",
-        "sharing.filterUsers":              "Users",
-        "sharing.filterChannels":           "Channels",
         "sharing.sessionExpired":           "Session expired",
         "sharing.errorTitle": "Error",
         "sharing.alertOK": "OK",
@@ -1951,6 +2154,7 @@ extension L10n {
         "sharing.uploadCancelled":          "Upload was interrupted. Stay in Mezon and try again.",
         "sharing.uploadNetworkError":       "Network error while uploading. Check your connection and try again.",
         "sharing.fileUnavailable":          "The shared file is no longer available. Share it again from the other app.",
+        "sharing.targetUnavailable":        "Could not open a conversation with this user. Please try again.",
 
         "clan.inviteSheet.title":           "Invite a friend",
         "clan.inviteSheet.share":           "Share Invite",
@@ -1997,8 +2201,8 @@ extension L10n {
         "threadList.joinedThreads": "joined threads",
         "threadList.otherActiveThread": "other active thread",
         "threadList.otherActiveThreads": "other active threads",
-        "threadList.olderThread": "older thread",
-        "threadList.olderThreads": "older threads",
+        "threadList.olderThread": "archived thread",
+        "threadList.olderThreads": "archived threads",
         "threadList.searchThread": "search result",
         "threadList.searchThreads": "search results",
         "threadList.createThreadSoon": "Create thread is not available here yet.",
@@ -2250,6 +2454,7 @@ extension L10n {
         "friendRequest.addByHintFormat": "By the way, your username is %@",
         "friendRequest.addBySending": "Sending...",
         "friendRequest.addBySubmit": "Send Friend Request",
+        "friendRequest.addByGenericError": "Couldn't send friend request. Please try again.",
         "friendRequest.toastSelfAddError": "Hmm, that didn't work. Double-check that the username is correct",
         "friendRequest.toastBlockedError": "You have blocked this user. Please unblock them before sending a friend request.",
         "friendRequest.toastAlreadyFriend": "You're already friends with that user!",
@@ -2272,6 +2477,8 @@ extension L10n {
         "gallery.videoSaved": "Video saved",
         "gallery.videoSaveFailed": "Could not save video",
         "gallery.videoDownloading": "Downloading video...",
+        "gallery.videoPreparingForShare": "Preparing video...",
+        "gallery.videoShareFailed": "Could not prepare video for sharing",
         "gallery.videoSaving": "Saving video...",
         "gallery.imageLoadFailed": "Could not load image",
         "gallery.photoPermissionDenied": "Allow photo access to save images",
@@ -2280,9 +2487,13 @@ extension L10n {
 
         "messageAction.reply": "Reply",
         "messageAction.copyText": "Copy Text",
+        "messageAction.shareText": "Share Text",
         "messageAction.saveImage": "Save Image",
         "messageAction.saveVideo": "Save Video",
         "messageAction.copyImage": "Copy Image",
+        "messageAction.addToInbox": "Add To Inbox",
+        "messageAction.addToInboxSuccess": "Added to Inbox",
+        "messageAction.addToInboxError": "Failed to add to Inbox",
         "messageAction.editMessage": "Edit Message",
         "messageAction.editingMessage": "Editing message",
         "messageAction.editedSuffix": "(edited)",
@@ -2301,6 +2512,7 @@ extension L10n {
         "messageAction.topicDiscussion": "Topic Discussion",
         "messageAction.markMessage": "Mark Message",
         "messageAction.quickMenu": "Quick Menu",
+        "slashCommand.header": "COMMANDS",
         "messageAction.report": "Report",
         "messageAction.pinMessageConfirm": "Please confirm if you would like to pin this message?",
         "messageAction.unpinMessageConfirm": "Remove this message from pinned messages?",
@@ -2343,6 +2555,8 @@ extension L10n {
         "profile.sendTokenNote": "Note",
         "profile.sendTokenDefaultNote": "Transfer funds",
         "profile.sendTokenSelectAccount": "Select an account",
+        "profile.sendTokenNoUserMatch": "No matching users",
+        "profile.sendTokenTypeToSearch": "Type a name or username to search",
         "profile.sendTokenCopyAddressSuccess": "Address copied",
         "profile.sendTokenConfirmTitle": "Confirm transfer",
         "profile.sendTokenConfirmMessage": "Transfer %1$@ %2$@ to %3$@?",
@@ -2447,6 +2661,13 @@ extension L10n {
         "qrScanner.myQRCode": "My QR Code",
         "qrScanner.qrProfile": "QR Profile",
         "qrScanner.qrTransfer": "QR Transfer",
+        "qrScanner.profileBadge": "PROFILE QR",
+        "qrScanner.transferBadge": "TRANSFER QR",
+        "qrScanner.verifiedByMezon": "VERIFIED BY MEZON",
+        "qrScanner.centerImage": "QR center image",
+        "qrScanner.chooseCenterImage": "Choose from device",
+        "qrScanner.useProfileAvatar": "Use profile avatar",
+        "qrScanner.useMezonLogo": "Use Mezon logo",
         "qrScanner.poweredBy": "Powered by Mezon",
         "qrScanner.shareWithOthers": "Share with others",
         "qrScanner.scanProfileHelp": "Scan this QR code to chat with me or view my profile",
@@ -2481,11 +2702,16 @@ extension L10n {
 
         "channelDetail.members": "Members",
         "channelDetail.media":   "Media",
+        "channelDetail.images":  "Images",
+        "channelDetail.videos":  "Videos",
         "channelDetail.files":   "Files",
+        "channelDetail.docs":    "Docs",
+        "channelDetail.audios":  "Audios",
         "channelDetail.pins":    "Pins",
         "channelDetail.canvas":  "Canvas",
         "channelDetail.online":  "Online",
         "channelDetail.offline": "Offline",
+        "channelDetail.inVoice": "In voice",
         "channelDetail.inviteMembers": "Invite Members",
         "channelDetail.newGroup": "New Group",
         "channelDetail.addMembers": "Add Members",
@@ -2654,6 +2880,14 @@ extension L10n {
         "mediaPanel.findReaction": "Find the perfect reaction",
         "mediaPanel.trendingGifs": "Trending GIFs",
         "mediaPanel.emptyGifs": "GIFs will appear here",
+
+        "voiceChannel.disconnectedAlone": "You were disconnected from the voice channel because you were alone in it for too long.",
+        "voiceChannel.disconnectedOtherDevice": "You joined the voice channel on another device, so this session was disconnected.",
+        "voiceChannel.disconnectedRejoin": "You were disconnected from the voice channel.",
+        "voiceChannel.rejoinTitle": "Unable to connect to voice",
+        "voiceChannel.rejoinBody": "The voice connection could not be restored. Check your connection and try joining again.",
+        "voiceChannel.retry": "Rejoin",
+        "voiceChannel.leaveRoom": "Exit",
     ]
 
     private static let vi: [String: String] = [
@@ -2671,6 +2905,7 @@ extension L10n {
         "common.logOut":        "Đăng xuất",
         "common.deleteAccount": "Xóa tài khoản",
         "common.refresh":       "Làm mới",
+        "common.retry":         "Thử lại",
         "common.close":         "Đóng",
         "common.goBack":        "Quay lại",
         "common.copy":          "Sao chép",
@@ -2838,6 +3073,14 @@ extension L10n {
         "welcome.subtitle":     "Nền tảng Kết nối, Làm việc,\nvà Giải trí",
         "welcome.startNow":     "Bắt đầu nào",
 
+        "notificationActions.view": "Xem",
+        "notificationActions.reply": "Trả lời",
+        "notificationActions.like": "Thích",
+        "notificationActions.send": "Gửi",
+        "notificationActions.placeholder": "Tin nhắn",
+        "notificationActions.replyFailed": "Không gửi được trả lời. Chạm để mở cuộc trò chuyện.",
+        "notificationActions.likeFailed": "Không gửi được biểu cảm. Chạm để mở cuộc trò chuyện.",
+
         "notifications.title": "Thông báo",
         "notifications.mentions": "Nhắc đến",
         "notifications.messages": "Tin nhắn",
@@ -2852,6 +3095,7 @@ extension L10n {
         "notifications.topicOriginalInteractiveMessage": "[Tin nhắn tương tác]",
         "notifications.sender": "Người gửi: ",
         "notifications.unreachableMessage": "Tin nhắn không khả dụng",
+        "notifications.removeNotification": "Gỡ bỏ thông báo",
 
         "otpVerify.loginToMezon":      "Đăng nhập tài khoản Mezon",
         "otpVerify.enterCodeFrom":     "Nhập mã từ",
@@ -2880,6 +3124,11 @@ extension L10n {
         "clan.newClanNamePlaceholder": "Tên clan",
         "clan.joinAction": "Tham gia",
         "clan.inviteInvalid": "Nhập liên kết hoặc mã mời hợp lệ",
+        "deepLink.openingChannel": "Đang mở kênh…",
+        "deepLink.checkingAccess": "Đang kiểm tra quyền truy cập",
+        "deepLink.channelUnavailableTitle": "Không thể mở kênh",
+        "deepLink.channelUnavailableMessage": "Có thể bạn chưa có quyền xem kênh này hoặc kênh không còn tồn tại. Hãy kiểm tra lại với người gửi liên kết.",
+        "deepLink.gotIt": "Đã hiểu",
         "clan.nameRequired": "Nhập tên clan",
         "clan.createClanBannerTitle": "Ảnh bìa",
         "clan.createClanLogoTitle": "Biểu tượng clan",
@@ -2929,8 +3178,71 @@ extension L10n {
         "discover.detail.communityVerified": "Sự kiện và cập nhật hàng tuần.",
         "discover.detail.dateUnavailable": "—",
 
-        "eventMenu.dashboard.title":              "Sự kiện",
-        "eventMenu.dashboard.event_one":          "Sự kiện",
+        "eventEditor.create": "Tạo sự kiện",
+        "eventEditor.edit": "Chỉnh sửa sự kiện",
+        "eventEditor.update": "Cập nhật sự kiện",
+        "eventEditor.step": "Bước %d / 3",
+        "eventEditor.location": "Địa điểm",
+        "eventEditor.details": "Chi tiết",
+        "eventEditor.preview": "Xem trước",
+        "eventEditor.cancel": "Hủy",
+        "eventEditor.back": "Quay lại",
+        "eventEditor.next": "Tiếp theo",
+        "eventEditor.close": "Đóng",
+        "eventEditor.done": "Xong",
+        "eventEditor.chooseType": "Đây là loại sự kiện gì?",
+        "eventEditor.chooseTypeSubtitle": "Chọn cách thành viên tham gia sự kiện.",
+        "eventEditor.voice": "Kênh thoại",
+        "eventEditor.voiceSubtitle": "Tổ chức sự kiện trong kênh thoại",
+        "eventEditor.elsewhere": "Địa điểm khác",
+        "eventEditor.elsewhereSubtitle": "Gặp mặt tại một địa điểm trực tiếp",
+        "eventEditor.external": "Tạo sự kiện bên ngoài",
+        "eventEditor.externalSubtitle": "Người dùng có thể tham gia cuộc họp qua liên kết mà không cần đăng nhập.",
+        "eventEditor.address": "Địa chỉ",
+        "eventEditor.addressPlaceholder": "Nhập địa điểm sự kiện",
+        "eventEditor.addressError": "Địa điểm không được vượt quá 100 ký tự",
+        "eventEditor.announcement": "Kênh thông báo (không bắt buộc)",
+        "eventEditor.pickChannel": "Nhấn để chọn kênh",
+        "eventEditor.search": "Tìm kiếm",
+        "eventEditor.noChannels": "Không có kênh phù hợp",
+        "eventEditor.detailsTitle": "Giới thiệu về sự kiện của bạn",
+        "eventEditor.detailsSubtitle": "Thêm tên, lịch trình và ảnh bìa nếu muốn.",
+        "eventEditor.name": "Tên sự kiện",
+        "eventEditor.namePlaceholder": "Nhập tên sự kiện",
+        "eventEditor.nameRequired": "Vui lòng nhập tên sự kiện",
+        "eventEditor.nameTooLong": "Tên sự kiện không được vượt quá %d ký tự",
+        "eventEditor.invalidName": "Tên sự kiện chứa ký tự không hợp lệ",
+        "eventEditor.date": "Ngày",
+        "eventEditor.startTime": "Giờ bắt đầu",
+        "eventEditor.endTime": "Giờ kết thúc",
+        "eventEditor.startError": "Thời gian bắt đầu phải ở tương lai",
+        "eventEditor.endError": "Thời gian kết thúc phải sau thời gian bắt đầu",
+        "eventEditor.repeat": "Lặp lại",
+        "eventEditor.repeatNone": "Không lặp lại",
+        "eventEditor.repeatWeekly": "Hàng tuần vào %@",
+        "eventEditor.repeatOther": "Cách tuần vào %@",
+        "eventEditor.repeatMonthly": "Hàng tháng vào lần thứ %d của %@",
+        "eventEditor.repeatAnnually": "Hàng năm vào %@ ngày %d",
+        "eventEditor.repeatWeekday": "Mỗi ngày trong tuần",
+        "eventEditor.description": "Mô tả",
+        "eventEditor.descriptionPlaceholder": "Mô tả sự kiện (không bắt buộc)",
+        "eventEditor.cover": "Ảnh bìa",
+        "eventEditor.addCover": "Thêm ảnh bìa (tối đa 1 MB)",
+        "eventEditor.removeCover": "Xóa ảnh bìa",
+        "eventEditor.coverTooLarge": "Ảnh bìa không được vượt quá 1 MB",
+        "eventEditor.coverFailed": "Không thể tải ảnh bìa lên",
+        "eventEditor.previewTitle": "Mọi thứ đã sẵn sàng?",
+        "eventEditor.previewVoice": "Thành viên sẽ tham gia qua kênh thoại đã chọn.",
+        "eventEditor.previewLocation": "Kiểm tra sự kiện trước khi tạo.",
+        "eventEditor.previewExternal": "Thành viên có thể tham gia bằng liên kết cuộc họp.",
+        "eventEditor.previewEdit": "Kiểm tra thay đổi trước khi lưu.",
+        "eventEditor.created": "Đã tạo sự kiện",
+        "eventEditor.updated": "Đã cập nhật sự kiện",
+        "eventEditor.sessionExpired": "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.",
+        "eventEditor.permissionDenied": "Bạn không còn quyền chỉnh sửa sự kiện này.",
+
+        "eventMenu.dashboard.eventCountOne":      "1 sự kiện",
+        "eventMenu.dashboard.eventCountMany":     "%d sự kiện",
         "eventMenu.dashboard.noEvent":            "Không có sự kiện nào",
         "eventMenu.dashboard.noEventDescription": "Hãy thoải mái mời các thành viên khác tham gia đóng góp ý tưởng cho các sự kiện sắp tới.",
         "eventMenu.dashboard.createButton":     "Tạo",
@@ -2950,6 +3262,13 @@ extension L10n {
         "eventMenu.detail.createdBy":             "Tạo bởi ",
         "eventMenu.item.interested":              "Quan tâm",
         "eventMenu.item.uninterested":            "Bỏ quan tâm",
+        "eventMenu.actions":                      "Thao tác sự kiện",
+        "eventMenu.endEvent":                     "Kết thúc sự kiện",
+        "eventMenu.deleteEvent":                  "Xóa sự kiện",
+        "eventMenu.deleteTitle":                  "Xóa sự kiện?",
+        "eventMenu.deleteMessage":                "Bạn có chắc muốn xóa \"%@\" không?",
+        "eventMenu.deleted":                      "Đã xóa sự kiện",
+        "eventMenu.openLink":                     "Mở liên kết",
 
         "clan.action.invite":               "Mời",
         "clan.action.markAsRead":           "Đánh dấu là đã đọc",
@@ -3183,16 +3502,11 @@ extension L10n {
         "sharing.title":                    "Chia sẻ",
         "sharing.suggestionsSection":       "Gợi ý",
         "sharing.searchPlaceholderAll":     "Chọn kênh hoặc người dùng",
-        "sharing.searchPlaceholderUsers":   "Chọn người dùng",
-        "sharing.searchPlaceholderChannels":"Chọn kênh",
         "sharing.emptySuggestions":         "Chưa có kênh hoặc cuộc trò chuyện. Mở ứng dụng và vào máy chủ của bạn, rồi thử lại.",
+        "sharing.noResults":                "Không tìm thấy kết quả",
         "sharing.commentPlaceholder":       "Thêm bình luận (tùy chọn)",
         "sharing.sending":                  "Đang gửi…",
         "sharing.uploading":                "Đang tải lên",
-        "sharing.filterTitle":              "Lọc",
-        "sharing.filterAll":                "Tất cả",
-        "sharing.filterUsers":              "Người dùng",
-        "sharing.filterChannels":           "Kênh",
         "sharing.sessionExpired":           "Phiên đăng nhập hết hạn",
         "sharing.errorTitle":               "Lỗi",
         "sharing.alertOK":                  "OK",
@@ -3200,6 +3514,7 @@ extension L10n {
         "sharing.uploadCancelled":          "Tải lên bị gián đoạn. Ở lại Mezon và thử lại.",
         "sharing.uploadNetworkError":       "Lỗi mạng khi tải lên. Kiểm tra kết nối và thử lại.",
         "sharing.fileUnavailable":          "Không còn file được chia sẻ. Hãy chia sẻ lại từ ứng dụng kia.",
+        "sharing.targetUnavailable":        "Không mở được cuộc trò chuyện với người dùng này. Vui lòng thử lại.",
         "clan.inviteSheet.title":           "Mời bạn bè",
         "clan.inviteSheet.share":           "Chia sẻ lời mời",
         "clan.inviteSheet.copy":            "Sao chép link",
@@ -3499,6 +3814,7 @@ extension L10n {
         "friendRequest.addByHintFormat": "À nhân tiện, tên người dùng của bạn là %@",
         "friendRequest.addBySending": "Đang gửi...",
         "friendRequest.addBySubmit": "Gửi yêu cầu kết bạn",
+        "friendRequest.addByGenericError": "Không thể gửi lời mời kết bạn. Vui lòng thử lại.",
         "friendRequest.toastSelfAddError": "Hmm, có lỗi xảy ra. Vui lòng kiểm tra lại tên người dùng có đúng không",
         "friendRequest.toastBlockedError": "Bạn đã chặn người dùng này. Vui lòng bỏ chặn để gửi lời mời kết bạn.",
         "friendRequest.toastAlreadyFriend": "Bạn đã là bạn bè với người dùng này!",
@@ -3543,6 +3859,8 @@ extension L10n {
         "gallery.videoSaved": "Đã lưu video",
         "gallery.videoSaveFailed": "Không thể lưu video",
         "gallery.videoDownloading": "Đang tải video...",
+        "gallery.videoPreparingForShare": "Đang chuẩn bị video...",
+        "gallery.videoShareFailed": "Không thể chuẩn bị video để chia sẻ",
         "gallery.videoSaving": "Đang lưu video...",
         "gallery.imageLoadFailed": "Không thể tải ảnh",
         "gallery.photoPermissionDenied": "Vui lòng cấp quyền ảnh để lưu ảnh",
@@ -3551,9 +3869,13 @@ extension L10n {
 
         "messageAction.reply": "Trả lời",
         "messageAction.copyText": "Sao chép văn bản",
+        "messageAction.shareText": "Chia sẻ văn bản",
         "messageAction.saveImage": "Lưu ảnh",
         "messageAction.saveVideo": "Lưu video",
         "messageAction.copyImage": "Sao chép ảnh",
+        "messageAction.addToInbox": "Thêm vào hộp thư",
+        "messageAction.addToInboxSuccess": "Đã thêm vào hộp thư",
+        "messageAction.addToInboxError": "Thêm vào hộp thư thất bại",
         "messageAction.editMessage": "Chỉnh sửa tin nhắn",
         "messageAction.editingMessage": "Đang chỉnh sửa tin nhắn",
         "messageAction.editedSuffix": "(đã chỉnh sửa)",
@@ -3572,6 +3894,7 @@ extension L10n {
         "messageAction.topicDiscussion": "Thảo luận chủ đề",
         "messageAction.markMessage": "Đánh dấu tin nhắn",
         "messageAction.quickMenu": "Menu nhanh",
+        "slashCommand.header": "LỆNH",
         "messageAction.report": "Báo cáo",
         "messageAction.pinMessageConfirm": "Bạn có muốn ghim tin nhắn này không?",
         "messageAction.unpinMessageConfirm": "Bỏ ghim tin nhắn này?",
@@ -3614,6 +3937,8 @@ extension L10n {
         "profile.sendTokenNote": "Ghi chú",
         "profile.sendTokenDefaultNote": "Chuyển khoản",
         "profile.sendTokenSelectAccount": "Chọn người dùng để chuyển khoản",
+        "profile.sendTokenNoUserMatch": "Không tìm thấy người dùng phù hợp",
+        "profile.sendTokenTypeToSearch": "Nhập tên hoặc username để tìm kiếm",
         "profile.sendTokenCopyAddressSuccess": "Đã sao chép địa chỉ",
         "profile.sendTokenConfirmTitle": "Xác nhận chuyển khoản",
         "profile.sendTokenConfirmMessage": "Chuyển khoản %1$@ %2$@ đến %3$@?",
@@ -3696,6 +4021,13 @@ extension L10n {
         "qrScanner.myQRCode": "Mã QR của tôi",
         "qrScanner.qrProfile": "Mã QR Hồ sơ",
         "qrScanner.qrTransfer": "Mã QR chuyển khoản",
+        "qrScanner.profileBadge": "PROFILE QR",
+        "qrScanner.transferBadge": "TRANSFER QR",
+        "qrScanner.verifiedByMezon": "ĐƯỢC XÁC MINH BỞI MEZON",
+        "qrScanner.centerImage": "Ảnh giữa mã QR",
+        "qrScanner.chooseCenterImage": "Chọn ảnh từ thiết bị",
+        "qrScanner.useProfileAvatar": "Dùng avatar cá nhân",
+        "qrScanner.useMezonLogo": "Dùng logo Mezon",
         "qrScanner.poweredBy": "Được cung cấp bởi Mezon",
         "qrScanner.shareWithOthers": "Chia sẻ với mọi người",
         "qrScanner.scanProfileHelp": "Quét mã QR này để trò chuyện với tôi hoặc xem hồ sơ của tôi",
@@ -3731,11 +4063,16 @@ extension L10n {
 
         "channelDetail.members": "Thành viên",
         "channelDetail.media":   "Phương tiện",
+        "channelDetail.images":  "Hình ảnh",
+        "channelDetail.videos":  "Video",
         "channelDetail.files":   "Tệp",
+        "channelDetail.docs":    "Tài liệu",
+        "channelDetail.audios":  "Âm thanh",
         "channelDetail.pins":    "Ghim",
         "channelDetail.canvas":  "Canvas",
         "channelDetail.online":  "Trực tuyến",
         "channelDetail.offline": "Ngoại tuyến",
+        "channelDetail.inVoice": "Đang trong thoại",
         "channelDetail.inviteMembers": "Mời thành viên",
         "channelDetail.newGroup": "Nhóm mới",
         "channelDetail.addMembers": "Thêm thành viên",
@@ -3904,5 +4241,13 @@ extension L10n {
         "mediaPanel.findReaction": "Tìm kiếm biểu cảm",
         "mediaPanel.trendingGifs": "Thịnh hành",
         "mediaPanel.emptyGifs": "GIF sẽ xuất hiện ở đây",
+
+        "voiceChannel.disconnectedAlone": "Bạn đã bị ngắt khỏi kênh thoại vì ở một mình quá lâu.",
+        "voiceChannel.disconnectedOtherDevice": "Bạn đã tham gia kênh thoại trên thiết bị khác nên phiên này bị ngắt kết nối.",
+        "voiceChannel.disconnectedRejoin": "Bạn đã bị ngắt khỏi kênh thoại.",
+        "voiceChannel.rejoinTitle": "Không thể kết nối thoại",
+        "voiceChannel.rejoinBody": "Không thể khôi phục kết nối thoại. Hãy kiểm tra kết nối và thử tham gia lại.",
+        "voiceChannel.retry": "Tham gia lại",
+        "voiceChannel.leaveRoom": "Thoát",
     ]
 }

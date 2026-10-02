@@ -69,6 +69,9 @@ final class DmListItemCell: UITableViewCell {
 
     private static let unreadNameFont = UIFont.systemFont(ofSize: 14.sf, weight: .semibold)
     private static let readNameFont = UIFont.systemFont(ofSize: 14.sf, weight: .medium)
+    private static let previewFont = UIFont.systemFont(ofSize: 13.sf)
+    private static let inVoiceFont = UIFont.systemFont(ofSize: 12.sf)
+    private static let avatarTargetPixelSize = 120
 
     private static let avatarMemoryCache: NSCache<NSString, UIImage> = {
         let c = NSCache<NSString, UIImage>()
@@ -109,6 +112,7 @@ final class DmListItemCell: UITableViewCell {
         isAvatarLoadInFlight = false
         configuredAvatarURLString = nil
         avatarImageView.image = nil
+        avatarImageView.stopAnimating()
         textAvatar.showImageMode()
         groupIconView.isHidden = true
         onlineIndicator.isHidden = true
@@ -186,7 +190,7 @@ final class DmListItemCell: UITableViewCell {
         ])
     }
 
-    func configure(channel: Mezon_Api_ChannelDescription, resolvedAvatarURL: String? = nil) {
+    func configure(channel: Mezon_Api_ChannelDescription, resolvedAvatarURL: String? = nil, isPeerInVoice: Bool = false) {
         groupIconView.tintColor = .mezonTextSecondary
 
         let isGroup = channel.type == MezonConstants.ChannelType.group.rawValue
@@ -230,17 +234,45 @@ final class DmListItemCell: UITableViewCell {
         }
 
         let (preview, time) = lastMessagePreview(channel: channel)
-        let hasPreview = !preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        lastMessageLabel.text = hasPreview ? preview : ""
+        let hasMessagePreview = !preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasPreview = isPeerInVoice || hasMessagePreview
+        if isPeerInVoice {
+            lastMessageLabel.attributedText = Self.inVoicePreviewText()
+        } else {
+            lastMessageLabel.font = Self.previewFont
+            lastMessageLabel.text = hasMessagePreview ? preview : ""
+            lastMessageLabel.textColor = isUnread ? UIColor.theme.textStrong : UIColor.theme.textDisabled
+        }
         lastMessageLabel.isHidden = !hasPreview
         if hasPreviewLayout != hasPreview {
             hasPreviewLayout = hasPreview
             lastMessageTopConstraint?.constant = hasPreview ? 3.sh : 0
             lastMessageZeroHeightConstraint?.isActive = !hasPreview
         }
-        lastMessageLabel.textColor = isUnread ? UIColor.theme.textStrong : UIColor.theme.textDisabled
         timeLabel.text = time
         timeLabel.textColor = isUnread ? UIColor.theme.textStrong : UIColor.theme.textDisabled
+    }
+
+    private static func inVoicePreviewText() -> NSAttributedString {
+        let font = inVoiceFont
+        let result = NSMutableAttributedString()
+        if let icon = (UIImage(named: "Chat/SpeakerIcon") ?? UIImage(systemName: "speaker.wave.2.fill"))?
+            .withTintColor(.mezonVoiceActive, renderingMode: .alwaysOriginal) {
+            let attachment = NSTextAttachment()
+            attachment.image = icon
+            let side = font.pointSize
+            attachment.bounds = CGRect(x: 0, y: (font.capHeight - side) / 2, width: side, height: side)
+            result.append(NSAttributedString(attachment: attachment))
+            result.append(NSAttributedString(string: " ", attributes: [.font: font]))
+        }
+        result.append(NSAttributedString(
+            string: L(L10n.ChannelDetail.inVoice),
+            attributes: [
+                .font: font,
+                .foregroundColor: UIColor.theme.textStrong.withAlphaComponent(0.6),
+            ]
+        ))
+        return result
     }
 
     private func showGroupAvatarPlaceholder() {
@@ -259,54 +291,97 @@ final class DmListItemCell: UITableViewCell {
         avatarLoadGeneration += 1
         let gen = avatarLoadGeneration
         let proxied = ImgproxyURL.avatarProxyURL(from: url.absoluteString, width: 100, height: 100)
+        let previewURL = ImgproxyURL.avatarPreviewProxyURL(
+            from: url.absoluteString,
+            width: 100,
+            height: 100
+        )
         let raw = url.absoluteString
         let proxiedKey = proxied as NSString
         let rawKey = raw as NSString
         
-        if let cached = Self.avatarMemoryCache.object(forKey: proxiedKey) ?? ImageCache.shared.memoryImage(forKey: proxied) ?? Self.avatarMemoryCache.object(forKey: rawKey) ?? ImageCache.shared.memoryImage(forKey: raw) {
+        if let cached = Self.avatarMemoryCache.object(forKey: proxiedKey)
+            ?? ImageCache.shared.memoryOptimizedAvatar(
+                forURL: proxied,
+                targetPixelSize: Self.avatarTargetPixelSize
+            )
+            ?? Self.avatarMemoryCache.object(forKey: rawKey)
+            ?? ImageCache.shared.memoryOptimizedAvatar(
+                forURL: raw,
+                targetPixelSize: Self.avatarTargetPixelSize
+            ) {
             Self.avatarMemoryCache.setObject(cached, forKey: proxiedKey)
             guard gen == avatarLoadGeneration else { return }
             isAvatarLoadInFlight = false
-            groupIconView.isHidden = true
-            avatarImageView.image = cached
-            textAvatar.showImageMode()
+            showAvatarImage(cached)
             return
         }
 
+        avatarImageView.stopAnimating()
         avatarImageView.image = nil
         isAvatarLoadInFlight = true
-        if let fallbackUsername {
-            textAvatar.configure(username: fallbackUsername, fontSize: 16.sf)
-        } else {
-            showGroupAvatarPlaceholder()
+        groupIconView.isHidden = true
+        textAvatar.showSkeleton()
+
+        let showPreview: (UIImage) -> Void = { [weak self] image in
+            guard let self,
+                  gen == self.avatarLoadGeneration,
+                  self.isAvatarLoadInFlight else { return }
+            self.showAvatarImage(image)
+        }
+        let hasRawDiskCache = proxied != raw
+            && ImageCache.shared.hasOptimizedAvatarDiskCache(
+                forURL: raw,
+                targetPixelSize: Self.avatarTargetPixelSize
+            )
+        if !hasRawDiskCache, previewURL != proxied {
+            if let preview = ImageCache.shared.memoryImage(forKey: previewURL) {
+                showPreview(preview)
+            } else {
+                ImageCache.shared.loadImage(urlString: previewURL) { image in
+                    guard let image else { return }
+                    showPreview(image)
+                }
+            }
         }
 
-        ImageCache.shared.loadAvatar(urlString: proxied) { [weak self] image in
+        let loadRawAvatar: () -> Void = {
+            ImageCache.shared.loadOptimizedAvatar(
+                urlString: raw,
+                targetPixelSize: Self.avatarTargetPixelSize,
+                preview: showPreview
+            ) { [weak self] rawImage in
+                if let rawImage { Self.avatarMemoryCache.setObject(rawImage, forKey: rawKey) }
+                guard let self, gen == self.avatarLoadGeneration else { return }
+                self.isAvatarLoadInFlight = false
+                if let rawImage {
+                    self.showAvatarImage(rawImage)
+                } else if let fallbackUsername {
+                    self.avatarImageView.image = nil
+                    self.textAvatar.configure(username: fallbackUsername, fontSize: 16.sf)
+                } else {
+                    self.avatarImageView.image = nil
+                    self.showGroupAvatarPlaceholder()
+                }
+            }
+        }
+        if hasRawDiskCache {
+            loadRawAvatar()
+            return
+        }
+
+        ImageCache.shared.loadOptimizedAvatar(
+            urlString: proxied,
+            targetPixelSize: Self.avatarTargetPixelSize,
+            preview: showPreview
+        ) { [weak self] image in
             if let image {
                 Self.avatarMemoryCache.setObject(image, forKey: proxiedKey)
                 guard let self, gen == self.avatarLoadGeneration else { return }
                 self.isAvatarLoadInFlight = false
-                self.groupIconView.isHidden = true
-                self.avatarImageView.image = image
-                self.textAvatar.showImageMode()
+                self.showAvatarImage(image)
             } else if proxied != raw {
-                guard let self, gen == self.avatarLoadGeneration else { return }
-                ImageCache.shared.loadAvatar(urlString: raw) { [weak self] rawImage in
-                    if let rawImage { Self.avatarMemoryCache.setObject(rawImage, forKey: rawKey) }
-                    guard let self, gen == self.avatarLoadGeneration else { return }
-                    self.isAvatarLoadInFlight = false
-                    if let rawImage {
-                        self.groupIconView.isHidden = true
-                        self.avatarImageView.image = rawImage
-                        self.textAvatar.showImageMode()
-                    } else if let fallbackUsername {
-                        self.avatarImageView.image = nil
-                        self.textAvatar.configure(username: fallbackUsername, fontSize: 16.sf)
-                    } else {
-                        self.avatarImageView.image = nil
-                        self.showGroupAvatarPlaceholder()
-                    }
-                }
+                loadRawAvatar()
             } else {
                 guard let self, gen == self.avatarLoadGeneration else { return }
                 self.isAvatarLoadInFlight = false
@@ -318,6 +393,16 @@ final class DmListItemCell: UITableViewCell {
                     self.showGroupAvatarPlaceholder()
                 }
             }
+        }
+    }
+
+    private func showAvatarImage(_ image: UIImage) {
+        groupIconView.isHidden = true
+        avatarImageView.stopAnimating()
+        avatarImageView.image = image
+        textAvatar.showImageMode()
+        if (image.images?.count ?? 0) > 1 {
+            avatarImageView.startAnimating()
         }
     }
 

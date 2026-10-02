@@ -2,6 +2,28 @@ import Foundation
 import UIKit
 import AsyncDisplayKit
 
+public struct GalleryVideoShareMetadata {
+    public let filename: String
+    public let filetype: String
+    public let size: Int64
+    public let durationSeconds: Int
+    public let thumbnail: String
+
+    public init(
+        filename: String = "",
+        filetype: String = "",
+        size: Int64 = 0,
+        durationSeconds: Int = 0,
+        thumbnail: String = ""
+    ) {
+        self.filename = filename
+        self.filetype = filetype
+        self.size = size
+        self.durationSeconds = durationSeconds
+        self.thumbnail = thumbnail
+    }
+}
+
 public struct GalleryItemInfo {
     public static let detailProxySize = 700
 
@@ -15,6 +37,7 @@ public struct GalleryItemInfo {
     public let senderAvatarURL: String?
     public let timestamp: Date?
     public let isVideo: Bool
+    public let videoShareMetadata: GalleryVideoShareMetadata?
 
     public var stableIdentity: String {
         if let sourceURL, !sourceURL.isEmpty { return sourceURL }
@@ -31,7 +54,8 @@ public struct GalleryItemInfo {
         senderId: String? = nil,
         senderAvatarURL: String? = nil,
         timestamp: Date? = nil,
-        isVideo: Bool = false
+        isVideo: Bool = false,
+        videoShareMetadata: GalleryVideoShareMetadata? = nil
     ) {
         self.url = url
         self.sourceURL = sourceURL
@@ -43,6 +67,7 @@ public struct GalleryItemInfo {
         self.senderAvatarURL = senderAvatarURL
         self.timestamp = timestamp
         self.isVideo = isVideo
+        self.videoShareMetadata = videoShareMetadata
     }
 
     public static func pixelSize(width: Int?, height: Int?) -> CGSize? {

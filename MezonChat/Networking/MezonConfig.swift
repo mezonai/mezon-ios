@@ -18,7 +18,7 @@ enum MezonConfig {
     static var dongServiceAPIURL: URL { env.dongServiceAPIURL }
 
     static var meetWebSocketURLString: String { env.meetWebSocketURLString }
-    static var streamWebSocketURLString: String { env.streamWebSocketURLString }
+    static var sfuWebSocketURLString: String { env.sfuWebSocketURLString }
     static var ogpURL: URL { env.ogpURL }
 
     static var webRTCIceServerURL: String { env.webRTCIceServerURL }
@@ -38,6 +38,20 @@ enum MezonConfig {
 
     static func canvasShareURLString(clanId: Int64, channelId: Int64, canvasId: Int64) -> String {
         "\(chatWebAppBaseURL)/chat/clans/\(clanId)/channels/\(channelId)/canvas/\(canvasId)"
+    }
+
+    static func eventShareURL(clanId: Int64, channelId: Int64) -> URL? {
+        URL(string: "\(chatWebAppBaseURL)/chat/clans/\(clanId)/channels/\(channelId)")
+    }
+
+    static func externalEventURL(_ link: String) -> URL? {
+        let link = link.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !link.isEmpty,
+              let baseURL = URL(string: "\(chatWebAppBaseURL)/"),
+              let url = URL(string: link, relativeTo: baseURL)?.absoluteURL,
+              let scheme = url.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              url.host != nil else { return nil }
+        return url
     }
 
     private static func infoPlistString(_ key: String) -> String? {

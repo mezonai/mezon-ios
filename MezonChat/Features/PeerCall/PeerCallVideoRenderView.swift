@@ -1,39 +1,122 @@
 import AVFoundation
-import LiveKit
-import LiveKitWebRTC
+import WebRTC
 import MetalKit
 import UIKit
 
+@MainActor
+enum ScreenShareTrace {
+    private static var sequence = 0
+    static func log(_ event: String, _ fields: [String: Any] = [:]) {
+        sequence += 1
+        var payload = fields
+        payload["sequence"] = sequence
+        payload["uptimeMs"] = Int(ProcessInfo.processInfo.systemUptime * 1000)
+        guard JSONSerialization.isValidJSONObject(payload),
+              let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else { return }
+        NSLog("[SFU screen-keyframe] %@ %@", event, text)
+    }
+}
+
 final class PeerCallVideoRenderView: UIView {
 
-    private let mtlVideoView: LKRTCMTLVideoView
-    private let renderSurface: PeerCallSampleBufferRenderSurface
-    private var attachedTrack: LKRTCVideoTrack?
+    enum RenderContentMode {
+        case fit
+        case fill
+    }
+
+    private let mtlVideoView: RTCMTLVideoView
+    private let renderSurface: PeerCallSampleBufferRenderSurface?
+    private var attachedTrack: RTCVideoTrack?
+    private var lastReplaySize: CGSize = .zero
+    var screenTraceSource: String?
+    private var screenTraceTasks: [DispatchWorkItem] = []
+
+    private func traceRenderer(_ event: String) {
+        guard let source = screenTraceSource else { return }
+        let frame = attachedTrack.flatMap { VideoTrackLastFrameStore.cachedFrame(of: $0) }
+        let metal = mtlVideoView.subviews.compactMap { $0 as? MTKView }.first
+        var ancestor: UIView? = self
+        var hiddenAncestor = false
+        while let view = ancestor {
+            hiddenAncestor = hiddenAncestor || view.isHidden || view.alpha <= 0.01
+            ancestor = view.superview
+        }
+        ScreenShareTrace.log(event, ["source": source, "rendererId": String(describing: ObjectIdentifier(self)),
+            "trackId": attachedTrack?.trackId ?? "none",
+            "trackObject": attachedTrack.map { String(describing: ObjectIdentifier($0)) } ?? "none",
+            "inWindow": window != nil, "hiddenAncestor": hiddenAncestor,
+            "width": Double(bounds.width), "height": Double(bounds.height),
+            "metalEnabled": mtlVideoView.isEnabled, "metalPaused": metal?.isPaused ?? true,
+            "sampleBufferStatus": renderSurface?.diagnosticStatus ?? -1,
+            "sampleBufferErrorCode": renderSurface?.diagnosticErrorCode ?? 0,
+            "drawableWidth": Double(metal?.drawableSize.width ?? 0), "drawableHeight": Double(metal?.drawableSize.height ?? 0),
+            "hasCachedFrame": frame != nil, "frameWidth": frame?.width ?? 0, "frameHeight": frame?.height ?? 0])
+    }
+
+    private func scheduleRendererTrace() {
+        screenTraceTasks.forEach { $0.cancel() }
+        screenTraceTasks.removeAll()
+        guard screenTraceSource != nil else { return }
+        traceRenderer("renderer_attached")
+        for delay in [0.5, 3.0, 10.0] {
+            let work = DispatchWorkItem { [weak self] in self?.traceRenderer("renderer_snapshot") }
+            screenTraceTasks.append(work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        }
+    }
+
+    private var renderers: [RTCVideoRenderer] {
+        guard let renderSurface else { return [mtlVideoView] }
+        return [renderSurface, mtlVideoView]
+    }
 
     var isMirrored: Bool = false {
         didSet {
             mtlVideoView.transform = isMirrored ? CGAffineTransform(scaleX: -1, y: 1) : .identity
-            renderSurface.setMirrored(isMirrored)
+            renderSurface?.setMirrored(isMirrored)
         }
     }
 
-    override init(frame: CGRect) {
-        mtlVideoView = LKRTCMTLVideoView(frame: .zero)
-        renderSurface = PeerCallSampleBufferRenderSurface(frame: .zero)
+    var renderContentMode: RenderContentMode = .fit {
+        didSet {
+            let fill = renderContentMode == .fill
+            mtlVideoView.videoContentMode = fill ? .scaleAspectFill : .scaleAspectFit
+            mtlVideoView.contentMode = fill ? .scaleAspectFill : .scaleAspectFit
+            renderSurface?.setVideoGravity(fill ? .resizeAspectFill : .resizeAspect)
+            configureEmbeddedMTKViewIfPresent()
+        }
+    }
+
+    override convenience init(frame: CGRect) {
+        self.init(frame: frame, sampleBufferSurface: true)
+    }
+
+    convenience init(sampleBufferSurface: Bool) {
+        self.init(frame: .zero, sampleBufferSurface: sampleBufferSurface)
+    }
+
+    init(frame: CGRect, sampleBufferSurface: Bool) {
+        mtlVideoView = RTCMTLVideoView(frame: .zero)
+        renderSurface = sampleBufferSurface ? PeerCallSampleBufferRenderSurface(frame: .zero) : nil
         super.init(frame: frame)
         mtlVideoView.translatesAutoresizingMaskIntoConstraints = false
         mtlVideoView.isEnabled = true
         mtlVideoView.videoContentMode = .scaleAspectFit
         mtlVideoView.contentMode = .scaleAspectFit
-        renderSurface.translatesAutoresizingMaskIntoConstraints = false
-        renderSurface.isUserInteractionEnabled = false
-        addSubview(renderSurface)
+        if let renderSurface {
+            renderSurface.translatesAutoresizingMaskIntoConstraints = false
+            renderSurface.isUserInteractionEnabled = false
+            addSubview(renderSurface)
+            NSLayoutConstraint.activate([
+                renderSurface.leadingAnchor.constraint(equalTo: leadingAnchor),
+                renderSurface.trailingAnchor.constraint(equalTo: trailingAnchor),
+                renderSurface.topAnchor.constraint(equalTo: topAnchor),
+                renderSurface.bottomAnchor.constraint(equalTo: bottomAnchor),
+            ])
+        }
         addSubview(mtlVideoView)
         NSLayoutConstraint.activate([
-            renderSurface.leadingAnchor.constraint(equalTo: leadingAnchor),
-            renderSurface.trailingAnchor.constraint(equalTo: trailingAnchor),
-            renderSurface.topAnchor.constraint(equalTo: topAnchor),
-            renderSurface.bottomAnchor.constraint(equalTo: bottomAnchor),
             mtlVideoView.leadingAnchor.constraint(equalTo: leadingAnchor),
             mtlVideoView.trailingAnchor.constraint(equalTo: trailingAnchor),
             mtlVideoView.topAnchor.constraint(equalTo: topAnchor),
@@ -52,34 +135,72 @@ final class PeerCallVideoRenderView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         configureEmbeddedMTKViewIfPresent()
+        guard bounds.width > 0, bounds.height > 0, bounds.size != lastReplaySize else { return }
+        lastReplaySize = bounds.size
+        replayAttachedFrame()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        traceRenderer("renderer_window_changed")
+        guard window != nil else { return }
+        setNeedsLayout()
+        layoutIfNeeded()
+        replayAttachedFrame()
+    }
+
+    private func replayAttachedFrame() {
+        guard let track = attachedTrack, bounds.width > 0, bounds.height > 0 else { return }
+        VideoTrackLastFrameStore.replayLastFrame(of: track, to: renderers)
     }
 
     private func configureEmbeddedMTKViewIfPresent() {
         guard let mtk = mtlVideoView.subviews.compactMap({ $0 as? MTKView }).first else { return }
         mtk.preferredFramesPerSecond = 60
-        mtk.isPaused = false
-        mtk.contentMode = .scaleAspectFit
+        mtk.isPaused = attachedTrack == nil
+        mtk.contentMode = renderContentMode == .fill ? .scaleAspectFill : .scaleAspectFit
         mtk.contentScaleFactor = contentScaleFactor
     }
 
-    func attach(track: LKRTCVideoTrack?) {
+    private func subscribe(_ track: RTCVideoTrack) {
+        for renderer in renderers {
+            track.add(renderer)
+        }
+    }
+
+    private func unsubscribe(_ track: RTCVideoTrack?) {
+        guard let track else { return }
+        for renderer in renderers {
+            track.remove(renderer)
+        }
+    }
+
+    func attach(track: RTCVideoTrack?) {
         guard let track else {
-            attachedTrack?.remove(renderSurface)
-            attachedTrack?.remove(mtlVideoView)
+            if attachedTrack != nil { traceRenderer("renderer_detached") }
+            screenTraceTasks.forEach { $0.cancel() }
+            screenTraceTasks.removeAll()
+            unsubscribe(attachedTrack)
             attachedTrack = nil
-            renderSurface.flushContent()
+            lastReplaySize = .zero
+            mtlVideoView.isEnabled = false
+            configureEmbeddedMTKViewIfPresent()
+            renderSurface?.flushContent()
             return
         }
         if attachedTrack === track {
             return
         }
         if let cur = attachedTrack, cur.trackId == track.trackId, cur !== track {
-            cur.remove(renderSurface)
-            cur.remove(mtlVideoView)
+            unsubscribe(cur)
             attachedTrack = track
-            renderSurface.flushContent()
-            track.add(renderSurface)
-            track.add(mtlVideoView)
+            mtlVideoView.isEnabled = true
+            renderSurface?.flushContent()
+            configureEmbeddedMTKViewIfPresent()
+            layoutIfNeeded()
+            subscribe(track)
+            scheduleRendererTrace()
+            VideoTrackLastFrameStore.replayLastFrame(of: track, to: renderers)
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.configureEmbeddedMTKViewIfPresent()
@@ -87,17 +208,21 @@ final class PeerCallVideoRenderView: UIView {
                 self.layoutIfNeeded()
                 self.mtlVideoView.setNeedsLayout()
                 self.mtlVideoView.layoutIfNeeded()
-                self.renderSurface.setNeedsLayout()
-                self.renderSurface.layoutIfNeeded()
+                self.renderSurface?.setNeedsLayout()
+                self.renderSurface?.layoutIfNeeded()
+                self.replayAttachedFrame()
             }
             return
         }
-        attachedTrack?.remove(renderSurface)
-        attachedTrack?.remove(mtlVideoView)
+        unsubscribe(attachedTrack)
         attachedTrack = track
-        renderSurface.flushContent()
-        track.add(renderSurface)
-        track.add(mtlVideoView)
+        mtlVideoView.isEnabled = true
+        renderSurface?.flushContent()
+        configureEmbeddedMTKViewIfPresent()
+        layoutIfNeeded()
+        subscribe(track)
+        scheduleRendererTrace()
+        VideoTrackLastFrameStore.replayLastFrame(of: track, to: renderers)
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.configureEmbeddedMTKViewIfPresent()
@@ -105,18 +230,21 @@ final class PeerCallVideoRenderView: UIView {
             self.layoutIfNeeded()
             self.mtlVideoView.setNeedsLayout()
             self.mtlVideoView.layoutIfNeeded()
-            self.renderSurface.setNeedsLayout()
-            self.renderSurface.layoutIfNeeded()
+            self.renderSurface?.setNeedsLayout()
+            self.renderSurface?.layoutIfNeeded()
+            self.replayAttachedFrame()
         }
     }
 
     func refreshAttachedRenderers() {
         guard let track = attachedTrack else { return }
-        track.remove(renderSurface)
-        track.remove(mtlVideoView)
-        renderSurface.flushContent()
-        track.add(renderSurface)
-        track.add(mtlVideoView)
+        unsubscribe(track)
+        renderSurface?.flushContent()
+        configureEmbeddedMTKViewIfPresent()
+        layoutIfNeeded()
+        subscribe(track)
+        scheduleRendererTrace()
+        VideoTrackLastFrameStore.replayLastFrame(of: track, to: renderers)
         configureEmbeddedMTKViewIfPresent()
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -124,22 +252,159 @@ final class PeerCallVideoRenderView: UIView {
             self.layoutIfNeeded()
             self.mtlVideoView.setNeedsLayout()
             self.mtlVideoView.layoutIfNeeded()
-            self.renderSurface.setNeedsLayout()
-            self.renderSurface.layoutIfNeeded()
+            self.renderSurface?.setNeedsLayout()
+            self.renderSurface?.layoutIfNeeded()
+            self.replayAttachedFrame()
         }
     }
 
     deinit {
-        attachedTrack?.remove(renderSurface)
+        screenTraceTasks.forEach { $0.cancel() }
+        if let renderSurface {
+            attachedTrack?.remove(renderSurface)
+        }
         attachedTrack?.remove(mtlVideoView)
     }
 }
 
-private final class PeerCallSampleBufferRenderSurface: UIView, LKRTCVideoRenderer {
+final class VideoTrackFrameKeeper: NSObject, RTCVideoRenderer {
+
+    private let lock = NSLock()
+    private var frame: RTCVideoFrame?
+    private var frameUptime: TimeInterval = 0
+    weak var track: RTCVideoTrack?
+
+    var lastFrame: RTCVideoFrame? {
+        lock.lock()
+        defer { lock.unlock() }
+        return frame
+    }
+
+    var lastFrameUptime: TimeInterval? {
+        lock.lock()
+        defer { lock.unlock() }
+        return frame == nil ? nil : frameUptime
+    }
+
+    func clear() {
+        lock.lock()
+        frame = nil
+        frameUptime = 0
+        lock.unlock()
+    }
+
+    func setSize(_ size: CGSize) {}
+
+    func renderFrame(_ frame: RTCVideoFrame?) {
+        guard let frame else { return }
+        let uptime = ProcessInfo.processInfo.systemUptime
+        lock.lock()
+        self.frame = frame
+        frameUptime = uptime
+        lock.unlock()
+    }
+}
+
+@MainActor
+enum VideoTrackLastFrameStore {
+
+    // receiver.track creates new ObjC wrappers. WebRTC's isEqual compares the
+    // native track; trackId alone also cannot distinguish a replacement source.
+    private static var keepers: [VideoTrackFrameKeeper] = []
+    private static var replayCount: Int64 = 0
+
+    static func cachedFrame(of track: RTCVideoTrack) -> RTCVideoFrame? {
+        guard let keeper = keeper(for: track) else { return nil }
+        return keeper.lastFrame
+    }
+
+    static func cachedFrameUptime(of track: RTCVideoTrack) -> TimeInterval? {
+        guard let keeper = keeper(for: track) else { return nil }
+        return keeper.lastFrameUptime
+    }
+
+    static func observe(_ track: RTCVideoTrack) -> VideoTrackFrameKeeper {
+        keepers.removeAll { $0.track == nil }
+        if let keeper = keeper(for: track) { return keeper }
+        let keeper = VideoTrackFrameKeeper()
+        keeper.track = track
+        track.add(keeper)
+        keepers.append(keeper)
+        return keeper
+    }
+
+    private static func keeper(for track: RTCVideoTrack) -> VideoTrackFrameKeeper? {
+        keepers.first { $0.track?.isEqual(track) == true }
+    }
+
+    /// Keep the wrapper that owns the frame observer alive in the session/UI.
+    /// This also keeps recovery identity stable across receiver snapshots.
+    static func canonicalTrack(_ track: RTCVideoTrack) -> RTCVideoTrack {
+        observe(track).track ?? track
+    }
+
+    static func clearFrame(of track: RTCVideoTrack) {
+        keeper(for: track)?.clear()
+    }
+
+    static func replayLastFrame(of track: RTCVideoTrack, to renderers: [RTCVideoRenderer]) {
+        guard let frame = observe(track).lastFrame else { return }
+        replayCount += 1
+        let replay = RTCVideoFrame(buffer: frame.buffer, rotation: frame.rotation, timeStampNs: frame.timeStampNs + replayCount)
+        let rotated = frame.rotation == ._90 || frame.rotation == ._270
+        let size = rotated
+            ? CGSize(width: CGFloat(frame.height), height: CGFloat(frame.width))
+            : CGSize(width: CGFloat(frame.width), height: CGFloat(frame.height))
+        for renderer in renderers {
+            renderer.setSize(size)
+            renderer.renderFrame(replay)
+        }
+    }
+}
+
+private extension CMSampleBuffer {
+    static func from(_ pixelBuffer: CVPixelBuffer) -> CMSampleBuffer? {
+        var formatDescription: CMVideoFormatDescription?
+        CMVideoFormatDescriptionCreateForImageBuffer(
+            allocator: kCFAllocatorDefault,
+            imageBuffer: pixelBuffer,
+            formatDescriptionOut: &formatDescription
+        )
+        guard let formatDescription else { return nil }
+        var timing = CMSampleTimingInfo(
+            duration: .invalid,
+            presentationTimeStamp: CMClockGetTime(CMClockGetHostTimeClock()),
+            decodeTimeStamp: .invalid
+        )
+        var sampleBuffer: CMSampleBuffer?
+        CMSampleBufferCreateReadyWithImageBuffer(
+            allocator: kCFAllocatorDefault,
+            imageBuffer: pixelBuffer,
+            formatDescription: formatDescription,
+            sampleTiming: &timing,
+            sampleBufferOut: &sampleBuffer
+        )
+        guard let sampleBuffer else { return nil }
+        if let attachmentsArray = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: true),
+           CFArrayGetCount(attachmentsArray) > 0 {
+            let attachments = unsafeBitCast(CFArrayGetValueAtIndex(attachmentsArray, 0), to: CFMutableDictionary.self)
+            CFDictionarySetValue(
+                attachments,
+                Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque(),
+                Unmanaged.passUnretained(kCFBooleanTrue).toOpaque()
+            )
+        }
+        return sampleBuffer
+    }
+}
+
+private final class PeerCallSampleBufferRenderSurface: UIView, RTCVideoRenderer {
 
     private let displayLayer = AVSampleBufferDisplayLayer()
+    var diagnosticStatus: Int { displayLayer.status.rawValue }
+    var diagnosticErrorCode: Int { (displayLayer.error as NSError?)?.code ?? 0 }
     private var mirrored = false
-    private var videoRotation: LKRTCVideoRotation = ._0
+    private var videoRotation: RTCVideoRotation = ._0
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -161,6 +426,10 @@ private final class PeerCallSampleBufferRenderSurface: UIView, LKRTCVideoRendere
         setNeedsLayout()
     }
 
+    func setVideoGravity(_ gravity: AVLayerVideoGravity) {
+        displayLayer.videoGravity = gravity
+    }
+
     func flushContent() {
         displayLayer.flushAndRemoveImage()
     }
@@ -178,7 +447,7 @@ private final class PeerCallSampleBufferRenderSurface: UIView, LKRTCVideoRendere
 
     func setSize(_: CGSize) {}
 
-    func renderFrame(_ frame: LKRTCVideoFrame?) {
+    func renderFrame(_ frame: RTCVideoFrame?) {
         guard let frame else { return }
         guard let pixelBuffer = Self.extractPixelBuffer(frame: frame) else { return }
         guard let sampleBuffer = CMSampleBuffer.from(pixelBuffer) else { return }
@@ -197,7 +466,7 @@ private final class PeerCallSampleBufferRenderSurface: UIView, LKRTCVideoRendere
         }
     }
 
-    private func transform(for rotation: LKRTCVideoRotation) -> CATransform3D {
+    private func transform(for rotation: RTCVideoRotation) -> CATransform3D {
         switch rotation {
         case ._0:
             CATransform3DIdentity
@@ -212,22 +481,22 @@ private final class PeerCallSampleBufferRenderSurface: UIView, LKRTCVideoRendere
         }
     }
 
-    private static func extractPixelBuffer(frame: LKRTCVideoFrame) -> CVPixelBuffer? {
-        if let cv = frame.buffer as? LKRTCCVPixelBuffer {
+    private static func extractPixelBuffer(frame: RTCVideoFrame) -> CVPixelBuffer? {
+        if let cv = frame.buffer as? RTCCVPixelBuffer {
             return pixelBuffer(fromCVBuffer: cv, frame: frame)
         }
-        if let i420 = frame.buffer as? LKRTCI420Buffer {
+        if let i420 = frame.buffer as? RTCI420Buffer {
             return pixelBuffer(fromI420: i420)
         }
         let converted = frame.buffer.toI420()
-        if let i420 = converted as? LKRTCI420Buffer {
+        if let i420 = converted as? RTCI420Buffer {
             return pixelBuffer(fromI420: i420)
         }
         let i420Frame = frame.newI420()
         return extractPixelBuffer(frame: i420Frame)
     }
 
-    private static func pixelBuffer(fromCVBuffer cv: LKRTCCVPixelBuffer, frame: LKRTCVideoFrame) -> CVPixelBuffer? {
+    private static func pixelBuffer(fromCVBuffer cv: RTCCVPixelBuffer, frame: RTCVideoFrame) -> CVPixelBuffer? {
         let pb = cv.pixelBuffer
         if !cv.requiresCropping(), !cv.requiresScaling(toWidth: frame.width, height: frame.height) {
             return pb
@@ -256,7 +525,10 @@ private final class PeerCallSampleBufferRenderSurface: UIView, LKRTCVideoRendere
         }
     }
 
-    private static func pixelBuffer(fromI420 i420: LKRTCI420Buffer) -> CVPixelBuffer? {
+    private static func pixelBuffer(fromI420 i420: RTCI420Buffer) -> CVPixelBuffer? {
+        let width = Int(i420.width)
+        let height = Int(i420.height)
+        guard width > 0, height > 0 else { return nil }
         let options: [String: Any] = [
             kCVPixelBufferCGImageCompatibilityKey as String: true,
             kCVPixelBufferCGBitmapContextCompatibilityKey as String: true,
@@ -265,68 +537,42 @@ private final class PeerCallSampleBufferRenderSurface: UIView, LKRTCVideoRendere
         var output: CVPixelBuffer?
         let status = CVPixelBufferCreate(
             kCFAllocatorDefault,
-            Int(i420.width),
-            Int(i420.height),
-            kCVPixelFormatType_32BGRA,
+            width,
+            height,
+            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
             options as CFDictionary,
             &output
         )
         guard status == kCVReturnSuccess, let output else { return nil }
         CVPixelBufferLockBaseAddress(output, CVPixelBufferLockFlags(rawValue: 0))
-        let pixelFormat = CVPixelBufferGetPixelFormatType(output)
-        if pixelFormat == kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
-            || pixelFormat == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
-        {
-            let dstY = CVPixelBufferGetBaseAddressOfPlane(output, 0)
-            let dstYStride = CVPixelBufferGetBytesPerRowOfPlane(output, 0)
-            let dstUV = CVPixelBufferGetBaseAddressOfPlane(output, 1)
-            let dstUVStride = CVPixelBufferGetBytesPerRowOfPlane(output, 1)
-            LKRTCYUVHelper.i420(
-                toNV12: i420.dataY,
-                srcStrideY: i420.strideY,
-                srcU: i420.dataU,
-                srcStrideU: i420.strideU,
-                srcV: i420.dataV,
-                srcStrideV: i420.strideV,
-                dstY: dstY,
-                dstStrideY: Int32(dstYStride),
-                dstUV: dstUV,
-                dstStrideUV: Int32(dstUVStride),
-                width: i420.width,
-                height: i420.height
-            )
-        } else {
-            let dst = CVPixelBufferGetBaseAddress(output)
-            let bytesPerRow = CVPixelBufferGetBytesPerRow(output)
-            if pixelFormat == kCVPixelFormatType_32BGRA {
-                LKRTCYUVHelper.i420(
-                    toARGB: i420.dataY,
-                    srcStrideY: i420.strideY,
-                    srcU: i420.dataU,
-                    srcStrideU: i420.strideU,
-                    srcV: i420.dataV,
-                    srcStrideV: i420.strideV,
-                    dstARGB: dst,
-                    dstStrideARGB: Int32(bytesPerRow),
-                    width: i420.width,
-                    height: i420.height
-                )
-            } else if pixelFormat == kCVPixelFormatType_32ARGB {
-                LKRTCYUVHelper.i420(
-                    toBGRA: i420.dataY,
-                    srcStrideY: i420.strideY,
-                    srcU: i420.dataU,
-                    srcStrideU: i420.strideU,
-                    srcV: i420.dataV,
-                    srcStrideV: i420.strideV,
-                    dstBGRA: dst,
-                    dstStrideBGRA: Int32(bytesPerRow),
-                    width: i420.width,
-                    height: i420.height
-                )
+        defer { CVPixelBufferUnlockBaseAddress(output, CVPixelBufferLockFlags(rawValue: 0)) }
+        guard let dstYBase = CVPixelBufferGetBaseAddressOfPlane(output, 0),
+              let dstUVBase = CVPixelBufferGetBaseAddressOfPlane(output, 1)
+        else { return nil }
+        let dstYStride = CVPixelBufferGetBytesPerRowOfPlane(output, 0)
+        let dstUVStride = CVPixelBufferGetBytesPerRowOfPlane(output, 1)
+        let dstY = dstYBase.assumingMemoryBound(to: UInt8.self)
+        let dstUV = dstUVBase.assumingMemoryBound(to: UInt8.self)
+        let srcY = i420.dataY
+        let srcU = i420.dataU
+        let srcV = i420.dataV
+        let srcYStride = Int(i420.strideY)
+        let srcUStride = Int(i420.strideU)
+        let srcVStride = Int(i420.strideV)
+        for row in 0..<height {
+            memcpy(dstY + row * dstYStride, srcY + row * srcYStride, width)
+        }
+        let chromaWidth = (width + 1) / 2
+        let chromaHeight = (height + 1) / 2
+        for row in 0..<chromaHeight {
+            let uRow = srcU + row * srcUStride
+            let vRow = srcV + row * srcVStride
+            let uvRow = dstUV + row * dstUVStride
+            for col in 0..<chromaWidth {
+                uvRow[col * 2] = uRow[col]
+                uvRow[col * 2 + 1] = vRow[col]
             }
         }
-        CVPixelBufferUnlockBaseAddress(output, CVPixelBufferLockFlags(rawValue: 0))
         return output
     }
 }

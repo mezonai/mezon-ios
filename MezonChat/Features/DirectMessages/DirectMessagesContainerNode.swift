@@ -49,6 +49,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
                 let avatarURLCacheChanged = previousState.resolvedAvatarURLByChannelId != newState.resolvedAvatarURLByChannelId
                 let activityHeaderVisibilityChanged = previousState.messageActivityRows.isEmpty != newState.messageActivityRows.isEmpty
                 let incomingCountChanged = previousState.incomingFriendRequestCount != newState.incomingFriendRequestCount
+                let inVoiceChanged = previousState.inVoiceUserIds != newState.inVoiceUserIds
                 self.state = newState
 
                 if activityRowsChanged {
@@ -74,6 +75,8 @@ final class DirectMessagesContainerNode: ASDisplayNode {
                         previous: previousState.directMessages,
                         new: newState.directMessages
                     )
+                } else if inVoiceChanged {
+                    self.reconfigureVisibleCells()
                 }
             })
         )
@@ -365,8 +368,40 @@ final class DirectMessagesContainerNode: ASDisplayNode {
             return
         }
         let proxied = ImgproxyURL.avatarProxyURL(from: avatarURL, width: 100, height: 100)
-        guard ImageCache.shared.memoryImage(forKey: proxied) == nil else { return }
-        ImageCache.shared.loadAvatar(urlString: proxied) { _ in }
+        let previewURL = ImgproxyURL.avatarPreviewProxyURL(
+            from: avatarURL,
+            width: 100,
+            height: 100
+        )
+        let targetPixelSize = 120
+        let hasRawDiskCache = ImageCache.shared.hasOptimizedAvatarDiskCache(
+            forURL: avatarURL,
+            targetPixelSize: targetPixelSize
+        )
+        if !hasRawDiskCache,
+           previewURL != proxied,
+           ImageCache.shared.memoryImage(forKey: previewURL) == nil {
+            ImageCache.shared.loadImage(urlString: previewURL) { _ in }
+        }
+        let cached = ImageCache.shared.memoryOptimizedAvatar(
+            forURL: proxied,
+            targetPixelSize: targetPixelSize
+        ) ?? ImageCache.shared.memoryOptimizedAvatar(
+            forURL: avatarURL,
+            targetPixelSize: targetPixelSize
+        )
+        guard cached == nil else { return }
+        let loadURL = hasRawDiskCache ? avatarURL : proxied
+        ImageCache.shared.loadOptimizedAvatar(
+            urlString: loadURL,
+            targetPixelSize: targetPixelSize
+        ) { image in
+            guard image == nil, loadURL != avatarURL else { return }
+            ImageCache.shared.loadOptimizedAvatar(
+                urlString: avatarURL,
+                targetPixelSize: targetPixelSize
+            ) { _ in }
+        }
     }
 
     private static func channelIdOrder(_ channels: [Mezon_Api_ChannelDescription]) -> [Int64] {
@@ -424,8 +459,17 @@ final class DirectMessagesContainerNode: ASDisplayNode {
                 continue
             }
             let channel = state.directMessages[indexPath.row]
-            cell.configure(channel: channel, resolvedAvatarURL: state.resolvedAvatarURLByChannelId[channel.channelID])
+            cell.configure(
+                channel: channel,
+                resolvedAvatarURL: state.resolvedAvatarURLByChannelId[channel.channelID],
+                isPeerInVoice: isPeerInVoice(channel)
+            )
         }
+    }
+
+    private func isPeerInVoice(_ channel: Mezon_Api_ChannelDescription) -> Bool {
+        guard channel.type == MezonConstants.ChannelType.dm.rawValue, channel.userIds.count == 1 else { return false }
+        return state.inVoiceUserIds.contains(channel.userIds[0])
     }
 }
 
@@ -449,7 +493,11 @@ extension DirectMessagesContainerNode: UITableViewDataSource, UITableViewDelegat
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: DmListItemCell.reuseId, for: indexPath) as! DmListItemCell
         let channel = state.directMessages[indexPath.row]
-        cell.configure(channel: channel, resolvedAvatarURL: state.resolvedAvatarURLByChannelId[channel.channelID])
+        cell.configure(
+            channel: channel,
+            resolvedAvatarURL: state.resolvedAvatarURLByChannelId[channel.channelID],
+            isPeerInVoice: isPeerInVoice(channel)
+        )
         return cell
     }
 

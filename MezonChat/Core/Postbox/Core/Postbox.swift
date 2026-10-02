@@ -494,6 +494,22 @@ final class Postbox {
         updateCachedAllChannelsByUser(channel)
     }
 
+    func updateCachedDMUnreadCounts(_ counts: [Int64: Int32]) {
+        guard !counts.isEmpty else { return }
+        var channels = getCachedDMChannelList()
+        guard !channels.isEmpty else { return }
+        var changed = false
+        for index in channels.indices {
+            guard let next = counts[channels[index].channelID] else { continue }
+            if channels[index].countMessUnread != next {
+                channels[index].countMessUnread = next
+                changed = true
+            }
+        }
+        guard changed else { return }
+        setPreferenceDataSync(key: PreferencesKeys.dmChannelList, value: encodeChannelList(channels))
+    }
+
     func removeCachedDMChannelDescription(channelId: Int64) {
         var channels = getCachedDMChannelList()
         channels.removeAll { $0.channelID == channelId }

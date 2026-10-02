@@ -127,7 +127,7 @@ final class ProfileOnlineStatusSheetController: UIViewController {
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                try await self.context.submitCustomStatus(text: "", minutes: 0, noClear: false)
+                try await self.context.submitCustomStatus(text: "", minutes: 0, noClear: true)
                 self.tableView.reloadData()
             } catch {
                 Toast.error(L(L10n.Profile.statusUpdateFailed))

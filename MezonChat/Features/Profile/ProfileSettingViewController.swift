@@ -10,8 +10,21 @@ enum ProfileSettingTab: Int {
 private let kMaxAvatarBytes = 10 * 1024 * 1024
 private let kMaxDMIconBytes  = 1 * 1024 * 1024
 private let kAboutMeMaxChars = 128
-private let kDisplayNameMaxChars = 32
+private let kDisplayNameMaxBytes = 32
+private let kClanNicknameMaxChars = 32
 private let kMezonLogoURL = "https://cdn.komu.vn/images/mezon_logo.png"
+
+private func prefixWithinUtf8ByteLimit(_ value: String, maxBytes: Int) -> String {
+    var byteCount = 0
+    var result = ""
+    for character in value {
+        let characterBytes = String(character).utf8.count
+        guard byteCount + characterBytes <= maxBytes else { break }
+        result.append(character)
+        byteCount += characterBytes
+    }
+    return result
+}
 
 final class ProfileSettingViewController: BaseViewController {
 
@@ -961,7 +974,7 @@ final class ProfileSettingViewController: BaseViewController {
     }
 
     private func normalizedClanNickname(_ s: String) -> String {
-        String(s.prefix(kDisplayNameMaxChars))
+        String(s.prefix(kClanNicknameMaxChars))
     }
 
     private func resolvedClanNicknameForSave() -> String {
@@ -1450,19 +1463,19 @@ final class ProfileSettingViewController: BaseViewController {
         let text = displayNameField.text ?? ""
         updateDisplayNameClearButtonVisibility()
         if currentTab == .userProfile {
-            if text.count <= kDisplayNameMaxChars {
+            if text.utf8.count <= kDisplayNameMaxBytes {
                 userDisplayName = text
             } else {
-                let trimmed = String(text.prefix(kDisplayNameMaxChars))
+                let trimmed = prefixWithinUtf8ByteLimit(text, maxBytes: kDisplayNameMaxBytes)
                 displayNameField.text = trimmed
                 userDisplayName = trimmed
             }
             detailNameLabel.text = userDisplayName.isEmpty ? userName : userDisplayName
         } else {
-            if text.count <= kDisplayNameMaxChars {
+            if text.count <= kClanNicknameMaxChars {
                 clanNickname = text
             } else {
-                let trimmed = String(text.prefix(kDisplayNameMaxChars))
+                let trimmed = String(text.prefix(kClanNicknameMaxChars))
                 displayNameField.text = trimmed
                 clanNickname = trimmed
             }
@@ -1520,7 +1533,10 @@ extension ProfileSettingViewController: UITextFieldDelegate {
         let current = textField.text ?? ""
         guard let range = Range(range, in: current) else { return true }
         let newText = current.replacingCharacters(in: range, with: string)
-        return newText.count <= kDisplayNameMaxChars
+        if currentTab == .userProfile {
+            return newText.utf8.count <= kDisplayNameMaxBytes
+        }
+        return newText.count <= kClanNicknameMaxChars
     }
 }
 

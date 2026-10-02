@@ -74,6 +74,66 @@ enum ClanChannelDescsGate {
     }
 }
 
+enum DirectMessageListGate {
+    private static var served = false
+    private static var inflight: Task<Void, Never>?
+
+    static func markServed() {
+        served = true
+    }
+
+    static func reset() {
+        served = false
+        inflight?.cancel()
+        inflight = nil
+    }
+
+    static func ensureFetchedBeforeJoin(
+        context: AccountContext,
+        maxWaitNanoseconds: UInt64 = 5_000_000_000
+    ) async {
+        if served { return }
+        if inflight == nil {
+            inflight = Task { @MainActor in
+                defer { inflight = nil }
+                guard let token = await context.getToken(), !token.isEmpty else { return }
+                do {
+                    _ = try await context.account.network.listDirectMessageChannels(token: token)
+                    served = true
+                } catch {}
+            }
+        }
+        let stepNanoseconds: UInt64 = 50_000_000
+        var waited: UInt64 = 0
+        while inflight != nil, waited < maxWaitNanoseconds {
+            try? await Task.sleep(nanoseconds: stepNanoseconds)
+            waited += stepNanoseconds
+        }
+    }
+}
+
+enum DmBadgeMessageDedup {
+    private static var order: [Int64] = []
+    private static var ids = Set<Int64>()
+    private static let limit = 512
+
+    static func markCounted(_ messageId: Int64) -> Bool {
+        if messageId == 0 { return true }
+        guard ids.insert(messageId).inserted else { return false }
+        order.append(messageId)
+        if order.count > limit {
+            let oldest = order.removeFirst()
+            ids.remove(oldest)
+        }
+        return true
+    }
+
+    static func reset() {
+        order.removeAll()
+        ids.removeAll()
+    }
+}
+
 enum ClanInviteJoiner {
     static func join(
         context: AccountContext,

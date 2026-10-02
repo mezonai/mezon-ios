@@ -181,6 +181,50 @@ private func prioritizeChannels(_ channels: [Mezon_Api_ChannelDescription]) -> [
     channels
 }
 
+private let vietnameseThreadSortLocale = Locale(identifier: "vi_VN")
+
+private func lowercaseFirstCaseComparison(_ lhs: String, _ rhs: String) -> ComparisonResult {
+    for (leftCharacter, rightCharacter) in zip(lhs, rhs) {
+        guard leftCharacter != rightCharacter else { continue }
+
+        let left = String(leftCharacter)
+        let right = String(rightCharacter)
+        let leftLowercased = left.lowercased(with: vietnameseThreadSortLocale)
+        let rightLowercased = right.lowercased(with: vietnameseThreadSortLocale)
+        guard leftLowercased == rightLowercased else { continue }
+
+        let leftIsLowercase = left == leftLowercased
+            && left != left.uppercased(with: vietnameseThreadSortLocale)
+        let rightIsLowercase = right == rightLowercased
+            && right != right.uppercased(with: vietnameseThreadSortLocale)
+        guard leftIsLowercase != rightIsLowercase else { continue }
+        return leftIsLowercase ? .orderedAscending : .orderedDescending
+    }
+    return .orderedSame
+}
+
+private func vietnameseThreadNameAscending(
+    _ lhs: Mezon_Api_ChannelDescription,
+    _ rhs: Mezon_Api_ChannelDescription
+) -> Bool {
+    let result = lhs.channelLabel.compare(
+        rhs.channelLabel,
+        options: [.caseInsensitive],
+        range: nil,
+        locale: vietnameseThreadSortLocale
+    )
+    if result == .orderedSame {
+        return lowercaseFirstCaseComparison(lhs.channelLabel, rhs.channelLabel) == .orderedAscending
+    }
+    return result == .orderedAscending
+}
+
+private func sortThreadsByVietnameseName(
+    _ threads: [Mezon_Api_ChannelDescription]
+) -> [Mezon_Api_ChannelDescription] {
+    threads.sorted(by: vietnameseThreadNameAscending)
+}
+
 private func normalizedCategoryDescs(
     _ categoryDescs: [Mezon_Api_CategoryDesc],
     channels: [Mezon_Api_ChannelDescription]
@@ -215,7 +259,7 @@ private func sortChannelsForCategory(_ channels: [Mezon_Api_ChannelDescription],
     for parent in parents {
         sortedChannels.append(parent)
         if let childThreads = threadsByParent[parent.channelID] {
-            sortedChannels.append(contentsOf: childThreads)
+            sortedChannels.append(contentsOf: sortThreadsByVietnameseName(childThreads))
         }
     }
 
@@ -455,16 +499,6 @@ private func parentChannelOrderFromSnapshot(_ snapshot: [ChannelCategory]) -> [I
     return result
 }
 
-private func threadOrderFromSnapshot(_ snapshot: [ChannelCategory]) -> [Int64: [Int64: [Int64]]] {
-    var result: [Int64: [Int64: [Int64]]] = [:]
-    for cat in snapshot {
-        for (parentId, threads) in cat.orderedThreadChildren where !threads.isEmpty {
-            result[cat.id, default: [:]][parentId] = threads.map(\.channelID)
-        }
-    }
-    return result
-}
-
 private func globalParentChannelOrderFromSnapshot(_ snapshot: [ChannelCategory]) -> [Int64] {
     var order: [Int64] = []
     var seen = Set<Int64>()
@@ -517,23 +551,16 @@ private func applySnapshotChannelOrder(
     globalFallbackOrder: [Int64]
 ) -> [ChannelCategory] {
     let perCategoryOrder = parentChannelOrderFromSnapshot(snapshot)
-    let threadOrders = threadOrderFromSnapshot(snapshot)
     return cats.map { cat in
         guard cat.id != ChannelCategory.favoritesCategoryId else { return cat }
         let parentOrder = perCategoryOrder[cat.id] ?? globalFallbackOrder
         let orderedParents = reorderChannels(cat.channels, preferredOrder: parentOrder)
-        var newThreads: [Int64: [Mezon_Api_ChannelDescription]] = [:]
-        let catThreadOrders = threadOrders[cat.id] ?? [:]
-        for (parentId, threads) in cat.orderedThreadChildren {
-            let preferred = catThreadOrders[parentId] ?? []
-            newThreads[parentId] = reorderChannels(threads, preferredOrder: preferred)
-        }
         return ChannelCategory(
             id: cat.id,
             name: cat.name,
             isCollapsed: cat.isCollapsed,
             channels: orderedParents,
-            orderedThreadChildren: newThreads,
+            orderedThreadChildren: cat.orderedThreadChildren,
             favoriteFlatChannels: cat.favoriteFlatChannels
         )
     }
@@ -693,7 +720,7 @@ func flattenCategoryToRows(_ category: ChannelCategory, threadLookup: [Int64: [M
             let allowedThreadIds = Set((threadLookup[ch.channelID] ?? []).map(\.channelID))
             threads = o.filter { allowedThreadIds.contains($0.channelID) }
         } else if let t = threadLookup[ch.channelID] {
-            threads = t
+            threads = sortThreadsByVietnameseName(t)
         } else {
             threads = []
         }
@@ -720,6 +747,54 @@ final class ChannelListViewController: ViewController {
     private let clanEventsDisposable = MetaDisposable()
     private var processedBadgeKeys = Set<String>()
     private var pendingMentionUnreadFloorByClanId: [Int64: [Int64: Int32]] = [:]
+    private var badgeReadMessageIds: [Int64: Int64] = [:]
+    private var badgeReadTimestamps: [Int64: UInt32] = [:]
+
+    private func badgeChannelRow(clanId: Int64, channelId: Int64) -> Mezon_Api_ChannelDescription? {
+        if clanId == self.clanId {
+            return allChannels.first { $0.channelID == channelId }
+        }
+        return readChannelCacheLenient(clanId: clanId)?.channels.first { $0.channelID == channelId }
+            ?? context.account.postbox.getChannelDescription(channelId: channelId)?.channel
+    }
+
+    private func applyingBadgeReadCursor(to channel: Mezon_Api_ChannelDescription) -> Mezon_Api_ChannelDescription {
+        let seenId = badgeReadMessageIds[channel.channelID] ?? 0
+        let seenTimestamp = badgeReadTimestamps[channel.channelID] ?? 0
+        guard channel.type != 7,
+              seenId > channel.lastSeenMessage.id || seenTimestamp > channel.lastSeenMessage.timestampSeconds else { return channel }
+        var result = channel
+        if ClanListViewController.isBadgeMessageAlreadySeen(
+            messageId: channel.lastSentMessage.id, timestamp: channel.lastSentMessage.timestampSeconds,
+            seenId: seenId, seenTimestamp: seenTimestamp
+        ) {
+            result.countMessUnread = 0
+        }
+        result.lastSeenMessage.id = max(result.lastSeenMessage.id, seenId)
+        result.lastSeenMessage.timestampSeconds = max(result.lastSeenMessage.timestampSeconds, seenTimestamp)
+        return result
+    }
+
+    private func isMessageAlreadySeen(clanId: Int64, channelId: Int64, messageId: Int64, timestamp: UInt32) -> Bool {
+        let row = badgeChannelRow(clanId: clanId, channelId: channelId)
+        return ClanListViewController.isBadgeMessageAlreadySeen(
+            messageId: messageId, timestamp: timestamp,
+            seenId: max(badgeReadMessageIds[channelId] ?? 0, row?.lastSeenMessage.id ?? 0),
+            seenTimestamp: max(badgeReadTimestamps[channelId] ?? 0, row?.lastSeenMessage.timestampSeconds ?? 0)
+        )
+    }
+
+    @objc private func handleBadgeReadCountRequested(_ notification: Notification) {
+        guard let request = notification.object as? BadgeReadCountRequest, request.clanId != 0 else { return }
+        if request.clanId == clanId, let index = indexOfChannelInAllChannels(request.channelId) {
+            request.count = allChannels[index].countMessUnread
+        } else {
+            let cached = badgeChannelRow(clanId: request.clanId, channelId: request.channelId)
+            guard cached?.type != 7 else { return }
+            request.count = max(request.count, cached.map { applyingBadgeReadCursor(to: $0).countMessUnread } ?? 0,
+                               pendingMentionUnreadFloor(clanId: request.clanId, channelId: request.channelId))
+        }
+    }
 
     private func indexOfChannelInAllChannels(_ channelId: Int64) -> Int? {
         allChannels.firstIndex { $0.channelID == channelId }
@@ -781,7 +856,7 @@ final class ChannelListViewController: ViewController {
     @discardableResult
     private func bumpMentionUnread(clanId: Int64, channelId: Int64) -> Bool {
         guard clanId != 0, channelId != 0 else { return false }
-        if let index = indexOfChannelInAllChannels(channelId) {
+        if clanId == self.clanId, let index = indexOfChannelInAllChannels(channelId) {
             allChannels[index].countMessUnread += 1
             setPendingMentionUnreadFloor(
                 clanId: clanId,
@@ -790,7 +865,9 @@ final class ChannelListViewController: ViewController {
             )
             return true
         }
-        let currentFloor = pendingMentionUnreadFloor(clanId: clanId, channelId: channelId)
+        let cachedCount = badgeChannelRow(clanId: clanId, channelId: channelId)
+            .map { applyingBadgeReadCursor(to: $0).countMessUnread } ?? 0
+        let currentFloor = max(cachedCount, pendingMentionUnreadFloor(clanId: clanId, channelId: channelId))
         let nextFloor = currentFloor == Int32.max ? currentFloor : currentFloor + 1
         setPendingMentionUnreadFloor(clanId: clanId, channelId: channelId, count: nextFloor)
         return false
@@ -844,13 +921,10 @@ final class ChannelListViewController: ViewController {
         in channels: [Mezon_Api_ChannelDescription],
         clanId: Int64
     ) -> [Mezon_Api_ChannelDescription] {
-        guard clanId != 0,
-              let floors = pendingMentionUnreadFloorByClanId[clanId],
-              !floors.isEmpty else {
-            return channels
-        }
+        guard clanId != 0 else { return channels }
+        let floors = pendingMentionUnreadFloorByClanId[clanId] ?? [:]
 
-        var result = channels
+        var result = channels.map { applyingBadgeReadCursor(to: $0) }
         var existingById: [Int64: Mezon_Api_ChannelDescription] = [:]
         for channel in allChannels where channel.clanID == 0 || channel.clanID == clanId {
             existingById[channel.channelID] = channel
@@ -880,6 +954,12 @@ final class ChannelListViewController: ViewController {
         ts: UInt32? = nil
     ) -> Bool {
         guard clanId != 0, messageId != 0, parentChannelId != 0 else { return false }
+        if threadChannelId == nil {
+            guard !ClanListViewController.isViewingBadgeChannel(parentChannelId),
+                  !isMessageAlreadySeen(clanId: clanId, channelId: parentChannelId, messageId: messageId, timestamp: ts ?? 0) else {
+                return false
+            }
+        }
         let targetChannelIds = [parentChannelId, threadChannelId ?? 0]
             .filter { $0 != 0 }
             .reduce(into: [Int64]()) { result, channelId in
@@ -895,7 +975,9 @@ final class ChannelListViewController: ViewController {
         var didChange = false
         for channelId in targetChannelIds {
             let ekey = "m:\(clanId)_\(messageId)_\(channelId)"
-            if processedBadgeKeys.contains(ekey) { continue }
+            if processedBadgeKeys.contains(ekey) {
+                continue
+            }
             processedBadgeKeys.insert(ekey)
             if bumpMentionUnread(clanId: clanId, channelId: channelId) {
                 didChange = true
@@ -1001,8 +1083,10 @@ final class ChannelListViewController: ViewController {
             onToggleCollapse: { [weak self] id in self?.toggleCollapse(categoryId: id) },
             onRefresh: { [weak self] in self?.fetchChannels() },
             onPresentSettings: { [weak self] in self?.presentSettings() },
+            onPresentClanNotifications: { [weak self] in self?.presentClanNotificationSettings() },
             onInviteClan: { [weak self] in self?.presentInviteClanSheet() },
             onCreateCategory: { [weak self] in self?.presentCreateCategory() },
+            onCreateEvent: { [weak self] in self?.presentCreateEvent() },
             canCreateCategory: { [weak self] in
                 guard let self, self.clanId != 0 else { return false }
                 return self.context.rolePermissions.canManageRoles(clanId: self.clanId)
@@ -1086,6 +1170,7 @@ final class ChannelListViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleVoicePresenceChanged(_:)), name: .mezonVoicePresenceChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleNetworkStatusChanged(_:)), name: NetworkMonitor.statusDidChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleWillEnterForegroundForChannelBadges), name: UIApplication.willEnterForegroundNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleBadgeReadCountRequested(_:)), name: Notification.Name("MezonBadgeReadCountRequested"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleUserChannelAddedFromSocket(_:)), name: .mezonUserChannelAddedFromSocket, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelDescriptionDidUpdate(_:)), name: .mezonChannelDescriptionDidUpdate, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelDeletedLocally(_:)), name: .mezonChannelDeletedLocally, object: nil)
@@ -1235,9 +1320,9 @@ final class ChannelListViewController: ViewController {
             if let existingIdx = threads.firstIndex(where: { $0.channelID == thread.channelID }) {
                 threads[existingIdx] = thread
             } else {
-                threads.insert(thread, at: 0)
+                threads.append(thread)
             }
-            cat.orderedThreadChildren[thread.parentID] = threads
+            cat.orderedThreadChildren[thread.parentID] = sortThreadsByVietnameseName(threads)
             snap[idx] = cat
             didUpdate = true
             break
@@ -1263,6 +1348,7 @@ final class ChannelListViewController: ViewController {
             self.voicePresenceReloadScheduled = false
             guard self.clanId != 0 else { return }
             self.needsReloadPipe.putNext(())
+            self.channelListNode.reloadVoiceMemberRows()
         }
     }
 
@@ -1973,14 +2059,24 @@ final class ChannelListViewController: ViewController {
                         self?.select(channel: channel)
                     }
                 },
-                onJoinVoice: { [weak self] in
+                onJoinVoice: { [weak self] role in
                     self?.dismissEventBottomSheets(animated: false) {
-                        self?.pushVoiceChannelRoom(for: channel)
+                        self?.pushVoiceChannelRoom(for: channel, role: role)
                     }
                 }
             )
         }
         present(vc, animated: true)
+    }
+
+    private func presentCreateEvent() {
+        guard clanId != 0 else { return }
+        let editor = EventEditorViewController(
+            context: context,
+            clanId: clanId,
+            channels: allChannels
+        )
+        present(editor, animated: true)
     }
 
     private func presentCreateCategory() {
@@ -2279,8 +2375,32 @@ final class ChannelListViewController: ViewController {
             channelId: channel.channelID,
             clanId: channel.clanID,
             context: context,
-            currentType: currentType,
-            defaultLabel: L(L10n.NotificationSettings.allMessages)
+            currentType: currentType
+        )
+        if let window = self.view.window as? WindowHost {
+            window.present(sheet, on: .root, blockInteraction: false, completion: {})
+            sheet.animateIn()
+        }
+    }
+
+    private func presentClanNotificationSettings() {
+        guard clanId != 0 else { return }
+        let currentTypeInt = context.account.postbox.read { tx in
+            tx.getNotificationSetting(entityId: clanId)?.notificationSettingType
+        }
+        let currentType: ChannelNotificationType
+        if let currentTypeInt,
+           let storedType = ChannelNotificationType(rawValue: currentTypeInt),
+           storedType != .useDefault {
+            currentType = storedType
+        } else {
+            currentType = .allMessages
+        }
+
+        let sheet = NotificationSettingsSheetController(
+            clanId: clanId,
+            context: context,
+            currentType: currentType
         )
         if let window = self.view.window as? WindowHost {
             window.present(sheet, on: .root, blockInteraction: false, completion: {})
@@ -2439,16 +2559,29 @@ final class ChannelListViewController: ViewController {
         else if let t = notification.userInfo?["timestampSeconds"] as? Int { ts = UInt32(clamping: t) }
         else { ts = UInt32(Date().timeIntervalSince1970) }
 
-        guard clanId == self.clanId, clanId != 0 else { return }
+        guard clanId != 0 else { return }
         guard senderId != context.currentUser?.id else { return }
 
         let apiMessage: Mezon_Api_ChannelMessage? = (notification.userInfo?["serializedChannelMessage"] as? Data).flatMap { try? Mezon_Api_ChannelMessage(serializedBytes: $0) }
         var topicId = Self.int64UserInfo(notification.userInfo?["topicId"]) ?? 0
         if let m = apiMessage, topicId == 0, m.topicID != 0 { topicId = m.topicID }
+        if clanId != self.clanId {
+            guard topicId == 0, let apiMessage,
+                  ClanListViewController.shouldCountMentionBadge(apiMessage) else { return }
+            let roles = ClanListViewController.getCurrentUserRoleIds(context: context, clanId: clanId)
+            let isMentioned = ClanListViewController.checkMessageMentionsUser(
+                apiMessage, currentUserId: context.currentUser?.id, currentUserRoleIds: roles
+            )
+            if isMentioned {
+                applyMentionEventUnreadIfNeeded(clanId: clanId, messageId: apiMessage.messageID,
+                    parentChannelId: channelId, threadChannelId: nil, ts: ts)
+            }
+            return
+        }
         if topicId != 0 {
             if ActiveChannelTracker.currentChannelId == topicId { return }
         } else {
-            if ActiveChannelTracker.currentChannelId == channelId { return }
+            if ClanListViewController.isViewingBadgeChannel(channelId) { return }
         }
 
         var updated = false
@@ -2474,13 +2607,14 @@ final class ChannelListViewController: ViewController {
 
         if let apiMessage {
             let currentUserId = context.currentUser?.id
-            let roleIds = ClanListViewController.getCurrentUserRoleIds(context: context)
+            let roleIds = ClanListViewController.getCurrentUserRoleIds(context: context, clanId: topicId == 0 ? clanId : nil)
             let isMentioned = ClanListViewController.checkMessageMentionsUser(
                 apiMessage,
                 currentUserId: currentUserId,
                 currentUserRoleIds: roleIds
             )
-            if isMentioned, apiMessage.messageID != 0 {
+            if isMentioned, apiMessage.messageID != 0,
+               topicId != 0 || ClanListViewController.shouldCountMentionBadge(apiMessage) {
                 if topicId != 0 {
                     let parentId = parentChannelIdForThreadBadge(topicId: topicId, messageChannelId: channelId)
                     if applyMentionEventUnreadIfNeeded(
@@ -2501,9 +2635,13 @@ final class ChannelListViewController: ViewController {
     @objc private func handleMentionReceived(_ notification: Notification) {
         guard let channelId = Self.int64UserInfo(notification.userInfo?["channelId"]),
               let clanId = Self.int64UserInfo(notification.userInfo?["clanId"]) else { return }
-        guard clanId == self.clanId, clanId != 0 else { return }
+        guard clanId != 0 else { return }
         let isParentOfTopic = notification.userInfo?["isParentOfTopic"] as? Bool == true
         let messageId = notification.userInfo?["messageId"] as? String ?? ""
+        let topicFromNoti = Self.int64UserInfo(notification.userInfo?["topicId"]) ?? 0
+        if clanId != self.clanId {
+            guard topicFromNoti == 0, !isParentOfTopic, let mid = Int64(messageId), mid != 0 else { return }
+        }
         let ts = notification.userInfo?["timestampSeconds"]
         let tsU32: UInt32? = {
             if let t = ts as? UInt32 { return t }
@@ -2513,7 +2651,6 @@ final class ChannelListViewController: ViewController {
         }()
         if !messageId.isEmpty, messageId != "0", let mid = Int64(messageId), mid != 0 {
             var updated = false
-            let topicFromNoti = Self.int64UserInfo(notification.userInfo?["topicId"]) ?? 0
             if topicFromNoti != 0 {
                 let parentId = isParentOfTopic
                     ? channelId
@@ -2529,7 +2666,9 @@ final class ChannelListViewController: ViewController {
             if updated { rebuildAndReload() }
             return
         }
-        if hasRecentMentionSentinel(clanId: clanId, channelId: channelId, ts: tsU32) { return }
+        if hasRecentMentionSentinel(clanId: clanId, channelId: channelId, ts: tsU32) {
+            return
+        }
         let dedupKey: String
         if !messageId.isEmpty, messageId != "0" {
             dedupKey = "\(channelId)_\(messageId)"
@@ -2742,8 +2881,27 @@ final class ChannelListViewController: ViewController {
     @objc private func handleChannelMarkedAsRead(_ notification: Notification) {
         guard let channelId = Self.int64UserInfo(notification.userInfo?["channelId"]) else { return }
         let notificationClanId = Self.int64UserInfo(notification.userInfo?["clanId"]) ?? clanId
-        guard notificationClanId == 0 || notificationClanId == clanId else { return }
+        let isInactiveClan = notificationClanId != 0 && notificationClanId != clanId
+        let row = badgeChannelRow(clanId: notificationClanId == 0 ? clanId : notificationClanId, channelId: channelId)
+        let isTopic = row?.type == 7
+        if isInactiveClan {
+            guard !isTopic, (Self.int64UserInfo(notification.userInfo?["topicId"]) ?? 0) == 0 else { return }
+        }
+        let messageId = Int64(notification.userInfo?["messageId"] as? String ?? "") ?? 0
+        let timestamp = (notification.userInfo?["timestampSeconds"] as? NSNumber)?.uint32Value ?? 0
+        if !isTopic {
+            let seenId = max(badgeReadMessageIds[channelId] ?? 0,
+                             row?.lastSeenMessage.id ?? 0)
+            if messageId != 0, messageId < seenId {
+                return
+            }
+            badgeReadMessageIds[channelId] = max(badgeReadMessageIds[channelId] ?? 0, messageId)
+            badgeReadTimestamps[channelId] = max(badgeReadTimestamps[channelId] ?? 0, timestamp)
+        }
         clearPendingMentionUnreadFloor(clanId: notificationClanId == 0 ? clanId : notificationClanId, channelId: channelId)
+        if isInactiveClan {
+            return
+        }
         let now = UInt32(Date().timeIntervalSince1970)
         var didClearUnreadState = false
         for i in 0..<allChannels.count {
@@ -2755,7 +2913,14 @@ final class ChannelListViewController: ViewController {
                     didClearUnreadState = true
                 }
                 allChannels[i].countMessUnread = 0
-                allChannels[i].lastSeenMessage.timestampSeconds = now
+                if isTopic {
+                    allChannels[i].lastSeenMessage.timestampSeconds = now
+                } else {
+                    allChannels[i].lastSeenMessage.id = max(ch.lastSeenMessage.id, messageId)
+                    allChannels[i].lastSeenMessage.timestampSeconds = max(
+                        ch.lastSeenMessage.timestampSeconds, timestamp == 0 ? now : timestamp
+                    )
+                }
             }
         }
         rebuildAndReload()
@@ -3224,6 +3389,15 @@ final class ChannelListViewController: ViewController {
     }
 
     private func resolveVoiceMember(_ uid: String) -> VoiceMemberDisplay? {
+        if VoiceAgentIdentity.isAgent(uid) {
+            return VoiceMemberDisplay(
+                name: VoiceAgentIdentity.displayName,
+                username: VoiceAgentIdentity.displayName,
+                avatarURL: VoiceAgentIdentity.avatarURL,
+                isSharingScreen: context.engine.clanData.voiceScreenSharingUserIds(clanId: clanId).contains(uid)
+            )
+        }
+
         guard let uidInt = Int64(uid) else { return nil }
 
         let profile = context.account.postbox.read { $0.getProfile(userId: uid) }
@@ -3266,7 +3440,8 @@ final class ChannelListViewController: ViewController {
             }
         }
 
-        return VoiceMemberDisplay(name: name, username: username, avatarURL: avatar)
+        let isSharingScreen = context.engine.clanData.voiceScreenSharingUserIds(clanId: clanId).contains(uid)
+        return VoiceMemberDisplay(name: name, username: username, avatarURL: avatar, isSharingScreen: isSharingScreen)
     }
 
     private func topModalPresenter() -> UIViewController? {
@@ -3298,7 +3473,7 @@ final class ChannelListViewController: ViewController {
         for channel: Mezon_Api_ChannelDescription,
         from presenter: UIViewController? = nil,
         onChat: (() -> Void)? = nil,
-        onJoinVoice: (() -> Void)? = nil
+        onJoinVoice: ((SfuRole) -> Void)? = nil
     ) {
         presentJoinMediaSheet(
             for: channel,
@@ -3320,7 +3495,7 @@ final class ChannelListViewController: ViewController {
             kind: .streaming,
             from: presenter,
             onChat: onChat,
-            onJoin: onJoinStream
+            onJoin: onJoinStream.map { action in { _ in action() } }
         )
     }
 
@@ -3329,7 +3504,7 @@ final class ChannelListViewController: ViewController {
         kind: JoinChannelSheetKind,
         from presenter: UIViewController? = nil,
         onChat: (() -> Void)? = nil,
-        onJoin: (() -> Void)? = nil
+        onJoin: ((SfuRole) -> Void)? = nil
     ) {
         let title = channel.channelLabel.isEmpty
             ? NSLocalizedString("voiceChannel.defaultName", tableName: nil, bundle: .main, value: "Voice", comment: "")
@@ -3359,12 +3534,12 @@ final class ChannelListViewController: ViewController {
         }
         let resolvedMembers = voiceUserIds.compactMap { resolveVoiceMember($0) }
         let chatAction = onChat ?? { [weak self] in self?.pushChatViewController(for: channel) }
-        let joinAction = onJoin ?? { [weak self] in
+        let joinAction = onJoin ?? { [weak self] role in
             guard let self else { return }
             if kind == .streaming {
                 self.pushStreamingRoom(for: channel)
             } else {
-                self.pushVoiceChannelRoom(for: channel)
+                self.pushVoiceChannelRoom(for: channel, role: role)
             }
         }
 
@@ -3373,6 +3548,7 @@ final class ChannelListViewController: ViewController {
             chatUnreadCount: Int(channel.countMessUnread),
             members: resolvedMembers,
             kind: kind,
+            canJoin: kind == .voice || !voiceUserIds.isEmpty,
             onChat: chatAction,
             onJoinVoice: joinAction,
             onInvite: {}
@@ -3434,7 +3610,7 @@ final class ChannelListViewController: ViewController {
         }
     }
 
-    private func pushVoiceChannelRoom(for channel: Mezon_Api_ChannelDescription) {
+    private func pushVoiceChannelRoom(for channel: Mezon_Api_ChannelDescription, role: SfuRole = .speaker) {
         select(channel: channel)
         guard let nav = enclosingNavigationController else { return }
 
@@ -3464,7 +3640,8 @@ final class ChannelListViewController: ViewController {
 
         let vc = VoiceChannelRoomViewController(
             context: context, channel: channel,
-            parentChannelName: parentChannelName(for: channel))
+            parentChannelName: parentChannelName(for: channel),
+            joinRole: role)
         nav.pushViewController(vc, animated: true)
     }
 
@@ -3504,26 +3681,41 @@ final class ChannelListViewController: ViewController {
 
         Task { @MainActor [weak self] in
             guard let self else { return }
-            guard let token = await self.context.getToken(),
-                  let userId = self.context.currentUser?.id,
-                  let username = self.context.currentUser?.username else { return }
+            guard let sessionToken = await self.context.getToken() else {
+                StreamingSfuLog.write("join aborted, session token unavailable channel=\(streamChannel.channelID)")
+                return
+            }
+            let meetToken: String
+            do {
+                meetToken = try await self.context.account.network.generateMeetToken(
+                    channelId: streamChannel.channelID,
+                    roomName: String(streamChannel.channelID),
+                    metadata: self.context.meetTokenMetadata(clanId: clanId),
+                    token: sessionToken
+                )
+            } catch {
+                StreamingSfuLog.write("generateMeetToken failed channel=\(streamChannel.channelID) error=\(error)")
+                return
+            }
+            guard !meetToken.isEmpty else {
+                StreamingSfuLog.write("generateMeetToken returned empty channel=\(streamChannel.channelID)")
+                return
+            }
+            let tokenContext = self.context
 
             await StreamingWebRTCSession.shared.join(
-                clanId: streamChannel.clanID != 0 ? streamChannel.clanID : self.clanId,
                 channelId: streamChannel.channelID,
-                streamId: streamChannel.channelID,
-                userId: userId,
-                username: username,
-                token: token
+                token: meetToken,
+                tokenProvider: {
+                    guard let token = await tokenContext.getToken() else { return nil }
+                    return try? await tokenContext.account.network.generateMeetToken(
+                        channelId: streamChannel.channelID,
+                        roomName: String(streamChannel.channelID),
+                        metadata: tokenContext.meetTokenMetadata(clanId: clanId),
+                        token: token
+                    )
+                }
             )
-
-            if let uid = Int64(userId) {
-                self.context.engine.clanData.applyStreamJoined(
-                    clanId: streamChannel.clanID != 0 ? streamChannel.clanID : self.clanId,
-                    channelId: streamChannel.channelID,
-                    userId: uid
-                )
-            }
 
             let vc = StreamingRoomViewController(
                 context: self.context,

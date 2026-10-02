@@ -1,6 +1,18 @@
 import UIKit
 import SwiftProtobuf
 
+// Read observers query the loaded row before another observer clears its count.
+final class BadgeReadCountRequest {
+    let clanId: Int64
+    let channelId: Int64
+    var count: Int32
+    init(clanId: Int64, channelId: Int64, fallback: Int32) {
+        self.clanId = clanId
+        self.channelId = channelId
+        self.count = fallback
+    }
+}
+
 struct ClanListState {
     var clans: [Mezon_Api_ClanDesc]
     var selectedClanId: Int64?
@@ -44,6 +56,8 @@ final class ClanListViewController: ViewController {
     private(set) var error: String?
     private(set) var unreadDMs: [Mezon_Api_ChannelDescription] = []
     private var processedMentionIds = Set<String>()
+    private var badgeReadMessageIds: [Int64: Int64] = [:]
+    private var badgeReadTimestamps: [Int64: UInt32] = [:]
 
     private var debouncedUnreadDmFetchWorkItem: DispatchWorkItem?
     private var clanSidebarLastLayoutSize: CGSize = .zero
@@ -92,6 +106,12 @@ final class ClanListViewController: ViewController {
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleNewMessageReceived(_:)),
             name: Notification.Name("MezonNewMessageReceived"), object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleNewMessageReceived(_:)),
+            name: Notification.Name("MezonDmBadgePushReceived"), object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleWillEnterForegroundForUnreadDMs),
+            name: UIApplication.willEnterForegroundNotification, object: nil)
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleMentionReceived(_:)),
             name: Notification.Name("MezonMentionReceived"), object: nil)
@@ -276,7 +296,15 @@ final class ClanListViewController: ViewController {
                 var topicId = Self.int64UserInfo(notification.userInfo?["topicId"]) ?? 0
                 if topicId == 0, m.topicID != 0 { topicId = m.topicID }
                 if topicId != 0, ActiveChannelTracker.currentChannelId == topicId { return }
-                if topicId == 0, ActiveChannelTracker.currentChannelId == channelId { return }
+                if topicId == 0 {
+                    guard m.messageID != 0, !Self.isViewingBadgeChannel(channelId), Self.shouldCountMentionBadge(m),
+                          Self.checkMessageMentionsUser(m, currentUserId: context.currentUser?.id,
+                              currentUserRoleIds: Self.getCurrentUserRoleIds(context: context, clanId: clanId)) else { return }
+                    handleMentionReceived(Notification(name: Notification.Name("MezonMentionReceived"),
+                        userInfo: ["clanId": clanId, "channelId": channelId, "messageId": String(m.messageID),
+                                   "timestampSeconds": m.createTimeSeconds]))
+                    return
+                }
                 if topicId != 0,
                    Self.checkMessageMentionsUser(
                     m, currentUserId: context.currentUser?.id,
@@ -312,8 +340,7 @@ final class ClanListViewController: ViewController {
             var header = unreadDMs[idx].lastSentMessage
             header.timestampSeconds = ts
             unreadDMs[idx].lastSentMessage = header
-            unreadDMsPipe.putNext(unreadDMs)
-            needsReloadPipe.putNext(())
+            setUnreadDMs(unreadDMs)
             return
         }
 
@@ -324,11 +351,6 @@ final class ClanListViewController: ViewController {
             ch.lastSentMessage = header
             var next = unreadDMs
             next.append(ch)
-            next.sort { a, b in
-                let ta = a.hasLastSentMessage ? a.lastSentMessage.timestampSeconds : 0
-                let tb = b.hasLastSentMessage ? b.lastSentMessage.timestampSeconds : 0
-                return ta > tb
-            }
             setUnreadDMs(next)
             scheduleFetchUnreadDMsDebounced()
             return
@@ -355,13 +377,23 @@ final class ClanListViewController: ViewController {
 
         let messageId = notification.userInfo?["messageId"] as? String ?? ""
         let ts = notification.userInfo?["timestampSeconds"]
+        if (Self.int64UserInfo(notification.userInfo?["topicId"]) ?? 0) == 0 {
+            let timestamp = (ts as? NSNumber)?.uint32Value ?? 0
+            guard !Self.isViewingBadgeChannel(channelId),
+                  !wasMessageAlreadySeen(channelId: channelId, messageId: Int64(messageId) ?? 0,
+                                         timestamp: timestamp) else {
+                return
+            }
+        }
         let dedupKey: String
         if !messageId.isEmpty, messageId != "0" {
             dedupKey = "\(channelId)_\(messageId)"
         } else {
             dedupKey = "\(channelId)_\(ts ?? 0)"
         }
-        guard !processedMentionIds.contains(dedupKey) else { return }
+        guard !processedMentionIds.contains(dedupKey) else {
+            return
+        }
         processedMentionIds.insert(dedupKey)
         if processedMentionIds.count > 500 {
             processedMentionIds.removeAll()
@@ -382,7 +414,20 @@ final class ClanListViewController: ViewController {
         let channelId = notification.userInfo?["channelId"] as? Int64
 
         if clanId != 0 {
-            let channelUnread = (notification.userInfo?["channelUnreadCount"] as? Int32) ?? 0
+            let channelUnread = (notification.userInfo?["localBadgeCount"] as? Int32)
+                ?? (notification.userInfo?["channelUnreadCount"] as? Int32) ?? 0
+            if let channelId, (notification.userInfo?["topicId"] as? Int64 ?? 0) == 0,
+               context.account.postbox.getChannelDescription(channelId: channelId)?.channel.type != 7 {
+                let messageId = Int64(notification.userInfo?["messageId"] as? String ?? "") ?? 0
+                let timestamp = (notification.userInfo?["timestampSeconds"] as? NSNumber)?.uint32Value ?? 0
+                let seenId = max(badgeReadMessageIds[channelId] ?? 0,
+                    context.account.postbox.getChannelDescription(channelId: channelId)?.channel.lastSeenMessage.id ?? 0)
+                if messageId != 0, messageId < seenId {
+                    return
+                }
+                badgeReadMessageIds[channelId] = max(badgeReadMessageIds[channelId] ?? 0, messageId)
+                badgeReadTimestamps[channelId] = max(badgeReadTimestamps[channelId] ?? 0, timestamp)
+            }
             var changed = false
             for i in 0..<clans.count {
                 if clans[i].clanID == clanId {
@@ -433,7 +478,21 @@ final class ClanListViewController: ViewController {
         needsReloadPipe.putNext(())
         refreshDiscoverEmptyOverlayFlag()
     }
-    private func setUnreadDMs(_ v: [Mezon_Api_ChannelDescription]) { unreadDMs = v; unreadDMsPipe.putNext(v); needsReloadPipe.putNext(()) }
+    private static func orderedUnreadDmStrip(_ dms: [Mezon_Api_ChannelDescription]) -> [Mezon_Api_ChannelDescription] {
+        dms.sorted { a, b in
+            let ta = a.hasLastSentMessage ? a.lastSentMessage.timestampSeconds : 0
+            let tb = b.hasLastSentMessage ? b.lastSentMessage.timestampSeconds : 0
+            if ta != tb { return ta > tb }
+            return a.channelID > b.channelID
+        }
+    }
+
+    private func setUnreadDMs(_ v: [Mezon_Api_ChannelDescription]) {
+        let ordered = Self.orderedUnreadDmStrip(v)
+        unreadDMs = ordered
+        unreadDMsPipe.putNext(ordered)
+        needsReloadPipe.putNext(())
+    }
 
     private func refreshDiscoverEmptyOverlayFlag() {
         let show = completedRemoteClanListFetch && !isLoading && clans.isEmpty
@@ -597,7 +656,25 @@ final class ClanListViewController: ViewController {
         navigationController?.pushViewController(vc, animated: true)
     }
 
+    @objc private func handleWillEnterForegroundForUnreadDMs() {
+        fetchUnreadDMs()
+    }
+
     private func applyUnreadDMsFromCache() {
+        guard unreadDMs.isEmpty else { return }
+        let cached = context.account.postbox.getCachedDMChannelList()
+            .filter { $0.countMessUnread > 0 }
+        guard !cached.isEmpty else { return }
+        setUnreadDMs(cached)
+    }
+
+    private func persistUnreadDmCountsToCache(_ channels: [Mezon_Api_ChannelDescription]) {
+        guard !channels.isEmpty else { return }
+        let counts = Dictionary(
+            channels.map { ($0.channelID, $0.countMessUnread) },
+            uniquingKeysWith: { _, new in new }
+        )
+        context.account.postbox.updateCachedDMUnreadCounts(counts)
     }
 
     private var fetchUnreadDMsTask: Task<Void, Never>?
@@ -627,6 +704,7 @@ final class ClanListViewController: ViewController {
             do {
                 var channels = try await self.context.account.network.listDirectMessageChannels(token: token)
                 guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
+                DirectMessageListGate.markServed()
                 do {
                     let badgeRows = try await self.context.account.network.listChannelBadgeCount(clanId: 0, token: token)
                         .channeldesc
@@ -636,6 +714,7 @@ final class ClanListViewController: ViewController {
                 }
                 let unread = channels.filter { $0.countMessUnread > 0 }
 
+                self.persistUnreadDmCountsToCache(channels)
                 let merged = Self.mergeUnreadDmStrip(serverUnread: unread, previousStrip: self.unreadDMs)
                 self.setUnreadDMs(merged)
             } catch {
@@ -709,13 +788,33 @@ final class ClanListViewController: ViewController {
         return nil
     }
 
-    static func getCurrentUserRoleIds(context: AccountContext) -> Set<Int64> {
-        let clanId = context.currentClanId
+    static func getCurrentUserRoleIds(context: AccountContext, clanId: Int64? = nil) -> Set<Int64> {
+        let clanId = clanId ?? context.currentClanId
         guard clanId != 0 else { return [] }
         guard let roleList = context.engine.clanData.getUserPermissions(clanId: clanId) else { return [] }
         return Set(roleList.roles.map { $0.id })
     }
 
+
+    static func isViewingBadgeChannel(_ channelId: Int64) -> Bool {
+        UIApplication.shared.applicationState == .active && channelId != 0
+            && ActiveChannelTracker.currentChannelId == channelId
+    }
+
+    static func isBadgeMessageAlreadySeen(messageId: Int64, timestamp: UInt32,
+                                         seenId: Int64, seenTimestamp: UInt32) -> Bool {
+        if messageId != 0, seenId != 0 { return messageId <= seenId }
+        return timestamp != 0 && seenTimestamp != 0 && timestamp <= seenTimestamp
+    }
+
+    private func wasMessageAlreadySeen(channelId: Int64, messageId: Int64, timestamp: UInt32) -> Bool {
+        let channel = context.account.postbox.getChannelDescription(channelId: channelId)?.channel
+        return Self.isBadgeMessageAlreadySeen(
+            messageId: messageId, timestamp: timestamp,
+            seenId: max(badgeReadMessageIds[channelId] ?? 0, channel?.lastSeenMessage.id ?? 0),
+            seenTimestamp: max(badgeReadTimestamps[channelId] ?? 0, channel?.lastSeenMessage.timestampSeconds ?? 0)
+        )
+    }
 
     static func checkMessageMentionsUser(
         _ message: Mezon_Api_ChannelMessage,
@@ -723,15 +822,13 @@ final class ClanListViewController: ViewController {
         currentUserRoleIds: Set<Int64>
     ) -> Bool {
         guard let currentUserId, !currentUserId.isEmpty else { return false }
-
+        guard !message.mentions.isEmpty || !message.references.isEmpty ||
+                message.content.contains("\"mentions\"") else { return false }
 
         if let mentionList = try? Mezon_Api_MessageMentionList(serializedBytes: message.mentions) {
             for mention in mentionList.mentions {
-
-                if mention.userID != 0, "\(mention.userID)" == ChatMessageDisplay.mentionHereUserId {
-                    return true
-                }
-
+                if mention.userID != 0,
+                   String(mention.userID) == ChatMessageDisplay.mentionHereUserId { return true }
                 if mention.userID != 0, "\(mention.userID)" == currentUserId {
                     return true
                 }
@@ -742,6 +839,10 @@ final class ClanListViewController: ViewController {
             }
         }
 
+        if let data = message.content.data(using: .utf8),
+           jsonMentionsUser(in: data, userId: currentUserId, roleIds: currentUserRoleIds) { return true }
+        if jsonMentionsUser(in: message.mentions, userId: currentUserId, roleIds: currentUserRoleIds) { return true }
+
 
         if let refList = try? Mezon_Api_MessageRefList(serializedBytes: message.references) {
             for ref in refList.refs {
@@ -751,7 +852,27 @@ final class ClanListViewController: ViewController {
             }
         }
 
+        if let json = try? JSONSerialization.jsonObject(with: message.references),
+           let refs = (json as? [[String: Any]]) ?? (json as? [String: Any])?["refs"] as? [[String: Any]],
+           refs.contains(where: { "\($0["message_sender_id"] ?? "")" == currentUserId }) { return true }
+
         return false
+    }
+
+    static func shouldCountMentionBadge(_ message: Mezon_Api_ChannelMessage) -> Bool {
+        ![1, 2, 3, 4, 5, 7, 14, 15].contains(message.code)
+    }
+
+    private static func jsonMentionsUser(in data: Data, userId: String, roleIds: Set<Int64>) -> Bool {
+        guard !data.isEmpty, let json = try? JSONSerialization.jsonObject(with: data) else { return false }
+        let mentions = (json as? [[String: Any]]) ?? (json as? [String: Any])?["mentions"] as? [[String: Any]] ?? []
+        return mentions.contains { mention in
+            let mentionedUser = "\(mention["user_id"] ?? "")"
+            if mentionedUser == userId || mentionedUser == "here" ||
+                mentionedUser == ChatMessageDisplay.mentionHereUserId { return true }
+            let role = Int64("\(mention["role_id"] ?? "")") ?? 0
+            return role != 0 && roleIds.contains(role)
+        }
     }
 
     private static let selectedClanIdUserDefaultsKey = "mezon_selectedClanId"

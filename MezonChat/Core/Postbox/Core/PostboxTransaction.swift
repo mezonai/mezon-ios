@@ -97,8 +97,16 @@ final class PostboxTransaction {
         for m in messages { updatedMessageChannelIds.insert(m.channelId) }
     }
 
-    func replaceAllMessages(_ messages: [MessageRecord], channelId: String) {
-        messageTable.replaceAllMessages(messages, channelId: channelId)
+    func replaceAllMessages(
+        _ messages: [MessageRecord],
+        channelId: String,
+        preservingContiguousHistory: Bool = false
+    ) {
+        messageTable.replaceAllMessages(
+            messages,
+            channelId: channelId,
+            preservingContiguousHistory: preservingContiguousHistory
+        )
         updatedMessageChannelIds.insert(channelId)
     }
 
@@ -185,6 +193,20 @@ final class PostboxTransaction {
 
     func appendNotifications(_ notifications: [NotificationRecord], clanId: Int64, category: Int32) {
         notificationTable.appendNotificationRecord(notifications, clanId: clanId, category: category)
+        updatedNotificationKeys.insert("\(clanId)_\(category)")
+    }
+
+    func prependLocalNotification(_ notification: NotificationRecord, clanId: Int64, category: Int32) {
+        notificationTable.prependLocalNotificationRecord(
+            notification,
+            clanId: clanId,
+            category: category
+        )
+        updatedNotificationKeys.insert("\(clanId)_\(category)")
+    }
+
+    func removeNotifications(ids: [Int64], clanId: Int64, category: Int32) {
+        notificationTable.removeNotificationRecords(ids: ids, clanId: clanId, category: category)
         updatedNotificationKeys.insert("\(clanId)_\(category)")
     }
 

@@ -15,6 +15,7 @@ final class MezonHTTPClient {
     private var protoBaseURL: URL = MezonConfig.protoBaseURL
 
     private init() {
+        MezonHTTPClient.observeCoalescedCacheInvalidations()
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 60
@@ -125,8 +126,10 @@ final class MezonHTTPClient {
 
     private func retryingTransientRequest<Response>(
         operationName: String,
+        retryDelaysNanoseconds: [UInt64]? = nil,
         operation: () async throws -> Response
     ) async throws -> Response {
+        let delays = retryDelaysNanoseconds ?? Self.transientRetryDelaysNanoseconds
         var attempt = 1
         while true {
             do {
@@ -135,13 +138,12 @@ final class MezonHTTPClient {
                 if error is CancellationError || Task.isCancelled {
                     throw error
                 }
-                guard attempt <= Self.transientRetryDelaysNanoseconds.count,
+                guard attempt <= delays.count,
                       Self.isRetriableTransientError(error) else {
                     throw error
                 }
 
-                let delay = Self.transientRetryDelaysNanoseconds[attempt - 1]
-                MezonRPCLog.response("\(operationName) transient fail attempt=\(attempt) retryDelayMs=\(delay / 1_000_000) error=\((error as? MezonError)?.technicalDescription ?? error.localizedDescription)")
+                let delay = delays[attempt - 1]
                 attempt += 1
                 try await Task.sleep(nanoseconds: delay)
             }
@@ -161,7 +163,6 @@ final class MezonHTTPClient {
                 return statusCode == 0
                     || statusCode == 408
                     || statusCode == 425
-                    || statusCode == 429
                     || (500...599).contains(statusCode)
             }
         }
@@ -400,6 +401,14 @@ final class MezonHTTPClient {
         )
     }
 
+    func updateUserCustomStatus(_ request: Mezon_Api_UserStatusUpdate, token: String) async throws {
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/UpdateUserCustomStatus",
+            message: request,
+            auth: .bearer(token)
+        )
+    }
+
     func getUserStatus(token: String) async throws -> Mezon_Api_UserStatus {
         let empty = SwiftProtobuf.Google_Protobuf_Empty()
         return try await postProto(
@@ -441,6 +450,44 @@ final class MezonHTTPClient {
             auth: .serverKey
         )
         return try await execute(req, allowBearerRetry: false)
+    }
+
+    func getHealthyEndpoint(token: String, currentEndpointId: Int32, reasonCode: Int32) async throws -> HealthyEndpoint {
+        var request = try buildRequest(
+            method: "GET",
+            path: "/v2/healthy/endpoint",
+            queryItems: [
+                URLQueryItem(name: "currentEndpointId", value: String(currentEndpointId)),
+                URLQueryItem(name: "reasonCode", value: String(reasonCode)),
+                URLQueryItem(name: "geoIp", value: ""),
+            ],
+            body: Optional<EmptyBody>.none,
+            auth: .bearer(token)
+        )
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 5
+
+        let (data, response) = try await httpData(request)
+        guard let http = response as? HTTPURLResponse else { throw MezonError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else {
+            throw HealthyEndpointStatusError(statusCode: http.statusCode)
+        }
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw MezonError.invalidResponse
+        }
+        func field(_ snake: String, _ camel: String) -> String {
+            let value = (object[snake] as? String) ?? (object[camel] as? String) ?? ""
+            return value.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let endpoint = HealthyEndpoint(
+            apiURL: field("api_url", "apiUrl"),
+            wsURL: field("ws_url", "wsUrl"),
+            tcpURL: field("tcp_url", "tcpUrl")
+        )
+        guard !endpoint.wsURL.isEmpty || !endpoint.tcpURL.isEmpty else {
+            throw MezonError.invalidResponse
+        }
+        return endpoint
     }
 
     func joinClanWithInvite(code: String, token: String) async throws -> Mezon_Api_InviteUserRes {
@@ -549,11 +596,11 @@ final class MezonHTTPClient {
         )
     }
 
-    func listChannelDescs(clanId: Int64, token: String) async throws -> [Mezon_Api_ChannelDescription] {
+    func listChannelDescs(clanId: Int64, token: String, force: Bool = false) async throws -> [Mezon_Api_ChannelDescription] {
         if clanId == 0 {
             return try await performListChannelDescs(clanId: clanId, token: token)
         }
-        return try await MezonSocketRequestCoalescer.shared.coalesceChannelDescs(clanId: clanId) {
+        return try await MezonSocketRequestCoalescer.shared.coalesceChannelDescs(clanId: clanId, force: force) {
             try await self.performListChannelDescs(clanId: clanId, token: token)
         }
     }
@@ -658,35 +705,39 @@ final class MezonHTTPClient {
     }
 
     func listDirectMessageChannels(token: String) async throws -> [Mezon_Api_ChannelDescription] {
-        var req = Mezon_Api_ListChannelDescsRequest()
-        req.clanID      = 0
-        req.limit       = 500
-        req.state       = 1
-        req.page        = 0
-        req.channelType = 3
-        req.isMobile    = true
-        let response: Mezon_Api_ChannelDescList = try await postProto(
-            path: "/mezon.api.Mezon/ListChannelDescs",
-            message: req,
-            auth: .bearer(token)
-        )
-        return response.channeldesc
+        try await MezonSocketRequestCoalescer.shared.coalesceDirectMessageChannels {
+            var req = Mezon_Api_ListChannelDescsRequest()
+            req.clanID      = 0
+            req.limit       = 500
+            req.state       = 1
+            req.page        = 0
+            req.channelType = 3
+            req.isMobile    = true
+            let response: Mezon_Api_ChannelDescList = try await self.postProto(
+                path: "/mezon.api.Mezon/ListChannelDescs",
+                message: req,
+                auth: .bearer(token)
+            )
+            return response.channeldesc
+        }
     }
 
     func listGroupMessageChannels(token: String) async throws -> [Mezon_Api_ChannelDescription] {
-        var req = Mezon_Api_ListChannelDescsRequest()
-        req.clanID      = 0
-        req.limit       = 500
-        req.state       = 1
-        req.page        = 0
-        req.channelType = 2
-        req.isMobile    = true
-        let response: Mezon_Api_ChannelDescList = try await postProto(
-            path: "/mezon.api.Mezon/ListChannelDescs",
-            message: req,
-            auth: .bearer(token)
-        )
-        return response.channeldesc
+        try await MezonSocketRequestCoalescer.shared.coalesceGroupMessageChannels {
+            var req = Mezon_Api_ListChannelDescsRequest()
+            req.clanID      = 0
+            req.limit       = 500
+            req.state       = 1
+            req.page        = 0
+            req.channelType = 2
+            req.isMobile    = true
+            let response: Mezon_Api_ChannelDescList = try await self.postProto(
+                path: "/mezon.api.Mezon/ListChannelDescs",
+                message: req,
+                auth: .bearer(token)
+            )
+            return response.channeldesc
+        }
     }
 
     func listThreadDescs(
@@ -757,15 +808,7 @@ final class MezonHTTPClient {
     private func performListChannelBadgeCount(clanId: Int64, token: String) async throws -> Mezon_Api_ListChannelBadgeCountResponse {
         var req = Mezon_Api_ListChannelBadgeCountRequest()
         req.clanID = clanId
-        let primary: Mezon_Api_ListChannelBadgeCountResponse = try await postProto(
-            path: "/mezon.api.Mezon/ListChannelBadgeCount",
-            message: req,
-            auth: .bearer(token)
-        )
-        if !primary.channeldesc.isEmpty {
-            return primary
-        }
-        return try await postProtoHTTP(
+        return try await postProto(
             path: "/mezon.api.Mezon/ListChannelBadgeCount",
             message: req,
             auth: .bearer(token)
@@ -779,18 +822,9 @@ final class MezonHTTPClient {
     }
 
     private func performListClanBadgeCount(token: String) async throws -> Mezon_Api_ListClanBadgeCountResponse {
-        let empty = SwiftProtobuf.Google_Protobuf_Empty()
-        let primary: Mezon_Api_ListClanBadgeCountResponse = try await postProto(
+        return try await postProto(
             path: "/mezon.api.Mezon/ListClanBadgeCount",
-            message: empty,
-            auth: .bearer(token)
-        )
-        if !primary.listBadge.isEmpty {
-            return primary
-        }
-        return try await postProtoHTTP(
-            path: "/mezon.api.Mezon/ListClanBadgeCount",
-            message: empty,
+            message: SwiftProtobuf.Google_Protobuf_Empty(),
             auth: .bearer(token)
         )
     }
@@ -910,6 +944,17 @@ final class MezonHTTPClient {
             auth: .bearer(token)
         )
         return response.notifications
+    }
+
+    func deleteNotifications(ids: [Int64], category: Int32, token: String) async throws {
+        var req = Mezon_Api_DeleteNotificationsRequest()
+        req.ids = ids
+        req.category = category
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/DeleteNotifications",
+            message: req,
+            auth: .bearer(token)
+        )
     }
 
     func listSdTopics(clanID: Int64, token: String) async throws -> [Mezon_Api_SdTopic] {
@@ -1050,8 +1095,15 @@ final class MezonHTTPClient {
         topicId: Int64 = 0,
         code: Int32 = 0,
         token: String,
-        preferHTTPFirst: Bool = false
+        httpOnly: Bool = false
     ) async throws -> Mezon_Realtime_ChannelMessageAck {
+        #if DEBUG
+        let traceId = UUID().uuidString
+        #else
+        let traceId = ""
+        #endif
+        let started = Date()
+        Self.debugMessageSend(traceId, "START channel=\(channelId) clan=\(clanId) topic=\(topicId) contentBytes=\(content.utf8.count) attachments=\(attachments.count) httpOnly=\(httpOnly)")
         var req = Mezon_Realtime_ChannelMessageSend()
         req.clanID = clanId
         req.channelID = channelId
@@ -1067,12 +1119,92 @@ final class MezonHTTPClient {
         req.topicID = topicId
         req.code = code
 
-        return try await postProto(
-            path: "/mezon.api.Mezon/SendChannelMessage",
-            message: req,
-            auth: .bearer(token),
-            preferHTTPFirst: preferHTTPFirst
+        if !httpOnly {
+            if await MezonSocket.shared.canSendChannelMessageRealtime(clanId: clanId, channelId: channelId) {
+                if let ack = await sendChannelMessageOverSocket(req, traceId: traceId) {
+                    return ack
+                }
+            } else {
+                Self.debugMessageSend(traceId, "SOCKET SKIPPED reason=realtime_not_ready_for_channel")
+            }
+        } else {
+            Self.debugMessageSend(traceId, "SOCKET SKIPPED reason=httpOnly")
+        }
+
+        Self.debugMessageSend(traceId, "HTTP SEND channel=\(channelId)")
+        do {
+            let ack: Mezon_Realtime_ChannelMessageAck = try await postProtoHTTP(
+                path: "/mezon.api.Mezon/\(Self.sendChannelMessageApiName)",
+                message: req,
+                auth: .bearer(token)
+            )
+            Self.debugMessageSend(traceId, "HTTP ACK messageId=\(ack.messageID) valid=\(ack.messageID > 0) totalElapsedMs=\(Int(Date().timeIntervalSince(started) * 1000))")
+            return ack
+        } catch {
+            Self.debugMessageSend(traceId, "HTTP ERROR error=\(error) cancelled=\(Task.isCancelled) totalElapsedMs=\(Int(Date().timeIntervalSince(started) * 1000))")
+            throw error
+        }
+    }
+
+    private static func debugMessageSend(_ traceId: String, _ message: @autoclosure () -> String) {
+        #if DEBUG
+        print("[SendMessage][\(traceId)] \(message())")
+        #endif
+    }
+
+    private static let sendChannelMessageApiName = "SendChannelMessage"
+    private static let realtimeSendAckTimeoutNanoseconds: UInt64 = 5_000_000_000
+
+    private func sendChannelMessageOverSocket(
+        _ req: Mezon_Realtime_ChannelMessageSend,
+        traceId: String
+    ) async -> Mezon_Realtime_ChannelMessageAck? {
+        var envelope = Mezon_Realtime_Envelope()
+        envelope.channelMessageSend = req
+        let started = Date()
+        let fallbackReason: String
+        Self.debugMessageSend(traceId, "SOCKET SEND channel=\(req.channelID) timeoutMs=\(Self.realtimeSendAckTimeoutNanoseconds / 1_000_000)")
+        do {
+            let reply = try await MezonSocket.shared.sendAwaitingReply(
+                envelope,
+                timeoutNanoseconds: Self.realtimeSendAckTimeoutNanoseconds
+            )
+            await MezonSocket.shared.noteApiRequestSucceeded()
+            if case .some(.channelMessageAck(let ack)) = reply.message, ack.messageID > 0 {
+                Self.debugMessageSend(traceId, "SOCKET ACK cid=\(reply.cid) messageId=\(ack.messageID) elapsedMs=\(Int(Date().timeIntervalSince(started) * 1000))")
+                return ack
+            }
+            fallbackReason = Self.realtimeRejectionReason(reply)
+        } catch {
+            if Date().timeIntervalSince(started) >= 1.5 {
+                await MezonSocket.shared.noteApiRequestTimedOut()
+            }
+            fallbackReason = "\(error)"
+        }
+        Self.debugMessageSend(traceId, "SOCKET -> HTTP FALLBACK reason=\(fallbackReason) cancelled=\(Task.isCancelled) elapsedMs=\(Int(Date().timeIntervalSince(started) * 1000))")
+        SentryLogger.addBreadcrumb(
+            category: "socket.send",
+            message: "channel_message_send_fallback_http",
+            level: .warning,
+            data: [
+                "clan_id": req.clanID,
+                "channel_id": req.channelID,
+                "reason": fallbackReason,
+                "elapsed_ms": Int(Date().timeIntervalSince(started) * 1000)
+            ]
         )
+        return nil
+    }
+
+    private static func realtimeRejectionReason(_ reply: Mezon_Realtime_Envelope) -> String {
+        switch reply.message {
+        case .some(.error(let err)):
+            return "error \(err.code): \(err.message)"
+        case .some(.channelMessageAck):
+            return "empty ack"
+        default:
+            return "unexpected reply"
+        }
     }
 
     func messageButtonClick(
@@ -1188,10 +1320,11 @@ final class MezonHTTPClient {
         limit: Int32 = 50,
         topicId: Int64 = 0,
         token: String,
-        preferHTTPFirst: Bool = true
+        preferHTTPFirst: Bool = false
     ) async throws -> Mezon_Api_ChannelMessageList {
         try await retryingTransientRequest(
-            operationName: "ListChannelMessages clanId=\(clanId) channelId=\(channelId) messageId=\(messageId) direction=\(direction)"
+            operationName: "ListChannelMessages clanId=\(clanId) channelId=\(channelId) messageId=\(messageId) direction=\(direction)",
+            retryDelaysNanoseconds: Self.messageFetchRetryDelaysNanoseconds
         ) {
             var req = Mezon_Api_ListChannelMessagesRequest()
             req.clanID = clanId
@@ -1513,6 +1646,30 @@ final class MezonHTTPClient {
         )
     }
 
+    func createEvent(request: Mezon_Api_CreateEventRequest, token: String) async throws {
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/CreateEvent",
+            message: request,
+            auth: .bearer(token)
+        )
+    }
+
+    func updateEvent(request: Mezon_Api_UpdateEventRequest, token: String) async throws {
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/UpdateEvent",
+            message: request,
+            auth: .bearer(token)
+        )
+    }
+
+    func deleteEvent(request: Mezon_Api_DeleteEventRequest, token: String) async throws {
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/DeleteEvent",
+            message: request,
+            auth: .bearer(token)
+        )
+    }
+
     func addUserEvent(request: Mezon_Api_UserEventRequest, token: String) async throws {
         try await postProtoIgnoringBody(
             path: "/mezon.api.Mezon/AddUserEvent",
@@ -1548,65 +1705,113 @@ final class MezonHTTPClient {
         )
     }
 
-    func listChannelVoiceUsers(clanId: Int64, token: String) async throws -> Mezon_Api_VoiceChannelUserList {
-        guard clanId != 0 else {
-            return try await performListChannelVoiceUsers(clanId: clanId, token: token)
+    enum VoiceUsersTransport {
+        case socketFirst
+        case httpOnly
+    }
+
+    func listChannelVoiceUsers(
+        clanId: Int64,
+        token: String,
+        force: Bool = false,
+        transport: VoiceUsersTransport = .socketFirst
+    ) async throws -> Mezon_Api_VoiceChannelUserList {
+        guard clanId != 0, transport == .socketFirst else {
+            return try await performListChannelVoiceUsers(clanId: clanId, token: token, transport: transport)
         }
-        return try await MezonSocketRequestCoalescer.shared.coalesceChannelVoiceUsers(clanId: clanId) {
-            try await self.performListChannelVoiceUsers(clanId: clanId, token: token)
+        return try await MezonSocketRequestCoalescer.shared.coalesceChannelVoiceUsers(clanId: clanId, force: force) {
+            try await self.performListChannelVoiceUsers(clanId: clanId, token: token, transport: .socketFirst)
         }
     }
 
-    private func performListChannelVoiceUsers(clanId: Int64, token: String) async throws -> Mezon_Api_VoiceChannelUserList {
+    private func performListChannelVoiceUsers(
+        clanId: Int64,
+        token: String,
+        transport: VoiceUsersTransport
+    ) async throws -> Mezon_Api_VoiceChannelUserList {
         var req = Mezon_Api_ListChannelUsersRequest()
         req.clanID = clanId
         req.channelID = 0
         req.channelType = MezonConstants.ChannelType.mezonVoice.rawValue
         req.limit = 100
         req.state = 1
-        return try await postProto(
-            path: "/mezon.api.Mezon/ListChannelVoiceUsers",
-            message: req,
-            auth: .bearer(token)
-        )
+        let path = "/mezon.api.Mezon/ListChannelVoiceUsers"
+        if transport == .socketFirst,
+           let response: Mezon_Api_VoiceChannelUserList = try await sendOverSocketIfPossible(path: path, message: req) {
+            return response
+        }
+        return try await postProtoHTTP(path: path, message: req, auth: .bearer(token))
     }
 
-    func generateMeetToken(channelId: Int64, roomName: String, token: String) async throws -> String {
+    func generateMeetToken(channelId: Int64, roomName: String, metadata: String, token: String) async throws -> String {
         var req = Mezon_Api_GenerateMeetTokenRequest()
         req.channelID = channelId
         req.roomName = roomName
-        let response: Mezon_Api_GenerateMeetTokenResponse = try await postProto(
-            path: "/mezon.api.Mezon/GenerateMeetToken",
-            message: req,
-            auth: .bearer(token)
-        )
+        req.metadata = metadata
+        let path = "/mezon.api.Mezon/GenerateMeetToken"
+        if let response: Mezon_Api_GenerateMeetTokenResponse = try? await sendOverSocketIfPossible(path: path, message: req),
+           !response.token.isEmpty {
+            return response.token
+        }
+        let data = try await retryingTransientRequest(operationName: "GenerateMeetToken") {
+            try await self.postProtoRawHTTP(path: path, message: req, auth: .bearer(token))
+        }
+        guard let response = Self.decodeMeetTokenResponse(data) else {
+            throw MezonError.invalidResponse
+        }
         return response.token
     }
 
-    func muteMezonMeetParticipant(clanId: Int64, channelId: Int64, roomName: String, username: String, token: String) async throws {
+    private static let meetTokenProtobufFieldTag: UInt8 = 0x0A
+
+    private static func decodeMeetTokenResponse(_ data: Data) -> Mezon_Api_GenerateMeetTokenResponse? {
+        if data.first == meetTokenProtobufFieldTag,
+           let response = try? Mezon_Api_GenerateMeetTokenResponse(serializedBytes: data),
+           !response.token.isEmpty {
+            return response
+        }
+        let text = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"")) ?? ""
+        guard text.hasPrefix("eyJ"), text.filter({ $0 == "." }).count == 2 else { return nil }
+        var response = Mezon_Api_GenerateMeetTokenResponse()
+        response.token = text
+        return response
+    }
+
+    func muteMezonMeetParticipant(clanId: Int64, channelId: Int64, userId: Int64, token: String) async throws -> String {
         var req = Mezon_Api_MeetParticipantRequest()
         req.clanID = clanId
         req.channelID = channelId
-        req.roomName = roomName
-        req.username = username
-        let _: SwiftProtobuf.Google_Protobuf_Empty = try await postProto(
+        req.userID = userId
+        return try await meetParticipantActionToken(
             path: "/mezon.api.Mezon/MuteParticipantMezonMeet",
             message: req,
-            auth: .bearer(token)
+            token: token
         )
     }
 
-    func removeMezonMeetParticipant(clanId: Int64, channelId: Int64, roomName: String, username: String, token: String) async throws {
+    func removeMezonMeetParticipant(clanId: Int64, channelId: Int64, userId: Int64, token: String) async throws -> String {
         var req = Mezon_Api_MeetParticipantRequest()
         req.clanID = clanId
         req.channelID = channelId
-        req.roomName = roomName
-        req.username = username
-        let _: SwiftProtobuf.Google_Protobuf_Empty = try await postProto(
+        req.userID = userId
+        return try await meetParticipantActionToken(
             path: "/mezon.api.Mezon/RemoveParticipantMezonMeet",
             message: req,
-            auth: .bearer(token)
+            token: token
         )
+    }
+
+    private func meetParticipantActionToken(path: String, message: Mezon_Api_MeetParticipantRequest, token: String) async throws -> String {
+        let data = try await postProtoRawHTTP(path: path, message: message, auth: .bearer(token))
+        let text = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\"")) ?? ""
+        guard text.hasPrefix("eyJ"), text.filter({ $0 == "." }).count == 2, !text.hasSuffix(".") else {
+            throw MezonError.invalidResponse
+        }
+        return text
     }
 
     func addAgentToVoiceChannel(channelId: Int64, roomName: String, token: String) async throws {
@@ -1687,9 +1892,10 @@ final class MezonHTTPClient {
         token: String,
         preferHTTPFirst: Bool = false
     ) async throws -> Mezon_Api_UploadAttachment {
+        let uploadType = AttachmentTypeClassifier.uploadType(for: filetype)
         var req = Mezon_Api_UploadAttachmentRequest()
         req.filename = filename
-        req.filetype = filetype
+        req.filetype = uploadType
         req.size = Int32(size)
         req.width = Int32(width)
         req.height = Int32(height)
@@ -1728,9 +1934,10 @@ final class MezonHTTPClient {
         token: String,
         preferHTTPFirst: Bool = false
     ) async throws -> Mezon_Api_MultipartUploadAttachment {
+        let uploadType = AttachmentTypeClassifier.uploadType(for: filetype)
         var req = Mezon_Api_UploadAttachmentRequest()
         req.filename = filename
-        req.filetype = filetype
+        req.filetype = uploadType
         req.size = Int32(size)
         req.width = Int32(width)
         req.height = Int32(height)
@@ -1872,6 +2079,19 @@ final class MezonHTTPClient {
         return response.channelApps
     }
 
+    func listQuickMenuAccess(channelId: Int64, menuType: Int32, token: String) async throws -> [Mezon_Api_QuickMenuAccess] {
+        var req = Mezon_Api_ListQuickMenuAccessRequest()
+        req.botID = 0
+        req.channelID = channelId
+        req.menuType = menuType
+        let response: Mezon_Api_QuickMenuAccessList = try await postProto(
+            path: "/mezon.api.Mezon/ListQuickMenuAccess",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.listMenus
+    }
+
     func getApp(appId: Int64, token: String) async throws -> Mezon_Api_App {
         var req = Mezon_Api_App()
         req.id = appId
@@ -1959,6 +2179,17 @@ final class MezonHTTPClient {
         )
     }
 
+    func searchCtrlK(text: String, type: Int32, token: String) async throws -> Mezon_Api_SearchCtrlKResponse {
+        var req = Mezon_Api_SearchCtrlKRequest()
+        req.text = text
+        req.type = type
+        return try await postProto(
+            path: "/mezon.api.Mezon/SearchCtrlK",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func listFriends(
         token: String,
         limit: Int32 = 100,
@@ -1966,7 +2197,9 @@ final class MezonHTTPClient {
         cursor: String = ""
     ) async throws -> Mezon_Api_FriendList {
         var req = Mezon_Api_ListFriendsRequest()
-        req.limit = min(max(limit, 1), 100)
+        if limit > 0 {
+            req.limit = min(limit, 100)
+        }
         req.state = state
         req.cursor = cursor
         let response: Mezon_Api_FriendList = try await postProto(
@@ -2138,6 +2371,25 @@ final class MezonHTTPClient {
         )
     }
 
+    func createMessage2Inbox(request: Mezon_Api_Message2InboxRequest, token: String) async throws {
+        do {
+            try await postProtoIgnoringBody(
+                path: "/mezon.api.Mezon/CreateMessage2Inbox",
+                message: request,
+                auth: .bearer(token)
+            )
+        } catch MezonError.httpError(let statusCode, _) where
+            !request.avatar.isEmpty && statusCode == 400 {
+            var requestWithoutAvatar = request
+            requestWithoutAvatar.avatar = ""
+            try await postProtoIgnoringBody(
+                path: "/mezon.api.Mezon/CreateMessage2Inbox",
+                message: requestWithoutAvatar,
+                auth: .bearer(token)
+            )
+        }
+    }
+
     func reportMessageAbuse(messageId: Int64, abuseType: String, token: String) async throws {
         var req = Mezon_Api_ReportMessageAbuseReqest()
         req.messageID = messageId
@@ -2249,14 +2501,49 @@ final class MezonHTTPClient {
 
     private static let httpOnlyApiNames: Set<String> = [
         "SessionRefresh",
+        "SendChannelMessage",
     ]
     private static let singleTransportOnlyApiNames: Set<String> = [
-        "SendChannelMessage",
         "UpdateChannelMessage",
     ]
     private static let socketFallbackGraceWaitNanoseconds: UInt64 = 2_000_000_000
     private static let socketFallbackApiTimeoutNanoseconds: UInt64 = 4_000_000_000
     private static let singleTransportSocketTimeoutNanoseconds: UInt64 = 2_000_000_000
+
+    private struct SocketTransportProfile {
+        let graceWaitNanoseconds: UInt64
+        let apiTimeoutNanoseconds: UInt64
+
+        var degradeAfterMilliseconds: Int {
+            Int(apiTimeoutNanoseconds / 1_000_000) * 3 / 4
+        }
+    }
+
+    private static let defaultSocketTransportProfile = SocketTransportProfile(
+        graceWaitNanoseconds: MezonHTTPClient.socketFallbackGraceWaitNanoseconds,
+        apiTimeoutNanoseconds: MezonHTTPClient.socketFallbackApiTimeoutNanoseconds
+    )
+
+    private static let messageFetchSocketTransportProfile = SocketTransportProfile(
+        graceWaitNanoseconds: 300_000_000,
+        apiTimeoutNanoseconds: 1_500_000_000
+    )
+
+    private static let messageFetchApiNames: Set<String> = [
+        "ListChannelMessages",
+    ]
+
+    private static let messageFetchRetryDelaysNanoseconds: [UInt64] = [
+        250_000_000,
+        600_000_000,
+        1_200_000_000,
+    ]
+
+    private static func socketTransportProfile(for apiName: String) -> SocketTransportProfile {
+        messageFetchApiNames.contains(apiName)
+            ? messageFetchSocketTransportProfile
+            : defaultSocketTransportProfile
+    }
 
     private func protoApiName(from path: String) -> String {
         let prefix = "/mezon.api.Mezon/"
@@ -2271,7 +2558,6 @@ final class MezonHTTPClient {
 
     private func isSocketUsableForSingleTransport(apiName: String) async -> Bool {
         if await MezonSocket.shared.isApiTransportDegraded {
-            MezonRPCLog.response("route api='\(apiName)' SOCKET degraded → HTTP")
             return false
         }
         return await isSocketConnectedAfterGraceWait()
@@ -2315,6 +2601,15 @@ final class MezonHTTPClient {
         let apiName = protoApiName(from: path)
         let singleTransportOnly = Self.singleTransportOnlyApiNames.contains(apiName)
 
+        if case .serverKey = auth {
+            return try await postProtoHTTP(
+                path: path,
+                message: message,
+                auth: auth,
+                allowBearerRetry: allowBearerRetry
+            )
+        }
+
         if preferHTTPFirst {
             do {
                 let response: Response = try await postProtoHTTP(
@@ -2323,10 +2618,8 @@ final class MezonHTTPClient {
                     auth: auth,
                     allowBearerRetry: allowBearerRetry
                 )
-                MezonRPCLog.response("route api='\(apiName)' HTTP-FIRST ok (skipped socket)")
                 return response
             } catch {
-                MezonRPCLog.response("route api='\(apiName)' HTTP-FIRST fail error=\((error as? MezonError)?.technicalDescription ?? error.localizedDescription) → SOCKET fallback")
                 if singleTransportOnly, !isTransientHTTPFailure(error) {
                     throw error
                 }
@@ -2391,7 +2684,6 @@ final class MezonHTTPClient {
             if ms >= 1500 {
                 await MezonSocket.shared.noteApiRequestTimedOut()
             }
-            MezonRPCLog.response("route api='\(apiName)' SOCKET-REQUIRED fail elapsedMs=\(ms) error=\((error as? MezonError)?.technicalDescription ?? error.localizedDescription)")
             throw error
         }
     }
@@ -2408,19 +2700,18 @@ final class MezonHTTPClient {
             return nil
         }
 
+        let profile = Self.socketTransportProfile(for: apiName)
+
         var connected = await MezonSocket.shared.isConnected
         if !connected {
             connected = await MezonSocket.shared.waitForConnected(
-                timeoutNanoseconds: Self.socketFallbackGraceWaitNanoseconds)
+                timeoutNanoseconds: profile.graceWaitNanoseconds)
         }
         guard connected else {
-            let waitMs = Int(Self.socketFallbackGraceWaitNanoseconds / 1_000_000)
-            MezonRPCLog.response("route api='\(apiName)' SOCKET unavailable after graceWaitMs=\(waitMs) → HTTP fallback")
             return nil
         }
 
         if await MezonSocket.shared.isApiTransportDegraded {
-            MezonRPCLog.response("route api='\(apiName)' SOCKET degraded → HTTP fallback")
             return nil
         }
 
@@ -2436,26 +2727,32 @@ final class MezonHTTPClient {
             let respBytes = try await MezonSocket.shared.sendApiRequest(
                 apiName: apiName,
                 body: body,
-                timeoutNanoseconds: Self.socketFallbackApiTimeoutNanoseconds
+                timeoutNanoseconds: profile.apiTimeoutNanoseconds
             )
-            let ms = Int(Date().timeIntervalSince(started) * 1000)
             await MezonSocket.shared.noteApiRequestSucceeded()
-            MezonRPCLog.response("route api='\(apiName)' SOCKET ok respBytes=\(respBytes.count) elapsedMs=\(ms)")
             if Response.self == SwiftProtobuf.Google_Protobuf_Empty.self {
                 return SwiftProtobuf.Google_Protobuf_Empty() as? Response
+            }
+            if apiName == "GenerateMeetToken",
+               Response.self == Mezon_Api_GenerateMeetTokenResponse.self {
+                guard let response = Self.decodeMeetTokenResponse(respBytes) else {
+                    NSLog("%@", "[MezonSocket] api '\(apiName)' response decode failed (\(respBytes.count) bytes), falling back to HTTP" as NSString)
+                    return nil
+                }
+                return response as? Response
             }
             do {
                 return try Response(serializedBytes: respBytes)
             } catch {
-                MezonRPCLog.response("route api='\(apiName)' SOCKET decode FAIL bytes=\(respBytes.count) error=\(error.localizedDescription) → HTTP fallback")
+                NSLog("%@", "[MezonSocket] api '\(apiName)' response decode failed (\(respBytes.count) bytes), falling back to HTTP: \(error)" as NSString)
                 return nil
             }
         } catch {
             let ms = Int(Date().timeIntervalSince(started) * 1000)
-            if ms >= 3000 {
+            NSLog("%@", "[MezonSocket] api '\(apiName)' failed after \(ms)ms, falling back to HTTP: \(error)" as NSString)
+            if ms >= profile.degradeAfterMilliseconds {
                 await MezonSocket.shared.noteApiRequestTimedOut()
             }
-            MezonRPCLog.response("route api='\(apiName)' SOCKET fail elapsedMs=\(ms) error=\((error as? MezonError)?.technicalDescription ?? error.localizedDescription) → HTTP fallback")
             return nil
         }
     }
@@ -2480,24 +2777,14 @@ final class MezonHTTPClient {
         }
         request.httpBody = try message.serializedData()
 
-        let started = Date()
-
         let (data, response) = try await httpData(request)
 
         guard let http = response as? HTTPURLResponse else {
-            MezonRPCLog.response("HTTP \(path) invalid response")
             throw MezonError.invalidResponse
         }
-        let ms = Int(Date().timeIntervalSince(started) * 1000)
 
         if (200..<300).contains(http.statusCode) {
-            MezonRPCLog.response("HTTP \(path) ok status=\(http.statusCode) bytes=\(data.count) elapsedMs=\(ms)")
-            do {
-                return try Response(serializedBytes: data)
-            } catch {
-                MezonRPCLog.response("HTTP \(path) decode FAIL bytes=\(data.count) error=\(error.localizedDescription)")
-                throw error
-            }
+            return try Response(serializedBytes: data)
         }
 
         if allowBearerRetry,
@@ -2518,7 +2805,57 @@ final class MezonHTTPClient {
         }
 
         let msg = apiFailureMessage(httpStatusCode: http.statusCode, data: data)
-        MezonRPCLog.response("HTTP \(path) FAIL status=\(http.statusCode) elapsedMs=\(ms) msg='\(msg)'")
+        throw MezonError.httpError(statusCode: http.statusCode, message: msg)
+    }
+
+    private func postProtoRawHTTP<Request: SwiftProtobuf.Message>(
+        path: String,
+        message: Request,
+        auth: AuthMethod,
+        allowBearerRetry: Bool = true
+    ) async throws -> Data {
+        let resolvedAuth = await resolveAuth(auth)
+        let url = protoBaseURL.appendingPathComponent(path)
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/proto", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/proto", forHTTPHeaderField: "Accept")
+        switch resolvedAuth {
+        case .serverKey:
+            request.setValue(MezonConfig.basicAuthHeader, forHTTPHeaderField: "Authorization")
+        case .bearer(let token):
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        request.httpBody = try message.serializedData()
+
+        let (data, response) = try await httpData(request)
+
+        guard let http = response as? HTTPURLResponse else {
+            throw MezonError.invalidResponse
+        }
+
+        if (200..<300).contains(http.statusCode) {
+            return data
+        }
+
+        if allowBearerRetry,
+           isBearerAuthenticationFailure(httpStatusCode: http.statusCode, data: data),
+           case .bearer(let failedToken) = resolvedAuth,
+           let recovery = bearerUnauthorizedRecovery {
+            let newToken = try await recovery(failedToken, http.statusCode)
+            if let newToken,
+               !newToken.isEmpty,
+               newToken != failedToken {
+                return try await postProtoRawHTTP(
+                    path: path,
+                    message: message,
+                    auth: .bearer(newToken),
+                    allowBearerRetry: false
+                )
+            }
+        }
+
+        let msg = apiFailureMessage(httpStatusCode: http.statusCode, data: data)
         throw MezonError.httpError(statusCode: http.statusCode, message: msg)
     }
 
@@ -2566,6 +2903,15 @@ final class MezonHTTPClient {
         auth: AuthMethod,
         allowBearerRetry: Bool = true
     ) async throws {
+        if case .bearer = auth {
+            let acknowledged: SwiftProtobuf.Google_Protobuf_Empty? = try await sendOverSocketIfPossible(
+                path: path,
+                message: message
+            )
+            if acknowledged != nil {
+                return
+            }
+        }
         let resolvedAuth = await resolveAuth(auth)
         let url = protoBaseURL.appendingPathComponent(path)
         var request = URLRequest(url: url)
@@ -2607,7 +2953,6 @@ final class MezonHTTPClient {
         }
 
         let msg = apiFailureMessage(httpStatusCode: http.statusCode, data: data)
-        MezonRPCLog.response("HTTP \(path) FAIL status=\(http.statusCode) msg='\(msg)'")
         throw MezonError.httpError(statusCode: http.statusCode, message: msg)
     }
 
@@ -2919,26 +3264,142 @@ private struct EmptyBody: Encodable {}
 struct EmptyResponse: Decodable {}
 struct APIError: Decodable { let message: String?; let code: Int? }
 
+extension MezonHTTPClient {
+
+    fileprivate static func observeCoalescedCacheInvalidations() {
+        NotificationCenter.default.addObserver(
+            forName: Notification.Name("MezonChannelMarkedAsRead"), object: nil, queue: nil
+        ) { _ in
+            Task { await MezonSocketRequestCoalescer.shared.invalidateBadgeCounts() }
+        }
+        NotificationCenter.default.addObserver(
+            forName: .mezonChannelDescriptionDidUpdate, object: nil, queue: nil
+        ) { notification in
+            let clanId = (notification.userInfo?["clanId"] as? NSNumber)?.int64Value
+            Task {
+                await MezonSocketRequestCoalescer.shared.invalidateChannelDescs(clanId: clanId)
+                await MezonSocketRequestCoalescer.shared.invalidateDirectMessageChannels()
+            }
+        }
+    }
+}
+
 private actor MezonSocketRequestCoalescer {
     static let shared = MezonSocketRequestCoalescer()
+
+    private static let channelDescsTTL: TimeInterval = 2.0
+    private static let channelVoiceUsersTTL: TimeInterval = 2.0
+    private static let badgeCountTTL: TimeInterval = 3.0
+
+    private struct CachedValue<Value> {
+        let value: Value
+        let storedAt: Date
+    }
 
     private var channelDescsByClanId: [Int64: Task<[Mezon_Api_ChannelDescription], Error>] = [:]
     private var channelVoiceUsersByClanId: [Int64: Task<Mezon_Api_VoiceChannelUserList, Error>] = [:]
     private var channelBadgeCountByClanId: [Int64: Task<Mezon_Api_ListChannelBadgeCountResponse, Error>] = [:]
     private var clanBadgeCount: Task<Mezon_Api_ListClanBadgeCountResponse, Error>?
+    private var directMessageChannels: Task<[Mezon_Api_ChannelDescription], Error>?
+    private var groupMessageChannels: Task<[Mezon_Api_ChannelDescription], Error>?
+
+    private var channelDescsCache: [Int64: CachedValue<[Mezon_Api_ChannelDescription]>] = [:]
+    private var channelVoiceUsersCache: [Int64: CachedValue<Mezon_Api_VoiceChannelUserList>] = [:]
+    private var channelBadgeCountCache: [Int64: CachedValue<Mezon_Api_ListChannelBadgeCountResponse>] = [:]
+    private var clanBadgeCountCache: CachedValue<Mezon_Api_ListClanBadgeCountResponse>?
+    private var directMessageChannelsCache: CachedValue<[Mezon_Api_ChannelDescription]>?
+    private var groupMessageChannelsCache: CachedValue<[Mezon_Api_ChannelDescription]>?
+
+    private func isFresh<Value>(_ cached: CachedValue<Value>?, ttl: TimeInterval) -> Bool {
+        guard let cached else { return false }
+        let age = Date().timeIntervalSince(cached.storedAt)
+        return age >= 0 && age < ttl
+    }
+
+    func coalesceDirectMessageChannels(
+        force: Bool = false,
+        operation: @escaping @Sendable () async throws -> [Mezon_Api_ChannelDescription]
+    ) async throws -> [Mezon_Api_ChannelDescription] {
+        if let existing = directMessageChannels {
+            return try await existing.value
+        }
+        if !force, isFresh(directMessageChannelsCache, ttl: Self.channelDescsTTL),
+           let cached = directMessageChannelsCache {
+            return cached.value
+        }
+        let task = Task { try await operation() }
+        directMessageChannels = task
+        do {
+            let value = try await task.value
+            directMessageChannels = nil
+            directMessageChannelsCache = CachedValue(value: value, storedAt: Date())
+            return value
+        } catch {
+            directMessageChannels = nil
+            throw error
+        }
+    }
+
+    func coalesceGroupMessageChannels(
+        force: Bool = false,
+        operation: @escaping @Sendable () async throws -> [Mezon_Api_ChannelDescription]
+    ) async throws -> [Mezon_Api_ChannelDescription] {
+        if let existing = groupMessageChannels {
+            return try await existing.value
+        }
+        if !force, isFresh(groupMessageChannelsCache, ttl: Self.channelDescsTTL),
+           let cached = groupMessageChannelsCache {
+            return cached.value
+        }
+        let task = Task { try await operation() }
+        groupMessageChannels = task
+        do {
+            let value = try await task.value
+            groupMessageChannels = nil
+            groupMessageChannelsCache = CachedValue(value: value, storedAt: Date())
+            return value
+        } catch {
+            groupMessageChannels = nil
+            throw error
+        }
+    }
+
+    func invalidateDirectMessageChannels() {
+        directMessageChannelsCache = nil
+        groupMessageChannelsCache = nil
+    }
+
+    func invalidateChannelDescs(clanId: Int64?) {
+        if let clanId {
+            channelDescsCache[clanId] = nil
+        } else {
+            channelDescsCache.removeAll()
+        }
+    }
+
+    func invalidateBadgeCounts() {
+        channelBadgeCountCache.removeAll()
+        clanBadgeCountCache = nil
+    }
 
     func coalesceChannelDescs(
         clanId: Int64,
+        force: Bool = false,
         operation: @escaping @Sendable () async throws -> [Mezon_Api_ChannelDescription]
     ) async throws -> [Mezon_Api_ChannelDescription] {
         if let existing = channelDescsByClanId[clanId] {
             return try await existing.value
+        }
+        if !force, isFresh(channelDescsCache[clanId], ttl: Self.channelDescsTTL),
+           let cached = channelDescsCache[clanId] {
+            return cached.value
         }
         let task = Task { try await operation() }
         channelDescsByClanId[clanId] = task
         do {
             let value = try await task.value
             channelDescsByClanId[clanId] = nil
+            channelDescsCache[clanId] = CachedValue(value: value, storedAt: Date())
             return value
         } catch {
             channelDescsByClanId[clanId] = nil
@@ -2948,16 +3409,22 @@ private actor MezonSocketRequestCoalescer {
 
     func coalesceChannelVoiceUsers(
         clanId: Int64,
+        force: Bool = false,
         operation: @escaping @Sendable () async throws -> Mezon_Api_VoiceChannelUserList
     ) async throws -> Mezon_Api_VoiceChannelUserList {
         if let existing = channelVoiceUsersByClanId[clanId] {
             return try await existing.value
+        }
+        if !force, isFresh(channelVoiceUsersCache[clanId], ttl: Self.channelVoiceUsersTTL),
+           let cached = channelVoiceUsersCache[clanId] {
+            return cached.value
         }
         let task = Task { try await operation() }
         channelVoiceUsersByClanId[clanId] = task
         do {
             let value = try await task.value
             channelVoiceUsersByClanId[clanId] = nil
+            channelVoiceUsersCache[clanId] = CachedValue(value: value, storedAt: Date())
             return value
         } catch {
             channelVoiceUsersByClanId[clanId] = nil
@@ -2967,16 +3434,22 @@ private actor MezonSocketRequestCoalescer {
 
     func coalesceChannelBadgeCount(
         clanId: Int64,
+        force: Bool = false,
         operation: @escaping @Sendable () async throws -> Mezon_Api_ListChannelBadgeCountResponse
     ) async throws -> Mezon_Api_ListChannelBadgeCountResponse {
         if let existing = channelBadgeCountByClanId[clanId] {
             return try await existing.value
+        }
+        if !force, isFresh(channelBadgeCountCache[clanId], ttl: Self.badgeCountTTL),
+           let cached = channelBadgeCountCache[clanId] {
+            return cached.value
         }
         let task = Task { try await operation() }
         channelBadgeCountByClanId[clanId] = task
         do {
             let value = try await task.value
             channelBadgeCountByClanId[clanId] = nil
+            channelBadgeCountCache[clanId] = CachedValue(value: value, storedAt: Date())
             return value
         } catch {
             channelBadgeCountByClanId[clanId] = nil
@@ -2985,16 +3458,21 @@ private actor MezonSocketRequestCoalescer {
     }
 
     func coalesceClanBadgeCount(
+        force: Bool = false,
         operation: @escaping @Sendable () async throws -> Mezon_Api_ListClanBadgeCountResponse
     ) async throws -> Mezon_Api_ListClanBadgeCountResponse {
         if let existing = clanBadgeCount {
             return try await existing.value
+        }
+        if !force, isFresh(clanBadgeCountCache, ttl: Self.badgeCountTTL), let cached = clanBadgeCountCache {
+            return cached.value
         }
         let task = Task { try await operation() }
         clanBadgeCount = task
         do {
             let value = try await task.value
             clanBadgeCount = nil
+            clanBadgeCountCache = CachedValue(value: value, storedAt: Date())
             return value
         } catch {
             clanBadgeCount = nil

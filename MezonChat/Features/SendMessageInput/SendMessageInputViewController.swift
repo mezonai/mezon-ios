@@ -564,6 +564,16 @@ final class SendMessageInputViewController: UIViewController {
     private var hashtagSuggestionHeightConstraint: NSLayoutConstraint?
     private var hashtagComposerConstraints: [NSLayoutConstraint] = []
     private var hashtagHostConstraints: [NSLayoutConstraint] = []
+
+    private var slashCommandCandidates: [Mezon_Api_QuickMenuAccess] = []
+    private var slashCommandCandidatesChannelId: Int64 = 0
+    private var slashCommandLoadingChannelId: Int64 = 0
+    private var slashCommandSuggestionView: SlashCommandSuggestionView?
+    private var slashCommandSuggestionHeightConstraint: NSLayoutConstraint?
+    private var slashCommandComposerConstraints: [NSLayoutConstraint] = []
+    private var slashCommandHostConstraints: [NSLayoutConstraint] = []
+    private var slashCommandFilterWorkItem: DispatchWorkItem?
+    private static let slashCommandFilterDebounce: TimeInterval = 0.3
     private var lastInlineSuggestionHostReportedHeight: CGFloat = -1
 
     private lazy var replyBannerView: UIView = {
@@ -870,6 +880,8 @@ final class SendMessageInputViewController: UIViewController {
            (emojiSuggestionHeightConstraint?.constant ?? 0) > 0.5 { return true }
         if let h = hashtagSuggestionView, !h.isHidden,
            (hashtagSuggestionHeightConstraint?.constant ?? 0) > 0.5 { return true }
+        if let s = slashCommandSuggestionView, !s.isHidden,
+           (slashCommandSuggestionHeightConstraint?.constant ?? 0) > 0.5 { return true }
         return false
     }
 
@@ -1016,6 +1028,9 @@ final class SendMessageInputViewController: UIViewController {
             if let h = self.hashtagSuggestionView, !h.isHidden, (self.hashtagSuggestionHeightConstraint?.constant ?? 0) > 0.5 {
                 targets.append(h)
             }
+            if let s = self.slashCommandSuggestionView, !s.isHidden, (self.slashCommandSuggestionHeightConstraint?.constant ?? 0) > 0.5 {
+                targets.append(s)
+            }
             return targets
         }
         view = v
@@ -1027,6 +1042,7 @@ final class SendMessageInputViewController: UIViewController {
         setupMentionSuggestion()
         setupEmojiSuggestion()
         setupHashtagSuggestion()
+        setupSlashCommandSuggestion()
         setupBindings()
         setupThemeObserver()
         applyTheme()
@@ -1233,6 +1249,25 @@ final class SendMessageInputViewController: UIViewController {
                     self.rebuildMentionSuggestionItems()
                 })
         )
+        mentionDisposables.add(
+            (context.engine.clanData.clanUsersUpdated.signal() |> deliverOnMainQueue)
+                .start(next: { [weak self] updatedClanId in
+                    guard let self, updatedClanId == self.clanId else { return }
+                    self.reloadMentionMembersForClanUpdate()
+                })
+        )
+    }
+
+    private func reloadMentionMembersForClanUpdate() {
+        if !preferChannelScopedMentions, !isPrivateOrThread,
+           let clanUsers = context.engine.clanData.getClanUsers(clanId: clanId) {
+            buildMentionMembers(from: clanUsers)
+        } else if let records = mergedChannelMemberRecordsForMentions() {
+            buildMentionMembers(from: records)
+        } else if let clanUsers = context.engine.clanData.getClanUsers(clanId: clanId) {
+            buildMentionMembers(from: clanUsers)
+        }
+        rebuildMentionSuggestionItems()
     }
 
     private func rebindMentionForCurrentChannel() {
@@ -1447,6 +1482,7 @@ final class SendMessageInputViewController: UIViewController {
         hideMentionSuggestions()
         hideEmojiSuggestions()
         hideHashtagSuggestions()
+        hideSlashCommandSuggestions()
         syncAttachControlsWithTypedText()
         updateSendVoiceToggle()
         refreshComposerTypingAttributesForSelection()
@@ -1471,6 +1507,7 @@ final class SendMessageInputViewController: UIViewController {
         hideMentionSuggestions()
         hideEmojiSuggestions()
         hideHashtagSuggestions()
+        hideSlashCommandSuggestions()
         textPipe.putNext("")
         clearOgpPreview(userDismissed: false, resetDismissed: true)
         resetTextViewHeight()
@@ -1965,7 +2002,7 @@ final class SendMessageInputViewController: UIViewController {
             || srcLower.hasSuffix(".mp3")
             || srcLower.hasSuffix(".wav")
             || srcLower.hasSuffix(".m4a")
-        att.filetype = isAudio ? "audio/mpeg" : "image/gif"
+        att.filetype = isAudio ? "audio/mpeg" : "sticker"
         att.filename = "\(sticker.id)"
 
         sendChannelMessageWithAttachments(text: "", attachments: [att])
@@ -1979,7 +2016,7 @@ final class SendMessageInputViewController: UIViewController {
         }
         var att = Mezon_Api_MessageAttachment()
         att.url = url
-        att.filetype = "image/gif"
+        att.filetype = "sticker"
         sendChannelMessageWithAttachments(text: "", attachments: [att])
     }
 
@@ -2216,6 +2253,7 @@ final class SendMessageInputViewController: UIViewController {
         hideMentionSuggestions()
         hideEmojiSuggestions()
         hideHashtagSuggestions()
+        hideSlashCommandSuggestions()
         loadEditingRemoteAttachments(from: display)
         refreshComposerTypingAttributesForSelection()
         scheduleOgpPreviewUpdate(for: text)
@@ -2256,6 +2294,7 @@ final class SendMessageInputViewController: UIViewController {
         hideEmojiSuggestions()
         hideMentionSuggestions()
         hideHashtagSuggestions()
+        hideSlashCommandSuggestions()
         textPipe.putNext("")
         clearOgpPreview(userDismissed: false, resetDismissed: true)
         syncAttachControlsWithTypedText()
@@ -2627,6 +2666,7 @@ final class SendMessageInputViewController: UIViewController {
             }
             hideEmojiSuggestions()
             hideHashtagSuggestions()
+            hideSlashCommandSuggestions()
             let collapsedH = max(lastKeyboardHeight, 260)
             onToggleEmojiPicker?(true, collapsedH)
             textView.resignFirstResponder()
@@ -2655,6 +2695,7 @@ final class SendMessageInputViewController: UIViewController {
             }
             hideEmojiSuggestions()
             hideHashtagSuggestions()
+            hideSlashCommandSuggestions()
             textView.resignFirstResponder()
             let collapsedH = max(lastKeyboardHeight, 260)
             onToggleAdvancePanel?(true, collapsedH)
@@ -2937,6 +2978,7 @@ final class SendMessageInputViewController: UIViewController {
         hideMentionSuggestions()
         hideEmojiSuggestions()
         hideHashtagSuggestions()
+        hideSlashCommandSuggestions()
         clearOgpPreview(userDismissed: false, resetDismissed: true)
         textPipe.putNext("")
         syncAttachControlsWithTypedText()
@@ -2950,9 +2992,6 @@ final class SendMessageInputViewController: UIViewController {
 
         var i = index
         if i < remoteImageCount {
-            editingRemoteImageAttachments.remove(at: i)
-            attachmentPreviewView.removeRemoteImage(at: i)
-            updatePreviewVisibility()
             return
         }
         i -= remoteImageCount
@@ -2962,9 +3001,6 @@ final class SendMessageInputViewController: UIViewController {
         }
         i -= localImageCount
         if i < remoteFileCount {
-            editingRemoteFileAttachments.remove(at: i)
-            attachmentPreviewView.removeRemoteFile(at: i)
-            updatePreviewVisibility()
             return
         }
         i -= remoteFileCount
@@ -4242,11 +4278,22 @@ final class SendMessageInputViewController: UIViewController {
     private func buildMentionMembers(from records: [ChannelMemberRecord]) {
         let filtered = records.filter { !$0.isBanned }
         let cid = clanId
+        let cachedClanByUser: [Int64: ClanMemberRecord] = {
+            guard cid > 0,
+                  let clanUsers = context.engine.clanData.getClanUsers(clanId: cid) else {
+                return [:]
+            }
+            var result: [Int64: ClanMemberRecord] = [:]
+            for member in clanUsers.clanUsers where member.user.id != 0 {
+                result[member.user.id] = ClanMemberRecord(from: member)
+            }
+            return result
+        }()
         allMentionMembers = context.account.postbox.read { tx -> [MentionMember] in
             let clanByUser: [Int64: ClanMemberRecord] = {
                 guard cid > 0 else { return [:] }
-                var d: [Int64: ClanMemberRecord] = [:]
-                for m in tx.getClanMembers(clanId: cid) {
+                var d = cachedClanByUser
+                for m in tx.getClanMembers(clanId: cid) where d[m.userId] == nil {
                     d[m.userId] = m
                 }
                 return d
@@ -4262,35 +4309,53 @@ final class SendMessageInputViewController: UIViewController {
                 let ru = r.username.trimmingCharacters(in: .whitespacesAndNewlines)
                 let cd = cm?.displayName.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 let cu = cm?.username.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                let mergedDisplay = rd.isEmpty ? cd : rd
-                let mergedUsername = ru.isEmpty ? cu : ru
+                let recordMatchesCurrentClan = cid == 0 || r.clanId == 0 || r.clanId == cid
+                let mergedDisplay = cm == nil ? (recordMatchesCurrentClan ? rd : "") : cd
+                let mergedUsername = cm == nil ? (recordMatchesCurrentClan ? ru : "") : cu
+                let canUseRecordClanPersona = cm == nil
+                    && recordMatchesCurrentClan
+                let currentClanNick = cm?.clanNick.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let recordClanNick = canUseRecordClanPersona
+                    ? r.clanNick.trimmingCharacters(in: .whitespacesAndNewlines)
+                    : ""
                 let display = Self.layeredClanVisibleName(
-                    clanNick: r.clanNick,
+                    clanNick: currentClanNick.isEmpty ? recordClanNick : currentClanNick,
                     displayName: mergedDisplay,
                     username: mergedUsername,
                     userId: r.userId,
-                    profile: profile,
+                    profile: cid == 0 ? profile : nil,
                     sender: nil
                 )
                 let un: String = {
                     if !mergedUsername.isEmpty { return mergedUsername }
+                    guard cid == 0 else { return "" }
                     return profile?.username.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 }()
-                let av: String?
-                if !r.clanAvatar.isEmpty {
-                    av = r.clanAvatar
-                } else if let u = profile?.avatarUrl, !u.isEmpty {
-                    av = u
-                } else if let cm {
+                let currentClanAvatar: String? = {
+                    guard let cm else { return nil }
                     let ca = cm.clanAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !ca.isEmpty {
-                        av = ca
-                    } else {
-                        let ua = cm.userAvatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
-                        av = ua.isEmpty ? nil : ua
-                    }
+                    return ca.isEmpty ? nil : ca
+                }()
+                let recordClanAvatar: String? = {
+                    guard canUseRecordClanPersona else { return nil }
+                    let ca = r.clanAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return ca.isEmpty ? nil : ca
+                }()
+                let clanUserAvatar: String? = {
+                    guard let cm else { return nil }
+                    let ua = cm.userAvatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return ua.isEmpty ? nil : ua
+                }()
+                let profileAvatar: String? = {
+                    guard let raw = profile?.avatarUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
+                          !raw.isEmpty else { return nil }
+                    return raw
+                }()
+                let av: String?
+                if cid == 0 {
+                    av = recordClanAvatar ?? profileAvatar
                 } else {
-                    av = nil
+                    av = currentClanAvatar ?? clanUserAvatar ?? recordClanAvatar
                 }
                 out.append(MentionMember(userId: r.userId, displayName: display, username: un, avatarURL: av))
             }
@@ -4331,6 +4396,7 @@ final class SendMessageInputViewController: UIViewController {
     private enum InlineCompletionDominant {
         case mention(keyword: String)
         case hashtag(hashUTF16: Int, keyword: String)
+        case slashCommand(keyword: String)
     }
 
     private static func isMentionOrHashtagTriggerBoundary(in full: NSString, triggerUTF16 index: Int) -> Bool {
@@ -4341,6 +4407,21 @@ final class SendMessageInputViewController: UIViewController {
 
     private static func stringContainsWhitespace(_ s: String) -> Bool {
         s.unicodeScalars.contains { CharacterSet.whitespacesAndNewlines.contains($0) }
+    }
+
+    private static func isWhitespaceUTF16(_ ch: unichar) -> Bool {
+        ch == 0x20 || ch == 0x0A || ch == 0x0D || ch == 0x09
+    }
+
+    private static func slashCommandKeyword(in full: NSString, cursorUTF16 cursor: Int) -> String? {
+        var slashIndex = 0
+        while slashIndex < full.length, isWhitespaceUTF16(full.character(at: slashIndex)) {
+            slashIndex += 1
+        }
+        guard slashIndex < full.length, full.character(at: slashIndex) == 0x2F, cursor > slashIndex else { return nil }
+        let keyword = full.substring(with: NSRange(location: slashIndex + 1, length: cursor - slashIndex - 1))
+        guard !stringContainsWhitespace(keyword) else { return nil }
+        return keyword
     }
 
 
@@ -4394,7 +4475,12 @@ final class SendMessageInputViewController: UIViewController {
             }
         }
 
-        if atPos < 0 && hashPos < 0 { return nil }
+        if atPos < 0 && hashPos < 0 {
+            if let keyword = Self.slashCommandKeyword(in: full, cursorUTF16: cursor) {
+                return .slashCommand(keyword: keyword)
+            }
+            return nil
+        }
         if atPos < 0 { return .hashtag(hashUTF16: hashUTF16, keyword: hashKeyword) }
         if hashPos < 0 { return .mention(keyword: atKeyword) }
         if hashPos > atPos { return .hashtag(hashUTF16: hashUTF16, keyword: hashKeyword) }
@@ -4438,18 +4524,21 @@ final class SendMessageInputViewController: UIViewController {
             hideMentionSuggestions()
             hideEmojiSuggestions()
             hideHashtagSuggestions()
+            hideSlashCommandSuggestions()
             return
         }
 
         if detectEmojiColonContext() != nil {
             hideMentionSuggestions()
             hideHashtagSuggestions()
+            hideSlashCommandSuggestions()
             updateEmojiSuggestions()
             return
         }
         guard let dominant = dominantInlineCompletion() else {
             hideMentionSuggestions()
             hideHashtagSuggestions()
+            hideSlashCommandSuggestions()
             hideEmojiSuggestions()
             return
         }
@@ -4457,10 +4546,16 @@ final class SendMessageInputViewController: UIViewController {
         switch dominant {
         case .mention(let keyword):
             hideHashtagSuggestions()
+            hideSlashCommandSuggestions()
             updateMentionSuggestions(keyword: keyword)
         case .hashtag(_, let keyword):
             hideMentionSuggestions()
+            hideSlashCommandSuggestions()
             updateHashtagSuggestions(keyword: keyword)
+        case .slashCommand:
+            hideMentionSuggestions()
+            hideHashtagSuggestions()
+            scheduleSlashCommandSuggestionsUpdate()
         }
     }
 
@@ -4510,6 +4605,7 @@ final class SendMessageInputViewController: UIViewController {
     private func showMentionSuggestions(items: [MentionSuggestionItem]) {
         hideEmojiSuggestions()
         hideHashtagSuggestions()
+        hideSlashCommandSuggestions()
         guard let sv = mentionSuggestionView else { return }
         let wasVisible = !sv.isHidden
         let previousHeight = mentionSuggestionHeightConstraint?.constant ?? 0
@@ -4579,6 +4675,7 @@ final class SendMessageInputViewController: UIViewController {
     private func showEmojiSuggestions(items: [CachedClanEmojiRecord]) {
         hideMentionSuggestions()
         hideHashtagSuggestions()
+        hideSlashCommandSuggestions()
         guard let ev = emojiSuggestionView else { return }
         let wasVisible = !ev.isHidden
         let previousHeight = emojiSuggestionHeightConstraint?.constant ?? 0
@@ -4643,6 +4740,7 @@ final class SendMessageInputViewController: UIViewController {
 
     private func showHashtagSuggestions(items: [Mezon_Api_ChannelDescription]) {
         hideEmojiSuggestions()
+        hideSlashCommandSuggestions()
         guard let hv = hashtagSuggestionView else { return }
         let wasVisible = !hv.isHidden
         let previousHeight = hashtagSuggestionHeightConstraint?.constant ?? 0
@@ -4681,6 +4779,163 @@ final class SendMessageInputViewController: UIViewController {
         notifyComposerHeightChanged()
         notifyInlineSuggestionVisibilityChanged()
         layoutSuperviewForComposerChange(shouldAnimateSuperview: true, duration: 0.15)
+    }
+
+    private func setupSlashCommandSuggestion() {
+        let sv = SlashCommandSuggestionView()
+        sv.translatesAutoresizingMaskIntoConstraints = false
+        sv.isHidden = true
+        sv.onSelectCommand = { [weak self] command in
+            self?.applySlashCommand(command)
+        }
+        view.insertSubview(sv, at: 0)
+
+        let hc = sv.heightAnchor.constraint(equalToConstant: 0)
+        slashCommandSuggestionHeightConstraint = hc
+        let leading = sv.leadingAnchor.constraint(equalTo: view.leadingAnchor)
+        let trailing = sv.trailingAnchor.constraint(equalTo: view.trailingAnchor)
+        let bottom = sv.bottomAnchor.constraint(equalTo: inputBarView.topAnchor)
+        slashCommandComposerConstraints = [leading, trailing, bottom, hc]
+        NSLayoutConstraint.activate(slashCommandComposerConstraints)
+        slashCommandSuggestionView = sv
+    }
+
+    private func scheduleSlashCommandSuggestionsUpdate() {
+        let channelId = channel.channelID
+        guard channelId != 0 else {
+            hideSlashCommandSuggestions()
+            return
+        }
+        ensureSlashCommandCandidatesLoaded(channelId: channelId)
+        slashCommandFilterWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.slashCommandFilterWorkItem = nil
+            guard case .slashCommand(let keyword) = self.dominantInlineCompletion() else {
+                self.hideSlashCommandSuggestions()
+                return
+            }
+            self.applySlashCommandFilter(keyword: keyword)
+        }
+        slashCommandFilterWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.slashCommandFilterDebounce, execute: workItem)
+    }
+
+    private func applySlashCommandFilter(keyword: String) {
+        let lower = keyword.lowercased()
+        let filtered: [Mezon_Api_QuickMenuAccess]
+        if lower.isEmpty {
+            filtered = slashCommandCandidates
+        } else {
+            filtered = slashCommandCandidates.filter { $0.menuName.lowercased().contains(lower) }
+        }
+        let capped = Array(filtered.prefix(20))
+        guard !capped.isEmpty else {
+            hideSlashCommandSuggestions()
+            return
+        }
+        showSlashCommandSuggestions(items: capped)
+    }
+
+    private func ensureSlashCommandCandidatesLoaded(channelId: Int64) {
+        let catalog = SlashCommandCatalog.shared
+        if let cached = catalog.cached(channelId: channelId) {
+            slashCommandCandidates = cached
+        } else if slashCommandCandidatesChannelId != channelId {
+            slashCommandCandidates = []
+        }
+        slashCommandCandidatesChannelId = channelId
+        guard !catalog.isFresh(channelId: channelId) else { return }
+        guard slashCommandLoadingChannelId != channelId else { return }
+        slashCommandLoadingChannelId = channelId
+        let context = self.context
+        Task { [weak self] in
+            let items = await catalog.load(channelId: channelId, context: context)
+            guard let self else { return }
+            if self.slashCommandLoadingChannelId == channelId {
+                self.slashCommandLoadingChannelId = 0
+            }
+            guard self.channel.channelID == channelId else { return }
+            self.slashCommandCandidates = items
+            self.slashCommandCandidatesChannelId = channelId
+            guard case .slashCommand(let keyword) = self.dominantInlineCompletion() else { return }
+            self.slashCommandFilterWorkItem?.cancel()
+            self.slashCommandFilterWorkItem = nil
+            self.applySlashCommandFilter(keyword: keyword)
+        }
+    }
+
+    private func showSlashCommandSuggestions(items: [Mezon_Api_QuickMenuAccess]) {
+        hideEmojiSuggestions()
+        hideMentionSuggestions()
+        hideHashtagSuggestions()
+        guard let sv = slashCommandSuggestionView else { return }
+        let wasVisible = !sv.isHidden
+        let previousHeight = slashCommandSuggestionHeightConstraint?.constant ?? 0
+        sv.update(items: items)
+        sv.applyTheme()
+        let h = sv.preferredHeight
+        slashCommandSuggestionHeightConstraint?.constant = h
+        sv.isHidden = false
+        mountInlineSuggestionStrip(
+            sv,
+            heightConstraint: slashCommandSuggestionHeightConstraint,
+            composerConstraints: slashCommandComposerConstraints,
+            hostConstraints: &slashCommandHostConstraints,
+            visibleHeight: h
+        )
+        promoteInlineSuggestionZOrder(strip: sv)
+        guard !wasVisible || abs(previousHeight - h) > 0.5 else { return }
+        notifyComposerHeightChanged()
+        notifyInlineSuggestionVisibilityChanged()
+        layoutSuperviewForComposerChange(shouldAnimateSuperview: true, duration: 0.15)
+    }
+
+    private func hideSlashCommandSuggestions() {
+        slashCommandFilterWorkItem?.cancel()
+        slashCommandFilterWorkItem = nil
+        slashCommandSuggestionHeightConstraint?.constant = 0
+        guard let sv = slashCommandSuggestionView else { return }
+        let wasVisible = !sv.isHidden
+        sv.isHidden = true
+        mountInlineSuggestionStrip(
+            sv,
+            heightConstraint: slashCommandSuggestionHeightConstraint,
+            composerConstraints: slashCommandComposerConstraints,
+            hostConstraints: &slashCommandHostConstraints,
+            visibleHeight: 0
+        )
+        guard wasVisible else { return }
+        notifyComposerHeightChanged()
+        notifyInlineSuggestionVisibilityChanged()
+        layoutSuperviewForComposerChange(shouldAnimateSuperview: true, duration: 0.15)
+    }
+
+    private func applySlashCommand(_ command: Mezon_Api_QuickMenuAccess) {
+        let message = command.actionMsg.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty else { return }
+        let normalAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 15.sf),
+            .foregroundColor: UIColor.theme.textStrong
+        ]
+        activeMentions.removeAll()
+        activeHashtags.removeAll()
+        emojiIdByColonToken.removeAll()
+        textView.attributedText = NSAttributedString(string: message, attributes: normalAttrs)
+        textView.typingAttributes = normalAttrs
+        text = message
+        placeholderLabel.isHidden = true
+        lastHandledComposerSelection = NSRange(location: -1, length: -1)
+        textView.selectedRange = NSRange(location: (message as NSString).length, length: 0)
+        hideSlashCommandSuggestions()
+        hideMentionSuggestions()
+        hideHashtagSuggestions()
+        hideEmojiSuggestions()
+        flushComposerHeightAfterContentMutation()
+        updateSendVoiceToggle()
+        syncAttachControlsWithTypedText()
+        refreshComposerTypingAttributesForSelection()
+        scheduleOgpPreviewUpdate(for: text)
     }
 
     private func insertMention(item: MentionSuggestionItem) {
@@ -4777,6 +5032,7 @@ final class SendMessageInputViewController: UIViewController {
         hideMentionSuggestions()
         hideEmojiSuggestions()
         hideHashtagSuggestions()
+        hideSlashCommandSuggestions()
     }
 
     private func insertHashtag(channel: Mezon_Api_ChannelDescription) {
@@ -4876,6 +5132,7 @@ final class SendMessageInputViewController: UIViewController {
         placeholderLabel.isHidden = !text.isEmpty
         updateTextViewHeight()
         hideHashtagSuggestions()
+        hideSlashCommandSuggestions()
         hideEmojiSuggestions()
         hideMentionSuggestions()
     }
@@ -5184,6 +5441,7 @@ final class SendMessageInputViewController: UIViewController {
         mentionSuggestionView?.applyTheme()
         emojiSuggestionView?.applyTheme()
         hashtagSuggestionView?.applyTheme()
+        slashCommandSuggestionView?.applyTheme()
         anonymousIndicatorButton.backgroundColor = t.secondaryWeight
         anonymousIndicatorButton.tintColor = t.textStrong
     }
@@ -5331,9 +5589,7 @@ final class SendMessageInputViewController: UIViewController {
         guard !voiceRecordingStartAborted else { return }
         let keyboardWasVisible = textView.isFirstResponder
         do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .spokenAudio, options: [.defaultToSpeaker])
-            try session.setActive(true)
+            try AppAudioSession.activateForVoiceMessageRecording()
         } catch {
             onError?(error.localizedDescription)
             return
@@ -5397,7 +5653,7 @@ final class SendMessageInputViewController: UIViewController {
         UIView.performWithoutAnimation {
             self.voiceRecordingOverlay.isHidden = true
         }
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        AppAudioSession.releaseAfterVoiceMessageRecording()
         emojiButton.isUserInteractionEnabled = true
     }
 
@@ -5412,7 +5668,7 @@ final class SendMessageInputViewController: UIViewController {
         UIView.performWithoutAnimation {
             self.voiceRecordingOverlay.isHidden = true
         }
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        AppAudioSession.releaseAfterVoiceMessageRecording()
         emojiButton.isUserInteractionEnabled = true
 
         guard let url, let start else { return }
@@ -5495,7 +5751,7 @@ final class SendMessageInputViewController: UIViewController {
                 var att = Mezon_Api_MessageAttachment()
                 att.filename = originalFilename
                 att.url = uploaded.cdnURL
-                att.filetype = filetype
+                att.filetype = AttachmentTypeClassifier.uploadType(for: filetype)
                 att.size = Int32(size)
                 att.width = Int32(width)
                 att.height = Int32(height)
@@ -5529,7 +5785,7 @@ final class SendMessageInputViewController: UIViewController {
             var att = Mezon_Api_MessageAttachment()
             att.filename = originalFilename
             att.url = cdnURL
-            att.filetype = filetype
+            att.filetype = AttachmentTypeClassifier.uploadType(for: filetype)
             att.size = Int32(fileData.count)
             att.width = Int32(width)
             att.height = Int32(height)
@@ -5567,7 +5823,7 @@ final class SendMessageInputViewController: UIViewController {
             var att = Mezon_Api_MessageAttachment()
             att.filename = file.filename
             att.url = uploaded.cdnURL
-            att.filetype = file.filetype
+            att.filetype = AttachmentTypeClassifier.uploadType(for: file.filetype)
             att.size = Int32(size)
             attachments.append(att)
 
@@ -5765,6 +6021,7 @@ final class SendMessageInputViewController: UIViewController {
         hideMentionSuggestions()
         hideEmojiSuggestions()
         hideHashtagSuggestions()
+        hideSlashCommandSuggestions()
         clearOgpPreview(userDismissed: false, resetDismissed: true)
         if !skipOptimisticPendingMessageOnSend {
             onSent?()
@@ -6192,7 +6449,7 @@ final class SendMessageInputViewController: UIViewController {
                     }()
                     let ack = try await self.context.account.network.updateChannelMessage(
                         clanId: clanId,
-                        channelId: self.topicId != 0 ? self.topicId : channel.channelID,
+                        channelId: channel.channelID,
                         mode: mode,
                         isPublic: isPublic,
                         messageId: editingMessageId,

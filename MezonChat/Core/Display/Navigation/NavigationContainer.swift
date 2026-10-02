@@ -216,7 +216,7 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
                     return
                 }
 
-                topController.viewWillDisappear(true)
+                topController.driveAppearanceTransition(appearing: false, animated: true)
                 let topNode = topController.displayNode
                 var bottomControllerLayout = layout
                 if bottomController.view.disableAutomaticKeyboardHandling.isEmpty {
@@ -230,7 +230,7 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
                     bottomControllerLayout = bottomControllerLayout.withUpdatedInputHeight(nil)
                 }
                 bottomController.containerLayoutUpdated(bottomControllerLayout, transition: .immediate)
-                bottomController.viewWillAppear(true)
+                bottomController.driveAppearanceTransition(appearing: true, animated: true)
                 let bottomNode = bottomController.displayNode
 
                 let screenCornerRadius = self.minimizedContainer == nil && self.state.canBeClosed != true ? layout.deviceMetrics.screenCornerRadius : 0.0
@@ -265,7 +265,7 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
             if let navigationTransitionCoordinator = self.state.transition?.coordinator, !navigationTransitionCoordinator.animatingCompletion {
                 let velocity = recognizer.velocity(in: self.view).x
 
-                if velocity > 1000 || navigationTransitionCoordinator.progress > 0.2 {
+                if recognizer.state == .ended && (velocity > 1000 || navigationTransitionCoordinator.progress > 0.2) {
                     self.state.top?.value.viewWillLeaveNavigation()
                     navigationTransitionCoordinator.animateCompletion(velocity, completion: { [weak self] in
                         guard let strongSelf = self, let _ = strongSelf.state.layout, let _ = strongSelf.state.transition, let top = strongSelf.state.top else {
@@ -279,21 +279,21 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
                         }
                         strongSelf.keyboardViewManager?.dismissEditingWithoutAnimation(view: topController.view)
 
-                        strongSelf.state.transition = nil
-
+                        // The stack update finishes the appearance transitions started by the gesture.
                         strongSelf.controllerRemoved(top.value)
                         strongSelf.ignoreInputHeight = false
                     })
                 } else {
+                    // Reverse the pending transitions before animating back to the current controller.
+                    self.state.top?.value.driveAppearanceTransition(appearing: true, animated: true)
+                    self.state.transition?.previous.value.driveAppearanceTransition(appearing: false, animated: true)
                     navigationTransitionCoordinator.animateCancel({ [weak self] in
                         guard let strongSelf = self, let top = strongSelf.state.top, let transition = strongSelf.state.transition else {
                             return
                         }
                         strongSelf.state.transition = nil
 
-                        top.value.driveAppearanceTransition(appearing: true, animated: true)
                         top.value.finishAppearanceTransition()
-                        transition.previous.value.driveAppearanceTransition(appearing: false, animated: true)
                         transition.previous.value.finishAppearanceTransition()
                     })
                 }
@@ -446,15 +446,24 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
     public var shouldAnimateDisappearance: Bool = false
 
     private func topTransition(from fromValue: Child?, to toValue: Child?, transitionType: PendingChild.TransitionType, layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
-        if case .animated = transition, let fromValue = fromValue, let toValue = toValue {
+        let completesInteractiveTransition: Bool
+        if let currentTransition = self.state.transition,
+           currentTransition.coordinator.isInteractive,
+           currentTransition.previous.value === toValue?.value {
+            completesInteractiveTransition = true
+            self.state.transition = nil
+        } else {
+            completesInteractiveTransition = false
             if let currentTransition = self.state.transition {
                 currentTransition.coordinator.performCompletion(completion: {
                 })
             }
+        }
 
+        if case .animated = transition, !completesInteractiveTransition, let fromValue = fromValue, let toValue = toValue {
             fromValue.value.viewWillLeaveNavigation()
-            fromValue.value.viewWillDisappear(true)
-            toValue.value.viewWillAppear(true)
+            fromValue.value.driveAppearanceTransition(appearing: false, animated: true)
+            toValue.value.driveAppearanceTransition(appearing: true, animated: true)
             toValue.value.setIgnoreAppearanceMethodInvocations(true)
             if let layout = self.state.layout {
                 toValue.value.displayNode.frame = CGRect(origin: CGPoint(), size: layout.size)
@@ -519,14 +528,12 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
                     topTransition.previous.value.displayNode.removeFromSupernode()
                     topTransition.previous.value.setIgnoreAppearanceMethodInvocations(false)
                 }
-                topTransition.previous.value.driveAppearanceTransition(appearing: false, animated: true)
                 topTransition.previous.value.finishAppearanceTransition()
-                if let toValue = strongSelf.state.top, let layout = strongSelf.state.layout {
+                if let layout = strongSelf.state.layout {
                     toValue.value.displayNode.frame = CGRect(origin: CGPoint(), size: layout.size)
                     strongSelf.applyLayout(layout: layout, to: toValue, isMaster: true, transition: .immediate)
-                    toValue.value.driveAppearanceTransition(appearing: true, animated: true)
-                    toValue.value.finishAppearanceTransition()
                 }
+                toValue.value.finishAppearanceTransition()
 
                 strongSelf.ignoreInputHeight = false
             })
@@ -536,8 +543,10 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
                     self.ignoreInputHeight = true
                 }
 
-                fromValue.value.viewWillLeaveNavigation()
-                fromValue.value.driveAppearanceTransition(appearing: false, animated: false)
+                if !completesInteractiveTransition {
+                    fromValue.value.viewWillLeaveNavigation()
+                    fromValue.value.driveAppearanceTransition(appearing: false, animated: false)
+                }
 
                 self.keyboardViewManager?.dismissEditingWithoutAnimation(view: fromValue.value.view)
 
@@ -549,7 +558,9 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
             if let toValue = toValue {
                 self.applyLayout(layout: layout, to: toValue, isMaster: true, transition: .immediate)
                 toValue.value.displayNode.frame = CGRect(origin: CGPoint(), size: layout.size)
-                toValue.value.driveAppearanceTransition(appearing: true, animated: false)
+                if !completesInteractiveTransition {
+                    toValue.value.driveAppearanceTransition(appearing: true, animated: false)
+                }
                 toValue.value.setIgnoreAppearanceMethodInvocations(true)
                 self.addSubnode(toValue.value.displayNode)
                 toValue.value.setIgnoreAppearanceMethodInvocations(false)

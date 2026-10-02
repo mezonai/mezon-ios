@@ -359,7 +359,21 @@ final class GifsPanel: UIView {
         }
     }
 
+    private func markRelevantGifURLs() {
+        var urls = Set<String>()
+        for cat in categories {
+            if let u = cat.preview_url, !u.isEmpty { urls.insert(u) }
+        }
+        if displayMode == .searchResults {
+            for gif in searchResultGifs {
+                if let u = gif.thumbnailUrl, !u.isEmpty { urls.insert(u) }
+            }
+        }
+        AnimatedGIFLoader.markRelevant(urls)
+    }
+
     private func updateUI() {
+        markRelevantGifURLs()
         if !MezonEnvironment.isKlipyConfigured {
             emptyLabel.text = "GIF is not configured (missing KLIPY_API_KEY)."
         } else {
@@ -393,19 +407,29 @@ final class GifsPanel: UIView {
             loadingIndicator.startAnimating()
             collectionView.isHidden = true
             emptyStack.isHidden = true
+            scrollToTop()
         case .categories:
             loadingIndicator.stopAnimating()
             let hasData = !categories.isEmpty
             collectionView.isHidden = !hasData
             emptyStack.isHidden = hasData
             collectionView.reloadData()
+            scrollToTop()
         case .searchResults:
             loadingIndicator.stopAnimating()
             let hasData = !searchResultGifs.isEmpty
             collectionView.isHidden = !hasData
             emptyStack.isHidden = hasData
             collectionView.reloadData()
+            scrollToTop()
         }
+    }
+
+    private func scrollToTop() {
+        collectionView.setContentOffset(
+            CGPoint(x: 0, y: -collectionView.adjustedContentInset.top),
+            animated: false
+        )
     }
     
     private func loadInitialDataIfNeeded() {
@@ -683,14 +707,22 @@ private final class GifCategoryCell: UICollectionViewCell {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    private var currentImageURL: String?
+
     func configure(name: String, imageURL: String) {
         nameLabel.text = name
+        currentImageURL = imageURL
         imageView.image = nil
-        AnimatedGIFLoader.load(urlString: imageURL, into: imageView)
+        guard !imageURL.isEmpty else { return }
+        AnimatedGIFLoader.load(urlString: imageURL) { [weak self] image in
+            guard let self, self.currentImageURL == imageURL else { return }
+            self.imageView.image = image
+        }
     }
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        currentImageURL = nil
         imageView.image = nil
         nameLabel.text = nil
     }
@@ -699,106 +731,177 @@ private final class GifCategoryCell: UICollectionViewCell {
 
 private enum AnimatedGIFLoader {
 
-    private static let cache = NSCache<NSString, UIImage>()
+    private static let maxThumbnailPixelSize = 360
 
-    private static var inflight = Set<String>()
+    private static let animatedCache: NSCache<NSString, UIImage> = {
+        let c = NSCache<NSString, UIImage>()
+        c.countLimit = 100
+        let physical = ProcessInfo.processInfo.physicalMemory
+        c.totalCostLimit = Int(min(physical / 16, 96 * 1024 * 1024))
+        return c
+    }()
+
+    private static let previewCache: NSCache<NSString, UIImage> = {
+        let c = NSCache<NSString, UIImage>()
+        c.countLimit = 200
+        c.totalCostLimit = 24 * 1024 * 1024
+        return c
+    }()
+
+    private static var waiters: [String: [(UIImage?) -> Void]] = [:]
+    private static var relevantURLs: Set<String>?
     private static let lock = NSLock()
 
+    private static let previewQueue: OperationQueue = {
+        let q = OperationQueue()
+        q.maxConcurrentOperationCount = 4
+        q.qualityOfService = .userInitiated
+        return q
+    }()
 
-    static func load(urlString: String, into imageView: UIImageView) {
+    private static let animationQueue: OperationQueue = {
+        let q = OperationQueue()
+        q.maxConcurrentOperationCount = 2
+        q.qualityOfService = .utility
+        return q
+    }()
+
+    private static var memoryWarningToken: NSObjectProtocol?
+    private static let memoryWarningSetup: Void = {
+        memoryWarningToken = NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            animatedCache.removeAllObjects()
+            previewCache.removeAllObjects()
+        }
+    }()
+
+    static func markRelevant(_ urls: Set<String>) {
+        lock.lock()
+        relevantURLs = urls
+        lock.unlock()
+    }
+
+    static func load(urlString: String, completion: @escaping (UIImage?) -> Void) {
+        _ = memoryWarningSetup
         guard !urlString.isEmpty, let url = URL(string: urlString) else { return }
         let key = urlString as NSString
 
-
-        if let cached = cache.object(forKey: key) {
-            imageView.image = cached
+        if let animated = animatedCache.object(forKey: key) {
+            completion(animated)
             return
         }
-
-
-        if let data = ImageCache.shared.cachedData(forKey: urlString) {
-            decodeAndSet(data: data, key: key, imageView: imageView)
-            return
+        if let preview = previewCache.object(forKey: key) {
+            completion(preview)
         }
-
-        imageView.image = nil
-
 
         lock.lock()
-        guard !inflight.contains(urlString) else { lock.unlock(); return }
-        inflight.insert(urlString)
+        if waiters[urlString] != nil {
+            waiters[urlString]?.append(completion)
+            lock.unlock()
+            return
+        }
+        waiters[urlString] = [completion]
         lock.unlock()
 
-        URLSession.shared.dataTask(with: url) { [weak imageView] data, _, _ in
-            defer {
-                lock.lock()
-                inflight.remove(urlString)
-                lock.unlock()
+        previewQueue.addOperation {
+            guard isRelevant(urlString) else {
+                removeWaiters(urlString)
+                return
             }
-            guard let data, !data.isEmpty else { return }
-
-            ImageCache.shared.setImage(UIImage(), data: data, forKey: urlString)
-            DispatchQueue.main.async {
-                guard let imageView else { return }
-                decodeAndSet(data: data, key: key, imageView: imageView)
+            if let animated = animatedCache.object(forKey: key) {
+                finish(urlString, with: animated)
+                return
             }
-        }.resume()
+            if let data = ImageCache.shared.cachedData(forKey: urlString) {
+                deliverPreview(data: data, urlString: urlString)
+                enqueueAnimationDecode(data: data, urlString: urlString)
+                return
+            }
+            URLSession.shared.dataTask(with: url) { data, response, _ in
+                guard let data, !data.isEmpty, ImageCache.responseStatusAcceptable(response) else {
+                    finish(urlString, with: previewCache.object(forKey: key))
+                    return
+                }
+                ImageCache.shared.persistData(data, forKey: urlString)
+                previewQueue.addOperation {
+                    deliverPreview(data: data, urlString: urlString)
+                }
+                enqueueAnimationDecode(data: data, urlString: urlString)
+            }.resume()
+        }
     }
 
-    private static func decodeAndSet(data: Data, key: NSString, imageView: UIImageView) {
-        DispatchQueue.global(qos: .userInitiated).async {
-            let animated = createAnimatedImage(from: data)
+    private static func deliverPreview(data: Data, urlString: String) {
+        let key = urlString as NSString
+        guard animatedCache.object(forKey: key) == nil else { return }
+        var preview = previewCache.object(forKey: key)
+        if preview == nil {
+            preview = UIImage.avatarPreviewImage(from: data, maxPixelSize: maxThumbnailPixelSize)
+            if let preview {
+                previewCache.setObject(preview, forKey: key, cost: memoryCost(of: preview))
+            }
+        }
+        guard let preview else { return }
+        lock.lock()
+        let callbacks = waiters[urlString] ?? []
+        lock.unlock()
+        guard !callbacks.isEmpty else { return }
+        DispatchQueue.main.async {
+            callbacks.forEach { $0(preview) }
+        }
+    }
+
+    private static func enqueueAnimationDecode(data: Data, urlString: String) {
+        animationQueue.addOperation {
+            guard isRelevant(urlString) else {
+                removeWaiters(urlString)
+                return
+            }
+            let key = urlString as NSString
+            if let animated = animatedCache.object(forKey: key) {
+                finish(urlString, with: animated)
+                return
+            }
+            let animated = UIImage.optimizedAvatarImage(from: data, maxPixelSize: maxThumbnailPixelSize)
             if let animated {
-                cache.setObject(animated, forKey: key)
+                animatedCache.setObject(animated, forKey: key, cost: memoryCost(of: animated))
             }
-            DispatchQueue.main.async {
-                imageView.image = animated
-            }
+            finish(urlString, with: animated ?? previewCache.object(forKey: key))
         }
     }
 
-
-    private static func createAnimatedImage(from data: Data) -> UIImage? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
-
-            return UIImage(data: data)
+    private static func finish(_ urlString: String, with image: UIImage?) {
+        lock.lock()
+        let callbacks = waiters.removeValue(forKey: urlString) ?? []
+        lock.unlock()
+        guard !callbacks.isEmpty else { return }
+        DispatchQueue.main.async {
+            callbacks.forEach { $0(image) }
         }
-        let count = CGImageSourceGetCount(source)
-        guard count > 1 else {
-
-            return UIImage(data: data)
-        }
-
-        var images: [UIImage] = []
-        var totalDuration: Double = 0
-
-        for i in 0..<count {
-            guard let cgImage = CGImageSourceCreateImageAtIndex(source, i, nil) else { continue }
-            images.append(UIImage(cgImage: cgImage))
-
-
-            let frameDuration = gifFrameDuration(at: i, source: source)
-            totalDuration += frameDuration
-        }
-
-        guard !images.isEmpty else { return UIImage(data: data) }
-        return UIImage.animatedImage(with: images, duration: totalDuration)
     }
 
-    private static func gifFrameDuration(at index: Int, source: CGImageSource) -> Double {
-        var delay = 0.1
-        guard let props = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any],
-              let gifProps = props[kCGImagePropertyGIFDictionary] as? [CFString: Any] else {
-            return delay
-        }
-        if let unclamped = gifProps[kCGImagePropertyGIFUnclampedDelayTime] as? Double, unclamped > 0 {
-            delay = unclamped
-        } else if let clamped = gifProps[kCGImagePropertyGIFDelayTime] as? Double, clamped > 0 {
-            delay = clamped
-        }
+    private static func removeWaiters(_ urlString: String) {
+        lock.lock()
+        waiters.removeValue(forKey: urlString)
+        lock.unlock()
+    }
 
-        if delay < 0.04 { delay = 0.04 }
-        return delay
+    private static func isRelevant(_ urlString: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let relevantURLs else { return true }
+        return relevantURLs.contains(urlString)
+    }
+
+    private static func memoryCost(of image: UIImage) -> Int {
+        let frames = image.images ?? [image]
+        return frames.reduce(0) { total, frame in
+            guard let cg = frame.cgImage else { return total }
+            return total + cg.bytesPerRow * cg.height
+        }
     }
 }
 
@@ -832,13 +935,21 @@ private final class GifItemCell: UICollectionViewCell {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    private var currentImageURL: String?
+
     func configure(imageURL: String) {
+        currentImageURL = imageURL
         imageView.image = nil
-        AnimatedGIFLoader.load(urlString: imageURL, into: imageView)
+        guard !imageURL.isEmpty else { return }
+        AnimatedGIFLoader.load(urlString: imageURL) { [weak self] image in
+            guard let self, self.currentImageURL == imageURL else { return }
+            self.imageView.image = image
+        }
     }
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        currentImageURL = nil
         imageView.image = nil
     }
 }

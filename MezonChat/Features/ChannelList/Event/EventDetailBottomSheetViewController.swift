@@ -1,5 +1,37 @@
 import UIKit
 
+@MainActor
+enum EventDeleteConfirmation {
+    static func present(event: Mezon_Api_EventManagement, clanId: Int64, context: AccountContext, from presenter: UIViewController, onDeleted: (() -> Void)? = nil) {
+        guard EventEditorAccess.canEdit(event, context: context) else { return }
+        let alert = UIAlertController(title: L(L10n.EventMenu.deleteTitle), message: L(L10n.EventMenu.deleteMessage, event.title), preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: L(L10n.Common.cancel), style: .cancel))
+        alert.addAction(UIAlertAction(title: L(L10n.EventMenu.deleteEvent), style: .destructive) { [weak presenter] _ in
+            guard let presenter, EventEditorAccess.canEdit(event, context: context) else { return }
+            presenter.view.isUserInteractionEnabled = false
+            presenter.isModalInPresentation = true
+            Task { @MainActor in
+                defer {
+                    presenter.view.isUserInteractionEnabled = true
+                    presenter.isModalInPresentation = false
+                }
+                guard let token = await context.getToken() else {
+                    Toast.error(L(L10n.EventEditor.sessionExpired))
+                    return
+                }
+                do {
+                    try await context.engine.clanData.deleteEvent(event, clanId: clanId, token: token)
+                    Toast.success(L(L10n.EventMenu.deleted))
+                    onDeleted?()
+                } catch {
+                    Toast.error(error.localizedDescription)
+                }
+            }
+        })
+        presenter.present(alert, animated: true)
+    }
+}
+
 final class EventDetailBottomSheetViewController: UIViewController {
 
     private let context: AccountContext
@@ -15,6 +47,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
     private let scrollView = UIScrollView()
     private let contentStack = UIStackView()
     private let interestButton = UIButton(type: .custom)
+    private var eventsDisposable: Disposable?
 
     init(
         context: AccountContext,
@@ -46,6 +79,20 @@ final class EventDetailBottomSheetViewController: UIViewController {
         buildContent()
         applyTheme()
         showTab(0)
+        eventsDisposable = context.engine.clanData.clanEventsUpdated.signal().start(next: { [weak self] updatedClanId in
+            guard let self, updatedClanId == self.clanId else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self,
+                      let events = self.context.engine.clanData.getClanEvents(clanId: self.clanId)?.events else { return }
+                guard let updated = events.first(where: { $0.id == self.event.id }) else {
+                    self.dismissDetail()
+                    return
+                }
+                self.event = updated
+                self.updateInterestedSegmentTitle()
+                self.rebuildContent()
+            }
+        })
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(themeDidChange),
@@ -55,6 +102,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
     }
 
     deinit {
+        eventsDisposable?.dispose()
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -149,6 +197,83 @@ final class EventDetailBottomSheetViewController: UIViewController {
         }
     }
 
+    private func editEvent() {
+        guard EventEditorAccess.canEdit(event, context: context) else { return }
+        let editor = EventEditorViewController(context: context, clanId: clanId, channels: channels, event: event)
+        editor.onSaved = { [weak self] updated in
+            guard let self, let updated else { return }
+            self.event = updated
+            self.updateInterestedSegmentTitle()
+            self.rebuildContent()
+        }
+        present(editor, animated: true)
+    }
+
+    private var eventURL: URL? {
+        if event.isPrivate {
+            return MezonConfig.externalEventURL(event.meetRoom.externalLink)
+        }
+        let channelId = event.channelVoiceID != 0 ? event.channelVoiceID : event.channelID
+        return MezonConfig.eventShareURL(clanId: clanId, channelId: channelId)
+    }
+
+    private func showEventActions(from source: UIView) {
+        let menu = UIAlertController(title: event.title, message: nil, preferredStyle: .actionSheet)
+        if EventEditorAccess.canEdit(event, context: context) {
+            menu.addAction(UIAlertAction(title: L(L10n.EventEditor.edit), style: .default) { [weak self] _ in
+                self?.editEvent()
+            })
+            menu.addAction(UIAlertAction(title: L(L10n.EventMenu.deleteEvent), style: .destructive) { [weak self] _ in
+                self?.confirmDeleteEvent()
+            })
+        }
+        if eventURL != nil {
+            menu.addAction(UIAlertAction(title: L(L10n.ClanInviteSheet.copy), style: .default) { [weak self] _ in
+                self?.copyEventLink()
+            })
+        }
+        menu.addAction(UIAlertAction(title: L(L10n.Common.cancel), style: .cancel))
+        menu.popoverPresentationController?.sourceView = source
+        menu.popoverPresentationController?.sourceRect = source.bounds
+        present(menu, animated: true)
+    }
+
+    private func confirmDeleteEvent() {
+        EventDeleteConfirmation.present(event: event, clanId: clanId, context: context, from: self) { [weak self] in
+            self?.dismissDetail()
+        }
+    }
+
+    private func dismissDetail() {
+        guard !isBeingDismissed else { return }
+        presentingViewController?.dismiss(animated: true)
+    }
+
+    private func copyEventLink() {
+        guard let url = eventURL else { return }
+        UIPasteboard.general.string = url.absoluteString
+        Toast.success(L(L10n.ClanInviteSheet.linkCopied))
+    }
+
+    private func shareEvent(from source: UIView) {
+        guard let url = eventURL else { return }
+        let share = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        share.popoverPresentationController?.sourceView = source
+        share.popoverPresentationController?.sourceRect = source.bounds
+        present(share, animated: true)
+    }
+
+    private func inviteToEvent() {
+        guard event.isPrivate, let url = eventURL else { return }
+        let invite = ClanInviteSheetViewController(context: context, clanId: clanId, externalEventURL: url)
+        invite.modalPresentationStyle = .pageSheet
+        if #available(iOS 15.0, *) {
+            invite.sheetPresentationController?.prefersGrabberVisible = true
+            invite.sheetPresentationController?.detents = [.medium(), .large()]
+        }
+        present(invite, animated: true)
+    }
+
     private func rebuildContent() {
         showTab(segmentedControl.selectedSegmentIndex)
     }
@@ -178,6 +303,20 @@ final class EventDetailBottomSheetViewController: UIViewController {
             stack.trailingAnchor.constraint(equalTo: card.layoutMarginsGuide.trailingAnchor),
             stack.bottomAnchor.constraint(equalTo: card.layoutMarginsGuide.bottomAnchor),
         ])
+
+        let more = EventEditorButton()
+        more.setImage(UIImage(systemName: "ellipsis"), for: .normal)
+        more.tintColor = UIColor.theme.textStrong
+        more.accessibilityLabel = L(L10n.EventMenu.actions)
+        more.widthAnchor.constraint(equalToConstant: 44).isActive = true
+        more.heightAnchor.constraint(equalToConstant: 44).isActive = true
+        more.action = { [weak self, weak more] in
+            guard let more else { return }
+            self?.showEventActions(from: more)
+        }
+        let menuRow = UIStackView(arrangedSubviews: [UIView(), more])
+        stack.addArrangedSubview(menuRow)
+        menuRow.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
 
         if !event.logo.isEmpty {
             let cover = UIImageView()
@@ -233,6 +372,23 @@ final class EventDetailBottomSheetViewController: UIViewController {
         let actionsRow = makeActionsRow()
         stack.addArrangedSubview(actionsRow)
         actionsRow.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+
+        if event.isPrivate, eventURL != nil {
+            let externalActions = UIStackView()
+            externalActions.spacing = 8
+            externalActions.distribution = .fillEqually
+            externalActions.addArrangedSubview(actionButton(L(L10n.EventMenu.openLink), symbol: "arrow.up.right.square") { [weak self] in
+                self?.handleVoiceJoin()
+            })
+            externalActions.addArrangedSubview(actionButton(L(L10n.ClanInviteSheet.invite), symbol: "person.badge.plus") { [weak self] in
+                self?.inviteToEvent()
+            })
+            externalActions.addArrangedSubview(actionButton(L(L10n.ClanInviteSheet.copy), symbol: "link") { [weak self] in
+                self?.copyEventLink()
+            })
+            stack.addArrangedSubview(externalActions)
+            externalActions.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        }
 
         if event.channelID != 0, let channel = channels.first(where: { $0.channelID == event.channelID }) {
             let audienceRow = makeChannelAudienceRow(channelLabel: channel.channelLabel)
@@ -343,17 +499,20 @@ final class EventDetailBottomSheetViewController: UIViewController {
         row.axis = .horizontal
         row.spacing = 8
         row.alignment = .center
-        let avatar = UIImageView()
-        avatar.layer.cornerRadius = 9
-        avatar.clipsToBounds = true
-        avatar.contentMode = .scaleAspectFill
+        let avatar = TextAvatarView(username: clanName, size: 18)
         avatar.translatesAutoresizingMaskIntoConstraints = false
         avatar.widthAnchor.constraint(equalToConstant: 18).isActive = true
         avatar.heightAnchor.constraint(equalToConstant: 18).isActive = true
         if !clanLogoURL.isEmpty {
+            let imageView = UIImageView(frame: avatar.bounds)
+            imageView.contentMode = .scaleAspectFill
+            avatar.addSubview(imageView)
             let proxied = ImgproxyURL.avatarProxyURL(from: clanLogoURL, width: 36, height: 36)
-            ImageCache.shared.loadImage(urlString: proxied) { image in
-                avatar.image = image
+            ImageCache.shared.loadImage(urlString: proxied) { [weak avatar, weak imageView] image in
+                if let image {
+                    imageView?.image = image
+                    avatar?.showImageMode()
+                }
             }
         }
         let label = UILabel()
@@ -424,8 +583,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
             onPresentJoinVoice?(voiceChannel)
             return
         }
-        if event.hasMeetRoom, !event.meetRoom.externalLink.isEmpty,
-           let url = URL(string: event.meetRoom.externalLink) {
+        if let url = MezonConfig.externalEventURL(event.meetRoom.externalLink) {
             UIApplication.shared.open(url)
         }
     }
@@ -458,12 +616,49 @@ final class EventDetailBottomSheetViewController: UIViewController {
         let row = UIStackView()
         row.axis = .horizontal
         row.spacing = 8
-        row.alignment = .center
-        EventDisplayHelper.configureInterestButton(interestButton, isInterested: isCurrentUserInterested())
-        interestButton.removeTarget(self, action: #selector(interestedTapped), for: .touchUpInside)
-        interestButton.addTarget(self, action: #selector(interestedTapped), for: .touchUpInside)
-        row.addArrangedSubview(interestButton)
+        row.alignment = .fill
+        row.distribution = .fillEqually
+        if event.address.isEmpty, eventURL != nil {
+            let share = actionButton(L(L10n.Common.share), symbol: "square.and.arrow.up")
+            share.action = { [weak self, weak share] in
+                guard let share else { return }
+                self?.shareEvent(from: share)
+            }
+            row.addArrangedSubview(share)
+        }
+        if EventDisplayHelper.resolvedStatus(for: event) != .ongoing {
+            EventDisplayHelper.configureInterestButton(interestButton, isInterested: isCurrentUserInterested())
+            interestButton.removeTarget(self, action: #selector(interestedTapped), for: .touchUpInside)
+            interestButton.addTarget(self, action: #selector(interestedTapped), for: .touchUpInside)
+            row.addArrangedSubview(interestButton)
+        } else if EventEditorAccess.canEnd(event, context: context) {
+            row.addArrangedSubview(actionButton(L(L10n.EventMenu.endEvent), symbol: "xmark.circle") { [weak self] in
+                guard let self, EventEditorAccess.canEnd(self.event, context: self.context) else { return }
+                self.confirmDeleteEvent()
+            })
+        }
+        row.isHidden = row.arrangedSubviews.isEmpty
         return row
+    }
+
+    private func actionButton(_ title: String, symbol: String, action: (() -> Void)? = nil) -> EventEditorButton {
+        let button = EventEditorButton()
+        button.setTitle(title, for: .normal)
+        button.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 13)), for: .normal)
+        button.tintColor = UIColor.theme.textStrong
+        button.setTitleColor(UIColor.theme.textStrong, for: .normal)
+        button.backgroundColor = UIColor.theme.secondary
+        button.layer.cornerRadius = 8
+        button.layer.borderWidth = 1
+        button.layer.borderColor = UIColor.theme.border.withAlphaComponent(0.4).cgColor
+        button.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
+        button.titleLabel?.numberOfLines = 2
+        button.titleLabel?.textAlignment = .center
+        button.contentEdgeInsets = UIEdgeInsets(top: 10, left: 6, bottom: 10, right: 6)
+        button.imageEdgeInsets = UIEdgeInsets(top: 0, left: -3, bottom: 0, right: 3)
+        button.heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+        button.action = action
+        return button
     }
 
     @objc private func interestedTapped() {

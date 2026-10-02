@@ -691,7 +691,6 @@ final class ClanOverviewViewController: BaseViewController {
                     self.updateSaveButtonState()
                 }
             } catch {
-                print("Failed to fetch system messages:", error)
             }
         }
     }

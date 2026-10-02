@@ -3,6 +3,18 @@ import UIKit
 import AsyncDisplayKit
 import AVFoundation
 
+extension ASImageNode {
+    func installSafeWhiteTint() {
+        let tintBlock = ASImageNodeTintColorModificationBlock(.white)
+        imageModificationBlock = { image, traitCollection in
+            let size = image.size
+            guard size.width.isFinite, size.height.isFinite,
+                  size.width > 0, size.height > 0, image.scale > 0 else { return nil }
+            return tintBlock(image, traitCollection)
+        }
+    }
+}
+
 final class UniversalVideoPlayerNode: ASDisplayNode {
     
     private var avPlayerNode: MezonVideoPlayerNode?
@@ -14,6 +26,7 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
     
     var setOverlayVisible: ((Bool) -> Void)?
     var setPagingEnabled: ((Bool) -> Void)?
+    var isPlaying: Bool { avPlayerNode?.isPlaying == true || vlcPlayerNode?.isPlaying == true }
     var controlsBottomInset: CGFloat = 0 {
         didSet {
             avPlayerNode?.controlsBottomInset = controlsBottomInset

@@ -879,10 +879,15 @@ private final class TransferRecipientPickerCell: UITableViewCell {
 @MainActor
 private final class TransferRecipientPickerViewController: UIViewController, UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate {
 
+    private static let ctrlKUserSearchType: Int32 = 1
+
     private let context: AccountContext
     private let onPick: (TransferRecipientRow) -> Void
     private var allRecipients: [TransferRecipientRow] = []
     private var filteredUsers: [TransferRecipientRow] = []
+    private var searchResults: [TransferRecipientRow] = []
+    private var awaitingSearchResults = false
+    private var ctrlKGeneration: UInt64 = 0
     private var searchDebounceWork: DispatchWorkItem?
 
     private let searchContainer = UIView()
@@ -890,6 +895,7 @@ private final class TransferRecipientPickerViewController: UIViewController, UIT
     private let searchField = UITextField()
     private let listContainer = UIView()
     private let tableView = UITableView(frame: .zero, style: .plain)
+    private let emptyLabel = UILabel()
     private var didFocusSearch = false
 
     init(context: AccountContext, onPick: @escaping (TransferRecipientRow) -> Void) {
@@ -953,11 +959,19 @@ private final class TransferRecipientPickerViewController: UIViewController, UIT
             tableView.sectionHeaderTopPadding = 0
         }
 
+        emptyLabel.translatesAutoresizingMaskIntoConstraints = false
+        emptyLabel.font = .systemFont(ofSize: 14, weight: .regular)
+        emptyLabel.textColor = .mezonTextMuted
+        emptyLabel.textAlignment = .center
+        emptyLabel.numberOfLines = 0
+        emptyLabel.isHidden = true
+
         view.addSubview(searchContainer)
         searchContainer.addSubview(searchIcon)
         searchContainer.addSubview(searchField)
         view.addSubview(listContainer)
         listContainer.addSubview(tableView)
+        listContainer.addSubview(emptyLabel)
         NSLayoutConstraint.activate([
             searchContainer.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
             searchContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
@@ -982,6 +996,10 @@ private final class TransferRecipientPickerViewController: UIViewController, UIT
             tableView.leadingAnchor.constraint(equalTo: listContainer.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: listContainer.trailingAnchor),
             tableView.bottomAnchor.constraint(equalTo: listContainer.bottomAnchor),
+
+            emptyLabel.topAnchor.constraint(equalTo: listContainer.topAnchor, constant: 24),
+            emptyLabel.leadingAnchor.constraint(equalTo: listContainer.leadingAnchor, constant: 16),
+            emptyLabel.trailingAnchor.constraint(equalTo: listContainer.trailingAnchor, constant: -16),
         ])
         Task { await loadRecipients() }
     }
@@ -1080,8 +1098,7 @@ private final class TransferRecipientPickerViewController: UIViewController, UIT
         } catch {}
         merged = merged.filter { "\($0.user.id)" != selfId }
         allRecipients = merged
-        filteredUsers = merged
-        tableView.reloadData()
+        renderRecipients()
     }
 
     private static func apiUser(fromClanMember member: ClanMemberRecord) -> Mezon_Api_User {
@@ -1115,63 +1132,81 @@ private final class TransferRecipientPickerViewController: UIViewController, UIT
         return u
     }
 
-    private func applyFilter(searchText: String) {
-        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            filteredUsers = allRecipients
-            tableView.reloadData()
-            return
-        }
-        let search = trimmed.lowercased()
-        let searchNorm = Self.normalizeSearch(search)
-        struct Scored {
-            let row: TransferRecipientRow
-            let score: Int
-            let len: Int
-        }
-        var scored: [Scored] = []
-        scored.reserveCapacity(allRecipients.count)
-        for row in allRecipients {
-            let username = row.primaryText.lowercased()
-            let usernameNorm = Self.normalizeSearch(username)
-            let s = Self.matchScore(usernameLower: username, usernameNorm: usernameNorm, search: search, searchNorm: searchNorm)
-            if s > 0 {
-                scored.append(Scored(row: row, score: s, len: username.count))
+    private var trimmedSearchQuery: String {
+        (searchField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func applySearchQuery() {
+        searchDebounceWork?.cancel()
+        let query = trimmedSearchQuery
+        if query.isEmpty {
+            ctrlKGeneration &+= 1
+            searchResults = []
+            awaitingSearchResults = false
+        } else {
+            awaitingSearchResults = fetchCtrlKUsers(query)
+            if !awaitingSearchResults {
+                searchResults = []
             }
         }
-        scored.sort { a, b in
-            if a.score != b.score { return a.score > b.score }
-            return a.len < b.len
+        renderRecipients()
+    }
+
+    private func fetchCtrlKUsers(_ rawQuery: String) -> Bool {
+        let text = rawQuery.hasPrefix("@")
+            ? String(rawQuery.dropFirst()).trimmingCharacters(in: .whitespaces)
+            : rawQuery
+        ctrlKGeneration &+= 1
+        guard !text.isEmpty, text.utf8.count <= 255 else { return false }
+        let generation = ctrlKGeneration
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            var response: Mezon_Api_SearchCtrlKResponse?
+            if let token = await self.context.getToken() {
+                response = try? await self.context.account.network.searchCtrlK(
+                    text: text, type: Self.ctrlKUserSearchType, token: token)
+            }
+            guard self.ctrlKGeneration == generation else { return }
+            self.searchResults = response.map { self.buildSearchResults(users: $0.users) } ?? []
+            self.awaitingSearchResults = false
+            self.renderRecipients()
         }
-        filteredUsers = scored.map(\.row)
+        return true
+    }
+
+    private func buildSearchResults(users: [Mezon_Api_User]) -> [TransferRecipientRow] {
+        let selfId = context.currentUser?.id ?? ""
+        var seen = Set<Int64>()
+        var rows: [TransferRecipientRow] = []
+        for user in users where user.id != 0 && "\(user.id)" != selfId && seen.insert(user.id).inserted {
+            let primary: String = {
+                if !user.displayName.isEmpty { return user.displayName }
+                if !user.username.isEmpty { return user.username }
+                return "\(user.id)"
+            }()
+            rows.append(TransferRecipientRow(user: user, primaryText: primary, avatarURL: user.avatarURL))
+        }
+        return rows
+    }
+
+    private func renderRecipients() {
+        let searching = !trimmedSearchQuery.isEmpty
+        filteredUsers = searching ? searchResults : allRecipients
         tableView.reloadData()
-    }
-
-    private static func normalizeSearch(_ s: String) -> String {
-        s.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-    }
-
-    private static func matchScore(usernameLower: String, usernameNorm: String, search: String, searchNorm: String) -> Int {
-        if usernameLower == search { return 1000 }
-        if usernameLower.hasPrefix(search) { return 900 }
-        if usernameNorm == searchNorm { return 800 }
-        if usernameNorm.hasPrefix(searchNorm) { return 700 }
-        if usernameLower.contains(search) { return 500 }
-        if usernameNorm.contains(searchNorm) { return 400 }
-        return 0
+        let empty = filteredUsers.isEmpty && !awaitingSearchResults
+        emptyLabel.text = L(searching ? L10n.Profile.sendTokenNoUserMatch : L10n.Profile.sendTokenTypeToSearch)
+        emptyLabel.isHidden = !empty
+        tableView.isScrollEnabled = !empty
     }
 
     @objc private func searchFieldChanged() {
-        let text = searchField.text ?? ""
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            searchDebounceWork?.cancel()
-            applyFilter(searchText: text)
+        searchDebounceWork?.cancel()
+        if trimmedSearchQuery.isEmpty {
+            applySearchQuery()
             return
         }
-        searchDebounceWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            self?.applyFilter(searchText: text)
+            self?.applySearchQuery()
         }
         searchDebounceWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)

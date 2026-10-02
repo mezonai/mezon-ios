@@ -1,6 +1,23 @@
 import Foundation
 import SwiftProtobuf
 
+extension AccountContext {
+    func meetTokenMetadata(clanId: Int64) -> String {
+        let userId = Int64(currentUser?.id ?? session?.userId ?? "")
+        let member = engine.clanData.getClanUsers(clanId: clanId)?.clanUsers.first {
+            $0.user.id == userId
+        }
+        let name = [member?.clanNick, member?.user.displayName, currentUser?.displayName,
+                    member?.user.username, currentUser?.username]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? ""
+        let avatar = [member?.clanAvatar, member?.user.avatarURL, currentUser?.avatarURL?.absoluteString]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? ""
+        return "\(name);\(avatar)"
+    }
+}
+
 @MainActor
 protocol AccountContext: AnyObject {
     var sharedContext: SharedAccountContext { get }
@@ -39,6 +56,7 @@ protocol AccountContext: AnyObject {
 }
 
 extension Notification.Name {
+    static let mezonAccountDidLogout = Notification.Name("mezon.account.didLogout")
     static let mezonAccountCurrentUserDidChange = Notification.Name("mezon.account.currentUserDidChange")
     static let mezonChannelPinsNeedRefresh = Notification.Name("mezon.channel.pinsNeedRefresh")
     static let mezonUserChannelAddedFromSocket = Notification.Name("mezon.channels.userChannelAddedFromSocket")

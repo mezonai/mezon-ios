@@ -28,6 +28,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
             PeerWebRTCCallSession.prewarmWebRTCInfrastructure()
         }
         NotificationCenter.default.addObserver(self, selector: #selector(handleVoIPTokenDidUpdate), name: .mezonVoIPTokenDidUpdate, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleSocketStatusForVoiceMembers(_:)), name: .mezonSocketStatusChanged, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleNetworkStatusForVoiceMembers(_:)), name: NetworkMonitor.statusDidChangeNotification, object: nil)
         NotificationCenter.default.addObserver(
             forName: UIApplication.protectedDataDidBecomeAvailableNotification,
             object: nil,
@@ -38,9 +40,17 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
             }
         }
 
+        UNUserNotificationCenter.current().delegate = self
+        MessageNotificationCategory.register()
+        NotificationCenter.default.addObserver(
+            forName: LanguageManager.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            MessageNotificationCategory.register()
+        }
         DispatchQueue.main.async {
             FirebaseApp.configure()
-            UNUserNotificationCenter.current().delegate = self
             Messaging.messaging().delegate = self
         }
 
@@ -164,7 +174,8 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         NotificationCenter.default.addObserver(self, selector: #selector(handleWillEnterForeground), name: UIApplication.willEnterForegroundNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleDidBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleDidEnterBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
-        if let notificationResponse = connectionOptions.notificationResponse {
+        if let notificationResponse = connectionOptions.notificationResponse,
+           !MessageNotificationCategory.isBackgroundAction(notificationResponse) {
             let userInfo = notificationResponse.notification.request.content.userInfo
             let isFriendRequestNotification = Self.isFriendRequestNotification(response: notificationResponse)
             let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)
@@ -282,6 +293,17 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
     }
 
+    func application(
+        _ application: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
+        Task { @MainActor in
+            let handled = CallKitManager.shared.handleCallCancelRemoteNotification(userInfo)
+            completionHandler(handled ? .newData : .noData)
+        }
+    }
+
     @objc private func handleDidEnterBackground() {
         MezonSocket.shared.noteEnteredBackground()
     }
@@ -294,21 +316,38 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         }
         rootController?.flushPendingIncomingPeerCallIfNeeded()
         checkPendingSharedContent()
-        refreshVoiceChannelMembersOnForeground()
+        refreshVoiceChannelMembers()
         if !VoIPMinimalCallBootstrap.isMinimalChromeActive {
             AppUpdateGate.scheduleVersionCheckOnForegroundIfNeeded(mainWindow: mainWindow)
         }
     }
 
-    private func refreshVoiceChannelMembersOnForeground() {
-        guard let ctx = accountContext, ctx.isLoggedIn else { return }
-        let clanId = ctx.currentClanId
-        guard clanId != 0 else { return }
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard let token = await self.accountContext?.getTokenPreferringCachedSkipSessionReadyWait() else { return }
-            await self.accountContext?.engine.clanData.refetchVoiceChannelUsers(clanId: clanId, token: token)
+    private func refreshVoiceChannelMembers() {
+        guard let ctx = accountContext, ctx.isLoggedIn else {
+            return
         }
+        let clanId = ctx.currentClanId
+        guard clanId != 0 else {
+            return
+        }
+        let sessionEpoch = ctx.sessionEpoch
+        Task { @MainActor [weak ctx] in
+            guard let ctx, let token = await ctx.getTokenPreferringCachedSkipSessionReadyWait(),
+                  ctx.isLoggedIn, ctx.sessionEpoch == sessionEpoch, ctx.currentClanId == clanId else {
+                return
+            }
+            await ctx.engine.clanData.refetchVoiceChannelUsers(clanId: clanId, token: token)
+        }
+    }
+
+    @objc private func handleSocketStatusForVoiceMembers(_ notification: Notification) {
+        guard notification.userInfo?["isConnected"] as? Bool == true else { return }
+        refreshVoiceChannelMembers()
+    }
+
+    @objc private func handleNetworkStatusForVoiceMembers(_ notification: Notification) {
+        guard notification.userInfo?["isConnected"] as? Bool == true else { return }
+        refreshVoiceChannelMembers()
     }
 
     @objc private func handleDidBecomeActive() {
@@ -411,7 +450,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         return dictionaries
     }
 
-    private static func pushPayloadString(_ userInfo: [AnyHashable: Any], keys: [String]) -> String? {
+    static func pushPayloadString(_ userInfo: [AnyHashable: Any], keys: [String]) -> String? {
         let dictionaries = pushPayloadDictionaries(userInfo)
         for key in keys {
             for dict in dictionaries {
@@ -421,7 +460,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         return nil
     }
 
-    private static func pushPayloadInt64(_ userInfo: [AnyHashable: Any], keys: [String]) -> Int64? {
+    static func pushPayloadInt64(_ userInfo: [AnyHashable: Any], keys: [String]) -> Int64? {
         guard let raw = pushPayloadString(userInfo, keys: keys)?
             .trimmingCharacters(in: .whitespacesAndNewlines),
               !raw.isEmpty else { return nil }
@@ -436,6 +475,37 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         if ["1", "true", "yes", "y", "dm", "direct"].contains(raw) { return true }
         if ["0", "false", "no", "n"].contains(raw) { return false }
         return nil
+    }
+
+    static func pushPayloadMessageId(_ userInfo: [AnyHashable: Any]) -> Int64 {
+        guard let raw = pushPayloadString(userInfo, keys: ["message"]) else { return 0 }
+        guard let data = raw.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let id = object["id"] else { return 0 }
+        if let s = id as? String { return Int64(s) ?? 0 }
+        if let n = id as? NSNumber { return n.int64Value }
+        return 0
+    }
+
+    @MainActor
+    private static func applyDmBadgeFromPush(_ userInfo: [AnyHashable: Any]) {
+        let (channelId, _, isDM) = parseFCMPayload(userInfo)
+        guard isDM, let raw = channelId, let channelIdValue = Int64(raw), channelIdValue != 0 else { return }
+        guard ActiveChannelTracker.currentChannelId != channelIdValue else { return }
+        guard DmBadgeMessageDedup.markCounted(pushPayloadMessageId(userInfo)) else { return }
+        let senderId = pushPayloadString(userInfo, keys: ["sender", "sender_id", "senderId"]) ?? ""
+        guard !senderId.isEmpty else { return }
+        NotificationCenter.default.post(
+            name: Notification.Name("MezonDmBadgePushReceived"), object: nil,
+            userInfo: [
+                "channelId": channelIdValue,
+                "clanId": Int64(0),
+                "senderId": senderId,
+                "incrementDmBadge": true,
+                "timestampSeconds": UInt32(Date().timeIntervalSince1970),
+                "topicId": Int64(0)
+            ] as [String: Any]
+        )
     }
 
     private static func parseFCMLink(_ link: String) -> (channelId: String?, clanId: String?, isDM: Bool) {
@@ -480,7 +550,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         return (channelId, clanId, isDM)
     }
 
-    private static func parseFCMPayload(_ userInfo: [AnyHashable: Any]) -> (channelId: String?, clanId: String?, isDM: Bool) {
+    static func parseFCMPayload(_ userInfo: [AnyHashable: Any]) -> (channelId: String?, clanId: String?, isDM: Bool) {
         var channelId = pushPayloadString(userInfo, keys: [
             "channel", "channel_id", "channelId", "channelID",
             "message_channel_id", "messageChannelId", "target_channel_id", "targetChannelId",
@@ -536,25 +606,36 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         }()
 
         Task { @MainActor in
+            Self.applyDmBadgeFromPush(userInfo)
             let suppressPeerCallToast = WebRTCCallManager.shared.isPeerCallDetailScreenActive
-            guard !isViewingChannel, !suppressPeerCallToast else { return }
-            Toast.notification(title: title, message: body) {
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    let isFriendRequestNotification = Self.isFriendRequestNotification(notification: notification)
-                    if isFriendRequestNotification {
-                        Self.navigateToFriendRequests()
-                        return
+            if !isViewingChannel, !suppressPeerCallToast {
+                Toast.notification(title: title, message: body) {
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self else { return }
+                        let isFriendRequestNotification = Self.isFriendRequestNotification(notification: notification)
+                        if isFriendRequestNotification {
+                            Self.navigateToFriendRequests()
+                            return
+                        }
+                        if !isDM, let clanId, let clanIdInt = Int64(clanId), clanIdInt != 0 {
+                            self.accountContext?.currentClanId = clanIdInt
+                        }
+                        Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM)
                     }
-                    if !isDM, let clanId, let clanIdInt = Int64(clanId), clanIdInt != 0 {
-                        self.accountContext?.currentClanId = clanIdInt
-                    }
-                    Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM)
                 }
             }
+            completionHandler(Self.foregroundNotificationOptionsRespectingActiveCall())
         }
+    }
 
-        completionHandler([.badge, .sound])
+    @MainActor
+    private static func foregroundNotificationOptionsRespectingActiveCall() -> UNNotificationPresentationOptions {
+        let inVoiceCall = VoiceChannelPiPOverlay.shared.isActive || VoiceChannelRoomViewController.hasLiveVoiceCall
+        let inPeerCall = WebRTCCallManager.shared.signalingSession != nil
+        if inVoiceCall || inPeerCall {
+            return [.badge]
+        }
+        return [.badge, .sound]
     }
 
     func userNotificationCenter(
@@ -562,6 +643,32 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
+        if MessageNotificationCategory.isReplyAction(response) {
+            let text = (response as? UNTextInputNotificationResponse)?.userText ?? ""
+            let notification = response.notification
+            Task { @MainActor [weak self] in
+                await NotificationReplySender.send(
+                    text: text,
+                    notification: notification,
+                    accountContext: self?.accountContext
+                )
+                completionHandler()
+            }
+            return
+        }
+
+        if MessageNotificationCategory.isLikeAction(response) {
+            let notification = response.notification
+            Task { @MainActor [weak self] in
+                await NotificationReplySender.sendLike(
+                    notification: notification,
+                    accountContext: self?.accountContext
+                )
+                completionHandler()
+            }
+            return
+        }
+
         let userInfo = response.notification.request.content.userInfo
         let isFriendRequestNotification = Self.isFriendRequestNotification(response: response)
         let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)

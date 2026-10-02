@@ -3,19 +3,44 @@ import AsyncDisplayKit
 
 final class EmbedFormState {
     static let shared = EmbedFormState()
-    private var state: [String: [String: String]] = [:]
+    private var singleValues: [String: [String: String]] = [:]
+    private var multiValues: [String: [String: [String]]] = [:]
+
     func setValue(_ value: String, forComponent componentId: String, messageId: String) {
-        if state[messageId] == nil { state[messageId] = [:] }
-        state[messageId]?[componentId] = value
+        singleValues[messageId, default: [:]][componentId] = value
+        multiValues[messageId]?.removeValue(forKey: componentId)
     }
-    func getValue(forComponent componentId: String, messageId: String) -> String? { return state[messageId]?[componentId] }
+
+    func getValue(forComponent componentId: String, messageId: String) -> String? {
+        singleValues[messageId]?[componentId]
+    }
+
+    func setValues(_ values: [String], forComponent componentId: String, messageId: String) {
+        multiValues[messageId, default: [:]][componentId] = values
+        singleValues[messageId]?.removeValue(forKey: componentId)
+    }
+
+    func getValues(forComponent componentId: String, messageId: String) -> [String]? {
+        multiValues[messageId]?[componentId]
+    }
+
     func getJSONString(for messageId: String) -> String {
-        guard let dict = state[messageId] else { return "{}" }
-        guard let data = try? JSONSerialization.data(withJSONObject: dict, options: []) else { return "{}" }
+        var payload: [String: Any] = [:]
+        for (componentId, values) in multiValues[messageId] ?? [:] { payload[componentId] = values }
+        for (componentId, value) in singleValues[messageId] ?? [:] { payload[componentId] = value }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: []) else { return "{}" }
         return String(data: data, encoding: .utf8) ?? "{}"
     }
-    func clear(messageId: String) { state.removeValue(forKey: messageId) }
-    func removeAll() { state.removeAll() }
+
+    func clear(messageId: String) {
+        singleValues.removeValue(forKey: messageId)
+        multiValues.removeValue(forKey: messageId)
+    }
+
+    func removeAll() {
+        singleValues.removeAll()
+        multiValues.removeAll()
+    }
 }
 
 final class MessageEmbedNode: ASDisplayNode {
@@ -24,6 +49,7 @@ final class MessageEmbedNode: ASDisplayNode {
     private var cachedTotalSize: CGSize = .zero
     var onEmbedImageTapped: ((String) -> Void)?
     var onEmbedButtonTapped: ((ParsedEmbedButton, String) -> Void)?
+    var onEmbedSelectChanged: ((String, String, String) -> Void)?
 
     override init() {
         super.init()
@@ -38,6 +64,9 @@ final class MessageEmbedNode: ASDisplayNode {
             }
             node.onButtonTapped = { [weak self] btn in
                 self?.onEmbedButtonTapped?(btn, messageId)
+            }
+            node.onSelectChanged = { [weak self] selectId, value in
+                self?.onEmbedSelectChanged?(selectId, value, messageId)
             }
             addSubnode(node)
         }
@@ -92,8 +121,8 @@ final class EmbedItemNode: ASDisplayNode {
         var cachedInputSize: CGSize
     }
     private var fieldItems: [FieldItemNodes] = []
-    private var actionButtonsNode: EmbedActionButtonsNode?
-    private var cachedActionButtonsSize: CGSize = .zero
+    private var actionRowsNode: EmbedActionRowsNode?
+    private var cachedActionRowsSize: CGSize = .zero
     private var imageNode: TransformImageNode?
     private var thumbnailNode: TransformImageNode?
     private var footerIconNode: TransformImageNode?
@@ -102,6 +131,7 @@ final class EmbedItemNode: ASDisplayNode {
     private let embed: ParsedEmbed
     private let messageId: String
     var onButtonTapped: ((ParsedEmbedButton) -> Void)?
+    var onSelectChanged: ((String, String) -> Void)?
     var onEmbedImageTapped: ((String) -> Void)?
     var onEmbedButtonTapped: ((ParsedEmbedButton, String) -> Void)?
 
@@ -272,11 +302,12 @@ final class EmbedItemNode: ASDisplayNode {
         }
         
         if !embed.actionRows.isEmpty {
-            let abn = EmbedActionButtonsNode()
-            abn.configure(actionRows: embed.actionRows)
-            abn.onButtonTapped = { [weak self] btn in self?.onButtonTapped?(btn) }
-            actionButtonsNode = abn
-            addSubnode(abn)
+            let rows = EmbedActionRowsNode()
+            rows.configure(actionRows: embed.actionRows, messageId: messageId)
+            rows.onButtonTapped = { [weak self] btn in self?.onButtonTapped?(btn) }
+            rows.onSelectChanged = { [weak self] selectId, value in self?.onSelectChanged?(selectId, value) }
+            actionRowsNode = rows
+            addSubnode(rows)
         }
 
 
@@ -473,7 +504,10 @@ final class EmbedItemNode: ASDisplayNode {
             totalH += 8 + finalH
         }
 
-        if let abn = actionButtonsNode { cachedActionButtonsSize = abn.measureSize(maxWidth: maxWidth); totalH += 8 + cachedActionButtonsSize.height }
+        if let rows = actionRowsNode {
+            cachedActionRowsSize = rows.measureSize(maxWidth: maxWidth)
+            totalH += 8 + cachedActionRowsSize.height
+        }
         cachedSize = CGSize(width: maxWidth, height: totalH)
         return cachedSize
     }
@@ -487,9 +521,12 @@ final class EmbedItemNode: ASDisplayNode {
         let w = bounds.width
         let h = bounds.height
 
-        let hasButtons = actionButtonsNode != nil; let embedBoxHeight = hasButtons ? bounds.height - 8 - cachedActionButtonsSize.height : bounds.height; contentBgNode.frame = CGRect(x: 0, y: 0, width: w, height: embedBoxHeight)
+        let embedBoxHeight = actionRowsNode != nil ? bounds.height - 8 - cachedActionRowsSize.height : bounds.height
+        contentBgNode.frame = CGRect(x: 0, y: 0, width: w, height: embedBoxHeight)
         colorBarNode.frame = CGRect(x: 0, y: 0, width: barW, height: embedBoxHeight)
-        if let abn = actionButtonsNode { abn.frame = CGRect(x: 0, y: embedBoxHeight + 8, width: cachedActionButtonsSize.width, height: cachedActionButtonsSize.height) }
+        if let rows = actionRowsNode {
+            rows.frame = CGRect(x: 0, y: embedBoxHeight + 8, width: cachedActionRowsSize.width, height: cachedActionRowsSize.height)
+        }
 
         var y = inV
         let contentX = barW + inH
@@ -976,10 +1013,11 @@ final class EmbedDatePickerFieldNode: ASDisplayNode, EmbedFormInputNode {
     }
 }
 
-final class EmbedActionButtonsNode: ASDisplayNode {
+final class EmbedActionRowsNode: ASDisplayNode {
     private var rowNodes: [EmbedActionRowNode] = []
     fileprivate(set) var cachedSize: CGSize = .zero
     var onButtonTapped: ((ParsedEmbedButton) -> Void)?
+    var onSelectChanged: ((String, String) -> Void)?
 
     override init() {
         super.init()
@@ -987,11 +1025,12 @@ final class EmbedActionButtonsNode: ASDisplayNode {
         isUserInteractionEnabled = true
     }
 
-    func configure(actionRows: [ParsedEmbedActionRow]) {
+    func configure(actionRows: [ParsedEmbedActionRow], messageId: String) {
         rowNodes.forEach { $0.removeFromSupernode() }
         rowNodes = actionRows.map { row in
-            let node = EmbedActionRowNode(row: row)
+            let node = EmbedActionRowNode(row: row, messageId: messageId)
             node.onButtonTapped = { [weak self] btn in self?.onButtonTapped?(btn) }
+            node.onSelectChanged = { [weak self] selectId, value in self?.onSelectChanged?(selectId, value) }
             return node
         }
         for node in rowNodes { addSubnode(node) }
@@ -1023,62 +1062,248 @@ final class EmbedActionButtonsNode: ASDisplayNode {
     }
 }
 
+private protocol EmbedRowComponentNode: ASDisplayNode {
+    func measureRowItem(maxWidth: CGFloat) -> CGSize
+}
+
 private final class EmbedActionRowNode: ASDisplayNode {
-    private var buttonNodes: [EmbedButtonNode] = []
-    private var cachedButtonFrames: [CGRect] = []
+    private var componentNodes: [EmbedRowComponentNode] = []
+    private var cachedFrames: [CGRect] = []
     fileprivate(set) var cachedSize: CGSize = .zero
     var onButtonTapped: ((ParsedEmbedButton) -> Void)?
+    var onSelectChanged: ((String, String) -> Void)?
 
-    init(row: ParsedEmbedActionRow) {
+    init(row: ParsedEmbedActionRow, messageId: String) {
         super.init()
         automaticallyManagesSubnodes = false
         isUserInteractionEnabled = true
-        buttonNodes = row.buttons.map { btn in
-            let node = EmbedButtonNode(button: btn)
-            node.onTapped = { [weak self] in self?.onButtonTapped?(btn) }
-            return node
+        componentNodes = row.components.map { component -> EmbedRowComponentNode in
+            switch component {
+            case .button(let button):
+                let node = EmbedButtonNode(button: button)
+                node.onTapped = { [weak self] in self?.onButtonTapped?(button) }
+                return node
+            case .select(let select):
+                let node = EmbedRowSelectNode(component: select, messageId: messageId)
+                node.onValueChosen = { [weak self] value in self?.onSelectChanged?(select.id, value) }
+                return node
+            }
         }
-        for node in buttonNodes { addSubnode(node) }
+        for node in componentNodes { addSubnode(node) }
     }
 
     func measureSize(maxWidth: CGFloat) -> CGSize {
-        guard !buttonNodes.isEmpty else { return .zero }
-        let buttonSpacing: CGFloat = 8
+        guard !componentNodes.isEmpty else { return .zero }
+        let itemSpacing: CGFloat = 8
         let lineSpacing: CGFloat = 8
-        let buttonHeight: CGFloat = 32
         var x: CGFloat = 0
         var y: CGFloat = 0
+        var lineHeight: CGFloat = 0
         var maxLineWidth: CGFloat = 0
-        cachedButtonFrames.removeAll()
-        for node in buttonNodes {
-            let bw = min(node.intrinsicWidth(maxWidth: maxWidth), maxWidth)
-            if x > 0, x + bw > maxWidth {
+        cachedFrames.removeAll()
+        for node in componentNodes {
+            let size = node.measureRowItem(maxWidth: maxWidth)
+            if x > 0, x + size.width > maxWidth {
                 x = 0
-                y += buttonHeight + lineSpacing
+                y += lineHeight + lineSpacing
+                lineHeight = 0
             }
-            node.cachedSize = CGSize(width: bw, height: buttonHeight)
-            cachedButtonFrames.append(CGRect(x: x, y: y, width: bw, height: buttonHeight))
-            x += bw + buttonSpacing
-            maxLineWidth = max(maxLineWidth, x - buttonSpacing)
+            cachedFrames.append(CGRect(origin: CGPoint(x: x, y: y), size: size))
+            x += size.width + itemSpacing
+            lineHeight = max(lineHeight, size.height)
+            maxLineWidth = max(maxLineWidth, x - itemSpacing)
         }
-        cachedSize = CGSize(width: min(maxLineWidth, maxWidth), height: y + buttonHeight)
+        cachedSize = CGSize(width: min(maxLineWidth, maxWidth), height: y + lineHeight)
         return cachedSize
     }
 
     override func layout() {
         super.layout()
-        for (i, node) in buttonNodes.enumerated() where i < cachedButtonFrames.count {
-            node.frame = cachedButtonFrames[i]
+        for (i, node) in componentNodes.enumerated() where i < cachedFrames.count {
+            node.frame = cachedFrames[i]
         }
     }
 }
 
-private final class EmbedButtonNode: ASDisplayNode {
+private final class EmbedRowSelectNode: ASDisplayNode, EmbedRowComponentNode {
+    private let component: ParsedEmbedInputComponent
+    private let messageId: String
+    private let titleNode = ASTextNode2()
+    private let noteNode = ASTextNode2()
+    private let chevronNode = ASImageNode()
+    private let control = UIButton(type: .custom)
+    private let controlWrapperNode = ASDisplayNode()
+    private var currentSheetController: EmbedSelectSheetController?
+    var onValueChosen: ((String) -> Void)?
+
+    private static let maxWidth: CGFloat = 400
+    private static let padding: CGFloat = 12
+    private static let chevronSize: CGFloat = 16
+    private static let chevronGap: CGFloat = 8
+    private static let textGap: CGFloat = 2
+    private static let titleFont = UIFont.systemFont(ofSize: 14)
+    private static let noteFont = UIFont.italicSystemFont(ofSize: 12)
+
+    init(component: ParsedEmbedInputComponent, messageId: String) {
+        self.component = component
+        self.messageId = messageId
+        super.init()
+        automaticallyManagesSubnodes = false
+        isUserInteractionEnabled = true
+
+        let t = UIColor.theme
+        cornerRadius = 6
+        borderWidth = 1
+        borderColor = t.text.withAlphaComponent(0.35).cgColor
+        clipsToBounds = true
+
+        titleNode.maximumNumberOfLines = 1
+        titleNode.truncationMode = .byTruncatingTail
+        titleNode.isUserInteractionEnabled = false
+        addSubnode(titleNode)
+
+        noteNode.attributedText = NSAttributedString(
+            string: Self.note(minOptions: component.minOptions, maxOptions: component.maxOptions),
+            attributes: [.font: Self.noteFont, .foregroundColor: t.text.withAlphaComponent(0.7)]
+        )
+        noteNode.maximumNumberOfLines = 1
+        noteNode.truncationMode = .byTruncatingTail
+        noteNode.isUserInteractionEnabled = false
+        addSubnode(noteNode)
+
+        chevronNode.image = UIImage(systemName: "chevron.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold))?.withRenderingMode(.alwaysTemplate)
+        chevronNode.tintColor = t.text
+        chevronNode.contentMode = .scaleAspectFit
+        chevronNode.isUserInteractionEnabled = false
+        addSubnode(chevronNode)
+
+        controlWrapperNode.setViewBlock({ [weak self] in
+            return self?.control ?? UIView()
+        })
+        addSubnode(controlWrapperNode)
+        control.addTarget(self, action: #selector(tapped), for: .touchUpInside)
+
+        alpha = component.disabled ? 0.5 : 1.0
+
+        let stored = selectedValues
+        if stored.isEmpty, let preselected = component.selectedValue {
+            store([preselected.value])
+        } else {
+            applyTitle(stored)
+        }
+    }
+
+    func measureRowItem(maxWidth: CGFloat) -> CGSize {
+        let width = min(maxWidth, Self.maxWidth)
+        let textWidth = Self.textWidth(for: width)
+        let titleH = max(titleNode.measure(CGSize(width: textWidth, height: .greatestFiniteMagnitude)).height, ceil(Self.titleFont.lineHeight))
+        let noteH = noteNode.measure(CGSize(width: textWidth, height: .greatestFiniteMagnitude)).height
+        return CGSize(width: width, height: Self.padding * 2 + titleH + Self.textGap + noteH)
+    }
+
+    override func layout() {
+        super.layout()
+        controlWrapperNode.frame = bounds
+        let p = Self.padding
+        let chevron = Self.chevronSize
+        chevronNode.frame = CGRect(x: bounds.width - p - chevron, y: (bounds.height - chevron) / 2, width: chevron, height: chevron)
+        let textWidth = Self.textWidth(for: bounds.width)
+        let titleH = max(titleNode.measure(CGSize(width: textWidth, height: .greatestFiniteMagnitude)).height, ceil(Self.titleFont.lineHeight))
+        let noteH = noteNode.measure(CGSize(width: textWidth, height: .greatestFiniteMagnitude)).height
+        titleNode.frame = CGRect(x: p, y: p, width: textWidth, height: titleH)
+        noteNode.frame = CGRect(x: p, y: p + titleH + Self.textGap, width: textWidth, height: noteH)
+    }
+
+    private static func textWidth(for width: CGFloat) -> CGFloat {
+        max(width - padding * 2 - chevronSize - chevronGap, 0)
+    }
+
+    private var selectedValues: [String] {
+        if component.allowsMultipleSelection {
+            return EmbedFormState.shared.getValues(forComponent: component.id, messageId: messageId) ?? []
+        }
+        if let single = EmbedFormState.shared.getValue(forComponent: component.id, messageId: messageId), !single.isEmpty {
+            return [single]
+        }
+        return []
+    }
+
+    @objc private func tapped() {
+        guard !component.disabled, !component.id.isEmpty else { return }
+        guard let vc = findViewController() as? ViewController else { return }
+        let options = component.selectOptions ?? []
+        guard !options.isEmpty else { return }
+        let sheet = EmbedSelectSheetController(options: options, selectedValues: Set(selectedValues)) { [weak self] option in
+            guard let self else { return }
+            self.choose(option)
+            self.currentSheetController = nil
+        }
+        currentSheetController = sheet
+        vc.presentInGlobalOverlay(sheet)
+        sheet.animateIn()
+    }
+
+    private func choose(_ option: ParsedSelectOption) {
+        var values = selectedValues
+        if component.allowsMultipleSelection {
+            if let existing = values.firstIndex(of: option.value) {
+                values.remove(at: existing)
+                store(values)
+                return
+            }
+            let maxOptions = component.maxOptions ?? 0
+            let limit = maxOptions > 0 ? maxOptions : (component.selectOptions ?? []).count
+            guard values.count < limit else { return }
+            values.append(option.value)
+        } else {
+            values = [option.value]
+        }
+        store(values)
+        onValueChosen?(option.value)
+    }
+
+    private func store(_ values: [String]) {
+        if component.allowsMultipleSelection {
+            EmbedFormState.shared.setValues(values, forComponent: component.id, messageId: messageId)
+        } else if let value = values.first {
+            EmbedFormState.shared.setValue(value, forComponent: component.id, messageId: messageId)
+        }
+        applyTitle(values)
+    }
+
+    private func applyTitle(_ values: [String]) {
+        let t = UIColor.theme
+        let options = component.selectOptions ?? []
+        let labels = values.map { value in options.first(where: { $0.value == value })?.label ?? value }
+        let text = labels.isEmpty ? (component.placeholder ?? "") : labels.joined(separator: ", ")
+        titleNode.attributedText = NSAttributedString(string: text, attributes: [
+            .font: Self.titleFont,
+            .foregroundColor: labels.isEmpty ? t.text : t.textStrong
+        ])
+        setNeedsLayout()
+    }
+
+    private static func note(minOptions: Int?, maxOptions: Int?) -> String {
+        let lower = minOptions.flatMap { $0 > 0 ? $0 : nil }
+        let upper = maxOptions.flatMap { $0 > 0 ? $0 : nil }
+        switch (lower, upper) {
+        case let (.some(lower), .some(upper)):
+            return "Select from \(lower) to \(upper) options"
+        case let (.none, .some(upper)):
+            return "Select up to \(upper) option\(upper > 1 ? "s" : "")"
+        case let (.some(lower), .none):
+            return "Select at least \(lower) option\(lower > 1 ? "s" : "")"
+        case (.none, .none):
+            return "Select 1 option"
+        }
+    }
+}
+
+private final class EmbedButtonNode: ASDisplayNode, EmbedRowComponentNode {
     private let labelNode = ASTextNode2()
     private let button: ParsedEmbedButton
     private let control = UIButton(type: .custom)
     var onTapped: (() -> Void)?
-    fileprivate(set) var cachedSize: CGSize = .zero
 
     init(button: ParsedEmbedButton) {
         self.button = button
@@ -1110,7 +1335,11 @@ private final class EmbedButtonNode: ASDisplayNode {
         alpha = button.disabled ? 0.5 : 1.0
     }
 
-    func intrinsicWidth(maxWidth: CGFloat) -> CGFloat {
+    func measureRowItem(maxWidth: CGFloat) -> CGSize {
+        CGSize(width: min(intrinsicWidth(maxWidth: maxWidth), maxWidth), height: 32)
+    }
+
+    private func intrinsicWidth(maxWidth: CGFloat) -> CGFloat {
         let hPadding: CGFloat = 20
         let minWidth: CGFloat = 60
         let labelSize = labelNode.measure(CGSize(width: maxWidth - hPadding * 2, height: 32))
@@ -1160,14 +1389,16 @@ extension ASDisplayNode {
 
 final class EmbedSelectSheetController: ViewController {
     private let options: [ParsedSelectOption]
+    private let selectedValues: Set<String>
     private let onSelected: (ParsedSelectOption) -> Void
 
     private var sheetNode: EmbedSelectSheetNode {
         return displayNode as! EmbedSelectSheetNode
     }
 
-    init(options: [ParsedSelectOption], onSelected: @escaping (ParsedSelectOption) -> Void) {
+    init(options: [ParsedSelectOption], selectedValues: Set<String> = [], onSelected: @escaping (ParsedSelectOption) -> Void) {
         self.options = options
+        self.selectedValues = selectedValues
         self.onSelected = onSelected
         super.init(navigationBarPresentationData: nil)
         statusBar.statusBarStyle = .Ignore
@@ -1179,6 +1410,7 @@ final class EmbedSelectSheetController: ViewController {
     override func loadDisplayNode() {
         displayNode = EmbedSelectSheetNode(
             options: options,
+            selectedValues: selectedValues,
             onOptionSelected: { [weak self] option in
                 self?.animateDismiss {
                     self?.onSelected(option)
@@ -1210,6 +1442,7 @@ final class EmbedSelectSheetController: ViewController {
 
 private final class EmbedSelectSheetNode: ASDisplayNode {
     private let options: [ParsedSelectOption]
+    private let selectedValues: Set<String>
     private let onOptionSelected: (ParsedSelectOption) -> Void
     private let onDimTapped: () -> Void
 
@@ -1227,8 +1460,9 @@ private final class EmbedSelectSheetNode: ASDisplayNode {
     private let bottomPad: CGFloat = 16
     private let cardInsetH: CGFloat = 16
 
-    init(options: [ParsedSelectOption], onOptionSelected: @escaping (ParsedSelectOption) -> Void, onDimTapped: @escaping () -> Void) {
+    init(options: [ParsedSelectOption], selectedValues: Set<String>, onOptionSelected: @escaping (ParsedSelectOption) -> Void, onDimTapped: @escaping () -> Void) {
         self.options = options
+        self.selectedValues = selectedValues
         self.onOptionSelected = onOptionSelected
         self.onDimTapped = onDimTapped
         super.init()
@@ -1278,6 +1512,14 @@ private final class EmbedSelectSheetNode: ASDisplayNode {
             label.textColor = t.textStrong
             label.tag = 100
             row.addSubview(label)
+
+            if selectedValues.contains(option.value) {
+                let check = UIImageView(image: UIImage(systemName: "checkmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)))
+                check.tintColor = t.textStrong
+                check.contentMode = .scaleAspectFit
+                check.tag = 300
+                row.addSubview(check)
+            }
 
             if index < options.count - 1 {
                 let sep = UIView()
@@ -1346,8 +1588,13 @@ private final class EmbedSelectSheetNode: ASDisplayNode {
         var y: CGFloat = 0
         for (index, row) in optionViews.enumerated() {
             row.frame = CGRect(x: 0, y: y, width: cardW, height: optionH)
+            let check = row.viewWithTag(300)
             if let label = row.viewWithTag(100) as? UILabel {
-                label.frame = CGRect(x: 16, y: 0, width: cardW - 32, height: optionH)
+                let checkReserve: CGFloat = check != nil ? 28 : 0
+                label.frame = CGRect(x: 16, y: 0, width: cardW - 32 - checkReserve, height: optionH)
+            }
+            if let check {
+                check.frame = CGRect(x: cardW - 16 - 20, y: (optionH - 20) / 2, width: 20, height: 20)
             }
             if index < options.count - 1, let sep = row.viewWithTag(200) {
                 sep.frame = CGRect(x: 0, y: optionH - 0.5, width: cardW, height: 0.5)
