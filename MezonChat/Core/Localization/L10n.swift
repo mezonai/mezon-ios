@@ -1317,6 +1317,8 @@ enum L10n {
         static let newGroup = "channelDetail.newGroup"
         static let addMembers = "channelDetail.addMembers"
         static let untitledCanvas = "channelDetail.untitledCanvas"
+        static let searchCanvasPlaceholder = "channelDetail.searchCanvasPlaceholder"
+        static let noCanvasFound = "channelDetail.noCanvasFound"
         static let searchFilesPlaceholder = "channelDetail.searchFilesPlaceholder"
         static let fileSharedBy = "channelDetail.fileSharedBy"
         static let noFilesYet = "channelDetail.noFilesYet"
@@ -2716,6 +2718,8 @@ extension L10n {
         "channelDetail.newGroup": "New Group",
         "channelDetail.addMembers": "Add Members",
         "channelDetail.untitledCanvas": "Untitled Canvas",
+        "channelDetail.searchCanvasPlaceholder": "Search Canvas",
+        "channelDetail.noCanvasFound": "No canvas found.",
         "channelDetail.searchFilesPlaceholder": "Search files",
         "channelDetail.fileSharedBy": "Shared by %@",
         "channelDetail.noFilesYet": "No files yet",
@@ -4077,6 +4081,8 @@ extension L10n {
         "channelDetail.newGroup": "Nhóm mới",
         "channelDetail.addMembers": "Thêm thành viên",
         "channelDetail.untitledCanvas": "Bản vẽ chưa đặt tên",
+        "channelDetail.searchCanvasPlaceholder": "Tìm canvas",
+        "channelDetail.noCanvasFound": "Không tìm thấy canvas.",
         "channelDetail.searchFilesPlaceholder": "Tìm tệp",
         "channelDetail.fileSharedBy": "Chia sẻ bởi %@",
         "channelDetail.noFilesYet": "Chưa có tệp",
