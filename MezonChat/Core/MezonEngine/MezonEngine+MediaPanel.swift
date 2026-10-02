@@ -23,7 +23,10 @@ private enum MediaPanelEmojiImagePrefetch {
         DispatchQueue.global(qos: .utility).async {
             for url in urls {
                 let key = url.absoluteString
-                if ImageCache.shared.hasDiskCache(forKey: key) { continue }
+                if ImageCache.shared.hasDiskCache(forKey: key) {
+                    ImageCache.shared.markDiskEntryUsed(forKey: key)
+                    continue
+                }
                 if !NetworkMonitor.shared.isConnected { return }
 
                 Self.semaphore.wait()

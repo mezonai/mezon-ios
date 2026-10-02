@@ -408,8 +408,6 @@ static OSStatus outputCallback(void *context, AudioUnitRenderActionFlags *flags,
     if (_playing || _recording) {
         OSStatus status = AudioOutputUnitStart(_audioUnit);
         _unitRunning = status == noErr;
-        NSLog(@"[SFU audio] device_recovery status=%d recording=%d playing=%d",
-              (int)status, (int)_recording.load(), (int)_playing.load());
     }
 }
 
@@ -452,7 +450,6 @@ static OSStatus outputCallback(void *context, AudioUnitRenderActionFlags *flags,
         if (self->_playing || self->_recording) {
             OSStatus status = AudioOutputUnitStart(self->_audioUnit);
             self->_unitRunning = status == noErr;
-            if (status != noErr) NSLog(@"[SFU audio] route_restart status=%d", (int)status);
         }
     }];
 }

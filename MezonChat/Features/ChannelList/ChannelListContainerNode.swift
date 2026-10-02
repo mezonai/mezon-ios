@@ -2213,11 +2213,19 @@ final class ChannelListContainerNode: ASDisplayNode {
     private var voiceMemberReloadScheduled = false
     private var resolvedVoiceMemberSnapshot: [String: [VoiceMemberDisplay]] = [:]
 
+    private func resolvedVoiceMember(_ uid: String, in channel: Mezon_Api_ChannelDescription) -> VoiceMemberDisplay? {
+        guard var member = voiceMemberResolver?(uid) else { return nil }
+        if channel.type == MezonConstants.ChannelType.streaming.rawValue {
+            member.isSharingScreen = false
+        }
+        return member
+    }
+
     private func resolvedVoiceDisplays(for row: ChannelListRow) -> [VoiceMemberDisplay] {
         guard let resolver = voiceMemberResolver else { return [] }
         switch row {
-        case .voiceMemberExpanded(_, let uid):
-            return [resolver(uid)].compactMap { $0 }
+        case .voiceMemberExpanded(let ch, let uid):
+            return [resolvedVoiceMember(uid, in: ch)].compactMap { $0 }
         case .voiceMembersCollapsed(_, let uids):
             return uids.prefix(6).compactMap { resolver($0) }
         default:
@@ -2372,8 +2380,8 @@ extension ChannelListContainerNode: ASTableDataSource {
             return {
                 VoiceChannelMembersCollapsedCellNode(members: members, totalCount: totalCount)
             }
-        case .voiceMemberExpanded(_, let userId):
-            guard let member = voiceMemberResolver?(userId) else {
+        case .voiceMemberExpanded(let ch, let userId):
+            guard let member = resolvedVoiceMember(userId, in: ch) else {
                 return { ASCellNode() }
             }
             return {

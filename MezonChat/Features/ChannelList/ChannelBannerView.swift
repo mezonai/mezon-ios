@@ -17,6 +17,7 @@ final class ChannelBannerView: UIView {
     override init(frame: CGRect) {
         heightConstraint = imageView.heightAnchor.constraint(equalToConstant: 140.sh)
         super.init(frame: frame)
+        heightConstraint.priority = UILayoutPriority(999)
         addSubview(imageView)
         NSLayoutConstraint.activate([
             imageView.topAnchor.constraint(equalTo: topAnchor),

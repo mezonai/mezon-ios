@@ -22,7 +22,7 @@ final class ImageCache {
         return c
     }()
 
-    private let diskCacheURL: URL = {
+    let diskCacheURL: URL = {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
         let dir = caches.appendingPathComponent("mezon_image_cache", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -96,8 +96,25 @@ final class ImageCache {
         guard let data = try? Data(contentsOf: fileURL),
               let image = UIImage.decompressedImage(from: data) else { return nil }
 
+        markDiskEntryUsed(fileURL)
         memoryCache.setObject(image, forKey: nsKey, cost: memoryCost(of: image))
         return image
+    }
+
+    func markDiskEntryUsed(forKey key: String) {
+        markDiskEntryUsed(diskCacheURL.appendingPathComponent(key.sha256Hash))
+    }
+
+    private func markDiskEntryUsed(_ fileURL: URL) {
+        ioQueue.async {
+            let fileManager = FileManager.default
+            let attributes = try? fileManager.attributesOfItem(atPath: fileURL.path)
+            if let lastUsed = attributes?[.modificationDate] as? Date,
+               Date().timeIntervalSince(lastUsed) < 600 {
+                return
+            }
+            try? fileManager.setAttributes([.modificationDate: Date()], ofItemAtPath: fileURL.path)
+        }
     }
 
     func imageFromDisk(forKey key: String, completion: @escaping (UIImage?) -> Void) {
@@ -109,6 +126,7 @@ final class ImageCache {
                 DispatchQueue.main.async { completion(nil) }
                 return
             }
+            self.markDiskEntryUsed(fileURL)
             self.memoryCache.setObject(image, forKey: key as NSString, cost: self.memoryCost(of: image))
             DispatchQueue.main.async { completion(image) }
         }
@@ -128,12 +146,15 @@ final class ImageCache {
             ioQueue.async {
                 try? data.write(to: fileURL, options: .atomic)
             }
+            StorageMaintenance.shared.noteDiskCacheWrite(byteCount: data.count)
         }
     }
 
     func cachedData(forKey key: String) -> Data? {
         let fileURL = diskCacheURL.appendingPathComponent(key.sha256Hash)
-        return try? Data(contentsOf: fileURL)
+        guard let data = try? Data(contentsOf: fileURL) else { return nil }
+        markDiskEntryUsed(fileURL)
+        return data
     }
 
     func persistData(_ data: Data, forKey key: String) {
@@ -141,6 +162,7 @@ final class ImageCache {
         ioQueue.async {
             try? data.write(to: fileURL, options: .atomic)
         }
+        StorageMaintenance.shared.noteDiskCacheWrite(byteCount: data.count)
     }
 
     func clearDiskCache() {
