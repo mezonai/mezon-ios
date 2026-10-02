@@ -5462,8 +5462,7 @@ final class SendMessageInputViewController: UIViewController {
             if h.parentId != 0 {
                 dict["parentId"] = "\(h.parentId)"
             }
-            let isThreadPublish = h.channelType == MezonConstants.ChannelType.thread.rawValue && h.channelPrivate == 0
-            if isThreadPublish, !h.channelLabel.isEmpty {
+            if h.channelPrivate == 0, !h.channelLabel.isEmpty {
                 dict["channelLabel"] = h.channelLabel
             }
             dict["channelType"] = Int(h.channelType)
@@ -6200,6 +6199,16 @@ final class SendMessageInputViewController: UIViewController {
             }
         }
 
+        contentJSON = MessageContentParser.addChannelLinkDetails(to: contentJSON) { [self] id in
+            if channel.channelID == id {
+                var current = channel
+                if current.clanID == 0 { current.clanID = clanId }
+                return current
+            }
+            return context.account.postbox.getChannelDescription(channelId: id)?.channel
+                ?? context.engine.clanData.getAllChannelsByUser()?.channeldesc.first { $0.channelID == id }
+                ?? context.engine.clanData.linkedChannelDetail(channelId: id)
+        }
         return (try? JSONSerialization.data(withJSONObject: contentJSON)) ?? Data()
     }
 

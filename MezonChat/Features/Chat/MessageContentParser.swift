@@ -1,7 +1,6 @@
 import Foundation
 import SwiftProtobuf
 
-
 enum EmbedComponentType: Int {
     case button = 1
     case select = 2
@@ -119,6 +118,7 @@ struct ParsedContent {
     let tokens: [ContentToken]
     let embeds: [ParsedEmbed]
     let ogpPreviews: [ParsedOgpPreview]
+    var channelLinkSourceTokens: [ContentToken]? = nil
 
     static let empty = ParsedContent(text: "", tokens: [], embeds: [], ogpPreviews: [])
 
@@ -160,13 +160,62 @@ enum ContentTokenKind: Equatable {
     case link
 }
 
-struct ContentToken {
+struct ContentToken: Equatable {
     let start: Int
     let end: Int
     let kind: ContentTokenKind
+    // A local display snapshot. Equality must change when access changes without a text edit.
+    var channelIsAccessible: Bool? = nil
 }
 
 enum MessageContentParser {
+
+    static func resolvingChannelLinks(
+        in parsed: ParsedContent,
+        fallbackClanId: String?,
+        findChannel: (Int64, Int64, Int64) -> Mezon_Api_ChannelDescription?,
+        requestChannel: (Int64, Int64) -> Void
+    ) -> ParsedContent {
+        let sourceTokens = parsed.channelLinkSourceTokens ?? parsed.tokens
+        let tokens = sourceTokens.map { token -> ContentToken in
+            let channelId: String?
+            let clanId: String?
+            let parentId: String?
+            let label: String?
+            switch token.kind {
+            case let .hashtag(cid, clan, parent, name, _, _, _):
+                (channelId, clanId, parentId, label) = (cid, clan, parent, name)
+            case let .mezonChannelLink(_, cid, clan):
+                (channelId, clanId, parentId, label) = (cid, clan, nil, nil)
+            default:
+                return token
+            }
+            var result = token
+            result.channelIsAccessible = false
+            guard let channelId, let id = Int64(channelId), id != 0 else { return result }
+            let clan = clanId.flatMap(Int64.init) ?? fallbackClanId.flatMap(Int64.init) ?? 0
+            let parent = parentId.flatMap(Int64.init) ?? 0
+            if let channel = findChannel(id, clan, parent), channel.channelID == id,
+               clan == 0 || channel.clanID == 0 || channel.clanID == clan {
+                let resolvedClan = channel.clanID == 0 ? clan : channel.clanID
+                result = ContentToken(start: token.start, end: token.end, kind: .hashtag(
+                    channelId: channelId,
+                    clanId: resolvedClan == 0 ? clanId : String(resolvedClan),
+                    parentId: channel.parentID == 0 ? parentId : String(channel.parentID),
+                    channelLabel: channel.channelLabel.isEmpty ? label : channel.channelLabel,
+                    channelType: channel.type,
+                    channelPrivate: channel.channelPrivate,
+                    ageRestricted: channel.ageRestricted
+                ), channelIsAccessible: true)
+            } else {
+                // Sent metadata and access to a parent do not establish access to this channel.
+                requestChannel(id, clan)
+            }
+            return result
+        }
+        return ParsedContent(text: parsed.text, tokens: tokens, embeds: parsed.embeds,
+                             ogpPreviews: parsed.ogpPreviews, channelLinkSourceTokens: sourceTokens)
+    }
 
     static func previewText(fromRawContent raw: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -410,7 +459,7 @@ enum MessageContentParser {
 
     private static func int32Value(_ v: Any?) -> Int32? {
         guard let i = intValue(v) else { return nil }
-        return Int32(i)
+        return Int32(exactly: i)
     }
 
     private static func parseHashtags(_ items: [[String: Any]]) -> [ContentToken] {
@@ -422,7 +471,7 @@ enum MessageContentParser {
             let parentId = stringValue(item["parentId"]) ?? stringValue(item["parentid"])
             let channelLabel = stringValue(item["channelLabel"]) ?? stringValue(item["channelIabel"])
             let channelType = int32Value(item["channelType"]) ?? int32Value(item["type"])
-            let channelPrivate = int32Value(item["channelPrivate"]) ?? 0
+            let channelPrivate = int32Value(item["channelPrivate"]) ?? int32Value(item["channel_private"]) ?? 0
             let ageRestricted = int32Value(item["ageRestricted"]) ?? 0
             return ContentToken(
                 start: s, end: e,
@@ -432,6 +481,43 @@ enum MessageContentParser {
                 )
             )
         }
+    }
+
+    static func addChannelLinkDetails(
+        to content: [String: Any],
+        findChannel: (Int64) -> Mezon_Api_ChannelDescription?
+    ) -> [String: Any] {
+        guard let text = content["t"] as? String else { return content }
+        var result = content
+        for key in ["mk", "hg"] {
+            guard let items = content[key] as? [[String: Any]] else { continue }
+            result[key] = items.map { item -> [String: Any] in
+                var item = item
+                let id: Int64?
+                var linkClan: String?
+                if key == "mk" {
+                    guard let s = intValue(item["s"]), let e = intValue(item["e"]),
+                          s >= 0, e > s, e <= text.utf16.count else { return item }
+                    let slice = text.mezon_utf16Substring(from: s, to: e)
+                    guard isMezonChatChannelPageURL(slice),
+                          let pair = extractClanAndChannelIdsFromMezonChatURL(slice) else { return item }
+                    id = Int64(pair.channelId)
+                    linkClan = pair.clanId
+                } else {
+                    id = normalizedMkId(item["channelId"]).flatMap(Int64.init)
+                }
+                guard let id, let ch = findChannel(id), ch.channelID != 0, ch.clanID != 0,
+                      ch.channelPrivate == 0, !ch.channelLabel.isEmpty,
+                      linkClan == nil || linkClan == String(ch.clanID) else { return item }
+                item["channelId"] = String(ch.channelID)
+                item["clanId"] = String(ch.clanID)
+                item["channelLabel"] = ch.channelLabel
+                item["channelType"] = Int(ch.type)
+                item["parentId"] = ch.parentID == 0 ? nil : String(ch.parentID)
+                return item
+            }
+        }
+        return result
     }
 
     private static func parseMarkdowns(_ items: [[String: Any]], text: String) -> [ContentToken] {
@@ -456,20 +542,20 @@ enum MessageContentParser {
                 return ContentToken(start: s, end: e, kind: .bold)
             case "lk_yt", "lk_fb", "lk_tt":
                 return ContentToken(start: s, end: e, kind: .link)
-            case "vk":
+            case "vk", "lk":
                 if isMezonChatChannelPageURL(slice),
-                   let pair = resolveMezonChannelIds(slice: slice, mkChannelId: mkChannelId, mkClanId: mkClanId) {
-                    return ContentToken(
-                        start: s, end: e,
-                        kind: .mezonChannelLink(isVoiceLinkMarkdown: true, channelId: pair.channelId, clanId: pair.clanId))
-                }
-                return ContentToken(start: s, end: e, kind: .link)
-            case "lk":
-                if isMezonChatChannelPageURL(slice),
-                   let pair = resolveMezonChannelIds(slice: slice, mkChannelId: mkChannelId, mkClanId: mkClanId) {
-                    return ContentToken(
-                        start: s, end: e,
-                        kind: .mezonChannelLink(isVoiceLinkMarkdown: false, channelId: pair.channelId, clanId: pair.clanId))
+                   let pair = extractClanAndChannelIdsFromMezonChatURL(slice) {
+                    let matchesURL = (mkChannelId == nil || mkChannelId == pair.channelId)
+                        && (mkClanId.isEmpty || mkClanId == pair.clanId)
+                    if matchesURL, let label = stringValue(item["channelLabel"]), !label.isEmpty,
+                       let channelType = int32Value(item["channelType"]) {
+                        return ContentToken(start: s, end: e, kind: .hashtag(
+                            channelId: pair.channelId, clanId: pair.clanId,
+                            parentId: normalizedMkId(item["parentId"]), channelLabel: label,
+                            channelType: channelType, channelPrivate: 0, ageRestricted: 0))
+                    }
+                    return ContentToken(start: s, end: e, kind: .mezonChannelLink(
+                        isVoiceLinkMarkdown: type == "vk", channelId: pair.channelId, clanId: pair.clanId))
                 }
                 return ContentToken(start: s, end: e, kind: .link)
             default:
@@ -528,13 +614,6 @@ enum MessageContentParser {
         guard lower.contains("/chat/clans/"), lower.contains("/channels/") else { return false }
         guard !lower.contains("/canvas/") else { return false }
         return true
-    }
-
-    private static func resolveMezonChannelIds(slice: String, mkChannelId: String?, mkClanId: String) -> (channelId: String, clanId: String)? {
-        if let c = mkChannelId, !c.isEmpty {
-            return (c, mkClanId)
-        }
-        return extractClanAndChannelIdsFromMezonChatURL(slice)
     }
 
     private static func extractClanAndChannelIdsFromMezonChatURL(_ url: String) -> (channelId: String, clanId: String)? {

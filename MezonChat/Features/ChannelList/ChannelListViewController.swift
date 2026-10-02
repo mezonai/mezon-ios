@@ -1224,7 +1224,8 @@ final class ChannelListViewController: ViewController {
     @objc private func handleChannelDeletedLocally(_ notification: Notification) {
         guard let gid = notification.userInfo?["clanId"] as? Int64, gid == self.clanId else { return }
         guard let cid = notification.userInfo?["channelId"] as? Int64 else { return }
-        removeChannelLocally(channelId: cid)
+        let removedIds = Set(notification.userInfo?["channelIds"] as? [Int64] ?? [cid])
+        removeChannelLocally(channelIds: removedIds)
     }
 
     private func effectiveClanIdForChannelAppsHydration() -> Int64 {
@@ -2420,9 +2421,16 @@ final class ChannelListViewController: ViewController {
         }
     }
 
-    private func removeChannelLocally(channelId: Int64) {
-        clearPendingMentionUnreadFloor(clanId: clanId, channelId: channelId)
-        allChannels.removeAll { $0.channelID == channelId }
+    private func removeChannelLocally(channelIds: Set<Int64>) {
+        for channelId in channelIds {
+            clearPendingMentionUnreadFloor(clanId: clanId, channelId: channelId)
+        }
+        allChannels.removeAll { channelIds.contains($0.channelID) || channelIds.contains($0.parentID) }
+        channelListFavoriteIds.subtract(channelIds)
+        if let selectedChannelId, channelIds.contains(selectedChannelId) {
+            setSelectedChannelId(nil)
+            setSelectedChannel(nil)
+        }
 
         let cats = applyCategoriesAfterFetch(
             mergedChannels: allChannels,
@@ -2441,11 +2449,7 @@ final class ChannelListViewController: ViewController {
             guard let token = await context.getToken() else { return }
             do {
                 try await MezonHTTPClient.shared.deleteChannelDesc(channelId: channel.channelID, clanId: channel.clanID, token: token)
-                NotificationCenter.default.post(
-                    name: .mezonChannelDeletedLocally,
-                    object: nil,
-                    userInfo: ["clanId": channel.clanID, "channelId": channel.channelID]
-                )
+                context.engine.clanData.removeChannelLocally(clanId: channel.clanID, channelId: channel.channelID)
             } catch {
                 Toast.error(error.localizedDescription)
             }
@@ -2457,11 +2461,7 @@ final class ChannelListViewController: ViewController {
             guard let token = await context.getToken() else { return }
             do {
                 try await MezonHTTPClient.shared.leaveThread(clanId: channel.clanID, channelId: channel.channelID, token: token)
-                NotificationCenter.default.post(
-                    name: .mezonChannelDeletedLocally,
-                    object: nil,
-                    userInfo: ["clanId": channel.clanID, "channelId": channel.channelID]
-                )
+                context.engine.clanData.removeChannelLocally(clanId: channel.clanID, channelId: channel.channelID)
             } catch {
                 Toast.error(error.localizedDescription)
             }

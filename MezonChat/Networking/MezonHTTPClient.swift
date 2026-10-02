@@ -599,6 +599,13 @@ final class MezonHTTPClient {
         )
     }
 
+    func listChannelDetail(channelId: Int64, token: String) async throws -> Mezon_Api_ChannelDescription {
+        var req = Mezon_Api_ListChannelDetailRequest()
+        req.channelID = channelId
+        return try await postProtoHTTP(
+            path: "/mezon.api.Mezon/ListChannelDetail", message: req, auth: .bearer(token))
+    }
+
     func listChannelDescs(clanId: Int64, token: String, force: Bool = false) async throws -> [Mezon_Api_ChannelDescription] {
         if clanId == 0 {
             return try await performListChannelDescs(clanId: clanId, token: token)

@@ -301,7 +301,7 @@ enum RichTextBuilder {
                 let displayText = rawText.isEmpty ? "@unknown" : rawText
                 result.append(NSAttributedString(string: displayText, attributes: attrs))
 
-            case .hashtag(let channelId, let clanId, let parentId, let channelLabel, let channelType, let channelPrivate, let ageRestricted):
+            case .hashtag(let channelId, let clanId, _, let channelLabel, let channelType, let channelPrivate, let ageRestricted):
                 let hasEmbeddedLabel = !(channelLabel ?? "").isEmpty
                 let chType = channelType ?? (hasEmbeddedLabel
                     ? MezonConstants.ChannelType.thread.rawValue
@@ -310,12 +310,8 @@ enum RichTextBuilder {
                 let chAge = ageRestricted ?? 0
                 let cid = channelId ?? ""
                 let gidForAccess = (clanId ?? "").isEmpty ? nil : clanId
-                var accessible = !cid.isEmpty && (hashtagChannelAccess?(cid, gidForAccess) ?? true)
-                if !accessible, hasEmbeddedLabel, chPriv == 0,
-                   let pid = parentId, !pid.isEmpty, pid != "0",
-                   let access = hashtagChannelAccess {
-                    accessible = access(pid, gidForAccess)
-                }
+                let accessible = token.channelIsAccessible
+                    ?? (!cid.isEmpty && (hashtagChannelAccess?(cid, gidForAccess) ?? false))
                 let iconName: String
                 if accessible {
                     iconName = Mezon_Api_ChannelDescription.channelListIconAssetName(
@@ -366,7 +362,8 @@ enum RichTextBuilder {
 
             case .mezonChannelLink(let isVk, let channelId, let clanId):
                 let gidForAccess = clanId.isEmpty ? nil : clanId
-                let accessible = !channelId.isEmpty && (hashtagChannelAccess?(channelId, gidForAccess) ?? true)
+                let accessible = token.channelIsAccessible
+                    ?? (!channelId.isEmpty && (hashtagChannelAccess?(channelId, gidForAccess) ?? false))
                 let chType: Int32 = isVk ? MezonConstants.ChannelType.mezonVoice.rawValue : MezonConstants.ChannelType.channel.rawValue
                 let iconName: String
                 if accessible {
@@ -548,7 +545,8 @@ enum RichTextBuilder {
         let slicedTokens = content.tokens.compactMap { token -> ContentToken? in
             if case .codeBlock = token.kind { return nil }
             guard token.start >= clampedFrom && token.end <= clampedTo else { return nil }
-            return ContentToken(start: token.start - clampedFrom, end: token.end - clampedFrom, kind: token.kind)
+            return ContentToken(start: token.start - clampedFrom, end: token.end - clampedFrom, kind: token.kind,
+                                channelIsAccessible: token.channelIsAccessible)
         }
 
         return ParsedContent(text: slicedText, tokens: slicedTokens, embeds: [], ogpPreviews: [])

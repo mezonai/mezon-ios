@@ -153,9 +153,105 @@ extension MezonEngine {
         private let clanUsersMemoTTL: TimeInterval = 2
         private let clanUsersMemoMaxEntries = 4
 
+        let linkedChannelUpdated = ValuePipe<Int64>()
+        private var linkedChannelDetails: [Int64: Mezon_Api_ChannelDescription] = [:]
+        private var rejectedLinkedChannels = Set<Int64>()
+        private var pendingLinkedChannels = Set<Int64>()
+        private var linkedChannelTasks: [Int64: Task<Void, Never>] = [:]
+        private var linkedChannelQueue: [(id: Int64, clan: Int64, token: () async -> String?)] = []
+        private var linkedChannelStarts: [TimeInterval] = []
+        private var linkedChannelTimer: Task<Void, Never>?
+        private var linkedChannelGeneration: UInt64 = 0
+
+        func linkedChannelDetail(channelId: Int64) -> Mezon_Api_ChannelDescription? {
+            linkedChannelDetails[channelId]
+        }
+
+        private func invalidateLinkedChannels(_ channelIds: Set<Int64>) {
+            for id in channelIds {
+                linkedChannelDetails[id] = nil
+                rejectedLinkedChannels.remove(id)
+                pendingLinkedChannels.remove(id)
+                linkedChannelTasks.removeValue(forKey: id)?.cancel()
+            }
+            linkedChannelQueue.removeAll { channelIds.contains($0.id) }
+            for id in channelIds {
+                linkedChannelUpdated.putNext(id)
+            }
+            pumpLinkedChannels()
+        }
+
+        func isLinkedClanMember(_ clanId: Int64) -> Bool {
+            clanId == 0 || postbox.read { $0.getClans() }.contains { $0.id == clanId }
+        }
+
+        func requestLinkedChannel(channelId: Int64, clanId: Int64, token: @escaping () async -> String?) {
+            guard channelId != 0, isLinkedClanMember(clanId),
+                  linkedChannelDetails[channelId] == nil, !rejectedLinkedChannels.contains(channelId),
+                  pendingLinkedChannels.insert(channelId).inserted else { return }
+            linkedChannelQueue.append((channelId, clanId, token))
+            pumpLinkedChannels()
+        }
+
+        private func pumpLinkedChannels() {
+            let now = ProcessInfo.processInfo.systemUptime
+            linkedChannelStarts.removeAll { now - $0 >= 60 }
+            while !linkedChannelQueue.isEmpty && linkedChannelTasks.count < 2 && linkedChannelStarts.count < 10 {
+                let next = linkedChannelQueue.removeFirst()
+                let generation = linkedChannelGeneration
+                linkedChannelStarts.append(now)
+                linkedChannelTasks[next.id] = Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    defer {
+                        if !Task.isCancelled, self.linkedChannelGeneration == generation {
+                            self.linkedChannelTasks[next.id] = nil
+                            self.pendingLinkedChannels.remove(next.id)
+                            self.pumpLinkedChannels()
+                        }
+                    }
+                    guard let token = await next.token(), !Task.isCancelled,
+                          self.linkedChannelGeneration == generation, self.isLinkedClanMember(next.clan) else { return }
+                    do {
+                        let detail = try await self.network.listChannelDetail(channelId: next.id, token: token)
+                        guard !Task.isCancelled, self.linkedChannelGeneration == generation else { return }
+                        if detail.channelID == next.id && (next.clan == 0 || detail.clanID == next.clan) {
+                            self.linkedChannelDetails[next.id] = detail
+                        } else {
+                            self.rejectedLinkedChannels.insert(next.id)
+                        }
+                    } catch {
+                        guard !Task.isCancelled, self.linkedChannelGeneration == generation else { return }
+                        guard case MezonError.httpError(let code, _) = error,
+                              [400, 403, 404].contains(code) else { return }
+                        self.rejectedLinkedChannels.insert(next.id)
+                    }
+                    self.linkedChannelUpdated.putNext(next.id)
+                }
+            }
+            if !linkedChannelQueue.isEmpty && linkedChannelStarts.count >= 10 && linkedChannelTimer == nil {
+                let delay = max(0.001, linkedChannelStarts[0] + 60 - now)
+                linkedChannelTimer = Task { @MainActor [weak self] in
+                    do { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
+                    catch { return }
+                    self?.linkedChannelTimer = nil
+                    self?.pumpLinkedChannels()
+                }
+            }
+        }
+
         init(engine: MezonEngine) { self.engine = engine }
 
         func resetForLogout() {
+            linkedChannelGeneration &+= 1
+            linkedChannelTimer?.cancel()
+            linkedChannelTimer = nil
+            linkedChannelTasks.values.forEach { $0.cancel() }
+            linkedChannelTasks.removeAll()
+            linkedChannelQueue.removeAll()
+            pendingLinkedChannels.removeAll()
+            linkedChannelStarts.removeAll()
+            linkedChannelDetails.removeAll()
+            rejectedLinkedChannels.removeAll()
             voicePresenceGeneration &+= 1
             voiceSnapshotTasks.values.forEach { $0.cancel() }
             voiceSnapshotTasks.removeAll()
@@ -1135,6 +1231,90 @@ extension MezonEngine {
                     "channel": ch,
                     "skipChannelListFetch": skipChannelListFetch
                 ]
+            )
+        }
+
+        func applyUserChannelRemovedFromSocket(_ event: Mezon_Realtime_UserChannelRemoved, currentUserNumericId myId: Int64) {
+            guard event.userIds.contains(myId),
+                  event.channelType != MezonConstants.ChannelType.dm.rawValue,
+                  event.channelType != MezonConstants.ChannelType.group.rawValue else { return }
+            removeChannelLocally(clanId: event.clanID, channelId: event.channelID)
+        }
+
+  
+        func removeChannelLocally(clanId: Int64, channelId: Int64) {
+            guard channelId != 0 else { return }
+            let resolvedClanId = clanId != 0 ? clanId : (
+                getAllChannelsByUser()?.channeldesc.first(where: { $0.channelID == channelId && $0.clanID != 0 })?.clanID
+                    ?? postbox.getChannelDescription(channelId: channelId)?.clanId
+                    ?? linkedChannelDetails[channelId]?.clanID ?? 0
+            )
+            var removedIds: Set<Int64> = [channelId]
+            for ch in linkedChannelDetails.values where ch.parentID == channelId
+                && (resolvedClanId == 0 || ch.clanID == 0 || ch.clanID == resolvedClanId) {
+                removedIds.insert(ch.channelID)
+            }
+            guard resolvedClanId != 0 else {
+                invalidateLinkedChannels(removedIds)
+                return
+            }
+            postbox.writeSync { tx in
+                let settings = tx.settingsTable
+                let listKey = PreferencesKeys.channelList(clanId: resolvedClanId)
+                let channels = settings.get(key: listKey).map(ChannelPreferenceListCodec.decode)
+                let all = settings.get(key: PreferencesKeys.allChannelsByUser)
+                    .flatMap { try? Mezon_Api_ChannelDescList(serializedBytes: $0) }
+                let records = tx.getChannels(clanId: resolvedClanId)
+                let threadLists = settings.keys(withPrefix: "threadList_\(resolvedClanId)_").reduce(into: [String: [Mezon_Api_ChannelDescription]]()) { result, key in
+                    if let data = settings.get(key: key) {
+                        result[key] = self.decodeThreadListPreferenceBlob(data)
+                    }
+                }
+                let known = (channels ?? []) + (all?.channeldesc ?? [])
+                    + records.map { $0.toProto() } + threadLists.values.flatMap { $0 }
+               
+                for ch in known where (ch.clanID == 0 || ch.clanID == resolvedClanId) && ch.parentID == channelId {
+                    removedIds.insert(ch.channelID)
+                }
+                if let channels {
+                    settings.set(key: listKey, value: ChannelPreferenceListCodec.encode(channels.filter { !removedIds.contains($0.channelID) }))
+                }
+                if var list = all {
+                    list.channeldesc.removeAll { removedIds.contains($0.channelID) }
+                    settings.set(key: PreferencesKeys.allChannelsByUser, value: try? list.serializedData())
+                }
+                for (key, threads) in threadLists {
+                    let remaining = threads.filter { !removedIds.contains($0.channelID) && !removedIds.contains($0.parentID) }
+                    if remaining.count != threads.count {
+                        settings.set(key: key, value: self.encodeThreadListPreferenceBlob(remaining))
+                    }
+                }
+               
+                settings.set(key: PreferencesKeys.channelListDisplay(clanId: resolvedClanId), value: nil as Data?)
+                settings.set(key: PreferencesKeys.channelListCategories(clanId: resolvedClanId), value: nil as Data?)
+                let favoritesKey = PreferencesKeys.favoriteChannelIds(clanId: resolvedClanId)
+                if let data = settings.get(key: favoritesKey),
+                   var favorites = try? Mezon_Api_ListFavoriteChannelResponse(serializedBytes: data) {
+                    favorites.channelIds.removeAll { removedIds.contains($0) }
+                    settings.set(key: favoritesKey, value: try? favorites.serializedData())
+                }
+                let metaKey = PreferencesKeys.channelListMeta(clanId: resolvedClanId)
+                if let data = settings.get(key: metaKey), let meta = ChannelListMetaCodec.decode(data) {
+                    settings.set(key: metaKey, value: ChannelListMetaCodec.encode(
+                        categoryDescs: meta.categoryDescs, favoriteIds: meta.favoriteIds.subtracting(removedIds)))
+                }
+                let selectionKey = PreferencesKeys.selectedChannelId(clanId: resolvedClanId)
+                if let data = settings.get(key: selectionKey), data.count >= 8,
+                   removedIds.contains(data.withUnsafeBytes { $0.loadUnaligned(as: Int64.self).littleEndian }) {
+                    settings.set(key: selectionKey, value: nil as Data?)
+                }
+                tx.updateChannels(records.filter { !removedIds.contains($0.id) }, clanId: resolvedClanId)
+            }
+            invalidateLinkedChannels(removedIds)
+            NotificationCenter.default.post(
+                name: .mezonChannelDeletedLocally,
+                object: nil,
+                userInfo: ["clanId": resolvedClanId, "channelId": channelId, "channelIds": Array(removedIds)]
             )
         }
 
