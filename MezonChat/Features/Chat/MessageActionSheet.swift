@@ -270,8 +270,10 @@ final class MessageActionSheetController: ViewController {
             actions.append(.createThread)
         }
 
-        if hasText {
+        if !display.copyableText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             actions.append(.copyText)
+        }
+        if hasText {
             actions.append(.shareText)
         }
         if display.singleImageMediaAttachment != nil {

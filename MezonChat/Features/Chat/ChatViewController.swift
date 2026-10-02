@@ -304,6 +304,24 @@ struct ChatMessageDisplay: Identifiable {
         return data
     }
 
+    var copyableText: String {
+        let text = parsedContent.text
+        let embeds = parsedContent.embeds
+        guard !embeds.isEmpty, !isCallLog, !isPollMessage, !isSendTokenLog, !isLocation,
+              shareContactData == nil else { return text }
+        var parts: [String] = []
+        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            parts.append(text)
+        }
+        for embed in embeds {
+            let embedText = embed.copyableText
+            if !embedText.isEmpty {
+                parts.append(embedText)
+            }
+        }
+        return parts.joined(separator: "\n\n")
+    }
+
     var isAnonymousSender: Bool {
         message.senderId == "\(MezonConstants.anonymousUserId)"
     }
@@ -6737,7 +6755,7 @@ final class ChatViewController: ViewController {
             sendInputViewController.setReply(display)
             sendInputViewController.view.becomeFirstResponder()
         case .copyText:
-            UIPasteboard.general.string = display.parsedContent.text
+            UIPasteboard.general.string = display.copyableText
             Toast.success(L(L10n.MessageAction.copied))
         case .shareText:
             shareMessageText(display: display)
