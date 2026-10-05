@@ -1546,6 +1546,12 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private let connectingSpinner = UIActivityIndicatorView(style: .medium)
     private let connectingLabel = UILabel()
     private let connectingStack = UIStackView()
+    private let micWeakDot = UIView()
+    private var networkWeak = false
+    private var networkWarningDismissed = false
+    private var networkWarningHint: VoiceNetworkWarningHintView?
+    private weak var networkWarningTarget: UIView?
+    private static let weakNetworkColor = UIColor(rgb: 0xFAA61A)
     private let voiceReactionOverlay = VoiceCallReactionFlightView()
     private let raiseHandBannerStack = UIStackView()
 
@@ -1806,6 +1812,20 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         micButton = mic
         mic.isEnabled = false
         mic.alpha = 0.45
+        micWeakDot.translatesAutoresizingMaskIntoConstraints = false
+        micWeakDot.backgroundColor = Self.weakNetworkColor
+        micWeakDot.layer.cornerRadius = 7
+        micWeakDot.layer.borderWidth = 2
+        micWeakDot.layer.borderColor = UIColor.theme.secondary.cgColor
+        micWeakDot.isUserInteractionEnabled = false
+        micWeakDot.isHidden = !networkWeak
+        mic.addSubview(micWeakDot)
+        NSLayoutConstraint.activate([
+            micWeakDot.widthAnchor.constraint(equalToConstant: 14),
+            micWeakDot.heightAnchor.constraint(equalToConstant: 14),
+            micWeakDot.topAnchor.constraint(equalTo: mic.topAnchor),
+            micWeakDot.trailingAnchor.constraint(equalTo: mic.trailingAnchor),
+        ])
         let chat = makeControlBarIconButton(systemName: "bubble.left.and.bubble.right.fill", action: #selector(openChatTapped))
         let hand = makeControlBarIconButton(systemName: "hand.raised.fill", action: #selector(raiseHandTapped))
         raiseHandButton = hand
@@ -1863,8 +1883,6 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         contentScrollBottomToPill = scrollBottomToPill
         let headerTrailing = headerBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -10)
         let bannerLeading = raiseHandBannerStack.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 72)
-        // Texture can lay out the root at 0 × 0 before presentation. Let the
-        // outer spacing yield instead of breaking the controls' internal layout.
         for constraint in [scrollBottomToPill, headerTrailing, bannerLeading] {
             constraint.priority = UILayoutPriority(999)
         }
@@ -1872,8 +1890,6 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         headerTrailing.identifier = "voice.room.header.trailing"
         bannerLeading.identifier = "voice.room.raiseHand.leading"
 
-        // A hidden arranged subview gets a required zero-width constraint from
-        // UIStackView. Visible header buttons still prefer their 40-point width.
         let headerButtons: [UIView] = [collapseButton, cameraSwitchButton, agentToggleButton, audioRouteControl, moreButton]
         let headerButtonWidths = headerButtons.map { $0.widthAnchor.constraint(equalToConstant: 40) }
         for constraint in headerButtonWidths {
@@ -2970,6 +2986,10 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         session.onConnectionState = { [weak self] state in
             self?.handleSfuState(state)
         }
+        session.onNetworkWeak = { [weak self] isWeak in
+            self?.applyNetworkWeak(isWeak)
+        }
+        applyNetworkWeak(session.isNetworkWeak)
         session.onParticipants = { [weak self] list in
             self?.sfuParticipants = list
             self?.scheduleParticipantRowsRefresh()
@@ -2985,7 +3005,6 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         }
         session.onSpeaking = { [weak self] speakingIds in
             guard let self else { return }
-            // Audio activity changes only the border, never the grid order or media attachment.
             for (key, row) in self.participantRows {
                 let identity = key.components(separatedBy: "|").first ?? key
                 row.setSpeaking(speakingIds.contains(identity))
@@ -3142,6 +3161,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         }
         refreshMicButtonIcon()
         scheduleParticipantStateRefresh()
+        refreshNetworkWarningHint()
     }
 
     private func applyPttActive(_ active: Bool) {
@@ -3485,6 +3505,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         connectingOverlay.layer.borderColor = UIColor.theme.border.cgColor
         connectingLabel.textColor = UIColor.theme.textDisabled
         connectingSpinner.color = UIColor.theme.textDisabled
+        micWeakDot.layer.borderColor = UIColor.theme.secondary.cgColor
         participantRows.values.forEach { $0.applyTheme() }
         refreshSpeakerRouteUI()
         refreshCamButtonIcon()
@@ -3657,6 +3678,64 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         } else {
             connectingSpinner.stopAnimating()
         }
+    }
+
+    private func applyNetworkWeak(_ isWeak: Bool) {
+        networkWeak = isWeak
+        if !isWeak {
+            networkWarningDismissed = false
+        }
+        micWeakDot.isHidden = !isWeak
+        refreshNetworkWarningHint()
+    }
+
+    private func refreshNetworkWarningHint() {
+        let audience = !pttContainer.isHidden
+        let target: UIView? = audience ? pttMicPill : micButton
+        guard isViewLoaded, networkWeak, !networkWarningDismissed, let target else {
+            hideNetworkWarningHint()
+            return
+        }
+        if networkWarningHint != nil, networkWarningTarget === target { return }
+        networkWarningHint?.removeFromSuperview()
+        let message = L(L10n.VoiceChannel.networkWarning)
+        let hint = VoiceNetworkWarningHintView(message: message)
+        hint.translatesAutoresizingMaskIntoConstraints = false
+        hint.onDismiss = { [weak self] in
+            self?.networkWarningDismissed = true
+            self?.refreshNetworkWarningHint()
+        }
+        view.addSubview(hint)
+        let controls: UIView = audience ? pttContainer : bottomPill
+        let arrowToTarget = hint.arrowView.centerXAnchor.constraint(equalTo: target.centerXAnchor)
+        arrowToTarget.priority = UILayoutPriority(999)
+        let fillWidth = hint.widthAnchor.constraint(equalTo: view.widthAnchor, constant: -32)
+        fillWidth.priority = .defaultHigh
+        NSLayoutConstraint.activate([
+            hint.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            hint.widthAnchor.constraint(lessThanOrEqualToConstant: 360),
+            fillWidth,
+            hint.bottomAnchor.constraint(equalTo: controls.topAnchor, constant: -6),
+            arrowToTarget,
+        ])
+        networkWarningHint = hint
+        networkWarningTarget = target
+        hint.alpha = 0
+        UIView.animate(withDuration: 0.18) {
+            hint.alpha = 1
+        }
+        UIAccessibility.post(notification: .announcement, argument: message)
+    }
+
+    private func hideNetworkWarningHint() {
+        guard let hint = networkWarningHint else { return }
+        networkWarningHint = nil
+        networkWarningTarget = nil
+        UIView.animate(withDuration: 0.18, animations: {
+            hint.alpha = 0
+        }, completion: { _ in
+            hint.removeFromSuperview()
+        })
     }
 
     private func setupCallPiP() {

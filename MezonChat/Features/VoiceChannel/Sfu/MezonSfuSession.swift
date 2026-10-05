@@ -407,6 +407,7 @@ final class MezonSfuSession: NSObject {
     }
 
     var onConnectionState: ((SfuConnectionState) -> Void)?
+    var onNetworkWeak: ((Bool) -> Void)?
     var onParticipants: (([SfuParticipant]) -> Void)?
     var onRoleChanged: ((SfuRole) -> Void)?
     var onError: ((String, String?) -> Void)?
@@ -425,6 +426,8 @@ final class MezonSfuSession: NSObject {
     private var connectionReadiness = SfuConnectionReadiness()
     private(set) var hasReachedConnected = false
     private(set) var isConnected = false
+    private(set) var isNetworkWeak = false
+    private var networkQuality = SfuNetworkQuality()
     private(set) var micEnabled = false
     private(set) var cameraEnabled = false
     private(set) var pttActive = false
@@ -457,6 +460,8 @@ final class MezonSfuSession: NSObject {
     private var localTracksAdded = false
     private var admitted = false
     private var selfPeerId: String?
+    private let joinSound = VoiceJoinSound()
+    private var selfJoinSoundPending = false
     private var moderatorMuteTask: Task<Void, Never>?
 
     private var active = false
@@ -558,6 +563,7 @@ final class MezonSfuSession: NSObject {
 
     func clearCallbacks() {
         onConnectionState = nil
+        onNetworkWeak = nil
         onParticipants = nil
         onRoleChanged = nil
         onError = nil
@@ -603,6 +609,7 @@ final class MezonSfuSession: NSObject {
     func join(token: String, role: SfuRole) {
         leave()
         hasReachedConnected = false
+        selfJoinSoundPending = true
         self.token = token
         self.role = role
         micEnabled = false
@@ -1044,6 +1051,8 @@ final class MezonSfuSession: NSObject {
         speakingIds = []
         pttActive = false
         isConnected = false
+        networkQuality = SfuNetworkQuality()
+        setNetworkWeak(false)
         if hadConnection || audioRecoveryOwnsActivation {
             disableAudioIfIdle()
         }
@@ -1062,13 +1071,14 @@ final class MezonSfuSession: NSObject {
             return
         }
         micEnabled = on
+        if on { send(["type": "mute", "is_mute": false]) }
         let attached = synchronizeLocalAudioTrack()
         if on { restoreAudioSession(restartAudio: false) }
         if localTracksAdded && !attached {
             recoverTransport(gen: connectionGen)
             return
         }
-        send(["type": "mute", "is_mute": !on])
+        if !on { send(["type": "mute", "is_mute": true]) }
     }
 
     func setNoiseSuppressionEnabled(_ enabled: Bool) {
@@ -1150,7 +1160,7 @@ final class MezonSfuSession: NSObject {
         guard role == .audience else { return }
         pttRequested = false
         pttActive = false
-        localAudioTrack?.isEnabled = false
+        pauseAudioSending()
         send(["type": "push_to_talk", "active": false])
         send(["type": "mute", "is_mute": true])
     }
@@ -1387,7 +1397,10 @@ final class MezonSfuSession: NSObject {
                     return
                 }
                 let resumePushToTalk = role == .audience && pttRequested
-                send(["type": "mute", "is_mute": role == .speaker ? !micEnabled : !resumePushToTalk])
+                let unmuted = role == .speaker ? micEnabled : resumePushToTalk
+                if unmuted {
+                    send(["type": "mute", "is_mute": false])
+                }
                 if resumePushToTalk {
                     send(["type": "push_to_talk", "active": true])
                 }
@@ -1399,6 +1412,10 @@ final class MezonSfuSession: NSObject {
             updateConnectionReadiness()
             emitParticipants()
         case "peer_joined", "peer_updated":
+            var newcomer: String?
+            if (msg["type"] as? String) == "peer_joined", let peer = msg["peer"] as? [String: Any] {
+                newcomer = newcomerUserId(peer)
+            }
             if let peer = msg["peer"] as? [String: Any], applyPeers([peer]) {
                 syncRemoteMedia()
             }
@@ -1406,6 +1423,9 @@ final class MezonSfuSession: NSObject {
                 noteSelfPeerUpdate(peer)
             }
             emitParticipants()
+            if let newcomer, !VoiceAgentIdentity.isAgent(newcomer) {
+                joinSound.play()
+            }
         case "peer_left":
             handlePeerLeft(msg)
             emitParticipants()
@@ -1445,7 +1465,7 @@ final class MezonSfuSession: NSObject {
             if detail == "invalid_push_to_talk" || detail == "push_to_talk_rejected" {
                 pttActive = false
                 pttRequested = false
-                localAudioTrack?.isEnabled = false
+                pauseAudioSending()
                 onPushToTalkActive?(false)
             } else if detail == "stale_offer_generation" || detail == "future_offer_generation" {
                 if !negotiating && pendingOffer == nil {
@@ -1529,6 +1549,10 @@ final class MezonSfuSession: NSObject {
             guard gen == self.connectionGen, self.active, self.joined, self.isConnected,
                   Self.liveSession === self else { return }
             self.restoreAudioSession(restartAudio: true)
+            if self.selfJoinSoundPending {
+                self.selfJoinSoundPending = false
+                self.joinSound.play()
+            }
         }
     }
 
@@ -1871,11 +1895,24 @@ final class MezonSfuSession: NSObject {
         let gen = connectionGen
         Self.requestStatistics(pc) { [weak self] report in
             let flow = Self.audioFlow(in: report)
+            let lossSamples = SfuNetworkQuality.lossSamples(in: report)
             Task { @MainActor [weak self] in
                 guard let self, self.active, self.connectionGen == gen else { return }
                 self.evaluatePlayout(flow, gen: gen)
+                self.updateNetworkQuality(lossSamples)
             }
         }
+    }
+
+    private func updateNetworkQuality(_ samples: [SfuLossSample]) {
+        guard connectionState == .connected else { return }
+        setNetworkWeak(networkQuality.update(samples))
+    }
+
+    private func setNetworkWeak(_ isWeak: Bool) {
+        guard isNetworkWeak != isWeak else { return }
+        isNetworkWeak = isWeak
+        onNetworkWeak?(isWeak)
     }
 
     private nonisolated static func audioFlow(in report: RTCStatisticsReport) -> SfuAudioFlow {
@@ -2153,12 +2190,30 @@ final class MezonSfuSession: NSObject {
         guard active else { return false }
         createLocalAudioTrack()
         guard let audio = localAudioTrack, audio.readyState == .live else { return false }
-        audio.isEnabled = shouldSendAudio
+        let sending = shouldSendAudio
+        audio.isEnabled = sending
         guard let tc = findTransceiver(mid: Self.midAudio, kind: "audio") else { return false }
         if tc.sender.track?.isEqual(audio) != true {
             tc.sender.track = audio
         }
-        return tc.sender.track?.isEqual(audio) == true
+        guard tc.sender.track?.isEqual(audio) == true else { return false }
+        return setAudioEncodingActive(tc.sender, sending) || !sending
+    }
+
+    @discardableResult
+    private func setAudioEncodingActive(_ sender: RTCRtpSender, _ sending: Bool) -> Bool {
+        let parameters = sender.parameters
+        guard parameters.encodings.contains(where: { $0.isActive != sending }) else { return true }
+        parameters.encodings.forEach { $0.isActive = sending }
+        sender.parameters = parameters
+        return sender.parameters.encodings.allSatisfy { $0.isActive == sending }
+    }
+
+    private func pauseAudioSending() {
+        localAudioTrack?.isEnabled = false
+        if let sender = findTransceiver(mid: Self.midAudio, kind: "audio")?.sender {
+            setAudioEncodingActive(sender, false)
+        }
     }
 
     private func attachLocalTracks(_ pc: RTCPeerConnection) throws {
@@ -2185,6 +2240,7 @@ final class MezonSfuSession: NSObject {
             audio?.isEnabled = true
             if let tc, let audio {
                 tc.sender.track = audio
+                setAudioEncodingActive(tc.sender, true)
                 setTransceiverDirection(tc, .sendOnly)
             }
             pttActive = true
@@ -2523,6 +2579,15 @@ final class MezonSfuSession: NSObject {
         remoteOrder.removeAll(where: { $0 == id })
     }
 
+    private func newcomerUserId(_ peer: [String: Any]) -> String? {
+        guard admitted,
+              let peerId = stringValue(peer["peer_id"]), !peerId.isEmpty,
+              peerId != selfPeerId, memberByPeerId[peerId] == nil,
+              let userId = stringValue(peer["user_id"]), !userId.isEmpty
+        else { return nil }
+        return userId
+    }
+
     private func handlePeerLeft(_ msg: [String: Any]) {
         let peerId = stringValue(msg["peer_id"])
         if let peerId {
@@ -2746,13 +2811,16 @@ final class MezonSfuSession: NSObject {
     }
 
     private func emitState(_ state: SfuConnectionState) {
-        // Late signaling callbacks must not move the UI back from transport setup.
         if state == .joining || state == .awaitingOffer {
             guard connectionState != .iceConnected, connectionState != .dtlsHandshake,
                   connectionState != .awaitingConfirmation, connectionState != .connected else { return }
         }
         guard state != connectionState else { return }
         connectionState = state
+        if state != .connected {
+            networkQuality = SfuNetworkQuality()
+            setNetworkWeak(false)
+        }
         onConnectionState?(state)
     }
 
