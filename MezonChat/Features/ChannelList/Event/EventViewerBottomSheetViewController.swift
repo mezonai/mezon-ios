@@ -473,7 +473,11 @@ final class EventViewerBottomSheetViewController: UIViewController {
             }
         }
 
-        let shouldShowLoading = isFetching && events.isEmpty
+        updateLoadingState()
+    }
+
+    private func updateLoadingState() {
+        let shouldShowLoading = isFetching && filteredEvents().isEmpty
         loadingRow.isHidden = !shouldShowLoading
         loadingIndicator.isHidden = !shouldShowLoading
         if shouldShowLoading {
