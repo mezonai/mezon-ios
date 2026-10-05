@@ -1517,6 +1517,7 @@ enum L10n {
         static let rejoinBody = "voiceChannel.rejoinBody"
         static let retry = "voiceChannel.retry"
         static let leaveRoom = "voiceChannel.leaveRoom"
+        static let networkWarning = "voiceChannel.networkWarning"
     }
 }
 
@@ -2888,6 +2889,7 @@ extension L10n {
         "voiceChannel.rejoinBody": "The voice connection could not be restored. Check your connection and try joining again.",
         "voiceChannel.retry": "Rejoin",
         "voiceChannel.leaveRoom": "Exit",
+        "voiceChannel.networkWarning": "Your internet connection is unstable.",
     ]
 
     private static let vi: [String: String] = [
@@ -4249,5 +4251,6 @@ extension L10n {
         "voiceChannel.rejoinBody": "Không thể khôi phục kết nối thoại. Hãy kiểm tra kết nối và thử tham gia lại.",
         "voiceChannel.retry": "Tham gia lại",
         "voiceChannel.leaveRoom": "Thoát",
+        "voiceChannel.networkWarning": "Kết nối mạng của bạn không ổn định.",
     ]
 }

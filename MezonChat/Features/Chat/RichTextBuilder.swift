@@ -648,15 +648,16 @@ extension RichTextBuilder {
     private static let embedFenceRegex = try? NSRegularExpression(pattern: "```([\\s\\S]*?)```")
     private static let embedURLRunRegex = try? NSRegularExpression(pattern: "https?://\\S+", options: [.caseInsensitive])
     private static let embedFenceLanguageRegex = try? NSRegularExpression(pattern: "^[a-zA-Z0-9+#.-]{1,24}$")
-    private static let embedURLTrailingCharacters = CharacterSet(charactersIn: ".,;:!?)]}\\\"")
-    private static let embedURLTailCharacters = CharacterSet(charactersIn: ".,;:!?)]}\\\"*_~`")
+    private static let embedURLTrailingCharacters = CharacterSet(charactersIn: ".,;:!?)]}\\\">")
+    private static let embedURLTailCharacters = CharacterSet(charactersIn: ".,;:!?)]}\\\">*_~`")
+    private static let embedMaskCharacter: unichar = 0xE000
     private static let embedInlineRules: [(regex: NSRegularExpression, style: EmbedInlineStyle)] = {
         let patterns: [(String, EmbedInlineStyle)] = [
             ("`([^`\\n]+)`", .code),
-            ("(?<![\\p{L}\\p{N}])\\*\\*(?![\\s*\\x{FE0F}])([^*\\n]+)(?<!\\s)\\*\\*(?!\\x{FE0F})", .bold),
+            ("\\*\\*(?![\\s*\\x{FE0F}])([^*\\n]+)(?<!\\s)\\*\\*(?!\\x{FE0F})", .bold),
             ("(?<![\\p{L}\\p{N}])__(?![_\\s])([^_\\n]+)(?<!\\s)__(?![\\p{L}\\p{N}])", .underline),
             ("~~(?!\\s)([^~\\n]+)(?<!\\s)~~", .strikethrough),
-            ("(?<![\\p{L}\\p{N}*])\\*(?![\\s*\\x{FE0F}])([^*\\n]+)(?<!\\s)\\*(?![\\p{L}\\p{N}*\\x{FE0F}])", .italic),
+            ("(?<![\\p{N}*])\\*(?![\\s*\\x{FE0F}])([^*\\n]+)(?<!\\s)\\*(?![*\\x{FE0F}])", .italic),
             ("(?<![\\p{L}\\p{N}_])_(?!\\s)([^_\\n]+)(?<!\\s)_(?![\\p{L}\\p{N}_])", .italic),
         ]
         var rules: [(regex: NSRegularExpression, style: EmbedInlineStyle)] = []
@@ -755,59 +756,49 @@ extension RichTextBuilder {
     }
 
     private static func applyEmbedInlineMarkdown(to text: NSMutableAttributedString, codeBackground: UIColor) {
+        let source = text.string as NSString
+        let length = source.length
+        guard length > 0 else { return }
+        let fullRange = NSRange(location: 0, length: length)
+        var working = [unichar](repeating: 0, count: length)
+        source.getCharacters(&working, range: fullRange)
+        let urlRuns = embedURLRunRegex?.matches(in: source as String, options: [], range: fullRange) ?? []
+        for run in urlRuns {
+            var coreEnd = NSMaxRange(run.range)
+            while coreEnd > run.range.location,
+                  let scalar = Unicode.Scalar(working[coreEnd - 1]),
+                  embedURLTailCharacters.contains(scalar) {
+                coreEnd -= 1
+            }
+            embedMask(&working, NSRange(location: run.range.location, length: coreEnd - run.range.location))
+        }
+        var removals: [NSRange] = []
         for rule in embedInlineRules {
-            let snapshot = text.string
-            let source = snapshot as NSString
-            let fullRange = NSRange(location: 0, length: source.length)
-            let urlRuns = embedURLRunRegex?.matches(in: snapshot, options: [], range: fullRange).map(\.range) ?? []
-            let matches = rule.regex.matches(in: snapshot, options: [], range: fullRange)
-            for match in matches.reversed() {
+            let masked = String(utf16CodeUnits: working, count: length)
+            for match in rule.regex.matches(in: masked, options: [], range: fullRange) {
                 let inner = match.range(at: 1)
                 guard inner.location != NSNotFound, inner.length > 0 else { continue }
                 let opening = NSRange(location: match.range.location, length: inner.location - match.range.location)
                 let closing = NSRange(location: NSMaxRange(inner), length: NSMaxRange(match.range) - NSMaxRange(inner))
-                if embedDelimitersBreakURL(opening: opening, closing: closing, urlRuns: urlRuns, source: source) {
-                    continue
+                applyEmbedInlineStyle(rule.style, to: text, range: inner, codeBackground: codeBackground)
+                removals.append(opening)
+                removals.append(closing)
+                embedMask(&working, opening)
+                embedMask(&working, closing)
+                if rule.style == .code {
+                    embedMask(&working, inner)
                 }
-                if text.attribute(.backgroundColor, at: opening.location, effectiveRange: nil) != nil
-                    || text.attribute(.backgroundColor, at: closing.location, effectiveRange: nil) != nil {
-                    continue
-                }
-                text.deleteCharacters(in: closing)
-                text.deleteCharacters(in: opening)
-                applyEmbedInlineStyle(
-                    rule.style,
-                    to: text,
-                    range: NSRange(location: opening.location, length: inner.length),
-                    codeBackground: codeBackground
-                )
             }
+        }
+        for range in removals.sorted(by: { $0.location > $1.location }) {
+            text.deleteCharacters(in: range)
         }
     }
 
-    private static func embedDelimitersBreakURL(
-        opening: NSRange,
-        closing: NSRange,
-        urlRuns: [NSRange],
-        source: NSString
-    ) -> Bool {
-        for run in urlRuns {
-            if opening.location > run.location && opening.location < NSMaxRange(run) {
-                return true
-            }
-            if closing.location > run.location && closing.location < NSMaxRange(run) {
-                var coreEnd = NSMaxRange(run)
-                while coreEnd > run.location,
-                      let scalar = Unicode.Scalar(source.character(at: coreEnd - 1)),
-                      embedURLTailCharacters.contains(scalar) {
-                    coreEnd -= 1
-                }
-                if closing.location < coreEnd {
-                    return true
-                }
-            }
+    private static func embedMask(_ working: inout [unichar], _ range: NSRange) {
+        for index in range.location..<NSMaxRange(range) {
+            working[index] = embedMaskCharacter
         }
-        return false
     }
 
     private static func applyEmbedInlineStyle(
@@ -821,10 +812,7 @@ extension RichTextBuilder {
             let border = ASTextBorder()
             border.fillColor = codeBackground
             border.cornerRadius = 3
-            text.addAttributes(
-                [.backgroundColor: codeBackground, NSAttributedString.Key(ASTextBackgroundBorderAttributeName): border],
-                range: range
-            )
+            text.addAttribute(NSAttributedString.Key(ASTextBackgroundBorderAttributeName), value: border, range: range)
         case .bold:
             addEmbedFontTrait(.traitBold, to: text, range: range)
         case .italic:
