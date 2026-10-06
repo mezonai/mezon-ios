@@ -483,6 +483,7 @@ final class VoiceChannelPiPOverlay: NSObject {
 
     private override init() {
         super.init()
+        NotificationCenter.default.addObserver(self, selector: #selector(handleChannelAccessLost(_:)), name: .mezonVoiceChannelAccessLost, object: nil)
         pipView.layer.cornerRadius = 10
         pipView.clipsToBounds = true
         pipView.layer.borderWidth = 1
@@ -814,6 +815,7 @@ final class VoiceChannelPiPOverlay: NSObject {
     }
 
     func dismiss() {
+        if let channel { context?.engine.channels.stopTrackingVoiceChannel(channelId: channel.channelID) }
         let savedAlign = crossClanVoiceExitAlignClanId
         let savedChannelId = channel?.channelID ?? 0
         UIApplication.shared.isIdleTimerDisabled = false
@@ -839,6 +841,12 @@ final class VoiceChannelPiPOverlay: NSObject {
         crossClanVoiceExitAlignClanId = nil
         applyCrossClanVoiceHomeExitFromPiPIfNeeded(alignClanId: savedAlign, channelId: savedChannelId)
         s?.leave()
+    }
+
+    @objc private func handleChannelAccessLost(_ notification: Notification) {
+        guard let channel, notification.userInfo?["channelId"] as? Int64 == channel.channelID,
+              notification.userInfo?["clanId"] as? Int64 == channel.clanID else { return }
+        dismiss()
     }
 
     private func applyLocalMeetLeaveIfNeeded() {
@@ -2027,6 +2035,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         }
 
         setupPttControls()
+        NotificationCenter.default.addObserver(self, selector: #selector(handleVoiceChannelAccessLost(_:)), name: .mezonVoiceChannelAccessLost, object: nil)
         if joinRole == .audience {
             applyRole(.audience)
         }
@@ -2340,6 +2349,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         callPiPController?.delegate = nil
         callPiPController = nil
         NotificationCenter.default.removeObserver(self, name: ThemeManager.didChangeNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: .mezonVoiceChannelAccessLost, object: nil)
         NotificationCenter.default.removeObserver(self, name: UIApplication.didBecomeActiveNotification, object: nil)
         if let audioRouteObserver {
             NotificationCenter.default.removeObserver(audioRouteObserver)
@@ -3026,13 +3036,17 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         let tokenChannelId = session.channelId
         let tokenClanId = session.clanId
         session.tokenProvider = {
+            guard !tokenContext.engine.channels.isAccessRevoked(channelId: tokenChannelId) else { return nil }
             guard let token = await tokenContext.getToken() else { return nil }
-            return try? await tokenContext.account.network.generateMeetToken(
+            guard !Task.isCancelled else { return nil }
+            let jwt = try? await tokenContext.account.network.generateMeetToken(
                 channelId: tokenChannelId,
                 roomName: String(tokenChannelId),
                 metadata: tokenContext.meetTokenMetadata(clanId: tokenClanId),
                 token: token
             )
+            guard !Task.isCancelled, !tokenContext.engine.channels.isAccessRevoked(channelId: tokenChannelId) else { return nil }
+            return jwt
         }
     }
 
@@ -3529,6 +3543,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     @objc private func popTapped() {
         guard !isEndingVoiceRoom else { return }
         isEndingVoiceRoom = true
+        context.engine.channels.stopTrackingVoiceChannel(channelId: channel.channelID)
         clearParticipantMicPriority()
         lowerRaiseHandIfActive()
         dismissVoiceMoreToolsPopover()
@@ -3608,6 +3623,18 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     private func runVoiceConnectionPipeline() async {
+        guard !context.engine.channels.isAccessRevoked(channelId: channel.channelID), !isEndingVoiceRoom else {
+            performSfuFinalTeardown(message: nil)
+            return
+        }
+        let trackingId = context.engine.channels.trackVoiceChannel(channel)
+        var didJoin = false
+        defer {
+            if !didJoin {
+                context.engine.channels.stopTrackingVoiceChannel(channelId: channel.channelID, trackingId: trackingId)
+                setConnectingOverlayVisible(false)
+            }
+        }
         setConnectingOverlayVisible(true)
         await context.waitForSessionReady()
         guard !Task.isCancelled else { return }
@@ -3628,7 +3655,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                 metadata: context.meetTokenMetadata(clanId: channel.clanID),
                 token: sessionToken
             )
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, !isEndingVoiceRoom,
+                  !context.engine.channels.isAccessRevoked(channelId: channel.channelID) else { return }
             guard !jwt.isEmpty else {
                 setConnectingOverlayVisible(false)
                 presentVoiceAlert(
@@ -3638,7 +3666,11 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             }
 
             let microphoneGranted = await VoiceChannelMicPermission.requestIfNeeded()
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, !isEndingVoiceRoom,
+                  !context.engine.channels.isAccessRevoked(channelId: channel.channelID) else {
+                setConnectingOverlayVisible(false)
+                return
+            }
 
             let session = MezonSfuSession(
                 channelId: channel.channelID,
@@ -3654,7 +3686,9 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                 role: joinRole
             )
             // A synchronous join failure can already have torn this session down.
-            guard !Task.isCancelled, sfuSession === session else { return }
+            guard !Task.isCancelled, !isEndingVoiceRoom, sfuSession === session,
+                  !context.engine.channels.isAccessRevoked(channelId: channel.channelID) else { return }
+            didJoin = true
 
             refreshMicButtonIcon()
             detectInitialAudioRoute()
@@ -4494,6 +4528,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
     private func performSfuFinalTeardown(message: String?, offerRejoin: Bool = false) {
         isEndingVoiceRoom = true
+        context.engine.channels.stopTrackingVoiceChannel(channelId: channel.channelID)
         tearDownCallPiP()
         tearDownScreenSharePresentationAndPiP()
 
@@ -4535,6 +4570,22 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             }
         } else {
             popVoiceRoomOrAlignHomeAfterCrossClanVoice()
+        }
+    }
+
+    @objc private func handleVoiceChannelAccessLost(_ notification: Notification) {
+        guard notification.userInfo?["channelId"] as? Int64 == channel.channelID,
+              notification.userInfo?["clanId"] as? Int64 == channel.clanID,
+              !isMinimizingToPiP, (!isEndingVoiceRoom || pendingRejoinPrompt) else { return }
+        // A terminal network failure may already have ended the session while a retry is pending.
+        pendingRejoinPrompt = false
+        let prompt = rejoinPromptController
+        rejoinPromptController = nil
+        prompt?.dismiss(animated: false)
+        let nav = navigationController
+        performSfuFinalTeardown(message: nil)
+        if let nav, nav.topViewController !== self, nav.viewControllers.contains(where: { $0 === self }) {
+            nav.setViewControllers(nav.viewControllers.filter { $0 !== self }, animated: false)
         }
     }
 

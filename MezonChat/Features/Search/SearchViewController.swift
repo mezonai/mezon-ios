@@ -238,6 +238,7 @@ final class SearchViewController: ViewController {
         super.viewDidLoad()
         navigationController?.setNavigationBarHidden(true, animated: false)
         searchNode.applyTheme()
+        NotificationCenter.default.addObserver(self, selector: #selector(handleVoiceAccessLost), name: .mezonVoiceChannelAccessLost, object: nil)
         loadInitialData()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
@@ -388,11 +389,21 @@ final class SearchViewController: ViewController {
     }
 
     deinit {
+        NotificationCenter.default.removeObserver(self, name: .mezonVoiceChannelAccessLost, object: nil)
         memberAvatarPrefetchWorkItem?.cancel()
+    }
+
+    @objc private func handleVoiceAccessLost() {
+        allChannels.removeAll { context.engine.channels.isAccessRevoked(channelId: $0.channelID) }
+        ctrlKChannels.removeAll { context.engine.channels.isAccessRevoked(channelId: $0.channelID) }
+        filteredChannels.removeAll { context.engine.channels.isAccessRevoked(channelId: $0.channelID) }
+        updateTabCounts()
+        reloadSearchTable()
     }
 
     private func fetchFromAPI() {
         Task { @MainActor in
+            let epoch = context.sessionEpoch
             guard let token = await context.getToken() else { return }
             do {
                 let needsClanProfileHydration =
@@ -414,13 +425,17 @@ final class SearchViewController: ViewController {
                 }
             } catch {}
             do {
+                let accessSnapshot = context.engine.channels.accessSnapshot
                 let channels = try await context.account.network.listChannelByUserId(token: token)
+                guard context.isStillCurrentSession(epoch: epoch) else { return }
                 if !channels.channeldesc.isEmpty {
-                    allChannels = channels.channeldesc
+                    let accessibleChannels = context.engine.channels.mergingVoiceAccess(channels.channeldesc, since: accessSnapshot)
+                    allChannels = accessibleChannels
                     mergeInitialChannelsIntoAllChannels()
                     mergeCachedClanChannelListsIntoAllChannels()
                     mergeDMChannelsIntoAllChannels()
                     var persistList = channels
+                    persistList.channeldesc = accessibleChannels
                     if let existing = context.engine.clanData.getAllChannelsByUser() {
                         var ids = Set(persistList.channeldesc.map { $0.channelID })
                         for ch in existing.channeldesc where !ids.contains(ch.channelID) {
@@ -428,6 +443,7 @@ final class SearchViewController: ViewController {
                             ids.insert(ch.channelID)
                         }
                     }
+                    persistList.channeldesc.removeAll { context.engine.channels.isAccessRevoked(channelId: $0.channelID) }
                     if let data = try? persistList.serializedData() {
                         context.account.postbox.setPreferenceData(
                             key: PreferencesKeys.allChannelsByUser, value: data)
@@ -478,7 +494,7 @@ final class SearchViewController: ViewController {
                 guard self.ctrlKGeneration == generation else { return }
                 self.ctrlKUsers = Self.uniqueUsers(response.users.filter { $0.id != 0 })
                 self.ctrlKChannels = Self.uniqueChannels(
-                    response.channels.filter { $0.channelID != 0 }
+                    response.channels.filter { $0.channelID != 0 && !self.context.engine.channels.isAccessRevoked(channelId: $0.channelID) }
                 ).map { ch in
                     var ch = ch
                     if ch.clanName.isEmpty, ch.clanID != 0, let name = self.clanNamesById[ch.clanID] {
@@ -703,6 +719,7 @@ final class SearchViewController: ViewController {
     }
 
     private func performSearch(shouldFetchMessages: Bool = true) {
+        allChannels.removeAll { context.engine.channels.isAccessRevoked(channelId: $0.channelID) }
         let rawQuery = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         let query = preparedMatchQuery(from: rawQuery)
 

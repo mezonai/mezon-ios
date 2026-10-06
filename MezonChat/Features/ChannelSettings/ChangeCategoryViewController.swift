@@ -10,6 +10,10 @@ final class ChangeCategoryViewController: BaseViewController {
     private var currentCategoryName: String
     private let channelLabel: String
     private let channelTopic: String
+    private let channelType: Int32
+    private let nameContainer = UIStackView()
+    private let nameField = UITextField()
+    private var isSaving = false
     private var categories: [Mezon_Api_CategoryDesc] = []
 
     private let scrollView = UIScrollView()
@@ -25,7 +29,8 @@ final class ChangeCategoryViewController: BaseViewController {
         currentCategoryId: Int64,
         currentCategoryName: String,
         channelLabel: String,
-        channelTopic: String
+        channelTopic: String,
+        channelType: Int32 = MezonConstants.ChannelType.channel.rawValue
     ) {
         self.context = context
         self.clanId = clanId
@@ -34,6 +39,7 @@ final class ChangeCategoryViewController: BaseViewController {
         self.currentCategoryName = currentCategoryName
         self.channelLabel = channelLabel
         self.channelTopic = channelTopic
+        self.channelType = channelType
         super.init(navigationBarPresentationData: nil)
     }
 
@@ -81,6 +87,18 @@ final class ChangeCategoryViewController: BaseViewController {
             titleLabel.centerYAnchor.constraint(equalTo: header.centerYAnchor),
         ])
 
+        if channelType == MezonConstants.ChannelType.mezonVoice.rawValue {
+            let save = UIButton(type: .system)
+            save.setTitle(L(L10n.Common.save), for: .normal)
+            save.addTarget(self, action: #selector(saveName), for: .touchUpInside)
+            header.addSubview(save)
+            save.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                save.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -16.sw),
+                save.centerYAnchor.constraint(equalTo: header.centerYAnchor)
+            ])
+        }
+
         scrollView.showsVerticalScrollIndicator = false
         view.addSubview(scrollView)
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -102,6 +120,24 @@ final class ChangeCategoryViewController: BaseViewController {
             stackView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: -16.sh),
             stackView.widthAnchor.constraint(equalTo: scrollView.widthAnchor, constant: -32.sw),
         ])
+
+        if channelType == MezonConstants.ChannelType.mezonVoice.rawValue {
+            nameContainer.axis = .vertical
+            nameContainer.spacing = 8.sh
+            let label = UILabel()
+            label.text = L(L10n.Channel.name)
+            label.textColor = t.textStrong
+            label.font = .systemFont(ofSize: 14.sf, weight: .semibold)
+            nameContainer.addArrangedSubview(label)
+            nameField.text = channelLabel
+            nameField.textColor = t.textStrong
+            nameField.backgroundColor = t.secondary
+            nameField.borderStyle = .roundedRect
+            nameField.heightAnchor.constraint(equalToConstant: 48.sh).isActive = true
+            nameContainer.addArrangedSubview(nameField)
+            stackView.addArrangedSubview(nameContainer)
+            stackView.setCustomSpacing(24.sh, after: nameContainer)
+        }
 
         headerLabel.font = .systemFont(ofSize: 12.sf, weight: .semibold)
         headerLabel.textColor = t.textDisabled
@@ -213,7 +249,7 @@ final class ChangeCategoryViewController: BaseViewController {
 
 
     private func buildCategoryRows() {
-        let viewsToRemove = stackView.arrangedSubviews.filter { $0 !== headerLabel && $0 !== activityIndicator }
+        let viewsToRemove = stackView.arrangedSubviews.filter { $0 !== headerLabel && $0 !== activityIndicator && $0 !== nameContainer }
         viewsToRemove.forEach { $0.removeFromSuperview() }
 
         guard !categories.isEmpty else {
@@ -305,30 +341,61 @@ final class ChangeCategoryViewController: BaseViewController {
         present(alert, animated: true)
     }
 
-    private func moveChannelToCategory(_ category: Mezon_Api_CategoryDesc) {
+    @objc private func saveName() { saveChanges(category: nil) }
+
+    private func moveChannelToCategory(_ category: Mezon_Api_CategoryDesc) { saveChanges(category: category) }
+
+    private func saveChanges(category: Mezon_Api_CategoryDesc?) {
+        guard !isSaving else { return }
+        let name: String? = channelType == MezonConstants.ChannelType.mezonVoice.rawValue
+            ? (nameField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines) : nil
+        let currentName = context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channelId)?.channelLabel ?? channelLabel
+        if category == nil, name == currentName { return }
+        if let name, name != currentName {
+            let pattern = "^(?![_\\-\\s])(?:(?!')[a-zA-Z0-9\\p{L}\\p{N}\\p{So}_\\-\\s]){1,64}$"
+            guard name.range(of: pattern, options: .regularExpression) != nil else {
+                Toast.error(L(L10n.ChannelSetting.channelNameValidate))
+                return
+            }
+        }
+        isSaving = true
         Task { @MainActor [weak self] in
             guard let self else { return }
-            guard let token = await self.context.getToken() else { return }
+            defer {
+                self.isSaving = false
+                self.activityIndicator.stopAnimating()
+                self.view.isUserInteractionEnabled = true
+            }
+            guard let token = await self.context.getToken() else {
+                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                return
+            }
             let clanId = self.clanId
             let channelId = self.channelId
 
             self.activityIndicator.startAnimating()
             self.view.isUserInteractionEnabled = false
             do {
+                let latest = self.channelType == MezonConstants.ChannelType.mezonVoice.rawValue
+                    ? self.context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channelId) : nil
+                if let name, name != (latest?.channelLabel ?? self.channelLabel),
+                   try await self.context.account.network.checkDuplicateName(
+                    name: name, type: 2, conditionId: latest?.categoryID ?? self.currentCategoryId, token: token) {
+                    Toast.error(L(L10n.ChannelSetting.channelNameDuplicate))
+                    return
+                }
                 try await self.context.engine.channels.updateChannelDescription(
                     clanId: clanId,
                     channelId: channelId,
-                    name: self.channelLabel,
-                    topic: self.channelTopic,
-                    categoryId: category.categoryID,
+                    name: name ?? latest?.channelLabel ?? self.channelLabel,
+                    topic: latest?.topic ?? self.channelTopic,
+                    categoryId: category?.categoryID ?? latest?.categoryID ?? self.currentCategoryId,
                     token: token
                 )
 
                 self.navigationController?.popViewController(animated: true)
             } catch {
                 Toast.error(error.localizedDescription)
-                self.activityIndicator.stopAnimating()
-                self.view.isUserInteractionEnabled = true
             }
         }
     }

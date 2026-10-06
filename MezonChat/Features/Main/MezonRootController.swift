@@ -740,14 +740,19 @@ final class MezonRootController: NavigationController {
             let startEpoch = self.context.sessionEpoch
             guard let token = await self.context.getToken() else { return }
             let network = self.context.account.network
+            let accessRevision = self.context.engine.channels.accessRevision(clanId: clanId)
             do {
-                async let channelsTask = network.listChannelDescs(clanId: clanId, token: token)
+                async let channelsTask = network.listChannelDescs(clanId: clanId, token: token, accessRevision: accessRevision)
                 async let categoriesTask = network.listCategoryDescs(clanId: clanId, token: token)
                 async let favoritesTask = network.listFavoriteChannelIds(clanId: clanId, token: token)
                 let categoryDescs = (try? await categoriesTask) ?? []
                 let favoriteIds = Set((try? await favoritesTask) ?? [])
                 let channels = try await channelsTask
                 guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
+                guard self.context.engine.channels.reconcileVoiceChannelAccess(channels, clanId: clanId, revision: accessRevision) else {
+                    self.fetchClanChannelsInBackground(clanId: clanId, selectChannelId: selectChannelId)
+                    return
+                }
                 if channels.isEmpty {
                     if let homeVC = self.homeController, homeVC.channelListVC.clanId == clanId {
                         if let selectChannelId {
@@ -1035,14 +1040,16 @@ final class MezonRootController: NavigationController {
             var latestChannels: [Mezon_Api_ChannelDescription] = []
             for attempt in 0..<3 {
                 do {
+                    let accessRevision = self.context.engine.channels.accessRevision(clanId: targetClanId)
                     let channels = try await self.context.account.network.listChannelDescs(
-                        clanId: targetClanId, token: token, force: true
+                        clanId: targetClanId, token: token, force: true, accessRevision: accessRevision
                     )
                     guard self.context.isStillCurrentSession(epoch: startEpoch),
                           self.activeChannelDeepLinkID == loadingID else {
                         self.hideChannelDeepLinkLoading(loadingID)
                         return
                     }
+                    guard self.context.engine.channels.reconcileVoiceChannelAccess(channels, clanId: targetClanId, revision: accessRevision) else { continue }
                     latestChannels = channels
                     if channels.contains(where: { $0.channelID == targetChannelId }) {
                         self.context.account.postbox.setPreferenceDataSync(
@@ -1062,13 +1069,16 @@ final class MezonRootController: NavigationController {
                 }
             }
             do {
+                let accessSnapshot = self.context.engine.channels.accessSnapshot
                 let userChannels = try await self.context.account.network.listChannelByUserId(token: token)
                 guard self.context.isStillCurrentSession(epoch: startEpoch),
                       self.activeChannelDeepLinkID == loadingID else {
                     self.hideChannelDeepLinkLoading(loadingID)
                     return
                 }
-                if let channel = userChannels.channeldesc.first(where: {
+                let accessibleChannels = self.context.engine.channels.mergingVoiceAccess(userChannels.channeldesc, since: accessSnapshot)
+                latestChannels = latestChannels.filter { !self.context.engine.channels.isAccessRevoked(channelId: $0.channelID) }
+                if let channel = accessibleChannels.first(where: {
                     $0.channelID == targetChannelId && $0.clanID == targetClanId
                 }) {
                     latestChannels.append(channel)

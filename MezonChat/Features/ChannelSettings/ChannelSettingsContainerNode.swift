@@ -24,8 +24,8 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
     private let topicView = UITextView()
     private var saveBtn: UIButton!
     private var deleteBtn: UIView?
-    private let initialName: String
-    private let initialTopic: String
+    private var initialName: String
+    private var initialTopic: String
     private let errorLabel = UILabel()
 
     init(
@@ -65,6 +65,14 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
 
         nameField.text = channelName
         topicView.text = channelTopic
+    }
+
+    func updateSnapshot(name: String, topic: String) {
+        if nameField.text == initialName { nameField.text = name }
+        if topicView.text == initialTopic { topicView.text = topic }
+        initialName = name
+        initialTopic = topic
+        if isNodeLoaded { handleNameChange() }
     }
 
     override func didLoad() {

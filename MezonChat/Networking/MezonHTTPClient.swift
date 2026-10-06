@@ -606,11 +606,11 @@ final class MezonHTTPClient {
             path: "/mezon.api.Mezon/ListChannelDetail", message: req, auth: .bearer(token))
     }
 
-    func listChannelDescs(clanId: Int64, token: String, force: Bool = false) async throws -> [Mezon_Api_ChannelDescription] {
+    func listChannelDescs(clanId: Int64, token: String, force: Bool = false, accessRevision: UInt64? = nil) async throws -> [Mezon_Api_ChannelDescription] {
         if clanId == 0 {
             return try await performListChannelDescs(clanId: clanId, token: token)
         }
-        return try await MezonSocketRequestCoalescer.shared.coalesceChannelDescs(clanId: clanId, force: force) {
+        return try await MezonSocketRequestCoalescer.shared.coalesceChannelDescs(clanId: clanId, force: force, accessRevision: accessRevision) {
             try await self.performListChannelDescs(clanId: clanId, token: token)
         }
     }
@@ -3317,9 +3317,10 @@ extension MezonHTTPClient {
             forName: .mezonChannelDescriptionDidUpdate, object: nil, queue: nil
         ) { notification in
             let clanId = (notification.userInfo?["clanId"] as? NSNumber)?.int64Value
+            let isVoice = (notification.userInfo?["channelType"] as? NSNumber)?.int32Value == MezonConstants.ChannelType.mezonVoice.rawValue
             Task {
                 await MezonSocketRequestCoalescer.shared.invalidateChannelDescs(clanId: clanId)
-                await MezonSocketRequestCoalescer.shared.invalidateDirectMessageChannels()
+                if !isVoice { await MezonSocketRequestCoalescer.shared.invalidateDirectMessageChannels() }
             }
         }
     }
@@ -3338,6 +3339,8 @@ private actor MezonSocketRequestCoalescer {
     }
 
     private var channelDescsByClanId: [Int64: Task<[Mezon_Api_ChannelDescription], Error>] = [:]
+    private var channelDescsGenerations: [Int64: UInt64] = [:]
+    private var channelDescsAccessRevisions: [Int64: UInt64] = [:]
     private var channelVoiceUsersByClanId: [Int64: Task<Mezon_Api_VoiceChannelUserList, Error>] = [:]
     private var channelBadgeCountByClanId: [Int64: Task<Mezon_Api_ListChannelBadgeCountResponse, Error>] = [:]
     private var clanBadgeCount: Task<Mezon_Api_ListClanBadgeCountResponse, Error>?
@@ -3413,8 +3416,12 @@ private actor MezonSocketRequestCoalescer {
     func invalidateChannelDescs(clanId: Int64?) {
         if let clanId {
             channelDescsCache[clanId] = nil
+            channelDescsGenerations[clanId, default: 0] &+= 1
+            channelDescsByClanId[clanId] = nil
         } else {
             channelDescsCache.removeAll()
+            for id in channelDescsByClanId.keys { channelDescsGenerations[id, default: 0] &+= 1 }
+            channelDescsByClanId.removeAll()
         }
     }
 
@@ -3426,8 +3433,13 @@ private actor MezonSocketRequestCoalescer {
     func coalesceChannelDescs(
         clanId: Int64,
         force: Bool = false,
+        accessRevision: UInt64? = nil,
         operation: @escaping @Sendable () async throws -> [Mezon_Api_ChannelDescription]
     ) async throws -> [Mezon_Api_ChannelDescription] {
+        if let accessRevision, channelDescsAccessRevisions[clanId, default: 0] != accessRevision {
+            invalidateChannelDescs(clanId: clanId)
+            channelDescsAccessRevisions[clanId] = accessRevision
+        }
         if let existing = channelDescsByClanId[clanId] {
             return try await existing.value
         }
@@ -3435,15 +3447,19 @@ private actor MezonSocketRequestCoalescer {
            let cached = channelDescsCache[clanId] {
             return cached.value
         }
+        channelDescsGenerations[clanId, default: 0] &+= 1
+        let generation = channelDescsGenerations[clanId, default: 0]
         let task = Task { try await operation() }
         channelDescsByClanId[clanId] = task
         do {
             let value = try await task.value
-            channelDescsByClanId[clanId] = nil
-            channelDescsCache[clanId] = CachedValue(value: value, storedAt: Date())
+            if channelDescsGenerations[clanId] == generation {
+                channelDescsByClanId[clanId] = nil
+                channelDescsCache[clanId] = CachedValue(value: value, storedAt: Date())
+            }
             return value
         } catch {
-            channelDescsByClanId[clanId] = nil
+            if channelDescsGenerations[clanId] == generation { channelDescsByClanId[clanId] = nil }
             throw error
         }
     }

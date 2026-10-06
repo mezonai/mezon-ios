@@ -1210,6 +1210,17 @@ extension MezonEngine {
             _ ch: Mezon_Api_ChannelDescription,
             skipChannelListFetch: Bool = false
         ) {
+            if ch.type == MezonConstants.ChannelType.mezonVoice.rawValue {
+                guard !engine.channels.isAccessRevoked(channelId: ch.channelID) else { return }
+                postbox.writeSync { tx in
+                    var records = tx.getChannels(clanId: ch.clanID)
+                    records.removeAll { $0.id == ch.channelID }
+                    records.append(ChannelRecord(proto: ch))
+                    tx.updateChannels(records, clanId: ch.clanID)
+                }
+                postbox.setPreferenceDataSync(key: PreferencesKeys.channelListDisplay(clanId: ch.clanID), value: nil)
+                postbox.setPreferenceDataSync(key: PreferencesKeys.channelListCategories(clanId: ch.clanID), value: nil)
+            }
             upsertAllChannelsByUserCache(ch)
             if ch.clanID != 0 {
                 mergeIntoClanChannelListPreferenceIfPresent(clanId: ch.clanID, channel: ch)
@@ -1232,23 +1243,33 @@ extension MezonEngine {
                     "skipChannelListFetch": skipChannelListFetch
                 ]
             )
+            if ch.type == MezonConstants.ChannelType.mezonVoice.rawValue {
+                NotificationCenter.default.post(name: .mezonChannelDescriptionDidUpdate, object: nil,
+                    userInfo: ["clanId": ch.clanID, "channelId": ch.channelID, "channelType": ch.type])
+            }
         }
 
         func applyUserChannelRemovedFromSocket(_ event: Mezon_Realtime_UserChannelRemoved, currentUserNumericId myId: Int64) {
             guard event.userIds.contains(myId),
                   event.channelType != MezonConstants.ChannelType.dm.rawValue,
                   event.channelType != MezonConstants.ChannelType.group.rawValue else { return }
-            removeChannelLocally(clanId: event.clanID, channelId: event.channelID)
+            removeChannelLocally(clanId: event.clanID, channelId: event.channelID, channelType: event.channelType)
         }
 
-  
-        func removeChannelLocally(clanId: Int64, channelId: Int64) {
+
+        func removeChannelLocally(clanId: Int64, channelId: Int64, channelType: Int32? = nil) {
             guard channelId != 0 else { return }
             let resolvedClanId = clanId != 0 ? clanId : (
                 getAllChannelsByUser()?.channeldesc.first(where: { $0.channelID == channelId && $0.clanID != 0 })?.clanID
                     ?? postbox.getChannelDescription(channelId: channelId)?.clanId
-                    ?? linkedChannelDetails[channelId]?.clanID ?? 0
+                    ?? linkedChannelDetails[channelId]?.clanID
+                    ?? engine.channels.activeVoiceChannel.flatMap { $0.channelID == channelId ? $0.clanID : nil } ?? 0
             )
+            // Capture the type before removing caches so voice observers can revoke access.
+            let cachedType = postbox.resolvedChannelDescription(clanId: resolvedClanId, channelId: channelId)?.type
+                ?? getAllChannelsByUser()?.channeldesc.first(where: { $0.channelID == channelId })?.type
+                ?? linkedChannelDetails[channelId]?.type
+            let deletedType = channelType.flatMap { $0 != 0 ? $0 : nil } ?? cachedType ?? 0
             var removedIds: Set<Int64> = [channelId]
             for ch in linkedChannelDetails.values where ch.parentID == channelId
                 && (resolvedClanId == 0 || ch.clanID == 0 || ch.clanID == resolvedClanId) {
@@ -1272,7 +1293,7 @@ extension MezonEngine {
                 }
                 let known = (channels ?? []) + (all?.channeldesc ?? [])
                     + records.map { $0.toProto() } + threadLists.values.flatMap { $0 }
-               
+
                 for ch in known where (ch.clanID == 0 || ch.clanID == resolvedClanId) && ch.parentID == channelId {
                     removedIds.insert(ch.channelID)
                 }
@@ -1289,7 +1310,7 @@ extension MezonEngine {
                         settings.set(key: key, value: self.encodeThreadListPreferenceBlob(remaining))
                     }
                 }
-               
+
                 settings.set(key: PreferencesKeys.channelListDisplay(clanId: resolvedClanId), value: nil as Data?)
                 settings.set(key: PreferencesKeys.channelListCategories(clanId: resolvedClanId), value: nil as Data?)
                 let favoritesKey = PreferencesKeys.favoriteChannelIds(clanId: resolvedClanId)
@@ -1314,7 +1335,7 @@ extension MezonEngine {
             NotificationCenter.default.post(
                 name: .mezonChannelDeletedLocally,
                 object: nil,
-                userInfo: ["clanId": resolvedClanId, "channelId": channelId, "channelIds": Array(removedIds)]
+                userInfo: ["clanId": resolvedClanId, "channelId": channelId, "channelIds": Array(removedIds), "channelType": deletedType]
             )
         }
 
@@ -1326,7 +1347,11 @@ extension MezonEngine {
                 list.channeldesc.append(ch)
             }
             guard let data = try? list.serializedData() else { return }
-            postbox.setPreferenceData(key: PreferencesKeys.allChannelsByUser, value: data)
+            if ch.type == MezonConstants.ChannelType.mezonVoice.rawValue {
+                postbox.setPreferenceDataSync(key: PreferencesKeys.allChannelsByUser, value: data)
+            } else {
+                postbox.setPreferenceData(key: PreferencesKeys.allChannelsByUser, value: data)
+            }
         }
 
         func updateChannelPrivateLocally(clanId: Int64, channelId: Int64, isPrivate: Bool) {
@@ -1359,10 +1384,28 @@ extension MezonEngine {
             )
         }
 
+        func clearChannelRoleGrants(clanId: Int64, channelId: Int64) {
+            guard var container = getClanRoles(clanId: clanId) else { return }
+            var changed = false
+            for index in container.roles.roles.indices {
+                if container.roles.roles[index].channelIds.contains(channelId) {
+                    container.roles.roles[index].channelIds.removeAll { $0 == channelId }
+                    changed = true
+                }
+            }
+            guard changed, let data = try? container.serializedData() else { return }
+            postbox.setPreferenceDataSync(key: PreferencesKeys.clanRoles(clanId: clanId), value: data)
+            clanRolesUpdated.putNext(clanId)
+        }
+
         private func mergeIntoClanChannelListPreferenceIfPresent(clanId: Int64, channel: Mezon_Api_ChannelDescription) {
-            guard let blob = postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId)), !blob.isEmpty else { return }
-            var arr = ChannelPreferenceListCodec.decode(blob)
-            guard !arr.isEmpty, arr.allSatisfy({ $0.clanID == 0 || $0.clanID == clanId }) else { return }
+            let blob = postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId))
+            var arr = blob.map(ChannelPreferenceListCodec.decode) ?? []
+            if arr.isEmpty, channel.type == MezonConstants.ChannelType.mezonVoice.rawValue {
+                arr = getAllChannelsByUser()?.channeldesc.filter { $0.clanID == clanId } ?? []
+            }
+            guard !arr.isEmpty || channel.type == MezonConstants.ChannelType.mezonVoice.rawValue,
+                  arr.allSatisfy({ $0.clanID == 0 || $0.clanID == clanId }) else { return }
             if let idx = arr.firstIndex(where: { $0.channelID == channel.channelID }) {
                 arr[idx] = channel
             } else if channel.parentID != 0,
