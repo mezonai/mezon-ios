@@ -81,7 +81,6 @@ extension MezonEngine {
         @discardableResult
         func reconcileVoiceChannelAccess(_ channels: [Mezon_Api_ChannelDescription], clanId: Int64, revision: UInt64) -> Bool {
             guard voiceAccess.accept(channelIds: channels.map(\.channelID), clanId: clanId, revision: revision) else { return false }
-            guard !channels.isEmpty else { return true }
             let ids = Set(channels.map(\.channelID))
             var previous = engine.clanData.getAllChannelsByUser()?.channeldesc.filter { $0.clanID == clanId } ?? []
             if let data = postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId)) {
@@ -144,8 +143,9 @@ extension MezonEngine {
                     return true
                 }
                 if access == nil {
-                    removeVoiceChannelAccess(clanId: event.clanID, channelId: event.channelID)
-                    return true
+                    // Unknown access is not a denial. Keep cached channels until the server confirms.
+                    refreshVoiceChannelAccess(clanId: event.clanID, context: context)
+                    guard previous != nil else { return true }
                 }
             }
             var channel = previous ?? Mezon_Api_ChannelDescription()

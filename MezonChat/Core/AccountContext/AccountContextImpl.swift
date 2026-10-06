@@ -1086,6 +1086,12 @@ final class AccountContextImpl: AccountContext {
             session = updated
             SessionStore.save(updated)
 
+        case .permissionSet(let event):
+            refreshVoiceAccessForPermissionEvent(channelId: event.channelID)
+
+        case .permissionChanged(let event):
+            refreshVoiceAccessForPermissionEvent(channelId: event.channelID)
+
         case .connected:
             refreshSelectedAndActiveVoiceAccess()
             let joinDelayNanos: UInt64 = 250_000_000
@@ -1602,6 +1608,26 @@ final class AccountContextImpl: AccountContext {
         for clanId in clanIds where clanId != 0 {
             engine.channels.refreshVoiceChannelAccess(clanId: clanId, context: self)
         }
+    }
+
+    private func refreshVoiceAccessForPermissionEvent(channelId: Int64) {
+        guard channelId != 0 else {
+            refreshSelectedAndActiveVoiceAccess()
+            return
+        }
+        let channel = account.postbox.resolvedChannelDescription(clanId: currentClanId, channelId: channelId)
+            ?? engine.clanData.getAllChannelsByUser()?.channeldesc.first(where: { $0.channelID == channelId })
+            ?? (engine.channels.activeVoiceChannel?.channelID == channelId ? engine.channels.activeVoiceChannel : nil)
+        guard let channel else {
+            refreshSelectedAndActiveVoiceAccess()
+            return
+        }
+        guard channel.type == MezonConstants.ChannelType.mezonVoice.rawValue else { return }
+        guard channel.clanID != 0 else {
+            refreshSelectedAndActiveVoiceAccess()
+            return
+        }
+        engine.channels.refreshVoiceChannelAccess(clanId: channel.clanID, context: self)
     }
 
     private func removeVoiceChannelsInClan(_ clanId: Int64) {
