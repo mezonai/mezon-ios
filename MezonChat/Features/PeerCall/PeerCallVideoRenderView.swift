@@ -11,14 +11,19 @@ final class PeerCallVideoRenderView: UIView {
     }
 
     private let mtlVideoView: RTCMTLVideoView
-    private let renderSurface: PeerCallSampleBufferRenderSurface
+    private let renderSurface: PeerCallSampleBufferRenderSurface?
     private var attachedTrack: RTCVideoTrack?
     private var lastReplaySize: CGSize = .zero
+
+    private var renderers: [RTCVideoRenderer] {
+        guard let renderSurface else { return [mtlVideoView] }
+        return [renderSurface, mtlVideoView]
+    }
 
     var isMirrored: Bool = false {
         didSet {
             mtlVideoView.transform = isMirrored ? CGAffineTransform(scaleX: -1, y: 1) : .identity
-            renderSurface.setMirrored(isMirrored)
+            renderSurface?.setMirrored(isMirrored)
         }
     }
 
@@ -27,28 +32,40 @@ final class PeerCallVideoRenderView: UIView {
             let fill = renderContentMode == .fill
             mtlVideoView.videoContentMode = fill ? .scaleAspectFill : .scaleAspectFit
             mtlVideoView.contentMode = fill ? .scaleAspectFill : .scaleAspectFit
-            renderSurface.setVideoGravity(fill ? .resizeAspectFill : .resizeAspect)
+            renderSurface?.setVideoGravity(fill ? .resizeAspectFill : .resizeAspect)
             configureEmbeddedMTKViewIfPresent()
         }
     }
 
-    override init(frame: CGRect) {
+    override convenience init(frame: CGRect) {
+        self.init(frame: frame, sampleBufferSurface: true)
+    }
+
+    convenience init(sampleBufferSurface: Bool) {
+        self.init(frame: .zero, sampleBufferSurface: sampleBufferSurface)
+    }
+
+    init(frame: CGRect, sampleBufferSurface: Bool) {
         mtlVideoView = RTCMTLVideoView(frame: .zero)
-        renderSurface = PeerCallSampleBufferRenderSurface(frame: .zero)
+        renderSurface = sampleBufferSurface ? PeerCallSampleBufferRenderSurface(frame: .zero) : nil
         super.init(frame: frame)
         mtlVideoView.translatesAutoresizingMaskIntoConstraints = false
         mtlVideoView.isEnabled = true
         mtlVideoView.videoContentMode = .scaleAspectFit
         mtlVideoView.contentMode = .scaleAspectFit
-        renderSurface.translatesAutoresizingMaskIntoConstraints = false
-        renderSurface.isUserInteractionEnabled = false
-        addSubview(renderSurface)
+        if let renderSurface {
+            renderSurface.translatesAutoresizingMaskIntoConstraints = false
+            renderSurface.isUserInteractionEnabled = false
+            addSubview(renderSurface)
+            NSLayoutConstraint.activate([
+                renderSurface.leadingAnchor.constraint(equalTo: leadingAnchor),
+                renderSurface.trailingAnchor.constraint(equalTo: trailingAnchor),
+                renderSurface.topAnchor.constraint(equalTo: topAnchor),
+                renderSurface.bottomAnchor.constraint(equalTo: bottomAnchor),
+            ])
+        }
         addSubview(mtlVideoView)
         NSLayoutConstraint.activate([
-            renderSurface.leadingAnchor.constraint(equalTo: leadingAnchor),
-            renderSurface.trailingAnchor.constraint(equalTo: trailingAnchor),
-            renderSurface.topAnchor.constraint(equalTo: topAnchor),
-            renderSurface.bottomAnchor.constraint(equalTo: bottomAnchor),
             mtlVideoView.leadingAnchor.constraint(equalTo: leadingAnchor),
             mtlVideoView.trailingAnchor.constraint(equalTo: trailingAnchor),
             mtlVideoView.topAnchor.constraint(equalTo: topAnchor),
@@ -82,7 +99,7 @@ final class PeerCallVideoRenderView: UIView {
 
     private func replayAttachedFrame() {
         guard let track = attachedTrack, bounds.width > 0, bounds.height > 0 else { return }
-        VideoTrackLastFrameStore.replayLastFrame(of: track, to: [renderSurface, mtlVideoView])
+        VideoTrackLastFrameStore.replayLastFrame(of: track, to: renderers)
     }
 
     private func configureEmbeddedMTKViewIfPresent() {
@@ -93,29 +110,41 @@ final class PeerCallVideoRenderView: UIView {
         mtk.contentScaleFactor = contentScaleFactor
     }
 
+    private func subscribe(_ track: RTCVideoTrack) {
+        for renderer in renderers {
+            track.add(renderer)
+        }
+    }
+
+    private func unsubscribe(_ track: RTCVideoTrack?) {
+        guard let track else { return }
+        for renderer in renderers {
+            track.remove(renderer)
+        }
+    }
+
     func attach(track: RTCVideoTrack?) {
         guard let track else {
-            attachedTrack?.remove(renderSurface)
-            attachedTrack?.remove(mtlVideoView)
+            unsubscribe(attachedTrack)
             attachedTrack = nil
             lastReplaySize = .zero
             mtlVideoView.isEnabled = false
             configureEmbeddedMTKViewIfPresent()
-            renderSurface.flushContent()
+            renderSurface?.flushContent()
             return
         }
         if attachedTrack === track {
             return
         }
         if let cur = attachedTrack, cur.trackId == track.trackId, cur !== track {
-            cur.remove(renderSurface)
-            cur.remove(mtlVideoView)
+            unsubscribe(cur)
             attachedTrack = track
             mtlVideoView.isEnabled = true
-            renderSurface.flushContent()
-            track.add(renderSurface)
-            track.add(mtlVideoView)
-            VideoTrackLastFrameStore.replayLastFrame(of: track, to: [renderSurface, mtlVideoView])
+            renderSurface?.flushContent()
+            configureEmbeddedMTKViewIfPresent()
+            layoutIfNeeded()
+            subscribe(track)
+            VideoTrackLastFrameStore.replayLastFrame(of: track, to: renderers)
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.configureEmbeddedMTKViewIfPresent()
@@ -123,20 +152,20 @@ final class PeerCallVideoRenderView: UIView {
                 self.layoutIfNeeded()
                 self.mtlVideoView.setNeedsLayout()
                 self.mtlVideoView.layoutIfNeeded()
-                self.renderSurface.setNeedsLayout()
-                self.renderSurface.layoutIfNeeded()
+                self.renderSurface?.setNeedsLayout()
+                self.renderSurface?.layoutIfNeeded()
                 self.replayAttachedFrame()
             }
             return
         }
-        attachedTrack?.remove(renderSurface)
-        attachedTrack?.remove(mtlVideoView)
+        unsubscribe(attachedTrack)
         attachedTrack = track
         mtlVideoView.isEnabled = true
-        renderSurface.flushContent()
-        track.add(renderSurface)
-        track.add(mtlVideoView)
-        VideoTrackLastFrameStore.replayLastFrame(of: track, to: [renderSurface, mtlVideoView])
+        renderSurface?.flushContent()
+        configureEmbeddedMTKViewIfPresent()
+        layoutIfNeeded()
+        subscribe(track)
+        VideoTrackLastFrameStore.replayLastFrame(of: track, to: renderers)
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.configureEmbeddedMTKViewIfPresent()
@@ -144,20 +173,20 @@ final class PeerCallVideoRenderView: UIView {
             self.layoutIfNeeded()
             self.mtlVideoView.setNeedsLayout()
             self.mtlVideoView.layoutIfNeeded()
-            self.renderSurface.setNeedsLayout()
-            self.renderSurface.layoutIfNeeded()
+            self.renderSurface?.setNeedsLayout()
+            self.renderSurface?.layoutIfNeeded()
             self.replayAttachedFrame()
         }
     }
 
     func refreshAttachedRenderers() {
         guard let track = attachedTrack else { return }
-        track.remove(renderSurface)
-        track.remove(mtlVideoView)
-        renderSurface.flushContent()
-        track.add(renderSurface)
-        track.add(mtlVideoView)
-        VideoTrackLastFrameStore.replayLastFrame(of: track, to: [renderSurface, mtlVideoView])
+        unsubscribe(track)
+        renderSurface?.flushContent()
+        configureEmbeddedMTKViewIfPresent()
+        layoutIfNeeded()
+        subscribe(track)
+        VideoTrackLastFrameStore.replayLastFrame(of: track, to: renderers)
         configureEmbeddedMTKViewIfPresent()
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -165,14 +194,16 @@ final class PeerCallVideoRenderView: UIView {
             self.layoutIfNeeded()
             self.mtlVideoView.setNeedsLayout()
             self.mtlVideoView.layoutIfNeeded()
-            self.renderSurface.setNeedsLayout()
-            self.renderSurface.layoutIfNeeded()
+            self.renderSurface?.setNeedsLayout()
+            self.renderSurface?.layoutIfNeeded()
             self.replayAttachedFrame()
         }
     }
 
     deinit {
-        attachedTrack?.remove(renderSurface)
+        if let renderSurface {
+            attachedTrack?.remove(renderSurface)
+        }
         attachedTrack?.remove(mtlVideoView)
     }
 }
@@ -181,6 +212,7 @@ final class VideoTrackFrameKeeper: NSObject, RTCVideoRenderer {
 
     private let lock = NSLock()
     private var frame: RTCVideoFrame?
+    private var frameUptime: TimeInterval = 0
     weak var track: RTCVideoTrack?
 
     var lastFrame: RTCVideoFrame? {
@@ -189,12 +221,27 @@ final class VideoTrackFrameKeeper: NSObject, RTCVideoRenderer {
         return frame
     }
 
+    var lastFrameUptime: TimeInterval? {
+        lock.lock()
+        defer { lock.unlock() }
+        return frame == nil ? nil : frameUptime
+    }
+
+    func clear() {
+        lock.lock()
+        frame = nil
+        frameUptime = 0
+        lock.unlock()
+    }
+
     func setSize(_ size: CGSize) {}
 
     func renderFrame(_ frame: RTCVideoFrame?) {
         guard let frame else { return }
+        let uptime = ProcessInfo.processInfo.systemUptime
         lock.lock()
         self.frame = frame
+        frameUptime = uptime
         lock.unlock()
     }
 }
@@ -202,25 +249,43 @@ final class VideoTrackFrameKeeper: NSObject, RTCVideoRenderer {
 @MainActor
 enum VideoTrackLastFrameStore {
 
-    private static var keepers: [String: VideoTrackFrameKeeper] = [:]
+    // receiver.track creates new ObjC wrappers. WebRTC's isEqual compares the
+    // native track; trackId alone also cannot distinguish a replacement source.
+    private static var keepers: [VideoTrackFrameKeeper] = []
     private static var replayCount: Int64 = 0
 
+    static func cachedFrame(of track: RTCVideoTrack) -> RTCVideoFrame? {
+        guard let keeper = keeper(for: track) else { return nil }
+        return keeper.lastFrame
+    }
+
+    static func cachedFrameUptime(of track: RTCVideoTrack) -> TimeInterval? {
+        guard let keeper = keeper(for: track) else { return nil }
+        return keeper.lastFrameUptime
+    }
+
     static func observe(_ track: RTCVideoTrack) -> VideoTrackFrameKeeper {
-        let trackId = track.trackId
-        keepers = keepers.filter { $0.key == trackId || $0.value.track != nil }
-        if let keeper = keepers[trackId] {
-            if keeper.track !== track {
-                keeper.track?.remove(keeper)
-                keeper.track = track
-                track.add(keeper)
-            }
-            return keeper
-        }
+        keepers.removeAll { $0.track == nil }
+        if let keeper = keeper(for: track) { return keeper }
         let keeper = VideoTrackFrameKeeper()
         keeper.track = track
         track.add(keeper)
-        keepers[trackId] = keeper
+        keepers.append(keeper)
         return keeper
+    }
+
+    private static func keeper(for track: RTCVideoTrack) -> VideoTrackFrameKeeper? {
+        keepers.first { $0.track?.isEqual(track) == true }
+    }
+
+    /// Keep the wrapper that owns the frame observer alive in the session/UI.
+    /// This also keeps recovery identity stable across receiver snapshots.
+    static func canonicalTrack(_ track: RTCVideoTrack) -> RTCVideoTrack {
+        observe(track).track ?? track
+    }
+
+    static func clearFrame(of track: RTCVideoTrack) {
+        keeper(for: track)?.clear()
     }
 
     static func replayLastFrame(of track: RTCVideoTrack, to renderers: [RTCVideoRenderer]) {

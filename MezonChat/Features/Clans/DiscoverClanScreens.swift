@@ -282,13 +282,17 @@ final class DiscoverClanEmptyStateViewController: UIViewController {
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
         v.addSubview(loadingIndicator)
         v.addSubview(statusLabel)
+        let statusLeading = statusLabel.leadingAnchor.constraint(greaterThanOrEqualTo: v.leadingAnchor, constant: 24.sw)
+        statusLeading.priority = UILayoutPriority(999)
+        let statusTrailing = statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: v.trailingAnchor, constant: -24.sw)
+        statusTrailing.priority = UILayoutPriority(999)
         NSLayoutConstraint.activate([
             loadingIndicator.centerXAnchor.constraint(equalTo: v.centerXAnchor),
             loadingIndicator.centerYAnchor.constraint(equalTo: v.centerYAnchor),
             statusLabel.centerXAnchor.constraint(equalTo: v.centerXAnchor),
             statusLabel.centerYAnchor.constraint(equalTo: v.centerYAnchor),
-            statusLabel.leadingAnchor.constraint(greaterThanOrEqualTo: v.leadingAnchor, constant: 24.sw),
-            statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: v.trailingAnchor, constant: -24.sw),
+            statusLeading,
+            statusTrailing,
         ])
         v.isUserInteractionEnabled = false
         return v
@@ -360,11 +364,16 @@ final class DiscoverClanEmptyStateViewController: UIViewController {
         headerContainer.addSubview(headerStack)
         headerContainer.translatesAutoresizingMaskIntoConstraints = false
 
+        let headerStackTrailing = headerStack.trailingAnchor.constraint(equalTo: headerContainer.trailingAnchor, constant: -12.sw)
+        headerStackTrailing.priority = UILayoutPriority(999)
+        let headerStackBottom = headerStack.bottomAnchor.constraint(equalTo: headerContainer.bottomAnchor, constant: -14.sh)
+        headerStackBottom.priority = UILayoutPriority(999)
+
         NSLayoutConstraint.activate([
             headerStack.topAnchor.constraint(equalTo: headerContainer.topAnchor, constant: 14.sh),
             headerStack.leadingAnchor.constraint(equalTo: headerContainer.leadingAnchor, constant: 12.sw),
-            headerStack.trailingAnchor.constraint(equalTo: headerContainer.trailingAnchor, constant: -12.sw),
-            headerStack.bottomAnchor.constraint(equalTo: headerContainer.bottomAnchor, constant: -14.sh),
+            headerStackTrailing,
+            headerStackBottom,
             searchField.heightAnchor.constraint(equalToConstant: 32),
             qrHeaderButton.widthAnchor.constraint(equalToConstant: 32),
             qrHeaderButton.heightAnchor.constraint(equalToConstant: 32),

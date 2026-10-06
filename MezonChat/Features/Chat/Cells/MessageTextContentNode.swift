@@ -58,45 +58,12 @@ final class MessageTextContentNode: ASDisplayNode {
         }
         hasEmoji = containsEmoji || containsChannelHashtag
 
-        textNode?.removeFromSupernode()
-        emojiLabelNode?.removeFromSupernode()
-        segmentNodes.forEach { $0.node.removeFromSupernode() }
-        segmentNodes = []
-        textNode = nil
-        emojiLabelNode = nil
+        removeContentNodes()
 
         if hasCodeBlock {
             useSegments = true
-            let segments = RichTextBuilder.buildSegments(
-                from: parsedContent, buzzStyled: buzzStyled, hashtagChannelAccess: hashtagChannelAccess)
-            for segment in segments {
-                switch segment {
-                case .text(let attrText):
-                    guard attrText.length > 0 else { continue }
-                    if Self.attributedTextNeedsUIKitTextView(attrText) {
-                        let node = ASDisplayNode {
-                            let v = EmojiTextView()
-                            v.attributedText = attrText
-                            return v
-                        }
-                        node.isUserInteractionEnabled = false
-                        addSubnode(node)
-                        segmentNodes.append((node, .zero))
-                    } else {
-                        let tn = ASTextNode2()
-                        tn.isUserInteractionEnabled = false
-                        tn.maximumNumberOfLines = 0
-                        tn.attributedText = attrText
-                        addSubnode(tn)
-                        segmentNodes.append((tn, .zero))
-                    }
-
-                case .codeBlock(let code):
-                    let container = CodeBlockContainerNode(code: code)
-                    addSubnode(container)
-                    segmentNodes.append((container, .zero))
-                }
-            }
+            addSegmentNodes(RichTextBuilder.buildSegments(
+                from: parsedContent, buzzStyled: buzzStyled, hashtagChannelAccess: hashtagChannelAccess))
             return
         }
 
@@ -123,6 +90,56 @@ final class MessageTextContentNode: ASDisplayNode {
             tn.attributedText = attrText
             textNode = tn
             addSubnode(tn)
+        }
+    }
+
+    func configure(segments: [RichTextSegment]) {
+        currentParsedContent = nil
+        currentAttrText = nil
+        buzzStyled = false
+        hasEmoji = false
+        removeContentNodes()
+        useSegments = true
+        addSegmentNodes(segments)
+    }
+
+    private func removeContentNodes() {
+        textNode?.removeFromSupernode()
+        emojiLabelNode?.removeFromSupernode()
+        segmentNodes.forEach { $0.node.removeFromSupernode() }
+        segmentNodes = []
+        textNode = nil
+        emojiLabelNode = nil
+    }
+
+    private func addSegmentNodes(_ segments: [RichTextSegment]) {
+        for segment in segments {
+            switch segment {
+            case .text(let attrText):
+                guard attrText.length > 0 else { continue }
+                if Self.attributedTextNeedsUIKitTextView(attrText) {
+                    let node = ASDisplayNode {
+                        let v = EmojiTextView()
+                        v.attributedText = attrText
+                        return v
+                    }
+                    node.isUserInteractionEnabled = false
+                    addSubnode(node)
+                    segmentNodes.append((node, .zero))
+                } else {
+                    let tn = ASTextNode2()
+                    tn.isUserInteractionEnabled = false
+                    tn.maximumNumberOfLines = 0
+                    tn.attributedText = attrText
+                    addSubnode(tn)
+                    segmentNodes.append((tn, .zero))
+                }
+
+            case .codeBlock(let code):
+                let container = CodeBlockContainerNode(code: code)
+                addSubnode(container)
+                segmentNodes.append((container, .zero))
+            }
         }
     }
 

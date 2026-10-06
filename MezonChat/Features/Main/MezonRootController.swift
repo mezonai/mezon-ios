@@ -195,12 +195,14 @@ final class MezonRootController: NavigationController {
 
 
     @objc private func handleQRSelectClanRoot(_ notification: Notification) {
+        guard !isShowingEstablishedPeerCall else { return }
         rootTabController?.selectedIndex = 0
         popToTabBarController()
     }
 
     @objc private func handleQRNavigateToDM(_ notification: Notification) {
         guard let channelIdStr = notification.userInfo?["channelId"] as? String else { return }
+        guard !isShowingEstablishedPeerCall else { return }
         navigateToDM(channelIdStr: channelIdStr)
     }
 
@@ -211,6 +213,8 @@ final class MezonRootController: NavigationController {
         let isDM = notification.userInfo?["isDM"] as? Bool ?? false
 
         AppDelegate.pendingNavigation = nil
+
+        guard !isShowingEstablishedPeerCall else { return }
 
         handoffActiveVoiceRoomToPiPBeforeNavigation()
         dismissPresentedModalsBeforeNavigation()
@@ -235,6 +239,8 @@ final class MezonRootController: NavigationController {
     @objc private func handleNavigateToFriendRequests(_ notification: Notification) {
         AppDelegate.recordFriendRequestNavigationInstanceHandled(userInfo: notification.userInfo)
         AppDelegate.pendingFriendRequestNavigation = nil
+
+        guard !isShowingEstablishedPeerCall else { return }
 
         handoffActiveVoiceRoomToPiPBeforeNavigation()
         dismissPresentedModalsBeforeNavigation()
@@ -321,6 +327,23 @@ final class MezonRootController: NavigationController {
         if let tabBarVC = viewControllers.first(where: { $0 is TabBarController }) {
             popToViewController(tabBarVC, animated: false)
         }
+    }
+
+    private var isShowingEstablishedPeerCall: Bool {
+        guard WebRTCCallManager.shared.signalingSession?.didEstablishMediaConnection == true else {
+            return false
+        }
+        if viewControllers.contains(where: { $0 is PeerCallViewController }) {
+            return true
+        }
+        var presented = view.window?.rootViewController?.presentedViewController
+        while let current = presented {
+            if current is PeerCallViewController {
+                return true
+            }
+            presented = current.presentedViewController
+        }
+        return false
     }
 
     @objc private func handleIncomingPeerCall(_ notification: Notification) {

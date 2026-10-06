@@ -48,7 +48,6 @@ enum AppUpdateGate {
         let nav = UINavigationController(rootViewController: content)
         nav.setNavigationBarHidden(true, animated: false)
         nav.modalPresentationStyle = .pageSheet
-        nav.isModalInPresentation = true
         guard mainWindow.canPresentNative else { return }
         guard mainWindow.presentNative(nav) else { return }
         didPresentUpdateSheet = true

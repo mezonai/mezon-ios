@@ -128,11 +128,7 @@ final class ChannelSettingsViewController: BaseViewController {
             }
             do {
                 try await MezonHTTPClient.shared.deleteChannelDesc(channelId: channelId, clanId: clanId, token: token)
-                NotificationCenter.default.post(
-                    name: .mezonChannelDeletedLocally,
-                    object: nil,
-                    userInfo: ["clanId": clanId, "channelId": channelId, "channelType": channelType]
-                )
+                context.engine.clanData.removeChannelLocally(clanId: clanId, channelId: channelId, channelType: channelType)
                 self.navigateBackAfterDelete()
             } catch {
                 settingsNode.setDeleteButtonEnabled(true)

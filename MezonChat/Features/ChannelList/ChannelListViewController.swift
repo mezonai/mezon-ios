@@ -746,6 +746,54 @@ final class ChannelListViewController: ViewController {
     private let clanUsersDisposable = MetaDisposable()
     private var processedBadgeKeys = Set<String>()
     private var pendingMentionUnreadFloorByClanId: [Int64: [Int64: Int32]] = [:]
+    private var badgeReadMessageIds: [Int64: Int64] = [:]
+    private var badgeReadTimestamps: [Int64: UInt32] = [:]
+
+    private func badgeChannelRow(clanId: Int64, channelId: Int64) -> Mezon_Api_ChannelDescription? {
+        if clanId == self.clanId {
+            return allChannels.first { $0.channelID == channelId }
+        }
+        return readChannelCacheLenient(clanId: clanId)?.channels.first { $0.channelID == channelId }
+            ?? context.account.postbox.getChannelDescription(channelId: channelId)?.channel
+    }
+
+    private func applyingBadgeReadCursor(to channel: Mezon_Api_ChannelDescription) -> Mezon_Api_ChannelDescription {
+        let seenId = badgeReadMessageIds[channel.channelID] ?? 0
+        let seenTimestamp = badgeReadTimestamps[channel.channelID] ?? 0
+        guard channel.type != 7,
+              seenId > channel.lastSeenMessage.id || seenTimestamp > channel.lastSeenMessage.timestampSeconds else { return channel }
+        var result = channel
+        if ClanListViewController.isBadgeMessageAlreadySeen(
+            messageId: channel.lastSentMessage.id, timestamp: channel.lastSentMessage.timestampSeconds,
+            seenId: seenId, seenTimestamp: seenTimestamp
+        ) {
+            result.countMessUnread = 0
+        }
+        result.lastSeenMessage.id = max(result.lastSeenMessage.id, seenId)
+        result.lastSeenMessage.timestampSeconds = max(result.lastSeenMessage.timestampSeconds, seenTimestamp)
+        return result
+    }
+
+    private func isMessageAlreadySeen(clanId: Int64, channelId: Int64, messageId: Int64, timestamp: UInt32) -> Bool {
+        let row = badgeChannelRow(clanId: clanId, channelId: channelId)
+        return ClanListViewController.isBadgeMessageAlreadySeen(
+            messageId: messageId, timestamp: timestamp,
+            seenId: max(badgeReadMessageIds[channelId] ?? 0, row?.lastSeenMessage.id ?? 0),
+            seenTimestamp: max(badgeReadTimestamps[channelId] ?? 0, row?.lastSeenMessage.timestampSeconds ?? 0)
+        )
+    }
+
+    @objc private func handleBadgeReadCountRequested(_ notification: Notification) {
+        guard let request = notification.object as? BadgeReadCountRequest, request.clanId != 0 else { return }
+        if request.clanId == clanId, let index = indexOfChannelInAllChannels(request.channelId) {
+            request.count = allChannels[index].countMessUnread
+        } else {
+            let cached = badgeChannelRow(clanId: request.clanId, channelId: request.channelId)
+            guard cached?.type != 7 else { return }
+            request.count = max(request.count, cached.map { applyingBadgeReadCursor(to: $0).countMessUnread } ?? 0,
+                               pendingMentionUnreadFloor(clanId: request.clanId, channelId: request.channelId))
+        }
+    }
 
     private func indexOfChannelInAllChannels(_ channelId: Int64) -> Int? {
         allChannels.firstIndex { $0.channelID == channelId }
@@ -807,7 +855,7 @@ final class ChannelListViewController: ViewController {
     @discardableResult
     private func bumpMentionUnread(clanId: Int64, channelId: Int64) -> Bool {
         guard clanId != 0, channelId != 0 else { return false }
-        if let index = indexOfChannelInAllChannels(channelId) {
+        if clanId == self.clanId, let index = indexOfChannelInAllChannels(channelId) {
             allChannels[index].countMessUnread += 1
             setPendingMentionUnreadFloor(
                 clanId: clanId,
@@ -816,7 +864,9 @@ final class ChannelListViewController: ViewController {
             )
             return true
         }
-        let currentFloor = pendingMentionUnreadFloor(clanId: clanId, channelId: channelId)
+        let cachedCount = badgeChannelRow(clanId: clanId, channelId: channelId)
+            .map { applyingBadgeReadCursor(to: $0).countMessUnread } ?? 0
+        let currentFloor = max(cachedCount, pendingMentionUnreadFloor(clanId: clanId, channelId: channelId))
         let nextFloor = currentFloor == Int32.max ? currentFloor : currentFloor + 1
         setPendingMentionUnreadFloor(clanId: clanId, channelId: channelId, count: nextFloor)
         return false
@@ -870,13 +920,10 @@ final class ChannelListViewController: ViewController {
         in channels: [Mezon_Api_ChannelDescription],
         clanId: Int64
     ) -> [Mezon_Api_ChannelDescription] {
-        guard clanId != 0,
-              let floors = pendingMentionUnreadFloorByClanId[clanId],
-              !floors.isEmpty else {
-            return channels
-        }
+        guard clanId != 0 else { return channels }
+        let floors = pendingMentionUnreadFloorByClanId[clanId] ?? [:]
 
-        var result = channels
+        var result = channels.map { applyingBadgeReadCursor(to: $0) }
         var existingById: [Int64: Mezon_Api_ChannelDescription] = [:]
         for channel in allChannels where channel.clanID == 0 || channel.clanID == clanId {
             existingById[channel.channelID] = channel
@@ -906,6 +953,12 @@ final class ChannelListViewController: ViewController {
         ts: UInt32? = nil
     ) -> Bool {
         guard clanId != 0, messageId != 0, parentChannelId != 0 else { return false }
+        if threadChannelId == nil {
+            guard !ClanListViewController.isViewingBadgeChannel(parentChannelId),
+                  !isMessageAlreadySeen(clanId: clanId, channelId: parentChannelId, messageId: messageId, timestamp: ts ?? 0) else {
+                return false
+            }
+        }
         let targetChannelIds = [parentChannelId, threadChannelId ?? 0]
             .filter { $0 != 0 }
             .reduce(into: [Int64]()) { result, channelId in
@@ -921,7 +974,9 @@ final class ChannelListViewController: ViewController {
         var didChange = false
         for channelId in targetChannelIds {
             let ekey = "m:\(clanId)_\(messageId)_\(channelId)"
-            if processedBadgeKeys.contains(ekey) { continue }
+            if processedBadgeKeys.contains(ekey) {
+                continue
+            }
             processedBadgeKeys.insert(ekey)
             if bumpMentionUnread(clanId: clanId, channelId: channelId) {
                 didChange = true
@@ -1112,6 +1167,7 @@ final class ChannelListViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleVoicePresenceChanged(_:)), name: .mezonVoicePresenceChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleNetworkStatusChanged(_:)), name: NetworkMonitor.statusDidChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleWillEnterForegroundForChannelBadges), name: UIApplication.willEnterForegroundNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleBadgeReadCountRequested(_:)), name: Notification.Name("MezonBadgeReadCountRequested"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleUserChannelAddedFromSocket(_:)), name: .mezonUserChannelAddedFromSocket, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelDescriptionDidUpdate(_:)), name: .mezonChannelDescriptionDidUpdate, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelDeletedLocally(_:)), name: .mezonChannelDeletedLocally, object: nil)
@@ -1170,13 +1226,14 @@ final class ChannelListViewController: ViewController {
     @objc private func handleChannelDeletedLocally(_ notification: Notification) {
         guard let gid = notification.userInfo?["clanId"] as? Int64, gid == self.clanId else { return }
         guard let cid = notification.userInfo?["channelId"] as? Int64 else { return }
+        let removedIds = Set(notification.userInfo?["channelIds"] as? [Int64] ?? [cid])
         let isVoice = notification.name == .mezonVoiceChannelAccessLost ||
             notification.userInfo?["channelType"] as? Int32 == MezonConstants.ChannelType.mezonVoice.rawValue
         if isVoice {
-            channelListFavoriteIds.remove(cid)
+            channelListFavoriteIds.subtract(removedIds)
             allChannels = channelsIncludingCachedVoiceUpdateBase()
         }
-        removeChannelLocally(channelId: cid, pruneMissingChannels: !isVoice)
+        removeChannelLocally(channelIds: removedIds, pruneMissingChannels: !isVoice)
     }
 
     private func effectiveClanIdForChannelAppsHydration() -> Int64 {
@@ -2383,9 +2440,16 @@ final class ChannelListViewController: ViewController {
         }
     }
 
-    private func removeChannelLocally(channelId: Int64, pruneMissingChannels: Bool = true) {
-        clearPendingMentionUnreadFloor(clanId: clanId, channelId: channelId)
-        allChannels.removeAll { $0.channelID == channelId }
+    private func removeChannelLocally(channelIds: Set<Int64>, pruneMissingChannels: Bool = true) {
+        for channelId in channelIds {
+            clearPendingMentionUnreadFloor(clanId: clanId, channelId: channelId)
+        }
+        allChannels.removeAll { channelIds.contains($0.channelID) || channelIds.contains($0.parentID) }
+        channelListFavoriteIds.subtract(channelIds)
+        if let selectedChannelId, channelIds.contains(selectedChannelId) {
+            setSelectedChannelId(nil)
+            setSelectedChannel(nil)
+        }
 
         let cats = applyCategoriesAfterFetch(
             mergedChannels: allChannels,
@@ -2404,11 +2468,7 @@ final class ChannelListViewController: ViewController {
             guard let token = await context.getToken() else { return }
             do {
                 try await MezonHTTPClient.shared.deleteChannelDesc(channelId: channel.channelID, clanId: channel.clanID, token: token)
-                NotificationCenter.default.post(
-                    name: .mezonChannelDeletedLocally,
-                    object: nil,
-                    userInfo: ["clanId": channel.clanID, "channelId": channel.channelID, "channelType": channel.type]
-                )
+                context.engine.clanData.removeChannelLocally(clanId: channel.clanID, channelId: channel.channelID, channelType: channel.type)
             } catch {
                 Toast.error(error.localizedDescription)
             }
@@ -2420,11 +2480,7 @@ final class ChannelListViewController: ViewController {
             guard let token = await context.getToken() else { return }
             do {
                 try await MezonHTTPClient.shared.leaveThread(clanId: channel.clanID, channelId: channel.channelID, token: token)
-                NotificationCenter.default.post(
-                    name: .mezonChannelDeletedLocally,
-                    object: nil,
-                    userInfo: ["clanId": channel.clanID, "channelId": channel.channelID]
-                )
+                context.engine.clanData.removeChannelLocally(clanId: channel.clanID, channelId: channel.channelID)
             } catch {
                 Toast.error(error.localizedDescription)
             }
@@ -2493,16 +2549,29 @@ final class ChannelListViewController: ViewController {
         else if let t = notification.userInfo?["timestampSeconds"] as? Int { ts = UInt32(clamping: t) }
         else { ts = UInt32(Date().timeIntervalSince1970) }
 
-        guard clanId == self.clanId, clanId != 0 else { return }
+        guard clanId != 0 else { return }
         guard senderId != context.currentUser?.id else { return }
 
         let apiMessage: Mezon_Api_ChannelMessage? = (notification.userInfo?["serializedChannelMessage"] as? Data).flatMap { try? Mezon_Api_ChannelMessage(serializedBytes: $0) }
         var topicId = Self.int64UserInfo(notification.userInfo?["topicId"]) ?? 0
         if let m = apiMessage, topicId == 0, m.topicID != 0 { topicId = m.topicID }
+        if clanId != self.clanId {
+            guard topicId == 0, let apiMessage,
+                  ClanListViewController.shouldCountMentionBadge(apiMessage) else { return }
+            let roles = ClanListViewController.getCurrentUserRoleIds(context: context, clanId: clanId)
+            let isMentioned = ClanListViewController.checkMessageMentionsUser(
+                apiMessage, currentUserId: context.currentUser?.id, currentUserRoleIds: roles
+            )
+            if isMentioned {
+                applyMentionEventUnreadIfNeeded(clanId: clanId, messageId: apiMessage.messageID,
+                    parentChannelId: channelId, threadChannelId: nil, ts: ts)
+            }
+            return
+        }
         if topicId != 0 {
             if ActiveChannelTracker.currentChannelId == topicId { return }
         } else {
-            if ActiveChannelTracker.currentChannelId == channelId { return }
+            if ClanListViewController.isViewingBadgeChannel(channelId) { return }
         }
 
         var updated = false
@@ -2528,13 +2597,14 @@ final class ChannelListViewController: ViewController {
 
         if let apiMessage {
             let currentUserId = context.currentUser?.id
-            let roleIds = ClanListViewController.getCurrentUserRoleIds(context: context)
+            let roleIds = ClanListViewController.getCurrentUserRoleIds(context: context, clanId: topicId == 0 ? clanId : nil)
             let isMentioned = ClanListViewController.checkMessageMentionsUser(
                 apiMessage,
                 currentUserId: currentUserId,
                 currentUserRoleIds: roleIds
             )
-            if isMentioned, apiMessage.messageID != 0 {
+            if isMentioned, apiMessage.messageID != 0,
+               topicId != 0 || ClanListViewController.shouldCountMentionBadge(apiMessage) {
                 if topicId != 0 {
                     let parentId = parentChannelIdForThreadBadge(topicId: topicId, messageChannelId: channelId)
                     if applyMentionEventUnreadIfNeeded(
@@ -2555,9 +2625,13 @@ final class ChannelListViewController: ViewController {
     @objc private func handleMentionReceived(_ notification: Notification) {
         guard let channelId = Self.int64UserInfo(notification.userInfo?["channelId"]),
               let clanId = Self.int64UserInfo(notification.userInfo?["clanId"]) else { return }
-        guard clanId == self.clanId, clanId != 0 else { return }
+        guard clanId != 0 else { return }
         let isParentOfTopic = notification.userInfo?["isParentOfTopic"] as? Bool == true
         let messageId = notification.userInfo?["messageId"] as? String ?? ""
+        let topicFromNoti = Self.int64UserInfo(notification.userInfo?["topicId"]) ?? 0
+        if clanId != self.clanId {
+            guard topicFromNoti == 0, !isParentOfTopic, let mid = Int64(messageId), mid != 0 else { return }
+        }
         let ts = notification.userInfo?["timestampSeconds"]
         let tsU32: UInt32? = {
             if let t = ts as? UInt32 { return t }
@@ -2567,7 +2641,6 @@ final class ChannelListViewController: ViewController {
         }()
         if !messageId.isEmpty, messageId != "0", let mid = Int64(messageId), mid != 0 {
             var updated = false
-            let topicFromNoti = Self.int64UserInfo(notification.userInfo?["topicId"]) ?? 0
             if topicFromNoti != 0 {
                 let parentId = isParentOfTopic
                     ? channelId
@@ -2583,7 +2656,9 @@ final class ChannelListViewController: ViewController {
             if updated { rebuildAndReload() }
             return
         }
-        if hasRecentMentionSentinel(clanId: clanId, channelId: channelId, ts: tsU32) { return }
+        if hasRecentMentionSentinel(clanId: clanId, channelId: channelId, ts: tsU32) {
+            return
+        }
         let dedupKey: String
         if !messageId.isEmpty, messageId != "0" {
             dedupKey = "\(channelId)_\(messageId)"
@@ -2797,8 +2872,27 @@ final class ChannelListViewController: ViewController {
     @objc private func handleChannelMarkedAsRead(_ notification: Notification) {
         guard let channelId = Self.int64UserInfo(notification.userInfo?["channelId"]) else { return }
         let notificationClanId = Self.int64UserInfo(notification.userInfo?["clanId"]) ?? clanId
-        guard notificationClanId == 0 || notificationClanId == clanId else { return }
+        let isInactiveClan = notificationClanId != 0 && notificationClanId != clanId
+        let row = badgeChannelRow(clanId: notificationClanId == 0 ? clanId : notificationClanId, channelId: channelId)
+        let isTopic = row?.type == 7
+        if isInactiveClan {
+            guard !isTopic, (Self.int64UserInfo(notification.userInfo?["topicId"]) ?? 0) == 0 else { return }
+        }
+        let messageId = Int64(notification.userInfo?["messageId"] as? String ?? "") ?? 0
+        let timestamp = (notification.userInfo?["timestampSeconds"] as? NSNumber)?.uint32Value ?? 0
+        if !isTopic {
+            let seenId = max(badgeReadMessageIds[channelId] ?? 0,
+                             row?.lastSeenMessage.id ?? 0)
+            if messageId != 0, messageId < seenId {
+                return
+            }
+            badgeReadMessageIds[channelId] = max(badgeReadMessageIds[channelId] ?? 0, messageId)
+            badgeReadTimestamps[channelId] = max(badgeReadTimestamps[channelId] ?? 0, timestamp)
+        }
         clearPendingMentionUnreadFloor(clanId: notificationClanId == 0 ? clanId : notificationClanId, channelId: channelId)
+        if isInactiveClan {
+            return
+        }
         let now = UInt32(Date().timeIntervalSince1970)
         var didClearUnreadState = false
         for i in 0..<allChannels.count {
@@ -2810,7 +2904,14 @@ final class ChannelListViewController: ViewController {
                     didClearUnreadState = true
                 }
                 allChannels[i].countMessUnread = 0
-                allChannels[i].lastSeenMessage.timestampSeconds = now
+                if isTopic {
+                    allChannels[i].lastSeenMessage.timestampSeconds = now
+                } else {
+                    allChannels[i].lastSeenMessage.id = max(ch.lastSeenMessage.id, messageId)
+                    allChannels[i].lastSeenMessage.timestampSeconds = max(
+                        ch.lastSeenMessage.timestampSeconds, timestamp == 0 ? now : timestamp
+                    )
+                }
             }
         }
         rebuildAndReload()

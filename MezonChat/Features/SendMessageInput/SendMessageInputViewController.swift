@@ -549,6 +549,8 @@ final class SendMessageInputViewController: UIViewController {
     private var isHandlingComposerSelectionChange = false
     private var didAttemptEmojiSuggestionCacheLoad = false
     private var mentionSuggestionView: MentionSuggestionView?
+    private var mentionRemoteSearch: MentionRemoteSearch?
+    private var mentionSearchScope: (channelId: Int64, parentId: Int64, scopeChannelId: Int64)?
     private var mentionSuggestionHeightConstraint: NSLayoutConstraint?
     private var mentionComposerConstraints: [NSLayoutConstraint] = []
     private var mentionHostConstraints: [NSLayoutConstraint] = []
@@ -3491,6 +3493,81 @@ final class SendMessageInputViewController: UIViewController {
         mentionComposerConstraints = [leading, trailing, bottom, hc]
         NSLayoutConstraint.activate(mentionComposerConstraints)
         mentionSuggestionView = sv
+
+        let search = MentionRemoteSearch { [weak self] clanId, channelId, text in
+            guard let self, let token = await self.context.getToken() else {
+                throw MezonError.invalidResponse
+            }
+            return try await self.context.account.network.searchMentionUsers(
+                clanId: clanId, channelId: channelId, text: text, token: token
+            ).users
+        }
+        search.onAnswer = { [weak self] in
+            guard let self, case .mention(let keyword) = self.dominantInlineCompletion() else { return }
+            self.updateMentionSuggestions(keyword: keyword)
+        }
+        mentionRemoteSearch = search
+    }
+
+    private var isMentionRosterCapped: Bool {
+        if let known = context.account.network.isClanRosterCapped(clanId: clanId) {
+            return known
+        }
+        let cachedRows = context.engine.clanData.getClanUsers(clanId: clanId)?.clanUsers.count ?? 0
+        return cachedRows >= MezonHTTPClient.listClanUsersCap
+    }
+
+    private var mentionSearchScopeChannelId: Int64 {
+        if let cached = mentionSearchScope,
+           cached.channelId == channel.channelID,
+           cached.parentId == channel.parentID {
+            return cached.scopeChannelId
+        }
+        var target = channel
+        if channel.parentID != 0 {
+            let parentId = channel.parentID
+            if let parent = allHashtagChannelCandidates.first(where: { $0.channelID == parentId })
+                ?? context.engine.clanData.getAllChannelsByUser()?.channeldesc.first(where: { $0.channelID == parentId }) {
+                target = parent
+            }
+        }
+        let scopeChannelId = target.channelPrivate != 0 ? target.channelID : 0
+        mentionSearchScope = (channel.channelID, channel.parentID, scopeChannelId)
+        return scopeChannelId
+    }
+
+    private func remoteMentionSearchResult(keyword: String) -> MentionRemoteSearch.Result {
+        guard let search = mentionRemoteSearch, clanId != 0 else { return .none }
+        guard let selectedRange = textView.selectedTextRange else { return .none }
+        let cursor = textView.offset(from: textView.beginningOfDocument, to: selectedRange.start)
+        let atIndex = cursor - (keyword as NSString).length - 1
+        guard !activeMentions.contains(where: { $0.range.location == atIndex }) else { return .none }
+        return search.search(
+            clanId: clanId,
+            channelId: mentionSearchScopeChannelId,
+            rosterCapped: isMentionRosterCapped,
+            keyword: keyword
+        )
+    }
+
+    private func mentionMember(from user: Mezon_Api_MentionUser) -> MentionMember {
+        let display = Self.layeredClanVisibleName(
+            clanNick: user.clanNick,
+            displayName: user.displayName,
+            username: user.username,
+            userId: user.id,
+            profile: nil,
+            sender: nil
+        )
+        let clanAvatar = user.clanAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
+        let userAvatar = user.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        let avatar = clanAvatar.isEmpty ? userAvatar : clanAvatar
+        return MentionMember(
+            userId: user.id,
+            displayName: display,
+            username: user.username,
+            avatarURL: avatar.isEmpty ? nil : avatar
+        )
     }
 
     private func setupEmojiSuggestion() {
@@ -3996,7 +4073,7 @@ final class SendMessageInputViewController: UIViewController {
             }
         }
         let toAdd = Set(candidates.filter { uid in
-            parentSet.contains(uid) && !childSet.contains(uid)
+            (parentSet.contains(uid) || mentionRemoteSearch?.containsUser(uid) == true) && !childSet.contains(uid)
         })
         guard !toAdd.isEmpty else { return }
         try await context.account.network.addChannelUsers(
@@ -4561,7 +4638,7 @@ final class SendMessageInputViewController: UIViewController {
 
     private func updateMentionSuggestions(keyword: String) {
         let pool = allMentionSuggestionItems
-        let filtered: [MentionSuggestionItem]
+        var filtered: [MentionSuggestionItem]
         if keyword.isEmpty {
             filtered = pool
         } else {
@@ -4595,8 +4672,23 @@ final class SendMessageInputViewController: UIViewController {
             }
         }
 
+        let remote = remoteMentionSearchResult(keyword: keyword)
+        if !remote.users.isEmpty {
+            var listedUserIds = Set<Int64>()
+            for case .user(let member) in filtered {
+                listedUserIds.insert(member.userId)
+            }
+            for user in remote.users where listedUserIds.insert(user.id).inserted {
+                filtered.append(.user(mentionMember(from: user)))
+            }
+        }
+
         guard !filtered.isEmpty else {
-            hideMentionSuggestions()
+            if remote.pending {
+                hideMentionSuggestionStrip()
+            } else {
+                hideMentionSuggestions()
+            }
             return
         }
         showMentionSuggestions(items: filtered)
@@ -4629,6 +4721,11 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func hideMentionSuggestions() {
+        mentionRemoteSearch?.endSession()
+        hideMentionSuggestionStrip()
+    }
+
+    private func hideMentionSuggestionStrip() {
         guard let sv = mentionSuggestionView else { return }
         let wasVisible = !sv.isHidden
             || (inlineSuggestionHost != nil && inlineSuggestionHost?.isHidden == false)
@@ -5365,8 +5462,7 @@ final class SendMessageInputViewController: UIViewController {
             if h.parentId != 0 {
                 dict["parentId"] = "\(h.parentId)"
             }
-            let isThreadPublish = h.channelType == MezonConstants.ChannelType.thread.rawValue && h.channelPrivate == 0
-            if isThreadPublish, !h.channelLabel.isEmpty {
+            if h.channelPrivate == 0, !h.channelLabel.isEmpty {
                 dict["channelLabel"] = h.channelLabel
             }
             dict["channelType"] = Int(h.channelType)
@@ -6103,6 +6199,16 @@ final class SendMessageInputViewController: UIViewController {
             }
         }
 
+        contentJSON = MessageContentParser.addChannelLinkDetails(to: contentJSON) { [self] id in
+            if channel.channelID == id {
+                var current = channel
+                if current.clanID == 0 { current.clanID = clanId }
+                return current
+            }
+            return context.account.postbox.getChannelDescription(channelId: id)?.channel
+                ?? context.engine.clanData.getAllChannelsByUser()?.channeldesc.first { $0.channelID == id }
+                ?? context.engine.clanData.linkedChannelDetail(channelId: id)
+        }
         return (try? JSONSerialization.data(withJSONObject: contentJSON)) ?? Data()
     }
 

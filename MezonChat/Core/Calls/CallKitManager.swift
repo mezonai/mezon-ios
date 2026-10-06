@@ -201,7 +201,7 @@ final class CallKitManager: NSObject {
         return UUID(uuidString: s) != nil
     }
 
-    private func wasAnsweredLocallyForVoIPCallKit() -> Bool {
+    func wasAnsweredLocallyForVoIPCallKit() -> Bool {
         let hasUUID = hasStoredActiveVoIPCallUUID()
         let hasPayload = UserDefaults.standard.dictionary(forKey: DefaultsKeys.notificationPayload) != nil
         return hasUUID && !hasPayload
@@ -473,6 +473,47 @@ final class CallKitManager: NSObject {
         return UserDefaults.standard.dictionary(forKey: DefaultsKeys.notificationPayload)
     }
 
+    @MainActor
+    func handleCallCancelRemoteNotification(_ userInfo: [AnyHashable: Any]) -> Bool {
+        guard let offerValue = userInfo["offer"],
+              let inner = parseOfferInner(offerValue),
+              (inner["offer"] as? String) == "CANCEL_CALL"
+        else { return false }
+        let (channelId, callerId) = resolveCancelCallIds(inner)
+        guard channelId != 0, callerId != 0,
+              let data = try? JSONSerialization.data(withJSONObject: inner),
+              let jsonData = String(data: data, encoding: .utf8)
+        else { return true }
+        let receiverId = int64(inner["receiverId"]) ?? 0
+        var push = Mezon_Realtime_IncomingCallPush()
+        push.receiverID = receiverId
+        push.jsonData = jsonData
+        push.channelID = channelId
+        push.callerID = callerId
+        let myId = Self.resolveLocalUserIdForVoIP(fallbackReceiverId: receiverId) ?? 0
+        WebRTCCallManager.shared.handleIncomingCallPush(push, currentUserId: myId)
+        return true
+    }
+
+    private func resolveCancelCallIds(_ inner: [String: Any]) -> (channelId: Int64, callerId: Int64) {
+        var channelId = int64(inner["channelId"]) ?? 0
+        var callerId = int64(inner["callerId"]) ?? 0
+        if channelId == 0 || callerId == 0 {
+            if let info = UserDefaults.standard.dictionary(forKey: DefaultsKeys.notificationPayload) {
+                if channelId == 0 { channelId = int64(info["channelId"]) ?? 0 }
+                if callerId == 0 { callerId = int64(info["callerId"]) ?? 0 }
+            } else if let snap = Self.readVoipQuitSnapshot() {
+                if channelId == 0 { channelId = snap.channelId }
+                if callerId == 0 { callerId = snap.callerId }
+            }
+        }
+        if (channelId == 0 || callerId == 0), let last = recentlyRingedCallIds() {
+            if channelId == 0 { channelId = last.channelId }
+            if callerId == 0 { callerId = last.callerId }
+        }
+        return (channelId, callerId)
+    }
+
     private func handleVoIPDictionary(_ payloadDict: [AnyHashable: Any], completion: @escaping () -> Void) {
         let myId = Self.resolveLocalUserIdForVoIP(fallbackReceiverId: 0) ?? 0
         guard let offerValue = payloadDict["offer"] else {
@@ -485,25 +526,8 @@ final class CallKitManager: NSObject {
             return
         }
         let offerStr = inner["offer"] as? String ?? ""
-        let originalCancelChannelId = int64(inner["channelId"]) ?? 0
-        let originalCancelCallerId = int64(inner["callerId"]) ?? 0
-        var cancelChannelId = originalCancelChannelId
-        var cancelCallerId = originalCancelCallerId
         if offerStr == "CANCEL_CALL" {
-            if cancelChannelId == 0 || cancelCallerId == 0 {
-                if let info = UserDefaults.standard.dictionary(forKey: DefaultsKeys.notificationPayload) {
-                    if cancelChannelId == 0 { cancelChannelId = int64(info["channelId"]) ?? 0 }
-                    if cancelCallerId == 0 { cancelCallerId = int64(info["callerId"]) ?? 0 }
-                } else if let snap = Self.readVoipQuitSnapshot() {
-                    if cancelChannelId == 0 { cancelChannelId = snap.channelId }
-                    if cancelCallerId == 0 { cancelCallerId = snap.callerId }
-                }
-            }
-            if (cancelChannelId == 0 || cancelCallerId == 0), let last = recentlyRingedCallIds() {
-                if cancelChannelId == 0 { cancelChannelId = last.channelId }
-                if cancelCallerId == 0 { cancelCallerId = last.callerId }
-            }
-            let cancelHadOriginalIds = (originalCancelChannelId != 0 && originalCancelCallerId != 0)
+            let (cancelChannelId, cancelCallerId) = resolveCancelCallIds(inner)
             let isSelfEcho = (myId != 0 && cancelCallerId == myId)
             let hadStoredUUID = hasStoredActiveVoIPCallUUID()
             let alreadyEndedRecently = wasRecentlyEnded(channelId: cancelChannelId, callerId: cancelCallerId)
@@ -517,7 +541,7 @@ final class CallKitManager: NSObject {
                 return c < r
             }()
 
-            if remoteIsConnected && answeredLocally {
+            if answeredLocally {
             } else if remoteIsConnected && hadStoredUUID && !alreadyEndedRecently && !cancelPredatesCurrentRing {
                 endStoredActiveCallViaProvider(reason: .answeredElsewhere)
                 requestEndActiveVoIPCallIfNeeded()
@@ -530,6 +554,15 @@ final class CallKitManager: NSObject {
                 Self.clearStoredIncomingPayload()
             } else if !hadStoredUUID {
                 markRecentlyEnded(channelId: cancelChannelId, callerId: cancelCallerId)
+            }
+
+            if !answeredLocally && !cancelPredatesCurrentRing {
+                Task { @MainActor in
+                    WebRTCCallManager.shared.dismissUnansweredIncomingRing(
+                        channelId: cancelChannelId,
+                        callerId: cancelCallerId
+                    )
+                }
             }
 
             if remoteIsConnected {
@@ -606,7 +639,8 @@ final class CallKitManager: NSObject {
             )
             return
         }
-        if isDuplicateOfferPush {
+        if isDuplicateOfferPush
+            || PeerCallKnownSessions.shared.contains(peerUserId: callerId, compressedSignal: offerStr) {
             reportImmediateEndedIncomingForVoIPCompliance(
                 localizedCallerName: callerName,
                 remoteHandleValue: callerId != 0 ? "\(callerId)" : callerName,
@@ -653,6 +687,7 @@ final class CallKitManager: NSObject {
         pushJsonData: String,
         completion: (() -> Void)?
     ) {
+        PeerCallKnownSessions.shared.remember(peerUserId: callerId, compressedSignal: offerStr)
         let userInfo: [AnyHashable: Any] = [
             "channelId": NSNumber(value: channelId),
             "callerId": NSNumber(value: callerId),
@@ -726,6 +761,7 @@ final class CallKitManager: NSObject {
         guard WebRTCCallManager.shared.hasPendingIncomingSocketOffer(channelId: channelId, callerId: callerId) else { return }
         _ = storedUserInfoIfFresh()
         guard !hasStoredActiveVoIPCallUUID() else { return }
+        guard !PeerCallKnownSessions.shared.contains(peerUserId: callerId, compressedSignal: offerStr) else { return }
         guard !offerWasSeenRecently(offerStr) else { return }
         let display = IncomingPeerCallPayloadParser.callerDisplayFromCompressedOffer(offerStr)
         let callerName: String = {

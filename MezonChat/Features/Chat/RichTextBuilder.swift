@@ -1,4 +1,5 @@
 import UIKit
+import AsyncDisplayKit
 
 
 extension String {
@@ -301,7 +302,7 @@ enum RichTextBuilder {
                 let displayText = rawText.isEmpty ? "@unknown" : rawText
                 result.append(NSAttributedString(string: displayText, attributes: attrs))
 
-            case .hashtag(let channelId, let clanId, let parentId, let channelLabel, let channelType, let channelPrivate, let ageRestricted):
+            case .hashtag(let channelId, let clanId, _, let channelLabel, let channelType, let channelPrivate, let ageRestricted):
                 let hasEmbeddedLabel = !(channelLabel ?? "").isEmpty
                 let chType = channelType ?? (hasEmbeddedLabel
                     ? MezonConstants.ChannelType.thread.rawValue
@@ -310,12 +311,8 @@ enum RichTextBuilder {
                 let chAge = ageRestricted ?? 0
                 let cid = channelId ?? ""
                 let gidForAccess = (clanId ?? "").isEmpty ? nil : clanId
-                var accessible = !cid.isEmpty && (hashtagChannelAccess?(cid, gidForAccess) ?? true)
-                if !accessible, hasEmbeddedLabel, chPriv == 0,
-                   let pid = parentId, !pid.isEmpty, pid != "0",
-                   let access = hashtagChannelAccess {
-                    accessible = access(pid, gidForAccess)
-                }
+                let accessible = token.channelIsAccessible
+                    ?? (!cid.isEmpty && (hashtagChannelAccess?(cid, gidForAccess) ?? false))
                 let iconName: String
                 if accessible {
                     iconName = Mezon_Api_ChannelDescription.channelListIconAssetName(
@@ -366,7 +363,8 @@ enum RichTextBuilder {
 
             case .mezonChannelLink(let isVk, let channelId, let clanId):
                 let gidForAccess = clanId.isEmpty ? nil : clanId
-                let accessible = !channelId.isEmpty && (hashtagChannelAccess?(channelId, gidForAccess) ?? true)
+                let accessible = token.channelIsAccessible
+                    ?? (!channelId.isEmpty && (hashtagChannelAccess?(channelId, gidForAccess) ?? false))
                 let chType: Int32 = isVk ? MezonConstants.ChannelType.mezonVoice.rawValue : MezonConstants.ChannelType.channel.rawValue
                 let iconName: String
                 if accessible {
@@ -548,7 +546,8 @@ enum RichTextBuilder {
         let slicedTokens = content.tokens.compactMap { token -> ContentToken? in
             if case .codeBlock = token.kind { return nil }
             guard token.start >= clampedFrom && token.end <= clampedTo else { return nil }
-            return ContentToken(start: token.start - clampedFrom, end: token.end - clampedFrom, kind: token.kind)
+            return ContentToken(start: token.start - clampedFrom, end: token.end - clampedFrom, kind: token.kind,
+                                channelIsAccessible: token.channelIsAccessible)
         }
 
         return ParsedContent(text: slicedText, tokens: slicedTokens, embeds: [], ogpPreviews: [])
@@ -634,6 +633,268 @@ enum RichTextBuilder {
         return fonts[idx]
     }
 
+}
+
+extension RichTextBuilder {
+
+    private enum EmbedInlineStyle {
+        case code
+        case bold
+        case underline
+        case strikethrough
+        case italic
+    }
+
+    private static let embedFenceRegex = try? NSRegularExpression(pattern: "```([\\s\\S]*?)```")
+    private static let embedURLRunRegex = try? NSRegularExpression(pattern: "https?://\\S+", options: [.caseInsensitive])
+    private static let embedFenceLanguageRegex = try? NSRegularExpression(pattern: "^[a-zA-Z0-9+#.-]{1,24}$")
+    private static let embedURLTrailingCharacters = CharacterSet(charactersIn: ".,;:!?)]}\\\">")
+    private static let embedURLTailCharacters = CharacterSet(charactersIn: ".,;:!?)]}\\\">*_~`")
+    private static let embedMaskCharacter: unichar = 0xE000
+    private static let embedInlineRules: [(regex: NSRegularExpression, style: EmbedInlineStyle)] = {
+        let patterns: [(String, EmbedInlineStyle)] = [
+            ("`([^`\\n]+)`", .code),
+            ("\\*\\*(?![\\s*\\x{FE0F}])([^*\\n]+)(?<!\\s)\\*\\*(?!\\x{FE0F})", .bold),
+            ("(?<![\\p{L}\\p{N}])__(?![_\\s])([^_\\n]+)(?<!\\s)__(?![\\p{L}\\p{N}])", .underline),
+            ("~~(?!\\s)([^~\\n]+)(?<!\\s)~~", .strikethrough),
+            ("(?<![\\p{N}*])\\*(?![\\s*\\x{FE0F}])([^*\\n]+)(?<!\\s)\\*(?![*\\x{FE0F}])", .italic),
+            ("(?<![\\p{L}\\p{N}_])_(?!\\s)([^_\\n]+)(?<!\\s)_(?![\\p{L}\\p{N}_])", .italic),
+        ]
+        var rules: [(regex: NSRegularExpression, style: EmbedInlineStyle)] = []
+        for (pattern, style) in patterns {
+            if let regex = try? NSRegularExpression(pattern: pattern) {
+                rules.append((regex: regex, style: style))
+            }
+        }
+        return rules
+    }()
+
+    static func buildEmbedSegments(from raw: String, font: UIFont, color: UIColor) -> [RichTextSegment] {
+        let normalized = raw
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .replacingOccurrences(of: "\\r\\n", with: "\n")
+            .replacingOccurrences(of: "\\r", with: "\n")
+            .replacingOccurrences(of: "\\n", with: "\n")
+        let source = normalized as NSString
+        let fences = embedFenceRegex?.matches(
+            in: normalized, options: [], range: NSRange(location: 0, length: source.length)) ?? []
+        var segments: [RichTextSegment] = []
+        var cursor = 0
+        for fence in fences {
+            if fence.range.location > cursor {
+                let chunk = source.substring(with: NSRange(location: cursor, length: fence.range.location - cursor))
+                appendEmbedTextSegment(chunk, to: &segments, font: font, color: color)
+            }
+            let code = embedFenceCode(source.substring(with: fence.range(at: 1)))
+            if !code.isEmpty {
+                segments.append(.codeBlock(code))
+            }
+            cursor = NSMaxRange(fence.range)
+        }
+        if cursor < source.length {
+            appendEmbedTextSegment(source.substring(from: cursor), to: &segments, font: font, color: color)
+        }
+        return segments
+    }
+
+    static func embedPlainText(from raw: String) -> String {
+        buildEmbedSegments(from: raw, font: .systemFont(ofSize: 14), color: .clear)
+            .map { segment -> String in
+                switch segment {
+                case .text(let attributed): return attributed.string
+                case .codeBlock(let code): return code
+                }
+            }
+            .joined(separator: "\n")
+    }
+
+    private static func embedFenceCode(_ body: String) -> String {
+        let trimmed = body.trimmingCharacters(in: .newlines)
+        guard !body.hasPrefix("\n") else { return trimmed }
+        let lines = trimmed.components(separatedBy: "\n")
+        guard lines.count >= 2, let first = lines.first, let regex = embedFenceLanguageRegex,
+              regex.firstMatch(
+                  in: first, options: [], range: NSRange(location: 0, length: (first as NSString).length)) != nil
+        else { return trimmed }
+        return lines.dropFirst().joined(separator: "\n").trimmingCharacters(in: .newlines)
+    }
+
+    private static func appendEmbedTextSegment(
+        _ chunk: String,
+        to segments: inout [RichTextSegment],
+        font: UIFont,
+        color: UIColor
+    ) {
+        guard !chunk.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let trimmed = chunk.trimmingCharacters(in: .newlines)
+        segments.append(.text(embedAttributedText(trimmed, font: font, color: color)))
+    }
+
+    private static func embedAttributedText(_ plain: String, font: UIFont, color: UIColor) -> NSAttributedString {
+        let theme = UIColor.theme
+        let headingFonts = Style.fromTheme().headingFonts
+        let baseAttributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
+        let result = NSMutableAttributedString()
+        let lines = plain.components(separatedBy: "\n")
+        for (index, line) in lines.enumerated() {
+            var attributes = baseAttributes
+            var content = line
+            if let heading = headingMatch(in: line), !heading.text.isEmpty {
+                content = heading.text
+                attributes[.font] = headingFont(level: heading.level, fonts: headingFonts, fallback: font)
+            }
+            let lineText = NSMutableAttributedString(string: content, attributes: attributes)
+            applyEmbedInlineMarkdown(to: lineText, codeBackground: theme.tertiary)
+            applyEmbedLinks(to: lineText, linkColor: theme.textLink)
+            result.append(lineText)
+            if index < lines.count - 1 {
+                result.append(NSAttributedString(string: "\n", attributes: baseAttributes))
+            }
+        }
+        return result
+    }
+
+    private static func applyEmbedInlineMarkdown(to text: NSMutableAttributedString, codeBackground: UIColor) {
+        let source = text.string as NSString
+        let length = source.length
+        guard length > 0 else { return }
+        let fullRange = NSRange(location: 0, length: length)
+        var working = [unichar](repeating: 0, count: length)
+        source.getCharacters(&working, range: fullRange)
+        let urlRuns = embedURLRunRegex?.matches(in: source as String, options: [], range: fullRange) ?? []
+        for run in urlRuns {
+            var coreEnd = NSMaxRange(run.range)
+            while coreEnd > run.range.location,
+                  let scalar = Unicode.Scalar(working[coreEnd - 1]),
+                  embedURLTailCharacters.contains(scalar) {
+                coreEnd -= 1
+            }
+            embedMask(&working, NSRange(location: run.range.location, length: coreEnd - run.range.location))
+        }
+        var removals: [NSRange] = []
+        for rule in embedInlineRules {
+            let masked = String(utf16CodeUnits: working, count: length)
+            for match in rule.regex.matches(in: masked, options: [], range: fullRange) {
+                let inner = match.range(at: 1)
+                guard inner.location != NSNotFound, inner.length > 0 else { continue }
+                let opening = NSRange(location: match.range.location, length: inner.location - match.range.location)
+                let closing = NSRange(location: NSMaxRange(inner), length: NSMaxRange(match.range) - NSMaxRange(inner))
+                applyEmbedInlineStyle(rule.style, to: text, range: inner, codeBackground: codeBackground)
+                removals.append(opening)
+                removals.append(closing)
+                embedMask(&working, opening)
+                embedMask(&working, closing)
+                if rule.style == .code {
+                    embedMask(&working, inner)
+                }
+            }
+        }
+        for range in removals.sorted(by: { $0.location > $1.location }) {
+            text.deleteCharacters(in: range)
+        }
+    }
+
+    private static func embedMask(_ working: inout [unichar], _ range: NSRange) {
+        for index in range.location..<NSMaxRange(range) {
+            working[index] = embedMaskCharacter
+        }
+    }
+
+    private static func applyEmbedInlineStyle(
+        _ style: EmbedInlineStyle,
+        to text: NSMutableAttributedString,
+        range: NSRange,
+        codeBackground: UIColor
+    ) {
+        switch style {
+        case .code:
+            let border = ASTextBorder()
+            border.fillColor = codeBackground
+            border.cornerRadius = 3
+            text.addAttribute(NSAttributedString.Key(ASTextBackgroundBorderAttributeName), value: border, range: range)
+        case .bold:
+            addEmbedFontTrait(.traitBold, to: text, range: range)
+        case .italic:
+            addEmbedFontTrait(.traitItalic, to: text, range: range)
+        case .underline:
+            text.addAttribute(
+                NSAttributedString.Key(ASTextUnderlineAttributeName),
+                value: embedLineDecoration(for: text, at: range.location),
+                range: range
+            )
+        case .strikethrough:
+            text.addAttribute(
+                NSAttributedString.Key(ASTextStrikethroughAttributeName),
+                value: embedLineDecoration(for: text, at: range.location),
+                range: range
+            )
+        }
+    }
+
+    private static func embedLineDecoration(for text: NSAttributedString, at location: Int) -> ASTextDecoration {
+        let decoration = ASTextDecoration()
+        decoration.color = text.attribute(.foregroundColor, at: location, effectiveRange: nil) as? UIColor
+        return decoration
+    }
+
+    private static func addEmbedFontTrait(
+        _ trait: UIFontDescriptor.SymbolicTraits,
+        to text: NSMutableAttributedString,
+        range: NSRange
+    ) {
+        text.enumerateAttribute(.font, in: range, options: []) { value, subrange, _ in
+            guard let font = value as? UIFont else { return }
+            let traits = font.fontDescriptor.symbolicTraits.union(trait)
+            let weighted = traits.contains(.traitBold)
+                ? UIFont.systemFont(ofSize: font.pointSize, weight: .bold)
+                : UIFont.systemFont(ofSize: font.pointSize)
+            var styled = weighted
+            if traits.contains(.traitItalic),
+               let descriptor = weighted.fontDescriptor.withSymbolicTraits(
+                   weighted.fontDescriptor.symbolicTraits.union(.traitItalic)) {
+                styled = UIFont(descriptor: descriptor, size: font.pointSize)
+            }
+            text.addAttribute(.font, value: styled, range: subrange)
+        }
+    }
+
+    private static func embedParenthesesAreBalanced(in source: NSString, from start: Int, to end: Int) -> Bool {
+        var depth = 0
+        for index in start..<end {
+            switch source.character(at: index) {
+            case 0x28: depth += 1
+            case 0x29: depth -= 1
+            default: break
+            }
+        }
+        return depth >= 0
+    }
+
+    private static func applyEmbedLinks(to text: NSMutableAttributedString, linkColor: UIColor) {
+        let snapshot = text.string
+        let source = snapshot as NSString
+        let runs = embedURLRunRegex?.matches(
+            in: snapshot, options: [], range: NSRange(location: 0, length: source.length)) ?? []
+        for run in runs {
+            let start = run.range.location
+            var end = NSMaxRange(run.range)
+            while end > start,
+                  let scalar = Unicode.Scalar(source.character(at: end - 1)),
+                  embedURLTrailingCharacters.contains(scalar) {
+                if scalar == ")", embedParenthesesAreBalanced(in: source, from: start, to: end) {
+                    break
+                }
+                end -= 1
+            }
+            let range = NSRange(location: start, length: end - start)
+            guard range.length > 8 else { continue }
+            text.addAttributes(
+                [.foregroundColor: linkColor, .mezonLink: source.substring(with: range) as NSString],
+                range: range
+            )
+        }
+    }
 }
 
 final class EmojiTextAttachment: NSTextAttachment {

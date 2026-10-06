@@ -241,7 +241,7 @@ struct ChatMessageDisplay: Identifiable {
     let isCombine: Bool
     let attachments: [ParsedAttachment]
     let reactions: [ParsedReaction]
-    let parsedContent: ParsedContent
+    var parsedContent: ParsedContent
     let replyRef: Mezon_Api_MessageRef?
     let isDeletedReply: Bool
     let isWelcome: Bool
@@ -302,6 +302,24 @@ struct ChatMessageDisplay: Identifiable {
             return nil
         }
         return data
+    }
+
+    var copyableText: String {
+        let text = parsedContent.text
+        let embeds = parsedContent.embeds
+        guard !embeds.isEmpty, !isCallLog, !isPollMessage, !isSendTokenLog, !isLocation,
+              shareContactData == nil else { return text }
+        var parts: [String] = []
+        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            parts.append(text)
+        }
+        for embed in embeds {
+            let embedText = embed.copyableText
+            if !embedText.isEmpty {
+                parts.append(embedText)
+            }
+        }
+        return parts.joined(separator: "\n\n")
     }
 
     var isAnonymousSender: Bool {
@@ -692,44 +710,13 @@ final class ChatViewController: ViewController {
                 self?.showMemberProfileById(mentionId)
             },
             onHashtagTapped: { [weak self] info in
-                guard let self else { return }
-                guard !info.channelId.isEmpty else { return }
-                guard info.channelId != "\(self.channel.channelID)" else { return }
-                let resolvedClan = info.clanId.flatMap { Int64($0) } ?? self.clanId
-                guard let idInt = Int64(info.channelId) else { return }
-                let ch0 = self.cachedChannelDescriptionForHashtag(channelId: idInt, clanId: resolvedClan)
-                    ?? (self.navigationController as? MezonRootController)?.homeController?.channelListVC.allChannels
-                        .first(where: { $0.channelID == idInt })
-            if var ch = ch0, ch.type == MezonConstants.ChannelType.mezonVoice.rawValue {
-                if ch.clanID == 0, resolvedClan != 0 {
-                    ch.clanID = resolvedClan
-                }
-                self.view.endEditing(true)
-                self.presentJoinVoiceSheet(for: ch)
-                return
-            }
-            if var ch = ch0, ch.type == MezonConstants.ChannelType.streaming.rawValue {
-                if ch.clanID == 0, resolvedClan != 0 {
-                    ch.clanID = resolvedClan
-                }
-                self.view.endEditing(true)
-                self.presentJoinStreamSheet(for: ch)
-                return
-            }
-            AppDelegate.navigateToChannel(channelId: info.channelId, clanId: "\(resolvedClan)")
+                self?.openHashtagChannel(info)
             },
             hashtagChannelIsAccessible: { [weak self] channelId, clanIdOpt in
                 guard let self else { return false }
                 guard let idInt = Int64(channelId) else { return false }
                 let resolvedClan = clanIdOpt.flatMap { Int64($0) } ?? self.clanId
-                let channels = self.context.engine.clanData.getAllChannelsByUser()?.channeldesc ?? []
-                if channels.contains(where: { $0.channelID == idInt && (resolvedClan == 0 || $0.clanID == resolvedClan || $0.clanID == 0) }) {
-                    return true
-                }
-                if let desc = self.context.account.postbox.getChannelDescription(channelId: idInt)?.channel {
-                    return desc.channelPrivate == 0
-                }
-                return false
+                return self.cachedChannelDescriptionForHashtag(channelId: idInt, clanId: resolvedClan) != nil
             },
             onMessageLongPressed: { [weak self] display in
                 self?.showMessageActions(display)
@@ -1058,6 +1045,14 @@ final class ChatViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleAttachmentUploadProgress(_:)), name: .mezonAttachmentUploadProgress, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleAttachmentUploadSlotStateChanged(_:)), name: .mezonAttachmentUploadSlotStateChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelMetadataChanged(_:)), name: .mezonChannelDescriptionDidUpdate, object: nil)
+        stateDisposables.add((context.engine.clanData.linkedChannelUpdated.signal() |> deliverOnMainQueue).start(next: { [weak self] _ in
+            self?.scheduleLinkedChannelRefresh()
+        }))
+        stateDisposables.add((context.account.postbox.channelLinkDataUpdated.signal() |> deliverOnMainQueue).start(next: { [weak self] _ in
+            self?.scheduleLinkedChannelRefresh()
+        }))
+        // Catch cache writes that completed between start() and installing these subscriptions.
+        scheduleLinkedChannelRefresh()
         if channel.type == MezonConstants.ChannelType.dm.rawValue {
             NotificationCenter.default.addObserver(self, selector: #selector(handleVoicePresenceChangedForDmHeader(_:)), name: .mezonVoicePresenceChanged, object: nil)
             dmPeerInVoice = resolveDirectMessagePeerInVoice()
@@ -2294,7 +2289,12 @@ final class ChatViewController: ViewController {
         lastMarkedAsReadMessageId = messageId
         pendingMarkAsRead = false
 
-        let channelUnreadCount = channel.countMessUnread
+        var channelUnreadCount = channel.countMessUnread
+        if clanId != 0, topicId == 0 {
+            let request = BadgeReadCountRequest(clanId: clanId, channelId: channel.channelID, fallback: channelUnreadCount)
+            NotificationCenter.default.post(name: Notification.Name("MezonBadgeReadCountRequested"), object: request)
+            channelUnreadCount = request.count
+        }
 
         let mode: Int32
         if clanId != 0 {
@@ -2312,7 +2312,7 @@ final class ChatViewController: ViewController {
             mode: mode,
             messageId: messageId,
             timestampSeconds: now,
-            badgeCount: 0
+            badgeCount: clanId != 0 && topicId == 0 ? channelUnreadCount : 0
         )
 
         NotificationCenter.default.post(
@@ -2322,6 +2322,7 @@ final class ChatViewController: ViewController {
                 "channelId": channel.channelID,
                 "clanId": clanId,
                 "channelUnreadCount": channelUnreadCount,
+                "localBadgeCount": channelUnreadCount,
                 "mode": mode,
                 "messageId": String(messageId),
                 "timestampSeconds": now
@@ -2959,6 +2960,7 @@ final class ChatViewController: ViewController {
                 return "\(embed.title ?? "")|\(embed.description ?? "")|\(fields)|\(embed.actionRows.count)|\(buttons)|\(selects)"
             }.joined(separator: "§")
         }()
+        let channelTokenHash = m.parsedContent.tokens.map { "\($0.start):\($0.end):\($0.kind):\(String(describing: $0.channelIsAccessible))" }.joined(separator: ";")
         let ogpHash = m.parsedContent.ogpPreviews.map {
             "\($0.url)|\($0.title)|\($0.description)|\($0.imageURL)"
         }.joined(separator: "§")
@@ -2968,7 +2970,7 @@ final class ChatViewController: ViewController {
         }()
 
         let sendFeedback = m.showsSendingFeedback ? "1" : "0"
-        return "\(m.id)|\(edited)|\(m.messageCode)|\(m.parsedContent.text)|\(att)|\(presignHash)|\(pin)|\(pollHash)|\(embedHash)|\(ogpHash)|\(topicHash)|\(sendFeedback)|\(m.sendingState.rawValue)"
+        return "\(m.id)|\(edited)|\(m.messageCode)|\(m.parsedContent.text)|\(att)|\(presignHash)|\(pin)|\(pollHash)|\(embedHash)|\(ogpHash)|\(channelTokenHash)|\(topicHash)|\(sendFeedback)|\(m.sendingState.rawValue)"
     }
 
     func stateSignal() -> Signal<ChatState, NoError> {
@@ -5169,105 +5171,99 @@ final class ChatViewController: ViewController {
         self.navigationController?.pushViewController(vc, animated: true)
     }
 
-    private func cachedChannelDescriptionForHashtag(channelId: Int64, clanId: Int64) -> Mezon_Api_ChannelDescription? {
-        let channelsByUser = context.engine.clanData.getAllChannelsByUser()?.channeldesc ?? []
-        if let ch = channelsByUser.first(where: {
-            $0.channelID == channelId && (clanId == 0 || $0.clanID == clanId || $0.clanID == 0)
-        }) {
+    private func cachedChannelDescriptionForHashtag(
+        channelId: Int64, clanId: Int64, parentId: Int64 = 0
+    ) -> Mezon_Api_ChannelDescription? {
+        func matches(_ ch: Mezon_Api_ChannelDescription) -> Bool {
+            ch.channelID == channelId && (clanId == 0 || ch.clanID == 0 || ch.clanID == clanId)
+        }
+        // The per-clan cache is also used by the sidebar and includes joined private channels/threads.
+        // Prefer it to the global search cache, as Android does.
+        if let ch = context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channelId),
+           matches(ch) { return ch }
+        if let ch = context.engine.clanData.getAllChannelsByUser()?.channeldesc.first(where: matches) {
             return ch
         }
-        return context.account.postbox.resolvedChannelDescription(clanId: clanId, channelId: channelId)
+        if clanId != 0, parentId != 0,
+           let data = context.account.postbox.getPreferenceData(
+               key: PreferencesKeys.threadList(clanId: clanId, parentChannelId: parentId)),
+           let ch = Self.decodeThreadListPreference(data)?.first(where: matches),
+           ch.channelPrivate == 0 || ch.active == 1 || ch.active == 3 {
+            return ch
+        }
+        return context.engine.clanData.linkedChannelDetail(channelId: channelId).flatMap { matches($0) ? $0 : nil }
+    }
+
+    private var linkedChannelRefreshScheduled = false
+
+    private func scheduleLinkedChannelRefresh() {
+        guard !linkedChannelRefreshScheduled else { return }
+        linkedChannelRefreshScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.linkedChannelRefreshScheduled = false
+            self.refreshLinkedChannelLabels()
+        }
+    }
+
+    private func refreshLinkedChannelLabels() {
+        var changed = false
+        func refresh(_ display: ChatMessageDisplay) -> ChatMessageDisplay {
+            var result = display
+            result.parsedContent = enrichParsedContent(display.parsedContent, fallbackClanId: display.message.clanId)
+            changed = changed || result.parsedContent.tokens != display.parsedContent.tokens
+            return result
+        }
+        persistentMessages = persistentMessages.map(refresh)
+        ephemeralMessages = ephemeralMessages.map(refresh)
+        if changed { updateMessagesWithEphemeral() }
+    }
+
+    private func openHashtagChannel(_ info: ChannelHashtagTapInfo) {
+        guard let id = Int64(info.channelId), id != 0, id != channel.channelID else { return }
+        let clan = info.clanId.flatMap(Int64.init) ?? clanId
+        guard context.engine.clanData.isLinkedClanMember(clan) else { return }
+        if let known = cachedChannelDescriptionForHashtag(channelId: id, clanId: clan) {
+            openResolvedHashtagChannel(known, fallbackClanId: clan)
+            return
+        }
+        let epoch = context.sessionEpoch
+        Task { @MainActor [weak self] in
+            guard let self, let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait(),
+                  self.context.sessionEpoch == epoch else { return }
+            guard let detail = try? await self.context.account.network.listChannelDetail(channelId: id, token: token),
+                  self.context.sessionEpoch == epoch, detail.channelID == id,
+                  clan == 0 || detail.clanID == clan,
+                  self.context.engine.clanData.isLinkedClanMember(clan) else { return }
+            self.openResolvedHashtagChannel(detail, fallbackClanId: clan)
+        }
+    }
+
+    private func openResolvedHashtagChannel(_ description: Mezon_Api_ChannelDescription, fallbackClanId: Int64) {
+        var channel = description
+        if channel.clanID == 0 { channel.clanID = fallbackClanId }
+        view.endEditing(true)
+        switch channel.type {
+        case MezonConstants.ChannelType.mezonVoice.rawValue:
+            presentJoinVoiceSheet(for: channel)
+        case MezonConstants.ChannelType.streaming.rawValue:
+            presentJoinStreamSheet(for: channel)
+        default:
+            AppDelegate.navigateToChannel(channelId: String(channel.channelID), clanId: String(channel.clanID))
+        }
+    }
+
+    private func requestLinkedChannel(channelId: Int64, clanId: Int64) {
+        context.engine.clanData.requestLinkedChannel(channelId: channelId, clanId: clanId) { [weak self] in
+            await self?.context.getTokenPreferringCachedSkipSessionReadyWait()
+        }
     }
 
     private func enrichParsedContent(_ parsed: ParsedContent, fallbackClanId: String?) -> ParsedContent {
-        let fallbackClan = fallbackClanId.flatMap { Int64($0) } ?? 0
-        let newTokens: [ContentToken] = parsed.tokens.map { token in
-            switch token.kind {
-            case .mezonChannelLink(let isVk, let cid, let gid):
-                return enrichMezonChannelLinkToken(
-                    token: token, isVk: isVk, channelId: cid, clanId: gid,
-                    fallbackClan: fallbackClan, fallbackClanId: fallbackClanId
-                )
-            case .hashtag(let cid, let clanIdOpt, let parentIdOpt, let label, let ctype, let channelPrivate, let ageRestricted):
-                guard let cid, !cid.isEmpty, let idInt = Int64(cid) else { return token }
-                let clanInt = clanIdOpt.flatMap { Int64($0) } ?? fallbackClan
-                if let ch = cachedChannelDescriptionForHashtag(channelId: idInt, clanId: clanInt) {
-                    let cachedLabel = ch.channelLabel.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let embeddedLabel = label?.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let resolvedLabel = cachedLabel.isEmpty ? embeddedLabel : cachedLabel
-                    let resolvedClanId = clanIdOpt
-                        ?? (ch.clanID != 0 ? "\(ch.clanID)" : fallbackClanId)
-                    return ContentToken(
-                        start: token.start,
-                        end: token.end,
-                        kind: .hashtag(
-                            channelId: cid,
-                            clanId: resolvedClanId,
-                            parentId: parentIdOpt ?? (ch.parentID != 0 ? "\(ch.parentID)" : nil),
-                            channelLabel: resolvedLabel,
-                            channelType: ctype ?? ch.type,
-                            channelPrivate: ctype == nil ? ch.channelPrivate : channelPrivate,
-                            ageRestricted: ctype == nil ? ch.ageRestricted : ageRestricted
-                        )
-                    )
-                }
-                return token
-            default:
-                return token
-            }
-        }
-        return ParsedContent(text: parsed.text, tokens: newTokens, embeds: parsed.embeds, ogpPreviews: parsed.ogpPreviews)
-    }
-
-    private func enrichMezonChannelLinkToken(
-        token: ContentToken,
-        isVk: Bool,
-        channelId: String,
-        clanId: String,
-        fallbackClan: Int64,
-        fallbackClanId: String?
-    ) -> ContentToken {
-        guard !channelId.isEmpty, let idInt = Int64(channelId) else { return token }
-        let clanInt: Int64 = {
-            if let g = Int64(clanId), g > 0 { return g }
-            return fallbackClan
-        }()
-        let clanOut: String? = {
-            if !clanId.isEmpty { return clanId }
-            if fallbackClan > 0 { return "\(fallbackClan)" }
-            return fallbackClanId
-        }()
-        if let ch = cachedChannelDescriptionForHashtag(channelId: idInt, clanId: clanInt) {
-            return ContentToken(
-                start: token.start,
-                end: token.end,
-                kind: .hashtag(
-                    channelId: channelId,
-                    clanId: clanOut,
-                    parentId: ch.parentID != 0 ? "\(ch.parentID)" : nil,
-                    channelLabel: ch.channelLabel,
-                    channelType: ch.type,
-                    channelPrivate: ch.channelPrivate,
-                    ageRestricted: ch.ageRestricted
-                )
-            )
-        }
-        let defaultType: Int32 = isVk ? MezonConstants.ChannelType.mezonVoice.rawValue : MezonConstants.ChannelType.channel.rawValue
-        let defaultLabel = isVk
-            ? NSLocalizedString("voiceChannel.defaultName", tableName: nil, bundle: .main, value: "Voice", comment: "")
-            : "Channel"
-        return ContentToken(
-            start: token.start,
-            end: token.end,
-            kind: .hashtag(
-                channelId: channelId,
-                clanId: clanOut,
-                parentId: nil,
-                channelLabel: defaultLabel,
-                channelType: defaultType,
-                channelPrivate: 0,
-                ageRestricted: 0
-            )
+        MessageContentParser.resolvingChannelLinks(
+            in: parsed, fallbackClanId: fallbackClanId,
+            findChannel: { self.cachedChannelDescriptionForHashtag(channelId: $0, clanId: $1, parentId: $2) },
+            requestChannel: { self.requestLinkedChannel(channelId: $0, clanId: $1) }
         )
     }
 
@@ -6136,9 +6132,8 @@ final class ChatViewController: ViewController {
         let displays: [ChatMessageDisplay] = includeAdjacentNewer
             ? forwardDisplaysAdjacentNewer(from: selected)
             : [selected]
-        let ids = displays.map(\.id)
         return context.account.postbox.read { tx in
-            ids.compactMap { tx.getMessageById($0) }
+            displays.compactMap { tx.getMessageById($0.id, channelId: $0.message.channelId) }
         }
     }
 
@@ -6759,7 +6754,7 @@ final class ChatViewController: ViewController {
             sendInputViewController.setReply(display)
             sendInputViewController.view.becomeFirstResponder()
         case .copyText:
-            UIPasteboard.general.string = display.parsedContent.text
+            UIPasteboard.general.string = display.copyableText
             Toast.success(L(L10n.MessageAction.copied))
         case .shareText:
             shareMessageText(display: display)

@@ -382,6 +382,8 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        view.layoutIfNeeded()
+        VideoTrackLastFrameStore.replayLastFrame(of: shareTrack, to: [videoView])
         UIViewController.attemptRotationToDeviceOrientation()
         if #available(iOS 16.0, *) {
             setNeedsUpdateOfSupportedInterfaceOrientations()

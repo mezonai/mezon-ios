@@ -920,6 +920,7 @@ final class MezonSocket: NSObject {
             ) {
                 pending.continuation.resume(returning: payload)
             } else {
+                NSLog("%@", "[MezonSocket] api '\(pending.apiName)' resolved with an empty payload from an envelope reply" as NSString)
                 pending.continuation.resume(returning: Data())
             }
             return
@@ -1440,7 +1441,8 @@ enum MezonApiNameRegistry {
         "DeletePinMessage",
         "MarkAsRead",
         "UploadBatchAttachmentFile",
-        "SearchCtrlK"
+        "SearchCtrlK",
+        "SearchMentionUsers"
     ]
 
     private static let nameToIndex: [String: Int32] = {
