@@ -25,6 +25,7 @@ static constexpr int kModelFrameSamples = 160;
     std::atomic<int32_t> _inputPeak;
     BOOL _hardwareInterrupted;
     std::atomic<bool> _noiseEnabled;
+    std::atomic<bool> _captureForSending;
     std::atomic<bool> _resetPending;
     std::atomic<void *> _model;
     std::atomic<uint64_t> _requestGeneration;
@@ -54,6 +55,7 @@ static void disableNoiseAfterFailure(MezonNSAudioDevice *device, NSString *reaso
     if (self) {
         _modelQueue = dispatch_queue_create("mezon.ns.model", DISPATCH_QUEUE_SERIAL);
         _noiseEnabled.store(false);
+        _captureForSending.store(false);
         _playing.store(false);
         _recording.store(false);
         _capturedFrames.store(0);
@@ -80,6 +82,12 @@ static void disableNoiseAfterFailure(MezonNSAudioDevice *device, NSString *reaso
 }
 
 - (BOOL)noiseSuppressionEnabled { return _noiseEnabled.load(); }
+- (void)setCaptureForSending:(BOOL)sending {
+    if (_captureForSending.exchange(sending) != sending) {
+        _resetPending.store(true);
+        if (!sending) _inputPeak.store(0);
+    }
+}
 - (uint64_t)capturedFrameCount { return _capturedFrames.load(); }
 - (NSDictionary<NSString *, NSNumber *> *)captureDiagnostics {
     return @{@"device_recording": @(_recording.load()),
@@ -107,11 +115,10 @@ static void disableNoiseAfterFailure(MezonNSAudioDevice *device, NSString *reaso
     }
     dispatch_async(_modelQueue, ^{
         if (self->_model.load() == nullptr) {
-            NSString *path = [[NSBundle mainBundle] pathForResource:@"mezon_ns_asym_babble" ofType:@"onnx"];
-            MezonNS *engine = path ? [[MezonNS alloc] initWithModelPath:path attenuationLimitDb:15.0f numThreads:1] : nil;
+            MezonNS *engine = [MezonNS modelFromCDN];
             if (engine) {
                 [engine setNoiseGate:NO];
-                [engine setSuppressionIntensity:1.6f];
+                [engine setSuppressionIntensity:1.0f];
                 [engine setModelInputTargetDbfs:-20.0f];
                 int16_t probe[kModelFrameSamples] = {};
                 int16_t processed[kModelFrameSamples] = {};
@@ -128,7 +135,7 @@ static void disableNoiseAfterFailure(MezonNSAudioDevice *device, NSString *reaso
             self->_reportedFirstProcessedFrame.store(false);
             self->_noiseEnabled.store(true);
         }
-        if (!success) NSLog(@"[MezonNS][iOS] failed to load bundled noise model");
+        if (!success) NSLog(@"[MezonNS][iOS] failed to load cached/CDN noise model");
         dispatch_async(dispatch_get_main_queue(), ^{ completion(success); });
     });
 }
@@ -177,6 +184,12 @@ static OSStatus inputCallback(void *context, AudioUnitRenderActionFlags *flags,
     data.mBuffers[0].mData = samples;
     OSStatus status = AudioUnitRender(device->_audioUnit, flags, timeStamp, 1, frames, &data);
     if (status != noErr) {
+        device->_lastCaptureStatus.store(status);
+        return status;
+    }
+    if (!device->_captureForSending.load()) {
+        memset(samples, 0, frames * sizeof(int16_t));
+        status = device->_delegate.deliverRecordedData(flags, timeStamp, bus, frames, &data, nullptr, nil);
         device->_lastCaptureStatus.store(status);
         return status;
     }

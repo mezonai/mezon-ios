@@ -10,6 +10,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) void (^onProcessingError)(void);
 @property (nonatomic, copy, nullable) void (^onFirstProcessedFrame)(void);
 - (void)setNoiseSuppressionEnabled:(BOOL)enabled completion:(void (^)(BOOL success))completion;
+// Keep the ADM warm, but deliver silence until mic/PTT is authorized to send.
+- (void)setCaptureForSending:(BOOL)sending;
 // Stop hardware before deactivating AVAudioSession; preserves WebRTC intent.
 - (void)prepareForAudioSessionRestart;
 // Call only after the owner has successfully restored AVAudioSession.

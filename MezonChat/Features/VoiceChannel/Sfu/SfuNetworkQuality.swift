@@ -10,12 +10,16 @@ struct SfuLossSample {
 
 final class SfuNetworkQuality {
 
-    private static let lossRatio = 0.05
+    private static let warningLossRatio = 0.10
+    private static let severeLossRatio = 0.20
+    private static let recoveryLossRatio = 0.05
     private static let minPackets: Double = 50
+    private static let warningSamples = 2
     private static let clearSamples = 2
 
     private var previous: [String: SfuLossSample] = [:]
     private var isWeak = false
+    private var badSamples = 0
     private var cleanSamples = 0
 
     func update(_ samples: [SfuLossSample]) -> Bool {
@@ -36,10 +40,19 @@ final class SfuNetworkQuality {
             }
         }
         previous = Dictionary(samples.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
-        let lossy = Self.isLossy(expected: receivedExpected, lost: receivedLost)
-            || Self.isLossy(expected: sentExpected, lost: sentLost)
-        cleanSamples = lossy ? 0 : cleanSamples + 1
-        if lossy {
+        let ratios = [
+            Self.lossRatio(expected: receivedExpected, lost: receivedLost),
+            Self.lossRatio(expected: sentExpected, lost: sentLost)
+        ].compactMap { $0 }
+        guard let ratio = ratios.max() else {
+            // Silence or a new stream is not evidence that the network recovered.
+            badSamples = 0
+            cleanSamples = 0
+            return isWeak
+        }
+        badSamples = ratio >= Self.warningLossRatio ? min(badSamples + 1, Self.warningSamples) : 0
+        cleanSamples = ratio < Self.recoveryLossRatio ? min(cleanSamples + 1, Self.clearSamples) : 0
+        if ratio >= Self.severeLossRatio || badSamples >= Self.warningSamples {
             isWeak = true
         } else if cleanSamples >= Self.clearSamples {
             isWeak = false
@@ -47,26 +60,23 @@ final class SfuNetworkQuality {
         return isWeak
     }
 
-    private static func isLossy(expected: Double, lost: Double) -> Bool {
-        expected >= minPackets && lost / expected >= lossRatio
+    private static func lossRatio(expected: Double, lost: Double) -> Double? {
+        expected >= minPackets ? lost / expected : nil
     }
 
     static func lossSamples(in report: RTCStatisticsReport) -> [SfuLossSample] {
         let stats = report.statistics
         var samples: [SfuLossSample] = []
         for (id, stat) in stats {
+            guard stat.type == "inbound-rtp" || stat.type == "remote-inbound-rtp" else { continue }
             let values = stat.values
             guard let lost = (values["packetsLost"] as? NSNumber)?.doubleValue else { continue }
             let upload = stat.type == "remote-inbound-rtp"
-            let packets: NSNumber?
-            if stat.type == "inbound-rtp" {
-                packets = values["packetsReceived"] as? NSNumber
-            } else if upload, let localId = values["localId"] as? String {
-                packets = stats[localId]?.values["packetsSent"] as? NSNumber
-            } else {
-                packets = nil
-            }
-            guard let packets else { continue }
+            let media = upload ? (values["localId"] as? String).flatMap { stats[$0] } : stat
+            guard let media else { continue }
+            let kind = (media.values["kind"] as? String) ?? (media.values["mediaType"] as? String)
+            guard kind == "audio",
+                  let packets = media.values[upload ? "packetsSent" : "packetsReceived"] as? NSNumber else { continue }
             samples.append(SfuLossSample(id: id, upload: upload, packets: packets.doubleValue, lost: lost))
         }
         return samples

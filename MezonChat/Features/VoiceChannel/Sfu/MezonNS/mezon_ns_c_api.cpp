@@ -16,7 +16,7 @@ void mezon_ns_config_init(MezonNSConfig* config) {
     if (!config) return;
     config->sample_rate = 16000;
     config->frame_size = 160;
-    config->attenuation_limit_db = 0.0f;
+    config->attenuation_limit_db = 15.0f;
     config->num_threads = 1;
     config->suppression_intensity = 1.0f;
     config->enable_noise_gate = 0;
@@ -77,7 +77,11 @@ int mezon_ns_process_frame_float(
     float* out_frame
 ) {
     if (!engine || !in_frame || !out_frame) return -1;
-    return engine->engine.process_frame_float(in_frame, out_frame);
+    try {
+        return engine->engine.process_frame_float(in_frame, out_frame);
+    } catch (...) {
+        return -2;
+    }
 }
 
 int mezon_ns_process_frame_int16(
@@ -86,7 +90,11 @@ int mezon_ns_process_frame_int16(
     int16_t* out_frame
 ) {
     if (!engine || !in_frame || !out_frame) return -1;
-    return engine->engine.process_frame_int16(in_frame, out_frame);
+    try {
+        return engine->engine.process_frame_int16(in_frame, out_frame);
+    } catch (...) {
+        return -2;
+    }
 }
 
 void mezon_ns_reset(MezonNSEngine* engine) {

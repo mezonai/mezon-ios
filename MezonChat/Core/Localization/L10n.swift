@@ -1071,6 +1071,7 @@ enum L10n {
         static let placeholder = "notificationActions.placeholder"
         static let replyFailed = "notificationActions.replyFailed"
         static let likeFailed = "notificationActions.likeFailed"
+        static let muteOneHour = "notificationActions.muteOneHour"
     }
 
     enum NotificationSettings {
@@ -1518,6 +1519,10 @@ enum L10n {
         static let retry = "voiceChannel.retry"
         static let leaveRoom = "voiceChannel.leaveRoom"
         static let networkWarning = "voiceChannel.networkWarning"
+        static let pttHold = "voiceChannel.pttHold"
+        static let pttWaiting = "voiceChannel.pttWaiting"
+        static let pttPreparing = "voiceChannel.pttPreparing"
+        static let pttReady = "voiceChannel.pttReady"
     }
 }
 
@@ -1722,6 +1727,7 @@ extension L10n {
         "notificationActions.placeholder": "Message",
         "notificationActions.replyFailed": "Your reply could not be sent. Tap to open the conversation.",
         "notificationActions.likeFailed": "Your like could not be sent. Tap to open the conversation.",
+        "notificationActions.muteOneHour": "Mute notifications for 1 hour",
 
         "notifications.title": "Notifications",
         "notifications.mentions": "Mentions",
@@ -2890,6 +2896,10 @@ extension L10n {
         "voiceChannel.retry": "Rejoin",
         "voiceChannel.leaveRoom": "Exit",
         "voiceChannel.networkWarning": "Your internet connection is unstable.",
+        "voiceChannel.pttHold": "Hold to talk",
+        "voiceChannel.pttWaiting": "Waiting to speak…",
+        "voiceChannel.pttPreparing": "Preparing microphone…",
+        "voiceChannel.pttReady": "You can speak now",
     ]
 
     private static let vi: [String: String] = [
@@ -3082,6 +3092,7 @@ extension L10n {
         "notificationActions.placeholder": "Tin nhắn",
         "notificationActions.replyFailed": "Không gửi được trả lời. Chạm để mở cuộc trò chuyện.",
         "notificationActions.likeFailed": "Không gửi được biểu cảm. Chạm để mở cuộc trò chuyện.",
+        "notificationActions.muteOneHour": "Tắt thông báo trong 1 giờ",
 
         "notifications.title": "Thông báo",
         "notifications.mentions": "Nhắc đến",
@@ -4252,5 +4263,9 @@ extension L10n {
         "voiceChannel.retry": "Tham gia lại",
         "voiceChannel.leaveRoom": "Thoát",
         "voiceChannel.networkWarning": "Kết nối mạng của bạn không ổn định.",
+        "voiceChannel.pttHold": "Giữ để nói",
+        "voiceChannel.pttWaiting": "Đang chờ quyền nói…",
+        "voiceChannel.pttPreparing": "Đang chuẩn bị micro…",
+        "voiceChannel.pttReady": "Bạn có thể nói",
     ]
 }

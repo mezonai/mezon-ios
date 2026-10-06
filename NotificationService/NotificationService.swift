@@ -20,6 +20,9 @@ class NotificationService: UNNotificationServiceExtension {
             let newCount = shared.integer(forKey: "badgeCount") + 1
             shared.set(newCount, forKey: "badgeCount")
             bestAttemptContent.badge = NSNumber(value: newCount)
+            if Date().timeIntervalSince1970 < shared.double(forKey: Self.notificationsMutedUntilKey) {
+                silence(bestAttemptContent)
+            }
         }
 
         let userInfo = bestAttemptContent.userInfo
@@ -54,6 +57,14 @@ class NotificationService: UNNotificationServiceExtension {
     }
 
     private static let messageCategoryIdentifier = "MEZON_MESSAGE"
+    private static let notificationsMutedUntilKey = "notificationsMutedUntil"
+
+    private func silence(_ content: UNMutableNotificationContent) {
+        content.sound = nil
+        if #available(iOS 15.0, *) {
+            content.interruptionLevel = .passive
+        }
+    }
 
     private func isReplyableMessage(_ userInfo: [AnyHashable: Any]) -> Bool {
         if let e2ee = userInfo["e2ee"] as? String, e2ee.lowercased() == "true" { return false }
@@ -95,7 +106,13 @@ class NotificationService: UNNotificationServiceExtension {
         interaction.donate(completion: nil)
 
         do {
-            return try content.updating(from: intent)
+            let updated = try content.updating(from: intent)
+            guard content.interruptionLevel == .passive,
+                  let silenced = updated.mutableCopy() as? UNMutableNotificationContent else {
+                return updated
+            }
+            silence(silenced)
+            return silenced
         } catch {
             return content
         }
