@@ -401,11 +401,13 @@ final class AbridgedTCPTransport {
     var onClose: ((_ wasClean: Bool, _ error: Error?) -> Void)?
     var onError: ((Error) -> Void)?
     var onEvents: (([AbridgedParsedEvent]) -> Void)?
+    var onPongRtt: ((_ rttMs: Double) -> Void)?
 
     private let queue = DispatchQueue(label: "mezon.abridged.transport")
     private var connector: HappyEyeballsConnector?
     private var connection: NWConnection?
     private var parser = AbridgedStreamParser()
+    private var pingSentAt: [UInt16: DispatchTime] = [:]
     private var isClosed = false
     private let writeStallTimeoutSeconds: TimeInterval = 20
     private let logTag = "[abridged-tcp] [c\(AbridgedTCPLog.nextConnectionId())]"
@@ -450,6 +452,7 @@ final class AbridgedTCPTransport {
     func sendPing(cid: UInt16) {
         queue.async { [weak self] in
             guard let self, !self.isClosed, self.connection != nil else { return }
+            self.pingSentAt[cid] = .now()
             self.sendRaw(AbridgedFrameCodec.framePing(cid: cid), completion: nil)
         }
     }
@@ -466,6 +469,8 @@ final class AbridgedTCPTransport {
             self.onClose = nil
             self.onError = nil
             self.onEvents = nil
+            self.onPongRtt = nil
+            self.pingSentAt.removeAll()
         }
     }
 
@@ -523,6 +528,7 @@ final class AbridgedTCPTransport {
                         return
                     case .events(let events):
                         if !events.isEmpty {
+                            self.reportPongRoundTrips(in: events)
                             self.onEvents?(events)
                         }
                     }
@@ -538,6 +544,13 @@ final class AbridgedTCPTransport {
                 }
                 self.receiveLoop(connection)
             }
+        }
+    }
+
+    private func reportPongRoundTrips(in events: [AbridgedParsedEvent]) {
+        for event in events {
+            guard case .pong(let cid) = event, let sentAt = pingSentAt.removeValue(forKey: cid) else { continue }
+            onPongRtt?(AbridgedTCPLog.elapsedSeconds(since: sentAt) * 1_000)
         }
     }
 
@@ -564,5 +577,7 @@ final class AbridgedTCPTransport {
         onClose = nil
         onError = nil
         onEvents = nil
+        onPongRtt = nil
+        pingSentAt.removeAll()
     }
 }
