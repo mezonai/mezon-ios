@@ -612,7 +612,8 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         Task { @MainActor in
             Self.applyDmBadgeFromPush(userInfo)
             let suppressPeerCallToast = WebRTCCallManager.shared.isPeerCallDetailScreenActive
-            if !isViewingChannel, !suppressPeerCallToast {
+            let notificationsMuted = MessageNotificationCategory.areNotificationsMuted
+            if !isViewingChannel, !suppressPeerCallToast, !notificationsMuted {
                 Toast.notification(title: title, message: body) {
                     DispatchQueue.main.async { [weak self] in
                         guard let self else { return }
@@ -628,7 +629,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                     }
                 }
             }
-            completionHandler(Self.foregroundNotificationOptionsRespectingActiveCall())
+            completionHandler(notificationsMuted ? [.badge] : Self.foregroundNotificationOptionsRespectingActiveCall())
         }
     }
 
@@ -670,6 +671,12 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                 )
                 completionHandler()
             }
+            return
+        }
+
+        if MessageNotificationCategory.isMuteOneHourAction(response) {
+            MessageNotificationCategory.muteNotificationsForOneHour()
+            completionHandler()
             return
         }
 

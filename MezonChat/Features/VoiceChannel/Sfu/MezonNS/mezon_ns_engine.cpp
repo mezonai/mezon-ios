@@ -393,7 +393,7 @@ int NoiseSuppressionEngine::process_frame_float(const float* in_frame, float* ou
             peak = std::max(peak, std::abs(in_frame[i]));
         }
         const float frame_rms = std::sqrt(sum_sq / static_cast<float>(HOP_LENGTH));
-        model_level_rms_ = std::max(frame_rms, model_level_rms_ * 0.90f);
+        model_level_rms_ = std::max(frame_rms, model_level_rms_ * 0.995f);
         const float level_gain = std::clamp(
             model_target_rms_ / std::max(model_level_rms_, 1e-5f), 1.0f, 16.0f);
         const float gain = std::min(level_gain, std::max(1.0f, 0.8f / std::max(peak, 1e-5f)));
@@ -429,9 +429,9 @@ int NoiseSuppressionEngine::process_frame_float(const float* in_frame, float* ou
     const float gamma = (config_.suppression_intensity > 0.0f) ? config_.suppression_intensity : 1.0f;
 
     for (int k = 0; k < FREQ_BINS; ++k) {
-        // The model occasionally returns a tiny negative value due to float rounding.
-        // pow(negative, fractional gamma) is NaN, which can become full-scale PCM noise.
-        float m = std::isfinite(mask[k]) ? std::clamp(mask[k], 0.0f, 1.0f) : 0.0f;
+        if (!std::isfinite(mask[k])) return -2;
+        // Clamp sigmoid rounding before mask shaping, matching the web engine.
+        float m = std::clamp(mask[k], 0.0f, 1.0f);
 
         // 5a. Attenuate sub-80Hz mechanical rumble (< 93.75 Hz: bins 0, 1, 2)
         // 74.2% of fan noise energy is concentrated in bins 0-2; vocal fundamental F0 > 85Hz.
@@ -482,7 +482,8 @@ int NoiseSuppressionEngine::process_frame_int16(const int16_t* in_frame, int16_t
         float_scratch_in_[i] = in_frame[i] * scale_in;
     }
 
-    process_frame_float(float_scratch_in_.data(), float_scratch_out_.data());
+    const int result = process_frame_float(float_scratch_in_.data(), float_scratch_out_.data());
+    if (result != 0) return result;
 
     // Convert float back to int16 with clipping
     constexpr float scale_out = 32767.0f;

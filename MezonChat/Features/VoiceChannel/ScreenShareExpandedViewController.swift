@@ -31,9 +31,13 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
     private let pttPill = UIControl()
     private let pttTint = UIView()
     private let pttIcon = UIImageView()
+    private let pttIconSlot = UIView()
+    private let pttProgress = UIActivityIndicatorView(style: .medium)
     private let pttLabel = UILabel()
-    private var pttHoldWork: DispatchWorkItem?
     private var pttHoldTriggered = false
+    private var pttControlEnabled = false
+    private var pttFeedbackState: SfuPttFeedbackState = .idle
+    private var pttReadyShown = false
     private var pttHintView: UIView?
     private var pttDimWork: DispatchWorkItem?
 
@@ -146,6 +150,9 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
         pttPill.layer.cornerRadius = 29
         pttPill.clipsToBounds = true
         pttPill.isHidden = !showsPttControl
+        pttPill.isEnabled = pttControlEnabled
+        pttPill.isAccessibilityElement = true
+        pttPill.accessibilityTraits = .button
         pttPill.addTarget(self, action: #selector(pttTouchDown), for: .touchDown)
         pttPill.addTarget(self, action: #selector(pttTouchUp), for: [.touchUpInside, .touchUpOutside, .touchCancel])
 
@@ -165,12 +172,19 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
         pttIcon.isUserInteractionEnabled = false
 
         pttLabel.translatesAutoresizingMaskIntoConstraints = false
-        pttLabel.text = NSLocalizedString("voiceChannel.pushToTalk", tableName: nil, bundle: .main, value: "Push to Talk", comment: "")
+        pttLabel.text = SfuPttFeedbackState.idle.localizedTitle
         pttLabel.font = .systemFont(ofSize: 15, weight: .semibold)
         pttLabel.textColor = .white
         pttLabel.isUserInteractionEnabled = false
 
-        let content = UIStackView(arrangedSubviews: [pttIcon, pttLabel])
+        pttIconSlot.translatesAutoresizingMaskIntoConstraints = false
+        pttIconSlot.isUserInteractionEnabled = false
+        pttProgress.translatesAutoresizingMaskIntoConstraints = false
+        pttProgress.isUserInteractionEnabled = false
+        pttProgress.hidesWhenStopped = true
+        pttIconSlot.addSubview(pttIcon)
+        pttIconSlot.addSubview(pttProgress)
+        let content = UIStackView(arrangedSubviews: [pttIconSlot, pttLabel])
         content.translatesAutoresizingMaskIntoConstraints = false
         content.axis = .horizontal
         content.spacing = 8
@@ -196,8 +210,14 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
             pttPill.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
             pttPill.heightAnchor.constraint(equalToConstant: 58),
             pttPill.widthAnchor.constraint(greaterThanOrEqualToConstant: 240),
-            pttIcon.widthAnchor.constraint(equalToConstant: 26),
-            pttIcon.heightAnchor.constraint(equalToConstant: 26),
+            pttIconSlot.widthAnchor.constraint(equalToConstant: 26),
+            pttIconSlot.heightAnchor.constraint(equalToConstant: 26),
+            pttIcon.topAnchor.constraint(equalTo: pttIconSlot.topAnchor),
+            pttIcon.bottomAnchor.constraint(equalTo: pttIconSlot.bottomAnchor),
+            pttIcon.leadingAnchor.constraint(equalTo: pttIconSlot.leadingAnchor),
+            pttIcon.trailingAnchor.constraint(equalTo: pttIconSlot.trailingAnchor),
+            pttProgress.centerXAnchor.constraint(equalTo: pttIconSlot.centerXAnchor),
+            pttProgress.centerYAnchor.constraint(equalTo: pttIconSlot.centerYAnchor),
             content.leadingAnchor.constraint(greaterThanOrEqualTo: pttPill.leadingAnchor, constant: 24),
             content.trailingAnchor.constraint(lessThanOrEqualTo: pttPill.trailingAnchor, constant: -24),
             content.centerXAnchor.constraint(equalTo: pttPill.centerXAnchor),
@@ -214,6 +234,7 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
         } else {
             releasePttIfHeld()
         }
+        refreshPttFeedback()
     }
 
     private func schedulePttDim() {
@@ -237,37 +258,32 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
         }
     }
 
-    func setPttActive(_ active: Bool) {
-        guard !active, pttHoldTriggered else { return }
-        pttHoldTriggered = false
-        setPttPressed(false)
-        stopPttPulse()
+    func setPttControlEnabled(_ enabled: Bool) {
+        pttControlEnabled = enabled
+        pttPill.isEnabled = enabled
+        if !enabled { releasePttIfHeld() }
+        refreshPttFeedback()
+    }
+
+    func setPttFeedbackState(_ state: SfuPttFeedbackState) {
+        pttFeedbackState = state
+        refreshPttFeedback()
     }
 
     @objc private func pttTouchDown() {
         restorePttDim()
-        pttHoldWork?.cancel()
-        pttHoldTriggered = false
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.pttHoldWork = nil
-            self.pttHoldTriggered = true
-            self.setPttPressed(true)
-            self.startPttPulse()
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-            self.onPttPress?()
-        }
-        pttHoldWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: work)
+        guard showsPttControl, pttControlEnabled, !pttHoldTriggered else { return }
+        pttHoldTriggered = true
+        pttFeedbackState = .idle
+        refreshPttFeedback()
+        onPttPress?()
     }
 
     @objc private func pttTouchUp() {
-        pttHoldWork?.cancel()
-        pttHoldWork = nil
         if pttHoldTriggered {
             pttHoldTriggered = false
-            setPttPressed(false)
-            stopPttPulse()
+            pttFeedbackState = .idle
+            refreshPttFeedback()
             onPttRelease?()
         } else {
             showPttHoldHint()
@@ -276,26 +292,42 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
     }
 
     private func releasePttIfHeld() {
-        pttHoldWork?.cancel()
-        pttHoldWork = nil
         pttDimWork?.cancel()
         pttDimWork = nil
         guard pttHoldTriggered else { return }
         pttHoldTriggered = false
-        setPttPressed(false)
-        stopPttPulse()
+        pttFeedbackState = .idle
+        refreshPttFeedback()
         onPttRelease?()
     }
 
-    private func setPttPressed(_ pressed: Bool) {
+    private func refreshPttFeedback() {
+        let state = pttHoldTriggered && showsPttControl && pttControlEnabled ? pttFeedbackState : .idle
+        let ready = state == .ready
+        let loading = state == .waiting || state == .preparing
         let iconCfg = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
-        if pressed {
-            pttTint.backgroundColor = UIColor.theme.bgViolet.withAlphaComponent(0.9)
-            pttIcon.image = UIImage(systemName: "mic.fill", withConfiguration: iconCfg)?.withRenderingMode(.alwaysTemplate)
+        let tint = loading ? UIColor.theme.textWarning : UIColor.white
+        pttTint.backgroundColor = ready ? UIColor.theme.bgViolet.withAlphaComponent(0.9) : .clear
+        pttPill.layer.borderWidth = loading ? 1 : 0
+        pttPill.layer.borderColor = tint.cgColor
+        pttIcon.image = UIImage(systemName: ready ? "mic.fill" : "mic.slash.fill", withConfiguration: iconCfg)?.withRenderingMode(.alwaysTemplate)
+        pttIcon.tintColor = tint
+        pttIcon.isHidden = loading
+        pttProgress.color = tint
+        if loading { pttProgress.startAnimating() }
+        else { pttProgress.stopAnimating() }
+        pttLabel.text = state.localizedTitle
+        pttLabel.textColor = tint
+        pttPill.accessibilityLabel = state.localizedTitle
+        if ready {
+            if !pttReadyShown {
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                startPttPulse()
+            }
         } else {
-            pttTint.backgroundColor = .clear
-            pttIcon.image = UIImage(systemName: "mic.slash.fill", withConfiguration: iconCfg)?.withRenderingMode(.alwaysTemplate)
+            stopPttPulse()
         }
+        pttReadyShown = ready
     }
 
     private func startPttPulse() {

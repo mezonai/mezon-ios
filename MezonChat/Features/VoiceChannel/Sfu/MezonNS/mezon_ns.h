@@ -23,10 +23,10 @@ typedef struct MezonNSEngine MezonNSEngine;
 typedef struct {
     int sample_rate;             /* Sample rate in Hz (default: 16000) */
     int frame_size;              /* Frame size in samples (default: 160 = 10ms at 16kHz) */
-    float attenuation_limit_db;  /* Maximum attenuation limit in dB (0.0 = unlimited) */
+    float attenuation_limit_db;  /* Maximum attenuation limit in dB (0.0 = unlimited, default: 15.0f) */
     int num_threads;             /* Number of CPU threads for inference (default: 1) */
-    float suppression_intensity; /* Psychoacoustic mask power shaping gamma [1.0 - 2.5] (default: 1.6f) */
-    int enable_noise_gate;
+    float suppression_intensity; /* Psychoacoustic mask power shaping gamma [1.0 - 2.5] (default: 1.0f) */
+    int enable_noise_gate;       /* Enable adaptive noise floor tracking & VAD gating (1=on, 0=off, default: 0) */
 } MezonNSConfig;
 
 /**

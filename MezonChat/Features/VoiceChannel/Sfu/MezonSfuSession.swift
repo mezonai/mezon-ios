@@ -268,6 +268,13 @@ enum NoiseSuppressionState {
     case error
 }
 
+enum SfuPttFeedbackState: Equatable, Sendable {
+    case idle
+    case waiting
+    case preparing
+    case ready
+}
+
 @MainActor
 final class MezonSfuSession: NSObject {
 
@@ -327,7 +334,6 @@ final class MezonSfuSession: NSObject {
     private var noiseApplying = false
     private var noiseRequestedEnabled = false
     private(set) var noiseCaptureConfirmed = false
-    private var micBeforeNoiseApply = false
     private var noiseApplyTimeoutTask: Task<Void, Never>?
     private static weak var liveSession: MezonSfuSession?
 
@@ -384,7 +390,7 @@ final class MezonSfuSession: NSObject {
         hasReachedConnected = true
         clearJoinWatchdog()
         clearTransportWatchdog()
-        restoreAudioSession(restartAudio: true)
+        restoreAudioSession(restartAudio: false)
         schedulePostConnectAudioRecovery(gen: connectionGen)
         scheduleHealthyConnectionReset()
         requestMissingScreenKeyframes()
@@ -414,6 +420,8 @@ final class MezonSfuSession: NSObject {
     var onLocalVideoTrack: ((RTCVideoTrack?) -> Void)?
     var onSpeaking: ((Set<String>) -> Void)?
     var onPushToTalkActive: ((Bool) -> Void)?
+    var onAudioSendingChanged: ((Bool) -> Void)?
+    var onPttFeedbackChanged: ((SfuPttFeedbackState) -> Void)?
     var onParticipantActionFailed: ((String) -> Void)?
     var onMutedByModerator: (() -> Void)?
     var onRemoved: ((SfuRemovalCause, String?) -> Void)?
@@ -429,6 +437,17 @@ final class MezonSfuSession: NSObject {
     private(set) var isNetworkWeak = false
     private var networkQuality = SfuNetworkQuality()
     private(set) var micEnabled = false
+    private(set) var isAudioSending = false
+    private(set) var pttFeedbackState: SfuPttFeedbackState = .idle
+    private var firstPttPreparationComplete = false
+    private var firstPttPreparationTask: Task<Void, Never>?
+    private var delayedPttLoadingVisible = false
+    private var delayedPttLoadingTask: Task<Void, Never>?
+    private var audioSendProbeTask: Task<Void, Never>?
+    private var audioSendProbeEpoch = 0
+    private var audioSendProbeInFlight = false
+    private var audioSendProbePackets: Double?
+    private var audioSendProbeFrames: UInt64?
     private(set) var cameraEnabled = false
     private(set) var pttActive = false
     private var pttRequested = false
@@ -570,6 +589,8 @@ final class MezonSfuSession: NSObject {
         onLocalVideoTrack = nil
         onSpeaking = nil
         onPushToTalkActive = nil
+        onAudioSendingChanged = nil
+        onPttFeedbackChanged = nil
         onParticipantActionFailed = nil
         onMutedByModerator = nil
         onRemoved = nil
@@ -589,7 +610,6 @@ final class MezonSfuSession: NSObject {
                     self.noiseApplyTimeoutTask?.cancel()
                     self.noiseApplyTimeoutTask = nil
                     self.noiseApplying = false
-                    if self.micBeforeNoiseApply, self.role == .speaker { self.applyMicEnabled(true) }
                 }
                 self.noiseRequestedEnabled = false
                 self.noiseCaptureConfirmed = false
@@ -830,6 +850,7 @@ final class MezonSfuSession: NSObject {
     }
 
     private func discardFailedTransport() {
+        stopAudioSendProbe()
         // Invalidate callbacks before closing: no old SDP/candidate/receiver
         // callback may mutate the replacement connection during backoff.
         connectionGen += 1
@@ -960,6 +981,7 @@ final class MezonSfuSession: NSObject {
     }
 
     func leave() {
+        stopAudioSendProbe()
         connectionStartupTask?.cancel()
         connectionStartupTask = nil
         noiseApplyGeneration += 1
@@ -1066,10 +1088,6 @@ final class MezonSfuSession: NSObject {
 
     private func applyMicEnabled(_ on: Bool) {
         guard active, role == .speaker else { return }
-        if noiseApplying {
-            micBeforeNoiseApply = on
-            return
-        }
         micEnabled = on
         if on { send(["type": "mute", "is_mute": false]) }
         let attached = synchronizeLocalAudioTrack()
@@ -1087,10 +1105,6 @@ final class MezonSfuSession: NSObject {
         noiseCaptureConfirmed = false
         noiseApplyGeneration += 1
         let generation = noiseApplyGeneration
-        if !noiseApplying {
-            micBeforeNoiseApply = micEnabled
-            if micEnabled { applyMicEnabled(false) }
-        }
         noiseApplying = true
         noiseState = .applying
         onNoiseStateChanged?(noiseState)
@@ -1105,7 +1119,6 @@ final class MezonSfuSession: NSObject {
             self.noiseAudioDevice.setNoiseSuppressionEnabled(false) { _ in }
             self.noiseApplying = false
             self.noiseState = .error
-            if self.micBeforeNoiseApply, self.role == .speaker { self.applyMicEnabled(true) }
             self.onNoiseStateChanged?(self.noiseState)
         }
         noiseAudioDevice.setNoiseSuppressionEnabled(enabled) { [weak self] success in
@@ -1115,9 +1128,6 @@ final class MezonSfuSession: NSObject {
             self.noiseApplying = false
             self.noiseState = success ? (enabled ? .on : .off) : .error
             if !success { self.noiseRequestedEnabled = false }
-            if self.micBeforeNoiseApply, self.role == .speaker {
-                self.applyMicEnabled(true)
-            }
             self.onNoiseStateChanged?(self.noiseState)
         }
     }
@@ -1150,8 +1160,11 @@ final class MezonSfuSession: NSObject {
     }
 
     func pttPress() {
-        guard active, isConnected, role == .audience else { return }
+        guard active, isConnected, role == .audience, !pttRequested else { return }
         pttRequested = true
+        restoreAudioSession(restartAudio: false)
+        synchronizeLocalAudioTrack()
+        updatePttFeedback()
         send(["type": "mute", "is_mute": false])
         send(["type": "push_to_talk", "active": true])
     }
@@ -1440,6 +1453,7 @@ final class MezonSfuSession: NSObject {
                 return
             }
             if isActive { restoreAudioSession(restartAudio: false) }
+            updatePttFeedback()
             onPushToTalkActive?(isActive)
         case "role_changed":
             handleRoleChanged(SfuRole.fromWire(msg["role"] as? String))
@@ -1548,7 +1562,10 @@ final class MezonSfuSession: NSObject {
             self.postConnectAudioRecoveryTask = nil
             guard gen == self.connectionGen, self.active, self.joined, self.isConnected,
                   Self.liveSession === self else { return }
-            self.restoreAudioSession(restartAudio: true)
+            // Healthy audio must not be stopped again just after the UI connects.
+            if !self.restoreAudioSession(restartAudio: false) {
+                self.scheduleAudioResumeRecovery()
+            }
             if self.selfJoinSoundPending {
                 self.selfJoinSoundPending = false
                 self.joinSound.play()
@@ -2014,6 +2031,10 @@ final class MezonSfuSession: NSObject {
             }
             return
         }
+        if reasons.contains("capture") || reasons.contains("send") {
+            setAudioSending(false)
+            updateAudioSendProbe()
+        }
         stalledPlayoutTicks += 1
         guard stalledPlayoutTicks >= Self.playoutStallTicksBeforeRestart else { return }
         stalledPlayoutTicks = 0
@@ -2192,12 +2213,18 @@ final class MezonSfuSession: NSObject {
         guard let audio = localAudioTrack, audio.readyState == .live else { return false }
         let sending = shouldSendAudio
         audio.isEnabled = sending
+        noiseAudioDevice.setCaptureForSending(sending)
         guard let tc = findTransceiver(mid: Self.midAudio, kind: "audio") else { return false }
         if tc.sender.track?.isEqual(audio) != true {
             tc.sender.track = audio
         }
         guard tc.sender.track?.isEqual(audio) == true else { return false }
-        return setAudioEncodingActive(tc.sender, sending) || !sending
+        // Keep capture/encoder running with a muted track, so unmute does not
+        // cold-start the ADM. Voice remains gated by micEnabled / the PTT grant.
+        let warm = AVAudioSession.sharedInstance().recordPermission == .granted
+        let applied = setAudioEncodingActive(tc.sender, sending || warm)
+        updateAudioSendProbe()
+        return applied || !sending
     }
 
     @discardableResult
@@ -2211,8 +2238,134 @@ final class MezonSfuSession: NSObject {
 
     private func pauseAudioSending() {
         localAudioTrack?.isEnabled = false
+        noiseAudioDevice.setCaptureForSending(false)
         if let sender = findTransceiver(mid: Self.midAudio, kind: "audio")?.sender {
-            setAudioEncodingActive(sender, false)
+            let warm = AVAudioSession.sharedInstance().recordPermission == .granted
+            setAudioEncodingActive(sender, warm)
+        }
+        stopAudioSendProbe()
+    }
+
+    private func setAudioSending(_ sending: Bool) {
+        let changed = isAudioSending != sending
+        isAudioSending = sending
+        updatePttFeedback()
+        if changed { onAudioSendingChanged?(sending) }
+    }
+
+    private func updatePttFeedback() {
+        if !active || !isConnected || connectionState != .connected {
+            firstPttPreparationComplete = false
+        }
+        let holding = active && isConnected && connectionState == .connected && role == .audience && pttRequested
+        let locallyReady = holding && pttActive && isAudioSending
+        // This one-second UI buffer does not acknowledge audio delivery to receivers.
+        if locallyReady && !firstPttPreparationComplete {
+            if firstPttPreparationTask == nil {
+                let gen = connectionGen
+                firstPttPreparationTask = Task { @MainActor [weak self] in
+                    do { try await Task.sleep(nanoseconds: 1_000_000_000) }
+                    catch { return }
+                    guard !Task.isCancelled, let self, self.connectionGen == gen else { return }
+                    self.firstPttPreparationTask = nil
+                    if self.active && self.isConnected && self.role == .audience && self.pttRequested && self.pttActive && self.isAudioSending {
+                        self.firstPttPreparationComplete = true
+                    }
+                    self.updatePttFeedback()
+                }
+            }
+        } else if !locallyReady {
+            firstPttPreparationTask?.cancel()
+            firstPttPreparationTask = nil
+        }
+        let ready = locallyReady && firstPttPreparationComplete
+        let waiting = holding && !ready
+        if waiting && firstPttPreparationComplete {
+            if !delayedPttLoadingVisible && delayedPttLoadingTask == nil {
+                let gen = connectionGen
+                delayedPttLoadingTask = Task { @MainActor [weak self] in
+                    do { try await Task.sleep(nanoseconds: 1_000_000_000) }
+                    catch { return }
+                    guard !Task.isCancelled, let self, self.connectionGen == gen else { return }
+                    self.delayedPttLoadingTask = nil
+                    if self.active && self.isConnected && self.role == .audience && self.pttRequested && !(self.pttActive && self.isAudioSending) {
+                        self.delayedPttLoadingVisible = true
+                    }
+                    self.updatePttFeedback()
+                }
+            }
+        } else {
+            delayedPttLoadingTask?.cancel()
+            delayedPttLoadingTask = nil
+            delayedPttLoadingVisible = false
+        }
+        let showLoading = waiting && (!firstPttPreparationComplete || delayedPttLoadingVisible)
+        let state: SfuPttFeedbackState = ready ? .ready : (showLoading ? (pttActive ? .preparing : .waiting) : .idle)
+        guard pttFeedbackState != state else { return }
+        pttFeedbackState = state
+        onPttFeedbackChanged?(state)
+    }
+
+    private func stopAudioSendProbe() {
+        audioSendProbeEpoch += 1
+        audioSendProbeTask?.cancel()
+        audioSendProbeTask = nil
+        audioSendProbeInFlight = false
+        audioSendProbePackets = nil
+        audioSendProbeFrames = nil
+        setAudioSending(false)
+    }
+
+    private func updateAudioSendProbe() {
+        guard active, isConnected, shouldSendAudio, let pc = peerConnection else {
+            stopAudioSendProbe()
+            return
+        }
+        guard !isAudioSending, audioSendProbeTask == nil else { return }
+        audioSendProbeEpoch += 1
+        let epoch = audioSendProbeEpoch
+        let gen = connectionGen
+        let audioMid = Self.midAudio
+        audioSendProbePackets = nil
+        audioSendProbeFrames = nil
+        audioSendProbeInFlight = false
+        audioSendProbeTask = Task { @MainActor [weak self] in
+            var attempt = 0
+            while !Task.isCancelled {
+                guard !Task.isCancelled, let self, self.active, self.shouldSendAudio,
+                      self.isCurrentConnection(pc, gen: gen), self.audioSendProbeEpoch == epoch,
+                      !self.isAudioSending else { break }
+                if !self.audioSendProbeInFlight {
+                    self.audioSendProbeInFlight = true
+                    Self.requestStatistics(pc) { [weak self] report in
+                        let packets = report.statistics.values.reduce(0.0) { total, stat in
+                            guard stat.type == "outbound-rtp",
+                                  ((stat.values["kind"] ?? stat.values["mediaType"]) as? String) == "audio",
+                                  (stat.values["mid"] as? String).map({ $0 == audioMid }) ?? true else { return total }
+                            return total + ((stat.values["packetsSent"] as? NSNumber)?.doubleValue ?? 0)
+                        }
+                        Task { @MainActor [weak self] in
+                            guard let self, self.active, self.shouldSendAudio,
+                                  self.isCurrentConnection(pc, gen: gen), self.audioSendProbeEpoch == epoch else { return }
+                            self.audioSendProbeInFlight = false
+                            let captured = self.noiseAudioDevice.capturedFrameCount
+                            if let before = self.audioSendProbePackets, let previousFrames = self.audioSendProbeFrames {
+                                if packets > before && captured > previousFrames {
+                                    self.setAudioSending(true)
+                                }
+                            }
+                            self.audioSendProbePackets = packets
+                            self.audioSendProbeFrames = captured
+                        }
+                    }
+                }
+                let interval: UInt64 = attempt < 30 ? 100_000_000 : 250_000_000
+                attempt += 1
+                do { try await Task.sleep(nanoseconds: interval) }
+                catch { break }
+            }
+            guard let self, self.audioSendProbeEpoch == epoch else { return }
+            self.audioSendProbeTask = nil
         }
     }
 
@@ -2256,6 +2409,7 @@ final class MezonSfuSession: NSObject {
             pttActive = false
             onPushToTalkActive?(false)
         }
+        updatePttFeedback()
         onRoleChanged?(newRole)
     }
 
@@ -2354,6 +2508,7 @@ final class MezonSfuSession: NSObject {
 
     private func createLocalAudioTrack() {
         guard localAudioTrack?.readyState != .live else { return }
+        stopAudioSendProbe()
         localAudioTrack?.isEnabled = false
         let constraints = RTCMediaConstraints(
             mandatoryConstraints: [
@@ -2414,6 +2569,8 @@ final class MezonSfuSession: NSObject {
         let localAudible = micEnabled || pttActive
         let userIdByMid = self.userIdByMid
         let threshold = Self.speakingThreshold
+        let gen = connectionGen
+        let box = SfuPeerConnectionBox(peerConnection: pc)
         Self.requestStatistics(pc) { [weak self] report in
             let speaking = Self.speakingUserIds(
                 in: report,
@@ -2423,7 +2580,7 @@ final class MezonSfuSession: NSObject {
                 threshold: threshold
             )
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                guard let self, self.active, self.connectionGen == gen, self.peerConnection === box.peerConnection else { return }
                 if speaking != self.speakingIds {
                     self.speakingIds = speaking
                     self.onSpeaking?(speaking)
@@ -2459,6 +2616,12 @@ final class MezonSfuSession: NSObject {
 
     private func applyPeers(_ members: [[String: Any]]) -> Bool {
         var revivedMids = false
+        var participantIdByPeerId: [String: String] = [:]
+        for id in remoteOrder {
+            if let peerId = remote[id]?.peerId, participantIdByPeerId[peerId] == nil {
+                participantIdByPeerId[peerId] = id
+            }
+        }
         for peer in members {
             guard let peerId = stringValue(peer["peer_id"]), !peerId.isEmpty else { continue }
             let state = memberState(peerId: peerId)
@@ -2488,9 +2651,15 @@ final class MezonSfuSession: NSObject {
                     revivedMids = true
                 }
             }
-            let existing = remoteOrder.first(where: { remote[$0]?.peerId == peerId })
+            let existing = participantIdByPeerId[peerId]
             guard let participantId = existing ?? mids.first.map({ remoteParticipantId($0) }) else { continue }
-            applyMemberState(to: remoteEntry(id: participantId), peerId: peerId)
+            let entry = remoteEntry(id: participantId)
+            if let previousPeerId = entry.peerId, previousPeerId != peerId,
+               participantIdByPeerId[previousPeerId] == participantId {
+                participantIdByPeerId.removeValue(forKey: previousPeerId)
+            }
+            applyMemberState(to: entry, peerId: peerId)
+            participantIdByPeerId[peerId] = participantId
         }
         scheduleCameraTier()
         return revivedMids
@@ -2757,6 +2926,7 @@ final class MezonSfuSession: NSObject {
                 cameraActive: entry.cameraActive
             )
         }
+        guard list != participants else { return }
         participants = list
         onParticipants?(list)
     }
@@ -2818,9 +2988,11 @@ final class MezonSfuSession: NSObject {
         guard state != connectionState else { return }
         connectionState = state
         if state != .connected {
+            stopAudioSendProbe()
             networkQuality = SfuNetworkQuality()
             setNetworkWeak(false)
         }
+        updatePttFeedback()
         onConnectionState?(state)
     }
 
@@ -3061,6 +3233,11 @@ final class MezonSfuSession: NSObject {
             return false
         }
         let rtc = RTCAudioSession.sharedInstance()
+        let actualSession = AVAudioSession.sharedInstance()
+        if !restartAudio, rtc.isAudioEnabled, rtc.isActive, audioRecoveryOwnsActivation,
+           actualSession.category == .playAndRecord, actualSession.mode == .voiceChat {
+            return true
+        }
         let restartDevice = restartAudio || !rtc.isAudioEnabled || !rtc.isActive
         // Stop the custom unit before taking the configuration lock or
         // deactivating the OS session. Its requested mic/playout state survives.

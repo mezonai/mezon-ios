@@ -6,7 +6,10 @@ NS_ASSUME_NONNULL_BEGIN
 NS_SWIFT_NAME(MezonNoiseSuppression)
 @interface MezonNS : NSObject
 
-/** Load a bundled ONNX model with the requested maximum attenuation. */
+/** Load the cached/CDN model on a background worker. */
++ (nullable instancetype)modelFromCDN;
+
+/** Load an ONNX model file with the requested maximum attenuation. */
 - (nullable instancetype)initWithModelPath:(NSString *)modelPath
                        attenuationLimitDb:(float)attenuationLimitDb
                                numThreads:(int)numThreads;
