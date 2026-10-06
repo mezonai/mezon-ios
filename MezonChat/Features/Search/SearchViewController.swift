@@ -218,6 +218,7 @@ final class SearchViewController: ViewController {
             activeTab = .messages
         }
         searchNode.searchBar.textField.text = searchQuery
+        searchNode.searchBar.updateClearButtonVisibility()
         searchNode.tabBar.setSelectedTab(activeTab)
         searchNode.searchBar.textField.delegate = self
         searchNode.searchBar.textField.addTarget(self, action: #selector(searchTextChanged(_:)), for: .editingChanged)
@@ -231,6 +232,9 @@ final class SearchViewController: ViewController {
         }
         searchNode.searchBar.onFilterTapped = { [weak self] in
             self?.showFilterTooltip()
+        }
+        searchNode.searchBar.onClearTapped = { [weak self] in
+            self?.clearSearchText()
         }
     }
 
@@ -1040,6 +1044,7 @@ final class SearchViewController: ViewController {
 
         searchNode.searchBar.setFilterBadge("\(option.label)")
         searchNode.searchBar.textField.text = ""
+        searchNode.searchBar.updateClearButtonVisibility()
         searchQuery = ""
         performSearch()
         searchNode.searchBar.textField.becomeFirstResponder()
@@ -1055,6 +1060,7 @@ final class SearchViewController: ViewController {
 
         activeTab = .messages
         searchNode.searchBar.textField.text = " "
+        searchNode.searchBar.updateClearButtonVisibility()
         searchQuery = ""
         messageCurrentPage = 1
         searchMessages = []
@@ -1574,12 +1580,23 @@ extension SearchViewController: UITextFieldDelegate {
                 searchNode.searchBar.setChannelBadge(label)
             }
             textField.text = ""
+            searchNode.searchBar.updateClearButtonVisibility()
             searchQuery = ""
             performSearch()
             return false
         }
 
         return true
+    }
+
+    private func clearSearchText() {
+        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(debouncedSearch), object: nil)
+        let textField = searchNode.searchBar.textField
+        textField.text = filterUser != nil ? " " : ""
+        searchNode.searchBar.updateClearButtonVisibility()
+        searchQuery = ""
+        performSearch()
+        textField.becomeFirstResponder()
     }
 
     @objc private func searchTextChanged(_ textField: UITextField) {
@@ -1925,11 +1942,13 @@ final class SearchInputNode: ASDisplayNode {
 
     let textField = UITextField()
     private let iconNode = ASImageNode()
+    private let clearButton = UIButton(type: .system)
     private var badgeLabel: UILabel?
     private var badgeWidth: CGFloat = 0
     private var filterButton: UIButton?
     private let showFilterButton: Bool
     var onFilterTapped: (() -> Void)?
+    var onClearTapped: (() -> Void)?
 
     init(showFilterButton: Bool = false) {
         self.showFilterButton = showFilterButton
@@ -1950,6 +1969,16 @@ final class SearchInputNode: ASDisplayNode {
             attributes: [.foregroundColor: t.textDisabled]
         )
         view.addSubview(textField)
+        textField.addTarget(self, action: #selector(textDidChange), for: .editingChanged)
+
+        clearButton.setImage(
+            UIImage(systemName: "xmark.circle.fill")?.withConfiguration(
+                UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)),
+            for: .normal)
+        clearButton.tintColor = t.textDisabled
+        clearButton.addTarget(self, action: #selector(clearTapped), for: .touchUpInside)
+        view.addSubview(clearButton)
+        updateClearButtonVisibility()
 
         if let badge = badgeLabel {
             view.addSubview(badge)
@@ -1968,6 +1997,21 @@ final class SearchInputNode: ASDisplayNode {
 
     @objc private func filterTapped() {
         onFilterTapped?()
+    }
+
+    @objc private func clearTapped() {
+        onClearTapped?()
+    }
+
+    @objc private func textDidChange() {
+        updateClearButtonVisibility()
+    }
+
+    func updateClearButtonVisibility() {
+        let shouldHide = (textField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard clearButton.isHidden != shouldHide else { return }
+        clearButton.isHidden = shouldHide
+        setNeedsLayout()
     }
 
     func setChannelBadge(_ channelName: String) {
@@ -2021,6 +2065,7 @@ final class SearchInputNode: ASDisplayNode {
         cornerRadius = 18
         clipsToBounds = true
         iconNode.tintColor = t.textDisabled
+        clearButton.tintColor = t.textDisabled
         textField.textColor = t.textStrong
         textField.attributedPlaceholder = NSAttributedString(
             string: "Search",
@@ -2039,7 +2084,13 @@ final class SearchInputNode: ASDisplayNode {
             btn.frame = CGRect(x: bounds.width - filterW - 4, y: 0, width: filterW, height: h)
         }
 
-        let rightPad: CGFloat = showFilterButton ? filterW + 8 : 12
+        let clearW: CGFloat = 28
+        let clearTrailing: CGFloat = showFilterButton ? filterW + 4 : 4
+        clearButton.frame = CGRect(x: bounds.width - clearTrailing - clearW, y: 0, width: clearW, height: h)
+
+        let rightPad: CGFloat = clearButton.isHidden
+            ? (showFilterButton ? filterW + 8 : 12)
+            : clearTrailing + clearW
 
         if let badge = badgeLabel {
             let badgeH: CGFloat = 20
