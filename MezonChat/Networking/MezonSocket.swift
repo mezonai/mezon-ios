@@ -149,6 +149,7 @@ final class MezonSocket: NSObject {
         if consecutiveApiTimeouts >= apiDegradeThreshold {
             apiDegradedUntil = Date().addingTimeInterval(apiDegradeCooldown)
         }
+        EndpointFailover.shared.onApiTimeout()
         probeConnectionLiveness()
     }
 
@@ -173,7 +174,6 @@ final class MezonSocket: NSObject {
     private var heartbeatPongTimeoutSeconds: TimeInterval { heartbeatIntervalSeconds * 3 }
     private var heartbeatTask: Task<Void, Never>?
     private var lastPongAt: Date?
-    private var lastPingSentAt: Date?
     private let livenessProbeTimeoutSeconds: TimeInterval = 5
     private var livenessProbeTask: Task<Void, Never>?
 
@@ -294,6 +294,12 @@ final class MezonSocket: NSObject {
                 }
             }
         }
+        t.onPongRtt = { [weak self] rttMs in
+            Task { @MainActor in
+                guard let self, self.transport === t else { return }
+                EndpointFailover.shared.onProbeRtt(rttMs)
+            }
+        }
         t.connect(host: endpoint.host, port: endpoint.port, credential: credential)
         armConnectWatchdog(for: t)
     }
@@ -362,7 +368,7 @@ final class MezonSocket: NSObject {
     }
 
     var targetEndpoint: RealtimeEndpoint? {
-        currentEndpoint.map { RealtimeEndpoint(id: 0, host: $0.host, port: $0.port) }
+        currentEndpoint.map { RealtimeEndpoint(id: EndpointAddress.nodeId(ofHost: $0.host), host: $0.host, port: $0.port) }
     }
 
     func reconnectForEndpointChange() {
@@ -580,7 +586,10 @@ final class MezonSocket: NSObject {
                     return
                 }
 
-                self.lastPingSentAt = Date()
+                if let last = self.lastPongAt {
+                    EndpointFailover.shared.onHeartbeat(sinceLastPong: Date().timeIntervalSince(last))
+                }
+
                 t.sendPing(cid: UInt16(truncatingIfNeeded: self.generateCid()))
 
                 try? await Task.sleep(nanoseconds: intervalNs)
@@ -797,7 +806,7 @@ final class MezonSocket: NSObject {
                 handshakeRejections = 0
             }
         }
-        reportTransportLoss(unclean: !wasClean)
+        reportTransportLoss(unclean: !wasClean || rejectionSuspect)
         scheduleReconnect()
     }
 
@@ -832,17 +841,9 @@ final class MezonSocket: NSObject {
     }
 
     private func handlePong(cid: UInt16) {
-        let now = Date()
-        lastPongAt = now
+        lastPongAt = Date()
         cancelLivenessProbe()
         confirmConnectAck(source: "pong")
-        if let sentAt = lastPingSentAt {
-            lastPingSentAt = nil
-            let rttMs = now.timeIntervalSince(sentAt) * 1_000
-            if rttMs > 0 {
-                EndpointFailover.shared.onProbeRtt(rttMs)
-            }
-        }
     }
 
     private func handleTransportMessage(cid: UInt32, code: UInt32, payload: Data) {

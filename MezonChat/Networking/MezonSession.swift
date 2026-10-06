@@ -97,7 +97,7 @@ struct MezonSession: Codable {
             username: nil,
             idToken: proto.idToken.isEmpty ? nil : proto.idToken,
             isRemember: proto.isRemember,
-            tcpURL: nil
+            tcpURL: proto.tcpURL.isEmpty ? nil : proto.tcpURL
         )
     }
 

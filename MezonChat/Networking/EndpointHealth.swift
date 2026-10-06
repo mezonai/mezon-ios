@@ -47,6 +47,16 @@ func doubledBackoff(_ current: TimeInterval, cap: TimeInterval) -> TimeInterval 
 }
 
 enum EndpointAddress {
+    private static let nodeIdsByHost: [String: Int32] = [
+        "sock.mezon.ai": 1,
+        "sock2.mezon.ai": 2,
+        "sock3.mezon.ai": 3
+    ]
+
+    static func nodeId(ofHost host: String) -> Int32 {
+        nodeIdsByHost[host.lowercased()] ?? 0
+    }
+
     static func host(of raw: String?) -> String? {
         guard let url = normalized(raw), let host = url.host, !host.isEmpty else { return nil }
         return host
@@ -61,7 +71,7 @@ enum EndpointAddress {
         guard let host = host(of: tcp) ?? host(of: response.wsURL) else { return nil }
         let env = MezonConfig.env
         let port = port(of: tcp) ?? port(of: response.wsURL) ?? env.tcpPort ?? env.wsPort ?? 443
-        return RealtimeEndpoint(id: 0, host: host, port: UInt16(exactly: port) ?? 443)
+        return RealtimeEndpoint(id: nodeId(ofHost: host), host: host, port: UInt16(exactly: port) ?? 443)
     }
 
     private static func normalized(_ raw: String?) -> URL? {
@@ -74,14 +84,19 @@ enum EndpointAddress {
 }
 
 final class EndpointHealth {
-    static let slowRttMs: Double = 800
-    static let slowStreakRequired = 5
-    static let slowSwitchCooldown: TimeInterval = 120
+    static let slowRttMs: Double = 500
+    static let slowStreakRequired = 3
+    static let probeWarmup: TimeInterval = 15
+    static let apiTimeoutsRequired = 2
+    static let apiTimeoutWindow: TimeInterval = 30
+    static let pongOverdueAfter: TimeInterval = 12
+    static let weakReportSpacing: TimeInterval = 60
 
     private var endpoint: RealtimeEndpoint?
     private var connectedSince: Date?
     private var slowStreak = 0
-    private var slowReportSuppressedUntil: Date?
+    private var apiTimeouts: [Date] = []
+    private var lastWeakReportAt: Date?
     private var slowReportsDisabled = false
 
     func setEndpoint(_ next: RealtimeEndpoint?) {
@@ -91,7 +106,6 @@ final class EndpointHealth {
         }
         endpoint = next
         forgetConnection()
-        slowReportSuppressedUntil = nil
         slowReportsDisabled = false
     }
 
@@ -103,7 +117,7 @@ final class EndpointHealth {
     func recordConnected(at now: Date) {
         connectedSince = now
         slowStreak = 0
-        slowReportSuppressedUntil = nil
+        apiTimeouts.removeAll()
         slowReportsDisabled = false
     }
 
@@ -112,26 +126,40 @@ final class EndpointHealth {
     }
 
     func recordActiveProbe(rttMs: Double, at now: Date) -> Bool {
-        guard let connectedSince else { return false }
-        if slowReportsDisabled || (slowReportSuppressedUntil.map { $0 > now } ?? false) {
-            slowStreak = 0
-            return false
-        }
-        let settledOnThisNode = now.timeIntervalSince(connectedSince) >= Self.slowSwitchCooldown
-        if settledOnThisNode && rttMs >= Self.slowRttMs {
-            slowStreak += 1
-        } else {
-            slowStreak = 0
-        }
+        guard let connectedSince, now.timeIntervalSince(connectedSince) >= Self.probeWarmup else { return false }
+        slowStreak = rttMs >= Self.slowRttMs ? slowStreak + 1 : 0
         guard slowStreak >= Self.slowStreakRequired else { return false }
-        slowStreak = 0
-        slowReportSuppressedUntil = now.addingTimeInterval(Self.slowSwitchCooldown)
-        return true
+        return claimWeakReport(at: now)
+    }
+
+    func recordApiTimeout(at now: Date) -> Bool {
+        guard connectedSince != nil else { return false }
+        apiTimeouts.removeAll { now.timeIntervalSince($0) > Self.apiTimeoutWindow }
+        apiTimeouts.append(now)
+        guard apiTimeouts.count >= Self.apiTimeoutsRequired else { return false }
+        return claimWeakReport(at: now)
+    }
+
+    func recordHeartbeat(sinceLastPong gap: TimeInterval, at now: Date) -> Bool {
+        guard connectedSince != nil, gap > Self.pongOverdueAfter else { return false }
+        return claimWeakReport(at: now)
     }
 
     func disableSlowReports() {
         slowReportsDisabled = true
         slowStreak = 0
+        apiTimeouts.removeAll()
+    }
+
+    private func claimWeakReport(at now: Date) -> Bool {
+        guard !slowReportsDisabled else { return false }
+        if let lastWeakReportAt, now.timeIntervalSince(lastWeakReportAt) < Self.weakReportSpacing {
+            return false
+        }
+        lastWeakReportAt = now
+        slowStreak = 0
+        apiTimeouts.removeAll()
+        return true
     }
 
     private func isOnSameNode(as other: RealtimeEndpoint?) -> Bool {
@@ -145,5 +173,6 @@ final class EndpointHealth {
     private func forgetConnection() {
         connectedSince = nil
         slowStreak = 0
+        apiTimeouts.removeAll()
     }
 }

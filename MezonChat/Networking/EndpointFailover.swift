@@ -27,6 +27,7 @@ final class EndpointFailover {
     private static let retryBase: TimeInterval = 5
     private static let retryCap: TimeInterval = 60
     private static let askTimeout: TimeInterval = 5
+    private static let askPacingSettle: TimeInterval = 60
 
     private let enabled = EndpointFailoverFlags.enabled
     private let slowSwitchEnabled = EndpointFailoverFlags.slowSwitchEnabled
@@ -45,8 +46,10 @@ final class EndpointFailover {
         health.setEndpoint(endpoint)
         guard endpoint != nil else { return }
         health.recordConnected(at: Date())
-        retrySeconds = Self.retryBase
-        lastAskAt = nil
+        if lastAskAt.map({ Date().timeIntervalSince($0) >= Self.askPacingSettle }) ?? true {
+            retrySeconds = Self.retryBase
+            lastAskAt = nil
+        }
     }
 
     func onDisconnected() {
@@ -55,13 +58,28 @@ final class EndpointFailover {
     }
 
     func onProbeRtt(_ rttMs: Double) {
-        guard enabled, slowSwitchEnabled else { return }
-        guard let endpoint = health.connectedEndpoint() else { return }
+        guard enabled, slowSwitchEnabled, let endpoint = health.connectedEndpoint() else { return }
         guard health.recordActiveProbe(rttMs: rttMs, at: Date()) else { return }
+        reportWeak(endpoint, signal: "slow_ping")
+    }
+
+    func onApiTimeout() {
+        guard enabled, slowSwitchEnabled, let endpoint = health.connectedEndpoint() else { return }
+        guard health.recordApiTimeout(at: Date()) else { return }
+        reportWeak(endpoint, signal: "api_timeout")
+    }
+
+    func onHeartbeat(sinceLastPong gap: TimeInterval) {
+        guard enabled, slowSwitchEnabled, let endpoint = health.connectedEndpoint() else { return }
+        guard health.recordHeartbeat(sinceLastPong: gap, at: Date()) else { return }
+        reportWeak(endpoint, signal: "pong_overdue")
+    }
+
+    private func reportWeak(_ endpoint: RealtimeEndpoint, signal: String) {
         SentryLogger.addBreadcrumb(
             category: "endpoint.failover",
             message: "slow_node_report",
-            data: ["node": endpoint.label, "streak": EndpointHealth.slowStreakRequired]
+            data: ["node": endpoint.label, "signal": signal]
         )
         enqueue(EndpointRefreshRequest(endpoint: endpoint, reason: .highLatency))
     }
@@ -134,7 +152,7 @@ final class EndpointFailover {
         if let lastAskAt {
             wait = retrySeconds - Date().timeIntervalSince(lastAskAt)
         } else {
-            wait = Self.retryBase
+            wait = request.reason == .highLatency ? 0 : Self.retryBase
         }
         guard await sleep(wait) else { return nil }
 

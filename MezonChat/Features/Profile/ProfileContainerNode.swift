@@ -175,6 +175,15 @@ final class ProfileContainerNode: ASDisplayNode {
     private let copyCard = UIView()
     private let copyRow = ProfileIconRow()
 
+    // FOR TEST ONLY: socket/healthy debug, remove before release
+    private let socketDebugLabel = UILabel()
+    private let healthyCheckButton = UIButton(type: .system)
+    private let healthyResultLabel = UILabel()
+    private var healthyCheckTask: Task<Void, Never>?
+    private let socketSwitchButton = UIButton(type: .system)
+    private var healthySuggestedHost: String?
+    // END FOR TEST ONLY
+
     private static func profileImage(named: String) -> UIImage? {
         UIImage(named: "Profile/\(named)", in: Bundle.main, compatibleWith: nil)
     }
@@ -326,6 +335,7 @@ final class ProfileContainerNode: ASDisplayNode {
         setupAboutMeCard()
         setupFriendsCard()
         setupCopyCard()
+        setupSocketDebug() // FOR TEST ONLY: remove before release
 
         updateContent()
 
@@ -337,6 +347,7 @@ final class ProfileContainerNode: ASDisplayNode {
         NotificationCenter.default.addObserver(self, selector: #selector(handleThemeOrLanguageChange), name: ThemeManager.didChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleThemeOrLanguageChange), name: LanguageManager.didChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleCurrentUserDidChange), name: .mezonAccountCurrentUserDidChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleSocketStatusChanged), name: .mezonSocketStatusChanged, object: nil) // FOR TEST ONLY: remove before release
     }
 
     @objc private func handleCurrentUserDidChange() {
@@ -636,6 +647,157 @@ final class ProfileContainerNode: ASDisplayNode {
         copyCard.addGestureRecognizer(tap)
     }
 
+    // FOR TEST ONLY: socket/healthy debug, remove before release
+    private func setupSocketDebug() {
+        socketDebugLabel.font = .systemFont(ofSize: 12.sf, weight: .medium)
+        socketDebugLabel.numberOfLines = 0
+        healthyResultLabel.font = .systemFont(ofSize: 12.sf)
+        healthyResultLabel.numberOfLines = 0
+        healthyCheckButton.setTitle("Check healthy API", for: .normal)
+        healthyCheckButton.titleLabel?.font = .systemFont(ofSize: 12.sf, weight: .semibold)
+        healthyCheckButton.layer.cornerRadius = 14.sh
+        healthyCheckButton.layer.borderWidth = 1
+        healthyCheckButton.addTarget(self, action: #selector(healthyCheckTapped), for: .touchUpInside)
+        socketSwitchButton.setTitle("Switch sock", for: .normal)
+        socketSwitchButton.titleLabel?.font = .systemFont(ofSize: 12.sf, weight: .semibold)
+        socketSwitchButton.layer.cornerRadius = 14.sh
+        socketSwitchButton.layer.borderWidth = 1
+        socketSwitchButton.addTarget(self, action: #selector(socketSwitchTapped), for: .touchUpInside)
+        fixedHeaderView.addSubview(socketDebugLabel)
+        fixedHeaderView.addSubview(healthyCheckButton)
+        fixedHeaderView.addSubview(socketSwitchButton)
+        fixedHeaderView.addSubview(healthyResultLabel)
+    }
+
+    private func refreshSocketDebugLabel() {
+        let socket = MezonSocket.shared
+        socketDebugLabel.textColor = .mezonTextSecondary
+        healthyResultLabel.textColor = .mezonTextPrimary
+        for button in [healthyCheckButton, socketSwitchButton] {
+            button.backgroundColor = .mezonPrimary
+            button.layer.borderColor = UIColor.mezonBorder.cgColor
+            button.setTitleColor(.mezonTextStrong, for: .normal)
+        }
+        socketDebugLabel.text = "Socket: \(socket.targetEndpoint?.label ?? "-") · \(socket.isConnected ? "connected" : "disconnected")"
+    }
+
+    private func relayoutSocketDebug() {
+        if let layout = lastLayout {
+            layoutContent(width: layout.size.width, height: layout.size.height, safeTop: layout.safeInsets.top)
+        }
+    }
+
+    @objc private func handleSocketStatusChanged() {
+        refreshSocketDebugLabel()
+        relayoutSocketDebug()
+    }
+
+    @objc private func healthyCheckTapped() {
+        guard healthyCheckTask == nil else { return }
+        healthyCheckButton.isEnabled = false
+        healthyCheckButton.setTitle("Checking…", for: .normal)
+        healthyResultLabel.text = "Calling healthy API…"
+        relayoutSocketDebug()
+        healthyCheckTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let result = await self.runHealthyCheck()
+            self.healthyCheckTask = nil
+            self.healthyCheckButton.isEnabled = true
+            self.healthyCheckButton.setTitle("Check healthy API", for: .normal)
+            self.healthyResultLabel.text = result
+            self.refreshSocketDebugLabel()
+            self.relayoutSocketDebug()
+        }
+    }
+
+    private func runHealthyCheck() async -> String {
+        guard let token = await context.getToken(), !token.isEmpty else {
+            return "Healthy API: no token"
+        }
+        let socket = MezonSocket.shared
+        let current = socket.targetEndpoint
+        let currentEndpointId = current?.id ?? 0
+        let reason = HealthyEndpointReason.highLatency.rawValue
+        let started = Date()
+        do {
+            let response = try await MezonHTTPClient.shared.getHealthyEndpoint(
+                token: token,
+                currentEndpointId: currentEndpointId,
+                reasonCode: reason
+            )
+            let elapsedMs = Int(Date().timeIntervalSince(started) * 1000)
+            let answered = EndpointAddress.node(answeredBy: response, fallbackTcpURL: context.session?.tcpURL)
+            healthySuggestedHost = answered?.host
+            let verdict: String
+            if let answered, let current {
+                verdict = answered.isSameNode(current) ? "same node, keep" : "move to \(answered.label)"
+            } else {
+                verdict = answered?.label ?? "no usable node"
+            }
+            let connected = "\(socket.targetEndpoint?.label ?? "-") · \(socket.isConnected ? "connected" : "disconnected")"
+            return "Healthy (id=\(currentEndpointId), reason=\(reason), \(elapsedMs)ms): tcp=\(response.tcpURL) ws=\(response.wsURL)\n→ \(verdict)\nConnected: \(connected)"
+        } catch {
+            return "Healthy API error: \(error)"
+        }
+    }
+
+    @objc private func socketSwitchTapped() {
+        let currentHost = MezonSocket.shared.targetEndpoint?.host
+        let sheet = UIAlertController(title: "Switch sock", message: nil, preferredStyle: .actionSheet)
+        for host in ["sock.mezon.ai", "sock2.mezon.ai", "sock3.mezon.ai"] {
+            var title = host
+            if host == currentHost { title += " (current)" }
+            if host == healthySuggestedHost { title += " (gateway)" }
+            sheet.addAction(UIAlertAction(title: title, style: .default) { [weak self] _ in
+                self?.switchSocket(to: host)
+            })
+        }
+        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        sheet.popoverPresentationController?.sourceView = socketSwitchButton
+        sheet.popoverPresentationController?.sourceRect = socketSwitchButton.bounds
+        hostViewController()?.present(sheet, animated: true)
+    }
+
+    private func hostViewController() -> UIViewController? {
+        var responder: UIResponder? = view
+        while let current = responder {
+            if let controller = current as? UIViewController { return controller }
+            responder = current.next
+        }
+        return nil
+    }
+
+    private func switchSocket(to host: String) {
+        guard EndpointFailover.shared.applyEndpoints?(nil, host, host) == true else {
+            healthyResultLabel.text = "Switch failed: no session"
+            relayoutSocketDebug()
+            return
+        }
+        healthyResultLabel.text = "Switched to \(host), reconnecting…"
+        relayoutSocketDebug()
+        MezonSocket.shared.reconnectForEndpointChange()
+    }
+
+    private func layoutSocketDebug(x: CGFloat, y: CGFloat, width: CGFloat) -> CGFloat {
+        let fit = CGSize(width: width, height: .greatestFiniteMagnitude)
+        let statusHeight = ceil(socketDebugLabel.sizeThatFits(fit).height)
+        socketDebugLabel.frame = CGRect(x: x, y: y, width: width, height: statusHeight)
+        let buttonWidth = ceil(healthyCheckButton.sizeThatFits(fit).width) + 24.sw
+        healthyCheckButton.frame = CGRect(x: x, y: socketDebugLabel.frame.maxY + 6.sh, width: buttonWidth, height: 28.sh)
+        let switchWidth = ceil(socketSwitchButton.sizeThatFits(fit).width) + 24.sw
+        socketSwitchButton.frame = CGRect(x: healthyCheckButton.frame.maxX + 8.sw, y: healthyCheckButton.frame.minY, width: switchWidth, height: 28.sh)
+        var bottom = healthyCheckButton.frame.maxY
+        if let result = healthyResultLabel.text, !result.isEmpty {
+            let resultHeight = ceil(healthyResultLabel.sizeThatFits(fit).height)
+            healthyResultLabel.frame = CGRect(x: x, y: bottom + 6.sh, width: width, height: resultHeight)
+            bottom = healthyResultLabel.frame.maxY
+        } else {
+            healthyResultLabel.frame = .zero
+        }
+        return bottom - y
+    }
+    // END FOR TEST ONLY
+
     private func applyProfileAvatarPlaceholder() {
         let u = context.currentUser
         avatarPlaceholderLabel.text = Self.profileAvatarInitials(username: u?.username)
@@ -781,6 +943,8 @@ final class ProfileContainerNode: ASDisplayNode {
             font: .systemFont(ofSize: 13.sf, weight: .bold),
             trailingIconImage: Self.profileImage(named: "IDIcon")
         )
+
+        refreshSocketDebugLabel() // FOR TEST ONLY: remove before release
 
         if let layout = lastLayout {
             let safeTop = layout.safeInsets.top
@@ -1055,7 +1219,11 @@ final class ProfileContainerNode: ASDisplayNode {
 
         usernameLabel.sizeToFit()
         usernameLabel.frame = CGRect(x: side, y: y, width: contentWidth, height: 20.sh)
-        y += 20.sh + 20.sh
+        y += 20.sh
+        // FOR TEST ONLY: socket/healthy debug, remove before release
+        y += layoutSocketDebug(x: side, y: y + 6.sh, width: contentWidth) + 6.sh
+        // END FOR TEST ONLY
+        y += 20.sh
 
         let fixedHeaderHeight = y
         fixedHeaderView.frame = CGRect(x: 0, y: 0, width: width, height: fixedHeaderHeight)

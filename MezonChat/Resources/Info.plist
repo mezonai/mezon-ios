@@ -120,6 +120,6 @@
 	<key>MEZON_ENDPOINT_FAILOVER</key>
 	<true/>
 	<key>MEZON_ENDPOINT_FAILOVER_SLOW</key>
-	<false/>
+	<true/>
 </dict>
 </plist>

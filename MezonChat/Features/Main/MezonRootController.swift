@@ -1056,14 +1056,11 @@ final class MezonRootController: NavigationController {
                             key: PreferencesKeys.channelList(clanId: targetClanId),
                             value: self.encodeChannelList(channels)
                         )
-                        print("[DeepLink] Opening channel \(channelId) in clan \(clanId)")
                         self.hideChannelDeepLinkLoading(loadingID)
                         AppDelegate.navigateToChannel(channelId: channelId, clanId: clanId)
                         return
                     }
-                } catch {
-                    print("[DeepLink] Failed to list channels in clan \(clanId): \(error)")
-                }
+                } catch {}
                 if attempt < 2 {
                     try? await Task.sleep(nanoseconds: 500_000_000)
                 }
@@ -1086,20 +1083,16 @@ final class MezonRootController: NavigationController {
                         key: PreferencesKeys.channelList(clanId: targetClanId),
                         value: self.encodeChannelList(latestChannels)
                     )
-                    print("[DeepLink] Opening user channel \(channelId) in clan \(clanId)")
                     self.hideChannelDeepLinkLoading(loadingID)
                     AppDelegate.navigateToChannel(channelId: channelId, clanId: clanId)
                     return
                 }
-            } catch {
-                print("[DeepLink] Failed to list user channels: \(error)")
-            }
+            } catch {}
             guard self.context.isStillCurrentSession(epoch: startEpoch),
                   self.activeChannelDeepLinkID == loadingID else {
                 self.hideChannelDeepLinkLoading(loadingID)
                 return
             }
-            print("[DeepLink] Channel \(channelId) is not accessible in clan \(clanId)")
             self.hideChannelDeepLinkLoading(loadingID)
             self.presentUnavailableChannel()
         }
