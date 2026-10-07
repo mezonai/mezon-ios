@@ -75,7 +75,7 @@ final class DirectMessagesViewController: ViewController {
                 self?.openDirectMessageFromActivity(item)
             }
         )
-        displayNode = DirectMessagesContainerNode(signal: stateSignal(), interaction: interaction)
+        displayNode = DirectMessagesContainerNode(signal: stateSignal(), interaction: interaction, buzz: context.buzz)
     }
 
     override func viewWillAppear(_ animated: Bool) {

@@ -7,17 +7,21 @@ final class ThreadItemCellNode: ASCellNode {
     private let nameNode = ASTextNode2()
     private let badgeNode = ASTextNode2()
     private let badgeBackground = ASDisplayNode()
+    private let buzzBadge = BuzzBadgeNode()
     private let selectionNode = ASDisplayNode()
     var onLongPress: (() -> Void)?
     private let isLast: Bool
 
-    init(channel: Mezon_Api_ChannelDescription, isSelected: Bool, isLast: Bool) {
+    init(channel: Mezon_Api_ChannelDescription, isSelected: Bool, isLast: Bool, hasBuzz: Bool = false) {
         self.isLast = isLast
         super.init()
         automaticallyManagesSubnodes = true
         neverShowPlaceholders = true
         selectionStyle = .none
         clipsToBounds = false
+        buzzBadge.isHidden = !hasBuzz
+        nameNode.maximumNumberOfLines = 1
+        nameNode.truncationMode = .byTruncatingTail
 
         let t = UIColor.theme
         let unread = channel.countMessUnread
@@ -129,9 +133,9 @@ final class ThreadItemCellNode: ASCellNode {
             child: connectorNode)
 
         var contentChildren: [ASLayoutElement] = [nameNode]
-        if !badgeNode.isHidden {
-            contentChildren.append(contentsOf: [spacer, badge])
-        }
+        if !badgeNode.isHidden || !buzzBadge.isHidden { contentChildren.append(spacer) }
+        if !buzzBadge.isHidden { contentChildren.append(buzzBadge) }
+        if !badgeNode.isHidden { contentChildren.append(badge) }
 
         let contentStack = ASStackLayoutSpec(
             direction: .horizontal, spacing: 8.sw, justifyContent: .start, alignItems: .center,

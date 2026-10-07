@@ -8,6 +8,7 @@ final class ChannelItemCellNode: ASCellNode {
     private let nameNode = ASTextNode2()
     private let badgeNode = ASTextNode2()
     private let badgeBackground = ASDisplayNode()
+    private let buzzBadge = BuzzBadgeNode()
     private let unreadDot = ASDisplayNode()
     private let selectionNode = ASDisplayNode()
     var onLongPress: (() -> Void)?
@@ -16,7 +17,7 @@ final class ChannelItemCellNode: ASCellNode {
     private let cellSelected: Bool
     private let isVoiceActive: Bool
 
-    init(channel: Mezon_Api_ChannelDescription, isSelected: Bool, isVoiceActive: Bool = false) {
+    init(channel: Mezon_Api_ChannelDescription, isSelected: Bool, isVoiceActive: Bool = false, hasBuzz: Bool = false) {
         self.channel = channel
         self.cellSelected = isSelected
         self.isVoiceActive = isVoiceActive
@@ -26,6 +27,7 @@ final class ChannelItemCellNode: ASCellNode {
         selectionStyle = .none
         clipsToBounds = true
         setupContent()
+        buzzBadge.isHidden = !hasBuzz
     }
 
     private static let voiceTypes: Set<Int32> = [
@@ -196,9 +198,9 @@ final class ChannelItemCellNode: ASCellNode {
         nameNode.style.flexGrow = 0
 
         var children: [ASLayoutElement] = [iconChild, nameNode]
-        if !badgeNode.isHidden {
-            children.append(contentsOf: [spacer, badge])
-        }
+        if !badgeNode.isHidden || !buzzBadge.isHidden { children.append(spacer) }
+        if !buzzBadge.isHidden { children.append(buzzBadge) }
+        if !badgeNode.isHidden { children.append(badge) }
 
         let row = ASStackLayoutSpec(
             direction: .horizontal, spacing: 10.sw, justifyContent: .start, alignItems: .center,

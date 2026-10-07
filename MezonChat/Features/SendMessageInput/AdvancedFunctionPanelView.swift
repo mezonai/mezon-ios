@@ -74,9 +74,11 @@ final class AdvancedFunctionPanelView: UIView, UIGestureRecognizerDelegate {
         items.append(contentsOf: [
             AdvancedFunctionItem(id: "pickFiles", label: "Files", systemIcon: "doc.fill",
                                  backgroundColor: UIColor(red: 0.15, green: 0.27, blue: 0.88, alpha: 1)),
-            AdvancedFunctionItem(id: "buzz", label: "Buzz", systemIcon: "megaphone.fill",
-                                 backgroundColor: UIColor(red: 0.83, green: 0.40, blue: 0.48, alpha: 1)),
         ])
+        if !anonymousOn {
+            items.append(AdvancedFunctionItem(id: "buzz", label: "Buzz", systemIcon: "megaphone.fill",
+                                              backgroundColor: UIColor(red: 0.83, green: 0.40, blue: 0.48, alpha: 1)))
+        }
         if includeCreateThread {
             items.append(AdvancedFunctionItem(
                 id: "create_thread",

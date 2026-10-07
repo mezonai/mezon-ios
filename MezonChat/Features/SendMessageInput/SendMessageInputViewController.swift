@@ -1777,6 +1777,7 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     func sendBuzzMessage(text: String) {
+        guard !shouldSendAsAnonymousMessage else { return }
         guard !composerSendPermissionBlocked else { return }
         guard !isEditingShareContactMessage else { return }
         if editingDisplay != nil {
@@ -1816,8 +1817,11 @@ final class SendMessageInputViewController: UIViewController {
                     self.onError?("No session")
                     return
                 }
+                guard !self.shouldSendAsAnonymousMessage else { return }
                 do {
                     try await self.activateThreadBeforeSendIfNeeded(token: token)
+                    guard !self.shouldSendAsAnonymousMessage else { return }
+                    self.context.buzz.playSound()
                     let ack = try await self.context.account.network.sendChannelMessage(
                         clanId: clanId,
                         channelId: channel.channelID,
@@ -1827,7 +1831,7 @@ final class SendMessageInputViewController: UIViewController {
                         mentions: [],
                         attachments: [],
                         references: [],
-                        anonymous: self.shouldSendAsAnonymousMessage,
+                        anonymous: false,
                         mentionEveryone: false,
                         avatar: avatar,
                         topicId: self.topicId,
@@ -1836,7 +1840,7 @@ final class SendMessageInputViewController: UIViewController {
                     )
                     self.markOnboardingWelcomeMessageSentIfNeeded(
                         ack: ack,
-                        anonymous: self.shouldSendAsAnonymousMessage
+                        anonymous: false
                     )
                 } catch {
                     SentryLogger.capture(error, extras: [
