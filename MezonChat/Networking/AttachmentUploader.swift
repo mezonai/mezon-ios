@@ -95,6 +95,7 @@ final class AttachmentUploader {
         fileSize: Int,
         width: Int = 0,
         height: Int = 0,
+        channelId: Int64 = 0,
         token: String,
         progressKey: String = "",
         preferHTTPFirst: Bool = false,
@@ -108,7 +109,7 @@ final class AttachmentUploader {
                 return try await uploadMultipart(
                     fileURL: fileURL, filename: filename, filetype: filetype,
                     fileSize: fileSize, width: width, height: height,
-                    token: token, progressKey: progressKey,
+                    channelId: channelId, token: token, progressKey: progressKey,
                     preferHTTPFirst: preferHTTPFirst, network: network)
             } catch is MultipartNotApplicable {
                 markMultipartUnavailable()
@@ -124,7 +125,7 @@ final class AttachmentUploader {
         return try await uploadSinglePut(
             fileURL: fileURL, filename: filename, filetype: filetype,
             fileSize: fileSize, width: width, height: height,
-            token: token, progressKey: progressKey,
+            channelId: channelId, token: token, progressKey: progressKey,
             preferHTTPFirst: preferHTTPFirst, preReserved: preReserved, network: network)
     }
 
@@ -135,6 +136,7 @@ final class AttachmentUploader {
         fileSize: Int,
         width: Int,
         height: Int,
+        channelId: Int64,
         token: String,
         progressKey: String,
         preferHTTPFirst: Bool,
@@ -147,7 +149,7 @@ final class AttachmentUploader {
         } else {
             info = try await network.uploadAttachmentFile(
                 filename: filename, filetype: filetype, size: fileSize,
-                width: width, height: height, token: token,
+                width: width, height: height, channelId: channelId, token: token,
                 preferHTTPFirst: preferHTTPFirst)
         }
         _ = try await MinIOStreamingUploader.shared.put(
@@ -168,6 +170,7 @@ final class AttachmentUploader {
         fileSize: Int,
         width: Int,
         height: Int,
+        channelId: Int64,
         token: String,
         progressKey: String,
         preferHTTPFirst: Bool,
@@ -176,7 +179,8 @@ final class AttachmentUploader {
         let requestedPartCount = max(1, Int((Double(fileSize) / Double(Self.partSize)).rounded(.up)))
         let start = try await network.multipartUploadAttachmentFileStart(
             filename: filename, filetype: filetype, size: fileSize,
-            width: width, height: height, partCount: requestedPartCount, token: token,
+            width: width, height: height, partCount: requestedPartCount,
+            channelId: channelId, token: token,
             preferHTTPFirst: preferHTTPFirst)
         let urls = start.urls
         let uploadId = start.uploadID

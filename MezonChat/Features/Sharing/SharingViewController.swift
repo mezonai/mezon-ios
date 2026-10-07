@@ -1275,6 +1275,7 @@ final class SharingViewController: UIViewController {
     private func uploadSharedVideoThumbnail(
         thumbnailURL: URL,
         videoFilename: String,
+        channelId: Int64,
         token: String
     ) async -> String {
         guard let rawData = try? Data(contentsOf: thumbnailURL),
@@ -1289,7 +1290,7 @@ final class SharingViewController: UIViewController {
         do {
             let uploadInfo = try await context.account.network.uploadAttachmentFile(
                 filename: thumbFilename, filetype: "image/jpeg", size: jpegData.count,
-                width: width, height: height, token: token)
+                width: width, height: height, channelId: channelId, token: token)
             try await context.account.network.uploadToMinIO(
                 url: uploadInfo.url, data: jpegData, contentType: "image/jpeg")
             return "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
@@ -1461,6 +1462,7 @@ final class SharingViewController: UIViewController {
                         fileSize: fileSize,
                         width: width,
                         height: height,
+                        channelId: target.channelID,
                         token: token,
                         progressKey: fileURL.path,
                         network: self.context.account.network
@@ -1478,7 +1480,8 @@ final class SharingViewController: UIViewController {
                        let thumbPath = file.thumbnail,
                        let thumbURL = SharingManager.shared.localFileURL(from: thumbPath) {
                         att.thumbnail = await self.uploadSharedVideoThumbnail(
-                            thumbnailURL: thumbURL, videoFilename: sanitized, token: token)
+                            thumbnailURL: thumbURL, videoFilename: sanitized,
+                            channelId: target.channelID, token: token)
                     }
                     uploadedAttachments.append(att)
                 }

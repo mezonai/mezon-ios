@@ -23,6 +23,9 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
     private let posterURL: String
     private var didTryAVPlayer = false
     private var didTryVLCPlayer = false
+    private var avRequest: CDNRequestURL?
+    private var didResignAVPlayer = false
+    private var wantsPlay = false
     
     var setOverlayVisible: ((Bool) -> Void)?
     var setPagingEnabled: ((Bool) -> Void)?
@@ -57,7 +60,21 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
         guard !didTryAVPlayer else { return }
         didTryAVPlayer = true
         
-        let avNode = MezonVideoPlayerNode(url: url, posterURL: posterURL)
+        if let request = CDNSigner.shared.readyRequestURL(for: url) {
+            attachAVPlayer(request)
+            return
+        }
+        CDNSigner.shared.requestURL(for: url) { [weak self] request in
+            DispatchQueue.main.async {
+                self?.attachAVPlayer(request)
+            }
+        }
+    }
+
+    private func attachAVPlayer(_ request: CDNRequestURL) {
+        guard avPlayerNode == nil, vlcPlayerNode == nil else { return }
+        avRequest = request
+        let avNode = MezonVideoPlayerNode(url: request.url, posterURL: posterURL)
         avNode.setOverlayVisible = { [weak self] visible in
             self?.setOverlayVisible?(visible)
         }
@@ -65,11 +82,37 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
             self?.setPagingEnabled?(enabled)
         }
         avNode.onPlaybackFailed = { [weak self] in
-            self?.fallbackToVLC()
+            self?.retryAVPlayerWithFreshSignatureOrFallback()
         }
         avNode.controlsBottomInset = controlsBottomInset
         avPlayerNode = avNode
         addSubnode(avNode)
+        avNode.frame = bounds
+        if wantsPlay {
+            avNode.play()
+        }
+    }
+
+    private func retryAVPlayerWithFreshSignatureOrFallback() {
+        guard !didResignAVPlayer,
+              let request = avRequest,
+              CDNSigner.shared.invalidate(request) else {
+            fallbackToVLC()
+            return
+        }
+        didResignAVPlayer = true
+        avPlayerNode?.removeFromSupernode()
+        avPlayerNode = nil
+        CDNSigner.shared.freshRequestURL(after: request, for: url) { [weak self] next in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if let next {
+                    self.attachAVPlayer(next)
+                } else {
+                    self.fallbackToVLC()
+                }
+            }
+        }
     }
     
     private func setupVLCPlayer() {
@@ -108,11 +151,13 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
     }
     
     func play() {
+        wantsPlay = true
         avPlayerNode?.play()
         vlcPlayerNode?.play()
     }
     
     func pause() {
+        wantsPlay = false
         avPlayerNode?.pause()
         vlcPlayerNode?.pause()
     }

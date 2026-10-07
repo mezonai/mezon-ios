@@ -482,7 +482,9 @@ final class AttachmentUploadCoordinator {
             guard let retryToken = await context.getToken() else { break }
             for index in missingImageIndices {
                 session.items[index].state = .uploading
-                if !(await reserveOneImage(session.items[index], context: context, token: retryToken)) {
+                if !(await reserveOneImage(
+                    session.items[index], channelId: session.params.channelId,
+                    context: context, token: retryToken)) {
                     session.items[index].state = .failed
                 }
             }
@@ -520,7 +522,7 @@ final class AttachmentUploadCoordinator {
             let item = session.items[index]
             item.state = .uploading
             if reReserve {
-                _ = await reserveOneImage(item, context: context, token: token)
+                _ = await reserveOneImage(item, channelId: session.params.channelId, context: context, token: token)
             }
             let ok: Bool
             if item.reservedAttachment != nil {
@@ -975,7 +977,8 @@ final class AttachmentUploadCoordinator {
             do {
                 let (cdnURL, pending) = try await reserveFileBody(
                     fileURL: file.url, filename: sanitized, filetype: file.filetype, size: size,
-                    width: 0, height: 0, context: context, token: token)
+                    width: 0, height: 0, channelId: session.params.channelId,
+                    context: context, token: token)
                 let presignKey = PresignFinishContent.presignKey(from: cdnURL)
                 var att = Mezon_Api_MessageAttachment()
                 att.filename = file.filename
@@ -1002,7 +1005,9 @@ final class AttachmentUploadCoordinator {
                 let index = nextIndex
                 nextIndex += 1
                 group.addTask { @MainActor in
-                    let ok = await self.reserveOneImage(session.items[index], context: context, token: token)
+                    let ok = await self.reserveOneImage(
+                        session.items[index], channelId: session.params.channelId,
+                        context: context, token: token)
                     return (index, ok)
                 }
             }
@@ -1019,6 +1024,7 @@ final class AttachmentUploadCoordinator {
     @MainActor
     private func reserveOneImage(
         _ item: ImageUploadItem,
+        channelId: Int64,
         context: AccountContext,
         token: String
     ) async -> Bool {
@@ -1049,11 +1055,12 @@ final class AttachmentUploadCoordinator {
                 }
                 let (cdnURL, filePending) = try await reserveFileBody(
                     fileURL: fileURL, filename: sanitized, filetype: filetype, size: size,
-                    width: width, height: height, context: context, token: token)
+                    width: width, height: height, channelId: channelId, context: context, token: token)
                 att.url = cdnURL
                 att.size = Int32(size)
 
-                if let thumb = await reserveVideoThumbnail(image, originalFilename: sanitized, context: context, token: token) {
+                if let thumb = await reserveVideoThumbnail(
+                    image, originalFilename: sanitized, channelId: channelId, context: context, token: token) {
                     att.thumbnail = thumb.cdnURL
                     pendingUploads.append(thumb.pending)
                 }
@@ -1066,7 +1073,7 @@ final class AttachmentUploadCoordinator {
                     filename: sanitized, isGif: isGif) else { return false }
                 let uploadInfo = try await context.account.network.uploadAttachmentFile(
                     filename: payload.filename, filetype: payload.filetype, size: payload.data.count,
-                    width: width, height: height, token: token)
+                    width: width, height: height, channelId: channelId, token: token)
                 let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
                 att.filename = payload.filename
                 att.filetype = AttachmentTypeClassifier.uploadType(for: payload.filetype)
@@ -1101,6 +1108,7 @@ final class AttachmentUploadCoordinator {
         size: Int,
         width: Int,
         height: Int,
+        channelId: Int64,
         context: AccountContext,
         token: String
     ) async throws -> (cdnURL: String, pending: PendingMinIOUpload) {
@@ -1110,7 +1118,8 @@ final class AttachmentUploadCoordinator {
                 let partCount = max(1, Int((Double(size) / Double(AttachmentUploader.partSize)).rounded(.up)))
                 let start = try await context.account.network.multipartUploadAttachmentFileStart(
                     filename: filename, filetype: filetype, size: size,
-                    width: width, height: height, partCount: partCount, token: token)
+                    width: width, height: height, partCount: partCount,
+                    channelId: channelId, token: token)
                 let serverFilename = start.filename.isEmpty ? filename : start.filename
                 let cdnURL = "\(MezonConfig.baseImgURL)/\(serverFilename)"
                 if start.urls.count > 1, !start.uploadID.isEmpty {
@@ -1136,7 +1145,7 @@ final class AttachmentUploadCoordinator {
         }
         let info = try await context.account.network.uploadAttachmentFile(
             filename: filename, filetype: filetype, size: size,
-            width: width, height: height, token: token)
+            width: width, height: height, channelId: channelId, token: token)
         return ("\(MezonConfig.baseImgURL)/\(info.filename)", PendingMinIOUpload(
             minioURL: info.url, contentType: filetype, body: .file(fileURL),
             progressKey: progressKey, cacheImage: nil))
@@ -1146,6 +1155,7 @@ final class AttachmentUploadCoordinator {
     private func reserveVideoThumbnail(
         _ thumbnail: UIImage,
         originalFilename: String,
+        channelId: Int64,
         context: AccountContext,
         token: String
     ) async -> (cdnURL: String, pending: PendingMinIOUpload)? {
@@ -1159,7 +1169,7 @@ final class AttachmentUploadCoordinator {
         do {
             let uploadInfo = try await context.account.network.uploadAttachmentFile(
                 filename: thumbFilename, filetype: "image/jpeg", size: thumbData.count,
-                width: width, height: height, token: token)
+                width: width, height: height, channelId: channelId, token: token)
             let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
             let pending = PendingMinIOUpload(
                 minioURL: uploadInfo.url,

@@ -902,7 +902,7 @@ private final class PinnedMessageCellNode: ASCellNode, ASNetworkImageNodeDelegat
                     let scheme = fileURL.scheme?.lowercased(),
                     scheme == "https" || scheme == "http"
                 else { return }
-                UIApplication.shared.open(fileURL)
+                CDNSigner.shared.openExternally(fileURL)
             }
         }
 

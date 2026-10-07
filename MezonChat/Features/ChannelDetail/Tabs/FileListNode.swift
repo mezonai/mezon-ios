@@ -634,7 +634,7 @@ private final class FileDocumentCellNode: ASCellNode {
 
     @objc private func openLink() {
         guard let fileURL else { return }
-        UIApplication.shared.open(fileURL)
+        CDNSigner.shared.openExternally(fileURL)
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {

@@ -733,7 +733,7 @@ final class MessageMediaContentNode: ASDisplayNode {
             }
         }
 
-        URLSession.shared.dataTask(with: imageURL) { data, _, error in
+        CDNSigner.shared.dataTask(with: imageURL, in: .shared) { data, _, error in
             if let error {
                 SentryLogger.captureMediaError(error, extras: [
                     "where": "MessageMediaContentNode.loadStickerImage",
@@ -750,7 +750,7 @@ final class MessageMediaContentNode: ASDisplayNode {
                     (node.view as? UIImageView)?.image = image
                 }
             }
-        }.resume()
+        }
     }
 
     private func ensureRemoteImageLoaded(at index: Int, media: ParsedAttachment, isMultiple: Bool) {
@@ -1319,9 +1319,14 @@ final class MessageMediaContentNode: ASDisplayNode {
                     skeleton?.isHidden = true
                     placeholder?.isHidden = false
                 } else if Self.shouldShowLoadingSkeleton(for: media) {
-                    skeleton?.isHidden = false
-                    placeholder?.isHidden = true
-                    self.scheduleRemoteImageRetry(at: index)
+                    if self.remoteLoadRetryCountByIndex[index, default: 0] >= Self.maxRemoteLoadRetries {
+                        skeleton?.isHidden = true
+                        placeholder?.isHidden = false
+                    } else {
+                        skeleton?.isHidden = false
+                        placeholder?.isHidden = true
+                        self.scheduleRemoteImageRetry(at: index)
+                    }
                 }
             }
         }

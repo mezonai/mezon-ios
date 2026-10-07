@@ -6,7 +6,9 @@ enum ImgproxyURL {
         let env = MezonEnvironment.current
         return "\(env.imgproxyBaseURL)/\(env.imgproxySigningPath)"
     }
-    private static let cdnHosts = ["cdn.mezon", "cdn.komu", "profile.mezon"]
+    private static var cdnHosts: [String] {
+        ["cdn.mezon", "cdn.komu", "profile.mezon"] + [URL(string: MezonConfig.baseImgURL)?.host].compactMap { $0 }
+    }
     private static let skipExtensions: Set<String> = ["gif", "webp"]
 
     private static let attachmentOutputSuffix = "@webp"

@@ -1876,28 +1876,57 @@ final class MezonHTTPClient {
         )
     }
 
+    private static let uploadFilenameMaxBytes = 100
+    private static let uploadExtensionMaxBytes = 16
+
+    static func fittedUploadFilename(_ filename: String) -> String {
+        guard filename.utf8.count > uploadFilenameMaxBytes else { return filename }
+        let ext = (filename as NSString).pathExtension
+        let suffix = ext.isEmpty ? "" : ".\(ext)"
+        guard !suffix.isEmpty, suffix.utf8.count <= uploadExtensionMaxBytes else {
+            return utf8Prefix(filename, maxBytes: uploadFilenameMaxBytes)
+        }
+        let stem = (filename as NSString).deletingPathExtension
+        return utf8Prefix(stem, maxBytes: uploadFilenameMaxBytes - suffix.utf8.count) + suffix
+    }
+
+    private static func utf8Prefix(_ text: String, maxBytes: Int) -> String {
+        var used = 0
+        var end = text.startIndex
+        for character in text {
+            let bytes = String(character).utf8.count
+            guard used + bytes <= maxBytes else { break }
+            used += bytes
+            end = text.index(after: end)
+        }
+        return String(text[..<end])
+    }
+
     func uploadAttachmentFile(
         filename: String,
         filetype: String,
         size: Int,
         width: Int = 0,
         height: Int = 0,
+        channelId: Int64 = 0,
         token: String,
         preferHTTPFirst: Bool = false
     ) async throws -> Mezon_Api_UploadAttachment {
         let uploadType = AttachmentTypeClassifier.uploadType(for: filetype)
         var req = Mezon_Api_UploadAttachmentRequest()
-        req.filename = filename
+        req.filename = Self.fittedUploadFilename(filename)
         req.filetype = uploadType
         req.size = Int32(size)
         req.width = Int32(width)
         req.height = Int32(height)
-        return try await postProto(
+        req.channelID = channelId
+        let response: Mezon_Api_UploadAttachment = try await postProto(
             path: "/mezon.api.Mezon/UploadAttachmentFile",
             message: req,
             auth: .bearer(token),
             preferHTTPFirst: preferHTTPFirst
         )
+        return response
     }
 
     func uploadToMinIO(url: String, data: Data, contentType: String) async throws {
@@ -1924,23 +1953,26 @@ final class MezonHTTPClient {
         width: Int = 0,
         height: Int = 0,
         partCount: Int,
+        channelId: Int64 = 0,
         token: String,
         preferHTTPFirst: Bool = false
     ) async throws -> Mezon_Api_MultipartUploadAttachment {
         let uploadType = AttachmentTypeClassifier.uploadType(for: filetype)
         var req = Mezon_Api_UploadAttachmentRequest()
-        req.filename = filename
+        req.filename = Self.fittedUploadFilename(filename)
         req.filetype = uploadType
         req.size = Int32(size)
         req.width = Int32(width)
         req.height = Int32(height)
         req.partCount = Int32(partCount)
-        return try await postProto(
+        req.channelID = channelId
+        let response: Mezon_Api_MultipartUploadAttachment = try await postProto(
             path: "/mezon.api.Mezon/MultipartUploadAttachmentFileStart",
             message: req,
             auth: .bearer(token),
             preferHTTPFirst: preferHTTPFirst
         )
+        return response
     }
 
     func multipartUploadAttachmentFileFinish(
@@ -2193,11 +2225,29 @@ final class MezonHTTPClient {
         req.clanID = clanId
         req.channelID = channelId
         req.text = text
-        return try await postProto(
+        let response: Mezon_Api_SearchMentionUsersResponse = try await postProto(
             path: "/mezon.api.Mezon/SearchMentionUsers",
             message: req,
             auth: .bearer(token)
         )
+        return response
+    }
+
+    func generateCDNSignature(
+        channelId: Int64,
+        token: String
+    ) async throws -> Mezon_Api_GenerateCDNSignatureResponse {
+        guard channelId != 0 else {
+            throw MezonError.httpError(statusCode: 400, message: "GenerateCDNSignature needs a channel id")
+        }
+        var req = Mezon_Api_GenerateCDNSignatureRequest()
+        req.channelID = channelId
+        let response: Mezon_Api_GenerateCDNSignatureResponse = try await postProto(
+            path: "/mezon.api.Mezon/GenerateCDNSignature",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response
     }
 
     func listFriends(

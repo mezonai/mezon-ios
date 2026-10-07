@@ -63,7 +63,7 @@ private final class GalleryVideoActivityItemProvider: UIActivityItemProvider {
     private let payload: ExistingVideoSharePayload
     private let sourceURL: URL
     private let stateLock = NSLock()
-    private var activeDownloadTask: URLSessionDownloadTask?
+    private var activeDownloadTask: CDNTaskHandle?
     private var downloadedURL: URL?
     private var issuedTokenKey: String?
     private var preparationError: Error?
@@ -236,7 +236,16 @@ private final class GalleryVideoActivityItemProvider: UIActivityItemProvider {
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 30 * 60
         let session = URLSession(configuration: configuration)
-        let task = session.downloadTask(with: sourceURL) { [weak self] temporaryURL, response, error in
+        stateLock.lock()
+        preparationError = nil
+        stateLock.unlock()
+        let progressObservation = Atomic<NSKeyValueObservation?>(value: nil)
+        let task = CDNSigner.shared.downloadTask(with: sourceURL, in: session, onStart: { [weak self] started in
+            let observation = started.progress.observe(\.fractionCompleted) { [weak self] progress, _ in
+                self?.notifyPreparationProgress(progress.fractionCompleted)
+            }
+            progressObservation.swap(observation)?.invalidate()
+        }) { [weak self] temporaryURL, response, error in
             defer { completion.signal() }
             guard let self else { return }
             if let error {
@@ -273,15 +282,10 @@ private final class GalleryVideoActivityItemProvider: UIActivityItemProvider {
         }
 
         stateLock.lock()
-        preparationError = nil
         activeDownloadTask = task
         stateLock.unlock()
-        let progressObservation = task.progress.observe(\.fractionCompleted) { [weak self] progress, _ in
-            self?.notifyPreparationProgress(progress.fractionCompleted)
-        }
-        task.resume()
         completion.wait()
-        progressObservation.invalidate()
+        progressObservation.swap(nil)?.invalidate()
         session.finishTasksAndInvalidate()
 
         stateLock.lock()
@@ -1326,7 +1330,13 @@ final class GalleryController: UIViewController {
                 DispatchQueue.main.async {
                     self.showVideoSaveOverlay(progress: 0)
                 }
-                let task = URLSession.shared.downloadTask(with: remoteURL) { [weak self] tempURL, _, error in
+                CDNSigner.shared.downloadTask(with: remoteURL, in: .shared, onStart: { [weak self] started in
+                    self?.videoSaveProgressObservation = started.progress.observe(\.fractionCompleted) { [weak self] progress, _ in
+                        DispatchQueue.main.async {
+                            self?.showVideoSaveOverlay(progress: Float(progress.fractionCompleted))
+                        }
+                    }
+                }) { [weak self] tempURL, response, error in
                     guard let self else { return }
                     guard let tempURL, error == nil else {
                         DispatchQueue.main.async {
@@ -1374,12 +1384,6 @@ final class GalleryController: UIViewController {
                         }
                     })
                 }
-                self.videoSaveProgressObservation = task.progress.observe(\.fractionCompleted) { [weak self] progress, _ in
-                    DispatchQueue.main.async {
-                        self?.showVideoSaveOverlay(progress: Float(progress.fractionCompleted))
-                    }
-                }
-                task.resume()
             case .denied:
                 DispatchQueue.main.async {
                     self.hideVideoSaveOverlay()
@@ -1654,8 +1658,20 @@ private final class GalleryThumbnailCell: UICollectionViewCell {
             imageView.image = cached
             return
         }
+        if let request = CDNSigner.shared.readyRequestURL(for: videoURL) {
+            generateVideoThumbnail(from: request.url, cacheKey: cacheKey, identity: identity)
+            return
+        }
+        CDNSigner.shared.requestURL(for: videoURL) { [weak self] request in
+            DispatchQueue.main.async {
+                guard let self, self.representedIdentity == identity else { return }
+                self.generateVideoThumbnail(from: request.url, cacheKey: cacheKey, identity: identity)
+            }
+        }
+    }
 
-        let asset = AVURLAsset(url: videoURL, options: [
+    private func generateVideoThumbnail(from assetURL: URL, cacheKey: String, identity: String) {
+        let asset = AVURLAsset(url: assetURL, options: [
             AVURLAssetPreferPreciseDurationAndTimingKey: false
         ])
         let generator = AVAssetImageGenerator(asset: asset)
