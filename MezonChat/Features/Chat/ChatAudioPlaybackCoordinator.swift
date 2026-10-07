@@ -18,6 +18,9 @@ final class ChatAudioPlaybackCoordinator: NSObject {
     private var player: AVPlayer?
     private var timeObserver: Any?
     private var endObserver: NSObjectProtocol?
+    private var statusObserver: NSKeyValueObservation?
+    private var playbackRequest: CDNRequestURL?
+    private var didRetryPlaybackSignature = false
     private(set) var currentPlaybackId: String?
     private var stableItemDuration: TimeInterval = 0
 
@@ -59,7 +62,23 @@ final class ChatAudioPlaybackCoordinator: NSObject {
         currentPlaybackId = playbackId
         self.sink = sink
 
-        let item = AVPlayerItem(url: url)
+        if let request = CDNSigner.shared.readyRequestURL(for: url) {
+            startPlayer(request, sourceURL: url, playbackId: playbackId)
+            return
+        }
+        CDNSigner.shared.requestURL(for: url) { [weak self] request in
+            DispatchQueue.main.async {
+                self?.startPlayer(request, sourceURL: url, playbackId: playbackId)
+            }
+        }
+    }
+
+    private func startPlayer(_ request: CDNRequestURL, sourceURL: URL, playbackId: String) {
+        guard currentPlaybackId == playbackId, player == nil else {
+            return
+        }
+        playbackRequest = request
+        let item = AVPlayerItem(url: request.url)
         let p = AVPlayer(playerItem: item)
         player = p
 
@@ -71,6 +90,13 @@ final class ChatAudioPlaybackCoordinator: NSObject {
             self?.onPlaybackFinished()
         }
 
+        statusObserver = item.observe(\.status, options: [.new]) { [weak self] item, _ in
+            guard item.status == .failed else { return }
+            DispatchQueue.main.async {
+                self?.retryPlaybackWithFreshSignature(sourceURL: sourceURL, playbackId: playbackId)
+            }
+        }
+
         let interval = CMTime(seconds: 0.12, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
         timeObserver = p.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] _ in
             self?.emitProgress(playing: self?.player?.rate != 0)
@@ -78,6 +104,25 @@ final class ChatAudioPlaybackCoordinator: NSObject {
 
         p.play()
         emitProgress(playing: true)
+    }
+
+    private func retryPlaybackWithFreshSignature(sourceURL: URL, playbackId: String) {
+        guard currentPlaybackId == playbackId,
+              !didRetryPlaybackSignature,
+              let request = playbackRequest,
+              CDNSigner.shared.invalidate(request) else {
+            return
+        }
+        didRetryPlaybackSignature = true
+        CDNSigner.shared.freshRequestURL(after: request, for: sourceURL) { [weak self] next in
+            DispatchQueue.main.async {
+                guard let self, let next, self.currentPlaybackId == playbackId else {
+                    return
+                }
+                self.releasePlayer()
+                self.startPlayer(next, sourceURL: sourceURL, playbackId: playbackId)
+            }
+        }
     }
 
     private func onPlaybackFinished() {
@@ -103,6 +148,14 @@ final class ChatAudioPlaybackCoordinator: NSObject {
     }
 
     private func tearDownPlayer() {
+        releasePlayer()
+        currentPlaybackId = nil
+        stableItemDuration = 0
+        playbackRequest = nil
+        didRetryPlaybackSignature = false
+    }
+
+    private func releasePlayer() {
         if let obs = timeObserver, let p = player {
             p.removeTimeObserver(obs)
         }
@@ -111,10 +164,10 @@ final class ChatAudioPlaybackCoordinator: NSObject {
             NotificationCenter.default.removeObserver(endObserver)
         }
         endObserver = nil
+        statusObserver?.invalidate()
+        statusObserver = nil
         player?.pause()
         player = nil
-        currentPlaybackId = nil
-        stableItemDuration = 0
     }
 
     private func ensureSession() {

@@ -1922,6 +1922,7 @@ final class ChatViewController: ViewController {
                 self.setIsLoading(false)
                 return
             }
+            CDNSigner.shared.prefetch(channelID: self.channel.channelID)
 
             let immediateToken: String? = {
                 if let t = self.context.session?.token, !t.isEmpty { return t }

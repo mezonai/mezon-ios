@@ -401,7 +401,7 @@ final class MessageBubbleNode: ASDisplayNode {
             tcn.onLinkTapped = { url in
                 let scheme = url.scheme?.lowercased() ?? ""
                 guard scheme == "https" || scheme == "http" else { return }
-                UIApplication.shared.open(url)
+                CDNSigner.shared.openExternally(url)
             }
             textContentNode = tcn
             addSubnode(tcn)
@@ -451,7 +451,7 @@ final class MessageBubbleNode: ASDisplayNode {
                       let scheme = fileURL.scheme?.lowercased(),
                       scheme == "https" || scheme == "http"
                 else { return }
-                UIApplication.shared.open(fileURL)
+                CDNSigner.shared.openExternally(fileURL)
             }
             fileAttachmentNode = fan
             addSubnode(fan)
@@ -732,7 +732,7 @@ final class MessageBubbleNode: ASDisplayNode {
                 tcn.onLinkTapped = { url in
                     let scheme = url.scheme?.lowercased() ?? ""
                     guard scheme == "https" || scheme == "http" else { return }
-                    UIApplication.shared.open(url)
+                    CDNSigner.shared.openExternally(url)
                 }
                 textContentNode = tcn
                 if let c = clanInviteLinkNode { insertSubnode(tcn, belowSubnode: c) }

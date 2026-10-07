@@ -280,7 +280,7 @@ final class ImageCache {
         url: URL,
         key: String,
         completion: @escaping (UIImage?) -> Void
-    ) -> URLSessionDataTask {
+    ) -> URLSessionDataTask? {
         return startImageDownload(url: url, key: key, attempt: 0, completion: completion)
     }
 
@@ -290,8 +290,34 @@ final class ImageCache {
         key: String,
         attempt: Int,
         completion: @escaping (UIImage?) -> Void
+    ) -> URLSessionDataTask? {
+        if let request = CDNSigner.shared.readyRequestURL(for: url) {
+            return startImageRequest(
+                request, url: url, key: key, attempt: attempt,
+                isSignatureRetry: false, completion: completion)
+        }
+        CDNSigner.shared.requestURL(for: url) { [weak self] request in
+            guard let self else {
+                DispatchQueue.main.async { completion(nil) }
+                return
+            }
+            self.startImageRequest(
+                request, url: url, key: key, attempt: attempt,
+                isSignatureRetry: false, completion: completion)
+        }
+        return nil
+    }
+
+    @discardableResult
+    private func startImageRequest(
+        _ request: CDNRequestURL,
+        url: URL,
+        key: String,
+        attempt: Int,
+        isSignatureRetry: Bool,
+        completion: @escaping (UIImage?) -> Void
     ) -> URLSessionDataTask {
-        let task = imageSession.dataTask(with: url) { [weak self] data, response, error in
+        let task = imageSession.dataTask(with: request.url) { [weak self] data, response, error in
             guard let self else {
                 DispatchQueue.main.async { completion(nil) }
                 return
@@ -306,6 +332,20 @@ final class ImageCache {
                let image = UIImage.decompressedImage(from: data) {
                 self.setImage(image, data: data, forKey: key)
                 DispatchQueue.main.async { completion(image) }
+                return
+            }
+
+
+            if !isSignatureRetry, CDNSigner.shared.shouldRetry(request, response: response) {
+                CDNSigner.shared.freshRequestURL(after: request, for: url) { [weak self] next in
+                    guard let self, let next else {
+                        DispatchQueue.main.async { completion(nil) }
+                        return
+                    }
+                    self.startImageRequest(
+                        next, url: url, key: key, attempt: attempt,
+                        isSignatureRetry: true, completion: completion)
+                }
                 return
             }
 
@@ -921,32 +961,48 @@ func videoThumbnailSignal(url: String, resizeMode: ImageResizeMode = .fill) -> S
             return EmptyDisposable
         }
 
-        let asset = AVURLAsset(url: videoURL, options: [
-            AVURLAssetPreferPreciseDurationAndTimingKey: false
-        ])
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.appliesPreferredTrackTransform = true
-        generator.maximumSize = CGSize(width: 600, height: 600)
+        let cancelled = Atomic<Bool>(value: false)
+        let activeGenerator = Atomic<AVAssetImageGenerator?>(value: nil)
 
-        let time = CMTime(seconds: 0.5, preferredTimescale: 600)
-        let timeValue = NSValue(time: time)
+        func generate(from assetURL: URL) {
+            guard !cancelled.with({ $0 }) else { return }
+            let asset = AVURLAsset(url: assetURL, options: [
+                AVURLAssetPreferPreciseDurationAndTimingKey: false
+            ])
+            let generator = AVAssetImageGenerator(asset: asset)
+            generator.appliesPreferredTrackTransform = true
+            generator.maximumSize = CGSize(width: 600, height: 600)
+            let _ = activeGenerator.swap(generator)
 
-        generator.generateCGImagesAsynchronously(forTimes: [timeValue]) { _, cgImage, _, _, _ in
-            if let cgImage {
-                let image = UIImage(cgImage: cgImage)
-                let jpegData = image.jpegData(compressionQuality: 0.7)
-                cache.setImage(image, data: jpegData, forKey: cacheKey)
-                subscriber.putNext(makeTransform(for: image, resizeMode: resizeMode))
-            } else {
-                let transparentImage = createTransparentImage()
-                cache.setImage(transparentImage, data: nil, forKey: cacheKey)
-                subscriber.putNext(makeTransform(for: transparentImage, resizeMode: resizeMode))
+            let time = CMTime(seconds: 0.5, preferredTimescale: 600)
+            let timeValue = NSValue(time: time)
+
+            generator.generateCGImagesAsynchronously(forTimes: [timeValue]) { _, cgImage, _, _, error in
+                if let cgImage {
+                    let image = UIImage(cgImage: cgImage)
+                    let jpegData = image.jpegData(compressionQuality: 0.7)
+                    cache.setImage(image, data: jpegData, forKey: cacheKey)
+                    subscriber.putNext(makeTransform(for: image, resizeMode: resizeMode))
+                } else {
+                    let transparentImage = createTransparentImage()
+                    cache.setImage(transparentImage, data: nil, forKey: cacheKey)
+                    subscriber.putNext(makeTransform(for: transparentImage, resizeMode: resizeMode))
+                }
+                subscriber.putCompletion()
             }
-            subscriber.putCompletion()
+        }
+
+        if let request = CDNSigner.shared.readyRequestURL(for: videoURL) {
+            generate(from: request.url)
+        } else {
+            CDNSigner.shared.requestURL(for: videoURL) { request in
+                generate(from: request.url)
+            }
         }
 
         return ActionDisposable {
-            generator.cancelAllCGImageGeneration()
+            let _ = cancelled.modify { _ in true }
+            activeGenerator.with { $0 }?.cancelAllCGImageGeneration()
         }
     }
 }

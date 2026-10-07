@@ -920,7 +920,20 @@ enum PresignFinishContent {
         guard let presignFinish else { return true }
         let key = presignKey(from: url)
         guard !key.isEmpty else { return false }
-        return presignFinish.contains(key)
+        return presignFinish.contains { presignKeysMatch($0, key) }
+    }
+
+    static func presignKeysMatch(_ lhs: String, _ rhs: String) -> Bool {
+        if lhs == rhs { return true }
+        guard let snowflake = uploadSnowflake(of: lhs) else { return false }
+        return uploadSnowflake(of: rhs) == snowflake
+    }
+
+    private static func uploadSnowflake(of key: String) -> Substring? {
+        guard let separator = key.firstIndex(of: "_") else { return nil }
+        let head = key[..<separator]
+        guard !head.isEmpty, head.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
+        return head
     }
 
     static func emptyOutgoingContent() -> Data {

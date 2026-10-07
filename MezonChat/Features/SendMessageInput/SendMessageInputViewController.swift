@@ -5839,6 +5839,7 @@ final class SendMessageInputViewController: UIViewController {
                     fileSize: size,
                     width: width,
                     height: height,
+                    channelId: channel.channelID,
                     token: token,
                     progressKey: progressKey,
                     network: context.account.network)
@@ -5865,6 +5866,7 @@ final class SendMessageInputViewController: UIViewController {
                 size: fileData.count,
                 width: width,
                 height: height,
+                channelId: channel.channelID,
                 token: token
             )
 
@@ -5911,6 +5913,7 @@ final class SendMessageInputViewController: UIViewController {
                 filename: sanitizedFilename,
                 filetype: file.filetype,
                 fileSize: size,
+                channelId: channel.channelID,
                 token: token,
                 progressKey: progressKey,
                 network: context.account.network)
