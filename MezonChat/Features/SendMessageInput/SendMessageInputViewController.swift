@@ -5876,7 +5876,7 @@ final class SendMessageInputViewController: UIViewController {
                 contentType: filetype
             )
 
-            let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+            let cdnURL = MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, filename: uploadInfo.filename)
 
             ImageCache.shared.setImage(image, data: fileData, forKey: cdnURL)
 

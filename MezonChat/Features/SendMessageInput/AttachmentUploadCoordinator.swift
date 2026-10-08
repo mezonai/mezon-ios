@@ -1074,7 +1074,7 @@ final class AttachmentUploadCoordinator {
                 let uploadInfo = try await context.account.network.uploadAttachmentFile(
                     filename: payload.filename, filetype: payload.filetype, size: payload.data.count,
                     width: width, height: height, channelId: channelId, token: token)
-                let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+                let cdnURL = MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, filename: uploadInfo.filename)
                 att.filename = payload.filename
                 att.filetype = AttachmentTypeClassifier.uploadType(for: payload.filetype)
                 att.url = cdnURL
@@ -1121,7 +1121,7 @@ final class AttachmentUploadCoordinator {
                     width: width, height: height, partCount: partCount,
                     channelId: channelId, token: token)
                 let serverFilename = start.filename.isEmpty ? filename : start.filename
-                let cdnURL = "\(MezonConfig.baseImgURL)/\(serverFilename)"
+                let cdnURL = MezonConfig.attachmentViewURL(typeCdn: start.typeCdn, filename: serverFilename)
                 if start.urls.count > 1, !start.uploadID.isEmpty {
                     let plan = MultipartPlan(
                         fileURL: fileURL, partURLs: start.urls, uploadId: start.uploadID,
@@ -1146,7 +1146,7 @@ final class AttachmentUploadCoordinator {
         let info = try await context.account.network.uploadAttachmentFile(
             filename: filename, filetype: filetype, size: size,
             width: width, height: height, channelId: channelId, token: token)
-        return ("\(MezonConfig.baseImgURL)/\(info.filename)", PendingMinIOUpload(
+        return (MezonConfig.attachmentViewURL(typeCdn: info.typeCdn, filename: info.filename), PendingMinIOUpload(
             minioURL: info.url, contentType: filetype, body: .file(fileURL),
             progressKey: progressKey, cacheImage: nil))
     }
@@ -1170,7 +1170,7 @@ final class AttachmentUploadCoordinator {
             let uploadInfo = try await context.account.network.uploadAttachmentFile(
                 filename: thumbFilename, filetype: "image/jpeg", size: thumbData.count,
                 width: width, height: height, channelId: channelId, token: token)
-            let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+            let cdnURL = MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, filename: uploadInfo.filename)
             let pending = PendingMinIOUpload(
                 minioURL: uploadInfo.url,
                 contentType: "image/jpeg",

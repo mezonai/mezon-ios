@@ -971,7 +971,7 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
             data: selectedImageData,
             contentType: filetype
         )
-        let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+        let cdnURL = MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, filename: uploadInfo.filename)
         ImageCache.shared.setImage(selectedImage, data: selectedImageData, forKey: cdnURL)
         return cdnURL
     }

@@ -267,7 +267,7 @@ extension ClanSettingsViewController: UIImagePickerControllerDelegate, UINavigat
                     data: data,
                     contentType: "image/jpeg"
                 )
-                let avatarUrlToSave = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+                let avatarUrlToSave = MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, filename: uploadInfo.filename)
                 
                 guard let clan = self.context.account.postbox.read({ tx in tx.getClan(id: self.clanId) }) else { return }
                 

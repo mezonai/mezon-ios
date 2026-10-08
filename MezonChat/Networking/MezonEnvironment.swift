@@ -69,6 +69,13 @@ enum MezonEnvironment {
         }
     }
 
+    var baseMezonImgURL: String {
+        switch self {
+        case .dev:  return Secrets.devBaseMezonImgURL
+        case .prod: return Secrets.prodBaseMezonImgURL
+        }
+    }
+
     var profileImgURL: String {
         switch self {
         case .dev:  return Secrets.devProfileImgURL

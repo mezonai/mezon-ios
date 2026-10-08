@@ -1393,7 +1393,7 @@ final class ProfileSettingViewController: BaseViewController {
                     url: uploadInfo.url, data: data, contentType: filetype
                 )
 
-                let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+                let cdnURL = MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, filename: uploadInfo.filename)
                 ImageCache.shared.setImage(image, data: data, forKey: cdnURL)
 
                 switch target {
