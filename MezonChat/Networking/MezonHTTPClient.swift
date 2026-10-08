@@ -2179,11 +2179,77 @@ final class MezonHTTPClient {
         req.topicID = topicId
         req.emojiRecentID = emojiRecentId
         req.senderName = senderName
-        return try await postProto(
-            path: "/mezon.api.Mezon/ReactChannelMessage",
-            message: req,
-            auth: .bearer(token)
-        )
+
+        if await MezonSocket.shared.canSendChannelMessageRealtime(clanId: clanId, channelId: channelId),
+           await writeMessageReactionOverSocket(req) != .notApplied {
+            return Mezon_Api_MessageReaction()
+        }
+
+        return try await postReactionHTTP(req, token: token)
+    }
+
+    private enum RealtimeReactionOutcome {
+        case applied
+        case maybeApplied
+        case notApplied
+    }
+
+    private func writeMessageReactionOverSocket(_ req: Mezon_Api_MessageReaction) async -> RealtimeReactionOutcome {
+        var envelope = Mezon_Realtime_Envelope()
+        envelope.messageReactionEvent = req
+        let started = Date()
+        do {
+            let reply = try await MezonSocket.shared.sendAwaitingReply(
+                envelope,
+                timeoutNanoseconds: Self.realtimeSendAckTimeoutNanoseconds
+            )
+            await MezonSocket.shared.noteApiRequestSucceeded()
+            switch reply.message {
+            case .some(.messageReactionEvent):
+                return .applied
+            case .some(.error):
+                return .notApplied
+            default:
+                return .maybeApplied
+            }
+        } catch SocketReplyError.undelivered(_) {
+            return .notApplied
+        } catch {
+            if Date().timeIntervalSince(started) >= 1.5 {
+                await MezonSocket.shared.noteApiRequestTimedOut()
+            }
+            return .maybeApplied
+        }
+    }
+
+    private static let reactionHTTPRetryDelaysNanoseconds: [UInt64] = [1_000_000_000, 3_000_000_000]
+
+    private func postReactionHTTP(_ req: Mezon_Api_MessageReaction, token: String) async throws -> Mezon_Api_MessageReaction {
+        var pendingDelays = Self.reactionHTTPRetryDelaysNanoseconds[...]
+        while true {
+            do {
+                return try await postProtoHTTP(
+                    path: "/mezon.api.Mezon/ReactChannelMessage",
+                    message: req,
+                    auth: .bearer(token)
+                )
+            } catch {
+                guard Self.isRequestNeverSent(error), let delay = pendingDelays.popFirst() else { throw error }
+                try await Task.sleep(nanoseconds: delay)
+            }
+        }
+    }
+
+    private static func isRequestNeverSent(_ error: Error) -> Bool {
+        let ns = error as NSError
+        guard ns.domain == NSURLErrorDomain else { return false }
+        switch ns.code {
+        case NSURLErrorNotConnectedToInternet, NSURLErrorCannotConnectToHost, NSURLErrorCannotFindHost,
+             NSURLErrorDNSLookupFailed, NSURLErrorDataNotAllowed:
+            return true
+        default:
+            return false
+        }
     }
 
     func listUserClansByUserId(token: String) async throws -> Mezon_Api_AllUserClans {
@@ -2208,11 +2274,16 @@ final class MezonHTTPClient {
         var req = Mezon_Api_SearchCtrlKRequest()
         req.text = text
         req.type = type
-        return try await postProto(
-            path: "/mezon.api.Mezon/SearchCtrlK",
-            message: req,
-            auth: .bearer(token)
-        )
+        let path = "/mezon.api.Mezon/SearchCtrlK"
+        do {
+            return try await postProto(path: path, message: req, auth: .bearer(token))
+        } catch {
+            if error is CancellationError || Task.isCancelled {
+                throw error
+            }
+            try await Task.sleep(nanoseconds: Self.searchCtrlKRetryDelayNanoseconds)
+            return try await postProto(path: path, message: req, auth: .bearer(token))
+        }
     }
 
     func searchMentionUsers(
@@ -2565,6 +2636,7 @@ final class MezonHTTPClient {
     ]
     private static let singleTransportOnlyApiNames: Set<String> = [
         "UpdateChannelMessage",
+        "SearchCtrlK",
     ]
     private static let socketFallbackGraceWaitNanoseconds: UInt64 = 2_000_000_000
     private static let socketFallbackApiTimeoutNanoseconds: UInt64 = 4_000_000_000
@@ -2598,6 +2670,8 @@ final class MezonHTTPClient {
         600_000_000,
         1_200_000_000,
     ]
+
+    private static let searchCtrlKRetryDelayNanoseconds: UInt64 = 350_000_000
 
     private static func socketTransportProfile(for apiName: String) -> SocketTransportProfile {
         messageFetchApiNames.contains(apiName)
