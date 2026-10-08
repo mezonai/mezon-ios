@@ -6257,6 +6257,11 @@ final class ChatViewController: ViewController {
         clanId != 0 && channel.parentID == 0 && channel.channelPrivate == 0
     }
 
+    private var reactionSenderName: String {
+        guard let user = context.currentUser else { return "" }
+        return user.displayName.isEmpty ? user.username : user.displayName
+    }
+
     private func makeLocalReactionEvent(
         display: ChatMessageDisplay,
         emojiId: String,
@@ -6336,6 +6341,7 @@ final class ChatViewController: ViewController {
                     messageSenderId: messageSenderId,
                     actionDelete: actionDelete,
                     topicId: self.topicId,
+                    senderName: self.reactionSenderName,
                     token: token
                 )
                 let responseCarriesReaction = applied.id != 0
@@ -6367,6 +6373,9 @@ final class ChatViewController: ViewController {
                     tx.updateMessageReactions(messageId: "\(applied.messageID)", reaction: applied)
                 }
             } catch {
+                if !actionDelete {
+                    self.applyLocalReactionRemoveForMessage(display: display, emojiId: emojiId, shortname: shortname, removeCount: 1)
+                }
             }
         }
     }

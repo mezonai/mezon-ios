@@ -50,6 +50,10 @@ final class ImageCache {
         return URLSession(configuration: config)
     }()
 
+    private let notificationAvatarQueue = DispatchQueue(label: "mezon.imagecache.notification-avatar", qos: .background)
+    private static let notificationAvatarShareDelay: TimeInterval = 3
+    private var notificationAvatarURLs = Set<String>()
+
     private var inflightCallbacks: [String: [(UIImage?) -> Void]] = [:]
     private struct OptimizedAvatarCallback {
         let preview: ((UIImage) -> Void)?
@@ -177,10 +181,32 @@ final class ImageCache {
         inflightLock.lock()
         inflightCallbacks.removeAll()
         optimizedAvatarCallbacks.removeAll()
+        notificationAvatarURLs.removeAll()
         inflightLock.unlock()
         ioQueue.sync {
             try? FileManager.default.removeItem(at: diskCacheURL)
             try? FileManager.default.createDirectory(at: diskCacheURL, withIntermediateDirectories: true)
+        }
+        notificationAvatarQueue.async {
+            NotificationAvatarStore.removeAll()
+        }
+    }
+
+    func shareAvatarForNotifications(avatarURL: String, cacheKeys: [String]) {
+        guard !avatarURL.isEmpty else { return }
+        inflightLock.lock()
+        let isNew = notificationAvatarURLs.insert(avatarURL).inserted
+        inflightLock.unlock()
+        guard isNew else { return }
+        let sources = cacheKeys.filter { !$0.isEmpty }.map { diskCacheURL.appendingPathComponent($0.sha256Hash) }
+        notificationAvatarQueue.asyncAfter(deadline: .now() + Self.notificationAvatarShareDelay) {
+            guard !NotificationAvatarStore.contains(avatarURL) else { return }
+            for source in sources {
+                if let data = try? Data(contentsOf: source), !data.isEmpty {
+                    NotificationAvatarStore.store(data, for: avatarURL)
+                    return
+                }
+            }
         }
     }
 
@@ -711,7 +737,7 @@ private func makeTransform(for image: UIImage, resizeMode: ImageResizeMode = .fi
 }
 
 
-func remoteAvatarSignal(proxiedURL: String, originalURL: String) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
+func remoteAvatarSignal(proxiedURL: String, originalURL: String, sharesForNotifications: Bool = false) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
     return Signal { subscriber in
         let orig = originalURL
         let proxy = proxiedURL
@@ -726,6 +752,9 @@ func remoteAvatarSignal(proxiedURL: String, originalURL: String) -> Signal<(Tran
         }
 
         let cache = ImageCache.shared
+        if sharesForNotifications {
+            cache.shareAvatarForNotifications(avatarURL: orig, cacheKeys: [proxy, orig])
+        }
         for key in [proxy, orig] where !key.isEmpty {
             if let cached = cache.memoryImage(forKey: key) {
                 subscriber.putNext(buildTransform(for: cached))

@@ -299,6 +299,9 @@ final class DmListItemCell: UITableViewCell {
         let raw = url.absoluteString
         let proxiedKey = proxied as NSString
         let rawKey = raw as NSString
+        if fallbackUsername != nil {
+            ImageCache.shared.shareAvatarForNotifications(avatarURL: raw, cacheKeys: [proxied, raw])
+        }
         
         if let cached = Self.avatarMemoryCache.object(forKey: proxiedKey)
             ?? ImageCache.shared.memoryOptimizedAvatar(
