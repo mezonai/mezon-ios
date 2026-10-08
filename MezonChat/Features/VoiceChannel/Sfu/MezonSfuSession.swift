@@ -298,6 +298,8 @@ final class MezonSfuSession: NSObject {
     private static let minSessionRestartSpacingSeconds: TimeInterval = 5
     private static let retiringPeerConnectionGraceNanos: UInt64 = 10_000_000_000
     private static let iceRecoveryGraceNanos: UInt64 = 4_000_000_000
+    private static let socketProbeDeadlineNanos: UInt64 = 5_000_000_000
+    private static let socketSilenceProbeSeconds: TimeInterval = 12
     private static let offerReissueNanos: UInt64 = 8_000_000_000
     private static let dtlsConnectDeadlineNanos: UInt64 = 15_000_000_000
     private static let roomConfirmationDeadlineNanos: UInt64 = 20_000_000_000
@@ -516,6 +518,8 @@ final class MezonSfuSession: NSObject {
 
     private var retiringPeerConnection: RTCPeerConnection?
     private var iceRecoveryTask: Task<Void, Never>?
+    private var socketProbeTask: Task<Void, Never>?
+    private var lastSocketMessageUptime: TimeInterval = 0
     private var transportWatchdogTask: Task<Void, Never>?
     private var lastInboundAudioCounters: [String: SfuInboundAudioCounters] = [:]
     private var lastOutboundAudioPackets: Double?
@@ -685,6 +689,10 @@ final class MezonSfuSession: NSObject {
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: Self.reconnectPollNanos)
                 guard !Task.isCancelled, let self else { break }
+                if self.socketOpen,
+                   ProcessInfo.processInfo.systemUptime - self.lastSocketMessageUptime >= Self.socketSilenceProbeSeconds {
+                    self.probeSocket()
+                }
                 guard self.active, !self.socketOpen, !self.connecting, self.transportRecoveryTask == nil else { continue }
                 guard self.pathSatisfied else { continue }
                 self.recoverTransport(gen: self.connectionGen)
@@ -744,6 +752,7 @@ final class MezonSfuSession: NSObject {
         // Continual ICE gathering can migrate media without replacing the call.
         // A healthy connection must not be torn down just because the route changed.
         scheduleIceRecovery()
+        probeSocket()
     }
 
     private func scheduleIceRecovery() {
@@ -761,6 +770,24 @@ final class MezonSfuSession: NSObject {
             }
             self.recoverTransport(gen: gen)
         }
+    }
+
+    private func probeSocket() {
+        guard active, socketOpen, transportRecoveryTask == nil, socketProbeTask == nil else { return }
+        let gen = connectionGen
+        send(["type": "ping"])
+        socketProbeTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: Self.socketProbeDeadlineNanos)
+            guard !Task.isCancelled, let self else { return }
+            self.socketProbeTask = nil
+            guard self.active, self.connectionGen == gen else { return }
+            self.recoverTransport(gen: gen)
+        }
+    }
+
+    private func clearSocketProbe() {
+        socketProbeTask?.cancel()
+        socketProbeTask = nil
     }
 
     private func restartSession() {
@@ -872,6 +899,7 @@ final class MezonSfuSession: NSObject {
         urlSession = nil
         clearJoinWatchdog()
         clearTransportWatchdog()
+        clearSocketProbe()
         clearOfferReissueDeadline()
         clearDeferredRestart()
         cancelAudioResumeRecovery()
@@ -1021,6 +1049,7 @@ final class MezonSfuSession: NSObject {
         receiveTask = nil
         clearOfferReissueDeadline()
         clearTransportWatchdog()
+        clearSocketProbe()
         clearJoinWatchdog()
         postConnectAudioRecoveryTask?.cancel()
         postConnectAudioRecoveryTask = nil
@@ -1228,6 +1257,7 @@ final class MezonSfuSession: NSObject {
         moderatorMuteTask = nil
         clearOfferReissueDeadline()
         clearTransportWatchdog()
+        clearSocketProbe()
         clearJoinWatchdog()
         postConnectAudioRecoveryTask?.cancel()
         postConnectAudioRecoveryTask = nil
@@ -1317,6 +1347,7 @@ final class MezonSfuSession: NSObject {
                     self.handleSocketClosed(gen: gen)
                 } else {
                     self.socketOpen = true
+                    self.lastSocketMessageUptime = ProcessInfo.processInfo.systemUptime
                     self.connecting = false
                     self.emitState(.joining)
                 }
@@ -1329,6 +1360,7 @@ final class MezonSfuSession: NSObject {
             do {
                 let message = try await task.receive()
                 guard gen == connectionGen else { return }
+                lastSocketMessageUptime = ProcessInfo.processInfo.systemUptime
                 switch message {
                 case .string(let text):
                     handleMessage(text)
@@ -1385,7 +1417,7 @@ final class MezonSfuSession: NSObject {
         case "ping":
             send(["type": "pong"])
         case "pong":
-            break
+            clearSocketProbe()
         case "joined":
             if let peerId = stringValue(msg["peer_id"]), peerId != "0", !peerId.isEmpty {
                 selfPeerId = peerId

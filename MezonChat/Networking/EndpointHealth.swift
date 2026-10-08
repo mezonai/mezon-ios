@@ -83,6 +83,60 @@ enum EndpointAddress {
     }
 }
 
+enum RealtimeServerChoice: String, CaseIterable {
+    case auto
+    case vn1
+    case vn2
+    case us
+
+    private static let storageKey = "mezon.mobile.realtimeServerChoice"
+
+    static var isAvailable: Bool {
+        MezonConfig.env == .prod
+    }
+
+    static var current: RealtimeServerChoice {
+        get {
+            guard isAvailable,
+                  let stored = UserDefaults.standard.string(forKey: storageKey),
+                  let choice = RealtimeServerChoice(rawValue: stored)
+            else { return .auto }
+            return choice
+        }
+        set {
+            UserDefaults.standard.set(newValue.rawValue, forKey: storageKey)
+        }
+    }
+
+    @MainActor
+    static var regionNameInUse: String? {
+        MezonSocket.shared.targetEndpoint.map { regionName(ofHost: $0.host) }
+    }
+
+    static func regionName(ofHost host: String) -> String {
+        let normalized = host.lowercased()
+        return allCases.first { $0.host == normalized }?.regionName ?? host
+    }
+
+    var host: String? {
+        switch self {
+        case .auto: return nil
+        case .vn1: return "sock.mezon.ai"
+        case .vn2: return "sock3.mezon.ai"
+        case .us: return "sock2.mezon.ai"
+        }
+    }
+
+    var regionName: String? {
+        switch self {
+        case .auto: return nil
+        case .vn1: return "VN1"
+        case .vn2: return "VN2"
+        case .us: return "US"
+        }
+    }
+}
+
 final class EndpointHealth {
     static let slowRttMs: Double = 500
     static let slowStreakRequired = 3

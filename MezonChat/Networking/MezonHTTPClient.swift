@@ -1135,6 +1135,19 @@ final class MezonHTTPClient {
         )
     }
 
+    func sendEphemeralMessageToBot(
+        _ message: Mezon_Realtime_ChannelMessageSend,
+        token: String
+    ) async throws -> Mezon_Realtime_ChannelMessageAck {
+        var req = Mezon_Realtime_EphemeralMessageSend()
+        req.message = message
+        return try await postProtoHTTP(
+            path: "/mezon.api.Mezon/SendEphemeralMessageToBot",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     private static let sendChannelMessageApiName = "SendChannelMessage"
     private static let realtimeSendAckTimeoutNanoseconds: UInt64 = 5_000_000_000
 
@@ -2115,6 +2128,34 @@ final class MezonHTTPClient {
             auth: .bearer(token)
         )
         return response.listMenus
+    }
+
+    func addQuickMenuAccess(_ item: Mezon_Api_QuickMenuAccess, token: String) async throws {
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/AddQuickMenuAccess",
+            message: item,
+            auth: .bearer(token)
+        )
+    }
+
+    func updateQuickMenuAccess(_ item: Mezon_Api_QuickMenuAccess, token: String) async throws {
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/UpdateQuickMenuAccess",
+            message: item,
+            auth: .bearer(token)
+        )
+    }
+
+    func deleteQuickMenuAccess(id: Int64, clanId: Int64, menuName: String, token: String) async throws {
+        var req = Mezon_Api_QuickMenuAccess()
+        req.id = id
+        req.clanID = clanId
+        req.menuName = menuName
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/DeleteQuickMenuAccess",
+            message: req,
+            auth: .bearer(token)
+        )
     }
 
     func getApp(appId: Int64, token: String) async throws -> Mezon_Api_App {

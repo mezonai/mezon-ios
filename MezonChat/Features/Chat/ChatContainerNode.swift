@@ -70,6 +70,7 @@ struct ChatInteraction {
     var onMediaTapped: ((_ index: Int, _ media: [ParsedAttachment], _ display: ChatMessageDisplay, _ previewImage: UIImage?) -> Void)? = nil
     var onMediaRetryTapped: ((_ index: Int, _ display: ChatMessageDisplay) -> Void)? = nil
     var onInVoiceTapped: (() -> Void)? = nil
+    var onBotCommandAction: ((_ messageId: String, _ action: BotCommandUserAction) -> Void)? = nil
 }
 
 final class ChatContainerNode: ASDisplayNode {

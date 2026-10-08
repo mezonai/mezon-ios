@@ -84,9 +84,9 @@ enum MezonConfig {
             }
         }
 
-        var host = overrideHost
+        var host = overrideHost ?? RealtimeServerChoice.current.host
         var port: Int?
-        if overrideHost == nil, let tcpURL = session?.tcpURL, !tcpURL.isEmpty {
+        if host == nil, let tcpURL = session?.tcpURL, !tcpURL.isEmpty {
             let normalized = tcpURL.contains("://") ? tcpURL : "tcp://\(tcpURL)"
             if let url = URL(string: normalized), let h = url.host, !h.isEmpty {
                 host = h

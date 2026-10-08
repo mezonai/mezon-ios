@@ -259,6 +259,7 @@ struct ChatMessageDisplay: Identifiable {
     let replyRefSourceContent: String
     let pollData: PollData?
     let rawContentData: Data?
+    var botCommand: BotCommandDisplay? = nil
     var isFailed: Bool { sendingState == .failed }
     var isSending: Bool { sendingState == .pending && showsSendingFeedback }
     var isBuzzMessage: Bool { messageCode == MezonConstants.MessageCode.buzz.rawValue }
@@ -448,6 +449,13 @@ final class ChatViewController: ViewController {
     private(set) var messages: [ChatMessageDisplay] = []
     private var persistentMessages: [ChatMessageDisplay] = []  
     private var ephemeralMessages: [ChatMessageDisplay] = []
+    private lazy var botCommandTracker: BotCommandTracker = {
+        let tracker = BotCommandTracker(context: context)
+        tracker.onChange = { [weak self] in
+            self?.updateMessagesWithEphemeral()
+        }
+        return tracker
+    }()
     private var channelLabel: String = ""
     private(set) var hasMoreOlder: Bool = true
     private(set) var hasMoreNewer: Bool = false
@@ -482,6 +490,9 @@ final class ChatViewController: ViewController {
             context: context
         )
         vc.onSent = { [weak self] in self?.shouldScrollToBottom = true }
+        vc.onBotCommandSend = { [weak self] dispatch in
+            self?.botCommandTracker.dispatch(dispatch)
+        }
         vc.onHeightChanged = { [weak self] newHeight in
             self?.updateInputBarHeight(newHeight)
         }
@@ -752,6 +763,7 @@ final class ChatViewController: ViewController {
                 self?.isShareContactCallBlocked(data) ?? false
             },
             onSwipeReply: { [weak self] display in
+                guard display.botCommand == nil else { return }
                 self?.sendInputViewController.setReply(display)
             },
             loadClanInviteInfo: { [weak self] code, completion in
@@ -1006,6 +1018,9 @@ final class ChatViewController: ViewController {
             guard let self else { return }
             self.handleEmbedSelectChanged(selectId: selectId, value: value, messageId: messageId, display: display)
         }
+        interaction.onBotCommandAction = { [weak self] messageId, action in
+            self?.handleBotCommandAction(messageId: messageId, action: action)
+        }
 
         let containerNode = ChatContainerNode(
             signal: stateSignal(),
@@ -1025,6 +1040,7 @@ final class ChatViewController: ViewController {
         configureAnonymousComposerAndAdvancePanel()
         locationManager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
         start()
+        prefetchQuickMenus()
         
         NotificationCenter.default.addObserver(
             self,
@@ -1207,8 +1223,50 @@ final class ChatViewController: ViewController {
 
     
     private func updateMessagesWithEphemeral() {
-        messages = normalizedDisplayOrder(persistentMessages + ephemeralMessages)
+        messages = normalizedDisplayOrder(persistentMessages + ephemeralMessages + botCommandRows())
         needsReloadPipe.putNext(())
+        botCommandTracker.resolveReplies(in: messages)
+    }
+
+    private func botCommandRows() -> [ChatMessageDisplay] {
+        let entries = botCommandTracker.entries
+        guard !entries.isEmpty else { return [] }
+        let user = context.currentUser
+        let senderName = user.map { $0.displayName.isEmpty ? $0.username : $0.displayName } ?? ""
+        return entries.map { entry in
+            let text = entry.arguments.isEmpty ? "/\(entry.menuName)" : "/\(entry.menuName) \(entry.arguments)"
+            let contentData = (try? JSONSerialization.data(withJSONObject: ["t": text])) ?? Data()
+            let parsed = MessageContentParser.parse(data: contentData, mentionsData: Data())
+            let message = Message(
+                id: entry.rowId, channelId: storageChannelId, clanId: clanId == 0 ? nil : "\(clanId)",
+                senderId: user?.id ?? "", content: .text(parsed.text),
+                createdAt: entry.createdAt, editedAt: nil,
+                isDeleted: false, reactions: [], replyToId: nil,
+                mentionedUserIds: [], isPinned: false
+            )
+            return ChatMessageDisplay(
+                message: message, senderDisplayName: senderName, senderUsername: user?.username ?? "",
+                avatarURL: user?.avatarURL?.absoluteString,
+                isCombine: false, attachments: [], reactions: [], parsedContent: parsed,
+                replyRef: nil, isDeletedReply: false, isWelcome: false, callLog: nil,
+                topicData: nil, locationData: nil, isMe: true,
+                sendingState: .sent, showsSendingFeedback: false, hasIncludeMention: false,
+                isForward: false, showForwardHeader: false, messageCode: MezonConstants.MessageCode.ephemeral.rawValue,
+                clanInviteLinkCode: nil, replyRefSourceContent: "", pollData: nil, rawContentData: contentData,
+                botCommand: entry.display
+            )
+        }
+    }
+
+    private func handleBotCommandAction(messageId: String, action: BotCommandUserAction) {
+        switch action {
+        case .viewReply(let replyMessageId):
+            jumpToMessage(id: replyMessageId)
+        case .resend:
+            botCommandTracker.resend(rowId: messageId)
+        case .dismiss:
+            botCommandTracker.dismiss(rowId: messageId)
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -1740,7 +1798,7 @@ final class ChatViewController: ViewController {
         let oldFirstId = messages.first(where: { !$0.isWelcome })?.id
         let oldLastId = messages.last?.id
         persistentMessages = normalizedDisplayOrder(v)
-        messages = normalizedDisplayOrder(persistentMessages + ephemeralMessages)
+        messages = normalizedDisplayOrder(persistentMessages + ephemeralMessages + botCommandRows())
         if !persistentMessages.isEmpty {
             skipRemoteFetchWhileTopicIsEmpty = false
         }
@@ -1750,6 +1808,7 @@ final class ChatViewController: ViewController {
         if newLastId != oldLastId { lastFetchedNewerMessageId = nil }
         schedulePendingSendingFeedbackRefreshIfNeeded()
         needsReloadPipe.putNext(())
+        botCommandTracker.resolveReplies(in: messages)
         markChannelAsReadOnEntryIfPossible()
 
         if let jumpId = pendingJumpToMessageId {
@@ -2971,7 +3030,8 @@ final class ChatViewController: ViewController {
         }()
 
         let sendFeedback = m.showsSendingFeedback ? "1" : "0"
-        return "\(m.id)|\(edited)|\(m.messageCode)|\(m.parsedContent.text)|\(att)|\(presignHash)|\(pin)|\(pollHash)|\(embedHash)|\(ogpHash)|\(channelTokenHash)|\(topicHash)|\(sendFeedback)|\(m.sendingState.rawValue)"
+        let botCommandHash = m.botCommand.map { "\($0.status)|\($0.resendable)" } ?? ""
+        return "\(m.id)|\(edited)|\(m.messageCode)|\(m.parsedContent.text)|\(att)|\(presignHash)|\(pin)|\(pollHash)|\(embedHash)|\(ogpHash)|\(channelTokenHash)|\(topicHash)|\(sendFeedback)|\(m.sendingState.rawValue)|\(botCommandHash)"
     }
 
     func stateSignal() -> Signal<ChatState, NoError> {
@@ -3490,7 +3550,8 @@ final class ChatViewController: ViewController {
                 clanInviteLinkCode: d.clanInviteLinkCode,
                 replyRefSourceContent: d.replyRefSourceContent,
                 pollData: d.pollData,
-                rawContentData: d.rawContentData
+                rawContentData: d.rawContentData,
+                botCommand: d.botCommand
             )
         }
     }
@@ -5593,7 +5654,6 @@ final class ChatViewController: ViewController {
         Task { @MainActor [weak self] in
             guard let self else { return }
             guard let sessionToken = await self.context.getToken() else {
-                StreamingSfuLog.write("join aborted, session token unavailable channel=\(channel.channelID)")
                 return
             }
             let meetToken: String
@@ -5605,11 +5665,9 @@ final class ChatViewController: ViewController {
                     token: sessionToken
                 )
             } catch {
-                StreamingSfuLog.write("generateMeetToken failed channel=\(channel.channelID) error=\(error)")
                 return
             }
             guard !meetToken.isEmpty else {
-                StreamingSfuLog.write("generateMeetToken returned empty channel=\(channel.channelID)")
                 return
             }
             let tokenContext = self.context
@@ -6030,11 +6088,13 @@ final class ChatViewController: ViewController {
             clanInviteLinkCode: display.clanInviteLinkCode,
             replyRefSourceContent: display.replyRefSourceContent,
             pollData: display.pollData,
-            rawContentData: display.rawContentData
+            rawContentData: display.rawContentData,
+            botCommand: display.botCommand
         )
     }
 
     private func showMessageActions(_ display: ChatMessageDisplay) {
+        guard display.botCommand == nil else { return }
         view.endEditing(true)
         let display = displayWithLivePinState(display)
         let isOwn = isSenderCurrentUser(senderId: display.message.senderId, currentUserId: context.currentUser?.id)
@@ -6046,7 +6106,8 @@ final class ChatViewController: ViewController {
             canShowDeleteMessage: canDelete,
             forwardAllAvailable: fwdCluster,
             canCreateTopicDiscussion: canCreateTopicDiscussion(for: display),
-            canCreateThreadFromMessage: canCreateThreadFromMessage(for: display)
+            canCreateThreadFromMessage: canCreateThreadFromMessage(for: display),
+            canShowQuickMenu: canShowQuickMenu(for: display)
         ) { [weak self] action in
             self?.handleMessageAction(action, display: display)
         }
@@ -6744,6 +6805,119 @@ final class ChatViewController: ViewController {
         }
     }
 
+    private var supportsQuickMenus: Bool {
+        clanId != 0 && !isDirectMessageStreamChannel && channel.channelID != 0
+    }
+
+    private func prefetchQuickMenus() {
+        guard supportsQuickMenus else { return }
+        let channelId = channel.channelID
+        let context = self.context
+        Task { @MainActor in
+            _ = await SlashCommandCatalog.shared.load(channelId: channelId, menuType: .quickMenu, context: context)
+        }
+    }
+
+    private func canShowQuickMenu(for display: ChatMessageDisplay) -> Bool {
+        guard supportsQuickMenus else { return false }
+        if display.isFailed || display.message.isDeleted { return false }
+        guard let messageId = Int64(display.message.id), messageId > 0 else { return false }
+        let catalog = SlashCommandCatalog.shared
+        if !catalog.isFresh(channelId: channel.channelID, menuType: .quickMenu) {
+            prefetchQuickMenus()
+        }
+        guard let cached = catalog.cached(channelId: channel.channelID, menuType: .quickMenu) else { return true }
+        return !cached.isEmpty
+    }
+
+    private func presentQuickMenuPicker(for display: ChatMessageDisplay) {
+        let catalog = SlashCommandCatalog.shared
+        let channelId = channel.channelID
+        if let cached = catalog.cached(channelId: channelId, menuType: .quickMenu), !cached.isEmpty {
+            showQuickMenuSheet(items: cached, display: display)
+            return
+        }
+        let context = self.context
+        Task { @MainActor [weak self] in
+            let items = await catalog.load(channelId: channelId, menuType: .quickMenu, context: context)
+            guard let self, self.channel.channelID == channelId else { return }
+            if !items.isEmpty {
+                self.showQuickMenuSheet(items: items, display: display)
+            } else if catalog.cached(channelId: channelId, menuType: .quickMenu) == nil {
+                Toast.error(L(L10n.Error.somethingWentWrong))
+            } else {
+                Toast.info(L(L10n.QuickAction.emptyQuickMenu))
+            }
+        }
+    }
+
+    private func showQuickMenuSheet(items: [Mezon_Api_QuickMenuAccess], display: ChatMessageDisplay) {
+        let sheet = QuickMenuPickerSheetController(menuNames: items.map(\.menuName)) { [weak self] menuName in
+            self?.executeQuickMenu(menuName: menuName, display: display)
+        }
+        presentInGlobalOverlay(sheet)
+        sheet.animateIn()
+    }
+
+    private func executeQuickMenu(menuName: String, display: ChatMessageDisplay) {
+        guard let messageId = Int64(display.message.id), messageId > 0 else { return }
+        let record = context.account.postbox.read { tx in
+            tx.getMessageById(display.message.id, channelId: display.message.channelId)
+                ?? tx.getMessageById(display.message.id)
+        }
+        let contentData = record?.content ?? display.rawContentData ?? Data()
+        let content: String = {
+            if let raw = String(data: contentData, encoding: .utf8),
+               !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return raw
+            }
+            let text = display.parsedContent.text
+            if let data = try? JSONSerialization.data(withJSONObject: ["t": text]),
+               let json = String(data: data, encoding: .utf8) {
+                return json
+            }
+            return "{}"
+        }()
+
+        var message = Mezon_Realtime_ChannelMessageSend()
+        message.clanID = clanId
+        message.channelID = channel.channelID
+        message.mode = channel.type == MezonConstants.ChannelType.thread.rawValue
+            ? MezonConstants.ChannelStreamMode.thread.rawValue
+            : MezonConstants.ChannelStreamMode.channel.rawValue
+        message.isPublic = channel.channelPrivate == 0
+        message.content = content
+        if let data = record?.mentionsJSON, !data.isEmpty,
+           let list = try? Mezon_Api_MessageMentionList(serializedBytes: data) {
+            message.mentions = list.mentions
+        }
+        if let data = record?.attachmentsJSON, !data.isEmpty,
+           let list = try? Mezon_Api_MessageAttachmentList(serializedBytes: data) {
+            message.attachments = list.attachments
+        }
+        if let data = record?.referencesData, !data.isEmpty,
+           let list = try? Mezon_Api_MessageRefList(serializedBytes: data) {
+            message.references = list.refs
+        }
+        message.avatar = context.currentUser?.avatarURL?.absoluteString ?? ""
+        message.topicID = topicId
+        message.id = messageId
+        let payload = message
+        let senderId = Int64(display.message.senderId) ?? 0
+
+        Task { @MainActor in
+            do {
+                try await MezonSocket.shared.sendQuickMenuEvent(
+                    menuName: menuName,
+                    message: payload,
+                    messageSenderId: senderId
+                )
+            } catch {
+                Toast.error(error.localizedDescription)
+            }
+        }
+    }
+
     private func showMessageActionComingSoon(_ action: MessageAction) {
         let line = "\(action.title) — \(L(L10n.Common.comingSoon))"
         Toast.comingSoonLine(line)
@@ -6792,7 +6966,8 @@ final class ChatViewController: ViewController {
         case .markMessage: break
         // case .quickMenu:
         //     showMessageActionComingSoon(.quickMenu)
-        case .quickMenu: break
+        case .quickMenu:
+            presentQuickMenuPicker(for: display)
         case .editMessage:
             sendInputViewController.setEditingMessage(display)
             sendInputViewController.view.becomeFirstResponder()

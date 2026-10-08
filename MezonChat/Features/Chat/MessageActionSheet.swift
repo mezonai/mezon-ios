@@ -120,6 +120,7 @@ final class MessageActionSheetController: ViewController {
     private let forwardAllAvailable: Bool
     private let canCreateTopicDiscussion: Bool
     private let canCreateThreadFromMessage: Bool
+    private let canShowQuickMenu: Bool
     private let onAction: (MessageAction) -> Void
     var onDismiss: (() -> Void)?
     var onEmojiReaction: ((String, String) -> Void)?
@@ -136,6 +137,7 @@ final class MessageActionSheetController: ViewController {
         forwardAllAvailable: Bool = false,
         canCreateTopicDiscussion: Bool = true,
         canCreateThreadFromMessage: Bool = false,
+        canShowQuickMenu: Bool = false,
         onAction: @escaping (MessageAction) -> Void
     ) {
         self.display = display
@@ -144,6 +146,7 @@ final class MessageActionSheetController: ViewController {
         self.forwardAllAvailable = forwardAllAvailable
         self.canCreateTopicDiscussion = canCreateTopicDiscussion
         self.canCreateThreadFromMessage = canCreateThreadFromMessage
+        self.canShowQuickMenu = canShowQuickMenu
         self.onAction = onAction
 
         super.init(navigationBarPresentationData: nil)
@@ -161,7 +164,8 @@ final class MessageActionSheetController: ViewController {
             canShowDeleteMessage: canShowDeleteMessage,
             forwardAllAvailable: forwardAllAvailable,
             canCreateTopicDiscussion: canCreateTopicDiscussion,
-            canCreateThreadFromMessage: canCreateThreadFromMessage
+            canCreateThreadFromMessage: canCreateThreadFromMessage,
+            canShowQuickMenu: canShowQuickMenu
         )
         let quickReactions = Self.includeQuickReactions(for: display)
         self.displayNode = MessageActionSheetNode(
@@ -241,7 +245,8 @@ final class MessageActionSheetController: ViewController {
         canShowDeleteMessage: Bool,
         forwardAllAvailable: Bool,
         canCreateTopicDiscussion: Bool,
-        canCreateThreadFromMessage: Bool
+        canCreateThreadFromMessage: Bool,
+        canShowQuickMenu: Bool
     ) -> [MessageAction] {
         if display.isFailed {
             return [.resend, .deleteMessage]
@@ -296,7 +301,9 @@ final class MessageActionSheetController: ViewController {
             }
         }
         // actions.append(.markMessage)
-        // actions.append(.quickMenu)
+        if canShowQuickMenu {
+            actions.append(.quickMenu)
+        }
 
         if Self.shouldIncludeReport(isOwnMessage: isOwnMessage, messageId: display.message.id) {
             actions.append(.report)
@@ -754,4 +761,313 @@ private final class MessageActionSheetNode: ASDisplayNode {
 private final class ActionButton: UIButton {
     var actionHandler: (() -> Void)?
     @objc func performAction() { actionHandler?() }
+}
+
+final class QuickMenuPickerSheetController: ViewController {
+
+    private let menuNames: [String]
+    private let onSelect: (String) -> Void
+    private var isDismissing = false
+
+    private var sheetNode: QuickMenuPickerSheetNode {
+        return displayNode as! QuickMenuPickerSheetNode
+    }
+
+    init(menuNames: [String], onSelect: @escaping (String) -> Void) {
+        self.menuNames = menuNames
+        self.onSelect = onSelect
+        super.init(navigationBarPresentationData: nil)
+        statusBar.statusBarStyle = .Ignore
+        blocksBackgroundWhenInOverlay = true
+    }
+
+    required init(coder: NSCoder) { fatalError() }
+
+    override func loadDisplayNode() {
+        displayNode = QuickMenuPickerSheetNode(
+            menuNames: menuNames,
+            onSelect: { [weak self] name in
+                guard let self else { return }
+                let callback = self.onSelect
+                self.animateDismiss {
+                    callback(name)
+                }
+            },
+            onDismiss: { [weak self] in
+                self?.animateDismiss(completion: nil)
+            }
+        )
+        displayNodeDidLoad()
+    }
+
+    override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
+        super.containerLayoutUpdated(layout, transition: transition)
+        sheetNode.updateLayout(layout: layout, transition: transition)
+    }
+
+    func animateIn() {
+        sheetNode.animateIn()
+    }
+
+    private func animateDismiss(completion: (() -> Void)?) {
+        guard !isDismissing else { return }
+        isDismissing = true
+        sheetNode.animateOut { [weak self] in
+            self?.dismiss(animated: false)
+            completion?()
+        }
+    }
+}
+
+private final class QuickMenuPickerSheetNode: ASDisplayNode {
+
+    private let menuNames: [String]
+    private let onSelect: (String) -> Void
+    private let onDismiss: () -> Void
+
+    private let dimmingNode = ASDisplayNode()
+    private let containerNode = ASDisplayNode()
+    private let handleNode = ASDisplayNode()
+    private let headerView = UIView()
+    private let titleLabel = UILabel()
+    private let subtitleLabel = UILabel()
+    private let scrollView = UIScrollView()
+    private let listView = UIView()
+    private var rows: [QuickMenuPickerRow] = []
+
+    private var validLayout: ContainerViewLayout?
+    private var containerHeight: CGFloat = 0
+    private var panStartY: CGFloat = 0
+    private var animateInRetryCount = 0
+
+    private let padH: CGFloat = 10
+    private let handleH: CGFloat = 25
+    private let headerH: CGFloat = 54
+    private let rowH: CGFloat = 52
+    private let listBottomPad: CGFloat = 12
+    private let maxHeightFraction: CGFloat = 0.58
+
+    init(menuNames: [String], onSelect: @escaping (String) -> Void, onDismiss: @escaping () -> Void) {
+        self.menuNames = menuNames
+        self.onSelect = onSelect
+        self.onDismiss = onDismiss
+        super.init()
+
+        let t = UIColor.theme
+        dimmingNode.backgroundColor = UIColor.black.withAlphaComponent(0.4)
+        dimmingNode.alpha = 0
+
+        containerNode.backgroundColor = t.primary
+        containerNode.cornerRadius = 14
+        containerNode.clipsToBounds = true
+
+        handleNode.backgroundColor = t.textDisabled
+        handleNode.cornerRadius = 2.5
+        handleNode.isUserInteractionEnabled = false
+
+        addSubnode(dimmingNode)
+        addSubnode(containerNode)
+        containerNode.addSubnode(handleNode)
+    }
+
+    override func didLoad() {
+        super.didLoad()
+        let t = UIColor.theme
+
+        dimmingNode.view.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(dimTapped)))
+        containerNode.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+
+        titleLabel.text = L(L10n.MessageAction.quickMenu)
+        titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
+        titleLabel.textColor = t.textStrong
+        subtitleLabel.text = L(L10n.QuickAction.triggersBot)
+        subtitleLabel.font = .systemFont(ofSize: 13)
+        subtitleLabel.textColor = t.textDisabled
+        headerView.backgroundColor = .clear
+        headerView.addSubview(titleLabel)
+        headerView.addSubview(subtitleLabel)
+        headerView.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:))))
+        containerNode.view.addSubview(headerView)
+
+        scrollView.canCancelContentTouches = true
+        scrollView.delaysContentTouches = true
+        scrollView.contentInsetAdjustmentBehavior = .never
+        containerNode.view.addSubview(scrollView)
+
+        listView.backgroundColor = t.secondary
+        listView.layer.cornerRadius = 10
+        listView.clipsToBounds = true
+        scrollView.addSubview(listView)
+
+        for (index, name) in menuNames.enumerated() {
+            let row = QuickMenuPickerRow(name: name, showsSeparator: index < menuNames.count - 1)
+            row.tag = index
+            row.addTarget(self, action: #selector(rowTapped(_:)), for: .touchUpInside)
+            listView.addSubview(row)
+            rows.append(row)
+        }
+        if let layout = validLayout {
+            updateLayout(layout: layout, transition: .immediate)
+        }
+    }
+
+    @objc private func dimTapped() {
+        onDismiss()
+    }
+
+    @objc private func rowTapped(_ sender: UIControl) {
+        guard sender.tag < menuNames.count else { return }
+        onSelect(menuNames[sender.tag])
+    }
+
+    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        guard let layout = validLayout, containerHeight > 0 else { return }
+        let translation = gesture.translation(in: view)
+        let velocity = gesture.velocity(in: view)
+        switch gesture.state {
+        case .began:
+            panStartY = containerNode.frame.origin.y
+        case .changed:
+            let offsetY = max(0, translation.y)
+            containerNode.frame.origin.y = panStartY + offsetY
+            dimmingNode.alpha = 1 - offsetY / containerHeight
+        case .ended, .cancelled:
+            if translation.y > containerHeight * 0.3 || velocity.y > 500 {
+                onDismiss()
+            } else {
+                let targetY = layout.size.height - containerHeight
+                UIView.animate(withDuration: 0.25, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0, options: []) {
+                    self.containerNode.frame.origin.y = targetY
+                    self.dimmingNode.alpha = 1
+                }
+            }
+        default:
+            break
+        }
+    }
+
+    func updateLayout(layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
+        validLayout = layout
+        let width = layout.size.width
+        let safeBottom = layout.intrinsicInsets.bottom
+        transition.updateFrame(node: dimmingNode, frame: CGRect(origin: .zero, size: layout.size))
+
+        let topH = handleH + headerH
+        let listH = CGFloat(menuNames.count) * rowH
+        let contentH = listH + listBottomPad
+        let maxScrollH = max(rowH * 2, layout.size.height * maxHeightFraction - topH - safeBottom)
+        let scrollH = min(contentH, maxScrollH)
+        containerHeight = topH + scrollH + safeBottom + 8
+
+        transition.updateFrame(node: containerNode, frame: CGRect(x: 0, y: layout.size.height - containerHeight, width: width, height: containerHeight))
+        transition.updateFrame(node: handleNode, frame: CGRect(x: (width - 36) / 2, y: 8, width: 36, height: 5))
+        layoutContent(width: width, scrollH: scrollH, contentH: contentH)
+    }
+
+    private func layoutContent(width: CGFloat, scrollH: CGFloat, contentH: CGFloat) {
+        let topH = handleH + headerH
+        let textX = padH + 6
+        let textW = max(0, width - textX * 2)
+        headerView.frame = CGRect(x: 0, y: 0, width: width, height: topH)
+        titleLabel.frame = CGRect(x: textX, y: handleH, width: textW, height: 24)
+        subtitleLabel.frame = CGRect(x: textX, y: handleH + 24, width: textW, height: 18)
+
+        scrollView.frame = CGRect(x: 0, y: topH, width: width, height: scrollH)
+        scrollView.contentSize = CGSize(width: width, height: contentH)
+        scrollView.alwaysBounceVertical = contentH > scrollH
+        scrollView.showsVerticalScrollIndicator = contentH > scrollH + 1
+
+        let listW = width - padH * 2
+        listView.frame = CGRect(x: padH, y: 0, width: listW, height: CGFloat(rows.count) * rowH)
+        for (index, row) in rows.enumerated() {
+            row.frame = CGRect(x: 0, y: CGFloat(index) * rowH, width: listW, height: rowH)
+        }
+    }
+
+    func animateIn() {
+        guard let layout = validLayout else {
+            animateInRetryCount += 1
+            guard animateInRetryCount < 90 else { animateInRetryCount = 0; return }
+            DispatchQueue.main.async { [weak self] in self?.animateIn() }
+            return
+        }
+        animateInRetryCount = 0
+        let toY = layout.size.height - containerHeight
+        containerNode.frame.origin.y = layout.size.height
+        UIView.animate(withDuration: 0.3, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0, options: []) {
+            self.dimmingNode.alpha = 1
+            self.containerNode.frame.origin.y = toY
+        }
+    }
+
+    func animateOut(completion: @escaping () -> Void) {
+        guard let layout = validLayout else {
+            completion()
+            return
+        }
+        let bottomY = layout.size.height
+        UIView.animate(withDuration: 0.2, delay: 0, options: .curveEaseIn, animations: {
+            self.dimmingNode.alpha = 0
+            self.containerNode.frame.origin.y = bottomY
+        }) { _ in
+            completion()
+        }
+    }
+}
+
+private final class QuickMenuPickerRow: UIControl {
+
+    private static let iconSide: CGFloat = 32
+
+    private let iconBackground = UIView()
+    private let iconView = UIImageView()
+    private let nameLabel = UILabel()
+    private let separator = UIView()
+    private let highlightColor: UIColor
+
+    init(name: String, showsSeparator: Bool) {
+        let t = UIColor.theme
+        highlightColor = t.tertiary
+        super.init(frame: .zero)
+
+        iconBackground.backgroundColor = QuickActionPalette.typeBadge.withAlphaComponent(0.18)
+        iconView.image = UIImage(
+            systemName: "bolt.fill",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
+        )
+        iconView.tintColor = QuickActionPalette.typeBadgeText
+        iconView.contentMode = .center
+        iconBackground.addSubview(iconView)
+
+        nameLabel.text = name
+        nameLabel.font = .systemFont(ofSize: 16)
+        nameLabel.textColor = t.textStrong
+        nameLabel.lineBreakMode = .byTruncatingTail
+
+        separator.backgroundColor = t.tertiary
+        separator.isHidden = !showsSeparator
+
+        for subview in [iconBackground, nameLabel, separator] {
+            subview.isUserInteractionEnabled = false
+            addSubview(subview)
+        }
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var isHighlighted: Bool {
+        didSet { backgroundColor = isHighlighted ? highlightColor : .clear }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let side = Self.iconSide
+        iconBackground.frame = CGRect(x: 12, y: (bounds.height - side) / 2, width: side, height: side)
+        iconBackground.layer.cornerRadius = side / 2
+        iconView.frame = iconBackground.bounds
+        let labelX = iconBackground.frame.maxX + 12
+        let labelW = max(0, bounds.width - labelX - 16)
+        nameLabel.frame = CGRect(x: labelX, y: 0, width: labelW, height: bounds.height)
+        separator.frame = CGRect(x: labelX, y: bounds.height - 0.5, width: labelW, height: 0.5)
+    }
 }
