@@ -38,15 +38,22 @@ class NotificationService: UNNotificationServiceExtension {
 
         if let avatarURLString = findAvatarURL(in: userInfo),
            let avatarURL = URL(string: avatarURLString) {
-            downloadImageData(from: avatarURL) { [weak self] data in
+            if let sharedAvatar = NotificationAvatarStore.data(for: avatarURLString) {
+                communicationContent(from: bestAttemptContent, avatarData: sharedAvatar, completion: contentHandler)
+                return
+            }
+            downloadImageData(from: avatarURL, attempts: Self.avatarDownloadAttempts) { [weak self] data in
                 guard let self else {
                     contentHandler(bestAttemptContent)
                     return
                 }
-                contentHandler(self.communicationContent(from: bestAttemptContent, avatarData: data))
+                if let data {
+                    NotificationAvatarStore.store(data, for: avatarURLString)
+                }
+                self.communicationContent(from: bestAttemptContent, avatarData: data, completion: contentHandler)
             }
         } else {
-            contentHandler(communicationContent(from: bestAttemptContent, avatarData: nil))
+            communicationContent(from: bestAttemptContent, avatarData: nil, completion: contentHandler)
         }
     }
 
@@ -58,6 +65,8 @@ class NotificationService: UNNotificationServiceExtension {
 
     private static let messageCategoryIdentifier = "MEZON_MESSAGE"
     private static let notificationsMutedUntilKey = "notificationsMutedUntil"
+    private static let avatarDownloadAttempts = 2
+    private static let avatarRetryDelay: TimeInterval = 1
 
     private func silence(_ content: UNMutableNotificationContent) {
         content.sound = nil
@@ -75,7 +84,7 @@ class NotificationService: UNNotificationServiceExtension {
     }
 
     @available(iOS 15.0, *)
-    private func communicationContent(from content: UNMutableNotificationContent, avatarData: Data?) -> UNNotificationContent {
+    private func communicationContent(from content: UNMutableNotificationContent, avatarData: Data?, completion: @escaping (UNNotificationContent) -> Void) {
         let userInfo = content.userInfo
         let senderId = (userInfo["sender"] as? String).flatMap { $0 == "0" ? nil : $0 }
         let channelId = (userInfo["channel"] as? String) ?? content.threadIdentifier
@@ -103,18 +112,19 @@ class NotificationService: UNNotificationServiceExtension {
 
         let interaction = INInteraction(intent: intent, response: nil)
         interaction.direction = .incoming
-        interaction.donate(completion: nil)
-
-        do {
-            let updated = try content.updating(from: intent)
-            guard content.interruptionLevel == .passive,
-                  let silenced = updated.mutableCopy() as? UNMutableNotificationContent else {
-                return updated
+        interaction.donate { _ in
+            do {
+                let updated = try content.updating(from: intent)
+                guard content.interruptionLevel == .passive,
+                      let silenced = updated.mutableCopy() as? UNMutableNotificationContent else {
+                    completion(updated)
+                    return
+                }
+                self.silence(silenced)
+                completion(silenced)
+            } catch {
+                completion(content)
             }
-            silence(silenced)
-            return silenced
-        } catch {
-            return content
         }
     }
 
@@ -126,7 +136,7 @@ class NotificationService: UNNotificationServiceExtension {
         return nil
     }
 
-    private func downloadImageData(from url: URL, completion: @escaping (Data?) -> Void) {
+    private func downloadImageData(from url: URL, attempts: Int, completion: @escaping (Data?) -> Void) {
         var request = URLRequest(url: url)
         request.timeoutInterval = 8
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
@@ -134,7 +144,13 @@ class NotificationService: UNNotificationServiceExtension {
                   let http = response as? HTTPURLResponse,
                   (200..<300).contains(http.statusCode),
                   let data, !data.isEmpty else {
-                completion(nil)
+                guard attempts > 1 else {
+                    completion(nil)
+                    return
+                }
+                DispatchQueue.global().asyncAfter(deadline: .now() + Self.avatarRetryDelay) {
+                    self.downloadImageData(from: url, attempts: attempts - 1, completion: completion)
+                }
                 return
             }
             completion(data)
