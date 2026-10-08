@@ -313,6 +313,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
     }
 
     @objc private func handleWillEnterForeground() {
+        accountContext?.engine.clanData.invalidateVoiceSnapshots()
         MezonSocket.shared.noteWillEnterForeground()
         accountContext?.recoverFromForeground()
         if let shell = mainWindow?.viewController as? VoIPMinimalShellViewController {

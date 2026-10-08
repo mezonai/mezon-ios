@@ -373,14 +373,14 @@ final class VoiceMemberExpandedCellNode: ASCellNode {
 
     private static let avatarSize: CGFloat = 22
 
-    private let avatarNode: VoiceAvatarNode
+    private var avatarNode: VoiceAvatarNode
     private let nameNode = ASTextNode2()
     private let shareScreenNode = ASImageNode()
-    private let isSharingScreen: Bool
+    private var member: VoiceMemberDisplay
 
     init(member: VoiceMemberDisplay) {
         avatarNode = VoiceAvatarNode(member: member, size: Self.avatarSize)
-        isSharingScreen = member.isSharingScreen
+        self.member = member
         super.init()
         automaticallyManagesSubnodes = true
         selectionStyle = .none
@@ -405,11 +405,30 @@ final class VoiceMemberExpandedCellNode: ASCellNode {
         super.layout()
     }
 
+    func update(member: VoiceMemberDisplay) {
+        guard self.member != member else { return }
+        let oldSeed = self.member.username.isEmpty ? self.member.name : self.member.username
+        let newSeed = member.username.isEmpty ? member.name : member.username
+        if self.member.avatarURL != member.avatarURL || oldSeed != newSeed {
+            avatarNode = VoiceAvatarNode(member: member, size: Self.avatarSize)
+        }
+        if self.member.name != member.name {
+            nameNode.attributedText = NSAttributedString(
+                string: member.name,
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 13.sf, weight: .regular),
+                    .foregroundColor: UIColor.theme.channelNormal,
+                ])
+        }
+        self.member = member
+        setNeedsLayout()
+    }
+
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         nameNode.style.flexShrink = 1
+        nameNode.style.flexGrow = member.isSharingScreen ? 1 : 0
         var children: [ASLayoutElement] = [avatarNode, nameNode]
-        if isSharingScreen {
-            nameNode.style.flexGrow = 1
+        if member.isSharingScreen {
             children.append(shareScreenNode)
         }
         let row = ASStackLayoutSpec(

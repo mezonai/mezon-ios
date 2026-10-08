@@ -724,7 +724,7 @@ final class ProfileContainerNode: ASDisplayNode {
             serverChip.frame = .zero
             return 0
         }
-        let height: CGFloat = 30.sh
+        let height: CGFloat = 34.sh
         let inset: CGFloat = 12.sw
         let spacing: CGFloat = 6.sw
         let haloSize: CGFloat = 14.swh
@@ -1188,7 +1188,7 @@ final class ProfileContainerNode: ASDisplayNode {
         usernameLabel.frame = CGRect(x: side, y: y, width: contentWidth, height: 20.sh)
         y += 20.sh
         y += layoutServerChip(x: side, y: y, maxWidth: contentWidth)
-        y += 20.sh
+        y += serverChip.isHidden ? 20.sh : cardSpacing
 
         let fixedHeaderHeight = y
         fixedHeaderView.frame = CGRect(x: 0, y: 0, width: width, height: fixedHeaderHeight)

@@ -1003,6 +1003,10 @@ final class ChannelListViewController: ViewController {
     private var voicePresenceReloadScheduled = false
     private let voicePresenceCoalesceInterval: TimeInterval = 0.4
     private var clanUsersReloadScheduled = false
+    private var voiceMemberCacheClanId: Int64?
+    private var voiceMembersById: [Int64: ClanMemberRecord] = [:]
+    private var voiceMemberDisplayCache: [String: VoiceMemberDisplay] = [:]
+    private var voiceScreenSharingIds = Set<String>()
     private var channelListStateEmitCoalesceScheduled = false
     private var categoryDescsRefreshScheduled = false
 
@@ -1129,8 +1133,10 @@ final class ChannelListViewController: ViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        invalidateVoiceMemberCache()
         refreshShowEmptyCategoriesPreferenceFromCache()
         reconcileChannelListDataIfNeeded()
+        channelListNode.reloadVoiceMemberRows()
     }
 
     override func viewDidLoad() {
@@ -1177,6 +1183,7 @@ final class ChannelListViewController: ViewController {
         clanUsersDisposable.set(
             (context.engine.clanData.clanUsersUpdated.signal() |> deliverOnMainQueue).start(next: { [weak self] updatedClanId in
                 guard let self, self.clanId != 0, updatedClanId == self.clanId else { return }
+                self.invalidateVoiceMemberCache()
                 self.scheduleCoalescedClanUsersReload()
             })
         )
@@ -1340,6 +1347,7 @@ final class ChannelListViewController: ViewController {
     @objc private func handleVoicePresenceChanged(_ notification: Notification) {
         guard let n = notification.userInfo?["clanId"] as? NSNumber else { return }
         guard n.int64Value == clanId, clanId != 0 else { return }
+        invalidateVoiceMemberCache()
         scheduleCoalescedVoicePresenceReload()
     }
 
@@ -3385,23 +3393,48 @@ final class ChannelListViewController: ViewController {
         }
     }
 
+    private func invalidateVoiceMemberCache() {
+        voiceMemberCacheClanId = nil
+        voiceMemberDisplayCache.removeAll(keepingCapacity: true)
+    }
+
+    private func prepareVoiceMemberCacheIfNeeded() {
+        guard voiceMemberCacheClanId != clanId else { return }
+        // Read/index the clan once per update, rather than scan every member for
+        // every row during channel diffs and avatar reloads.
+        voiceMembersById = context.account.postbox.read { tx in
+            Dictionary(tx.getClanMembers(clanId: clanId).map { ($0.userId, $0) },
+                       uniquingKeysWith: { _, new in new })
+        }
+        voiceScreenSharingIds = context.engine.clanData.voiceScreenSharingUserIds(clanId: clanId)
+        voiceMemberDisplayCache.removeAll(keepingCapacity: true)
+        voiceMemberCacheClanId = clanId
+    }
+
     private func resolveVoiceMember(_ uid: String) -> VoiceMemberDisplay? {
+        prepareVoiceMemberCacheIfNeeded()
+        if let cached = voiceMemberDisplayCache[uid] { return cached }
         if VoiceAgentIdentity.isAgent(uid) {
-            return VoiceMemberDisplay(
+            let display = VoiceMemberDisplay(
                 name: VoiceAgentIdentity.displayName,
                 username: VoiceAgentIdentity.displayName,
                 avatarURL: VoiceAgentIdentity.avatarURL,
-                isSharingScreen: context.engine.clanData.voiceScreenSharingUserIds(clanId: clanId).contains(uid)
+                isSharingScreen: voiceScreenSharingIds.contains(uid)
             )
+            voiceMemberDisplayCache[uid] = display
+            return display
         }
 
         guard let uidInt = Int64(uid) else { return nil }
 
-        let profile = context.account.postbox.read { $0.getProfile(userId: uid) }
-
-        let member = context.account.postbox.read {
-            $0.getClanMembers(clanId: self.clanId)
-        }.first(where: { $0.userId == uidInt })
+        let member = voiceMembersById[uidInt]
+        let needsProfile = member.map {
+            ($0.clanNick.isEmpty && $0.displayName.isEmpty && $0.username.isEmpty)
+                || $0.resolvedAvatarURL(fallbackProfileAvatar: nil) == nil
+        } ?? true
+        let profile: ProfileRecord? = needsProfile
+            ? context.account.postbox.read { $0.getProfile(userId: uid) }
+            : nil
 
         let name: String
         let username: String
@@ -3437,8 +3470,11 @@ final class ChannelListViewController: ViewController {
             }
         }
 
-        let isSharingScreen = context.engine.clanData.voiceScreenSharingUserIds(clanId: clanId).contains(uid)
-        return VoiceMemberDisplay(name: name, username: username, avatarURL: avatar, isSharingScreen: isSharingScreen)
+        let display = VoiceMemberDisplay(
+            name: name, username: username, avatarURL: avatar,
+            isSharingScreen: voiceScreenSharingIds.contains(uid))
+        voiceMemberDisplayCache[uid] = display
+        return display
     }
 
     private func topModalPresenter() -> UIViewController? {

@@ -1341,6 +1341,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         interaction.onBecameVisible?()
         sanitizeListPresentationArtifacts()
         drainPendingVisibleReconcile()
+        reloadVoiceMemberRows()
     }
 
     override func didEnterHierarchy() {
@@ -2135,8 +2136,7 @@ final class ChannelListContainerNode: ASDisplayNode {
             allRows.append(row)
             if case .channel(let ch, _) = row,
                Self.voiceChannelTypes.contains(ch.type) {
-                let userIds = (voiceUsersByChannel[ch.channelID] ?? [])
-                    .filter { voiceMemberResolver?($0) != nil }
+                let userIds = voiceUsersByChannel[ch.channelID] ?? []
                 if !userIds.isEmpty {
                     if isExpanded {
                         for uid in userIds {
@@ -2213,6 +2213,11 @@ final class ChannelListContainerNode: ASDisplayNode {
     private var voiceMemberReloadScheduled = false
     private var resolvedVoiceMemberSnapshot: [String: [VoiceMemberDisplay]] = [:]
 
+    private func voiceMemberSnapshotKey(for row: ChannelListRow, categoryIndex: Int) -> String {
+        // A voice channel can appear in both Favorites and its own category.
+        "\(state.categories[categoryIndex].id):\(Self.rowDiffKey(row))"
+    }
+
     private func resolvedVoiceMember(_ uid: String, in channel: Mezon_Api_ChannelDescription) -> VoiceMemberDisplay? {
         guard var member = voiceMemberResolver?(uid) else { return nil }
         if channel.type == MezonConstants.ChannelType.streaming.rawValue {
@@ -2227,7 +2232,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         case .voiceMemberExpanded(let ch, let uid):
             return [resolvedVoiceMember(uid, in: ch)].compactMap { $0 }
         case .voiceMembersCollapsed(_, let uids):
-            return uids.prefix(6).compactMap { resolver($0) }
+            return uids.prefix(5).compactMap { resolver($0) }
         default:
             return []
         }
@@ -2253,13 +2258,22 @@ final class ChannelListContainerNode: ASDisplayNode {
         var paths: [IndexPath] = []
         for section in leading..<totalSections {
             guard !isLoadingPlaceholderTableSection(section) else { continue }
-            let rows = rowsForSection(categoryIndex(forSection: section))
+            let catIdx = categoryIndex(forSection: section)
+            let rows = rowsForSection(catIdx)
             for (r, row) in rows.enumerated() where Self.isVoiceMemberRow(row) {
-                let key = Self.rowDiffKey(row)
+                let key = voiceMemberSnapshotKey(for: row, categoryIndex: catIdx)
                 let displays = resolvedVoiceDisplays(for: row)
                 if resolvedVoiceMemberSnapshot[key] == displays { continue }
                 resolvedVoiceMemberSnapshot[key] = displays
-                paths.append(IndexPath(row: r, section: section))
+                let path = IndexPath(row: r, section: section)
+                if let node = tableNode.nodeForRow(at: path) as? VoiceMemberExpandedCellNode,
+                   let member = displays.first {
+                    // Preserve the avatar image/request when only the name or
+                    // screen-sharing indicator changes.
+                    node.update(member: member)
+                } else {
+                    paths.append(path)
+                }
             }
         }
         guard !paths.isEmpty else { return }
@@ -2374,9 +2388,10 @@ extension ChannelListContainerNode: ASTableDataSource {
             }
         case .voiceMembersCollapsed(_, let userIds):
             let totalCount = userIds.count
-            let visible = Array(userIds.prefix(6))
+            let visible = Array(userIds.prefix(5))
             let resolver = voiceMemberResolver
             let members: [VoiceMemberDisplay] = visible.compactMap { resolver?($0) }
+            resolvedVoiceMemberSnapshot[voiceMemberSnapshotKey(for: row, categoryIndex: catIdx)] = members
             return {
                 VoiceChannelMembersCollapsedCellNode(members: members, totalCount: totalCount)
             }
@@ -2384,6 +2399,7 @@ extension ChannelListContainerNode: ASTableDataSource {
             guard let member = resolvedVoiceMember(userId, in: ch) else {
                 return { ASCellNode() }
             }
+            resolvedVoiceMemberSnapshot[voiceMemberSnapshotKey(for: row, categoryIndex: catIdx)] = [member]
             return {
                 VoiceMemberExpandedCellNode(member: member)
             }
