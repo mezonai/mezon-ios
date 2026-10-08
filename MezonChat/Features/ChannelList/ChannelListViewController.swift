@@ -3679,7 +3679,6 @@ final class ChannelListViewController: ViewController {
         Task { @MainActor [weak self] in
             guard let self else { return }
             guard let sessionToken = await self.context.getToken() else {
-                StreamingSfuLog.write("join aborted, session token unavailable channel=\(streamChannel.channelID)")
                 return
             }
             let meetToken: String
@@ -3691,11 +3690,9 @@ final class ChannelListViewController: ViewController {
                     token: sessionToken
                 )
             } catch {
-                StreamingSfuLog.write("generateMeetToken failed channel=\(streamChannel.channelID) error=\(error)")
                 return
             }
             guard !meetToken.isEmpty else {
-                StreamingSfuLog.write("generateMeetToken returned empty channel=\(streamChannel.channelID)")
                 return
             }
             let tokenContext = self.context
