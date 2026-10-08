@@ -134,9 +134,10 @@ final class ChannelItemCellNode: ASCellNode {
 
     private static let privateVoiceIcon: UIImage = {
         let voice = UIImage(named: "Chat/SpeakerIcon") ?? UIImage(systemName: "Chat/SpeakerIcon")
-        return UIGraphicsImageRenderer(size: CGSize(width: 24, height: 24)).image { _ in
-            voice?.draw(in: CGRect(x: 0, y: 2, width: 17, height: 20))
-            UIImage(systemName: "lock.fill")?.draw(in: CGRect(x: 15, y: 12, width: 9, height: 11))
+        return UIGraphicsImageRenderer(size: CGSize(width: 24, height: 24)).image { context in
+            voice?.draw(in: CGRect(x: 0, y: 0, width: 24, height: 24))
+            context.cgContext.clear(CGRect(x: 15, y: 0, width: 9, height: 12))
+            UIImage(systemName: "lock.fill")?.draw(in: CGRect(x: 16, y: 1, width: 7, height: 10))
         }
     }()
 
