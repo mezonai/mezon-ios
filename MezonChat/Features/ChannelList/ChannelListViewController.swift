@@ -9,6 +9,7 @@ struct ChannelListState: Equatable {
     var isLoading: Bool
     var errorMessage: String?
     var voiceUsersByChannel: [Int64: [String]] = [:]
+    var buzzChannelIds: Set<Int64> = []
 
     static let empty = ChannelListState(
         categories: [], allChannels: [], selectedChannelId: nil,
@@ -21,6 +22,7 @@ struct ChannelListState: Equatable {
             && lhs.categories.count == rhs.categories.count
             && lhs.allChannels.count == rhs.allChannels.count
             && lhs.voiceUsersByChannel == rhs.voiceUsersByChannel
+            && lhs.buzzChannelIds == rhs.buzzChannelIds
             && categoriesChannelStructureEqual(lhs.categories, rhs.categories)
         else { return false }
         return zip(lhs.allChannels, rhs.allChannels).allSatisfy {
@@ -1168,6 +1170,7 @@ final class ChannelListViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelMarkedAsRead(_:)), name: Notification.Name("MezonChannelMarkedAsRead"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleNewMessageReceived(_:)), name: Notification.Name("MezonNewMessageReceived"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleMentionReceived(_:)), name: Notification.Name("MezonMentionReceived"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleBuzzStateChanged), name: .mezonBuzzStateChanged, object: context.buzz)
         NotificationCenter.default.addObserver(self, selector: #selector(handleSocketStatusForChannelBadges(_:)), name: .mezonSocketStatusChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleJoinedClanForChannelBadges(_:)), name: Notification.Name("MezonJoinedClanChatForBadges"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleVoicePresenceChanged(_:)), name: .mezonVoicePresenceChanged, object: nil)
@@ -2535,6 +2538,10 @@ final class ChannelListViewController: ViewController {
         return nil
     }
 
+    @objc private func handleBuzzStateChanged() {
+        needsReloadPipe.putNext(())
+    }
+
     @objc private func handleNewMessageReceived(_ notification: Notification) {
         let rawChannelId = notification.userInfo?["channelId"]
         let rawClanId = notification.userInfo?["clanId"]
@@ -3867,7 +3874,8 @@ final class ChannelListViewController: ViewController {
             selectedChannelId: selectedChannelId,
             isLoading: isLoading,
             errorMessage: errorMessage,
-            voiceUsersByChannel: voiceMap
+            voiceUsersByChannel: voiceMap,
+            buzzChannelIds: context.buzz.state.channelIdsSnapshot().intersection(allChannels.map(\.channelID))
         )
     }
 

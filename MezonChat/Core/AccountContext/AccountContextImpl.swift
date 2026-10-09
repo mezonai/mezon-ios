@@ -40,6 +40,7 @@ final class AccountContextImpl: AccountContext {
 
     let account: Account
     let engine: MezonEngine
+    let buzz: BuzzController
     private(set) lazy var rolePermissions: RolePermissionService = {
         let service = RolePermissionService(
             engine: self.engine,
@@ -280,6 +281,7 @@ final class AccountContextImpl: AccountContext {
         self.sharedContextImpl = sharedContext
         self.account = account
         self.engine = MezonEngine(account: account)
+        self.buzz = BuzzController(postbox: account.postbox)
         self.session = session
         self.currentUser = user
 
@@ -379,6 +381,7 @@ final class AccountContextImpl: AccountContext {
         SessionRefreshManager.shared.reset()
         DirectMessageListGate.reset()
         DmBadgeMessageDedup.reset()
+        buzz.reset()
         account.network.resetProtoBaseURLToDefault()
         session = nil
         currentUser = nil
@@ -1132,6 +1135,9 @@ final class AccountContextImpl: AccountContext {
             )
 
         case .messageReceived(let apiMessage):
+            if let userId = currentUserNumericId() {
+                buzz.receive(apiMessage, currentUserId: userId)
+            }
             let channelId = Int64(apiMessage.channelID) ?? 0
             let clanId = Int64(apiMessage.clanID) ?? 0
             if apiMessage.code == 2 {
@@ -1320,6 +1326,7 @@ final class AccountContextImpl: AccountContext {
             )
 
         case .lastSeen(let e):
+            buzz.clearSeen(targetId: e.channelID, messageId: e.messageID)
             if e.clanID != 0, account.postbox.getChannelDescription(channelId: e.channelID)?.channel.type != 7 {
                 Task { @MainActor [weak self] in
                     guard let self else { return }
@@ -1344,6 +1351,9 @@ final class AccountContextImpl: AccountContext {
                     "mode": e.mode,
                 ] as [String: Any]
             )
+
+        case .markAsRead(let e):
+            buzz.markAsRead(clanId: e.clanID, channelId: e.channelID, categoryId: e.categoryID)
 
         case .voiceJoined(let ev):
             MezonSfuSession.handleVoiceJoined(ev)
@@ -1466,6 +1476,7 @@ final class AccountContextImpl: AccountContext {
             engine.clanData.applyLocallyCreatedChannel(ch)
 
         case .channelDeleted(let ev):
+            buzz.removeChannel(ev.channelID)
             engine.clanData.removeChannelLocally(clanId: ev.clanID, channelId: ev.channelID)
 
         case .userChannelAdded(let ev):
@@ -1486,16 +1497,19 @@ final class AccountContextImpl: AccountContext {
         case .userChannelRemoved(let ev):
             guard let myId = currentUserNumericId(),
                   PrivateVoiceChannelAccess.targetsUser(myId, ids: ev.userIds) else { break }
+            buzz.removeChannel(ev.channelID)
             engine.clanData.applyUserChannelRemovedFromSocket(ev, currentUserNumericId: myId)
 
         case .userClanAdded(let ev):
             engine.clanData.applyClanUserAddedFromSocket(ev)
 
         case .clanDeleted(let ev):
+            buzz.removeClan(ev.clanID)
             removeVoiceChannelsInClan(ev.clanID)
 
         case .userClanRemoved(let ev):
             if PrivateVoiceChannelAccess.targetsUser(currentUserNumericId() ?? 0, ids: ev.userIds) {
+                buzz.removeClan(ev.clanID)
                 removeVoiceChannelsInClan(ev.clanID)
             }
             engine.clanData.applyClanUserRemovedFromSocket(ev)

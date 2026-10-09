@@ -593,7 +593,9 @@ final class ChannelListContainerNode: ASDisplayNode {
                         prevSelected: prev.selectedChannelId,
                         newSelected: new.selectedChannelId,
                         prevVoice: prev.voiceUsersByChannel,
-                        newVoice: new.voiceUsersByChannel
+                        newVoice: new.voiceUsersByChannel,
+                        prevBuzz: prev.buzzChannelIds,
+                        newBuzz: new.buzzChannelIds
                     ) {
                         rowsToReload.append(IndexPath(row: r, section: section))
                     }
@@ -628,7 +630,9 @@ final class ChannelListContainerNode: ASDisplayNode {
                     prevSelected: prev.selectedChannelId,
                     newSelected: new.selectedChannelId,
                     prevVoice: prev.voiceUsersByChannel,
-                    newVoice: new.voiceUsersByChannel
+                    newVoice: new.voiceUsersByChannel,
+                    prevBuzz: prev.buzzChannelIds,
+                    newBuzz: new.buzzChannelIds
                 ) {
                     rowsToReload.append(IndexPath(row: newR, section: section))
                 }
@@ -859,12 +863,15 @@ final class ChannelListContainerNode: ASDisplayNode {
         prevSelected: Int64?,
         newSelected: Int64?,
         prevVoice: [Int64: [String]],
-        newVoice: [Int64: [String]]
+        newVoice: [Int64: [String]],
+        prevBuzz: Set<Int64>,
+        newBuzz: Set<Int64>
     ) -> Bool {
         channelListRowVisuallyChanged(
             old: old, new: new,
             prevSelected: prevSelected, newSelected: newSelected,
-            prevVoice: prevVoice, newVoice: newVoice
+            prevVoice: prevVoice, newVoice: newVoice,
+            prevBuzz: prevBuzz, newBuzz: newBuzz
         )
     }
 
@@ -907,8 +914,11 @@ final class ChannelListContainerNode: ASDisplayNode {
         prevSelected: Int64?,
         newSelected: Int64?,
         prevVoice: [Int64: [String]],
-        newVoice: [Int64: [String]]
+        newVoice: [Int64: [String]],
+        prevBuzz: Set<Int64>,
+        newBuzz: Set<Int64>
     ) -> Bool {
+        if rowBuzzChanged(old: old, new: new, prevBuzz: prevBuzz, newBuzz: newBuzz) { return false }
         switch (old, new) {
         case let (.channel(o, _), .channel(n, _)):
             guard o.channelID == n.channelID else { return false }
@@ -975,7 +985,9 @@ final class ChannelListContainerNode: ASDisplayNode {
                 prevSelected: prev.selectedChannelId,
                 newSelected: new.selectedChannelId,
                 prevVoice: prev.voiceUsersByChannel,
-                newVoice: new.voiceUsersByChannel
+                newVoice: new.voiceUsersByChannel,
+                prevBuzz: prev.buzzChannelIds,
+                newBuzz: new.buzzChannelIds
             ) {
                 selectionPaths.append(ip)
             } else {
@@ -1011,14 +1023,31 @@ final class ChannelListContainerNode: ASDisplayNode {
         CATransaction.commit()
     }
 
+    private func rowBuzzChanged(
+        old: ChannelListRow,
+        new: ChannelListRow,
+        prevBuzz: Set<Int64>,
+        newBuzz: Set<Int64>
+    ) -> Bool {
+        switch (old, new) {
+        case (.channel, .channel), (.thread, .thread):
+            return prevBuzz.contains(old.channelDesc.channelID) != newBuzz.contains(new.channelDesc.channelID)
+        default:
+            return false
+        }
+    }
+
     private func channelListRowVisuallyChanged(
         old: ChannelListRow,
         new: ChannelListRow,
         prevSelected: Int64?,
         newSelected: Int64?,
         prevVoice: [Int64: [String]],
-        newVoice: [Int64: [String]]
+        newVoice: [Int64: [String]],
+        prevBuzz: Set<Int64>,
+        newBuzz: Set<Int64>
     ) -> Bool {
+        if rowBuzzChanged(old: old, new: new, prevBuzz: prevBuzz, newBuzz: newBuzz) { return true }
         switch (old, new) {
         case let (.channel(o, _), .channel(n, _)):
             guard o.channelID == n.channelID else { return true }
@@ -1133,7 +1162,9 @@ final class ChannelListContainerNode: ASDisplayNode {
                     prevSelected: prev.selectedChannelId,
                     newSelected: new.selectedChannelId,
                     prevVoice: prev.voiceUsersByChannel,
-                    newVoice: new.voiceUsersByChannel
+                    newVoice: new.voiceUsersByChannel,
+                    prevBuzz: prev.buzzChannelIds,
+                    newBuzz: new.buzzChannelIds
                 ) {
                     let ip = IndexPath(row: r, section: s + sectionOffset)
                     if listRowChangeIsSelectionOnly(
@@ -1142,7 +1173,9 @@ final class ChannelListContainerNode: ASDisplayNode {
                         prevSelected: prev.selectedChannelId,
                         newSelected: new.selectedChannelId,
                         prevVoice: prev.voiceUsersByChannel,
-                        newVoice: new.voiceUsersByChannel
+                        newVoice: new.voiceUsersByChannel,
+                        prevBuzz: prev.buzzChannelIds,
+                        newBuzz: new.buzzChannelIds
                     ) {
                         selectionPaths.append(ip)
                     } else {
@@ -2126,7 +2159,8 @@ final class ChannelListContainerNode: ASDisplayNode {
         for category: ChannelCategory,
         threadLookup lookup: [Int64: [Mezon_Api_ChannelDescription]],
         selectedChannelId: Int64?,
-        voiceUsersByChannel: [Int64: [String]]
+        voiceUsersByChannel: [Int64: [String]],
+        buzzChannelIds: Set<Int64>
     ) -> [ChannelListRow] {
         let baseRows = flattenCategoryToRows(category, threadLookup: lookup)
         let isExpanded = !category.isCollapsed
@@ -2156,6 +2190,7 @@ final class ChannelListContainerNode: ASDisplayNode {
             default: break
             }
             let ch = row.channelDesc
+            if buzzChannelIds.contains(ch.channelID) { return true }
             if Self.voiceChannelTypes.contains(ch.type) {
                 let hasMembers = !(voiceUsersByChannel[ch.channelID] ?? []).isEmpty
                 return hasMembers || ch.channelID == selectedChannelId
@@ -2168,6 +2203,7 @@ final class ChannelListContainerNode: ASDisplayNode {
                     $0.countMessUnread > 0
                     || $0.lastSentMessage.timestampSeconds > $0.lastSeenMessage.timestampSeconds
                     || $0.channelID == selectedChannelId
+                    || buzzChannelIds.contains($0.channelID)
                 }
                 if hasUnreadOrActiveThread { return true }
             }
@@ -2190,7 +2226,8 @@ final class ChannelListContainerNode: ASDisplayNode {
             for: state.categories[categoryIndex],
             threadLookup: lookup,
             selectedChannelId: state.selectedChannelId,
-            voiceUsersByChannel: state.voiceUsersByChannel
+            voiceUsersByChannel: state.voiceUsersByChannel,
+            buzzChannelIds: state.buzzChannelIds
         )
     }
 
@@ -2367,12 +2404,13 @@ extension ChannelListContainerNode: ASTableDataSource {
         guard indexPath.row < rows.count else { return { ASCellNode() } }
         let row = rows[indexPath.row]
         let isSelected = row.channelDesc.channelID == state.selectedChannelId
+        let hasBuzz = state.buzzChannelIds.contains(row.channelDesc.channelID)
         switch row {
         case .channel(let ch, let inFav):
             let hasVoiceMembers = Self.voiceChannelTypes.contains(ch.type)
                 && !(state.voiceUsersByChannel[ch.channelID] ?? []).isEmpty
             return {
-                let node = ChannelItemCellNode(channel: ch, isSelected: isSelected, isVoiceActive: hasVoiceMembers)
+                let node = ChannelItemCellNode(channel: ch, isSelected: isSelected, isVoiceActive: hasVoiceMembers, hasBuzz: hasBuzz)
                 node.onLongPress = { [weak self] in
                     self?.interaction.onLongPressChannel(ch)
                 }
@@ -2380,7 +2418,7 @@ extension ChannelListContainerNode: ASTableDataSource {
             }
         case .thread(let ch, let isLast, let inFav):
             return {
-                let node = ThreadItemCellNode(channel: ch, isSelected: isSelected, isLast: isLast)
+                let node = ThreadItemCellNode(channel: ch, isSelected: isSelected, isLast: isLast, hasBuzz: hasBuzz)
                 node.onLongPress = { [weak self] in
                     self?.interaction.onLongPressChannel(ch)
                 }
