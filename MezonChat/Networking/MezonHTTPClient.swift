@@ -1750,22 +1750,55 @@ final class MezonHTTPClient {
     }
 
     func generateMeetToken(channelId: Int64, roomName: String, metadata: String, token: String) async throws -> String {
+        try await generateMeetTokenResponse(channelId: channelId, roomName: roomName, metadata: metadata, token: token).token
+    }
+
+    func generateMeetTokenResponse(channelId: Int64, roomName: String, metadata: String, token: String) async throws -> Mezon_Api_GenerateMeetTokenResponse {
         var req = Mezon_Api_GenerateMeetTokenRequest()
         req.channelID = channelId
         req.roomName = roomName
         req.metadata = metadata
         let path = "/mezon.api.Mezon/GenerateMeetToken"
-        if let response: Mezon_Api_GenerateMeetTokenResponse = try? await sendOverSocketIfPossible(path: path, message: req),
-           !response.token.isEmpty {
-            return response.token
+        var response: Mezon_Api_GenerateMeetTokenResponse
+        if let socketResponse: Mezon_Api_GenerateMeetTokenResponse = try? await sendOverSocketIfPossible(path: path, message: req),
+           !socketResponse.token.isEmpty {
+            response = socketResponse
+        } else {
+            let data = try await retryingTransientRequest(operationName: "GenerateMeetToken") {
+                try await self.postProtoRawHTTP(path: path, message: req, auth: .bearer(token))
+            }
+            guard let httpResponse = Self.decodeMeetTokenResponse(data) else {
+                throw MezonError.invalidResponse
+            }
+            response = httpResponse
         }
-        let data = try await retryingTransientRequest(operationName: "GenerateMeetToken") {
-            try await self.postProtoRawHTTP(path: path, message: req, auth: .bearer(token))
+        let sfuURL = Self.normalizedSfuWebSocketURL(response.url)
+        if sfuURL.isEmpty, !response.url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            NSLog("%@", "[MezonHTTPClient] GenerateMeetToken returned an unusable SFU url '\(response.url)', using MEZON_SFU_WS_URL" as NSString)
         }
-        guard let response = Self.decodeMeetTokenResponse(data) else {
-            throw MezonError.invalidResponse
+        response.url = sfuURL
+        return response
+    }
+
+    private static func normalizedSfuWebSocketURL(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              var components = URLComponents(string: trimmed.contains("://") ? trimmed : "wss://\(trimmed)") else {
+            return ""
         }
-        return response.token
+        switch (components.scheme ?? "").lowercased() {
+        case "ws", "http":
+            components.scheme = "ws"
+        case "wss", "https":
+            components.scheme = "wss"
+        default:
+            return ""
+        }
+        guard components.host?.isEmpty == false else { return "" }
+        if components.path.isEmpty || components.path == "/" {
+            components.path = "/ws"
+        }
+        return components.url?.absoluteString ?? ""
     }
 
     private static let meetTokenProtobufFieldTag: UInt8 = 0x0A

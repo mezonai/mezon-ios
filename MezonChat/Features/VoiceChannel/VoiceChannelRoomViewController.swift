@@ -3699,12 +3699,13 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         }
 
         do {
-            let jwt = try await context.account.network.generateMeetToken(
+            let meetToken = try await context.account.network.generateMeetTokenResponse(
                 channelId: channel.channelID,
                 roomName: String(channel.channelID),
                 metadata: context.meetTokenMetadata(clanId: channel.clanID),
                 token: sessionToken
             )
+            let jwt = meetToken.token
             guard !Task.isCancelled, !isEndingVoiceRoom,
                   !context.engine.channels.isAccessRevoked(channelId: channel.channelID) else { return }
             guard !jwt.isEmpty else {
@@ -3733,9 +3734,9 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             ensureVoiceChannelAudioSessionCategory()
             session.join(
                 token: jwt,
-                role: joinRole
+                role: joinRole,
+                sfuURL: meetToken.url
             )
-            // A synchronous join failure can already have torn this session down.
             guard !Task.isCancelled, !isEndingVoiceRoom, sfuSession === session,
                   !context.engine.channels.isAccessRevoked(channelId: channel.channelID) else { return }
             didJoin = true

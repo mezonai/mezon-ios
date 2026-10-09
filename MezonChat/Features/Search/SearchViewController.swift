@@ -1494,9 +1494,9 @@ final class SearchViewController: ViewController {
             guard let sessionToken = await self.context.getToken() else {
                 return
             }
-            let meetToken: String
+            let meetToken: Mezon_Api_GenerateMeetTokenResponse
             do {
-                meetToken = try await self.context.account.network.generateMeetToken(
+                meetToken = try await self.context.account.network.generateMeetTokenResponse(
                     channelId: channel.channelID,
                     roomName: String(channel.channelID),
                     metadata: self.context.meetTokenMetadata(clanId: clanId),
@@ -1505,14 +1505,15 @@ final class SearchViewController: ViewController {
             } catch {
                 return
             }
-            guard !meetToken.isEmpty else {
+            guard !meetToken.token.isEmpty else {
                 return
             }
             let tokenContext = self.context
 
             await StreamingWebRTCSession.shared.join(
                 channelId: channel.channelID,
-                token: meetToken,
+                token: meetToken.token,
+                sfuURL: meetToken.url,
                 tokenProvider: {
                     guard let token = await tokenContext.getToken() else { return nil }
                     return try? await tokenContext.account.network.generateMeetToken(

@@ -469,6 +469,7 @@ final class MezonSfuSession: NSObject {
     let clanId: Int64
     private let userId: String
     private var token = ""
+    private var sfuURL = ""
 
     private var audioSource: RTCAudioSource?
     private var localAudioTrack: RTCAudioTrack?
@@ -630,11 +631,12 @@ final class MezonSfuSession: NSObject {
         }
     }
 
-    func join(token: String, role: SfuRole) {
+    func join(token: String, role: SfuRole, sfuURL: String = "") {
         leave()
         hasReachedConnected = false
         selfJoinSoundPending = true
         self.token = token
+        self.sfuURL = sfuURL.trimmingCharacters(in: .whitespacesAndNewlines)
         self.role = role
         micEnabled = false
         cameraEnabled = false
@@ -2578,7 +2580,7 @@ final class MezonSfuSession: NSObject {
     }
 
     private func buildWsUrl(token: String) -> URL? {
-        let base = MezonConfig.sfuWebSocketURLString.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = sfuURL.isEmpty ? MezonConfig.sfuWebSocketURLString.trimmingCharacters(in: .whitespacesAndNewlines) : sfuURL
         guard !base.isEmpty else { return nil }
         guard var components = URLComponents(string: base) else { return nil }
         var items = components.queryItems ?? []

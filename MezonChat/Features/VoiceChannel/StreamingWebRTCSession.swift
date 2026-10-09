@@ -23,6 +23,7 @@ final class StreamingWebRTCSession: NSObject {
     private var reconnectTask: Task<Void, Never>?
     private var tokenProvider: (() async -> String?)?
     private var token = ""
+    private var sfuURL = ""
     private var sessionGeneration = 0
     private var transportGeneration = 0
     private var reconnectAttempt = 0
@@ -51,6 +52,7 @@ final class StreamingWebRTCSession: NSObject {
     func join(
         channelId: Int64,
         token: String,
+        sfuURL: String = "",
         tokenProvider: @escaping () async -> String?
     ) async {
         guard channelId != 0, !token.isEmpty else { return }
@@ -59,6 +61,7 @@ final class StreamingWebRTCSession: NSObject {
         disconnect()
         activeStreamChannelId = channelId
         self.token = token
+        self.sfuURL = sfuURL.trimmingCharacters(in: .whitespacesAndNewlines)
         self.tokenProvider = tokenProvider
         reconnectAttempt = 0
         negotiating = false
@@ -80,6 +83,7 @@ final class StreamingWebRTCSession: NSObject {
         closeTransport()
         tokenProvider = nil
         token = ""
+        sfuURL = ""
         activeStreamChannelId = nil
         pendingOffer = nil
         negotiating = false
@@ -107,7 +111,7 @@ final class StreamingWebRTCSession: NSObject {
         }
         peerConnection = pc
 
-        guard let wsURL = Self.makeWebSocketURL(token: token) else {
+        guard let wsURL = Self.makeWebSocketURL(token: token, sfuURL: sfuURL) else {
             scheduleReconnect()
             return
         }
@@ -397,8 +401,8 @@ final class StreamingWebRTCSession: NSObject {
         return factory.peerConnection(with: config, constraints: constraints, delegate: delegate)
     }
 
-    private static func makeWebSocketURL(token: String) -> URL? {
-        let base = MezonConfig.sfuWebSocketURLString.trimmingCharacters(in: .whitespacesAndNewlines)
+    private static func makeWebSocketURL(token: String, sfuURL: String) -> URL? {
+        let base = sfuURL.isEmpty ? MezonConfig.sfuWebSocketURLString.trimmingCharacters(in: .whitespacesAndNewlines) : sfuURL
         guard !base.isEmpty, var components = URLComponents(string: base) else { return nil }
         var items = components.queryItems ?? []
         items.removeAll { $0.name == "access_token" }

@@ -288,8 +288,8 @@ final class PeerWebRTCCallSession: NSObject {
     }
 
     func beginOutgoingCall() {
-        onStatusLabel?(direction == .outgoing ? PeerCallLocalizedStrings.statusRinging : "")
-        beginOutgoingCallTask?.cancel()
+        guard direction == .outgoing, !ended, beginOutgoingCallTask == nil else { return }
+        onStatusLabel?(PeerCallLocalizedStrings.statusRinging)
         beginOutgoingCallTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let micOk = await Self.requestMicPermission()
