@@ -402,6 +402,7 @@ final class ForwardMessageViewController: UIViewController {
     private var bottomLiftConstraint: NSLayoutConstraint?
     private var composerBottomConstraint: NSLayoutConstraint?
     private var isKeyboardVisible = false
+    private var didAutoFocusSearch = false
 
     init(
         context: AccountContext,
@@ -434,6 +435,13 @@ final class ForwardMessageViewController: UIViewController {
         setupUI()
         applyThemeStrings()
         loadDestinations()
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        guard !didAutoFocusSearch else { return }
+        didAutoFocusSearch = true
+        searchField.becomeFirstResponder()
     }
 
     private func applyThemeStrings() {
@@ -815,6 +823,8 @@ final class ForwardMessageViewController: UIViewController {
     }
 
     private func scheduleSearch() {
+        // Invalidate in-flight responses immediately, including during the debounce window.
+        ctrlKGeneration &+= 1
         searchDebounceTimer?.invalidate()
         searchDebounceTimer = Foundation.Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] (_: Foundation.Timer) in
             self?.applySearchQuery()
@@ -855,7 +865,10 @@ final class ForwardMessageViewController: UIViewController {
             }
             guard self.ctrlKGeneration == generation else { return }
             if let response {
-                self.searchResults = self.buildSearchResults(users: response.users, channels: response.channels)
+                let candidates = self.buildSearchResults(users: response.users, channels: response.channels)
+                let ranked = await SharingSearchRanking.ranked(candidates, query: text)
+                guard self.ctrlKGeneration == generation else { return }
+                self.searchResults = ranked
             } else {
                 self.searchResults = []
             }
@@ -869,11 +882,20 @@ final class ForwardMessageViewController: UIViewController {
     private func buildSearchResults(
         users: [Mezon_Api_User],
         channels: [Mezon_Api_ChannelDescription]
-    ) -> [SharingSuggestionItem] {
-        var items: [SharingSuggestionItem] = []
+    ) -> [SharingSearchCandidate] {
+        // Build the DM lookup once instead of scanning all channels for every API user.
+        var directChannelByUserID: [Int64: Mezon_Api_ChannelDescription] = [:]
+        let myID = currentUserId()
+        for ch in channelMap.values where ch.type == MezonConstants.ChannelType.dm.rawValue {
+            let peers = ch.userIds.filter { $0 != 0 && $0 != myID }
+            if peers.count == 1, directChannelByUserID[peers[0]] == nil {
+                directChannelByUserID[peers[0]] = ch
+            }
+        }
+        var items: [SharingSearchCandidate] = []
         var seen = Set<String>()
         for user in users where user.id != 0 && !blockedByMeUserIds.contains(user.id) {
-            let existing = existingDirectMessageChannel(withPeer: user.id)
+            let existing = directChannelByUserID[user.id]
             let name = user.displayName.isEmpty ? user.username : user.displayName
             guard !name.isEmpty else { continue }
             let item = SharingSuggestionItem(
@@ -887,10 +909,11 @@ final class ForwardMessageViewController: UIViewController {
                 channelPrivate: 1,
                 ageRestricted: 0,
                 clanName: nil,
-                clanLogo: nil
+                clanLogo: nil,
+                username: user.username
             )
             guard seen.insert(item.identity).inserted else { continue }
-            items.append(item)
+            items.append(SharingSearchCandidate(item: item, username: user.username))
         }
         for ch in channels where ch.channelID != 0 {
             let resolved = channelMap[ch.channelID] ?? ch
@@ -905,7 +928,7 @@ final class ForwardMessageViewController: UIViewController {
             }
             guard !item.displayName.isEmpty, seen.insert(item.identity).inserted else { continue }
             channelMap[resolved.channelID] = resolved
-            items.append(item)
+            items.append(SharingSearchCandidate(item: item))
         }
         return items
     }
@@ -922,7 +945,8 @@ final class ForwardMessageViewController: UIViewController {
             channelPrivate: ch.channelPrivate,
             ageRestricted: ch.ageRestricted,
             clanName: nil,
-            clanLogo: nil
+            clanLogo: nil,
+            username: ch.type == MezonConstants.ChannelType.dm.rawValue ? (ch.usernames.first ?? "") : ""
         )
     }
 

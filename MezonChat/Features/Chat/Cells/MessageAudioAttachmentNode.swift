@@ -196,17 +196,28 @@ final class MessageAudioPlayerView: UIView, ChatAudioPlaybackProgressSink {
         let urlStr = attachment.url
         Self.durationProbeQueue.async { [weak self] in
             guard let url = ChatAudioPlaybackCoordinator.resolvePlaybackURL(from: urlStr) else { return }
-            let asset = AVURLAsset(url: url)
-            asset.loadValuesAsynchronously(forKeys: ["duration"]) { [weak self] in
-                var err: NSError?
-                guard asset.statusOfValue(forKey: "duration", error: &err) == .loaded else { return }
-                let sec = CMTimeGetSeconds(asset.duration)
-                guard sec.isFinite, sec > 0 else { return }
-                Self.probedDurationCache.setObject(NSNumber(value: sec), forKey: key)
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    self.resolvedAssetDuration = sec
-                    self.refreshTimeLabel()
+            func probe(_ assetURL: URL) {
+                let asset = AVURLAsset(url: assetURL)
+                asset.loadValuesAsynchronously(forKeys: ["duration"]) { [weak self] in
+                    var err: NSError?
+                    guard asset.statusOfValue(forKey: "duration", error: &err) == .loaded else {
+                        return
+                    }
+                    let sec = CMTimeGetSeconds(asset.duration)
+                    guard sec.isFinite, sec > 0 else { return }
+                    Self.probedDurationCache.setObject(NSNumber(value: sec), forKey: key)
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self else { return }
+                        self.resolvedAssetDuration = sec
+                        self.refreshTimeLabel()
+                    }
+                }
+            }
+            if let request = CDNSigner.shared.readyRequestURL(for: url) {
+                probe(request.url)
+            } else {
+                CDNSigner.shared.requestURL(for: url) { request in
+                    probe(request.url)
                 }
             }
         }

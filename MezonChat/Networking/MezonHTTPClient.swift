@@ -1135,6 +1135,19 @@ final class MezonHTTPClient {
         )
     }
 
+    func sendEphemeralMessageToBot(
+        _ message: Mezon_Realtime_ChannelMessageSend,
+        token: String
+    ) async throws -> Mezon_Realtime_ChannelMessageAck {
+        var req = Mezon_Realtime_EphemeralMessageSend()
+        req.message = message
+        return try await postProtoHTTP(
+            path: "/mezon.api.Mezon/SendEphemeralMessageToBot",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     private static let sendChannelMessageApiName = "SendChannelMessage"
     private static let realtimeSendAckTimeoutNanoseconds: UInt64 = 5_000_000_000
 
@@ -1737,22 +1750,55 @@ final class MezonHTTPClient {
     }
 
     func generateMeetToken(channelId: Int64, roomName: String, metadata: String, token: String) async throws -> String {
+        try await generateMeetTokenResponse(channelId: channelId, roomName: roomName, metadata: metadata, token: token).token
+    }
+
+    func generateMeetTokenResponse(channelId: Int64, roomName: String, metadata: String, token: String) async throws -> Mezon_Api_GenerateMeetTokenResponse {
         var req = Mezon_Api_GenerateMeetTokenRequest()
         req.channelID = channelId
         req.roomName = roomName
         req.metadata = metadata
         let path = "/mezon.api.Mezon/GenerateMeetToken"
-        if let response: Mezon_Api_GenerateMeetTokenResponse = try? await sendOverSocketIfPossible(path: path, message: req),
-           !response.token.isEmpty {
-            return response.token
+        var response: Mezon_Api_GenerateMeetTokenResponse
+        if let socketResponse: Mezon_Api_GenerateMeetTokenResponse = try? await sendOverSocketIfPossible(path: path, message: req),
+           !socketResponse.token.isEmpty {
+            response = socketResponse
+        } else {
+            let data = try await retryingTransientRequest(operationName: "GenerateMeetToken") {
+                try await self.postProtoRawHTTP(path: path, message: req, auth: .bearer(token))
+            }
+            guard let httpResponse = Self.decodeMeetTokenResponse(data) else {
+                throw MezonError.invalidResponse
+            }
+            response = httpResponse
         }
-        let data = try await retryingTransientRequest(operationName: "GenerateMeetToken") {
-            try await self.postProtoRawHTTP(path: path, message: req, auth: .bearer(token))
+        let sfuURL = Self.normalizedSfuWebSocketURL(response.url)
+        if sfuURL.isEmpty, !response.url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            NSLog("%@", "[MezonHTTPClient] GenerateMeetToken returned an unusable SFU url '\(response.url)', using MEZON_SFU_WS_URL" as NSString)
         }
-        guard let response = Self.decodeMeetTokenResponse(data) else {
-            throw MezonError.invalidResponse
+        response.url = sfuURL
+        return response
+    }
+
+    private static func normalizedSfuWebSocketURL(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              var components = URLComponents(string: trimmed.contains("://") ? trimmed : "wss://\(trimmed)") else {
+            return ""
         }
-        return response.token
+        switch (components.scheme ?? "").lowercased() {
+        case "ws", "http":
+            components.scheme = "ws"
+        case "wss", "https":
+            components.scheme = "wss"
+        default:
+            return ""
+        }
+        guard components.host?.isEmpty == false else { return "" }
+        if components.path.isEmpty || components.path == "/" {
+            components.path = "/ws"
+        }
+        return components.url?.absoluteString ?? ""
     }
 
     private static let meetTokenProtobufFieldTag: UInt8 = 0x0A
@@ -1876,28 +1922,57 @@ final class MezonHTTPClient {
         )
     }
 
+    private static let uploadFilenameMaxBytes = 100
+    private static let uploadExtensionMaxBytes = 16
+
+    static func fittedUploadFilename(_ filename: String) -> String {
+        guard filename.utf8.count > uploadFilenameMaxBytes else { return filename }
+        let ext = (filename as NSString).pathExtension
+        let suffix = ext.isEmpty ? "" : ".\(ext)"
+        guard !suffix.isEmpty, suffix.utf8.count <= uploadExtensionMaxBytes else {
+            return utf8Prefix(filename, maxBytes: uploadFilenameMaxBytes)
+        }
+        let stem = (filename as NSString).deletingPathExtension
+        return utf8Prefix(stem, maxBytes: uploadFilenameMaxBytes - suffix.utf8.count) + suffix
+    }
+
+    private static func utf8Prefix(_ text: String, maxBytes: Int) -> String {
+        var used = 0
+        var end = text.startIndex
+        for character in text {
+            let bytes = String(character).utf8.count
+            guard used + bytes <= maxBytes else { break }
+            used += bytes
+            end = text.index(after: end)
+        }
+        return String(text[..<end])
+    }
+
     func uploadAttachmentFile(
         filename: String,
         filetype: String,
         size: Int,
         width: Int = 0,
         height: Int = 0,
+        channelId: Int64 = 0,
         token: String,
         preferHTTPFirst: Bool = false
     ) async throws -> Mezon_Api_UploadAttachment {
         let uploadType = AttachmentTypeClassifier.uploadType(for: filetype)
         var req = Mezon_Api_UploadAttachmentRequest()
-        req.filename = filename
+        req.filename = Self.fittedUploadFilename(filename)
         req.filetype = uploadType
         req.size = Int32(size)
         req.width = Int32(width)
         req.height = Int32(height)
-        return try await postProto(
+        req.channelID = channelId
+        let response: Mezon_Api_UploadAttachment = try await postProto(
             path: "/mezon.api.Mezon/UploadAttachmentFile",
             message: req,
             auth: .bearer(token),
             preferHTTPFirst: preferHTTPFirst
         )
+        return response
     }
 
     func uploadToMinIO(url: String, data: Data, contentType: String) async throws {
@@ -1924,23 +1999,26 @@ final class MezonHTTPClient {
         width: Int = 0,
         height: Int = 0,
         partCount: Int,
+        channelId: Int64 = 0,
         token: String,
         preferHTTPFirst: Bool = false
     ) async throws -> Mezon_Api_MultipartUploadAttachment {
         let uploadType = AttachmentTypeClassifier.uploadType(for: filetype)
         var req = Mezon_Api_UploadAttachmentRequest()
-        req.filename = filename
+        req.filename = Self.fittedUploadFilename(filename)
         req.filetype = uploadType
         req.size = Int32(size)
         req.width = Int32(width)
         req.height = Int32(height)
         req.partCount = Int32(partCount)
-        return try await postProto(
+        req.channelID = channelId
+        let response: Mezon_Api_MultipartUploadAttachment = try await postProto(
             path: "/mezon.api.Mezon/MultipartUploadAttachmentFileStart",
             message: req,
             auth: .bearer(token),
             preferHTTPFirst: preferHTTPFirst
         )
+        return response
     }
 
     func multipartUploadAttachmentFileFinish(
@@ -2085,6 +2163,34 @@ final class MezonHTTPClient {
         return response.listMenus
     }
 
+    func addQuickMenuAccess(_ item: Mezon_Api_QuickMenuAccess, token: String) async throws {
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/AddQuickMenuAccess",
+            message: item,
+            auth: .bearer(token)
+        )
+    }
+
+    func updateQuickMenuAccess(_ item: Mezon_Api_QuickMenuAccess, token: String) async throws {
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/UpdateQuickMenuAccess",
+            message: item,
+            auth: .bearer(token)
+        )
+    }
+
+    func deleteQuickMenuAccess(id: Int64, clanId: Int64, menuName: String, token: String) async throws {
+        var req = Mezon_Api_QuickMenuAccess()
+        req.id = id
+        req.clanID = clanId
+        req.menuName = menuName
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/DeleteQuickMenuAccess",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func getApp(appId: Int64, token: String) async throws -> Mezon_Api_App {
         var req = Mezon_Api_App()
         req.id = appId
@@ -2147,11 +2253,77 @@ final class MezonHTTPClient {
         req.topicID = topicId
         req.emojiRecentID = emojiRecentId
         req.senderName = senderName
-        return try await postProto(
-            path: "/mezon.api.Mezon/ReactChannelMessage",
-            message: req,
-            auth: .bearer(token)
-        )
+
+        if await MezonSocket.shared.canSendChannelMessageRealtime(clanId: clanId, channelId: channelId),
+           await writeMessageReactionOverSocket(req) != .notApplied {
+            return Mezon_Api_MessageReaction()
+        }
+
+        return try await postReactionHTTP(req, token: token)
+    }
+
+    private enum RealtimeReactionOutcome {
+        case applied
+        case maybeApplied
+        case notApplied
+    }
+
+    private func writeMessageReactionOverSocket(_ req: Mezon_Api_MessageReaction) async -> RealtimeReactionOutcome {
+        var envelope = Mezon_Realtime_Envelope()
+        envelope.messageReactionEvent = req
+        let started = Date()
+        do {
+            let reply = try await MezonSocket.shared.sendAwaitingReply(
+                envelope,
+                timeoutNanoseconds: Self.realtimeSendAckTimeoutNanoseconds
+            )
+            await MezonSocket.shared.noteApiRequestSucceeded()
+            switch reply.message {
+            case .some(.messageReactionEvent):
+                return .applied
+            case .some(.error):
+                return .notApplied
+            default:
+                return .maybeApplied
+            }
+        } catch SocketReplyError.undelivered(_) {
+            return .notApplied
+        } catch {
+            if Date().timeIntervalSince(started) >= 1.5 {
+                await MezonSocket.shared.noteApiRequestTimedOut()
+            }
+            return .maybeApplied
+        }
+    }
+
+    private static let reactionHTTPRetryDelaysNanoseconds: [UInt64] = [1_000_000_000, 3_000_000_000]
+
+    private func postReactionHTTP(_ req: Mezon_Api_MessageReaction, token: String) async throws -> Mezon_Api_MessageReaction {
+        var pendingDelays = Self.reactionHTTPRetryDelaysNanoseconds[...]
+        while true {
+            do {
+                return try await postProtoHTTP(
+                    path: "/mezon.api.Mezon/ReactChannelMessage",
+                    message: req,
+                    auth: .bearer(token)
+                )
+            } catch {
+                guard Self.isRequestNeverSent(error), let delay = pendingDelays.popFirst() else { throw error }
+                try await Task.sleep(nanoseconds: delay)
+            }
+        }
+    }
+
+    private static func isRequestNeverSent(_ error: Error) -> Bool {
+        let ns = error as NSError
+        guard ns.domain == NSURLErrorDomain else { return false }
+        switch ns.code {
+        case NSURLErrorNotConnectedToInternet, NSURLErrorCannotConnectToHost, NSURLErrorCannotFindHost,
+             NSURLErrorDNSLookupFailed, NSURLErrorDataNotAllowed:
+            return true
+        default:
+            return false
+        }
     }
 
     func listUserClansByUserId(token: String) async throws -> Mezon_Api_AllUserClans {
@@ -2176,11 +2348,16 @@ final class MezonHTTPClient {
         var req = Mezon_Api_SearchCtrlKRequest()
         req.text = text
         req.type = type
-        return try await postProto(
-            path: "/mezon.api.Mezon/SearchCtrlK",
-            message: req,
-            auth: .bearer(token)
-        )
+        let path = "/mezon.api.Mezon/SearchCtrlK"
+        do {
+            return try await postProto(path: path, message: req, auth: .bearer(token))
+        } catch {
+            if error is CancellationError || Task.isCancelled {
+                throw error
+            }
+            try await Task.sleep(nanoseconds: Self.searchCtrlKRetryDelayNanoseconds)
+            return try await postProto(path: path, message: req, auth: .bearer(token))
+        }
     }
 
     func searchMentionUsers(
@@ -2193,11 +2370,29 @@ final class MezonHTTPClient {
         req.clanID = clanId
         req.channelID = channelId
         req.text = text
-        return try await postProto(
+        let response: Mezon_Api_SearchMentionUsersResponse = try await postProto(
             path: "/mezon.api.Mezon/SearchMentionUsers",
             message: req,
             auth: .bearer(token)
         )
+        return response
+    }
+
+    func generateCDNSignature(
+        channelId: Int64,
+        token: String
+    ) async throws -> Mezon_Api_GenerateCDNSignatureResponse {
+        guard channelId != 0 else {
+            throw MezonError.httpError(statusCode: 400, message: "GenerateCDNSignature needs a channel id")
+        }
+        var req = Mezon_Api_GenerateCDNSignatureRequest()
+        req.channelID = channelId
+        let response: Mezon_Api_GenerateCDNSignatureResponse = try await postProto(
+            path: "/mezon.api.Mezon/GenerateCDNSignature",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response
     }
 
     func listFriends(
@@ -2515,6 +2710,7 @@ final class MezonHTTPClient {
     ]
     private static let singleTransportOnlyApiNames: Set<String> = [
         "UpdateChannelMessage",
+        "SearchCtrlK",
     ]
     private static let socketFallbackGraceWaitNanoseconds: UInt64 = 2_000_000_000
     private static let socketFallbackApiTimeoutNanoseconds: UInt64 = 4_000_000_000
@@ -2548,6 +2744,8 @@ final class MezonHTTPClient {
         600_000_000,
         1_200_000_000,
     ]
+
+    private static let searchCtrlKRetryDelayNanoseconds: UInt64 = 350_000_000
 
     private static func socketTransportProfile(for apiName: String) -> SocketTransportProfile {
         messageFetchApiNames.contains(apiName)

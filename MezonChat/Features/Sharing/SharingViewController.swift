@@ -124,6 +124,7 @@ final class SharingViewController: UIViewController {
         let v = UIView()
         v.translatesAutoresizingMaskIntoConstraints = false
         v.layer.cornerRadius = 12
+        v.clipsToBounds = true
         return v
     }()
 
@@ -140,8 +141,12 @@ final class SharingViewController: UIViewController {
         tv.translatesAutoresizingMaskIntoConstraints = false
         tv.separatorStyle = .none
         tv.keyboardDismissMode = .onDrag
-        tv.rowHeight = UITableView.automaticDimension
-        tv.estimatedRowHeight = 58
+        tv.rowHeight = 56
+        tv.estimatedRowHeight = 0
+        tv.contentInsetAdjustmentBehavior = .never
+        if #available(iOS 15.0, *) {
+            tv.sectionHeaderTopPadding = 0
+        }
         tv.showsVerticalScrollIndicator = false
         return tv
     }()
@@ -254,6 +259,8 @@ final class SharingViewController: UIViewController {
     private var bottomAreaBottomConstraint: NSLayoutConstraint?
     private var attachmentHeightConstraint: NSLayoutConstraint?
     private var inputRowBottomConstraint: NSLayoutConstraint?
+    private var suggestionsTableTopWithTitleConstraint: NSLayoutConstraint?
+    private var suggestionsTableTopWithoutTitleConstraint: NSLayoutConstraint?
     private var isKeyboardVisible = false
 
     init(context: AccountContext, sharedContent: SharingManager.SharedContent) {
@@ -435,7 +442,7 @@ final class SharingViewController: UIViewController {
         ])
 
         NSLayoutConstraint.activate([
-            suggestionsCard.topAnchor.constraint(equalTo: searchContainer.bottomAnchor, constant: 16),
+            suggestionsCard.topAnchor.constraint(equalTo: searchContainer.bottomAnchor, constant: 12),
             suggestionsCard.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             suggestionsCard.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
 
@@ -443,7 +450,6 @@ final class SharingViewController: UIViewController {
             suggestionsTitle.leadingAnchor.constraint(equalTo: suggestionsCard.leadingAnchor, constant: 16),
             suggestionsTitle.trailingAnchor.constraint(equalTo: suggestionsCard.trailingAnchor, constant: -16),
 
-            tableView.topAnchor.constraint(equalTo: suggestionsTitle.bottomAnchor, constant: 4),
             tableView.leadingAnchor.constraint(equalTo: suggestionsCard.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: suggestionsCard.trailingAnchor),
             tableView.bottomAnchor.constraint(equalTo: suggestionsCard.bottomAnchor),
@@ -452,6 +458,12 @@ final class SharingViewController: UIViewController {
             emptySuggestionsLabel.trailingAnchor.constraint(equalTo: suggestionsCard.trailingAnchor, constant: -20),
             emptySuggestionsLabel.centerYAnchor.constraint(equalTo: tableView.centerYAnchor),
         ])
+
+        let tableTopWithTitle = tableView.topAnchor.constraint(equalTo: suggestionsTitle.bottomAnchor, constant: 4)
+        let tableTopWithoutTitle = tableView.topAnchor.constraint(equalTo: suggestionsCard.topAnchor, constant: 8)
+        suggestionsTableTopWithTitleConstraint = tableTopWithTitle
+        suggestionsTableTopWithoutTitleConstraint = tableTopWithoutTitle
+        tableTopWithTitle.isActive = true
 
         let bottomConstraint = bottomArea.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         self.bottomAreaBottomConstraint = bottomConstraint
@@ -584,6 +596,8 @@ final class SharingViewController: UIViewController {
     }
 
     private func scheduleSearch() {
+        // Invalidate in-flight responses immediately, including during the debounce window.
+        ctrlKGeneration &+= 1
         searchDebounceTimer?.invalidate()
         searchDebounceTimer = Foundation.Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] (_: Foundation.Timer) in
             self?.applySearchQuery()
@@ -603,8 +617,7 @@ final class SharingViewController: UIViewController {
                 searchResults = []
             }
         }
-        renderSuggestions()
-        scrollSuggestionsListToTop(animated: false)
+        renderSuggestions(scrollToTop: true)
     }
 
     private func fetchCtrlKResults(_ rawQuery: String) -> Bool {
@@ -624,35 +637,44 @@ final class SharingViewController: UIViewController {
             }
             guard self.ctrlKGeneration == generation else { return }
             if let response {
-                self.searchResults = self.buildSearchResults(users: response.users, channels: response.channels)
+                let candidates = self.buildSearchResults(users: response.users, channels: response.channels)
+                let ranked = await SharingSearchRanking.ranked(candidates, query: text)
+                guard self.ctrlKGeneration == generation else { return }
+                self.searchResults = ranked
             } else {
                 self.searchResults = []
             }
             self.awaitingSearchResults = false
-            self.renderSuggestions()
-            self.scrollSuggestionsListToTop(animated: false)
+            self.renderSuggestions(scrollToTop: true)
         }
         return true
     }
 
-    private func renderSuggestions() {
+    private func renderSuggestions(scrollToTop: Bool = false) {
         let searching = !trimmedSearchQuery.isEmpty
         filteredSuggestions = searching ? searchResults : allSuggestions
         suggestionsTitle.isHidden = searching
-        applySnapshot()
+        if searching {
+            suggestionsTableTopWithTitleConstraint?.isActive = false
+            suggestionsTableTopWithoutTitleConstraint?.isActive = true
+        } else {
+            suggestionsTableTopWithoutTitleConstraint?.isActive = false
+            suggestionsTableTopWithTitleConstraint?.isActive = true
+        }
+        applySnapshot(scrollToTop: scrollToTop)
     }
 
     private func buildSearchResults(
         users: [Mezon_Api_User],
         channels: [Mezon_Api_ChannelDescription]
-    ) -> [SharingSuggestionItem] {
+    ) -> [SharingSearchCandidate] {
         var directChannelByUserID: [Int64: Mezon_Api_ChannelDescription] = [:]
         for ch in channelMap.values
         where ch.type == MezonConstants.ChannelType.dm.rawValue && ch.userIds.count == 1 && ch.userIds[0] != 0 {
             directChannelByUserID[ch.userIds[0]] = ch
         }
 
-        var items: [SharingSuggestionItem] = []
+        var items: [SharingSearchCandidate] = []
         var seen = Set<String>()
         for user in users where user.id != 0 {
             let existing = directChannelByUserID[user.id]
@@ -669,10 +691,11 @@ final class SharingViewController: UIViewController {
                 channelPrivate: 1,
                 ageRestricted: 0,
                 clanName: nil,
-                clanLogo: nil
+                clanLogo: nil,
+                username: user.username
             )
             guard seen.insert(item.identity).inserted else { continue }
-            items.append(item)
+            items.append(SharingSearchCandidate(item: item, username: user.username))
         }
         for ch in channels where ch.channelID != 0 {
             let item: SharingSuggestionItem
@@ -685,7 +708,7 @@ final class SharingViewController: UIViewController {
             }
             guard !item.displayName.isEmpty, seen.insert(item.identity).inserted else { continue }
             channelMap[ch.channelID] = ch
-            items.append(item)
+            items.append(SharingSearchCandidate(item: item))
         }
         return items
     }
@@ -702,7 +725,8 @@ final class SharingViewController: UIViewController {
             channelPrivate: ch.channelPrivate,
             ageRestricted: ch.ageRestricted,
             clanName: nil,
-            clanLogo: nil
+            clanLogo: nil,
+            username: ch.type == MezonConstants.ChannelType.dm.rawValue ? (ch.usernames.first ?? "") : ""
         )
     }
 
@@ -738,6 +762,7 @@ final class SharingViewController: UIViewController {
         ch.channelPrivate = 1
         ch.userIds = [item.userID]
         ch.displayNames = [item.displayName]
+        if !item.username.isEmpty { ch.usernames = [item.username] }
         if let avatar = item.avatarURL, !avatar.isEmpty {
             ch.avatars = [avatar]
         }
@@ -745,16 +770,10 @@ final class SharingViewController: UIViewController {
     }
 
     private func scrollSuggestionsListToTop(animated: Bool) {
-        guard tableView.numberOfSections > 0 else {
-            tableView.setContentOffset(.zero, animated: animated)
-            return
-        }
-        let n = tableView.numberOfRows(inSection: 0)
-        guard n > 0 else {
-            tableView.setContentOffset(.zero, animated: animated)
-            return
-        }
-        tableView.scrollToRow(at: IndexPath(row: 0, section: 0), at: .top, animated: animated)
+        view.layoutIfNeeded()
+        tableView.setContentOffset(
+            CGPoint(x: 0, y: -tableView.adjustedContentInset.top), animated: animated
+        )
     }
 
     private func setupDiffableDataSource() {
@@ -770,11 +789,23 @@ final class SharingViewController: UIViewController {
         diffableDataSource.defaultRowAnimation = .none
     }
 
-    private func applySnapshot(animated: Bool = false) {
+    private func applySnapshot(animated: Bool = false, scrollToTop: Bool = false) {
+        let previousItems = Dictionary(uniqueKeysWithValues:
+            diffableDataSource.snapshot().itemIdentifiers.map { ($0.identity, $0) }
+        )
         var snapshot = NSDiffableDataSourceSnapshot<Section, SharingSuggestionItem>()
         snapshot.appendSections([.suggestions])
         snapshot.appendItems(filteredSuggestions, toSection: .suggestions)
-        diffableDataSource.apply(snapshot, animatingDifferences: animated)
+        // Identity is stable, so explicitly refresh a username enriched by SearchCtrlK.
+        snapshot.reloadItems(filteredSuggestions.filter { item in
+            guard let previous = previousItems[item.identity] else { return false }
+            return previous.username != item.username
+        })
+        diffableDataSource.apply(snapshot, animatingDifferences: animated) { [weak self] in
+            if scrollToTop {
+                self?.scrollSuggestionsListToTop(animated: false)
+            }
+        }
         updateEmptySuggestionsVisibility()
     }
 
@@ -1275,6 +1306,7 @@ final class SharingViewController: UIViewController {
     private func uploadSharedVideoThumbnail(
         thumbnailURL: URL,
         videoFilename: String,
+        channelId: Int64,
         token: String
     ) async -> String {
         guard let rawData = try? Data(contentsOf: thumbnailURL),
@@ -1289,10 +1321,10 @@ final class SharingViewController: UIViewController {
         do {
             let uploadInfo = try await context.account.network.uploadAttachmentFile(
                 filename: thumbFilename, filetype: "image/jpeg", size: jpegData.count,
-                width: width, height: height, token: token)
+                width: width, height: height, channelId: channelId, token: token)
             try await context.account.network.uploadToMinIO(
                 url: uploadInfo.url, data: jpegData, contentType: "image/jpeg")
-            return "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+            return MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, filename: uploadInfo.filename)
         } catch {
             SentryLogger.capture(error, extras: [
                 "where": "Sharing.uploadSharedVideoThumbnail",
@@ -1461,6 +1493,7 @@ final class SharingViewController: UIViewController {
                         fileSize: fileSize,
                         width: width,
                         height: height,
+                        channelId: target.channelID,
                         token: token,
                         progressKey: fileURL.path,
                         network: self.context.account.network
@@ -1478,7 +1511,8 @@ final class SharingViewController: UIViewController {
                        let thumbPath = file.thumbnail,
                        let thumbURL = SharingManager.shared.localFileURL(from: thumbPath) {
                         att.thumbnail = await self.uploadSharedVideoThumbnail(
-                            thumbnailURL: thumbURL, videoFilename: sanitized, token: token)
+                            thumbnailURL: thumbURL, videoFilename: sanitized,
+                            channelId: target.channelID, token: token)
                     }
                     uploadedAttachments.append(att)
                 }

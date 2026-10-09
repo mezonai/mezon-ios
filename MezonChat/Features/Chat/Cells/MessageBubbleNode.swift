@@ -34,6 +34,7 @@ final class MessageBubbleNode: ASDisplayNode {
     private let ephemeralIndicatorNode = ASDisplayNode()
     private let ephemeralIndicatorIconNode = ASImageNode()
     private let ephemeralIndicatorTextNode = ASTextNode2()
+    private var botCommandStatusNode: BotCommandStatusNode?
 
     private(set) var display: ChatMessageDisplay
     private let interaction: ChatInteraction
@@ -83,6 +84,7 @@ final class MessageBubbleNode: ASDisplayNode {
     private var cachedPollSize: CGSize = .zero
     private var cachedErrorSize: CGSize = .zero
     private var cachedEditedSize: CGSize = .zero
+    private var cachedBotCommandSize: CGSize = .zero
     private var cachedForwardHeaderSize: CGSize = .zero
     private var cachedForwardLabelSize: CGSize = .zero
     private var cachedTotalSize: CGSize = .zero
@@ -231,6 +233,7 @@ final class MessageBubbleNode: ASDisplayNode {
             ephemeralIndicatorNode.addSubnode(ephemeralIndicatorTextNode)
             addSubnode(ephemeralIndicatorNode)
         }
+        syncBotCommandStatusNode()
 
         let t = UIColor.theme
 
@@ -401,7 +404,7 @@ final class MessageBubbleNode: ASDisplayNode {
             tcn.onLinkTapped = { url in
                 let scheme = url.scheme?.lowercased() ?? ""
                 guard scheme == "https" || scheme == "http" else { return }
-                UIApplication.shared.open(url)
+                CDNSigner.shared.openExternally(url)
             }
             textContentNode = tcn
             addSubnode(tcn)
@@ -451,7 +454,7 @@ final class MessageBubbleNode: ASDisplayNode {
                       let scheme = fileURL.scheme?.lowercased(),
                       scheme == "https" || scheme == "http"
                 else { return }
-                UIApplication.shared.open(fileURL)
+                CDNSigner.shared.openExternally(fileURL)
             }
             fileAttachmentNode = fan
             addSubnode(fan)
@@ -606,11 +609,48 @@ final class MessageBubbleNode: ASDisplayNode {
         return mediaContentNode.applyMediaIncrementalUpdate(from: oldMedia, to: newMedia)
     }
 
+    private func syncBotCommandStatusNode() {
+        guard let command = display.botCommand else {
+            botCommandStatusNode?.removeFromSupernode()
+            botCommandStatusNode = nil
+            return
+        }
+        let node: BotCommandStatusNode
+        if let existing = botCommandStatusNode {
+            node = existing
+        } else {
+            node = BotCommandStatusNode()
+            node.onAction = { [weak self] in
+                self?.handleBotCommandAction()
+            }
+            node.onDismiss = { [weak self] in
+                guard let self else { return }
+                self.interaction.onBotCommandAction?(self.display.id, .dismiss)
+            }
+            addSubnode(node)
+            botCommandStatusNode = node
+        }
+        node.configure(command)
+    }
+
+    private func handleBotCommandAction() {
+        guard let command = display.botCommand else { return }
+        switch command.status {
+        case .answered(let replyMessageId):
+            interaction.onBotCommandAction?(display.id, .viewReply(messageId: replyMessageId))
+        case .noResponse, .failed:
+            interaction.onBotCommandAction?(display.id, .resend)
+        case .waiting:
+            break
+        }
+    }
+
     func updateDisplay(_ newDisplay: ChatMessageDisplay) {
         let oldDisplay = self.display
         let oldFailed = self.isFailed
         self.display = newDisplay
         self.isFailed = newDisplay.isFailed
+        syncBotCommandStatusNode()
         
 
         let t = UIColor.theme
@@ -732,7 +772,7 @@ final class MessageBubbleNode: ASDisplayNode {
                 tcn.onLinkTapped = { url in
                     let scheme = url.scheme?.lowercased() ?? ""
                     guard scheme == "https" || scheme == "http" else { return }
-                    UIApplication.shared.open(url)
+                    CDNSigner.shared.openExternally(url)
                 }
                 textContentNode = tcn
                 if let c = clanInviteLinkNode { insertSubnode(tcn, belowSubnode: c) }
@@ -1139,7 +1179,7 @@ final class MessageBubbleNode: ASDisplayNode {
             let hasMem = ImageCache.shared.memoryImage(forKey: proxyURL) != nil
                 || ImageCache.shared.memoryImage(forKey: urlString) != nil
             avatarImageNode.reset()
-            avatarImageNode.setSignal(remoteAvatarSignal(proxiedURL: proxyURL, originalURL: urlString), attemptSynchronously: hasMem)
+            avatarImageNode.setSignal(remoteAvatarSignal(proxiedURL: proxyURL, originalURL: urlString, sharesForNotifications: true), attemptSynchronously: hasMem)
             let avatarLayout = avatarImageNode.asyncLayout()
             let apply = avatarLayout(args)
             apply()
@@ -1575,6 +1615,13 @@ final class MessageBubbleNode: ASDisplayNode {
             cachedEditedSize = .zero
         }
 
+        if let botCommandStatusNode {
+            cachedBotCommandSize = botCommandStatusNode.measure(maxWidth: bodyContentWidth)
+            totalH += cachedBotCommandSize.height + 4.sh
+        } else {
+            cachedBotCommandSize = .zero
+        }
+
         if display.isEphemeral {
             let indicatorIconW: CGFloat = 12.sf
             let indicatorGap: CGFloat = 4.sw
@@ -1771,6 +1818,16 @@ final class MessageBubbleNode: ASDisplayNode {
                 height: cachedEditedSize.height
             )
             y += cachedEditedSize.height + 2.sh
+        }
+
+        if let botCommandStatusNode {
+            botCommandStatusNode.frame = CGRect(
+                x: contentInnerX,
+                y: y,
+                width: bodyContentWidth,
+                height: cachedBotCommandSize.height
+            )
+            y += cachedBotCommandSize.height + 4.sh
         }
 
         highlightNode.frame = bounds

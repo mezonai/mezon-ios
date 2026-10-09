@@ -54,6 +54,16 @@ final class SharingChannelCell: UITableViewCell {
         return l
     }()
 
+    private let usernameLabel: UILabel = {
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.font = .systemFont(ofSize: 12, weight: .regular)
+        label.numberOfLines = 1
+        label.lineBreakMode = .byTruncatingTail
+        label.isHidden = true
+        return label
+    }()
+
     private let clanAvatarView: UIImageView = {
         let iv = UIImageView()
         iv.translatesAutoresizingMaskIntoConstraints = false
@@ -131,6 +141,8 @@ final class SharingChannelCell: UITableViewCell {
         clanNameLabel.text = nil
         statusLabel.isHidden = true
         statusLabel.text = nil
+        usernameLabel.isHidden = true
+        usernameLabel.text = nil
         contentView.alpha = 1
     }
 
@@ -143,6 +155,7 @@ final class SharingChannelCell: UITableViewCell {
         avatarView.addSubview(channelIconView)
         contentView.addSubview(textColumnStack)
         textColumnStack.addArrangedSubview(nameLabel)
+        textColumnStack.addArrangedSubview(usernameLabel)
         textColumnStack.addArrangedSubview(statusLabel)
         textColumnStack.addArrangedSubview(clanRowStack)
         clanRowStack.addArrangedSubview(clanAvatarView)
@@ -211,6 +224,15 @@ final class SharingChannelCell: UITableViewCell {
         }
         nameLabel.text = displayName
 
+        let itemUsername = item.username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let channelUsername = ch?.usernames.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let username = itemUsername.isEmpty ? channelUsername : itemUsername
+        usernameLabel.textColor = theme.textDisabled
+        usernameLabel.isHidden = !isDM || username.isEmpty
+        usernameLabel.text = isDM && !username.isEmpty
+            ? username
+            : nil
+
         let itemClan = item.clanName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let chClan = ch?.clanName.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let displayClanName: String? = {
@@ -241,16 +263,16 @@ final class SharingChannelCell: UITableViewCell {
         if isDM {
             channelIconView.isHidden = true
             let urlStr = item.avatarURL ?? ch?.avatars.first
-            let username = ch?.usernames.first ?? item.displayName
+            let avatarSeed = ch?.usernames.first ?? item.displayName
             if let s = urlStr, !s.isEmpty {
                 avatarPlaceholder.isHidden = true
-                avatarView.backgroundColor = UIColor.avatarColor(for: username)
+                avatarView.backgroundColor = UIColor.avatarColor(for: avatarSeed)
                 loadMainAvatar(raw: s)
             } else {
                 avatarView.image = nil
-                avatarView.backgroundColor = UIColor.avatarColor(for: username)
+                avatarView.backgroundColor = UIColor.avatarColor(for: avatarSeed)
                 avatarPlaceholder.isHidden = false
-                avatarPlaceholder.text = String(username.prefix(1)).uppercased()
+                avatarPlaceholder.text = String(avatarSeed.prefix(1)).uppercased()
             }
         } else if isGroup {
             avatarPlaceholder.isHidden = true

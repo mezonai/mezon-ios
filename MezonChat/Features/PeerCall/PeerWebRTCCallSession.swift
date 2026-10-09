@@ -288,8 +288,8 @@ final class PeerWebRTCCallSession: NSObject {
     }
 
     func beginOutgoingCall() {
-        onStatusLabel?(direction == .outgoing ? PeerCallLocalizedStrings.statusRinging : "")
-        beginOutgoingCallTask?.cancel()
+        guard direction == .outgoing, !ended, beginOutgoingCallTask == nil else { return }
+        onStatusLabel?(PeerCallLocalizedStrings.statusRinging)
         beginOutgoingCallTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let micOk = await Self.requestMicPermission()
@@ -684,6 +684,7 @@ final class PeerWebRTCCallSession: NSObject {
             guard msg.callerID == peerUserId else { return }
             applyRemoteMediaWire(msg.jsonData)
         case WebRTCSignalingDataType.sdpJoinedOtherCall:
+            guard direction != .outgoing else { return }
             guard !didEstablishMediaConnection else { return }
             remoteQuitBeforeConnect = true
             onStatusLabel?(PeerCallLocalizedStrings.statusBusyOnAnotherCall)
@@ -707,8 +708,8 @@ final class PeerWebRTCCallSession: NSObject {
             }
             finishCall(sendQuit: false)
         case WebRTCSignalingDataType.clearCall:
-            guard !didEstablishMediaConnection else { return }
-            finishCall(sendQuit: false)
+            guard matchesRingSyncData(msg.jsonData) else { return }
+            endUnansweredRing(answeredElsewhere: false)
         default:
             break
         }
@@ -901,24 +902,7 @@ final class PeerWebRTCCallSession: NSObject {
             )
         }
 
-        if direction == .outgoing && sendQuit && !didEstablishMediaConnection {
-            let body: [String: Any] = [
-                "offer": "CANCEL_CALL",
-                "callerId": "\(myUserId)",
-                "channelId": "\(channelId)",
-                "receiverId": "\(peerUserId)",
-                "sentAt": "\(Int64(Date().timeIntervalSince1970 * 1000))",
-            ]
-            if let data = try? JSONSerialization.data(withJSONObject: body),
-               let s = String(data: data, encoding: .utf8) {
-                MezonSocket.shared.makeCallPush(
-                    receiverId: peerUserId,
-                    jsonData: s,
-                    channelId: channelId,
-                    callerId: myUserId
-                )
-            }
-        }
+        syncOutgoingCallEnd()
 
         if sendQuit {
             sendRealtimePeerSignaling(
@@ -933,6 +917,49 @@ final class PeerWebRTCCallSession: NSObject {
         tearDownResources()
         WebRTCCallManager.shared.detachSession(self)
         onEnded?()
+    }
+
+    private func syncOutgoingCallEnd() {
+        guard direction == .outgoing else { return }
+        let sessionId = IncomingPeerCallPayloadParser.sdpSessionId(peerConnection?.localDescription?.sdp)
+        var syncData: [String: Any] = ["sentAt": "\(Int64(Date().timeIntervalSince1970 * 1000))"]
+        if let sessionId { syncData["callSessionId"] = sessionId }
+        let syncJson = (try? JSONSerialization.data(withJSONObject: syncData))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        sendRealtimePeerSignaling(
+            receiverId: peerUserId,
+            dataType: WebRTCSignalingDataType.clearCall,
+            jsonData: syncJson
+        )
+        var body: [String: Any] = [
+            "offer": "CANCEL_CALL",
+            "isConnected": false,
+            "callerId": "\(myUserId)",
+            "channelId": "\(channelId)",
+            "receiverId": "\(peerUserId)",
+            "sentAt": "\(Int64(Date().timeIntervalSince1970 * 1000))",
+        ]
+        if let sessionId { body["callSessionId"] = sessionId }
+        if let data = try? JSONSerialization.data(withJSONObject: body),
+           let jsonData = String(data: data, encoding: .utf8) {
+            MezonSocket.shared.makeCallPush(
+                receiverId: peerUserId,
+                jsonData: jsonData,
+                channelId: channelId,
+                callerId: myUserId
+            )
+        }
+    }
+
+    func matchesRingSyncData(_ json: String) -> Bool {
+        guard let data = json.data(using: .utf8),
+              let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let sessionId = value["callSessionId"] as? String, !sessionId.isEmpty
+        else { return true }
+        guard let offer = pendingOfferCompressed,
+              let description = try? parseRemoteSessionDescription(compressedOrPlain: offer)
+        else { return false }
+        return IncomingPeerCallPayloadParser.sdpSessionId(description.sdp) == sessionId
     }
 
     private func tearDownResources() {
@@ -1719,11 +1746,16 @@ final class PeerWebRTCCallSession: NSObject {
         guard !didSendConnectedCallerCancelPush else { return }
         guard !ended else { return }
         didSendConnectedCallerCancelPush = true
-        let body: [String: Any] = [
+        var body: [String: Any] = [
             "offer": "CANCEL_CALL",
             "isConnected": true,
+            "callerId": "\(myUserId)",
+            "channelId": "\(channelId)",
             "sentAt": "\(Int64(Date().timeIntervalSince1970 * 1000))",
         ]
+        if let sessionId = IncomingPeerCallPayloadParser.sdpSessionId(peerConnection?.localDescription?.sdp) {
+            body["callSessionId"] = sessionId
+        }
         guard let data = try? JSONSerialization.data(withJSONObject: body),
               let jsonData = String(data: data, encoding: .utf8)
         else { return }

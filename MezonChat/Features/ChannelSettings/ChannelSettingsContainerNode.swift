@@ -9,6 +9,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
     private let onChangeCategoryTap: (() -> Void)?
     private let onPermissionsTap: (() -> Void)?
     private let onWebhookTap: (() -> Void)?
+    private let onQuickActionTap: (() -> Void)?
     private let showDeleteButton: Bool
     private let showPermissionsButton: Bool
     private let showChangeCategoryButton: Bool
@@ -38,6 +39,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         onDeleteTap: (() -> Void)? = nil,
         onChangeCategoryTap: (() -> Void)? = nil,
         onWebhookTap: (() -> Void)? = nil,
+        onQuickActionTap: (() -> Void)? = nil,
         showDeleteButton: Bool = true,
         showPermissionsButton: Bool = true,
         showChangeCategoryButton: Bool = true,
@@ -54,6 +56,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         self.onDeleteTap = onDeleteTap
         self.onChangeCategoryTap = onChangeCategoryTap
         self.onWebhookTap = onWebhookTap
+        self.onQuickActionTap = onQuickActionTap
         self.showDeleteButton = showDeleteButton
         self.showPermissionsButton = showPermissionsButton
         self.showChangeCategoryButton = showChangeCategoryButton
@@ -179,7 +182,9 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         }
         
         if showQuickActionButton {
-            group1Actions.append(.init(title: L(L10n.ChannelSetting.quickAction), icon: "ChannelSetting/QuickActionIcon", action: nil))
+            group1Actions.append(.init(title: L(L10n.ChannelSetting.quickAction), icon: "ChannelSetting/QuickActionIcon", action: { [weak self] in
+                self?.onQuickActionTap?()
+            }))
         }
         
         if showBanListButton {

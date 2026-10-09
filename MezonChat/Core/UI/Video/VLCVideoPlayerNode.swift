@@ -48,7 +48,7 @@ final class VLCVideoPlayerNode: ASDisplayNode {
     private var errorOverlayNode: ASDisplayNode?
     private var loadingTimeoutTimer: Foundation.Timer?
 
-    private var downloadTask: URLSessionDownloadTask?
+    private var downloadTask: CDNTaskHandle?
     private var downloadProgressObservation: NSKeyValueObservation?
     private var wantsPlay = false
     private var isPreparingDownload = false
@@ -269,7 +269,22 @@ final class VLCVideoPlayerNode: ASDisplayNode {
         guard !isPreparingDownload else { return }
         isPreparingDownload = true
         showDownloadIndicator()
-        let task = Self.downloadSession.downloadTask(with: remote) { [weak self] tempURL, response, error in
+        let task = CDNSigner.shared.downloadTask(with: remote, in: Self.downloadSession, onStart: { [weak self] started in
+            let observation = started.progress.observe(\.fractionCompleted) { [weak self] progress, _ in
+                let percent = Int(progress.fractionCompleted * 100)
+                DispatchQueue.main.async {
+                    self?.downloadProgressLabel.text = "\(percent)%"
+                }
+            }
+            DispatchQueue.main.async {
+                guard let self else {
+                    observation.invalidate()
+                    return
+                }
+                self.downloadProgressObservation?.invalidate()
+                self.downloadProgressObservation = observation
+            }
+        }) { [weak self] tempURL, response, error in
             let httpOK = (response as? HTTPURLResponse).map { (200...299).contains($0.statusCode) } ?? true
             if let tempURL, error == nil, httpOK {
                 try? FileManager.default.removeItem(at: localURL)
@@ -304,14 +319,7 @@ final class VLCVideoPlayerNode: ASDisplayNode {
                 }
             }
         }
-        downloadProgressObservation = task.progress.observe(\.fractionCompleted) { [weak self] progress, _ in
-            let percent = Int(progress.fractionCompleted * 100)
-            DispatchQueue.main.async {
-                self?.downloadProgressLabel.text = "\(percent)%"
-            }
-        }
         downloadTask = task
-        task.resume()
     }
 
     private func showDownloadIndicator() {
@@ -803,7 +811,7 @@ extension VLCVideoPlayerNode: VLCMediaPlayerDelegate {
     
     @objc private func openInBrowserTapped() {
         guard let url = sourceURL else { return }
-        UIApplication.shared.open(url)
+        CDNSigner.shared.openExternally(url)
     }
 }
 

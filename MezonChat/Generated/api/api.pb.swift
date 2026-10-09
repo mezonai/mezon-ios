@@ -4787,6 +4787,9 @@ struct Mezon_Api_UploadAttachmentRequest: Sendable {
   /// channel id
   var channelID: Int64 = 0
 
+  /// need to transcode
+  var transcodeHls: Bool = false
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
@@ -4822,6 +4825,9 @@ struct Mezon_Api_UploadAttachment: Sendable {
   /// The url
   var url: String = String()
 
+  /// CDN type
+  var typeCdn: Int32 = 0
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
@@ -4840,6 +4846,9 @@ struct Mezon_Api_MultipartUploadAttachment: Sendable {
 
   /// the upload id
   var uploadID: String = String()
+
+  /// CDN type
+  var typeCdn: Int32 = 0
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -17611,7 +17620,7 @@ extension Mezon_Api_UploadAttachmentBatch: SwiftProtobuf.Message, SwiftProtobuf.
 
 extension Mezon_Api_UploadAttachmentRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".UploadAttachmentRequest"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}filename\0\u{1}filetype\0\u{1}size\0\u{1}width\0\u{1}height\0\u{3}part_count\0\u{3}channel_id\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}filename\0\u{1}filetype\0\u{1}size\0\u{1}width\0\u{1}height\0\u{3}part_count\0\u{3}channel_id\0\u{3}transcode_hls\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -17626,6 +17635,7 @@ extension Mezon_Api_UploadAttachmentRequest: SwiftProtobuf.Message, SwiftProtobu
       case 5: try { try decoder.decodeSingularInt32Field(value: &self.height) }()
       case 6: try { try decoder.decodeSingularInt32Field(value: &self.partCount) }()
       case 7: try { try decoder.decodeSingularInt64Field(value: &self.channelID) }()
+      case 8: try { try decoder.decodeSingularBoolField(value: &self.transcodeHls) }()
       default: break
       }
     }
@@ -17653,6 +17663,9 @@ extension Mezon_Api_UploadAttachmentRequest: SwiftProtobuf.Message, SwiftProtobu
     if self.channelID != 0 {
       try visitor.visitSingularInt64Field(value: self.channelID, fieldNumber: 7)
     }
+    if self.transcodeHls != false {
+      try visitor.visitSingularBoolField(value: self.transcodeHls, fieldNumber: 8)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -17664,6 +17677,7 @@ extension Mezon_Api_UploadAttachmentRequest: SwiftProtobuf.Message, SwiftProtobu
     if lhs.height != rhs.height {return false}
     if lhs.partCount != rhs.partCount {return false}
     if lhs.channelID != rhs.channelID {return false}
+    if lhs.transcodeHls != rhs.transcodeHls {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -17711,7 +17725,7 @@ extension Mezon_Api_ListMessageMentionRequest: SwiftProtobuf.Message, SwiftProto
 
 extension Mezon_Api_UploadAttachment: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".UploadAttachment"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}filename\0\u{1}url\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}filename\0\u{1}url\0\u{3}type_cdn\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -17721,6 +17735,7 @@ extension Mezon_Api_UploadAttachment: SwiftProtobuf.Message, SwiftProtobuf._Mess
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self.filename) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.url) }()
+      case 3: try { try decoder.decodeSingularInt32Field(value: &self.typeCdn) }()
       default: break
       }
     }
@@ -17733,12 +17748,16 @@ extension Mezon_Api_UploadAttachment: SwiftProtobuf.Message, SwiftProtobuf._Mess
     if !self.url.isEmpty {
       try visitor.visitSingularStringField(value: self.url, fieldNumber: 2)
     }
+    if self.typeCdn != 0 {
+      try visitor.visitSingularInt32Field(value: self.typeCdn, fieldNumber: 3)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   static func ==(lhs: Mezon_Api_UploadAttachment, rhs: Mezon_Api_UploadAttachment) -> Bool {
     if lhs.filename != rhs.filename {return false}
     if lhs.url != rhs.url {return false}
+    if lhs.typeCdn != rhs.typeCdn {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -17746,7 +17765,7 @@ extension Mezon_Api_UploadAttachment: SwiftProtobuf.Message, SwiftProtobuf._Mess
 
 extension Mezon_Api_MultipartUploadAttachment: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".MultipartUploadAttachment"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}filename\0\u{1}urls\0\u{3}upload_id\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}filename\0\u{1}urls\0\u{3}upload_id\0\u{3}type_cdn\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -17757,6 +17776,7 @@ extension Mezon_Api_MultipartUploadAttachment: SwiftProtobuf.Message, SwiftProto
       case 1: try { try decoder.decodeSingularStringField(value: &self.filename) }()
       case 2: try { try decoder.decodeRepeatedStringField(value: &self.urls) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.uploadID) }()
+      case 4: try { try decoder.decodeSingularInt32Field(value: &self.typeCdn) }()
       default: break
       }
     }
@@ -17772,6 +17792,9 @@ extension Mezon_Api_MultipartUploadAttachment: SwiftProtobuf.Message, SwiftProto
     if !self.uploadID.isEmpty {
       try visitor.visitSingularStringField(value: self.uploadID, fieldNumber: 3)
     }
+    if self.typeCdn != 0 {
+      try visitor.visitSingularInt32Field(value: self.typeCdn, fieldNumber: 4)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -17779,6 +17802,7 @@ extension Mezon_Api_MultipartUploadAttachment: SwiftProtobuf.Message, SwiftProto
     if lhs.filename != rhs.filename {return false}
     if lhs.urls != rhs.urls {return false}
     if lhs.uploadID != rhs.uploadID {return false}
+    if lhs.typeCdn != rhs.typeCdn {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

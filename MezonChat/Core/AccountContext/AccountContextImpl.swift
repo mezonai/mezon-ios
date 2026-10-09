@@ -286,6 +286,9 @@ final class AccountContextImpl: AccountContext {
         self.currentUser = user
 
         _ = self.rolePermissions
+        if session != nil {
+            installCDNSignatureProvider()
+        }
         NotificationCenter.default.addObserver(self, selector: #selector(handleDeletedVoiceChannel(_:)), name: .mezonChannelDeletedLocally, object: nil)
 
         if let session {
@@ -389,6 +392,7 @@ final class AccountContextImpl: AccountContext {
         currentChannel = nil
         account.postbox.clearAllSync()
         ImageCache.shared.purgeAccountScopedCaches()
+        CDNSigner.shared.reset()
         StorageMaintenance.shared.purgeAccountScopedCaches()
         WKWebsiteDataStore.default().removeData(
             ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(),
@@ -683,6 +687,15 @@ final class AccountContextImpl: AccountContext {
         )
     }
 
+    private func installCDNSignatureProvider() {
+        CDNSigner.shared.install { [weak self] channelId in
+            guard let self, let token = await self.getTokenPreferringCachedSkipSessionReadyWait() else {
+                throw SessionError.noSession
+            }
+            return try await self.account.network.generateCDNSignature(channelId: channelId, token: token).signature
+        }
+    }
+
     private func applySession(
         _ session: MezonSession,
         user: User?,
@@ -708,6 +721,8 @@ final class AccountContextImpl: AccountContext {
             guard let self else { return nil }
             return await self.getToken()
         }
+
+        installCDNSignatureProvider()
 
         if socketEventsDisposable == nil {
             socketEventsDisposable = account.socket.events().start(next: { [weak self] event in

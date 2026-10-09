@@ -95,6 +95,7 @@ final class AttachmentUploader {
         fileSize: Int,
         width: Int = 0,
         height: Int = 0,
+        channelId: Int64 = 0,
         token: String,
         progressKey: String = "",
         preferHTTPFirst: Bool = false,
@@ -108,7 +109,7 @@ final class AttachmentUploader {
                 return try await uploadMultipart(
                     fileURL: fileURL, filename: filename, filetype: filetype,
                     fileSize: fileSize, width: width, height: height,
-                    token: token, progressKey: progressKey,
+                    channelId: channelId, token: token, progressKey: progressKey,
                     preferHTTPFirst: preferHTTPFirst, network: network)
             } catch is MultipartNotApplicable {
                 markMultipartUnavailable()
@@ -124,7 +125,7 @@ final class AttachmentUploader {
         return try await uploadSinglePut(
             fileURL: fileURL, filename: filename, filetype: filetype,
             fileSize: fileSize, width: width, height: height,
-            token: token, progressKey: progressKey,
+            channelId: channelId, token: token, progressKey: progressKey,
             preferHTTPFirst: preferHTTPFirst, preReserved: preReserved, network: network)
     }
 
@@ -135,6 +136,7 @@ final class AttachmentUploader {
         fileSize: Int,
         width: Int,
         height: Int,
+        channelId: Int64,
         token: String,
         progressKey: String,
         preferHTTPFirst: Bool,
@@ -147,7 +149,7 @@ final class AttachmentUploader {
         } else {
             info = try await network.uploadAttachmentFile(
                 filename: filename, filetype: filetype, size: fileSize,
-                width: width, height: height, token: token,
+                width: width, height: height, channelId: channelId, token: token,
                 preferHTTPFirst: preferHTTPFirst)
         }
         _ = try await MinIOStreamingUploader.shared.put(
@@ -158,7 +160,7 @@ final class AttachmentUploader {
         reportProgress(1, forKey: progressKey)
         return UploadedAttachmentFile(
             serverFilename: info.filename,
-            cdnURL: "\(MezonConfig.baseImgURL)/\(info.filename)")
+            cdnURL: MezonConfig.attachmentViewURL(typeCdn: info.typeCdn, filename: info.filename))
     }
 
     private func uploadMultipart(
@@ -168,6 +170,7 @@ final class AttachmentUploader {
         fileSize: Int,
         width: Int,
         height: Int,
+        channelId: Int64,
         token: String,
         progressKey: String,
         preferHTTPFirst: Bool,
@@ -176,7 +179,8 @@ final class AttachmentUploader {
         let requestedPartCount = max(1, Int((Double(fileSize) / Double(Self.partSize)).rounded(.up)))
         let start = try await network.multipartUploadAttachmentFileStart(
             filename: filename, filetype: filetype, size: fileSize,
-            width: width, height: height, partCount: requestedPartCount, token: token,
+            width: width, height: height, partCount: requestedPartCount,
+            channelId: channelId, token: token,
             preferHTTPFirst: preferHTTPFirst)
         let urls = start.urls
         let uploadId = start.uploadID
@@ -191,7 +195,7 @@ final class AttachmentUploader {
             let serverFilename = start.filename.isEmpty ? filename : start.filename
             return UploadedAttachmentFile(
                 serverFilename: serverFilename,
-                cdnURL: "\(MezonConfig.baseImgURL)/\(serverFilename)")
+                cdnURL: MezonConfig.attachmentViewURL(typeCdn: start.typeCdn, filename: serverFilename))
         }
 
         if urls.isEmpty || uploadId.isEmpty {
@@ -249,7 +253,7 @@ final class AttachmentUploader {
         }()
         return UploadedAttachmentFile(
             serverFilename: serverFilename,
-            cdnURL: "\(MezonConfig.baseImgURL)/\(serverFilename)")
+            cdnURL: MezonConfig.attachmentViewURL(typeCdn: start.typeCdn, filename: serverFilename))
     }
 
     private static func readChunk(fileURL: URL, offset: Int, length: Int) throws -> Data {

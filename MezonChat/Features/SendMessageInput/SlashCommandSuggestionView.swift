@@ -1,10 +1,35 @@
 import UIKit
 
+enum SlashCommandItem {
+    case ephemeral
+    case flashMessage(Mezon_Api_QuickMenuAccess, botName: String?)
+
+    var name: String {
+        switch self {
+        case .ephemeral: return "ephemeral"
+        case .flashMessage(let item, _): return item.menuName
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .ephemeral:
+            return L(L10n.SlashCommand.ephemeralDescription)
+        case .flashMessage(_, let botName?) where !botName.isEmpty:
+            return botName
+        case .flashMessage(let item, _):
+            return item.actionMsg
+                .components(separatedBy: .newlines)
+                .joined(separator: " ")
+                .trimmingCharacters(in: .whitespaces)
+        }
+    }
+}
 
 final class SlashCommandSuggestionView: UIView, UITableViewDataSource, UITableViewDelegate {
 
-    var onSelectCommand: ((Mezon_Api_QuickMenuAccess) -> Void)?
-    private(set) var items: [Mezon_Api_QuickMenuAccess] = []
+    var onSelectCommand: ((SlashCommandItem) -> Void)?
+    private(set) var items: [SlashCommandItem] = []
 
     private let headerLabel: UILabel = {
         let lbl = UILabel()
@@ -58,7 +83,7 @@ final class SlashCommandSuggestionView: UIView, UITableViewDataSource, UITableVi
         headerLabel.text = L(L10n.SlashCommand.header)
     }
 
-    func update(items: [Mezon_Api_QuickMenuAccess]) {
+    func update(items: [SlashCommandItem]) {
         self.items = items
         tableView.reloadData()
         if !items.isEmpty {
@@ -137,7 +162,7 @@ private final class SlashCommandSuggestionCell: UITableViewCell {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    func configure(command: Mezon_Api_QuickMenuAccess) {
+    func configure(command: SlashCommandItem) {
         let t = UIColor.theme
         backgroundColor = t.secondary
         contentView.backgroundColor = t.secondary
@@ -145,10 +170,7 @@ private final class SlashCommandSuggestionCell: UITableViewCell {
         descriptionLabel.textColor = t.text
         separatorView.backgroundColor = t.border
 
-        commandLabel.text = "/" + command.menuName
-        descriptionLabel.text = command.actionMsg
-            .components(separatedBy: .newlines)
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespaces)
+        commandLabel.text = "/" + command.name
+        descriptionLabel.text = command.detail
     }
 }

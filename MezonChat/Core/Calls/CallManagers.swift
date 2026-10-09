@@ -291,6 +291,17 @@ final class WebRTCCallManager {
         }
         guard push.channelID != 0, push.callerID != 0 else { return }
         if Self.incomingCallPushIsCancel(push.jsonData) {
+            if let data = push.jsonData.data(using: .utf8),
+               let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let cancelId = value["callSessionId"] as? String,
+               let ringId = CallKitManager.shared.currentRingingOfferSessionId(), cancelId != ringId {
+                return
+            }
+            if let session = signalingSession,
+               session.isSameIncomingPeerCall(channelId: push.channelID, callerId: push.callerID),
+               !session.matchesRingSyncData(push.jsonData) {
+                return
+            }
             let isConnectedFlag = Self.incomingCallPushIsConnectedTrue(push.jsonData)
             let cancelSentAtMs = IncomingPeerCallPayloadParser.offerCreatedAtMs(pushJsonData: push.jsonData)
             if let c = cancelSentAtMs,

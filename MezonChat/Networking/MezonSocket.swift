@@ -375,6 +375,14 @@ final class MezonSocket: NSObject {
         forceReconnect()
     }
 
+    func reconnectIfTargetChanged() {
+        let next = MezonConfig.abridgedEndpoint(wsHostOverride: wsHostOverride, session: sessionProvider?())
+        if let currentEndpoint, currentEndpoint.host == next.host, currentEndpoint.port == next.port {
+            return
+        }
+        forceReconnect()
+    }
+
     private func reportTransportLoss(unclean: Bool) {
         let threshold = hasConfirmedConnection
             ? failedReconnectsBeforeUnreachableReport
@@ -1223,6 +1231,41 @@ final class MezonSocket: NSObject {
         envelope.messageButtonClicked = btn
         send(envelope)
     }
+
+    func sendQuickMenuEvent(
+        menuName: String,
+        message: Mezon_Realtime_ChannelMessageSend,
+        messageSenderId: Int64
+    ) async throws {
+        var event = Mezon_Realtime_QuickMenuDataEvent()
+        event.menuName = menuName
+        event.message = message
+        if messageSenderId != 0 {
+            event.messageSenderID = messageSenderId
+        }
+        var envelope = Mezon_Realtime_Envelope()
+        envelope.quickMenuEvent = event
+        try await sendRealtimeControl(envelope)
+    }
+
+    func sendEphemeralMessage(
+        _ message: Mezon_Realtime_ChannelMessageSend,
+        receiverIds: [Int64]
+    ) async throws {
+        var ephemeral = Mezon_Realtime_EphemeralMessageSend()
+        ephemeral.message = message
+        ephemeral.receiverIds = receiverIds
+        var envelope = Mezon_Realtime_Envelope()
+        envelope.ephemeralMessageSend = ephemeral
+        try await sendRealtimeControl(envelope)
+    }
+
+    private func sendRealtimeControl(_ envelope: Mezon_Realtime_Envelope) async throws {
+        let reply = try await sendAwaitingReply(envelope, timeoutNanoseconds: 5_000_000_000)
+        if case .some(.error(let error)) = reply.message {
+            throw MezonError.socketError(error.message)
+        }
+    }
 }
 
 enum MezonApiNameRegistry {
@@ -1443,7 +1486,8 @@ enum MezonApiNameRegistry {
         "MarkAsRead",
         "UploadBatchAttachmentFile",
         "SearchCtrlK",
-        "SearchMentionUsers"
+        "SearchMentionUsers",
+        "GenerateCDNSignature"
     ]
 
     private static let nameToIndex: [String: Int32] = {

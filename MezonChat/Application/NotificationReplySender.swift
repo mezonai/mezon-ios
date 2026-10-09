@@ -101,6 +101,7 @@ enum NotificationReplySender {
                 messageSenderId: resolveMessageSenderId(userInfo: userInfo),
                 actionDelete: false,
                 topicId: target.topicId,
+                senderName: accountContext?.currentUser.map { $0.displayName.isEmpty ? $0.username : $0.displayName } ?? "",
                 token: token
             )
         } catch {

@@ -1492,30 +1492,28 @@ final class SearchViewController: ViewController {
         Task { @MainActor [weak self] in
             guard let self else { return }
             guard let sessionToken = await self.context.getToken() else {
-                StreamingSfuLog.write("join aborted, session token unavailable channel=\(channel.channelID)")
                 return
             }
-            let meetToken: String
+            let meetToken: Mezon_Api_GenerateMeetTokenResponse
             do {
-                meetToken = try await self.context.account.network.generateMeetToken(
+                meetToken = try await self.context.account.network.generateMeetTokenResponse(
                     channelId: channel.channelID,
                     roomName: String(channel.channelID),
                     metadata: self.context.meetTokenMetadata(clanId: clanId),
                     token: sessionToken
                 )
             } catch {
-                StreamingSfuLog.write("generateMeetToken failed channel=\(channel.channelID) error=\(error)")
                 return
             }
-            guard !meetToken.isEmpty else {
-                StreamingSfuLog.write("generateMeetToken returned empty channel=\(channel.channelID)")
+            guard !meetToken.token.isEmpty else {
                 return
             }
             let tokenContext = self.context
 
             await StreamingWebRTCSession.shared.join(
                 channelId: channel.channelID,
-                token: meetToken,
+                token: meetToken.token,
+                sfuURL: meetToken.url,
                 tokenProvider: {
                     guard let token = await tokenContext.getToken() else { return nil }
                     return try? await tokenContext.account.network.generateMeetToken(

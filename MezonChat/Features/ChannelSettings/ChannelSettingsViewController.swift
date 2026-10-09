@@ -63,10 +63,9 @@ final class ChannelSettingsViewController: BaseViewController {
                           channelType != MezonConstants.ChannelType.streaming.rawValue &&
                           channelType != MezonConstants.ChannelType.mezonVoice.rawValue
                           
-        let showQuickAction = canManageChannel && 
-                              (channelType == MezonConstants.ChannelType.channel.rawValue || 
-                               channelType == MezonConstants.ChannelType.thread.rawValue ||
-                               channelType == MezonConstants.ChannelType.app.rawValue)
+        let showQuickAction = canManageChannel &&
+                              (channelType == MezonConstants.ChannelType.channel.rawValue ||
+                               channelType == MezonConstants.ChannelType.thread.rawValue)
                                
         let showBanList = isAdministrator && channelType != MezonConstants.ChannelType.mezonVoice.rawValue
 
@@ -91,6 +90,9 @@ final class ChannelSettingsViewController: BaseViewController {
             },
             onWebhookTap: { [weak self] in
                 self?.openWebhookList()
+            },
+            onQuickActionTap: { [weak self] in
+                self?.openQuickActions()
             },
             showDeleteButton: !isGeneralChannel && canManageChannel,
             showPermissionsButton: showPermissions,
@@ -189,6 +191,15 @@ final class ChannelSettingsViewController: BaseViewController {
 
     private func openWebhookList() {
         let vc = WebhookListViewController(
+            context: context,
+            clanId: clanId,
+            channelId: channelId
+        )
+        navigationController?.pushViewController(vc, animated: true)
+    }
+
+    private func openQuickActions() {
+        let vc = QuickActionListViewController(
             context: context,
             clanId: clanId,
             channelId: channelId

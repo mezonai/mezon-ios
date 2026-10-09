@@ -150,6 +150,7 @@ final class AttachmentPreviewView: UIView {
 
     static var imageItemRowHeight: CGFloat { 80.sh }
     static var fileItemRowHeight: CGFloat { 56.sh }
+    private static let itemHeightRoundingTolerance: CGFloat = 0.01
 
     func setImages(_ newImages: [UIImage]) {
         images = newImages
@@ -213,9 +214,13 @@ extension AttachmentPreviewView: UICollectionViewDataSource, UICollectionViewDel
 
     func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
         if indexPath.item < totalImageCount {
-            return CGSize(width: 70.sw, height: AttachmentPreviewView.imageItemRowHeight)
+            return CGSize(
+                width: 70.sw,
+                height: AttachmentPreviewView.imageItemRowHeight - AttachmentPreviewView.itemHeightRoundingTolerance)
         } else {
-            return CGSize(width: 220.sw, height: AttachmentPreviewView.fileItemRowHeight)
+            return CGSize(
+                width: 220.sw,
+                height: AttachmentPreviewView.fileItemRowHeight - AttachmentPreviewView.itemHeightRoundingTolerance)
         }
     }
 }

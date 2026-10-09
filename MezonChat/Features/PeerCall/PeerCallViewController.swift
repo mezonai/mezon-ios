@@ -58,7 +58,6 @@ final class PeerCallViewController: ViewController {
 
     private var session: PeerWebRTCCallSession?
     private var userDidExplicitlyEnd = false
-    private var didStartDurationTimer = false
     private var connectedDate: Date?
     private var durationTimer: Foundation.Timer?
 
@@ -586,11 +585,15 @@ final class PeerCallViewController: ViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         WebRTCCallManager.shared.notePeerCallDetailAppeared()
-        guard let session else {
+        guard let session, !userDidExplicitlyEnd else {
             return
         }
         WebRTCCallManager.shared.attachSignalingSession(session)
         session.resyncRemoteAttachmentWithUI()
+        if let connectedDate {
+            applyConnectedCallChrome(connectedAt: connectedDate)
+            return
+        }
         switch entry {
         case .outgoing:
             session.beginOutgoingCall()
@@ -739,37 +742,43 @@ final class PeerCallViewController: ViewController {
     }
 
     private func applyConnectedCallChrome(connectedAt: Date) {
+        pendingConnectedChromeWorkItem?.cancel()
         pendingConnectedChromeWorkItem = nil
-        guard !isCallConnected else { return }
+        subtitleLabel.text = PeerCallLocalizedStrings.statusConnected
+        subtitleLabel.isHidden = true
+        durationLabel.isHidden = false
+        startDurationTimer(connectedAt: connectedAt)
+        guard !isCallConnected else {
+            durationLabel.alpha = 1
+            return
+        }
         isCallConnected = true
         triggerConnectedHaptic()
-        UIView.transition(with: subtitleLabel, duration: 0.22, options: .transitionCrossDissolve, animations: {
-            self.subtitleLabel.isHidden = true
-        })
-        didStartDurationTimer = true
         durationLabel.alpha = 0
-        durationLabel.isHidden = false
-        durationLabel.text = "00:00"
         UIView.animate(withDuration: 0.32, delay: 0.08, options: [.curveEaseOut]) {
             self.durationLabel.alpha = 1
         }
-        connectedDate = connectedAt
-        durationTimer?.invalidate()
-        let t = Foundation.Timer(timeInterval: 1, repeats: true) { [weak self] (_: Foundation.Timer) in
-            guard let self else { return }
-            let sec = max(0, Int(Date().timeIntervalSince(connectedAt)))
-            let m = sec / 60
-            let s = sec % 60
-            self.durationLabel.text = String(format: "%02d:%02d", m, s)
-        }
-        durationTimer = t
-        RunLoop.main.add(t, forMode: .common)
         applyConnectedAvatarBorder()
         playAvatarConnectBloom()
         stopRingAnimations()
         applyIdleChromeColors()
         updateRemoteMutedBanner()
         refreshRemoteCallLayout()
+    }
+
+    private func startDurationTimer(connectedAt: Date) {
+        connectedDate = connectedAt
+        durationTimer?.invalidate()
+        let update = { [weak self] in
+            let sec = max(0, Int(Date().timeIntervalSince(connectedAt)))
+            self?.durationLabel.text = String(format: "%02d:%02d", sec / 60, sec % 60)
+        }
+        update()
+        let t = Foundation.Timer(timeInterval: 1, repeats: true) { (_: Foundation.Timer) in
+            update()
+        }
+        durationTimer = t
+        RunLoop.main.add(t, forMode: .common)
     }
 
     private func triggerConnectedHaptic() {
@@ -916,6 +925,7 @@ final class PeerCallViewController: ViewController {
 
         session?.onCallMediaConnectedAt = { [weak self] connectedAt in
             guard let self else { return }
+            self.connectedDate = connectedAt
             self.pendingConnectedChromeWorkItem?.cancel()
             let minConnectingVisibility: TimeInterval = self.skipIncomingRingingUI ? 0.45 : 0
             let anchor = self.connectingSubtitleShownAt ?? connectedAt
@@ -931,7 +941,7 @@ final class PeerCallViewController: ViewController {
         }
 
         session?.onStatusLabel = { [weak self] text in
-            guard let self else { return }
+            guard let self, !self.isCallConnected else { return }
             if text == PeerCallLocalizedStrings.statusConnected {
                 return
             }
