@@ -9,9 +9,14 @@ final class CanvasNode: ASDisplayNode {
     private let channelId: Int64
     private let channelType: Int32
     private var canvases: [Mezon_Api_ChannelCanvasItem] = []
+    private var searchQuery = ""
+    private var searchDebounceWorkItem: DispatchWorkItem?
     private var didLoadCanvases = false
+    private var didFinishLoading = false
 
     private let tableNode: ASTableNode
+    private let searchNode = CanvasSearchNode()
+    private let emptyStateNode = ASTextNode2()
 
     init(context: AccountContext, clanId: Int64, channelId: Int64, channelType: Int32) {
         self.context = context
@@ -30,6 +35,30 @@ final class CanvasNode: ASDisplayNode {
         tableNode.view.separatorStyle = .none
         tableNode.view.backgroundColor = .clear
         tableNode.view.delaysContentTouches = false
+        tableNode.view.keyboardDismissMode = .onDrag
+
+        searchNode.onTextChanged = { [weak self] query in
+            guard let self else { return }
+            self.searchDebounceWorkItem?.cancel()
+
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.searchQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+                self.tableNode.reloadData()
+                self.setNeedsLayout()
+            }
+            self.searchDebounceWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(300), execute: workItem)
+        }
+
+        emptyStateNode.attributedText = NSAttributedString(
+            string: L(L10n.ChannelDetail.noCanvasFound),
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 15.sf, weight: .medium),
+                .foregroundColor: UIColor.theme.textDisabled,
+            ]
+        )
+        emptyStateNode.maximumNumberOfLines = 0
     }
 
     func loadTabDataIfNeeded() {
@@ -59,38 +88,87 @@ final class CanvasNode: ASDisplayNode {
                     token: token
                 )
                 self.canvases = res.channelCanvases
+                self.didFinishLoading = true
                 await self.tableNode.reloadData()
+                self.setNeedsLayout()
             } catch {
             }
         }
     }
 
+    private var displayedCanvases: [Mezon_Api_ChannelCanvasItem] {
+        guard !searchQuery.isEmpty else { return canvases }
+        return canvases.filter {
+            let title = $0.title.isEmpty
+                ? L(L10n.ChannelDetail.untitledCanvas)
+                : $0.title.replacingOccurrences(of: "\n", with: " ")
+            return title.range(
+                of: searchQuery,
+                options: [.caseInsensitive, .diacriticInsensitive]
+            ) != nil
+        }
+    }
+
     private func presentCanvas(for item: Mezon_Api_ChannelCanvasItem) {
-        guard let url = MezonConfig.canvasMobileURL(clanId: clanId, channelId: channelId, canvasId: item.id),
+        guard let url = URL(string: MezonConfig.canvasShareURLString(
+            clanId: clanId, channelId: channelId, canvasId: item.id)),
             let host = tableNode.view.findHostingViewController(),
             let nav = host.navigationController
         else { return }
         let title =
             item.title.isEmpty ? L(L10n.ChannelDetail.untitledCanvas) : item.title.replacingOccurrences(
                 of: "\n", with: " ")
-        let vc = CanvasWebViewController(pageURL: url, canvasTitle: title, accountContext: context)
+        let vc = CanvasWebViewController(
+            pageURL: url,
+            canvasTitle: title,
+            expectsNonEmptyTitle: !item.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            accountContext: context,
+            onDismiss: { [weak self] in
+                self?.fetchCanvases()
+            }
+        )
         nav.pushViewController(vc, animated: true)
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        return ASWrapperLayoutSpec(layoutElement: tableNode)
+        searchNode.style.height = ASDimension(unit: .points, value: 40.sf)
+        let search = ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 12, left: 16, bottom: 8, right: 16),
+            child: searchNode
+        )
+
+        let content: ASLayoutElement
+        if didFinishLoading && displayedCanvases.isEmpty {
+            content = ASCenterLayoutSpec(
+                centeringOptions: .XY,
+                sizingOptions: .minimumXY,
+                child: emptyStateNode
+            )
+        } else {
+            content = tableNode
+        }
+        content.style.flexGrow = 1
+        content.style.flexShrink = 1
+
+        return ASStackLayoutSpec(
+            direction: .vertical,
+            spacing: 0,
+            justifyContent: .start,
+            alignItems: .stretch,
+            children: [search, content]
+        )
     }
 }
 
 extension CanvasNode: ASTableDataSource, ASTableDelegate {
     func tableNode(_ tableNode: ASTableNode, numberOfRowsInSection section: Int) -> Int {
-        return canvases.count
+        return displayedCanvases.count
     }
 
     func tableNode(_ tableNode: ASTableNode, nodeBlockForRowAt indexPath: IndexPath)
         -> ASCellNodeBlock
     {
-        let canvas = canvases[indexPath.row]
+        let canvas = displayedCanvases[indexPath.row]
         let shareURL = MezonConfig.canvasShareURLString(
             clanId: clanId, channelId: channelId, canvasId: canvas.id)
         return {
@@ -106,8 +184,89 @@ extension CanvasNode: ASTableDataSource, ASTableDelegate {
 
     func tableNode(_ tableNode: ASTableNode, didSelectRowAt indexPath: IndexPath) {
         tableNode.deselectRow(at: indexPath, animated: true)
-        let canvas = canvases[indexPath.row]
+        let canvas = displayedCanvases[indexPath.row]
         presentCanvas(for: canvas)
+    }
+}
+
+private final class CanvasSearchNode: ASDisplayNode {
+    private let iconNode = ASImageNode()
+    private let textFieldNode: ASDisplayNode
+    private let textField: UITextField
+    private let clearButton = UIButton(type: .system)
+    var onTextChanged: ((String) -> Void)?
+
+    override init() {
+        let textField = UITextField()
+        self.textField = textField
+        self.textFieldNode = ASDisplayNode(viewBlock: { textField })
+        super.init()
+
+        automaticallyManagesSubnodes = true
+        backgroundColor = UIColor.theme.secondary
+        cornerRadius = 10.sf
+        clipsToBounds = true
+
+        let theme = UIColor.theme
+        iconNode.image = UIImage(systemName: "magnifyingglass")?.withTintColor(
+            theme.text, renderingMode: .alwaysOriginal)
+        iconNode.contentMode = .scaleAspectFit
+        iconNode.style.preferredSize = CGSize(width: 18.sf, height: 18.sf)
+
+        textField.font = UIFont.systemFont(ofSize: 14.sf)
+        textField.textColor = UIColor.theme.textStrong
+        textField.tintColor = UIColor.theme.textStrong
+        textField.returnKeyType = .search
+        textField.autocorrectionType = .no
+        textField.autocapitalizationType = .none
+        textField.clearButtonMode = .never
+        textField.attributedPlaceholder = NSAttributedString(
+            string: L(L10n.ChannelDetail.searchCanvasPlaceholder),
+            attributes: [.foregroundColor: UIColor.theme.textDisabled]
+        )
+
+        clearButton.frame = CGRect(x: 2, y: 4, width: 32, height: 32)
+        clearButton.tintColor = theme.text
+        clearButton.setImage(
+            UIImage(systemName: "xmark.circle.fill")?.withConfiguration(
+                UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)),
+            for: .normal
+        )
+        clearButton.isHidden = true
+        clearButton.accessibilityLabel = L(L10n.Common.close)
+        clearButton.addTarget(self, action: #selector(clearTapped), for: .touchUpInside)
+        let clearButtonContainer = UIView(frame: CGRect(x: 0, y: 0, width: 36, height: 40))
+        clearButtonContainer.addSubview(clearButton)
+        textField.rightView = clearButtonContainer
+        textField.rightViewMode = .always
+        textField.addTarget(self, action: #selector(textChanged), for: .editingChanged)
+    }
+
+    @objc private func textChanged() {
+        clearButton.isHidden = textField.text?.isEmpty ?? true
+        onTextChanged?(textField.text ?? "")
+    }
+
+    @objc private func clearTapped() {
+        textField.text = ""
+        clearButton.isHidden = true
+        onTextChanged?("")
+    }
+
+    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
+        textFieldNode.style.flexGrow = 1
+        textFieldNode.style.flexShrink = 1
+        let row = ASStackLayoutSpec(
+            direction: .horizontal,
+            spacing: 8,
+            justifyContent: .start,
+            alignItems: .center,
+            children: [iconNode, textFieldNode]
+        )
+        return ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 0, left: 12, bottom: 0, right: 8),
+            child: row
+        )
     }
 }
 
