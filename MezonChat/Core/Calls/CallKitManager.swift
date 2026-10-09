@@ -213,6 +213,18 @@ final class CallKitManager: NSObject {
         return IncomingPeerCallPayloadParser.offerCreatedAtMs(pushJsonData: info["pushJsonData"] as? String)
     }
 
+    func currentRingingOfferSessionId() -> String? {
+        guard hasStoredActiveVoIPCallUUID(), !wasAnsweredLocallyForVoIPCallKit(),
+              let info = UserDefaults.standard.dictionary(forKey: DefaultsKeys.notificationPayload),
+              let payload = IncomingPeerCallPayload(userInfo: info),
+              let offer = payload.resolvedCompressedOffer(),
+              let json = try? PeerWebRTCStringCompression.decompressSignalingJson(offer),
+              let data = json.data(using: .utf8),
+              let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return IncomingPeerCallPayloadParser.sdpSessionId(value["sdp"] as? String)
+    }
+
     private func markRecentlyEnded(channelId: Int64, callerId: Int64) {
         guard channelId != 0 || callerId != 0 else { return }
         let key = RecentlyEndedKey(channelId: channelId, callerId: callerId)
@@ -537,6 +549,10 @@ final class CallKitManager: NSObject {
             let answeredLocally = wasAnsweredLocallyForVoIPCallKit()
             let cancelSentAtMs = IncomingPeerCallPayloadParser.sentAtMs(fromInnerDict: inner)
             let cancelPredatesCurrentRing: Bool = {
+                if let cancelId = inner["callSessionId"] as? String,
+                   let ringId = currentRingingOfferSessionId(), cancelId != ringId {
+                    return true
+                }
                 guard let c = cancelSentAtMs, let r = currentRingingOfferSentAtMs() else { return false }
                 return c < r
             }()

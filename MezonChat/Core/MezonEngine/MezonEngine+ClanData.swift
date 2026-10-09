@@ -252,11 +252,7 @@ extension MezonEngine {
             linkedChannelStarts.removeAll()
             linkedChannelDetails.removeAll()
             rejectedLinkedChannels.removeAll()
-            voicePresenceGeneration &+= 1
-            voiceSnapshotTasks.values.forEach { $0.cancel() }
-            voiceSnapshotTasks.removeAll()
-            voiceSnapshotJournalByClanId.removeAll()
-            voiceSnapshotInflightByClanId.removeAll()
+            invalidateVoiceSnapshots()
             voiceUsersFreshLock.lock()
             voiceUsersFreshClanIds.removeAll()
             voiceUsersFreshLock.unlock()
@@ -682,6 +678,16 @@ extension MezonEngine {
             return voiceSnapshotJournalByClanId[clanId]?.count ?? 0
         }
 
+        func invalidateVoiceSnapshots() {
+            // Responses started before suspension must not replace a fresh
+            // foreground snapshot, even if their transport ignores cancellation.
+            voicePresenceGeneration &+= 1
+            voiceSnapshotTasks.values.forEach { $0.cancel() }
+            voiceSnapshotTasks.removeAll()
+            voiceSnapshotJournalByClanId.removeAll()
+            voiceSnapshotInflightByClanId.removeAll()
+        }
+
         private func endVoiceSnapshotJournal(clanId: Int64) {
             let remaining = (voiceSnapshotInflightByClanId[clanId] ?? 1) - 1
             if remaining > 0 {
@@ -731,17 +737,12 @@ extension MezonEngine {
                 if generation == voicePresenceGeneration { endVoiceSnapshotJournal(clanId: clanId) }
             }
             do {
-                var response = try await network.listChannelVoiceUsers(clanId: clanId, token: token, force: true)
+                // A recovery snapshot must not depend on the socket's reconnect/join state.
+                // HTTP also confirms an empty room list when there is no populated cache.
+                var response = try await network.listChannelVoiceUsers(
+                    clanId: clanId, token: token, force: true, transport: .httpOnly)
                 guard !Task.isCancelled, generation == voicePresenceGeneration else {
                     return
-                }
-                let cachedHasMembers = getVoiceUsers(clanId: clanId)?.voiceChannelUsers.contains { !$0.userIds.isEmpty } == true
-                let responseHasMembers = response.voiceChannelUsers.contains { !$0.userIds.isEmpty }
-                if cachedHasMembers && !responseHasMembers {
-                    response = try await network.listChannelVoiceUsers(clanId: clanId, token: token, force: true, transport: .httpOnly)
-                    guard !Task.isCancelled, generation == voicePresenceGeneration else {
-                        return
-                    }
                 }
                 for index in response.voiceChannelUsers.indices {
                     var room = response.voiceChannelUsers[index]
