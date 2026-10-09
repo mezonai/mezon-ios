@@ -211,6 +211,7 @@ final class MezonRootController: NavigationController {
         AppDelegate.recordNavigationInstanceHandled(userInfo: notification.userInfo)
         let clanIdStr = notification.userInfo?["clanId"] as? String
         let isDM = notification.userInfo?["isDM"] as? Bool ?? false
+        let topicId = notification.userInfo?["topicId"] as? Int64 ?? 0
 
         AppDelegate.pendingNavigation = nil
 
@@ -231,7 +232,7 @@ final class MezonRootController: NavigationController {
             if isDM {
                 self.navigateToDM(channelIdStr: channelIdStr)
             } else {
-                self.navigateToChannel(channelIdStr: channelIdStr, clanIdStr: clanIdStr)
+                self.navigateToChannel(channelIdStr: channelIdStr, clanIdStr: clanIdStr, topicId: topicId)
             }
         }
     }
@@ -304,8 +305,8 @@ final class MezonRootController: NavigationController {
         }
     }
 
-    private func bringChatForChannelToFrontIfOnStack(channelIdInt: Int64, clanIdStr: String?) -> Bool {
-        guard let existing = viewControllers.compactMap({ $0 as? ChatViewController }).first(where: { $0.channel.channelID == channelIdInt }) else {
+    private func bringChatForChannelToFrontIfOnStack(channelIdInt: Int64, clanIdStr: String?, topicId: Int64 = 0) -> Bool {
+        guard let existing = viewControllers.compactMap({ $0 as? ChatViewController }).first(where: { $0.channel.channelID == channelIdInt && $0.topicId == topicId }) else {
             return false
         }
         rootTabController?.selectedIndex = 0
@@ -553,7 +554,7 @@ final class MezonRootController: NavigationController {
         return false
     }
 
-    private func navigateToChannel(channelIdStr: String, clanIdStr: String?) {
+    private func navigateToChannel(channelIdStr: String, clanIdStr: String?, topicId: Int64) {
         guard let channelIdInt = Int64(channelIdStr) else { return }
         let notificationClanId: Int64? = clanIdStr.flatMap { Int64($0) }
 
@@ -562,7 +563,7 @@ final class MezonRootController: NavigationController {
             return
         }
 
-        if bringChatForChannelToFrontIfOnStack(channelIdInt: channelIdInt, clanIdStr: clanIdStr) { return }
+        if bringChatForChannelToFrontIfOnStack(channelIdInt: channelIdInt, clanIdStr: clanIdStr, topicId: topicId) { return }
 
         rootTabController?.selectedIndex = 0
 
@@ -591,6 +592,7 @@ final class MezonRootController: NavigationController {
             )
             chatVC.prepareForNotificationNavigation()
             pushViewController(chatVC, animated: false)
+            pushTopicChatForNotification(over: chatVC, topicId: topicId)
             fetchClanChannelsInBackground(clanId: resolvedClanId, selectChannelId: channelIdInt)
             return
         }
@@ -614,6 +616,7 @@ final class MezonRootController: NavigationController {
             )
             chatVC.prepareForNotificationNavigation()
             pushViewController(chatVC, animated: false)
+            pushTopicChatForNotification(over: chatVC, topicId: topicId)
             fetchClanChannelsInBackground(clanId: resolvedClanId, selectChannelId: channelIdInt)
             return
         }
@@ -635,6 +638,7 @@ final class MezonRootController: NavigationController {
             )
             chatVC.prepareForNotificationNavigation()
             pushViewController(chatVC, animated: false)
+            pushTopicChatForNotification(over: chatVC, topicId: topicId)
             return
         }
 
@@ -663,6 +667,7 @@ final class MezonRootController: NavigationController {
             )
             chatVC.prepareForNotificationNavigation()
             pushViewController(chatVC, animated: false)
+            pushTopicChatForNotification(over: chatVC, topicId: topicId)
 
             let loaded = homeVC.channelListVC.channelsLoadedSignal
                 |> filter { $0 }
@@ -672,7 +677,7 @@ final class MezonRootController: NavigationController {
 
             navigationDisposable.set(loaded.start(next: { [weak self] _ in
                 guard let self, let homeVC = self.homeController else { return }
-                if self.bringChatForChannelToFrontIfOnStack(channelIdInt: channelIdInt, clanIdStr: clanIdStr) { return }
+                if self.bringChatForChannelToFrontIfOnStack(channelIdInt: channelIdInt, clanIdStr: clanIdStr, topicId: topicId) { return }
                 guard let top = self.topViewController as? ChatViewController else { return }
                 guard top.channel.channelID == channelIdInt else { return }
                 if let ch = homeVC.channelListVC.allChannels.first(where: { $0.channelID == channelIdInt }) {
@@ -697,8 +702,19 @@ final class MezonRootController: NavigationController {
             )
             chatVC.prepareForNotificationNavigation()
             pushViewController(chatVC, animated: false)
+            pushTopicChatForNotification(over: chatVC, topicId: topicId)
             fetchClanChannelsInBackground(clanId: targetClanId, selectChannelId: channelIdInt)
         }
+    }
+
+    private func pushTopicChatForNotification(over channelChat: ChatViewController, topicId: Int64) {
+        guard topicId != 0 else { return }
+        var topicChannel = channelChat.channel
+        topicChannel.channelLabel = L(L10n.MessageAction.topicDiscussion)
+        let topicVC = ChatViewController(clanId: channelChat.clanId, channel: topicChannel, context: context)
+        topicVC.topicId = topicId
+        topicVC.prepareForNotificationNavigation()
+        pushViewController(topicVC, animated: false)
     }
 
     private func switchClanIfNeeded(homeVC: HomeViewController, toClanId: Int64) {

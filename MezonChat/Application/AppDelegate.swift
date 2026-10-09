@@ -188,7 +188,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
             if isFriendRequestNotification {
                 Self.navigateToFriendRequests()
             } else {
-                Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM)
+                Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM, topicId: Self.pushPayloadTopicId(userInfo))
             }
         }
 
@@ -492,6 +492,10 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         return 0
     }
 
+    static func pushPayloadTopicId(_ userInfo: [AnyHashable: Any]) -> Int64 {
+        pushPayloadInt64(userInfo, keys: ["topic", "topic_id", "topicId"]) ?? 0
+    }
+
     @MainActor
     private static func applyDmBadgeFromPush(_ userInfo: [AnyHashable: Any]) {
         let (channelId, _, isDM) = parseFCMPayload(userInfo)
@@ -604,6 +608,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         let body = notification.request.content.body
 
         let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)
+        let topicId = Self.pushPayloadTopicId(userInfo)
 
         let isViewingChannel: Bool = {
             guard let chId = channelId, let chIdInt = Int64(chId) else { return false }
@@ -626,7 +631,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
                         if !isDM, let clanId, let clanIdInt = Int64(clanId), clanIdInt != 0 {
                             self.accountContext?.currentClanId = clanIdInt
                         }
-                        Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM)
+                        Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM, topicId: topicId)
                     }
                 }
             }
@@ -684,6 +689,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         let userInfo = response.notification.request.content.userInfo
         let isFriendRequestNotification = Self.isFriendRequestNotification(response: response)
         let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)
+        let topicId = Self.pushPayloadTopicId(userInfo)
 
         if !isDM, let clanId, let clanIdInt = Int64(clanId), clanIdInt != 0 {
             accountContext?.currentClanId = clanIdInt
@@ -692,7 +698,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         if isFriendRequestNotification {
             Self.navigateToFriendRequests()
         } else {
-            Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM)
+            Self.navigateToChannel(channelId: channelId, clanId: clanId, isDM: isDM, topicId: topicId)
         }
 
         completionHandler()
@@ -791,7 +797,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         }
     }
 
-    static func navigateToChannel(channelId: String?, clanId: String?, isDM: Bool = false) {
+    static func navigateToChannel(channelId: String?, clanId: String?, isDM: Bool = false, topicId: Int64 = 0) {
         guard let channelId else { return }
         let normalizedChannelId = channelId.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedChannelId.isEmpty else { return }
@@ -802,6 +808,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             "navigationInstanceId": UUID().uuidString,
         ]
         if let clanId, !clanId.isEmpty { info["clanId"] = clanId }
+        if topicId != 0 { info["topicId"] = topicId }
         pendingNavigation = info
         NotificationCenter.default.post(name: .mezonNavigateToChannel, object: nil, userInfo: info)
         let instanceId = info["navigationInstanceId"] as? String
