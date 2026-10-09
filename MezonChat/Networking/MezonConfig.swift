@@ -12,6 +12,7 @@ enum MezonConfig {
     static var serverKey: String     { env.serverKey }
     static var basicAuthHeader: String { env.basicAuthHeader }
     static var baseImgURL: String    { env.baseImgURL }
+    static var baseMezonImgURL: String { env.baseMezonImgURL }
     static var profileImgURL: String { env.profileImgURL }
     static var mmnAPIURL: URL         { env.mmnAPIURL }
     static var zkAPIURL: URL          { env.zkAPIURL }
@@ -60,8 +61,23 @@ enum MezonConfig {
         return t.isEmpty ? nil : t
     }
 
+    static func attachmentViewURL(typeCdn: Int32, filename: String) -> String {
+        let baseURL: String
+        switch typeCdn {
+        case 1: baseURL = baseMezonImgURL
+        case 2: baseURL = baseImgURL
+        default: baseURL = baseImgURL
+        }
+        return "\(baseURL)/\(filename)"
+    }
+
     static func emojiImageURL(emojiId: String) -> URL? {
         guard !emojiId.isEmpty else { return nil }
+        if let id = Int64(emojiId),
+           let emoji = Postbox.shared.cachedEmoji(id: id),
+           let url = URL(string: emoji.displayImageURLString) {
+            return url
+        }
         let path = "\(env.baseImgURL)/emojis/\(emojiId).webp"
         return URL(string: path)
     }

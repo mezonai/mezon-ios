@@ -1324,7 +1324,7 @@ final class SharingViewController: UIViewController {
                 width: width, height: height, channelId: channelId, token: token)
             try await context.account.network.uploadToMinIO(
                 url: uploadInfo.url, data: jpegData, contentType: "image/jpeg")
-            return "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+            return MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, filename: uploadInfo.filename)
         } catch {
             SentryLogger.capture(error, extras: [
                 "where": "Sharing.uploadSharedVideoThumbnail",

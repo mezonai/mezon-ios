@@ -713,7 +713,7 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
                 try await self.context.account.network.uploadToMinIO(url: upload.url, data: data, contentType: format.0)
                 try Task.checkCancellation()
                 guard !self.dismissed else { return }
-                self.draft.logoURL = "\(MezonConfig.baseImgURL)/\(upload.filename)"
+                self.draft.logoURL = MezonConfig.attachmentViewURL(typeCdn: upload.typeCdn, filename: upload.filename)
                 self.previewImage = image
                 ImageCache.shared.setImage(image, data: data, forKey: self.draft.logoURL)
             } catch is CancellationError {

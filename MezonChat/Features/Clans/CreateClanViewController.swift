@@ -561,7 +561,7 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
                 try await context.account.network.uploadToMinIO(
                     url: uploadInfo.url, data: data, contentType: "image/jpeg"
                 )
-                let cdnURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+                let cdnURL = MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, filename: uploadInfo.filename)
                 ImageCache.shared.setImage(image, data: data, forKey: cdnURL)
                 logoURL = cdnURL
                 logoImageView.image = image

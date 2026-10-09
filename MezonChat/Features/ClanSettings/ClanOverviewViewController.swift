@@ -895,7 +895,7 @@ final class ClanOverviewViewController: BaseViewController {
                         data: data,
                         contentType: "image/jpeg"
                     )
-                    bannerUrlToSave = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+                    bannerUrlToSave = MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, filename: uploadInfo.filename)
                 }
                 if let b = bannerUrlToSave {
                     req.banner = SwiftProtobuf.Google_Protobuf_StringValue(b)

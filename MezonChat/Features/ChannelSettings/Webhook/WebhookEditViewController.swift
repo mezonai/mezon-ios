@@ -593,7 +593,7 @@ final class WebhookEditViewController: BaseViewController {
                         data: imgData,
                         contentType: "image/jpeg"
                     )
-                    self.avatarURL = "\(MezonConfig.baseImgURL)/\(uploadInfo.filename)"
+                    self.avatarURL = MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, filename: uploadInfo.filename)
                 } catch {
                     Toast.error(L(L10n.Webhook.saveError))
                     return
