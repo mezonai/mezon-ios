@@ -13,6 +13,9 @@ final class Postbox {
 
     private let queue = Queue(name: "mezon.postbox", qos: .userInitiated)
 
+    private var cachedEmojiListData: Data?
+    private var cachedEmojisById: [Int64: CachedClanEmojiRecord] = [:]
+
     let authTable: AuthTable
     let messageTable: MessageTable
     let channelTable: ChannelTable
@@ -392,6 +395,24 @@ final class Postbox {
     func getSetting<T: PostboxCoding>(key: String, type: T.Type) -> T? {
         var result: T?
         queue.sync { [self] in result = settingsTable.get(key: key, type: type) }
+        return result
+    }
+
+    func cachedEmoji(id: Int64) -> CachedClanEmojiRecord? {
+        var result: CachedClanEmojiRecord?
+        queue.sync { [self] in
+            let data = settingsTable.get(key: MediaPanelPostboxKeys.emojiListByUser)
+            if data != cachedEmojiListData {
+                cachedEmojiListData = data
+                cachedEmojisById.removeAll(keepingCapacity: true)
+                if let data, let list = MediaPanelEmojiListCache.postboxDecode(from: data) {
+                    for emoji in list.emojis.deduplicatedByEmojiId() {
+                        cachedEmojisById[emoji.id] = emoji
+                    }
+                }
+            }
+            result = cachedEmojisById[id]
+        }
         return result
     }
 

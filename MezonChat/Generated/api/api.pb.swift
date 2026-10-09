@@ -4847,6 +4847,9 @@ struct Mezon_Api_MultipartUploadAttachment: Sendable {
   /// the upload id
   var uploadID: String = String()
 
+  /// CDN type
+  var typeCdn: Int32 = 0
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
@@ -17762,7 +17765,7 @@ extension Mezon_Api_UploadAttachment: SwiftProtobuf.Message, SwiftProtobuf._Mess
 
 extension Mezon_Api_MultipartUploadAttachment: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".MultipartUploadAttachment"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}filename\0\u{1}urls\0\u{3}upload_id\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}filename\0\u{1}urls\0\u{3}upload_id\0\u{3}type_cdn\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -17773,6 +17776,7 @@ extension Mezon_Api_MultipartUploadAttachment: SwiftProtobuf.Message, SwiftProto
       case 1: try { try decoder.decodeSingularStringField(value: &self.filename) }()
       case 2: try { try decoder.decodeRepeatedStringField(value: &self.urls) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.uploadID) }()
+      case 4: try { try decoder.decodeSingularInt32Field(value: &self.typeCdn) }()
       default: break
       }
     }
@@ -17788,6 +17792,9 @@ extension Mezon_Api_MultipartUploadAttachment: SwiftProtobuf.Message, SwiftProto
     if !self.uploadID.isEmpty {
       try visitor.visitSingularStringField(value: self.uploadID, fieldNumber: 3)
     }
+    if self.typeCdn != 0 {
+      try visitor.visitSingularInt32Field(value: self.typeCdn, fieldNumber: 4)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -17795,6 +17802,7 @@ extension Mezon_Api_MultipartUploadAttachment: SwiftProtobuf.Message, SwiftProto
     if lhs.filename != rhs.filename {return false}
     if lhs.urls != rhs.urls {return false}
     if lhs.uploadID != rhs.uploadID {return false}
+    if lhs.typeCdn != rhs.typeCdn {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

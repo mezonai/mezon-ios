@@ -73,6 +73,11 @@ enum MezonConfig {
 
     static func emojiImageURL(emojiId: String) -> URL? {
         guard !emojiId.isEmpty else { return nil }
+        if let id = Int64(emojiId),
+           let emoji = Postbox.shared.cachedEmoji(id: id),
+           let url = URL(string: emoji.displayImageURLString) {
+            return url
+        }
         let path = "\(env.baseImgURL)/emojis/\(emojiId).webp"
         return URL(string: path)
     }
