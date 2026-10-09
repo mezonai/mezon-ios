@@ -870,7 +870,7 @@ final class AccountContextImpl: AccountContext {
     private func joinDirectMessageSocketRoomOnSocketConnected() {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            await DirectMessageListGate.ensureFetchedBeforeJoin(context: self)
+            guard await DirectMessageListGate.ensureFetchedBeforeJoin(context: self) else { return }
             guard self.account.socket.isConnected else { return }
             self.account.socket.joinClanChat(clanId: 0)
         }
@@ -883,7 +883,11 @@ final class AccountContextImpl: AccountContext {
         let clanId = currentClanId
         Task { @MainActor [weak self] in
             guard let self else { return }
-            await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: self, clanId: clanId, force: true)
+            if clanId == 0 {
+                guard await DirectMessageListGate.ensureFetchedBeforeJoin(context: self) else { return }
+            } else {
+                await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: self, clanId: clanId, force: true)
+            }
             self.account.socket.joinClanChat(clanId: clanId)
             let channelType: Int32 = clanId == 0
                 ? (channel.type != 0 ? channel.type : MezonConstants.ChannelType.group.rawValue)

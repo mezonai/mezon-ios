@@ -750,6 +750,22 @@ final class MezonHTTPClient {
         }
     }
 
+    func listDirectMessageChannelsForSocketJoin(token: String) async throws -> [Mezon_Api_ChannelDescription] {
+        var req = Mezon_Api_ListChannelDescsRequest()
+        req.clanID = 0
+        req.limit = 500
+        req.state = 1
+        req.page = 1
+        req.channelType = 2
+        req.isMobile = true
+        let response: Mezon_Api_ChannelDescList = try await postProto(
+            path: "/mezon.api.Mezon/ListChannelDescs",
+            message: req,
+            auth: .bearer(token)
+        )
+        return response.channeldesc
+    }
+
     func listThreadDescs(
         parentChannelId: Int64,
         clanId: Int64,
