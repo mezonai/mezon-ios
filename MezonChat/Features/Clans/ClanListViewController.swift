@@ -704,7 +704,6 @@ final class ClanListViewController: ViewController {
             do {
                 var channels = try await self.context.account.network.listDirectMessageChannels(token: token)
                 guard self.context.isStillCurrentSession(epoch: startEpoch) else { return }
-                DirectMessageListGate.markServed()
                 do {
                     let badgeRows = try await self.context.account.network.listChannelBadgeCount(clanId: 0, token: token)
                         .channeldesc
