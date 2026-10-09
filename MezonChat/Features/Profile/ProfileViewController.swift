@@ -58,7 +58,27 @@ final class ProfileViewController: ViewController {
             let vc = HistoryTransactionViewController(context: self.context)
             self.navigationController?.pushViewController(vc, animated: true)
         }
+        node.onServerTapped = { [weak self] in
+            self?.presentServerSheet()
+        }
         displayNode = node
+    }
+
+    private func presentServerSheet() {
+        let sheet = ProfileServerSheetController { [weak self] choice in
+            EndpointFailover.shared.select(choice)
+            self?.profileNode.refreshServerChip()
+        }
+        let nav = UINavigationController(rootViewController: sheet)
+        nav.modalPresentationStyle = .pageSheet
+        if #available(iOS 15.0, *) {
+            if let sp = nav.sheetPresentationController {
+                sp.detents = [.medium(), .large()]
+                sp.prefersGrabberVisible = true
+                sp.preferredCornerRadius = 16
+            }
+        }
+        present(nav, animated: true)
     }
 
     private func presentOnlineStatusSheet() {

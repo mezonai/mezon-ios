@@ -38,6 +38,7 @@ final class EndpointFailover {
     private var retrySeconds = EndpointFailover.retryBase
     private var lastAskAt: Date?
     private var routeMissing = false
+    private var automaticChoiceTask: Task<Void, Never>?
 
     private init() {}
 
@@ -107,7 +108,92 @@ final class EndpointFailover {
         lastAskAt = nil
     }
 
+    func select(_ choice: RealtimeServerChoice) {
+        if choice == .auto, automaticChoiceTask != nil { return }
+        RealtimeServerChoice.current = choice
+        SentryLogger.addBreadcrumb(
+            category: "endpoint.failover",
+            message: "server_choice_selected",
+            data: ["choice": choice.rawValue]
+        )
+        pending = nil
+        automaticChoiceTask?.cancel()
+        automaticChoiceTask = nil
+        guard choice == .auto else {
+            MezonSocket.shared.reconnectIfTargetChanged()
+            return
+        }
+        automaticChoiceTask = Task { @MainActor [weak self] in
+            await self?.chooseAutomatically()
+            guard !Task.isCancelled else { return }
+            self?.automaticChoiceTask = nil
+        }
+    }
+
+    private func chooseAutomatically() async {
+        if let response = await askForDefaultNode() {
+            guard !Task.isCancelled else { return }
+            applyDefaultNode(response)
+        }
+        guard !Task.isCancelled else { return }
+        MezonSocket.shared.reconnectIfTargetChanged()
+    }
+
+    private func askForDefaultNode() async -> HealthyEndpoint? {
+        guard enabled, !routeMissing, let session = sessionProvider?() else { return nil }
+        var token = session.token
+        if session.isExpired || token.isEmpty {
+            let renewal = await renewToken()
+            guard case .success(let renewed) = renewal else { return nil }
+            token = renewed
+        }
+        do {
+            return try await fetchDefaultNode(token: token)
+        } catch let error as HealthyEndpointStatusError where error.statusCode == 401 || error.statusCode == 403 {
+            let renewal = await renewToken()
+            guard case .success(let renewed) = renewal else { return nil }
+            return try? await fetchDefaultNode(token: renewed)
+        } catch {
+            SentryLogger.addBreadcrumb(
+                category: "endpoint.failover",
+                message: "default_node_ask_failed",
+                level: .warning,
+                data: ["error": String(describing: error)]
+            )
+            return nil
+        }
+    }
+
+    private func fetchDefaultNode(token: String) async throws -> HealthyEndpoint {
+        try await withTimeout(Self.askTimeout) {
+            try await MezonHTTPClient.shared.getHealthyEndpoint(
+                token: token,
+                currentEndpointId: 0,
+                reasonCode: HealthyEndpointReason.highLatency.rawValue
+            )
+        }
+    }
+
+    private func applyDefaultNode(_ response: HealthyEndpoint) {
+        let current = sessionProvider?()
+        guard RealtimeServerChoice.current == .auto,
+              let next = EndpointAddress.node(answeredBy: response, fallbackTcpURL: current?.tcpURL)
+        else { return }
+        let tcpURL = response.tcpURL.isEmpty ? "\(next.host):\(next.port)" : response.tcpURL
+        let applied = applyEndpoints?(
+            response.apiURL.isEmpty ? nil : response.apiURL,
+            response.wsURL.isEmpty ? nil : response.wsURL,
+            tcpURL
+        ) ?? false
+        SentryLogger.addBreadcrumb(
+            category: "endpoint.failover",
+            message: "gateway_default_node",
+            data: ["node": next.label, "applied": applied]
+        )
+    }
+
     private func enqueue(_ request: EndpointRefreshRequest) {
+        guard RealtimeServerChoice.current == .auto else { return }
         pending = request
         guard worker == nil else { return }
         worker = Task { @MainActor [weak self] in
@@ -173,7 +259,7 @@ final class EndpointFailover {
     }
 
     private func ask(_ request: EndpointRefreshRequest) async -> AskOutcome {
-        guard let session = sessionProvider?() else { return .done }
+        guard RealtimeServerChoice.current == .auto, let session = sessionProvider?() else { return .done }
 
         var token = session.token
         if session.isExpired || token.isEmpty {
@@ -294,7 +380,7 @@ final class EndpointFailover {
         guard let next = EndpointAddress.node(answeredBy: response, fallbackTcpURL: current?.tcpURL) else {
             return .retry
         }
-        guard stillAimed(at: request.endpoint) else { return .done }
+        guard RealtimeServerChoice.current == .auto, stillAimed(at: request.endpoint) else { return .done }
 
         if next.isSameNode(request.endpoint) {
             health.setEndpoint(next)

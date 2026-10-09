@@ -83,6 +83,13 @@ enum L10n {
         static let yourFriends       = "profile.yourFriends"
         static let copyUserId        = "profile.copyUserId"
         static let userIdCopied      = "profile.userIdCopied"
+        static let server            = "profile.server"
+        static let serverAuto        = "profile.serverAuto"
+        static let serverAutoHint    = "profile.serverAutoHint"
+        static let serverInUse       = "profile.serverInUse"
+        static let serverVietnam     = "profile.serverVietnam"
+        static let serverUnitedStates = "profile.serverUnitedStates"
+        static let serverFooter      = "profile.serverFooter"
         static let currency          = "profile.currency"
         static let statusTitle              = "profile.statusTitle"
         static let statusDurationLabel      = "profile.statusDurationLabel"
@@ -1535,6 +1542,59 @@ extension L10n {
 
     enum SlashCommand {
         static let header = "slashCommand.header"
+        static let ephemeralDescription = "slashCommand.ephemeralDescription"
+        static let ephemeralPlaceholder = "slashCommand.ephemeralPlaceholder"
+        static let ephemeralBanner = "slashCommand.ephemeralBanner"
+    }
+
+    enum BotCommand {
+        static let waiting    = "botCommand.waiting"
+        static let answered   = "botCommand.answered"
+        static let viewReply  = "botCommand.viewReply"
+        static let noResponse = "botCommand.noResponse"
+        static let resend     = "botCommand.resend"
+        static let failed     = "botCommand.failed"
+        static let retry      = "botCommand.retry"
+        static let theBot     = "botCommand.theBot"
+    }
+
+    enum QuickAction {
+        static let title                        = "quickAction.title"
+        static let description                  = "quickAction.description"
+        static let flashMessages                = "quickAction.flashMessages"
+        static let quickMenus                   = "quickAction.quickMenus"
+        static let flashMessage                 = "quickAction.flashMessage"
+        static let quickMenu                    = "quickAction.quickMenu"
+        static let addFlashMessage              = "quickAction.addFlashMessage"
+        static let addQuickMenu                 = "quickAction.addQuickMenu"
+        static let emptyFlashMessage            = "quickAction.emptyFlashMessage"
+        static let emptyFlashMessageDescription = "quickAction.emptyFlashMessageDescription"
+        static let emptyQuickMenu               = "quickAction.emptyQuickMenu"
+        static let emptyQuickMenuDescription    = "quickAction.emptyQuickMenuDescription"
+        static let triggersBot                  = "quickAction.triggersBot"
+        static let createFlashMessage           = "quickAction.createFlashMessage"
+        static let editFlashMessage             = "quickAction.editFlashMessage"
+        static let createQuickMenu              = "quickAction.createQuickMenu"
+        static let editQuickMenu                = "quickAction.editQuickMenu"
+        static let commandName                  = "quickAction.commandName"
+        static let commandNameHelper            = "quickAction.commandNameHelper"
+        static let messageContent               = "quickAction.messageContent"
+        static let messageContentPlaceholder    = "quickAction.messageContentPlaceholder"
+        static let messageContentDescription    = "quickAction.messageContentDescription"
+        static let menuName                     = "quickAction.menuName"
+        static let menuNameHelper               = "quickAction.menuNameHelper"
+        static let botEventTrigger              = "quickAction.botEventTrigger"
+        static let botEventDescription          = "quickAction.botEventDescription"
+        static let errorInvalidName             = "quickAction.errorInvalidName"
+        static let errorDuplicateName           = "quickAction.errorDuplicateName"
+        static let errorMessageTooLong          = "quickAction.errorMessageTooLong"
+        static let create                       = "quickAction.create"
+        static let update                       = "quickAction.update"
+        static let delete                       = "quickAction.delete"
+        static let cancel                       = "quickAction.cancel"
+        static let editCommand                  = "quickAction.editCommand"
+        static let deleteCommand                = "quickAction.deleteCommand"
+        static let deleteConfirm                = "quickAction.deleteConfirm"
     }
 
     private static let en: [String: String] = [
@@ -2520,6 +2580,53 @@ extension L10n {
         "messageAction.markMessage": "Mark Message",
         "messageAction.quickMenu": "Quick Menu",
         "slashCommand.header": "COMMANDS",
+        "botCommand.waiting": "Waiting for %@ to respond…",
+        "botCommand.answered": "%@ responded",
+        "botCommand.viewReply": "View",
+        "botCommand.noResponse": "%@ hasn't responded yet",
+        "botCommand.resend": "Send again",
+        "botCommand.failed": "Couldn't send the command",
+        "botCommand.retry": "Try again",
+        "botCommand.theBot": "the bot",
+        "slashCommand.ephemeralDescription": "Send an ephemeral message (only visible to selected user)",
+        "slashCommand.ephemeralPlaceholder": "Ephemeral message to %@...",
+        "slashCommand.ephemeralBanner": "Ephemeral message to %@",
+        "quickAction.title": "Quick Command",
+        "quickAction.description": "Manage flash messages and quick menus for this channel",
+        "quickAction.flashMessages": "Flash Messages",
+        "quickAction.quickMenus": "Quick Menus",
+        "quickAction.flashMessage": "Flash Message",
+        "quickAction.quickMenu": "Quick Menu",
+        "quickAction.addFlashMessage": "Add Flash Message",
+        "quickAction.addQuickMenu": "Add Quick Menu",
+        "quickAction.emptyFlashMessage": "No flash messages yet",
+        "quickAction.emptyFlashMessageDescription": "Get started by creating your first flash message command",
+        "quickAction.emptyQuickMenu": "No quick menus yet",
+        "quickAction.emptyQuickMenuDescription": "Get started by creating your first quick menu",
+        "quickAction.triggersBot": "Triggers bot event",
+        "quickAction.createFlashMessage": "Create Flash Message",
+        "quickAction.editFlashMessage": "Edit Flash Message",
+        "quickAction.createQuickMenu": "Create Quick Menu",
+        "quickAction.editQuickMenu": "Edit Quick Menu",
+        "quickAction.commandName": "Command Name",
+        "quickAction.commandNameHelper": "The name users will type after the slash",
+        "quickAction.messageContent": "Message Content",
+        "quickAction.messageContentPlaceholder": "Message to be sent quickly",
+        "quickAction.messageContentDescription": "Message content that will be sent when this flash message command is used",
+        "quickAction.menuName": "Menu Name",
+        "quickAction.menuNameHelper": "The name for this quick menu item",
+        "quickAction.botEventTrigger": "Bot Event Trigger",
+        "quickAction.botEventDescription": "This quick menu will automatically trigger a bot event when selected.",
+        "quickAction.errorInvalidName": "Please enter a valid command name (max 64 characters; letters, numbers, spaces, _, -, ., +; cannot start with _ or -).",
+        "quickAction.errorDuplicateName": "A command with this name already exists in this channel.",
+        "quickAction.errorMessageTooLong": "Message content must be 512 bytes or fewer.",
+        "quickAction.create": "Create",
+        "quickAction.update": "Update",
+        "quickAction.delete": "Delete",
+        "quickAction.cancel": "Cancel",
+        "quickAction.editCommand": "Edit command",
+        "quickAction.deleteCommand": "Delete command",
+        "quickAction.deleteConfirm": "Please confirm if you would like to delete %@? This action cannot be undone.",
         "messageAction.report": "Report",
         "messageAction.pinMessageConfirm": "Please confirm if you would like to pin this message?",
         "messageAction.unpinMessageConfirm": "Remove this message from pinned messages?",
@@ -2607,6 +2714,13 @@ extension L10n {
         "profile.yourFriends": "Your Friends",
         "profile.copyUserId": "Copy User ID",
         "profile.userIdCopied": "User ID copied",
+        "profile.server": "Server",
+        "profile.serverAuto": "Auto",
+        "profile.serverAutoHint": "Picks a server for you",
+        "profile.serverInUse": "Using %@",
+        "profile.serverVietnam": "Vietnam",
+        "profile.serverUnitedStates": "United States",
+        "profile.serverFooter": "Auto: Mezon picks a server and switches when the connection is poor. Pick a server if you always want to stay on it.",
         "profile.currency": "đồng",
         "profile.statusTitle": "Update Status",
         "profile.statusDurationLabel": "Status Duration",
@@ -3908,6 +4022,53 @@ extension L10n {
         "messageAction.markMessage": "Đánh dấu tin nhắn",
         "messageAction.quickMenu": "Menu nhanh",
         "slashCommand.header": "LỆNH",
+        "botCommand.waiting": "Đang chờ %@ trả lời…",
+        "botCommand.answered": "%@ đã trả lời",
+        "botCommand.viewReply": "Xem",
+        "botCommand.noResponse": "Chưa thấy %@ phản hồi",
+        "botCommand.resend": "Gửi lại",
+        "botCommand.failed": "Không gửi được lệnh",
+        "botCommand.retry": "Thử lại",
+        "botCommand.theBot": "bot",
+        "slashCommand.ephemeralDescription": "Gửi tin nhắn tạm thời (chỉ hiển thị cho người dùng được chọn)",
+        "slashCommand.ephemeralPlaceholder": "Tin nhắn tạm thời cho %@...",
+        "slashCommand.ephemeralBanner": "Tin nhắn tạm thời cho %@",
+        "quickAction.title": "Lệnh nhanh",
+        "quickAction.description": "Quản lý tin nhắn nhanh và menu nhanh cho kênh này",
+        "quickAction.flashMessages": "Tin nhắn nhanh",
+        "quickAction.quickMenus": "Menu nhanh",
+        "quickAction.flashMessage": "Tin nhắn nhanh",
+        "quickAction.quickMenu": "Menu nhanh",
+        "quickAction.addFlashMessage": "Thêm Tin Nhắn Nhanh",
+        "quickAction.addQuickMenu": "Thêm Menu Nhanh",
+        "quickAction.emptyFlashMessage": "Chưa có tin nhắn nhanh nào",
+        "quickAction.emptyFlashMessageDescription": "Bắt đầu bằng cách tạo lệnh tin nhắn nhanh đầu tiên của bạn",
+        "quickAction.emptyQuickMenu": "Chưa có menu nhanh nào",
+        "quickAction.emptyQuickMenuDescription": "Bắt đầu bằng cách tạo menu nhanh đầu tiên của bạn",
+        "quickAction.triggersBot": "Kích hoạt sự kiện bot",
+        "quickAction.createFlashMessage": "Tạo Tin Nhắn Nhanh",
+        "quickAction.editFlashMessage": "Chỉnh Sửa Tin Nhắn Nhanh",
+        "quickAction.createQuickMenu": "Tạo Menu Nhanh",
+        "quickAction.editQuickMenu": "Chỉnh Sửa Menu Nhanh",
+        "quickAction.commandName": "Tên lệnh",
+        "quickAction.commandNameHelper": "Tên mà người dùng sẽ nhập sau dấu gạch chéo",
+        "quickAction.messageContent": "Nội dung tin nhắn",
+        "quickAction.messageContentPlaceholder": "Tin nhắn sẽ được gửi nhanh",
+        "quickAction.messageContentDescription": "Nội dung tin nhắn sẽ được gửi khi sử dụng lệnh tin nhắn nhanh này",
+        "quickAction.menuName": "Tên menu",
+        "quickAction.menuNameHelper": "Tên cho mục menu nhanh này",
+        "quickAction.botEventTrigger": "Kích hoạt sự kiện Bot",
+        "quickAction.botEventDescription": "Menu nhanh này sẽ tự động kích hoạt một sự kiện bot khi được chọn.",
+        "quickAction.errorInvalidName": "Vui lòng nhập tên lệnh hợp lệ (tối đa 64 ký tự; chữ cái, số, khoảng trắng, _, -, ., +; không được bắt đầu bằng _ hoặc -).",
+        "quickAction.errorDuplicateName": "Lệnh với tên này đã tồn tại trong kênh này.",
+        "quickAction.errorMessageTooLong": "Nội dung tin nhắn phải có tối đa 512 byte.",
+        "quickAction.create": "Tạo",
+        "quickAction.update": "Cập nhật",
+        "quickAction.delete": "Xóa",
+        "quickAction.cancel": "Hủy",
+        "quickAction.editCommand": "Chỉnh sửa lệnh",
+        "quickAction.deleteCommand": "Xóa lệnh",
+        "quickAction.deleteConfirm": "Bạn có chắc chắn muốn xóa %@ không? Hành động này không thể hoàn tác.",
         "messageAction.report": "Báo cáo",
         "messageAction.pinMessageConfirm": "Bạn có muốn ghim tin nhắn này không?",
         "messageAction.unpinMessageConfirm": "Bỏ ghim tin nhắn này?",
@@ -3973,6 +4134,13 @@ extension L10n {
         "profile.yourFriends": "Bạn bè",
         "profile.copyUserId": "Sao chép User ID",
         "profile.userIdCopied": "Đã sao chép User ID",
+        "profile.server": "Máy chủ",
+        "profile.serverAuto": "Tự động",
+        "profile.serverAutoHint": "Tự chọn máy chủ phù hợp",
+        "profile.serverInUse": "Đang dùng %@",
+        "profile.serverVietnam": "Việt Nam",
+        "profile.serverUnitedStates": "Hoa Kỳ",
+        "profile.serverFooter": "Tự động: Mezon chọn máy chủ và tự chuyển khi kết nối kém. Chọn một máy chủ nếu bạn muốn luôn dùng cố định.",
         "profile.currency": "đồng",
         "profile.statusTitle": "Cập nhật trạng thái",
         "profile.statusDurationLabel": "Thời lượng trạng thái",

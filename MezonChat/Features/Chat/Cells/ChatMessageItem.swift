@@ -78,6 +78,7 @@ final class ChatMessageItem: ListViewItem {
             && self.relayoutVersion == other.relayoutVersion
             && self.display.parsedContent.embeds == other.display.parsedContent.embeds
             && self.display.parsedContent.ogpPreviews == other.display.parsedContent.ogpPreviews
+            && self.display.botCommand == other.display.botCommand
     }
 }
 
@@ -98,6 +99,7 @@ final class ChatMessageItemNode: ListViewItemNode, UIGestureRecognizerDelegate {
             && existing.reactions == item.reactions
             && existing.sendingState == item.sendingState
             && existing.showsSendingFeedback == item.showsSendingFeedback
+            && existing.botCommand == item.botCommand
     }
 
     private var bubbleNode: MessageBubbleNode?

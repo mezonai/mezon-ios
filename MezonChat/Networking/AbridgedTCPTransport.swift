@@ -3,25 +3,7 @@ import Network
 import Security
 import dnssd
 
-private enum AbridgedTCPLog {
-    private static let idLock = NSLock()
-    private static var lastConnectionId = 0
-
-    static func nextConnectionId() -> Int {
-        idLock.lock()
-        defer { idLock.unlock() }
-        lastConnectionId += 1
-        return lastConnectionId
-    }
-
-    static func line(_ message: String) {
-        NSLog("%@", message as NSString)
-    }
-
-    static func elapsedMilliseconds(since start: DispatchTime) -> UInt64 {
-        (DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000
-    }
-
+private enum AbridgedTCPTiming {
     static func elapsedSeconds(since start: DispatchTime) -> TimeInterval {
         TimeInterval(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000_000
     }
@@ -36,13 +18,6 @@ private enum AddressFamily {
             self = .ipv6
         } else {
             self = .ipv4
-        }
-    }
-
-    var label: String {
-        switch self {
-        case .ipv6: return "IPv6"
-        case .ipv4: return "IPv4"
         }
     }
 
@@ -170,8 +145,6 @@ private final class HappyEyeballsConnector {
     private let hostName: String
     private let port: NWEndpoint.Port
     private let queue: DispatchQueue
-    private let logTag: String
-    private let startedAt = DispatchTime.now()
     private let connectionAttemptDelay: TimeInterval = 0.25
     private let resolutionDelay: TimeInterval = 0.05
 
@@ -190,11 +163,10 @@ private final class HappyEyeballsConnector {
     private var lastError: Error?
     private var isFinished = false
 
-    init(hostName: String, port: NWEndpoint.Port, queue: DispatchQueue, logTag: String) {
+    init(hostName: String, port: NWEndpoint.Port, queue: DispatchQueue) {
         self.hostName = hostName
         self.port = port
         self.queue = queue
-        self.logTag = logTag
     }
 
     func start(completion: @escaping (Result<NWConnection, Error>) -> Void) {
@@ -241,7 +213,6 @@ private final class HappyEyeballsConnector {
         case .failure(let error):
             hosts = []
             lastError = error
-            log("dns \(family.recordType) failed at +\(elapsedMilliseconds)ms: \(error)")
         }
         switch family {
         case .ipv6: ipv6Hosts = hosts
@@ -276,7 +247,7 @@ private final class HappyEyeballsConnector {
             startNextAttempt()
             return
         }
-        let wait = connectionAttemptDelay - AbridgedTCPLog.elapsedSeconds(since: lastStart)
+        let wait = connectionAttemptDelay - AbridgedTCPTiming.elapsedSeconds(since: lastStart)
         guard wait > 0 else {
             startNextAttempt()
             return
@@ -318,14 +289,12 @@ private final class HappyEyeballsConnector {
         case .waiting(let error):
             lastError = error
             guard stalledAttempts.insert(number).inserted else { return }
-            log("attempt #\(number) \(AddressFamily(host).label) \(host) waiting at +\(elapsedMilliseconds)ms: \(error), kept alive while other addresses are tried")
             startNextAttempt()
         case .failed(let error):
             connection.cancel()
             attempts[number] = nil
             stalledAttempts.remove(number)
             lastError = error
-            log("attempt #\(number) \(AddressFamily(host).label) \(host) failed at +\(elapsedMilliseconds)ms: \(error)")
             startNextAttempt()
             failIfExhausted()
         default:
@@ -348,7 +317,6 @@ private final class HappyEyeballsConnector {
     private func failIfExhausted() {
         guard !isFinished, attempts.isEmpty, ipv6Hosts != nil, ipv4Hosts != nil, remainingHosts().isEmpty else { return }
         let error = lastError ?? MezonError.socketError("No addresses found for \(hostName)")
-        log("all attempts exhausted at +\(elapsedMilliseconds)ms: \(error)")
         let completion = self.completion
         isFinished = true
         self.completion = nil
@@ -385,14 +353,6 @@ private final class HappyEyeballsConnector {
         lookups.forEach { $0.cancel() }
         lookups.removeAll()
     }
-
-    private var elapsedMilliseconds: UInt64 {
-        AbridgedTCPLog.elapsedMilliseconds(since: startedAt)
-    }
-
-    private func log(_ message: String) {
-        AbridgedTCPLog.line("\(logTag) \(message)")
-    }
 }
 
 final class AbridgedTCPTransport {
@@ -410,7 +370,6 @@ final class AbridgedTCPTransport {
     private var pingSentAt: [UInt16: DispatchTime] = [:]
     private var isClosed = false
     private let writeStallTimeoutSeconds: TimeInterval = 20
-    private let logTag = "[abridged-tcp] [c\(AbridgedTCPLog.nextConnectionId())]"
 
     func connect(host: String, port: UInt16, credential: String) {
         queue.async { [weak self] in
@@ -419,7 +378,7 @@ final class AbridgedTCPTransport {
                 self.failConnection(MezonError.socketError("Invalid abridged port \(port)"))
                 return
             }
-            let connector = HappyEyeballsConnector(hostName: host, port: nwPort, queue: self.queue, logTag: self.logTag)
+            let connector = HappyEyeballsConnector(hostName: host, port: nwPort, queue: self.queue)
             self.connector = connector
             connector.start { [weak self] result in
                 guard let self, self.connector === connector, !self.isClosed else {
@@ -550,7 +509,7 @@ final class AbridgedTCPTransport {
     private func reportPongRoundTrips(in events: [AbridgedParsedEvent]) {
         for event in events {
             guard case .pong(let cid) = event, let sentAt = pingSentAt.removeValue(forKey: cid) else { continue }
-            onPongRtt?(AbridgedTCPLog.elapsedSeconds(since: sentAt) * 1_000)
+            onPongRtt?(AbridgedTCPTiming.elapsedSeconds(since: sentAt) * 1_000)
         }
     }
 
@@ -561,10 +520,6 @@ final class AbridgedTCPTransport {
     private func closeInternally(wasClean: Bool, error: Error?) {
         guard !isClosed else { return }
         isClosed = true
-        if !wasClean || error != nil {
-            let reason = error.map { "\($0)" } ?? "none"
-            AbridgedTCPLog.line("\(logTag) closed wasClean=\(wasClean) error=\(reason)")
-        }
         connector?.cancel()
         connector = nil
         connection?.cancel()

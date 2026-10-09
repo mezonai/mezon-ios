@@ -428,6 +428,10 @@ final class SendMessageInputViewController: UIViewController {
     internal var channel: Mezon_Api_ChannelDescription {
         didSet {
             guard channel.channelID != oldValue.channelID || channel.type != oldValue.type else { return }
+            if channel.channelID != oldValue.channelID {
+                clearEphemeralTarget()
+                flashCommand = nil
+            }
             if isViewLoaded {
                 if isVoiceRecordingActive {
                     cancelVoiceRecording(deleteFile: true)
@@ -456,6 +460,7 @@ final class SendMessageInputViewController: UIViewController {
 
     var onVoiceTapped: (() -> Void)?
     var onSent: (() -> Void)?
+    var onBotCommandSend: ((BotCommandDispatch) -> Void)?
     var onError: ((String) -> Void)?
     var onHeightChanged: ((CGFloat) -> Void)?
     var onInlineSuggestionVisibilityChanged: ((Bool) -> Void)?
@@ -575,6 +580,9 @@ final class SendMessageInputViewController: UIViewController {
     private var slashCommandComposerConstraints: [NSLayoutConstraint] = []
     private var slashCommandHostConstraints: [NSLayoutConstraint] = []
     private var slashCommandFilterWorkItem: DispatchWorkItem?
+    private var isSelectingEphemeralTarget = false
+    private var ephemeralTarget: (userId: Int64, displayName: String)?
+    private var flashCommand: BotFlashCommand?
     private static let slashCommandFilterDebounce: TimeInterval = 0.3
     private var lastInlineSuggestionHostReportedHeight: CGFloat = -1
 
@@ -865,7 +873,7 @@ final class SendMessageInputViewController: UIViewController {
         if activeOgpPreviewItem != nil {
             h += OgpPreviewView.preferredHeight
         }
-        if replyDisplay != nil || editingDisplay != nil {
+        if replyDisplay != nil || editingDisplay != nil || ephemeralTarget != nil {
             h += Self.replyBannerHeight
         }
         return h
@@ -1642,6 +1650,18 @@ final class SendMessageInputViewController: UIViewController {
             return
         }
         guard !trimmed.isEmpty || hasAttachments else { return }
+        if let target = ephemeralTarget {
+            flashCommand = nil
+            sendEphemeralMessage(text: trimmed, receiverId: target.userId)
+            return
+        }
+        if let command = flashCommand {
+            flashCommand = nil
+            if command.stillPrefixes(trimmed), let handler = onBotCommandSend {
+                sendBotCommand(command, text: trimmed, handler: handler)
+                return
+            }
+        }
         sendChannelMessage(text: trimmed, images: pickedImages, clanId: clanId, channel: channel)
     }
 
@@ -1668,6 +1688,8 @@ final class SendMessageInputViewController: UIViewController {
     @objc private func clearReplyAction() {
         if editingDisplay != nil {
             clearEditingMessage()
+        } else if ephemeralTarget != nil {
+            clearEphemeralTarget()
         } else {
             clearReply()
         }
@@ -2065,6 +2087,8 @@ final class SendMessageInputViewController: UIViewController {
     private func refreshBannerLabel() {
         if editingDisplay != nil {
             replyLabel.text = L(L10n.MessageAction.editingMessage)
+        } else if let target = ephemeralTarget {
+            replyLabel.text = L(L10n.SlashCommand.ephemeralBanner, target.displayName)
         } else if let r = replyDisplay {
             replyLabel.text = "Replying to \(r.senderDisplayName)"
         }
@@ -2078,7 +2102,7 @@ final class SendMessageInputViewController: UIViewController {
             }
             return
         }
-        let shouldShow = replyDisplay != nil || editingDisplay != nil
+        let shouldShow = replyDisplay != nil || editingDisplay != nil || ephemeralTarget != nil
         let targetH: CGFloat = shouldShow ? Self.replyBannerHeight : 0
         let heightChanged = replyBannerHeightConstraint?.constant != targetH
         replyBannerView.isUserInteractionEnabled = shouldShow
@@ -3298,6 +3322,7 @@ final class SendMessageInputViewController: UIViewController {
 
             placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor, constant: 13),
             placeholderLabel.centerYAnchor.constraint(equalTo: textView.centerYAnchor),
+            placeholderLabel.trailingAnchor.constraint(lessThanOrEqualTo: emojiButton.leadingAnchor, constant: -4.sw),
 
             emojiButton.trailingAnchor.constraint(equalTo: textView.trailingAnchor, constant: -8.sw),
             emojiButton.bottomAnchor.constraint(equalTo: textView.bottomAnchor, constant: -6),
@@ -4613,6 +4638,7 @@ final class SendMessageInputViewController: UIViewController {
             return
         }
         guard let dominant = dominantInlineCompletion() else {
+            isSelectingEphemeralTarget = false
             hideMentionSuggestions()
             hideHashtagSuggestions()
             hideSlashCommandSuggestions()
@@ -4626,10 +4652,12 @@ final class SendMessageInputViewController: UIViewController {
             hideSlashCommandSuggestions()
             updateMentionSuggestions(keyword: keyword)
         case .hashtag(_, let keyword):
+            isSelectingEphemeralTarget = false
             hideMentionSuggestions()
             hideSlashCommandSuggestions()
             updateHashtagSuggestions(keyword: keyword)
         case .slashCommand:
+            isSelectingEphemeralTarget = false
             hideMentionSuggestions()
             hideHashtagSuggestions()
             scheduleSlashCommandSuggestionsUpdate()
@@ -4637,7 +4665,14 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func updateMentionSuggestions(keyword: String) {
-        let pool = allMentionSuggestionItems
+        var pool = allMentionSuggestionItems
+        let selfUserId = Int64(context.currentUser?.id ?? "") ?? 0
+        if isSelectingEphemeralTarget {
+            pool = pool.filter { item in
+                guard case .user(let member) = item else { return false }
+                return member.userId != selfUserId
+            }
+        }
         var filtered: [MentionSuggestionItem]
         if keyword.isEmpty {
             filtered = pool
@@ -4679,6 +4714,7 @@ final class SendMessageInputViewController: UIViewController {
                 listedUserIds.insert(member.userId)
             }
             for user in remote.users where listedUserIds.insert(user.id).inserted {
+                if isSelectingEphemeralTarget && user.id == selfUserId { continue }
                 filtered.append(.user(mentionMember(from: user)))
             }
         }
@@ -4883,7 +4919,12 @@ final class SendMessageInputViewController: UIViewController {
         sv.translatesAutoresizingMaskIntoConstraints = false
         sv.isHidden = true
         sv.onSelectCommand = { [weak self] command in
-            self?.applySlashCommand(command)
+            switch command {
+            case .ephemeral:
+                self?.beginEphemeralTargetSelection()
+            case .flashMessage(let item, _):
+                self?.applySlashCommand(item)
+            }
         }
         view.insertSubview(sv, at: 0)
 
@@ -4920,11 +4961,18 @@ final class SendMessageInputViewController: UIViewController {
 
     private func applySlashCommandFilter(keyword: String) {
         let lower = keyword.lowercased()
-        let filtered: [Mezon_Api_QuickMenuAccess]
+        var pool: [SlashCommandItem] = editingDisplay == nil ? [.ephemeral] : []
+        pool.append(contentsOf: slashCommandCandidates.map { item -> SlashCommandItem in
+            let botName = item.botID == 0
+                ? nil
+                : allMentionMembers.first { $0.userId == item.botID }?.displayName
+            return .flashMessage(item, botName: botName)
+        })
+        let filtered: [SlashCommandItem]
         if lower.isEmpty {
-            filtered = slashCommandCandidates
+            filtered = pool
         } else {
-            filtered = slashCommandCandidates.filter { $0.menuName.lowercased().contains(lower) }
+            filtered = pool.filter { $0.name.lowercased().contains(lower) }
         }
         let capped = Array(filtered.prefix(20))
         guard !capped.isEmpty else {
@@ -4962,7 +5010,7 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
-    private func showSlashCommandSuggestions(items: [Mezon_Api_QuickMenuAccess]) {
+    private func showSlashCommandSuggestions(items: [SlashCommandItem]) {
         hideEmojiSuggestions()
         hideMentionSuggestions()
         hideHashtagSuggestions()
@@ -5008,9 +5056,231 @@ final class SendMessageInputViewController: UIViewController {
         layoutSuperviewForComposerChange(shouldAnimateSuperview: true, duration: 0.15)
     }
 
+    private func beginEphemeralTargetSelection() {
+        let full = (textView.text ?? "") as NSString
+        let cursor = min(textView.selectedRange.location, full.length)
+        var slashIndex = 0
+        while slashIndex < full.length, Self.isWhitespaceUTF16(full.character(at: slashIndex)) {
+            slashIndex += 1
+        }
+        guard slashIndex < full.length, full.character(at: slashIndex) == 0x2F, cursor > slashIndex else { return }
+        hideSlashCommandSuggestions()
+        replaceComposerText(in: NSRange(location: slashIndex, length: cursor - slashIndex), with: "@")
+        isSelectingEphemeralTarget = true
+        updateInlineSuggestions()
+    }
+
+    func clearEphemeralTarget() {
+        let hadState = isSelectingEphemeralTarget || ephemeralTarget != nil
+        isSelectingEphemeralTarget = false
+        ephemeralTarget = nil
+        guard hadState, isViewLoaded else { return }
+        refreshEphemeralIndicator()
+    }
+
+    private func refreshEphemeralIndicator() {
+        if let target = ephemeralTarget {
+            placeholderLabel.text = L(L10n.SlashCommand.ephemeralPlaceholder, target.displayName)
+        } else {
+            placeholderLabel.text = placeholder
+        }
+        updateReplyBannerVisibility()
+    }
+
+    private func replaceComposerText(in range: NSRange, with replacement: String) {
+        let attrText = NSMutableAttributedString(attributedString: textView.attributedText ?? NSAttributedString())
+        guard range.location >= 0, NSMaxRange(range) <= attrText.length else { return }
+        attrText.replaceCharacters(in: range, with: NSAttributedString(string: replacement, attributes: composerNormalTypingAttributes()))
+        textView.attributedText = attrText
+
+        let replacementLength = (replacement as NSString).length
+        let lengthDelta = replacementLength - range.length
+        let rangeEnd = NSMaxRange(range)
+        activeMentions = activeMentions.compactMap { m in
+            if m.range.location >= rangeEnd {
+                return ComposerMention(
+                    userId: m.userId,
+                    roleId: m.roleId,
+                    rolename: m.rolename,
+                    displayName: m.displayName,
+                    range: NSRange(location: m.range.location + lengthDelta, length: m.range.length)
+                )
+            }
+            return NSMaxRange(m.range) <= range.location ? m : nil
+        }
+        activeHashtags = activeHashtags.compactMap { h in
+            if h.range.location >= rangeEnd {
+                return ComposerHashtag(
+                    channelId: h.channelId,
+                    clanId: h.clanId,
+                    parentId: h.parentId,
+                    channelLabel: h.channelLabel,
+                    channelType: h.channelType,
+                    channelPrivate: h.channelPrivate,
+                    ageRestricted: h.ageRestricted,
+                    range: NSRange(location: h.range.location + lengthDelta, length: h.range.length)
+                )
+            }
+            return NSMaxRange(h.range) <= range.location ? h : nil
+        }
+
+        let cursor = range.location + replacementLength
+        lastHandledComposerSelection = NSRange(location: -1, length: -1)
+        textView.selectedRange = NSRange(location: cursor, length: 0)
+        textView.typingAttributes = composerNormalTypingAttributes()
+        text = textView.text ?? ""
+        placeholderLabel.isHidden = !text.isEmpty
+        updateTextViewHeight()
+        updateSendVoiceToggle()
+        syncAttachControlsWithTypedText()
+    }
+
+    private func sendEphemeralMessage(text: String, receiverId: Int64) {
+        let built = ComposerContentPayloadBuilder.build(rawInput: text, emojiIdByColon: emojiIdByColonToken)
+        let displayText = built.displayText
+        let mentionList = buildMentionList(displayPlain: displayText)
+        let contentData = makeOutgoingContentData(
+            rawInput: text,
+            displayText: displayText,
+            markdownList: built.mk,
+            emojiList: built.ej,
+            hashtagList: buildHashtagList(displayPlain: displayText),
+            isEdit: false
+        )
+        guard contentData.count <= Self.maxMessageContentBytes else {
+            Toast.error(L(L10n.Error.somethingWentWrong))
+            return
+        }
+        let content = String(data: contentData, encoding: .utf8) ?? "{}"
+        let references: [Mezon_Api_MessageRef] = buildReplyRef().map { [$0] } ?? []
+        let images = pickedImages
+        let fileURLs = pickedFileURLs
+        let files = pickedFiles
+        let clanId = self.clanId
+        let channel = self.channel
+        let topicId = self.topicId
+        let mode = channelStreamMode
+        let avatar = context.currentUser?.avatarURL?.absoluteString ?? ""
+
+        clearEphemeralTarget()
+        applyOptimisticSendComposerReset()
+
+        Task { @MainActor in
+            guard let token = await self.context.getToken() else {
+                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                return
+            }
+            do {
+                var attachments: [Mezon_Api_MessageAttachment] = []
+                if !images.isEmpty {
+                    attachments = try await self.uploadAttachments(images, fileURLs: fileURLs, token: token)
+                }
+                if !files.isEmpty {
+                    attachments.append(contentsOf: try await self.uploadFileAttachments(files, token: token))
+                }
+                var message = Mezon_Realtime_ChannelMessageSend()
+                message.id = ClientSnowflakeID.next()
+                message.clanID = clanId
+                message.channelID = channel.channelID
+                message.mode = mode
+                message.isPublic = channel.channelPrivate == 0
+                message.content = content
+                message.mentions = mentionList
+                message.attachments = attachments
+                message.references = references
+                message.avatar = avatar
+                message.code = MezonConstants.MessageCode.ephemeral.rawValue
+                message.topicID = topicId
+                try await MezonSocket.shared.sendEphemeralMessage(message, receiverIds: [receiverId])
+            } catch {
+                Toast.error(error.localizedDescription)
+            }
+        }
+    }
+
+    private func botDisplayNameFromClanMembers(botId: Int64) -> String {
+        guard clanId != 0 else { return "" }
+        let clanId = self.clanId
+        guard let member = context.account.postbox.read({ $0.getClanMembers(clanId: clanId) })
+            .first(where: { $0.userId == botId }) else { return "" }
+        for name in [member.clanNick, member.displayName, member.username] where !name.isEmpty {
+            return name
+        }
+        return ""
+    }
+
+    private func sendBotCommand(_ command: BotFlashCommand, text: String, handler: (BotCommandDispatch) -> Void) {
+        let built = ComposerContentPayloadBuilder.build(rawInput: text, emojiIdByColon: emojiIdByColonToken)
+        let displayText = built.displayText
+        let mentionList = buildMentionList(displayPlain: displayText)
+        let contentData = makeOutgoingContentData(
+            rawInput: text,
+            displayText: displayText,
+            markdownList: built.mk,
+            emojiList: built.ej,
+            hashtagList: buildHashtagList(displayPlain: displayText),
+            isEdit: false
+        )
+        guard contentData.count <= Self.maxMessageContentBytes else {
+            Toast.error(L(L10n.Error.somethingWentWrong))
+            return
+        }
+        let content = String(data: contentData, encoding: .utf8) ?? "{}"
+        let references: [Mezon_Api_MessageRef] = buildReplyRef().map { [$0] } ?? []
+        let images = pickedImages
+        let fileURLs = pickedFileURLs
+        let files = pickedFiles
+        let clanId = self.clanId
+        let channel = self.channel
+        let topicId = self.topicId
+        let mode = channelStreamMode
+        let avatar = context.currentUser?.avatarURL?.absoluteString ?? ""
+        let botName = allMentionMembers.first { $0.userId == command.botId }?.displayName
+            ?? botDisplayNameFromClanMembers(botId: command.botId)
+
+        applyOptimisticSendComposerReset()
+
+        let dispatch = BotCommandDispatch(
+            botId: command.botId,
+            botName: botName,
+            menuName: command.menuName,
+            arguments: command.arguments(in: text),
+            resendable: images.isEmpty && files.isEmpty,
+            prepare: { [weak self] in
+                guard let self, let token = await self.context.getToken() else {
+                    throw MezonError.invalidResponse
+                }
+                var attachments: [Mezon_Api_MessageAttachment] = []
+                if !images.isEmpty {
+                    attachments = try await self.uploadAttachments(images, fileURLs: fileURLs, token: token)
+                }
+                if !files.isEmpty {
+                    attachments.append(contentsOf: try await self.uploadFileAttachments(files, token: token))
+                }
+                var message = Mezon_Realtime_ChannelMessageSend()
+                message.clanID = clanId
+                message.channelID = channel.channelID
+                message.mode = mode
+                message.isPublic = channel.channelPrivate == 0
+                message.content = content
+                message.mentions = mentionList
+                message.attachments = attachments
+                message.references = references
+                message.avatar = avatar
+                message.code = MezonConstants.MessageCode.ephemeral.rawValue
+                message.topicID = topicId
+                return message
+            }
+        )
+        handler(dispatch)
+    }
+
     private func applySlashCommand(_ command: Mezon_Api_QuickMenuAccess) {
         let message = command.actionMsg.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty else { return }
+        flashCommand = command.botID != 0 && editingDisplay == nil
+            ? BotFlashCommand(botId: command.botID, menuName: command.menuName, actionMsg: command.actionMsg)
+            : nil
         let normalAttrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: 15.sf),
             .foregroundColor: UIColor.theme.textStrong
@@ -5047,6 +5317,17 @@ final class SendMessageInputViewController: UIViewController {
         guard atRange.location != NSNotFound else { return }
         let atIntIdx = atRange.location
         let replaceRange = NSRange(location: atIntIdx, length: cursorOffset - atIntIdx)
+
+        if isSelectingEphemeralTarget {
+            isSelectingEphemeralTarget = false
+            if case .user(let member) = item {
+                replaceComposerText(in: replaceRange, with: "")
+                ephemeralTarget = (userId: member.userId, displayName: member.displayName)
+                refreshEphemeralIndicator()
+                hideMentionSuggestions()
+                return
+            }
+        }
 
         let mentionText: String
         let tracked: ComposerMention

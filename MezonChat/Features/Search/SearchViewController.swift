@@ -1492,7 +1492,6 @@ final class SearchViewController: ViewController {
         Task { @MainActor [weak self] in
             guard let self else { return }
             guard let sessionToken = await self.context.getToken() else {
-                StreamingSfuLog.write("join aborted, session token unavailable channel=\(channel.channelID)")
                 return
             }
             let meetToken: String
@@ -1504,11 +1503,9 @@ final class SearchViewController: ViewController {
                     token: sessionToken
                 )
             } catch {
-                StreamingSfuLog.write("generateMeetToken failed channel=\(channel.channelID) error=\(error)")
                 return
             }
             guard !meetToken.isEmpty else {
-                StreamingSfuLog.write("generateMeetToken returned empty channel=\(channel.channelID)")
                 return
             }
             let tokenContext = self.context
