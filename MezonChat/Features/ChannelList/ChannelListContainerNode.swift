@@ -228,6 +228,7 @@ final class ChannelListContainerNode: ASDisplayNode {
                 pendingVisibleReconcileShouldResetScroll =
                     pendingVisibleReconcileShouldResetScroll || wasClanSwitching
             }
+            safeReloadData()
         } else if shouldAnimateReplace && !wasClanSwitching && nodeIsVisible && tableIsInWindow && treeStructureChanged {
             cachedHeaders = [:]
             crossfadeReloadAnimated()
@@ -240,6 +241,7 @@ final class ChannelListContainerNode: ASDisplayNode {
                 } else {
                     pendingVisibleReconcile = true
                     pendingVisibleReconcileShouldResetScroll = true
+                    safeReloadData()
                 }
                 clanSwitchTableRefreshDone = true
                 deferOnboardingTableUpdates = false
@@ -255,6 +257,7 @@ final class ChannelListContainerNode: ASDisplayNode {
             cachedHeaders = [:]
             pendingVisibleReconcile = true
             pendingVisibleReconcileShouldResetScroll = false
+            safeReloadData()
         } else if revealingFromLoadingPlaceholder && tableIsInWindow {
             cachedHeaders = [:]
             crossfadeReloadAnimated(duration: 0.15)

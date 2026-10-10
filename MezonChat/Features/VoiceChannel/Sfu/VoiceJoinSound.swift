@@ -3,18 +3,18 @@ import Foundation
 
 final class VoiceJoinSound {
 
-    private static let minimumInterval: TimeInterval = 1.1
+    private static let minimumInterval: TimeInterval = 5
 
     private var player: AVAudioPlayer?
-    private var lastPlayedAt: TimeInterval = 0
+    private var lastPlayedAt: TimeInterval?
 
     func play() {
         guard AppAudioSession.isHeldByLiveCall else { return }
         let now = ProcessInfo.processInfo.systemUptime
-        guard now - lastPlayedAt >= Self.minimumInterval, let player = player ?? makePlayer() else { return }
-        lastPlayedAt = now
+        if let lastPlayedAt, now - lastPlayedAt < Self.minimumInterval { return }
+        guard let player = player ?? makePlayer(), !player.isPlaying else { return }
         player.currentTime = 0
-        player.play()
+        if player.play() { lastPlayedAt = ProcessInfo.processInfo.systemUptime }
     }
 
     private func makePlayer() -> AVAudioPlayer? {

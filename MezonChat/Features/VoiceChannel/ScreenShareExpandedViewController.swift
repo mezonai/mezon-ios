@@ -13,13 +13,27 @@ protocol ScreenShareExpandedPiPHost: AnyObject {
 }
 
 @available(iOS 15.0, *)
-final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewController, AVPictureInPictureControllerDelegate, UIScrollViewDelegate {
+final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewController, AVPictureInPictureControllerDelegate, UIScrollViewDelegate, UIGestureRecognizerDelegate {
 
     weak var pipHost: ScreenShareExpandedPiPHost?
 
     var onPttPress: (() -> Void)?
     var onPttRelease: (() -> Void)?
     var showsPttControl = false
+    var onCameraToggle: (() -> Void)?
+    var onMicToggle: (() -> Void)?
+    var onOpenChat: (() -> Void)?
+    var onRaiseHand: (() -> Void)?
+    var onLeave: (() -> Void)?
+
+    private let callControls = UIStackView()
+    private let cameraButton = UIButton(type: .custom)
+    private let microphoneButton = UIButton(type: .custom)
+    private let chatButton = UIButton(type: .custom)
+    private let handButton = UIButton(type: .custom)
+    private let leaveButton = UIButton(type: .custom)
+    private var controlsVisible = true
+    private var isClosingDetail = false
 
     private let shareTrack: RTCVideoTrack
     private let personName: String
@@ -39,7 +53,6 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
     private var pttFeedbackState: SfuPttFeedbackState = .idle
     private var pttReadyShown = false
     private var pttHintView: UIView?
-    private var pttDimWork: DispatchWorkItem?
 
     private var pipSourceView: UIView?
     private var pipBackgroundObserver: NSObjectProtocol?
@@ -50,13 +63,6 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
     private let videoContainer = UIView()
 
     private let dismissDetailButton = UIButton(type: .system)
-
-    private var scrollTopConstraint: NSLayoutConstraint!
-    private var scrollLeadingConstraint: NSLayoutConstraint!
-    private var scrollTrailingConstraint: NSLayoutConstraint!
-    private var scrollBottomConstraint: NSLayoutConstraint!
-    private var dismissDetailTopConstraint: NSLayoutConstraint!
-    private var dismissDetailTrailingConstraint: NSLayoutConstraint!
 
     init(track: RTCVideoTrack, displayName: String) {
         self.shareTrack = track
@@ -79,6 +85,9 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
         scrollView.bouncesZoom = true
         scrollView.showsVerticalScrollIndicator = false
         scrollView.showsHorizontalScrollIndicator = false
+        scrollView.contentInsetAdjustmentBehavior = .never
+        scrollView.isAccessibilityElement = true
+        scrollView.accessibilityLabel = NSLocalizedString("voiceChannel.screenShare", tableName: nil, bundle: .main, value: "Screen share", comment: "")
 
         videoContainer.translatesAutoresizingMaskIntoConstraints = false
         videoView.translatesAutoresizingMaskIntoConstraints = false
@@ -89,16 +98,11 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
         scrollView.addSubview(videoContainer)
         videoContainer.addSubview(videoView)
 
-        scrollTopConstraint = scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 0)
-        scrollLeadingConstraint = scrollView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 0)
-        scrollTrailingConstraint = scrollView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: 0)
-        scrollBottomConstraint = scrollView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: 0)
-
         NSLayoutConstraint.activate([
-            scrollTopConstraint,
-            scrollLeadingConstraint,
-            scrollTrailingConstraint,
-            scrollBottomConstraint,
+            scrollView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
 
             videoContainer.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
             videoContainer.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
@@ -123,11 +127,9 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
         dismissDetailButton.addTarget(self, action: #selector(closeScreenShareTapped), for: .touchUpInside)
         view.addSubview(dismissDetailButton)
 
-        dismissDetailTopConstraint = dismissDetailButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12)
-        dismissDetailTrailingConstraint = dismissDetailButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12)
         NSLayoutConstraint.activate([
-            dismissDetailTopConstraint,
-            dismissDetailTrailingConstraint,
+            dismissDetailButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
+            dismissDetailButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
             dismissDetailButton.widthAnchor.constraint(equalToConstant: 44),
             dismissDetailButton.heightAnchor.constraint(equalToConstant: 44),
         ])
@@ -136,12 +138,143 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
         doubleTap.numberOfTapsRequired = 2
         scrollView.addGestureRecognizer(doubleTap)
 
+        let singleTap = UITapGestureRecognizer(target: self, action: #selector(toggleControls))
+        singleTap.delegate = self
+        singleTap.require(toFail: doubleTap)
+        view.addGestureRecognizer(singleTap)
+
+        setupCallControls()
         setupPttControl()
+        updateControlsAccessibilityAction()
 
         shareTrack.add(videoView)
         VideoTrackLastFrameStore.replayLastFrame(of: shareTrack, to: [videoView])
-        applyScreenShareLayoutForCurrentBounds()
         setupScreenSharePiP()
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard let touchedView = touch.view else { return false }
+        let overlays: [UIView] = [callControls, pttPill, dismissDetailButton]
+        return !overlays.contains {
+            touchedView === $0 || touchedView.isDescendant(of: $0)
+        }
+    }
+
+    @objc private func toggleControls() {
+        guard !pttHoldTriggered else { return }
+        controlsVisible.toggle()
+        if !controlsVisible {
+            pttHintView?.removeFromSuperview()
+            pttHintView = nil
+        }
+        let overlays: [UIView] = [callControls, pttPill, dismissDetailButton]
+        overlays.forEach {
+            $0.isUserInteractionEnabled = controlsVisible
+            $0.accessibilityElementsHidden = !controlsVisible
+        }
+        UIView.animate(
+            withDuration: UIAccessibility.isReduceMotionEnabled ? 0 : 0.2,
+            delay: 0,
+            options: [.beginFromCurrentState, .allowUserInteraction],
+            animations: {
+                overlays.forEach { $0.alpha = self.controlsVisible ? 1 : 0 }
+            }
+        )
+        updateControlsAccessibilityAction()
+    }
+
+    private func updateControlsAccessibilityAction() {
+        let title = controlsVisible
+            ? NSLocalizedString("voiceChannel.hideControls", tableName: nil, bundle: .main, value: "Hide controls", comment: "")
+            : NSLocalizedString("voiceChannel.showControls", tableName: nil, bundle: .main, value: "Show controls", comment: "")
+        scrollView.accessibilityCustomActions = [UIAccessibilityCustomAction(name: title) { [weak self] _ in
+            guard let self, !self.pttHoldTriggered else { return false }
+            self.toggleControls()
+            return true
+        }]
+    }
+
+    private func setupCallControls() {
+        callControls.translatesAutoresizingMaskIntoConstraints = false
+        callControls.axis = .horizontal
+        callControls.spacing = 10
+        callControls.alignment = .center
+        callControls.isLayoutMarginsRelativeArrangement = true
+        callControls.layoutMargins = UIEdgeInsets(top: 10, left: 12, bottom: 10, right: 12)
+        callControls.backgroundColor = UIColor.theme.secondary
+        callControls.layer.cornerRadius = 35
+
+        let controls: [(UIButton, String, String, String, Selector)] = [
+            (cameraButton, "video.slash.fill", "voiceChannel.cameraPermissionTitle", "Camera", #selector(cameraTapped)),
+            (microphoneButton, "mic.slash.fill", "voiceChannel.micPermissionTitle", "Microphone", #selector(microphoneTapped)),
+            (chatButton, "bubble.left.and.bubble.right.fill", "voiceChannel.openChat", "Open chat", #selector(chatTapped)),
+            (handButton, "hand.raised.fill", "voiceChannel.raiseHand", "Raise hand", #selector(handTapped)),
+            (leaveButton, "phone.down.fill", "voiceChannel.leaveCall", "Leave call", #selector(leaveTapped)),
+        ]
+        let config = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
+        for (button, symbol, key, label, action) in controls {
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.setImage(UIImage(systemName: symbol, withConfiguration: config), for: .normal)
+            button.tintColor = UIColor.theme.textStrong
+            button.backgroundColor = UIColor.theme.tertiary
+            button.layer.cornerRadius = 25
+            button.layer.borderWidth = 0.5
+            button.layer.borderColor = UIColor.theme.textDisabled.withAlphaComponent(0.6).cgColor
+            button.accessibilityLabel = NSLocalizedString(key, tableName: nil, bundle: .main, value: label, comment: "")
+            button.addTarget(self, action: action, for: .touchUpInside)
+            callControls.addArrangedSubview(button)
+            let preferredWidth = button.widthAnchor.constraint(equalToConstant: 50)
+            preferredWidth.priority = .defaultHigh
+            let minimumWidth = button.widthAnchor.constraint(greaterThanOrEqualToConstant: 44)
+            minimumWidth.priority = UILayoutPriority(999)
+            NSLayoutConstraint.activate([
+                preferredWidth,
+                minimumWidth,
+                button.heightAnchor.constraint(equalTo: button.widthAnchor),
+            ])
+        }
+        leaveButton.backgroundColor = UIColor(red: 0.89, green: 0.18, blue: 0.18, alpha: 1)
+        leaveButton.tintColor = .white
+        leaveButton.layer.borderWidth = 0
+        view.addSubview(callControls)
+        NSLayoutConstraint.activate([
+            callControls.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
+            callControls.leadingAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 12),
+            callControls.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
+            callControls.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
+        ])
+    }
+
+    func updateCallControls(cameraOn: Bool, microphoneOn: Bool, handRaised: Bool, connected: Bool) {
+        loadViewIfNeeded()
+        let config = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
+        cameraButton.setImage(UIImage(systemName: cameraOn ? "video.fill" : "video.slash.fill", withConfiguration: config), for: .normal)
+        microphoneButton.setImage(UIImage(systemName: microphoneOn ? "mic.fill" : "mic.slash.fill", withConfiguration: config), for: .normal)
+        cameraButton.isSelected = cameraOn
+        microphoneButton.isSelected = microphoneOn
+        handButton.isSelected = handRaised
+        handButton.tintColor = handRaised ? UIColor.theme.textLink : UIColor.theme.textStrong
+        handButton.backgroundColor = handRaised ? UIColor.theme.textLink.withAlphaComponent(0.22) : UIColor.theme.tertiary
+        handButton.accessibilityLabel = handRaised
+            ? NSLocalizedString("voiceChannel.lowerHand", tableName: nil, bundle: .main, value: "Lower hand", comment: "")
+            : NSLocalizedString("voiceChannel.raiseHand", tableName: nil, bundle: .main, value: "Raise hand", comment: "")
+        for button in [cameraButton, microphoneButton, handButton] {
+            button.isEnabled = connected
+            button.alpha = connected ? 1 : 0.45
+        }
+        cameraButton.isHidden = showsPttControl
+        microphoneButton.isHidden = showsPttControl
+    }
+
+    @objc private func cameraTapped() { onCameraToggle?() }
+    @objc private func microphoneTapped() { onMicToggle?() }
+    @objc private func handTapped() { onRaiseHand?() }
+    @objc private func leaveTapped() {
+        closeScreenShare(completion: onLeave)
+    }
+
+    @objc private func chatTapped() {
+        closeScreenShare(completion: onOpenChat)
     }
 
     private func setupPttControl() {
@@ -207,7 +340,7 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
             pttTint.bottomAnchor.constraint(equalTo: pttPill.bottomAnchor),
 
             pttPill.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            pttPill.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12),
+            pttPill.bottomAnchor.constraint(equalTo: callControls.topAnchor, constant: -12),
             pttPill.heightAnchor.constraint(equalToConstant: 58),
             pttPill.widthAnchor.constraint(greaterThanOrEqualToConstant: 240),
             pttIconSlot.widthAnchor.constraint(equalToConstant: 26),
@@ -228,34 +361,12 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
     func setPttControlVisible(_ visible: Bool) {
         showsPttControl = visible
         pttPill.isHidden = !visible
-        if visible {
-            restorePttDim()
-            schedulePttDim()
-        } else {
+        cameraButton.isHidden = visible
+        microphoneButton.isHidden = visible
+        if !visible {
             releasePttIfHeld()
         }
         refreshPttFeedback()
-    }
-
-    private func schedulePttDim() {
-        pttDimWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self, !self.pttHoldTriggered else { return }
-            self.pttDimWork = nil
-            UIView.animate(withDuration: 0.4) {
-                self.pttPill.alpha = 0.55
-            }
-        }
-        pttDimWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0, execute: work)
-    }
-
-    private func restorePttDim() {
-        pttDimWork?.cancel()
-        pttDimWork = nil
-        UIView.animate(withDuration: 0.12) {
-            self.pttPill.alpha = 1
-        }
     }
 
     func setPttControlEnabled(_ enabled: Bool) {
@@ -271,7 +382,6 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
     }
 
     @objc private func pttTouchDown() {
-        restorePttDim()
         guard showsPttControl, pttControlEnabled, !pttHoldTriggered else { return }
         pttHoldTriggered = true
         pttFeedbackState = .idle
@@ -288,12 +398,9 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
         } else {
             showPttHoldHint()
         }
-        schedulePttDim()
     }
 
     private func releasePttIfHeld() {
-        pttDimWork?.cancel()
-        pttDimWork = nil
         guard pttHoldTriggered else { return }
         pttHoldTriggered = false
         pttFeedbackState = .idle
@@ -386,20 +493,9 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
         }
     }
 
-    private func applyScreenShareLayoutForCurrentBounds() {
-        let landscape = view.bounds.width > view.bounds.height
-        let margin: CGFloat = landscape ? 20 : 0
-        scrollTopConstraint.constant = margin
-        scrollLeadingConstraint.constant = margin
-        scrollTrailingConstraint.constant = -margin
-        scrollBottomConstraint.constant = -margin
-        dismissDetailTopConstraint.constant = 12 + margin
-        dismissDetailTrailingConstraint.constant = -(12 + margin)
-    }
-
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        applyScreenShareLayoutForCurrentBounds()
+        view.bringSubviewToFront(callControls)
         view.bringSubviewToFront(pttPill)
         view.bringSubviewToFront(dismissDetailButton)
     }
@@ -426,9 +522,6 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
         }
         RunLoop.main.add(timer, forMode: .common)
         screenShareFocusPollTimer = timer
-        if showsPttControl {
-            schedulePttDim()
-        }
     }
 
     override func viewDidDisappear(_ animated: Bool) {
@@ -454,7 +547,6 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
             if self.scrollView.zoomScale > self.scrollView.minimumZoomScale {
                 self.scrollView.setZoomScale(self.scrollView.minimumZoomScale, animated: false)
             }
-            self.applyScreenShareLayoutForCurrentBounds()
         }
     }
 
@@ -607,6 +699,11 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
         releasePttIfHeld()
         onPttPress = nil
         onPttRelease = nil
+        onCameraToggle = nil
+        onMicToggle = nil
+        onOpenChat = nil
+        onRaiseHand = nil
+        onLeave = nil
         screenShareFocusPollTimer?.invalidate()
         screenShareFocusPollTimer = nil
         tearDownScreenSharePiP()
@@ -614,12 +711,19 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
     }
 
     @objc private func closeScreenShareTapped() {
+        closeScreenShare()
+    }
+
+    private func closeScreenShare(completion: (() -> Void)? = nil) {
+        guard !isClosingDetail, !isBeingDismissed else { return }
+        isClosingDetail = true
+        view.isUserInteractionEnabled = false
         releasePttIfHeld()
         screenShareFocusPollTimer?.invalidate()
         screenShareFocusPollTimer = nil
         tearDownScreenSharePiP()
         pipHost?.releaseScreenSharePiPHost(self)
-        dismiss(animated: true)
+        dismiss(animated: true, completion: completion)
     }
 
     // MARK: - AVPictureInPictureControllerDelegate

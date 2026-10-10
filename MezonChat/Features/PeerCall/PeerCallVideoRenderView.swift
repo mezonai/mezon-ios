@@ -97,7 +97,7 @@ final class PeerCallVideoRenderView: UIView {
         replayAttachedFrame()
     }
 
-    private func replayAttachedFrame() {
+    func replayAttachedFrame() {
         guard let track = attachedTrack, bounds.width > 0, bounds.height > 0 else { return }
         VideoTrackLastFrameStore.replayLastFrame(of: track, to: renderers)
     }

@@ -2405,6 +2405,12 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         UIApplication.shared.isIdleTimerDisabled = true
         applyTheme()
         bindVoiceReactionSocketIfActive()
+        if #available(iOS 15.0, *),
+           let expanded = presentedViewController as? ScreenShareExpandedViewController,
+           expanded.isBeingDismissed {
+            view.layoutIfNeeded()
+            syncParticipantVideoVisibility(replayFrames: true)
+        }
     }
 
     private func bindClanUsersUpdatedForAvatars() {
@@ -2870,6 +2876,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     private func refreshRaiseHandButtonAppearance() {
+        refreshExpandedCallControls()
         guard raiseHandButton != nil else { return }
         let cfg = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
         raiseHandButton.setImage(
@@ -3042,8 +3049,12 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         }
         applyNetworkWeak(session.isNetworkWeak)
         session.onParticipants = { [weak self] list in
-            self?.sfuParticipants = list
-            self?.scheduleParticipantRowsRefresh()
+            guard let self else { return }
+            let previousShares = self.screenShareTrackIdentities(in: self.sfuParticipants)
+            let nextShares = self.screenShareTrackIdentities(in: list)
+            let sharesChanged = previousShares != nextShares
+            self.sfuParticipants = list
+            self.scheduleParticipantRowsRefresh(urgent: sharesChanged)
         }
         session.onRoleChanged = { [weak self] role in
             self?.applyRole(role)
@@ -3277,7 +3288,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         }
         // PiP takeover creates/attaches the grid before the navigation animation finishes.
         // Replay once the destination is on screen even if the same rows stayed attached.
-        syncParticipantVideoVisibility(refreshRenderers: true)
+        syncParticipantVideoVisibility(replayFrames: true)
         if !didPrefetchVoiceChannelPermissions {
             didPrefetchVoiceChannelPermissions = true
             Task { await prefetchVoiceChannelPermissions() }
@@ -3336,7 +3347,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             pendingParticipantStateRefreshAfterScroll = true
             return
         }
-        participantStateRefreshWorkItem?.cancel()
+        guard participantStateRefreshWorkItem == nil else { return }
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.participantStateRefreshWorkItem = nil
@@ -3394,11 +3405,11 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private var screenShareExpandedPresentedAt: Date?
 
     private var isScreenShareDetailCoveringVoiceRoom: Bool {
-        if isScreenShareExpandedPresented { return true }
-        if #available(iOS 15.0, *) {
-            return presentedViewController is ScreenShareExpandedViewController
+        if #available(iOS 15.0, *),
+           let expanded = presentedViewController as? ScreenShareExpandedViewController {
+            return !expanded.isBeingDismissed
         }
-        return false
+        return isScreenShareExpandedPresented
     }
 
     func screenShareExpandedDidDismiss() {
@@ -3406,14 +3417,12 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         if #available(iOS 15.0, *), callPiPController == nil, sfuSession != nil {
             setupCallPiP()
         }
-        // The room's viewDidAppear can run before the detail's viewDidDisappear.
-        // Wait for UIKit to clear presentedViewController, then undo the grid pause.
         DispatchQueue.main.async { [weak self] in
             guard let self, self.isViewLoaded, self.view.window != nil,
                   self.isParticipantGridVisible, self.sfuSession != nil,
                   !self.isScreenShareDetailCoveringVoiceRoom else { return }
             self.contentScroll.layoutIfNeeded()
-            self.syncParticipantVideoVisibility(refreshRenderers: true)
+            self.syncParticipantVideoVisibility(replayFrames: true)
         }
     }
 
@@ -3934,6 +3943,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     private func refreshMicButtonIcon() {
+        refreshExpandedCallControls()
         let ready = sfuSession?.isConnected == true
         micButton?.isEnabled = ready
         micButton?.alpha = ready ? 1 : 0.45
@@ -3983,7 +3993,19 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         refreshParticipantRows(entries: entries, descriptors: voiceTileDescriptors(entries: entries))
     }
 
-    private func scheduleParticipantRowsRefresh() {
+    private func screenShareTrackIdentities(in participants: [SfuParticipant]) -> [String: ObjectIdentifier] {
+        var tracks: [String: ObjectIdentifier] = [:]
+        for participant in participants where participant.screenActive {
+            if let track = participant.screen { tracks[participant.id] = ObjectIdentifier(track) }
+        }
+        return tracks
+    }
+
+    private func scheduleParticipantRowsRefresh(urgent: Bool = false) {
+        if urgent {
+            participantRowsRefreshWorkItem?.cancel()
+            participantRowsRefreshWorkItem = nil
+        }
         guard participantRowsRefreshWorkItem == nil else { return }
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
@@ -3991,12 +4013,15 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             self.refreshParticipantRowsFromSession()
         }
         participantRowsRefreshWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.participantRowsRefreshDelay, execute: work)
+        let delay = urgent ? 0 : Self.participantRowsRefreshDelay
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     private func refreshParticipantRows(entries: [VoiceTileEntry], descriptors: [VoiceParticipantTileDescriptor]) {
         participantRowsRefreshWorkItem?.cancel()
         participantRowsRefreshWorkItem = nil
+        participantStateRefreshWorkItem?.cancel()
+        participantStateRefreshWorkItem = nil
         refreshVoiceAgentButtonAppearance()
         let orderedKeys = descriptors.map(\.rowKey)
         participantDescriptors = Dictionary(uniqueKeysWithValues: descriptors.map { ($0.rowKey, $0) })
@@ -4152,7 +4177,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         }
     }
 
-    private func syncParticipantVideoVisibility(refreshRenderers: Bool = false) {
+    private func syncParticipantVideoVisibility(replayFrames: Bool = false) {
         // Diffable updates can move/rehost rows without another willDisplay callback.
         // Reconcile against the cells that actually own the visible rows after layout.
         let canShowVideo = isParticipantGridVisible && view.window != nil && !isScreenShareDetailCoveringVoiceRoom
@@ -4166,7 +4191,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         for row in participantRows.values {
             let visible = visibleRows.contains(ObjectIdentifier(row))
             row.setOnScreen(visible)
-            if visible && refreshRenderers { row.refreshVisibleVideoRenderer() }
+            if visible && replayFrames { row.replayVisibleVideoFrame() }
         }
     }
 
@@ -4589,7 +4614,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     @objc private func cameraBarTapped() {
-        guard let session = sfuSession else { return }
+        guard currentRole == .speaker, let session = sfuSession, session.isConnected else { return }
         let currentlyOn = session.cameraEnabled
         Task { @MainActor in
             if !currentlyOn {
@@ -4599,6 +4624,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                     return
                 }
             }
+            guard self.sfuSession === session, session.isConnected, self.currentRole == .speaker else { return }
             session.setCameraEnabled(!currentlyOn)
             self.refreshCamButtonIcon()
             self.refreshParticipantRowsFromSession()
@@ -4612,6 +4638,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     private func refreshCamButtonIcon() {
+        refreshExpandedCallControls()
         guard let session = sfuSession else {
             setCamButtonIcon(cameraOn: false)
             return
@@ -4969,7 +4996,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         ac.addAction(UIAlertAction(title: NSLocalizedString("voiceChannel.ok", tableName: nil, bundle: .main, value: "OK", comment: ""), style: .default) { _ in
             onDismiss?()
         })
-        present(ac, animated: true)
+        voiceAlertPresenter.present(ac, animated: true)
     }
 
     private func presentMicrophoneSettingsAlert() {
@@ -4984,7 +5011,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                 UIApplication.shared.open(url)
             }
         })
-        present(ac, animated: true)
+        voiceAlertPresenter.present(ac, animated: true)
     }
 
     private func presentCameraSettingsAlert() {
@@ -4999,7 +5026,29 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                 UIApplication.shared.open(url)
             }
         })
-        present(ac, animated: true)
+        voiceAlertPresenter.present(ac, animated: true)
+    }
+
+    private var voiceAlertPresenter: UIViewController {
+        if #available(iOS 15.0, *), let (_, expanded) = findScreenShareExpandedPresenter() {
+            return expanded
+        }
+        return self
+    }
+
+    private func refreshExpandedCallControls() {
+        guard #available(iOS 15.0, *), let expanded = activeScreenShareExpandedViewController() else { return }
+        updateExpandedCallControls(expanded)
+    }
+
+    @available(iOS 15.0, *)
+    private func updateExpandedCallControls(_ expanded: ScreenShareExpandedViewController) {
+        expanded.updateCallControls(
+            cameraOn: sfuSession?.cameraEnabled == true,
+            microphoneOn: sfuSession?.micEnabled == true || sfuSession?.pttActive == true,
+            handRaised: isLocalRaiseHandActive,
+            connected: sfuSession?.isConnected == true
+        )
     }
 
     private func presentScreenShareExpanded(track: RTCVideoTrack, displayName: String, sourceParticipantKey: String) {
@@ -5021,6 +5070,12 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         vc.onPttRelease = { [weak self] in
             self?.sfuSession?.pttRelease()
         }
+        vc.onCameraToggle = { [weak self] in self?.cameraBarTapped() }
+        vc.onMicToggle = { [weak self] in self?.micTapped() }
+        vc.onOpenChat = { [weak self] in self?.openChatTapped() }
+        vc.onRaiseHand = { [weak self] in self?.raiseHandTapped() }
+        vc.onLeave = { [weak self] in self?.popTapped() }
+        updateExpandedCallControls(vc)
         vc.modalPresentationStyle = .fullScreen
         isScreenShareExpandedPresented = true
         present(vc, animated: true)
@@ -5700,12 +5755,12 @@ private final class VoiceParticipantRowView: UIView {
         applyVideoAttachment()
     }
 
-    func refreshVisibleVideoRenderer() {
+    func replayVisibleVideoFrame() {
         guard isOnScreen, window != nil, let track = currentVideoTrack,
               attachedVideoTrack === track, let videoView else { return }
         videoView.isHidden = false
         card.layoutIfNeeded()
-        videoView.refreshAttachedRenderers()
+        videoView.replayAttachedFrame()
     }
 
     private func applyVideoAttachment() {
