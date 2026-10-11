@@ -69,19 +69,33 @@ final class BuzzController {
 
     func markAsRead(clanId: Int64, channelId: Int64 = 0, categoryId: Int64 = 0) {
         let targets: Set<Int64> = channelId != 0 ? [channelId] : []
-        notifyChanged(state.clearRows(targetIds: targets) { markedClanId, rowId in
-            let channel = self.postbox.getChannelDescription(channelId: rowId)?.channel
+        let channels = clanId == 0 ? postbox.getCachedDMChannelList()
+            : postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId))
+                .map(ChannelPreferenceListCodec.decode) ?? []
+        var channelsById = Dictionary(channels.map { ($0.channelID, $0) }, uniquingKeysWith: { first, _ in first })
+        if channelId != 0, channelsById[channelId] == nil,
+           let channel = postbox.resolvedChannelDescription(clanId: clanId, channelId: channelId) {
+            channelsById[channelId] = channel
+        }
+        let matches: (Int64, Int64) -> Bool = { markedClanId, rowId in
+            let channel = channelsById[rowId] ?? self.postbox.getChannelDescription(channelId: rowId)?.channel
             if channelId != 0 { return rowId == channelId || channel?.parentID == channelId }
             guard clanId != 0, markedClanId == clanId else { return false }
             if categoryId == 0 { return true }
             let category: Int64?
             if let channel, channel.parentID != 0 {
-                category = self.postbox.getChannelDescription(channelId: channel.parentID)?.channel.categoryID
+                category = (channelsById[channel.parentID]
+                    ?? self.postbox.getChannelDescription(channelId: channel.parentID)?.channel)?.categoryID
             } else {
                 category = channel?.categoryID
             }
             return category == categoryId
-        })
+        }
+        var seenMessageIds: [Int64: Int64] = [:]
+        for channel in channelsById.values where matches(clanId, channel.channelID) {
+            seenMessageIds[channel.channelID] = max(channel.lastSeenMessage.id, channel.lastSentMessage.id)
+        }
+        notifyChanged(state.clearRows(targetIds: targets, seenMessageIds: seenMessageIds, matches: matches))
     }
 
     func removeChannel(_ channelId: Int64) {

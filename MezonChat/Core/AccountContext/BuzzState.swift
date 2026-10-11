@@ -19,6 +19,7 @@ final class BuzzState {
     private var processed = Set<MessageKey>()
     private var processedOrder: [MessageKey] = []
     private var readCursors: [Int64: Int64] = [:]
+    private var rowReadCursors: [Int64: Int64] = [:]
 
     func receive(clanId: Int64, channelId: Int64, topicId: Int64, messageId: Int64, isViewing: Bool) -> Reception {
         lock.lock(); defer { lock.unlock() }
@@ -31,13 +32,12 @@ final class BuzzState {
                 processed.remove(processedOrder.removeFirst())
             }
         }
-        let alreadySeen = messageId != 0 && readCursors[targetId].map {
-            (messageId >> 22) <= ($0 >> 22)
-        } == true
+        let readCursor = max(readCursors[targetId] ?? 0, rowReadCursors[channelId] ?? 0)
+        let alreadySeen = messageId != 0 && readCursor != 0 && messageId <= readCursor
         guard !isViewing, !alreadySeen else { return .received }
         let badgeAdded = marks[channelId] == nil
         var mark = marks[channelId] ?? Mark(clanId: clanId)
-        if mark.messages[targetId].map({ (messageId >> 22) >= ($0 >> 22) }) ?? true {
+        if mark.messages[targetId].map({ messageId >= $0 }) ?? true {
             mark.messages[targetId] = messageId
         }
         marks[channelId] = mark
@@ -57,14 +57,11 @@ final class BuzzState {
     @discardableResult
     func clearTarget(_ targetId: Int64, seenMessageId: Int64? = nil) -> Set<Int64> {
         lock.lock(); defer { lock.unlock() }
-        if let seenMessageId, seenMessageId > 0,
-           readCursors[targetId].map({ (seenMessageId >> 22) > ($0 >> 22) }) ?? true {
-            readCursors[targetId] = seenMessageId
-        }
+        if let seenMessageId { advanceReadCursor(targetId, to: seenMessageId) }
         var changed = Set<Int64>()
         for channelId in Array(marks.keys) {
             guard var mark = marks[channelId], let messageId = mark.messages[targetId] else { continue }
-            if let seenMessageId, (seenMessageId >> 22) < (messageId >> 22) { continue }
+            if let seenMessageId, seenMessageId < messageId { continue }
             mark.messages.removeValue(forKey: targetId)
             if mark.messages.isEmpty {
                 marks.removeValue(forKey: channelId)
@@ -77,14 +74,41 @@ final class BuzzState {
     }
 
     @discardableResult
-    func clearRows(targetIds: Set<Int64> = [], matches: (Int64, Int64) -> Bool) -> Set<Int64> {
+    func clearRows(targetIds: Set<Int64> = [], seenMessageIds: [Int64: Int64]? = nil,
+                   matches: (Int64, Int64) -> Bool) -> Set<Int64> {
         lock.lock(); defer { lock.unlock() }
+        if let seenMessageIds {
+            for (rowId, messageId) in seenMessageIds {
+                advanceReadCursor(rowId, to: messageId)
+                if let cursor = readCursors[rowId] {
+                    rowReadCursors[rowId] = max(rowReadCursors[rowId] ?? 0, cursor)
+                }
+            }
+        }
         var changed = Set<Int64>()
         for channelId in Array(marks.keys) {
             guard var mark = marks[channelId] else { continue }
-            if !matches(mark.clanId, channelId) {
+            if matches(mark.clanId, channelId) {
+                if seenMessageIds != nil {
+                    if let cursor = readCursors[channelId] {
+                        rowReadCursors[channelId] = max(rowReadCursors[channelId] ?? 0, cursor)
+                    }
+                   
+                    for (targetId, messageId) in mark.messages {
+                        advanceReadCursor(targetId, to: messageId)
+                        if messageId > 0 {
+                            rowReadCursors[channelId] = max(rowReadCursors[channelId] ?? 0, messageId)
+                        }
+                    }
+                }
+            } else {
                 guard !targetIds.isEmpty else { continue }
-                for targetId in targetIds { mark.messages.removeValue(forKey: targetId) }
+                for targetId in targetIds {
+                    if seenMessageIds != nil, let messageId = mark.messages[targetId] {
+                        advanceReadCursor(targetId, to: messageId)
+                    }
+                    mark.messages.removeValue(forKey: targetId)
+                }
                 if !mark.messages.isEmpty {
                     marks[channelId] = mark
                     continue
@@ -96,11 +120,18 @@ final class BuzzState {
         return changed
     }
 
+    private func advanceReadCursor(_ targetId: Int64, to messageId: Int64) {
+        if messageId > 0, readCursors[targetId].map({ messageId > $0 }) ?? true {
+            readCursors[targetId] = messageId
+        }
+    }
+
     func reset() {
         lock.lock(); defer { lock.unlock() }
         marks.removeAll()
         processed.removeAll()
         processedOrder.removeAll()
         readCursors.removeAll()
+        rowReadCursors.removeAll()
     }
 }
