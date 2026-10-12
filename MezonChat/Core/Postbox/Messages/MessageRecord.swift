@@ -85,6 +85,7 @@ extension MessageRecord {
             if !dn.isEmpty { return dn }
             let un = api.username.trimmingCharacters(in: .whitespacesAndNewlines)
             if !un.isEmpty { return un }
+            if api.senderID == MezonConstants.anonymousUserId { return "Anonymous" }
             return "\(api.senderID)"
         }()
         let avatarURL: String? = {

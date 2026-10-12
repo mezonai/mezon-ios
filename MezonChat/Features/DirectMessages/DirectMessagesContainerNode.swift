@@ -50,6 +50,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
                 let activityHeaderVisibilityChanged = previousState.messageActivityRows.isEmpty != newState.messageActivityRows.isEmpty
                 let incomingCountChanged = previousState.incomingFriendRequestCount != newState.incomingFriendRequestCount
                 let inVoiceChanged = previousState.inVoiceUserIds != newState.inVoiceUserIds
+                    || previousState.screenSharingUserIds != newState.screenSharingUserIds
                 self.state = newState
 
                 if activityRowsChanged {
@@ -462,14 +463,16 @@ final class DirectMessagesContainerNode: ASDisplayNode {
             cell.configure(
                 channel: channel,
                 resolvedAvatarURL: state.resolvedAvatarURLByChannelId[channel.channelID],
-                isPeerInVoice: isPeerInVoice(channel)
+                voiceActivity: peerVoiceActivity(channel)
             )
         }
     }
 
-    private func isPeerInVoice(_ channel: Mezon_Api_ChannelDescription) -> Bool {
-        guard channel.type == MezonConstants.ChannelType.dm.rawValue, channel.userIds.count == 1 else { return false }
-        return state.inVoiceUserIds.contains(channel.userIds[0])
+    private func peerVoiceActivity(_ channel: Mezon_Api_ChannelDescription) -> DmVoiceActivity? {
+        guard channel.type == MezonConstants.ChannelType.dm.rawValue, channel.userIds.count == 1 else { return nil }
+        let peerId = channel.userIds[0]
+        if state.screenSharingUserIds.contains(peerId) { return .sharingScreen }
+        return state.inVoiceUserIds.contains(peerId) ? .inVoice : nil
     }
 }
 
@@ -496,7 +499,7 @@ extension DirectMessagesContainerNode: UITableViewDataSource, UITableViewDelegat
         cell.configure(
             channel: channel,
             resolvedAvatarURL: state.resolvedAvatarURLByChannelId[channel.channelID],
-            isPeerInVoice: isPeerInVoice(channel)
+            voiceActivity: peerVoiceActivity(channel)
         )
         return cell
     }

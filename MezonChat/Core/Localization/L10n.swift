@@ -1321,6 +1321,7 @@ enum L10n {
         static let online  = "channelDetail.online"
         static let offline = "channelDetail.offline"
         static let inVoice = "channelDetail.inVoice"
+        static let sharingScreen = "channelDetail.sharingScreen"
         static let inviteMembers = "channelDetail.inviteMembers"
         static let newGroup = "channelDetail.newGroup"
         static let addMembers = "channelDetail.addMembers"
@@ -2833,6 +2834,7 @@ extension L10n {
         "channelDetail.online":  "Online",
         "channelDetail.offline": "Offline",
         "channelDetail.inVoice": "In voice",
+        "channelDetail.sharingScreen": "Sharing screen",
         "channelDetail.inviteMembers": "Invite Members",
         "channelDetail.newGroup": "New Group",
         "channelDetail.addMembers": "Add Members",
@@ -4254,6 +4256,7 @@ extension L10n {
         "channelDetail.online":  "Trực tuyến",
         "channelDetail.offline": "Ngoại tuyến",
         "channelDetail.inVoice": "Đang trong thoại",
+        "channelDetail.sharingScreen": "Đang chia sẻ màn hình",
         "channelDetail.inviteMembers": "Mời thành viên",
         "channelDetail.newGroup": "Nhóm mới",
         "channelDetail.addMembers": "Thêm thành viên",

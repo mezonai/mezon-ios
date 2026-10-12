@@ -345,11 +345,16 @@ struct ChatMessageDisplay: Identifiable {
         return !trimmedText.isEmpty && trimmedText == att.url
     }
 
-    static func isCombineWithPrevious(current: Message, previous: Message?) -> Bool {
+    static func isCombineWithPrevious(current: ChatMessageDisplay, previous: ChatMessageDisplay?) -> Bool {
         guard let prev = previous else { return false }
-        guard sameSenderId(current.senderId, prev.senderId) else { return false }
-        let diff = abs(current.createdAt.timeIntervalSince(prev.createdAt))
+        guard sameSenderId(current.message.senderId, prev.message.senderId) else { return false }
+        if current.isAnonymousSender, !sameAnonymousPersona(current, prev) { return false }
+        let diff = abs(current.message.createdAt.timeIntervalSince(prev.message.createdAt))
         return diff < 120
+    }
+
+    private static func sameAnonymousPersona(_ a: ChatMessageDisplay, _ b: ChatMessageDisplay) -> Bool {
+        a.senderDisplayName == b.senderDisplayName && (a.avatarURL ?? "") == (b.avatarURL ?? "")
     }
 
     static func sameSenderId(_ a: String, _ b: String) -> Bool {
@@ -3533,7 +3538,7 @@ final class ChatViewController: ViewController {
             let prevDisplay = i > 0 ? displays[i - 1] : nil
             let prev = prevDisplay?.message
             let hasReply = d.replyRef != nil || d.isDeletedReply
-            let combine = hasReply ? false : ChatMessageDisplay.isCombineWithPrevious(current: d.message, previous: prev)
+            let combine = hasReply ? false : ChatMessageDisplay.isCombineWithPrevious(current: d, previous: prevDisplay)
             let showForwardHeader = ChatMessageDisplay.shouldShowForwardHeader(
                 isForward: d.isForward,
                 current: d.message,
