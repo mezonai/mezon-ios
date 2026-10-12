@@ -324,7 +324,7 @@ final class MezonSfuSession: NSObject {
     private static let keyframeRequestErrorWindow: TimeInterval = 5
     private static let cameraKeyframeFirstRequestGrace: TimeInterval = 0.35
     private static let keyframeGlobalSpacing: TimeInterval = 0.25
-    private static let screenKeyframeRetryDelays: [TimeInterval] = [3, 6, 12, 24]
+    private static let screenKeyframeRetryDelays: [TimeInterval] = [1.5, 3, 12, 24]
     private static let keyframeMinimumInterval: TimeInterval = 1.5
     private static let foregroundVideoGrace: TimeInterval = 1.5
     private static let shortVideoBackground: TimeInterval = 5
@@ -2227,11 +2227,6 @@ final class MezonSfuSession: NSObject {
                 }
                 try await Self.awaitSetLocal(pc, RTCSessionDescription(type: .answer, sdp: answer.sdp))
                 guard isCurrentConnection(pc, gen: gen) else { return }
-                send([
-                    "type": "answer",
-                    "offer_generation": NSNumber(value: generation),
-                    "sdp": answerSdp,
-                ])
                 let transceivers = await Self.fetchTransceivers(pc)
                 guard isCurrentConnection(pc, gen: gen) else { return }
                 let staleTransceivers = transceiverCache
@@ -2242,7 +2237,13 @@ final class MezonSfuSession: NSObject {
                 let staleTracks = remoteSnapshot.compactMap { $0.track }
                 remoteSnapshot = snapshot
                 Self.releaseOffMain(staleTracks)
-                syncRemoteMedia()
+                syncRemoteMedia(publishParticipants: false)
+                send([
+                    "type": "answer",
+                    "offer_generation": NSNumber(value: generation),
+                    "sdp": answerSdp,
+                ])
+                emitParticipants()
             } catch {
                 guard isCurrentConnection(pc, gen: gen) else { return }
                 recoverTransport(gen: gen)
@@ -2970,7 +2971,7 @@ final class MezonSfuSession: NSObject {
         }.value
     }
 
-    private func syncRemoteMedia() {
+    private func syncRemoteMedia(publishParticipants: Bool = true) {
         for item in remoteSnapshot {
             let mid = item.mid
             if mid.isEmpty { continue }
@@ -3040,7 +3041,7 @@ final class MezonSfuSession: NSObject {
             }
         }
         releaseRetiringPeerConnection()
-        emitParticipants()
+        if publishParticipants { emitParticipants() }
         requestMissingScreenKeyframes()
     }
 
