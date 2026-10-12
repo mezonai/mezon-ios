@@ -13,6 +13,8 @@ struct DirectMessagesInteraction {
 }
 
 final class DirectMessagesContainerNode: ASDisplayNode {
+    private let buzz: BuzzController
+    private var buzzObserver: NSObjectProtocol?
 
     private let headerView = UIView()
     private let titleLabel = UILabel()
@@ -33,10 +35,14 @@ final class DirectMessagesContainerNode: ASDisplayNode {
     private var validLayout: (size: CGSize, safeTop: CGFloat, bottomInset: CGFloat)?
     private var appliedActivityHeaderSize: CGSize?
 
-    init(signal: Signal<DirectMessagesState, NoError>, interaction: DirectMessagesInteraction) {
+    init(signal: Signal<DirectMessagesState, NoError>, interaction: DirectMessagesInteraction, buzz: BuzzController) {
         tableView = UITableView(frame: .zero, style: .plain)
         self.interaction = interaction
+        self.buzz = buzz
         super.init()
+        buzzObserver = NotificationCenter.default.addObserver(
+            forName: .mezonBuzzStateChanged, object: buzz, queue: .main
+        ) { [weak self] _ in self?.reconfigureVisibleCells() }
         let t0 = UIColor.theme
         backgroundColor = t0.secondary
 
@@ -83,7 +89,10 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         )
     }
 
-    deinit { disposables.dispose() }
+    deinit {
+        disposables.dispose()
+        if let buzzObserver { NotificationCenter.default.removeObserver(buzzObserver) }
+    }
 
     override func didLoad() {
         super.didLoad()
@@ -463,7 +472,8 @@ final class DirectMessagesContainerNode: ASDisplayNode {
             cell.configure(
                 channel: channel,
                 resolvedAvatarURL: state.resolvedAvatarURLByChannelId[channel.channelID],
-                voiceActivity: peerVoiceActivity(channel)
+                voiceActivity: peerVoiceActivity(channel),
+                hasBuzz: buzz.state.hasBuzz(channelId: channel.channelID)
             )
         }
     }
@@ -499,7 +509,8 @@ extension DirectMessagesContainerNode: UITableViewDataSource, UITableViewDelegat
         cell.configure(
             channel: channel,
             resolvedAvatarURL: state.resolvedAvatarURLByChannelId[channel.channelID],
-            voiceActivity: peerVoiceActivity(channel)
+            voiceActivity: peerVoiceActivity(channel),
+            hasBuzz: buzz.state.hasBuzz(channelId: channel.channelID)
         )
         return cell
     }

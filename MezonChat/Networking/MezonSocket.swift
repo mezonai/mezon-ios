@@ -1,6 +1,25 @@
 import Foundation
 import SwiftProtobuf
 
+enum MezonEnvelopeEncoding {
+    static func encodeDMClanJoin(_ envelope: Mezon_Realtime_Envelope) throws -> Data {
+        guard envelope.cid > 0,
+              case .some(.clanJoin(let join)) = envelope.message,
+              join.clanID == 0 else { return try envelope.serializedData() }
+        var body = envelope
+        body.cid = 0
+        var data = try body.serializedData()
+        data.append(0x08) 
+        var cid = UInt32(envelope.cid)
+        while cid >= 0x80 {
+            data.append(UInt8(cid & 0x7f) | 0x80)
+            cid >>= 7
+        }
+        data.append(UInt8(cid))
+        return data
+    }
+}
+
 enum SocketEvent {
     case messageReceived(Mezon_Api_ChannelMessage)
     case messageUpdated(Mezon_Realtime_ChannelMessageUpdate)
@@ -111,6 +130,7 @@ final class MezonSocket: NSObject {
     private var pendingApiRequests: [UInt32: PendingApiRequest] = [:]
     private var pendingRealtimeReplies: [UInt32: PendingRealtimeReply] = [:]
     private var connectGeneration = 0
+    var connectionGeneration: Int { connectGeneration }
     private var joinedChannelGenerations: [JoinedChannelKey: Int] = [:]
     private let defaultApiRequestTimeoutNanos: UInt64 = 10_000_000_000
 
@@ -438,7 +458,7 @@ final class MezonSocket: NSObject {
             enqueuePendingSend(envelope)
             return false
         }
-        guard let data = try? envelope.serializedData() else { return false }
+        guard let data = try? MezonEnvelopeEncoding.encodeDMClanJoin(envelope) else { return false }
         t.send(envelopePayload: data) { [weak self] error in
             guard let error else { return }
             Task { @MainActor in
@@ -642,7 +662,7 @@ final class MezonSocket: NSObject {
         let batch = pendingSendQueue.filter { now.timeIntervalSince($0.queuedAt) <= pendingSendStaleAge }
         pendingSendQueue.removeAll()
         for entry in batch {
-            guard let data = try? entry.envelope.serializedData() else { continue }
+            guard let data = try? MezonEnvelopeEncoding.encodeDMClanJoin(entry.envelope) else { continue }
             t.send(envelopePayload: data) { _ in }
             if case .some(.channelJoin(let join)) = entry.envelope.message {
                 noteChannelJoinSent(clanId: join.clanID, channelId: join.channelID)
@@ -654,6 +674,9 @@ final class MezonSocket: NSObject {
         var join = Mezon_Realtime_ClanJoin()
         join.clanID = clanId
         var envelope = Mezon_Realtime_Envelope()
+        if clanId == 0 {
+            envelope.cid = Int32(bitPattern: generateCid())
+        }
         envelope.clanJoin = join
         send(envelope)
     }

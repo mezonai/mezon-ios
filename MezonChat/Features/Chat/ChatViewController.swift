@@ -428,6 +428,9 @@ final class ChatViewController: ViewController {
             guard topicId != oldValue else { return }
             if isViewLoaded {
                 syncChannelToComposer()
+                if view.window != nil {
+                    context.buzz.setViewing(owner: self, channelId: channel.channelID, topicId: topicId)
+                }
             }
         }
     }
@@ -1290,6 +1293,7 @@ final class ChatViewController: ViewController {
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        context.buzz.stopViewing(owner: self)
         guard !isMovingFromParent else { return }
         if presentedViewController != nil { return }
         if view.window?.rootViewController?.presentedViewController != nil { return }
@@ -1442,6 +1446,7 @@ final class ChatViewController: ViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        context.buzz.setViewing(owner: self, channelId: channel.channelID, topicId: topicId)
         didMarkChannelAsReadForCurrentAppearance = false
         if topicId == 0 {
             context.currentClanId = clanId
@@ -2258,6 +2263,7 @@ final class ChatViewController: ViewController {
     }
 
     func onLeave() {
+        context.buzz.stopViewing(owner: self)
         reconnectCatchUpTask?.cancel()
         reconnectCatchUpTask = nil
         clearRemoteTypingState()
@@ -2345,6 +2351,8 @@ final class ChatViewController: ViewController {
         }
         guard let messageId = latestServerMessageId else { return }
 
+        context.buzz.clearSeen(targetId: topicId != 0 ? topicId : channel.channelID, messageId: messageId)
+
         if let already = lastMarkedAsReadMessageId, messageId <= already { return }
 
         guard context.account.socket.isConnected else {
@@ -2388,6 +2396,7 @@ final class ChatViewController: ViewController {
                 "clanId": clanId,
                 "channelUnreadCount": channelUnreadCount,
                 "localBadgeCount": channelUnreadCount,
+                "topicId": topicId,
                 "mode": mode,
                 "messageId": String(messageId),
                 "timestampSeconds": now
@@ -4080,7 +4089,11 @@ final class ChatViewController: ViewController {
         guard context.account.socket.isConnected else { return }
         let targetClanId = clanId
         let targetChannel = channel
-        await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: context, clanId: targetClanId)
+        if targetClanId == 0 {
+            guard await DirectMessageListGate.ensureFetchedBeforeJoin(context: context) else { return }
+        } else {
+            await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: context, clanId: targetClanId)
+        }
         guard context.account.socket.isConnected else { return }
         context.account.socket.joinClanChat(clanId: targetClanId)
         let channelType: Int32 = targetClanId == 0
@@ -4689,6 +4702,7 @@ final class ChatViewController: ViewController {
     }
 
     private func handleBuzzMessage() {
+        guard !AnonymousMessageStore.isEnabled(clanId: clanId) else { return }
         let buzzVC = BuzzMessageViewController()
         buzzVC.onSend = { [weak self] text in
             guard let self else { return }

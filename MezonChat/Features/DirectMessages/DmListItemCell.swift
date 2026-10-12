@@ -76,6 +76,23 @@ final class DmListItemCell: UITableViewCell {
     }()
 
     private var avatarLoadGeneration: UInt = 0
+    private let buzzLabel: UILabel = {
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.text = " Buzz!! "
+        label.textColor = .white
+        label.font = .systemFont(ofSize: 12.sf, weight: .bold)
+        label.backgroundColor = UIColor(red: 234 / 255, green: 36 / 255, blue: 32 / 255, alpha: 1)
+        label.layer.cornerRadius = 4.swh
+        label.clipsToBounds = true
+        label.isHidden = true
+        label.setContentCompressionResistancePriority(.required, for: .horizontal)
+        return label
+    }()
+    private var previewBuzzTrailingConstraint: NSLayoutConstraint?
+    private var buzzTrailingConstraint: NSLayoutConstraint?
+    private var buzzTrailingToBadgeConstraint: NSLayoutConstraint?
+    private var buzzCenterConstraint: NSLayoutConstraint?
     private var lastMessageTopConstraint: NSLayoutConstraint?
     private var lastMessageZeroHeightConstraint: NSLayoutConstraint?
     private var previewTrailingToBadgeConstraint: NSLayoutConstraint?
@@ -132,6 +149,7 @@ final class DmListItemCell: UITableViewCell {
         textAvatar.showImageMode()
         groupIconView.isHidden = true
         onlineIndicator.isHidden = true
+        buzzLabel.isHidden = true
     }
 
     private func setup() {
@@ -152,6 +170,7 @@ final class DmListItemCell: UITableViewCell {
         containerView.addSubview(lastMessageLabel)
         containerView.addSubview(timeLabel)
         containerView.addSubview(unreadBadgeLabel)
+        containerView.addSubview(buzzLabel)
 
         let avatarSize: CGFloat = 40.swh
 
@@ -168,6 +187,12 @@ final class DmListItemCell: UITableViewCell {
             constant: -8.sw
         )
         self.previewTrailingToBadgeConstraint = previewTrailingToBadgeConstraint
+        previewBuzzTrailingConstraint = lastMessageLabel.trailingAnchor.constraint(lessThanOrEqualTo: buzzLabel.leadingAnchor, constant: -6.sw)
+        let buzzTrailing = buzzLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8.sw)
+        buzzTrailingConstraint = buzzTrailing
+        buzzTrailingToBadgeConstraint = buzzLabel.trailingAnchor.constraint(equalTo: unreadBadgeLabel.leadingAnchor, constant: -6.sw)
+        let buzzCenter = buzzLabel.centerYAnchor.constraint(equalTo: containerView.centerYAnchor)
+        buzzCenterConstraint = buzzCenter
 
         NSLayoutConstraint.activate([
             containerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 5.sh),
@@ -213,10 +238,14 @@ final class DmListItemCell: UITableViewCell {
             unreadBadgeLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8.sw),
             unreadBadgeLabel.centerYAnchor.constraint(equalTo: lastMessageLabel.centerYAnchor),
             unreadBadgeLabel.heightAnchor.constraint(equalToConstant: 20.swh),
+
+            buzzTrailing,
+            buzzLabel.heightAnchor.constraint(equalToConstant: 20.swh),
+            buzzCenter,
         ])
     }
 
-    func configure(channel: Mezon_Api_ChannelDescription, resolvedAvatarURL: String? = nil, voiceActivity: DmVoiceActivity? = nil) {
+    func configure(channel: Mezon_Api_ChannelDescription, resolvedAvatarURL: String? = nil, voiceActivity: DmVoiceActivity? = nil, hasBuzz: Bool = false) {
         groupIconView.tintColor = .mezonTextSecondary
 
         let isGroup = channel.type == MezonConstants.ChannelType.group.rawValue
@@ -262,6 +291,9 @@ final class DmListItemCell: UITableViewCell {
         let (preview, time) = lastMessagePreview(channel: channel)
         let hasMessagePreview = !preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let hasPreview = voiceActivity != nil || hasMessagePreview
+        buzzLabel.isHidden = !hasBuzz
+        previewBuzzTrailingConstraint?.isActive = hasBuzz
+        buzzCenterConstraint?.constant = hasPreview ? 10.sh : 0
         if let voiceActivity {
             lastMessageLabel.attributedText = Self.voiceActivityPreviewText(voiceActivity)
         } else {
@@ -286,6 +318,13 @@ final class DmListItemCell: UITableViewCell {
         guard unreadBadgeLabel.isHidden == isVisible else { return }
         unreadBadgeLabel.isHidden = !isVisible
         previewTrailingToBadgeConstraint?.isActive = isVisible
+        if isVisible {
+            buzzTrailingConstraint?.isActive = false
+            buzzTrailingToBadgeConstraint?.isActive = true
+        } else {
+            buzzTrailingToBadgeConstraint?.isActive = false
+            buzzTrailingConstraint?.isActive = true
+        }
     }
 
     private static func voiceActivityPreviewText(_ activity: DmVoiceActivity) -> NSAttributedString {
