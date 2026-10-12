@@ -74,41 +74,61 @@ enum ClanChannelDescsGate {
     }
 }
 
+@MainActor
 enum DirectMessageListGate {
-    private static var served = false
-    private static var inflight: Task<Void, Never>?
-
-    static func markServed() {
-        served = true
-    }
+    private static var servedGeneration: Int?
+    private static var inflight: (id: UUID, generation: Int, task: Task<Void, Never>)?
 
     static func reset() {
-        served = false
-        inflight?.cancel()
+        servedGeneration = nil
+        inflight?.task.cancel()
         inflight = nil
     }
 
     static func ensureFetchedBeforeJoin(
         context: AccountContext,
         maxWaitNanoseconds: UInt64 = 5_000_000_000
-    ) async {
-        if served { return }
-        if inflight == nil {
-            inflight = Task { @MainActor in
-                defer { inflight = nil }
+    ) async -> Bool {
+        let generation = context.account.socket.connectionGeneration
+        let epoch = context.sessionEpoch
+        guard !Task.isCancelled, context.account.socket.isConnected else { return false }
+        if servedGeneration == generation { return true }
+        if inflight?.generation != generation {
+            inflight?.task.cancel()
+            let id = UUID()
+            let task = Task { @MainActor in
+                defer {
+                    if inflight?.id == id { inflight = nil }
+                }
+                guard !Task.isCancelled, context.isStillCurrentSession(epoch: epoch),
+                      context.account.socket.isConnected,
+                      context.account.socket.connectionGeneration == generation else { return }
                 guard let token = await context.getToken(), !token.isEmpty else { return }
                 do {
-                    _ = try await context.account.network.listDirectMessageChannels(token: token)
-                    served = true
+                    _ = try await context.account.network.listDirectMessageChannelsForSocketJoin(token: token)
+                    guard !Task.isCancelled, context.isStillCurrentSession(epoch: epoch),
+                          context.account.socket.isConnected,
+                          context.account.socket.connectionGeneration == generation else { return }
+                    servedGeneration = generation
                 } catch {}
             }
+            inflight = (id, generation, task)
         }
+
+        let id = inflight?.id
         let stepNanoseconds: UInt64 = 50_000_000
         var waited: UInt64 = 0
-        while inflight != nil, waited < maxWaitNanoseconds {
-            try? await Task.sleep(nanoseconds: stepNanoseconds)
-            waited += stepNanoseconds
+        while inflight?.id == id, inflight != nil, waited < maxWaitNanoseconds {
+            guard !Task.isCancelled, context.isStillCurrentSession(epoch: epoch),
+                  context.account.socket.isConnected,
+                  context.account.socket.connectionGeneration == generation else { return false }
+            let pause = min(stepNanoseconds, maxWaitNanoseconds - waited)
+            try? await Task.sleep(nanoseconds: pause)
+            waited += pause
         }
+        return !Task.isCancelled && context.isStillCurrentSession(epoch: epoch)
+            && context.account.socket.isConnected
+            && context.account.socket.connectionGeneration == generation
     }
 }
 

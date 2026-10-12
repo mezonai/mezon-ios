@@ -4075,7 +4075,11 @@ final class ChatViewController: ViewController {
         guard context.account.socket.isConnected else { return }
         let targetClanId = clanId
         let targetChannel = channel
-        await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: context, clanId: targetClanId)
+        if targetClanId == 0 {
+            guard await DirectMessageListGate.ensureFetchedBeforeJoin(context: context) else { return }
+        } else {
+            await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: context, clanId: targetClanId)
+        }
         guard context.account.socket.isConnected else { return }
         context.account.socket.joinClanChat(clanId: targetClanId)
         let channelType: Int32 = targetClanId == 0
