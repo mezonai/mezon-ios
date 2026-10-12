@@ -61,6 +61,22 @@ final class DmListItemCell: UITableViewCell {
     }()
 
     private var avatarLoadGeneration: UInt = 0
+    private let buzzLabel: UILabel = {
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.text = " Buzz!! "
+        label.textColor = .white
+        label.font = .systemFont(ofSize: 12.sf, weight: .bold)
+        label.backgroundColor = UIColor(red: 234 / 255, green: 36 / 255, blue: 32 / 255, alpha: 1)
+        label.layer.cornerRadius = 4.swh
+        label.clipsToBounds = true
+        label.isHidden = true
+        label.setContentCompressionResistancePriority(.required, for: .horizontal)
+        return label
+    }()
+    private var previewTrailingConstraint: NSLayoutConstraint?
+    private var previewBuzzTrailingConstraint: NSLayoutConstraint?
+    private var buzzCenterConstraint: NSLayoutConstraint?
     private var lastMessageTopConstraint: NSLayoutConstraint?
     private var lastMessageZeroHeightConstraint: NSLayoutConstraint?
     private var configuredAvatarURLString: String?
@@ -116,6 +132,7 @@ final class DmListItemCell: UITableViewCell {
         textAvatar.showImageMode()
         groupIconView.isHidden = true
         onlineIndicator.isHidden = true
+        buzzLabel.isHidden = true
     }
 
     private func setup() {
@@ -135,6 +152,7 @@ final class DmListItemCell: UITableViewCell {
         containerView.addSubview(nameLabel)
         containerView.addSubview(lastMessageLabel)
         containerView.addSubview(timeLabel)
+        containerView.addSubview(buzzLabel)
 
         let avatarSize: CGFloat = 40.swh
 
@@ -146,6 +164,11 @@ final class DmListItemCell: UITableViewCell {
         lastMessageZeroHeightConstraint.isActive = false
         self.lastMessageTopConstraint = lastMessageTopConstraint
         self.lastMessageZeroHeightConstraint = lastMessageZeroHeightConstraint
+        let previewTrailing = lastMessageLabel.trailingAnchor.constraint(lessThanOrEqualTo: containerView.trailingAnchor, constant: -8.sw)
+        previewTrailingConstraint = previewTrailing
+        previewBuzzTrailingConstraint = lastMessageLabel.trailingAnchor.constraint(lessThanOrEqualTo: buzzLabel.leadingAnchor, constant: -6.sw)
+        let buzzCenter = buzzLabel.centerYAnchor.constraint(equalTo: containerView.centerYAnchor)
+        buzzCenterConstraint = buzzCenter
 
         NSLayoutConstraint.activate([
             containerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 5.sh),
@@ -186,11 +209,14 @@ final class DmListItemCell: UITableViewCell {
 
             lastMessageLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
             lastMessageTopConstraint,
-            lastMessageLabel.trailingAnchor.constraint(lessThanOrEqualTo: containerView.trailingAnchor, constant: -8.sw),
+            previewTrailing,
+            buzzLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8.sw),
+            buzzLabel.heightAnchor.constraint(equalToConstant: 20.swh),
+            buzzCenter,
         ])
     }
 
-    func configure(channel: Mezon_Api_ChannelDescription, resolvedAvatarURL: String? = nil, isPeerInVoice: Bool = false) {
+    func configure(channel: Mezon_Api_ChannelDescription, resolvedAvatarURL: String? = nil, isPeerInVoice: Bool = false, hasBuzz: Bool = false) {
         groupIconView.tintColor = .mezonTextSecondary
 
         let isGroup = channel.type == MezonConstants.ChannelType.group.rawValue
@@ -236,6 +262,10 @@ final class DmListItemCell: UITableViewCell {
         let (preview, time) = lastMessagePreview(channel: channel)
         let hasMessagePreview = !preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let hasPreview = isPeerInVoice || hasMessagePreview
+        buzzLabel.isHidden = !hasBuzz
+        previewTrailingConstraint?.isActive = !hasBuzz
+        previewBuzzTrailingConstraint?.isActive = hasBuzz
+        buzzCenterConstraint?.constant = hasPreview ? 10.sh : 0
         if isPeerInVoice {
             lastMessageLabel.attributedText = Self.inVoicePreviewText()
         } else {

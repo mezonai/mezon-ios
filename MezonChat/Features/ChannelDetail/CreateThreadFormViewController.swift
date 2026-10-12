@@ -847,6 +847,7 @@ final class CreateThreadFormViewController: UIViewController {
             guard !AnonymousMessageStore.isEnabled(clanId: clanId) else { return }
             handleSendLocationForThreadForm()
         case "buzz":
+            guard !AnonymousMessageStore.isEnabled(clanId: clanId) else { return }
             let buzzVC = BuzzMessageViewController()
             buzzVC.onSend = { [weak self] text in
                 guard let self else { return }
