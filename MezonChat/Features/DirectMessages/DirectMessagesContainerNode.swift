@@ -120,7 +120,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         refreshControl.addTarget(self, action: #selector(handleRefresh), for: .valueChanged)
         tableView.refreshControl = refreshControl
         
-        badgeLabel.backgroundColor = UIColor(red: 236/255.0, green: 56/255.0, blue: 50/255.0, alpha: 1.0)
+        badgeLabel.backgroundColor = .mezonUnreadBadge
         badgeLabel.textColor = .white
         badgeLabel.font = .systemFont(ofSize: 11.sf, weight: .semibold)
         badgeLabel.textAlignment = .center

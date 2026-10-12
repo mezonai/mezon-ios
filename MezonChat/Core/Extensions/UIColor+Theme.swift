@@ -44,7 +44,7 @@ extension UIColor {
     static var mezonVoiceActive:         UIColor { UIColor(red: 22/255, green: 163/255, blue: 74/255, alpha: 1) }
     static var mezonWarning:             UIColor { theme.textWarning }
 
-    static var mezonUnreadBadge:         UIColor { UIColor(hex: 0xC61E1B) }
+    static var mezonUnreadBadge:         UIColor { UIColor(hex: 0xEA2420) }
     static var mezonMention:             UIColor { theme.textWarning.withAlphaComponent(0.3) }
     static var groupDMDefaultAvatar:     UIColor { UIColor(red: 249/255, green: 115/255, blue: 22/255, alpha: 1) }
 

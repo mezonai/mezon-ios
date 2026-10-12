@@ -57,7 +57,7 @@ final class ThreadItemCellNode: ASCellNode {
                     .foregroundColor: UIColor.white,
                     .paragraphStyle: para,
                 ])
-            badgeBackground.backgroundColor = .systemRed
+            badgeBackground.backgroundColor = .mezonUnreadBadge
             badgeBackground.clipsToBounds = true
             badgeBackground.isHidden = false
             badgeNode.isHidden = false
