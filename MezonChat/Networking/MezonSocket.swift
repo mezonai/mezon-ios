@@ -6,6 +6,13 @@ enum MezonEnvelopeEncoding {
         guard envelope.cid > 0,
               case .some(.clanJoin(let join)) = envelope.message,
               join.clanID == 0 else { return try envelope.serializedData() }
+        return try encodeClanJoin(envelope)
+    }
+
+    static func encodeClanJoin(_ envelope: Mezon_Realtime_Envelope) throws -> Data {
+        guard envelope.cid > 0, case .some(.clanJoin) = envelope.message else {
+            return try envelope.serializedData()
+        }
         var body = envelope
         body.cid = 0
         var data = try body.serializedData()
@@ -679,6 +686,65 @@ final class MezonSocket: NSObject {
         }
         envelope.clanJoin = join
         send(envelope)
+    }
+
+    func joinClanChatAwait(clanId: Int64, timeoutNanoseconds: UInt64 = 10_000_000_000) async throws {
+        try Task.checkCancellation()
+        guard isConnected, let t = transport else {
+            throw MezonError.socketError("Socket is not connected")
+        }
+        let generation = connectGeneration
+        let cid = generateCid()
+        let requestName = "ClanJoin:\(clanId):\(UUID().uuidString)"
+        var join = Mezon_Realtime_ClanJoin()
+        join.clanID = clanId
+        var envelope = Mezon_Realtime_Envelope()
+        envelope.cid = Int32(bitPattern: cid)
+        envelope.clanJoin = join
+        let payload = try MezonEnvelopeEncoding.encodeClanJoin(envelope)
+
+        let response = try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
+                guard !Task.isCancelled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                let timeoutTask = Task { @MainActor [weak self] in
+                    do { try await Task.sleep(nanoseconds: timeoutNanoseconds) }
+                    catch { return }
+                    guard let self, self.pendingApiRequests[cid]?.apiName == requestName,
+                          let pending = self.pendingApiRequests.removeValue(forKey: cid) else { return }
+                    pending.continuation.resume(throwing: MezonError.socketError("Clan subscription timed out"))
+                }
+                pendingApiRequests[cid] = PendingApiRequest(
+                    apiName: requestName, continuation: continuation, timeoutTask: timeoutTask
+                )
+                t.send(envelopePayload: payload) { [weak self] error in
+                    guard let error else { return }
+                    Task { @MainActor in
+                        guard let self, self.pendingApiRequests[cid]?.apiName == requestName,
+                              let pending = self.pendingApiRequests.removeValue(forKey: cid) else { return }
+                        pending.timeoutTask.cancel()
+                        pending.continuation.resume(throwing: error)
+                    }
+                }
+            }
+        } onCancel: { [weak self] in
+            Task { @MainActor in
+                guard let self, self.pendingApiRequests[cid]?.apiName == requestName,
+                      let pending = self.pendingApiRequests.removeValue(forKey: cid) else { return }
+                pending.timeoutTask.cancel()
+                pending.continuation.resume(throwing: CancellationError())
+            }
+        }
+        try Task.checkCancellation()
+        if let reply = try? Mezon_Realtime_Envelope(serializedBytes: response),
+           case .some(.error(let error)) = reply.message {
+            throw MezonError.socketError(error.message.isEmpty ? "Clan subscription rejected" : error.message)
+        }
+        guard generation == connectGeneration, transport === t, isConnected else {
+            throw MezonError.socketError("Socket changed while subscribing to clan")
+        }
     }
 
     func joinChannel(clanId: Int64, channelId: Int64, channelType: Int32, isPublic: Bool) {

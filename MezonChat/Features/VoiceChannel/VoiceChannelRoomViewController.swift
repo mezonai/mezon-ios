@@ -3708,6 +3708,25 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         }
 
         do {
+            if channel.clanID != 0 {
+                let socket = context.account.socket
+                let connected = await socket.waitForConnected(timeoutNanoseconds: 10_000_000_000)
+                try Task.checkCancellation()
+                guard connected else { throw MezonError.socketError("Socket unavailable for voice join") }
+                let generation = socket.connectionGeneration
+                
+                _ = try await context.account.network.listChannelDescs(
+                    clanId: channel.clanID, token: sessionToken, force: true
+                )
+                try Task.checkCancellation()
+                guard !isEndingVoiceRoom, !context.engine.channels.isAccessRevoked(channelId: channel.channelID) else { return }
+                guard socket.isConnected, socket.connectionGeneration == generation else {
+                    throw MezonError.socketError("Socket changed while preparing voice join")
+                }
+                try await socket.joinClanChatAwait(clanId: channel.clanID)
+                try Task.checkCancellation()
+                guard !isEndingVoiceRoom, !context.engine.channels.isAccessRevoked(channelId: channel.channelID) else { return }
+            }
             let meetToken = try await context.account.network.generateMeetTokenResponse(
                 channelId: channel.channelID,
                 roomName: String(channel.channelID),
