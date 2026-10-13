@@ -152,6 +152,9 @@ final class AttachmentUploader {
                 width: width, height: height, channelId: channelId, token: token,
                 preferHTTPFirst: preferHTTPFirst)
         }
+        guard !info.filename.isEmpty else {
+            throw MezonError.httpError(statusCode: 0, message: "UploadAttachmentFile returned an empty filename")
+        }
         _ = try await MinIOStreamingUploader.shared.put(
             url: info.url, fileURL: fileURL, contentType: filetype
         ) { [weak self] fraction in
@@ -160,7 +163,7 @@ final class AttachmentUploader {
         reportProgress(1, forKey: progressKey)
         return UploadedAttachmentFile(
             serverFilename: info.filename,
-            cdnURL: MezonConfig.attachmentViewURL(typeCdn: info.typeCdn, filename: info.filename))
+            cdnURL: MezonConfig.attachmentViewURL(typeCdn: info.typeCdn, fallback: MezonConfig.baseImgURL, filename: info.filename))
     }
 
     private func uploadMultipart(
@@ -192,10 +195,9 @@ final class AttachmentUploader {
                 self?.reportProgress(fraction, forKey: progressKey)
             }
             reportProgress(1, forKey: progressKey)
-            let serverFilename = start.filename.isEmpty ? filename : start.filename
             return UploadedAttachmentFile(
-                serverFilename: serverFilename,
-                cdnURL: MezonConfig.attachmentViewURL(typeCdn: start.typeCdn, filename: serverFilename))
+                serverFilename: start.filename,
+                cdnURL: MezonConfig.attachmentViewURL(typeCdn: start.typeCdn, fallback: MezonConfig.baseImgURL, filename: start.filename))
         }
 
         if urls.isEmpty || uploadId.isEmpty {
@@ -246,14 +248,10 @@ final class AttachmentUploader {
             preferHTTPFirst: preferHTTPFirst)
         reportProgress(1, forKey: progressKey)
 
-        let serverFilename: String = {
-            if !finish.filename.isEmpty { return finish.filename }
-            if !start.filename.isEmpty { return start.filename }
-            return filename
-        }()
+        let serverFilename = finish.filename.isEmpty ? start.filename : finish.filename
         return UploadedAttachmentFile(
             serverFilename: serverFilename,
-            cdnURL: MezonConfig.attachmentViewURL(typeCdn: start.typeCdn, filename: serverFilename))
+            cdnURL: MezonConfig.attachmentViewURL(typeCdn: start.typeCdn, fallback: MezonConfig.baseImgURL, filename: serverFilename))
     }
 
     private static func readChunk(fileURL: URL, offset: Int, length: Int) throws -> Data {

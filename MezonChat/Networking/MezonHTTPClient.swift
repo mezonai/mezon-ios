@@ -1988,6 +1988,9 @@ final class MezonHTTPClient {
             auth: .bearer(token),
             preferHTTPFirst: preferHTTPFirst
         )
+        guard !response.filename.isEmpty else {
+            throw MezonError.httpError(statusCode: 0, message: "UploadAttachmentFile returned an empty filename")
+        }
         return response
     }
 
@@ -2034,6 +2037,9 @@ final class MezonHTTPClient {
             auth: .bearer(token),
             preferHTTPFirst: preferHTTPFirst
         )
+        guard !response.filename.isEmpty else {
+            throw MezonError.httpError(statusCode: 0, message: "MultipartUploadAttachmentFileStart returned an empty filename")
+        }
         return response
     }
 

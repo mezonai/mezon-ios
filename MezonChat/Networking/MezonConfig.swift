@@ -61,12 +61,12 @@ enum MezonConfig {
         return t.isEmpty ? nil : t
     }
 
-    static func attachmentViewURL(typeCdn: Int32, filename: String) -> String {
+    static func attachmentViewURL(typeCdn: Int32, fallback: String, filename: String) -> String {
         let baseURL: String
         switch typeCdn {
         case 1: baseURL = baseMezonImgURL
         case 2: baseURL = baseImgURL
-        default: baseURL = baseImgURL
+        default: baseURL = fallback
         }
         return "\(baseURL)/\(filename)"
     }
