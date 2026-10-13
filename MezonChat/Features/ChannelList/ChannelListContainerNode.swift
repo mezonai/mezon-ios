@@ -30,7 +30,7 @@ struct ChannelListInteraction {
 
 final class ChannelListContainerNode: ASDisplayNode {
 
-    let tableNode: ASTableNode
+    private(set) var tableNode: ASTableNode
     private let headerUIView = ChannelListHeaderView()
     private let bannerView = ChannelBannerView()
     private let headerSpacer = UIView()
@@ -92,6 +92,11 @@ final class ChannelListContainerNode: ASDisplayNode {
     private var nodeIsVisible = false
     private var pendingVisibleReconcile = false
     private var pendingVisibleReconcileShouldResetScroll = false
+    private var ghostRowCheckWorkItems: [DispatchWorkItem] = []
+    private var ghostRowHealStage = 0
+    private var ghostRowHealStarts: [Date] = []
+    private var ghostRowPendingReport: [String: Any]?
+    private var ghostRowReportsSent = 0
 
     private var latestCoalescedChannelListState: ChannelListState?
     private var channelListStateApplyScheduled = false
@@ -325,6 +330,154 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     func suppressNextLoadingFinishedReveal() {
         skipNextLoadingFinishedReveal = true
+    }
+
+    private func scheduleGhostRowChecks() {
+        cancelGhostRowChecks()
+        for delay in [0.8, 3.0] {
+            let item = DispatchWorkItem { [weak self] in self?.runGhostRowCheck() }
+            ghostRowCheckWorkItems.append(item)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+        }
+    }
+
+    private func cancelGhostRowChecks() {
+        ghostRowCheckWorkItems.forEach { $0.cancel() }
+        ghostRowCheckWorkItems = []
+    }
+
+    private func visibleGhostRowSamples() -> [(IndexPath, UITableViewCell, String)] {
+        let tv = tableNode.view
+        var samples: [(IndexPath, UITableViewCell, String)] = []
+        for cell in tv.visibleCells {
+            guard let indexPath = tv.indexPath(for: cell), let node = tableNode.nodeForRow(at: indexPath) else { continue }
+            switch node {
+            case is ChannelItemCellNode: samples.append((indexPath, cell, "channel"))
+            case is ThreadItemCellNode: samples.append((indexPath, cell, "thread"))
+            default: continue
+            }
+        }
+        return samples
+    }
+
+    private func runGhostRowCheck() {
+        guard isNodeLoaded, nodeIsVisible, tableIsInWindow else { return }
+        guard UIApplication.shared.applicationState == .active else { return }
+        let tv = tableNode.view
+        guard !tv.isDragging, !tv.isDecelerating, !tv.isTracking else { return }
+        let samples = visibleGhostRowSamples()
+        guard !samples.isEmpty else { return }
+        var exclusions = [headerUIView.frame]
+        if !newUnreadButton.isHidden { exclusions.append(newUnreadButton.frame) }
+        let rows = samples.map {
+            ChannelListGhostRowProbe.RowSample(indexPath: $0.0, kind: $0.2, rect: $0.1.convert($0.1.bounds, to: view))
+        }
+        let t = UIColor.theme
+        guard let probe = ChannelListGhostRowProbe.measure(
+            container: view,
+            rows: rows,
+            referenceRects: [headerUIView.frame],
+            exclusionRects: exclusions,
+            backgroundColor: t.secondary,
+            rowTextColor: t.channelNormal
+        ), probe.isTrusted else { return }
+        if probe.dimRows.count < 2 {
+            if ghostRowHealStage > 0 {
+                finishGhostRowHeal(healed: true, probe: probe)
+            }
+            return
+        }
+        handleGhostRows(probe: probe, samples: samples)
+    }
+
+    private func handleGhostRows(probe: ChannelListGhostRowProbe.Result, samples: [(IndexPath, UITableViewCell, String)]) {
+        switch ghostRowHealStage {
+        case 0:
+            let now = Date()
+            ghostRowHealStarts = ghostRowHealStarts.filter { now.timeIntervalSince($0) < 600 }
+            guard ghostRowHealStarts.count < 3 else { return }
+            ghostRowHealStarts.append(now)
+            let dimPaths = Set(probe.dimRows.map { $0.indexPath })
+            let dimCells = samples.filter { dimPaths.contains($0.0) }.map { ($0.0, $0.1) }
+            ghostRowPendingReport = [
+                "ios": UIDevice.current.systemVersion,
+                "theme": ThemeManager.shared.current.rawValue,
+                "rows": probe.summary,
+                "expectedContrast": Int(probe.expectedRowContrast),
+                "referenceContrast": Int(probe.referenceContrast),
+                "dump": ChannelListGhostRowProbe.dump(table: tableNode.view, cells: dimCells),
+            ]
+            SentryLogger.addBreadcrumb(
+                category: "channel_list.ghost_rows",
+                message: "detected dim=\(dimPaths.count)/\(probe.rows.count)"
+            )
+            ghostRowHealStage = 1
+            cachedRows = [:]
+            cachedHeaders = [:]
+            safeReloadData()
+            scheduleGhostRowChecks()
+        case 1:
+            ghostRowHealStage = 2
+            ghostRowPendingReport?["afterReload"] = probe.summary
+            rebuildTableNode()
+            scheduleGhostRowChecks()
+        default:
+            finishGhostRowHeal(healed: false, probe: probe)
+        }
+    }
+
+    private func finishGhostRowHeal(healed: Bool, probe: ChannelListGhostRowProbe.Result) {
+        let stage = ghostRowHealStage
+        ghostRowHealStage = 0
+        guard var report = ghostRowPendingReport else { return }
+        ghostRowPendingReport = nil
+        let healedBy = healed ? (stage == 1 ? "reload" : "rebuild") : "none"
+        report["healedBy"] = healedBy
+        report["final"] = probe.summary
+        if ghostRowReportsSent < 2 {
+            ghostRowReportsSent += 1
+            SentryLogger.capture(message: "channel_list.ghost_rows", extras: report)
+        } else {
+            SentryLogger.addBreadcrumb(category: "channel_list.ghost_rows", message: "healedBy=\(healedBy)")
+        }
+    }
+
+    private func rebuildTableNode() {
+        let old = tableNode
+        let frame = old.frame
+        let offset = old.view.contentOffset
+        let backgroundColor = old.backgroundColor
+        let viewBackgroundColor = old.view.backgroundColor
+        let tableHeader = old.view.tableHeaderView
+        old.delegate = nil
+        old.dataSource = nil
+        old.view.tableHeaderView = nil
+        old.removeFromSupernode()
+
+        let fresh = ASTableNode(style: .plain)
+        fresh.frame = frame
+        tableNode = fresh
+        addSubnode(fresh)
+        configureTableNodeView(fresh)
+        fresh.backgroundColor = backgroundColor
+        fresh.view.backgroundColor = viewBackgroundColor
+        fresh.view.tableHeaderView = tableHeader
+        view.bringSubviewToFront(headerUIView)
+        view.bringSubviewToFront(newUnreadButton)
+        cachedRows = [:]
+        cachedHeaders = [:]
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        UIView.performWithoutAnimation {
+            fresh.reloadData()
+            fresh.waitUntilAllUpdatesAreProcessed()
+            fresh.view.layoutIfNeeded()
+        }
+        CATransaction.commit()
+        committedSectionCount = totalSections
+        restoreContentOffset(offset)
+        updateTableHeaderLayout()
+        updateStickyHeaderPosition()
     }
 
     private var tableIsInWindow: Bool {
@@ -1312,23 +1465,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         super.didLoad()
         layer.addSublayer(gradientLayer)
         addSubnode(tableNode)
-        tableNode.backgroundColor = .clear
-        tableNode.view.backgroundColor = .clear
-        tableNode.view.separatorStyle = .none
-        tableNode.view.showsVerticalScrollIndicator = false
-        if #available(iOS 15.0, *) {
-            tableNode.view.sectionHeaderTopPadding = 0
-        }
-        tableNode.view.contentInset.bottom = 80
-        tableNode.view.scrollIndicatorInsets.bottom = 80
-        tableNode.delegate = self
-        tableNode.dataSource = self
-        committedSectionCount = totalSections
-
-        let refreshControl = UIRefreshControl()
-        refreshControl.tintColor = UIColor.theme.textDisabled
-        refreshControl.addTarget(self, action: #selector(handleRefresh(_:)), for: .valueChanged)
-        tableNode.view.refreshControl = refreshControl
+        configureTableNodeView(tableNode)
 
         NotificationCenter.default.addObserver(
             self,
@@ -1369,6 +1506,29 @@ final class ChannelListContainerNode: ASDisplayNode {
         newUnreadButton.addTarget(self, action: #selector(newUnreadButtonTapped), for: .touchUpInside)
         view.addSubview(newUnreadButton)
         refreshNewUnreadButton()
+        #if DEBUG
+        installGhostRowSimulationForTestOnly()
+        #endif
+    }
+
+    private func configureTableNodeView(_ table: ASTableNode) {
+        table.backgroundColor = .clear
+        table.view.backgroundColor = .clear
+        table.view.separatorStyle = .none
+        table.view.showsVerticalScrollIndicator = false
+        if #available(iOS 15.0, *) {
+            table.view.sectionHeaderTopPadding = 0
+        }
+        table.view.contentInset.bottom = 80
+        table.view.scrollIndicatorInsets.bottom = 80
+        table.delegate = self
+        table.dataSource = self
+        committedSectionCount = totalSections
+
+        let refreshControl = UIRefreshControl()
+        refreshControl.tintColor = UIColor.theme.textDisabled
+        refreshControl.addTarget(self, action: #selector(handleRefresh(_:)), for: .valueChanged)
+        table.view.refreshControl = refreshControl
     }
 
     override func didEnterVisibleState() {
@@ -1378,6 +1538,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         sanitizeListPresentationArtifacts()
         drainPendingVisibleReconcile()
         reloadVoiceMemberRows()
+        scheduleGhostRowChecks()
     }
 
     override func didEnterHierarchy() {
@@ -1387,6 +1548,7 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     @objc private func handleAppDidBecomeActiveForListSanitize() {
         sanitizeListPresentationArtifacts()
+        scheduleGhostRowChecks()
     }
 
     @discardableResult
@@ -1502,6 +1664,7 @@ final class ChannelListContainerNode: ASDisplayNode {
     override func didExitVisibleState() {
         super.didExitVisibleState()
         nodeIsVisible = false
+        cancelGhostRowChecks()
     }
 
     private func scheduleReload() {
@@ -2503,6 +2666,7 @@ extension ChannelListContainerNode: ASTableDataSource {
 extension ChannelListContainerNode: ASTableDelegate {
 
     func tableNode(_ tableNode: ASTableNode, willDisplayRowWith node: ASCellNode) {
+        scheduleGhostRowChecks()
         guard node.isNodeLoaded else { return }
         var current: UIView? = node.view
         while let v = current, !(v is UITableViewCell) {
@@ -3062,3 +3226,34 @@ final class ChannelListHeaderView: UIView {
         onClanTitleTap?()
     }
 }
+
+#if DEBUG
+extension ChannelListContainerNode {
+
+    private static var ghostRowSimulationCount = 0
+
+    fileprivate func installGhostRowSimulationForTestOnly() {
+        let press = UILongPressGestureRecognizer(target: self, action: #selector(simulateGhostRowsForTestOnly(_:)))
+        press.numberOfTouchesRequired = 3
+        press.minimumPressDuration = 0.8
+        view.addGestureRecognizer(press)
+    }
+
+    @objc fileprivate func simulateGhostRowsForTestOnly(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began else { return }
+        Self.ghostRowSimulationCount += 1
+        let useMask = Self.ghostRowSimulationCount % 2 == 1
+        for (index, cell) in tableNode.view.visibleCells.enumerated() where index % 2 == 0 {
+            if useMask {
+                let mask = CALayer()
+                mask.frame = cell.layer.bounds
+                mask.backgroundColor = UIColor.white.cgColor
+                mask.opacity = 0.1
+                cell.layer.mask = mask
+            } else {
+                cell.contentView.subviews.first?.layer.opacity = 0.1
+            }
+        }
+    }
+}
+#endif
