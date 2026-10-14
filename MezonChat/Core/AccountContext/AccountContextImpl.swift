@@ -1359,6 +1359,23 @@ final class AccountContextImpl: AccountContext {
         case .markAsRead(let e):
             buzz.markAsRead(clanId: e.clanID, channelId: e.channelID, categoryId: e.categoryID)
 
+        case .markAsReadEvent(let e):
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if e.channelID != 0 {
+                    NotificationCenter.default.post(
+                        name: Notification.Name("MezonChannelMarkedAsRead"), object: nil,
+                        userInfo: ["channelId": e.channelID, "clanId": e.clanID] as [String: Any]
+                    )
+                } else if e.clanID != 0 {
+                    self.buzz.markAsRead(clanId: e.clanID, categoryId: e.categoryID)
+                    NotificationCenter.default.post(
+                        name: Notification.Name("MezonClanMarkedAsRead"), object: nil,
+                        userInfo: ["clanId": e.clanID, "categoryId": e.categoryID] as [String: Any]
+                    )
+                }
+            }
+
         case .voiceJoined(let ev):
             MezonSfuSession.handleVoiceJoined(ev)
             engine.clanData.applyVoiceJoined(clanId: ev.clanID, channelId: ev.voiceChannelID, userId: ev.userID)

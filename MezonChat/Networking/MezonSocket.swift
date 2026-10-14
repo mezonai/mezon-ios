@@ -49,6 +49,7 @@ enum SocketEvent {
     case userChannelAdded(Mezon_Realtime_UserChannelAdded)
     case userChannelRemoved(Mezon_Realtime_UserChannelRemoved)
     case markAsRead(Mezon_Realtime_UnmuteEvent)
+    case markAsReadEvent(Mezon_Realtime_MarkAsRead)
 
     case clanUpdated(Mezon_Realtime_ClanUpdatedEvent)
     case clanProfileUpdated(Mezon_Realtime_ClanProfileUpdatedEvent)
@@ -1067,6 +1068,8 @@ final class MezonSocket: NSObject {
             eventPipe.putNext(.userChannelRemoved(m))
         case .unmuteEvent(let m):
             eventPipe.putNext(.markAsRead(m))
+        case .markAsRead(let m):
+            eventPipe.putNext(.markAsReadEvent(m))
         case .clanUpdatedEvent(let m):
             eventPipe.putNext(.clanUpdated(m))
         case .clanProfileUpdatedEvent(let m):

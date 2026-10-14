@@ -60,6 +60,21 @@ final class DmListItemCell: UITableViewCell {
         return l
     }()
 
+    private let unreadBadgeLabel: UnreadCountBadgeLabel = {
+        let l = UnreadCountBadgeLabel()
+        l.translatesAutoresizingMaskIntoConstraints = false
+        l.font = .systemFont(ofSize: 11.sf, weight: .bold)
+        l.textColor = .white
+        l.textAlignment = .center
+        l.backgroundColor = .mezonUnreadBadge
+        l.layer.cornerRadius = 10.swh
+        l.clipsToBounds = true
+        l.setContentHuggingPriority(.required, for: .horizontal)
+        l.setContentCompressionResistancePriority(.required, for: .horizontal)
+        l.isHidden = true
+        return l
+    }()
+
     private var avatarLoadGeneration: UInt = 0
     private let buzzLabel: UILabel = {
         let label = UILabel()
@@ -74,11 +89,13 @@ final class DmListItemCell: UITableViewCell {
         label.setContentCompressionResistancePriority(.required, for: .horizontal)
         return label
     }()
-    private var previewTrailingConstraint: NSLayoutConstraint?
     private var previewBuzzTrailingConstraint: NSLayoutConstraint?
+    private var buzzTrailingConstraint: NSLayoutConstraint?
+    private var buzzTrailingToBadgeConstraint: NSLayoutConstraint?
     private var buzzCenterConstraint: NSLayoutConstraint?
     private var lastMessageTopConstraint: NSLayoutConstraint?
     private var lastMessageZeroHeightConstraint: NSLayoutConstraint?
+    private var previewTrailingToBadgeConstraint: NSLayoutConstraint?
     private var configuredAvatarURLString: String?
     private var isAvatarLoadInFlight = false
     private var hasPreviewLayout: Bool?
@@ -152,6 +169,7 @@ final class DmListItemCell: UITableViewCell {
         containerView.addSubview(nameLabel)
         containerView.addSubview(lastMessageLabel)
         containerView.addSubview(timeLabel)
+        containerView.addSubview(unreadBadgeLabel)
         containerView.addSubview(buzzLabel)
 
         let avatarSize: CGFloat = 40.swh
@@ -164,9 +182,15 @@ final class DmListItemCell: UITableViewCell {
         lastMessageZeroHeightConstraint.isActive = false
         self.lastMessageTopConstraint = lastMessageTopConstraint
         self.lastMessageZeroHeightConstraint = lastMessageZeroHeightConstraint
-        let previewTrailing = lastMessageLabel.trailingAnchor.constraint(lessThanOrEqualTo: containerView.trailingAnchor, constant: -8.sw)
-        previewTrailingConstraint = previewTrailing
+        let previewTrailingToBadgeConstraint = lastMessageLabel.trailingAnchor.constraint(
+            lessThanOrEqualTo: unreadBadgeLabel.leadingAnchor,
+            constant: -8.sw
+        )
+        self.previewTrailingToBadgeConstraint = previewTrailingToBadgeConstraint
         previewBuzzTrailingConstraint = lastMessageLabel.trailingAnchor.constraint(lessThanOrEqualTo: buzzLabel.leadingAnchor, constant: -6.sw)
+        let buzzTrailing = buzzLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8.sw)
+        buzzTrailingConstraint = buzzTrailing
+        buzzTrailingToBadgeConstraint = buzzLabel.trailingAnchor.constraint(equalTo: unreadBadgeLabel.leadingAnchor, constant: -6.sw)
         let buzzCenter = buzzLabel.centerYAnchor.constraint(equalTo: containerView.centerYAnchor)
         buzzCenterConstraint = buzzCenter
 
@@ -209,14 +233,19 @@ final class DmListItemCell: UITableViewCell {
 
             lastMessageLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
             lastMessageTopConstraint,
-            previewTrailing,
-            buzzLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8.sw),
+            lastMessageLabel.trailingAnchor.constraint(lessThanOrEqualTo: containerView.trailingAnchor, constant: -8.sw),
+
+            unreadBadgeLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8.sw),
+            unreadBadgeLabel.centerYAnchor.constraint(equalTo: lastMessageLabel.centerYAnchor),
+            unreadBadgeLabel.heightAnchor.constraint(equalToConstant: 20.swh),
+
+            buzzTrailing,
             buzzLabel.heightAnchor.constraint(equalToConstant: 20.swh),
             buzzCenter,
         ])
     }
 
-    func configure(channel: Mezon_Api_ChannelDescription, resolvedAvatarURL: String? = nil, isPeerInVoice: Bool = false, hasBuzz: Bool = false) {
+    func configure(channel: Mezon_Api_ChannelDescription, resolvedAvatarURL: String? = nil, voiceActivity: DmVoiceActivity? = nil, hasBuzz: Bool = false) {
         groupIconView.tintColor = .mezonTextSecondary
 
         let isGroup = channel.type == MezonConstants.ChannelType.group.rawValue
@@ -261,13 +290,12 @@ final class DmListItemCell: UITableViewCell {
 
         let (preview, time) = lastMessagePreview(channel: channel)
         let hasMessagePreview = !preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let hasPreview = isPeerInVoice || hasMessagePreview
+        let hasPreview = voiceActivity != nil || hasMessagePreview
         buzzLabel.isHidden = !hasBuzz
-        previewTrailingConstraint?.isActive = !hasBuzz
         previewBuzzTrailingConstraint?.isActive = hasBuzz
         buzzCenterConstraint?.constant = hasPreview ? 10.sh : 0
-        if isPeerInVoice {
-            lastMessageLabel.attributedText = Self.inVoicePreviewText()
+        if let voiceActivity {
+            lastMessageLabel.attributedText = Self.voiceActivityPreviewText(voiceActivity)
         } else {
             lastMessageLabel.font = Self.previewFont
             lastMessageLabel.text = hasMessagePreview ? preview : ""
@@ -281,13 +309,28 @@ final class DmListItemCell: UITableViewCell {
         }
         timeLabel.text = time
         timeLabel.textColor = isUnread ? UIColor.theme.textStrong : UIColor.theme.textDisabled
+        applyUnreadBadge(count: channel.countMessUnread)
     }
 
-    private static func inVoicePreviewText() -> NSAttributedString {
+    private func applyUnreadBadge(count: Int32) {
+        let isVisible = count > 0
+        unreadBadgeLabel.text = isVisible ? (count > 99 ? "99+" : "\(count)") : nil
+        guard unreadBadgeLabel.isHidden == isVisible else { return }
+        unreadBadgeLabel.isHidden = !isVisible
+        previewTrailingToBadgeConstraint?.isActive = isVisible
+        if isVisible {
+            buzzTrailingConstraint?.isActive = false
+            buzzTrailingToBadgeConstraint?.isActive = true
+        } else {
+            buzzTrailingToBadgeConstraint?.isActive = false
+            buzzTrailingConstraint?.isActive = true
+        }
+    }
+
+    private static func voiceActivityPreviewText(_ activity: DmVoiceActivity) -> NSAttributedString {
         let font = inVoiceFont
         let result = NSMutableAttributedString()
-        if let icon = (UIImage(named: "Chat/SpeakerIcon") ?? UIImage(systemName: "speaker.wave.2.fill"))?
-            .withTintColor(.mezonVoiceActive, renderingMode: .alwaysOriginal) {
+        if let icon = activity.icon?.withTintColor(.mezonVoiceActive, renderingMode: .alwaysOriginal) {
             let attachment = NSTextAttachment()
             attachment.image = icon
             let side = font.pointSize
@@ -296,7 +339,7 @@ final class DmListItemCell: UITableViewCell {
             result.append(NSAttributedString(string: " ", attributes: [.font: font]))
         }
         result.append(NSAttributedString(
-            string: L(L10n.ChannelDetail.inVoice),
+            string: L(activity.labelKey),
             attributes: [
                 .font: font,
                 .foregroundColor: UIColor.theme.textStrong.withAlphaComponent(0.6),
@@ -834,5 +877,33 @@ final class DmListItemCell: UITableViewCell {
         let formatted = Self.relativeDateFormatter.string(from: date)
         Self.absoluteDateCache[timestamp] = formatted
         return formatted
+    }
+}
+
+private final class UnreadCountBadgeLabel: UILabel {
+    override var intrinsicContentSize: CGSize {
+        let size = super.intrinsicContentSize
+        return CGSize(width: max(20.swh, size.width + 10.sw), height: 20.swh)
+    }
+}
+
+enum DmVoiceActivity {
+    case inVoice
+    case sharingScreen
+
+    var icon: UIImage? {
+        switch self {
+        case .inVoice:
+            return UIImage(named: "Chat/SpeakerIcon") ?? UIImage(systemName: "speaker.wave.2.fill")
+        case .sharingScreen:
+            return UIImage(named: "Channel/VoiceScreenShare") ?? UIImage(systemName: "rectangle.on.rectangle")
+        }
+    }
+
+    var labelKey: String {
+        switch self {
+        case .inVoice: return L10n.ChannelDetail.inVoice
+        case .sharingScreen: return L10n.ChannelDetail.sharingScreen
+        }
     }
 }

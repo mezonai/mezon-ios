@@ -131,6 +131,7 @@ extension MezonEngine {
         let clanPermissionsUpdated = ValuePipe<Int64>()
         let clanVoiceUsersUpdated = ValuePipe<Int64>()
         private var voiceUsersFreshClanIds = Set<Int64>()
+        private var sessionVoiceUserIdsByClanId: [Int64: Set<String>] = [:]
         private var voiceSnapshotJournalByClanId: [Int64: [VoicePresenceEvent]] = [:]
         private var voiceSnapshotInflightByClanId: [Int64: Int] = [:]
         private var voiceSnapshotTasks: [Int64: Task<Void, Never>] = [:]
@@ -256,6 +257,7 @@ extension MezonEngine {
             voiceUsersFreshLock.lock()
             voiceUsersFreshClanIds.removeAll()
             voiceUsersFreshLock.unlock()
+            sessionVoiceUserIdsByClanId.removeAll()
             for (_, task) in inflightFetchAllByClanId {
                 task.cancel()
             }
@@ -1010,7 +1012,9 @@ extension MezonEngine {
         }
 
         func voiceChannelUserIds(clanId: Int64) -> Set<Int64> {
-            guard isVoiceUsersFresh(clanId), let list = getVoiceUsers(clanId: clanId) else { return [] }
+            guard isVoiceUsersFresh(clanId), let list = getVoiceUsers(clanId: clanId) else {
+                return Set((sessionVoiceUserIdsByClanId[clanId] ?? []).compactMap { Int64($0) })
+            }
             return Set(list.voiceChannelUsers.flatMap { $0.userIds.compactMap { Int64($0) } })
         }
 
@@ -1053,8 +1057,35 @@ extension MezonEngine {
         private func applyVoiceEvent(_ event: VoicePresenceEvent, clanId: Int64) {
             recordVoiceEvent(event, clanId: clanId)
             var list = getVoiceUsers(clanId: clanId) ?? Mezon_Api_VoiceChannelUserList()
-            guard Self.mutate(&list, applying: event) else { return }
-            persistVoiceUsersList(list, clanId: clanId)
+            let sessionChanged = updateSessionVoiceUserIds(applying: event, clanId: clanId, roster: list)
+            if Self.mutate(&list, applying: event) {
+                persistVoiceUsersList(list, clanId: clanId)
+            } else if sessionChanged {
+                notifyVoicePresenceChanged(clanId: clanId)
+            }
+        }
+
+        private func updateSessionVoiceUserIds(
+            applying event: VoicePresenceEvent,
+            clanId: Int64,
+            roster: Mezon_Api_VoiceChannelUserList
+        ) -> Bool {
+            var userIds = sessionVoiceUserIdsByClanId[clanId] ?? []
+            switch event {
+            case .joined(_, let userId):
+                userIds.insert(userId)
+            case .left(_, let userId):
+                userIds.remove(userId)
+            case .ended(let channelId):
+                for room in roster.voiceChannelUsers where room.channelID == channelId {
+                    userIds.subtract(room.userIds)
+                }
+            case .screenShare:
+                return false
+            }
+            guard userIds != sessionVoiceUserIdsByClanId[clanId] ?? [] else { return false }
+            sessionVoiceUserIdsByClanId[clanId] = userIds
+            return true
         }
 
         @discardableResult
@@ -1151,6 +1182,10 @@ extension MezonEngine {
             if let data = try? list.serializedData() {
                 postbox.setPreferenceData(key: PreferencesKeys.clanVoiceUsers(clanId: clanId), value: data)
             }
+            notifyVoicePresenceChanged(clanId: clanId)
+        }
+
+        private func notifyVoicePresenceChanged(clanId: Int64) {
             clanVoiceUsersUpdated.putNext(clanId)
             NotificationCenter.default.post(
                 name: .mezonVoicePresenceChanged,

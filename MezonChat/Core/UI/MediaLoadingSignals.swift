@@ -55,6 +55,8 @@ final class ImageCache {
     private var notificationAvatarURLs = Set<String>()
 
     private var inflightCallbacks: [String: [(UIImage?) -> Void]] = [:]
+    private var forbiddenKeys: [String: Date] = [:]
+    private static let forbiddenRetryAfter: TimeInterval = 60
     private struct OptimizedAvatarCallback {
         let preview: ((UIImage) -> Void)?
         let completion: (UIImage?) -> Void
@@ -243,6 +245,11 @@ final class ImageCache {
             return nil
         }
 
+        if isForbidden(urlString) {
+            completion(nil)
+            return nil
+        }
+
         inflightLock.lock()
         if inflightCallbacks[urlString] != nil {
             inflightCallbacks[urlString]?.append(completion)
@@ -278,6 +285,23 @@ final class ImageCache {
 
     private static let maxImageDownloadRetries = 2
     private static let imageDownloadRetryBackoff: [TimeInterval] = [0.6, 1.8]
+
+    func isForbidden(_ urlString: String) -> Bool {
+        inflightLock.lock()
+        defer { inflightLock.unlock() }
+        guard let forbiddenAt = forbiddenKeys[urlString] else { return false }
+        if Date().timeIntervalSince(forbiddenAt) < Self.forbiddenRetryAfter {
+            return true
+        }
+        forbiddenKeys[urlString] = nil
+        return false
+    }
+
+    private func markForbidden(_ key: String) {
+        inflightLock.lock()
+        forbiddenKeys[key] = Date()
+        inflightLock.unlock()
+    }
 
     static func responseStatusAcceptable(_ response: URLResponse?) -> Bool {
         guard let http = response as? HTTPURLResponse else { return true }
@@ -372,6 +396,12 @@ final class ImageCache {
                         next, url: url, key: key, attempt: attempt,
                         isSignatureRetry: true, completion: completion)
                 }
+                return
+            }
+
+            if (response as? HTTPURLResponse)?.statusCode == 403 {
+                self.markForbidden(key)
+                DispatchQueue.main.async { completion(nil) }
                 return
             }
 

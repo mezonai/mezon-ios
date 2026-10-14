@@ -9,6 +9,7 @@ struct DirectMessagesState {
     var messageActivityRows: [DmMessageActivityItem]
     var resolvedAvatarURLByChannelId: [Int64: String]
     var inVoiceUserIds: Set<Int64> = []
+    var screenSharingUserIds: Set<Int64> = []
 
     static let empty = DirectMessagesState(
         directMessages: [], isEmpty: true, isLoading: false, errorMessage: nil,
@@ -144,6 +145,8 @@ final class DirectMessagesViewController: ViewController {
 
     private var inVoiceUserIdsByClan: [Int64: Set<Int64>] = [:]
     private var inVoiceUserIds: Set<Int64> = []
+    private var screenSharingUserIdsByClan: [Int64: Set<Int64>] = [:]
+    private var screenSharingUserIds: Set<Int64> = []
 
     @objc private func handleVoicePresenceChanged(_ notification: Notification) {
         let changedClanId = (notification.userInfo?["clanId"] as? NSNumber)?.int64Value
@@ -155,19 +158,33 @@ final class DirectMessagesViewController: ViewController {
 
     private func reloadInVoiceUserIds(clanId: Int64?) -> Bool {
         if let clanId {
-            inVoiceUserIdsByClan[clanId] = context.engine.clanData.voiceChannelUserIds(clanId: clanId)
+            let presence = voicePresence(clanId: clanId)
+            inVoiceUserIdsByClan[clanId] = presence.inVoice
+            screenSharingUserIdsByClan[clanId] = presence.sharing
         } else {
             let clanIds = context.account.postbox.read { $0.getClans() }.map(\.id)
-            var byClan: [Int64: Set<Int64>] = [:]
+            var inVoiceByClan: [Int64: Set<Int64>] = [:]
+            var sharingByClan: [Int64: Set<Int64>] = [:]
             for id in clanIds {
-                byClan[id] = context.engine.clanData.voiceChannelUserIds(clanId: id)
+                let presence = voicePresence(clanId: id)
+                inVoiceByClan[id] = presence.inVoice
+                sharingByClan[id] = presence.sharing
             }
-            inVoiceUserIdsByClan = byClan
+            inVoiceUserIdsByClan = inVoiceByClan
+            screenSharingUserIdsByClan = sharingByClan
         }
-        let merged = inVoiceUserIdsByClan.values.reduce(into: Set<Int64>()) { $0.formUnion($1) }
-        guard merged != inVoiceUserIds else { return false }
-        inVoiceUserIds = merged
+        let mergedInVoice = inVoiceUserIdsByClan.values.reduce(into: Set<Int64>()) { $0.formUnion($1) }
+        let mergedSharing = screenSharingUserIdsByClan.values.reduce(into: Set<Int64>()) { $0.formUnion($1) }
+        guard mergedInVoice != inVoiceUserIds || mergedSharing != screenSharingUserIds else { return false }
+        inVoiceUserIds = mergedInVoice
+        screenSharingUserIds = mergedSharing
         return true
+    }
+
+    private func voicePresence(clanId: Int64) -> (inVoice: Set<Int64>, sharing: Set<Int64>) {
+        let inVoice = context.engine.clanData.voiceChannelUserIds(clanId: clanId)
+        let sharing = Set(context.engine.clanData.voiceScreenSharingUserIds(clanId: clanId).compactMap { Int64($0) })
+        return (inVoice, sharing.intersection(inVoice))
     }
 
     deinit {
@@ -1389,7 +1406,8 @@ final class DirectMessagesViewController: ViewController {
                 friends: friends,
                 postboxAvatarURL: postboxAvatarURL
             ),
-            inVoiceUserIds: inVoiceUserIds.subtracting([myUserId])
+            inVoiceUserIds: inVoiceUserIds.subtracting([myUserId]),
+            screenSharingUserIds: screenSharingUserIds.subtracting([myUserId])
         )
     }
 

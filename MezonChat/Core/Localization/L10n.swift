@@ -1024,6 +1024,10 @@ enum L10n {
         static let waveWelcome = "chat.system.waveWelcome"
     }
 
+    enum Attachment {
+        static let fromPrivateChannel = "attachment.fromPrivateChannel"
+    }
+
     enum Channel {
         static let label          = "channel.label"
         static let thread         = "channel.thread"
@@ -1321,6 +1325,7 @@ enum L10n {
         static let online  = "channelDetail.online"
         static let offline = "channelDetail.offline"
         static let inVoice = "channelDetail.inVoice"
+        static let sharingScreen = "channelDetail.sharingScreen"
         static let inviteMembers = "channelDetail.inviteMembers"
         static let newGroup = "channelDetail.newGroup"
         static let addMembers = "channelDetail.addMembers"
@@ -2301,6 +2306,7 @@ extension L10n {
         "chat.system.deletedThread": "deleted a thread:",
         "chat.system.seeAllThreads": "See",
         "chat.system.waveWelcome": "Wave to say hi!",
+        "attachment.fromPrivateChannel": "Media from private channel",
         "channel.settings": "Channel Settings",
         "channel.threadSettings": "Thread Settings",
         "channel.name":   "Channel Name",
@@ -2833,6 +2839,7 @@ extension L10n {
         "channelDetail.online":  "Online",
         "channelDetail.offline": "Offline",
         "channelDetail.inVoice": "In voice",
+        "channelDetail.sharingScreen": "Sharing screen",
         "channelDetail.inviteMembers": "Invite Members",
         "channelDetail.newGroup": "New Group",
         "channelDetail.addMembers": "Add Members",
@@ -3720,6 +3727,7 @@ extension L10n {
         "chat.system.deletedThread": "đã xóa chủ đề:",
         "chat.system.seeAllThreads": "Xem",
         "chat.system.waveWelcome": "Vẫy tay để chào!",
+        "attachment.fromPrivateChannel": "Ảnh/video từ kênh riêng tư",
         "channel.settings": "Cài đặt kênh",
         "channel.threadSettings": "Cài đặt chủ đề",
         "channel.name":   "Tên kênh",
@@ -4254,6 +4262,7 @@ extension L10n {
         "channelDetail.online":  "Trực tuyến",
         "channelDetail.offline": "Ngoại tuyến",
         "channelDetail.inVoice": "Đang trong thoại",
+        "channelDetail.sharingScreen": "Đang chia sẻ màn hình",
         "channelDetail.inviteMembers": "Mời thành viên",
         "channelDetail.newGroup": "Nhóm mới",
         "channelDetail.addMembers": "Thêm thành viên",

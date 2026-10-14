@@ -56,6 +56,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
                 let activityHeaderVisibilityChanged = previousState.messageActivityRows.isEmpty != newState.messageActivityRows.isEmpty
                 let incomingCountChanged = previousState.incomingFriendRequestCount != newState.incomingFriendRequestCount
                 let inVoiceChanged = previousState.inVoiceUserIds != newState.inVoiceUserIds
+                    || previousState.screenSharingUserIds != newState.screenSharingUserIds
                 self.state = newState
 
                 if activityRowsChanged {
@@ -119,7 +120,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         refreshControl.addTarget(self, action: #selector(handleRefresh), for: .valueChanged)
         tableView.refreshControl = refreshControl
         
-        badgeLabel.backgroundColor = UIColor(red: 236/255.0, green: 56/255.0, blue: 50/255.0, alpha: 1.0)
+        badgeLabel.backgroundColor = .mezonUnreadBadge
         badgeLabel.textColor = .white
         badgeLabel.font = .systemFont(ofSize: 11.sf, weight: .semibold)
         badgeLabel.textAlignment = .center
@@ -471,15 +472,17 @@ final class DirectMessagesContainerNode: ASDisplayNode {
             cell.configure(
                 channel: channel,
                 resolvedAvatarURL: state.resolvedAvatarURLByChannelId[channel.channelID],
-                isPeerInVoice: isPeerInVoice(channel),
+                voiceActivity: peerVoiceActivity(channel),
                 hasBuzz: buzz.state.hasBuzz(channelId: channel.channelID)
             )
         }
     }
 
-    private func isPeerInVoice(_ channel: Mezon_Api_ChannelDescription) -> Bool {
-        guard channel.type == MezonConstants.ChannelType.dm.rawValue, channel.userIds.count == 1 else { return false }
-        return state.inVoiceUserIds.contains(channel.userIds[0])
+    private func peerVoiceActivity(_ channel: Mezon_Api_ChannelDescription) -> DmVoiceActivity? {
+        guard channel.type == MezonConstants.ChannelType.dm.rawValue, channel.userIds.count == 1 else { return nil }
+        let peerId = channel.userIds[0]
+        if state.screenSharingUserIds.contains(peerId) { return .sharingScreen }
+        return state.inVoiceUserIds.contains(peerId) ? .inVoice : nil
     }
 }
 
@@ -506,7 +509,7 @@ extension DirectMessagesContainerNode: UITableViewDataSource, UITableViewDelegat
         cell.configure(
             channel: channel,
             resolvedAvatarURL: state.resolvedAvatarURLByChannelId[channel.channelID],
-            isPeerInVoice: isPeerInVoice(channel),
+            voiceActivity: peerVoiceActivity(channel),
             hasBuzz: buzz.state.hasBuzz(channelId: channel.channelID)
         )
         return cell

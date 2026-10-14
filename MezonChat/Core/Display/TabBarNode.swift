@@ -51,7 +51,7 @@ final class TabBarItemNode: ASDisplayNode {
         primaryIconNode.contentMode = .scaleAspectFit
         faceIconNode.isUserInteractionEnabled = false
         faceIconNode.contentMode = .scaleAspectFit
-        badgeBg.backgroundColor = .systemRed
+        badgeBg.backgroundColor = .mezonUnreadBadge
         badgeBg.cornerRadius = 9 * TabBarLayoutScale.value
         badgeBg.isUserInteractionEnabled = false
         badgeText.isUserInteractionEnabled = false

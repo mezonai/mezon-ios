@@ -1153,7 +1153,7 @@ final class MessageBubbleNode: ASDisplayNode {
             boundingSize: CGSize(width: size, height: size),
             intrinsicInsets: .zero
         )
-        if display.isAnonymousSender {
+        if display.isAnonymousSender, (display.avatarURL ?? "").isEmpty {
             avatarContainerNode.backgroundColor = UIColor.theme.tertiary
             if let raw = UIImage(named: "Chat/AnonymousIcon") {
                 avatarPlaceholderNode.isHidden = true
@@ -1192,7 +1192,43 @@ final class MessageBubbleNode: ASDisplayNode {
         }
     }
 
+    private static let anonymousBadgeKey = "anonymous-badge"
+
+    private func applyAnonymousBadge() {
+        guard let raw = UIImage(named: "Chat/AnonymousIcon") else {
+            roleIconNode?.removeFromSupernode()
+            roleIconNode = nil
+            currentRoleIconURL = nil
+            return
+        }
+        if currentRoleIconURL == Self.anonymousBadgeKey, roleIconNode != nil { return }
+        currentRoleIconURL = Self.anonymousBadgeKey
+
+        let node = roleIconNode ?? TransformImageNode()
+        if roleIconNode == nil {
+            roleIconNode = node
+            addSubnode(node)
+        }
+        let side = Self.roleIconSide
+        let args = TransformImageArguments(
+            corners: ImageCorners(radius: 0),
+            imageSize: CGSize(width: side, height: side),
+            boundingSize: CGSize(width: side, height: side),
+            intrinsicInsets: .zero
+        )
+        let tinted = raw.withRenderingMode(.alwaysTemplate)
+            .withTintColor(UIColor.theme.textStrong, renderingMode: .alwaysOriginal)
+        node.reset()
+        node.setSignal(staticImageSignal(image: tinted, resizeMode: .fit), attemptSynchronously: true)
+        let apply = node.asyncLayout()(args)
+        apply()
+    }
+
     private func applyRoleIcon(for display: ChatMessageDisplay) {
+        if display.isAnonymousSender {
+            applyAnonymousBadge()
+            return
+        }
         let urlString = interaction.resolveSenderRoleIconURL(display.message.senderId)
         guard let urlString, !urlString.isEmpty else {
             roleIconNode?.removeFromSupernode()

@@ -1,5 +1,6 @@
 import UserNotifications
 import Intents
+import ImageIO
 
 class NotificationService: UNNotificationServiceExtension {
 
@@ -38,7 +39,7 @@ class NotificationService: UNNotificationServiceExtension {
 
         if let avatarURLString = findAvatarURL(in: userInfo),
            let avatarURL = URL(string: avatarURLString) {
-            if let sharedAvatar = NotificationAvatarStore.data(for: avatarURLString) {
+            if let sharedAvatar = NotificationAvatarStore.data(for: avatarURLString).flatMap(Self.normalizedAvatarPNG) {
                 communicationContent(from: bestAttemptContent, avatarData: sharedAvatar, completion: contentHandler)
                 return
             }
@@ -47,10 +48,11 @@ class NotificationService: UNNotificationServiceExtension {
                     contentHandler(bestAttemptContent)
                     return
                 }
-                if let data {
-                    NotificationAvatarStore.store(data, for: avatarURLString)
+                let avatar = data.flatMap(Self.normalizedAvatarPNG)
+                if let avatar {
+                    NotificationAvatarStore.store(avatar, for: avatarURLString)
                 }
-                self.communicationContent(from: bestAttemptContent, avatarData: data, completion: contentHandler)
+                self.communicationContent(from: bestAttemptContent, avatarData: avatar, completion: contentHandler)
             }
         } else {
             communicationContent(from: bestAttemptContent, avatarData: nil, completion: contentHandler)
@@ -67,6 +69,16 @@ class NotificationService: UNNotificationServiceExtension {
     private static let notificationsMutedUntilKey = "notificationsMutedUntil"
     private static let avatarDownloadAttempts = 2
     private static let avatarRetryDelay: TimeInterval = 1
+    private static let avatarProxyRetryDelay: TimeInterval = 0.5
+    private static let avatarMaxPixelSize = 168
+    private static let proxiedImageScheme = "intents-remote-image-proxy"
+    private static let avatarSession: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.waitsForConnectivity = true
+        configuration.timeoutIntervalForRequest = 8
+        configuration.timeoutIntervalForResource = 10
+        return URLSession(configuration: configuration)
+    }()
 
     private func silence(_ content: UNMutableNotificationContent) {
         content.sound = nil
@@ -85,6 +97,28 @@ class NotificationService: UNNotificationServiceExtension {
 
     @available(iOS 15.0, *)
     private func communicationContent(from content: UNMutableNotificationContent, avatarData: Data?, completion: @escaping (UNNotificationContent) -> Void) {
+        let intent = sendMessageIntent(for: content, avatarData: avatarData)
+        let interaction = INInteraction(intent: intent, response: nil)
+        interaction.direction = .incoming
+        interaction.donate { _ in
+            guard let updated = try? content.updating(from: intent) else {
+                completion(content)
+                return
+            }
+            guard avatarData != nil, !Self.hasProxiedAvatar(updated) else {
+                self.deliver(updated, original: content, completion: completion)
+                return
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + Self.avatarProxyRetryDelay) {
+                let retryIntent = self.sendMessageIntent(for: content, avatarData: avatarData)
+                let retried = (try? content.updating(from: retryIntent)) ?? updated
+                self.deliver(retried, original: content, completion: completion)
+            }
+        }
+    }
+
+    @available(iOS 15.0, *)
+    private func sendMessageIntent(for content: UNMutableNotificationContent, avatarData: Data?) -> INSendMessageIntent {
         let userInfo = content.userInfo
         let senderId = (userInfo["sender"] as? String).flatMap { $0 == "0" ? nil : $0 }
         let channelId = (userInfo["channel"] as? String) ?? content.threadIdentifier
@@ -99,7 +133,7 @@ class NotificationService: UNNotificationServiceExtension {
             customIdentifier: senderId ?? channelId
         )
 
-        let intent = INSendMessageIntent(
+        return INSendMessageIntent(
             recipients: nil,
             outgoingMessageType: .outgoingMessageText,
             content: content.body,
@@ -109,23 +143,42 @@ class NotificationService: UNNotificationServiceExtension {
             sender: sender,
             attachments: nil
         )
+    }
 
-        let interaction = INInteraction(intent: intent, response: nil)
-        interaction.direction = .incoming
-        interaction.donate { _ in
-            do {
-                let updated = try content.updating(from: intent)
-                guard content.interruptionLevel == .passive,
-                      let silenced = updated.mutableCopy() as? UNMutableNotificationContent else {
-                    completion(updated)
-                    return
-                }
-                self.silence(silenced)
-                completion(silenced)
-            } catch {
-                completion(content)
-            }
+    @available(iOS 15.0, *)
+    private func deliver(_ updated: UNNotificationContent, original: UNMutableNotificationContent, completion: (UNNotificationContent) -> Void) {
+        guard original.interruptionLevel == .passive,
+              let silenced = updated.mutableCopy() as? UNMutableNotificationContent else {
+            completion(updated)
+            return
         }
+        silence(silenced)
+        completion(silenced)
+    }
+
+    @available(iOS 15.0, *)
+    private static func hasProxiedAvatar(_ content: UNNotificationContent) -> Bool {
+        guard let archive = try? NSKeyedArchiver.archivedData(withRootObject: content, requiringSecureCoding: true) else {
+            return true
+        }
+        return archive.range(of: Data(proxiedImageScheme.utf8)) != nil
+    }
+
+    private static func normalizedAvatarPNG(_ data: Data) -> Data? {
+        let sourceOptions: [CFString: Any] = [kCGImageSourceShouldCache: false]
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions as CFDictionary) else { return nil }
+        let thumbnailOptions: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: avatarMaxPixelSize,
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions as CFDictionary) else { return nil }
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(output as CFMutableData, "public.png" as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return output as Data
     }
 
     private func findAvatarURL(in userInfo: [AnyHashable: Any]) -> String? {
@@ -137,9 +190,7 @@ class NotificationService: UNNotificationServiceExtension {
     }
 
     private func downloadImageData(from url: URL, attempts: Int, completion: @escaping (Data?) -> Void) {
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 8
-        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+        let task = Self.avatarSession.dataTask(with: url) { data, response, error in
             guard error == nil,
                   let http = response as? HTTPURLResponse,
                   (200..<300).contains(http.statusCode),

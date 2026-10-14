@@ -104,6 +104,9 @@ final class ClanListViewController: ViewController {
             self, selector: #selector(handleChannelMarkedAsRead(_:)),
             name: Notification.Name("MezonChannelMarkedAsRead"), object: nil)
         NotificationCenter.default.addObserver(
+            self, selector: #selector(handleClanMarkedAsRead(_:)),
+            name: Notification.Name("MezonClanMarkedAsRead"), object: nil)
+        NotificationCenter.default.addObserver(
             self, selector: #selector(handleNewMessageReceived(_:)),
             name: Notification.Name("MezonNewMessageReceived"), object: nil)
         NotificationCenter.default.addObserver(
@@ -183,6 +186,18 @@ final class ClanListViewController: ViewController {
         guard let idx = clans.firstIndex(where: { $0.clanID == clanId }) else { return }
         guard clans[idx].badgeCount != total else { return }
         clans[idx].badgeCount = total
+        clansPipe.putNext(clans)
+        persistClanRecordsToPostbox(clans)
+        needsReloadPipe.putNext(())
+    }
+
+    @objc private func handleClanMarkedAsRead(_ notification: Notification) {
+        guard let clanId = Self.int64UserInfo(notification.userInfo?["clanId"]), clanId != 0,
+              (Self.int64UserInfo(notification.userInfo?["categoryId"]) ?? 0) == 0,
+              let idx = clans.firstIndex(where: { $0.clanID == clanId }) else { return }
+        guard clans[idx].badgeCount != 0 || clans[idx].hasUnreadMessage_p else { return }
+        clans[idx].badgeCount = 0
+        clans[idx].hasUnreadMessage_p = false
         clansPipe.putNext(clans)
         persistClanRecordsToPostbox(clans)
         needsReloadPipe.putNext(())

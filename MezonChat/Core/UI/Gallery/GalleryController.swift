@@ -978,10 +978,10 @@ final class GalleryController: UIViewController {
         guard index >= 0, index < items.count else { return }
         let item = items[index]
         
-        let isAnonymous = item.senderId == "1767478432163172999"
+        let isAnonymous = item.senderId == "\(MezonConstants.anonymousUserId)"
 
         if isAnonymous {
-            nameLabel.text = "Anonymous"
+            nameLabel.text = item.senderName.isEmpty ? "Anonymous" : item.senderName
             avatarImageView.isHidden = false
             nameLabel.isHidden = false
             dateLabel.isHidden = false
@@ -998,7 +998,7 @@ final class GalleryController: UIViewController {
             dateLabel.text = nil
         }
 
-        if isAnonymous {
+        if isAnonymous, (item.senderAvatarURL ?? "").isEmpty {
             avatarImageView.contentMode = .center
             if let raw = UIImage(named: "Chat/AnonymousIcon") {
                 avatarImageView.image = Self.anonymousAvatarCompositeImage(raw: raw, tint: .white)
