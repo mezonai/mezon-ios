@@ -227,7 +227,7 @@ final class ChannelDetailContainerNode: ASDisplayNode {
         } else if raw.hasPrefix("//") {
             absolute = "https:\(raw)"
         } else {
-            let base = MezonConfig.baseImgURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            let base = MezonConfig.cloudflareCdnURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             absolute = raw.hasPrefix("/") ? "\(base)\(raw)" : "\(base)/\(raw)"
         }
 

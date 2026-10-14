@@ -7,7 +7,7 @@ enum ImgproxyURL {
         return "\(env.imgproxyBaseURL)/\(env.imgproxySigningPath)"
     }
     private static var cdnHosts: [String] {
-        ["cdn.mezon", "cdn.komu", "profile.mezon"] + [URL(string: MezonConfig.baseImgURL)?.host].compactMap { $0 }
+        ["cdn.mezon", "cdn.komu", "profile.mezon"] + [URL(string: MezonConfig.cloudflareCdnURL)?.host].compactMap { $0 }
     }
     private static let skipExtensions: Set<String> = ["gif", "webp"]
 
@@ -44,7 +44,7 @@ enum ImgproxyURL {
         guard !t.isEmpty else { return "" }
         if let u = URL(string: t), u.scheme != nil { return secureURLString(from: t) }
         if t.hasPrefix("//") { return secureURLString(from: "https:\(t)") }
-        let base = MezonConfig.baseImgURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let base = MezonConfig.cloudflareCdnURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         if t.hasPrefix("/") { return "\(base)\(t)" }
         return "\(base)/\(t)"
     }

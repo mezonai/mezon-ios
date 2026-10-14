@@ -2021,7 +2021,7 @@ final class SendMessageInputViewController: UIViewController {
             clearEditingMessage()
         }
         let src = sticker.source.trimmingCharacters(in: .whitespacesAndNewlines)
-        let imageUrl = !src.isEmpty ? src : "\(MezonConfig.baseImgURL)/stickers/\(sticker.id).webp"
+        let imageUrl = !src.isEmpty ? src : "\(MezonConfig.cloudflareCdnURL)/stickers/\(sticker.id).webp"
 
         var att = Mezon_Api_MessageAttachment()
         att.url = imageUrl
@@ -6161,7 +6161,7 @@ final class SendMessageInputViewController: UIViewController {
                 contentType: filetype
             )
 
-            let cdnURL = MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, fallback: MezonConfig.baseImgURL, filename: uploadInfo.filename)
+            let cdnURL = MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: uploadInfo.filename)
 
             ImageCache.shared.setImage(image, data: fileData, forKey: cdnURL)
 

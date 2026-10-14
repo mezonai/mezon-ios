@@ -108,10 +108,10 @@ extension CachedClanEmojiRecord {
         if !src.isEmpty, URL(string: src)?.scheme != nil { return src }
         if src.hasPrefix("//") { return "https:\(src)" }
         if !src.isEmpty {
-            let base = MezonConfig.baseImgURL
+            let base = MezonConfig.cloudflareCdnURL
             return src.hasPrefix("/") ? "\(base)\(src)" : "\(base)/\(src)"
         }
-        return "\(MezonConfig.baseImgURL)/emojis/\(id).webp"
+        return "\(MezonConfig.cloudflareCdnURL)/emojis/\(id).webp"
     }
 
     static func innerName(from shortname: String) -> String {
@@ -132,10 +132,10 @@ extension CachedClanStickerRecord {
         if !src.isEmpty, URL(string: src)?.scheme != nil { return src }
         if src.hasPrefix("//") { return "https:\(src)" }
         if !src.isEmpty {
-            let base = MezonConfig.baseImgURL
+            let base = MezonConfig.cloudflareCdnURL
             return src.hasPrefix("/") ? "\(base)\(src)" : "\(base)/\(src)"
         }
-        return "\(MezonConfig.baseImgURL)/stickers/\(id).webp"
+        return "\(MezonConfig.cloudflareCdnURL)/stickers/\(id).webp"
     }
 }
 

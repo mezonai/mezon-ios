@@ -163,7 +163,7 @@ final class AttachmentUploader {
         reportProgress(1, forKey: progressKey)
         return UploadedAttachmentFile(
             serverFilename: info.filename,
-            cdnURL: MezonConfig.attachmentViewURL(typeCdn: info.typeCdn, fallback: MezonConfig.baseImgURL, filename: info.filename))
+            cdnURL: MezonConfig.attachmentViewURL(typeCdn: info.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: info.filename))
     }
 
     private func uploadMultipart(
@@ -197,7 +197,7 @@ final class AttachmentUploader {
             reportProgress(1, forKey: progressKey)
             return UploadedAttachmentFile(
                 serverFilename: start.filename,
-                cdnURL: MezonConfig.attachmentViewURL(typeCdn: start.typeCdn, fallback: MezonConfig.baseImgURL, filename: start.filename))
+                cdnURL: MezonConfig.attachmentViewURL(typeCdn: start.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: start.filename))
         }
 
         if urls.isEmpty || uploadId.isEmpty {
@@ -251,7 +251,7 @@ final class AttachmentUploader {
         let serverFilename = finish.filename.isEmpty ? start.filename : finish.filename
         return UploadedAttachmentFile(
             serverFilename: serverFilename,
-            cdnURL: MezonConfig.attachmentViewURL(typeCdn: start.typeCdn, fallback: MezonConfig.baseImgURL, filename: serverFilename))
+            cdnURL: MezonConfig.attachmentViewURL(typeCdn: start.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: serverFilename))
     }
 
     private static func readChunk(fileURL: URL, offset: Int, length: Int) throws -> Data {

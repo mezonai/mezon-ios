@@ -523,7 +523,7 @@ final class StickersPanel: UIView {
         guard !t.isEmpty else { return "" }
         if let u = URL(string: t), u.scheme != nil { return t }
         if t.hasPrefix("//") { return "https:\(t)" }
-        let base = MezonConfig.baseImgURL
+        let base = MezonConfig.cloudflareCdnURL
         if t.hasPrefix("/") { return "\(base)\(t)" }
         return "\(base)/\(t)"
     }
@@ -611,7 +611,7 @@ final class StickersPanel: UIView {
         if src.isEmpty { return "" }
         if let u = URL(string: src), u.scheme != nil { return src }
         if src.hasPrefix("//") { return "https:\(src)" }
-        let base = MezonConfig.baseImgURL
+        let base = MezonConfig.cloudflareCdnURL
         if src.hasPrefix("/") { return "\(base)\(src)" }
         return "\(base)/\(src)"
     }
@@ -620,7 +620,7 @@ final class StickersPanel: UIView {
         let src = sticker.source.trimmingCharacters(in: .whitespacesAndNewlines)
         if !src.isEmpty, URL(string: src)?.scheme != nil { return src }
 
-        return "\(MezonConfig.baseImgURL)/stickers/\(sticker.id).webp"
+        return "\(MezonConfig.cloudflareCdnURL)/stickers/\(sticker.id).webp"
     }
 
     fileprivate func loadStickerImage(for sticker: CachedClanStickerRecord, into imageView: UIImageView) {
