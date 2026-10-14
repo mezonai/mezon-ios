@@ -49,6 +49,7 @@ final class HomeViewController: BaseViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(updateAppBadgeCount), name: Notification.Name("MezonNewMessageReceived"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(updateAppBadgeCount), name: Notification.Name("MezonMentionReceived"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(updateAppBadgeCount), name: Notification.Name("MezonChannelMarkedAsRead"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(updateAppBadgeCount), name: Notification.Name("MezonClanMarkedAsRead"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(updateAppBadgeCount), name: UIApplication.willEnterForegroundNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleAlignHomeAfterCrossClanVoice(_:)), name: .mezonAlignHomeAfterCrossClanVoice, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleAlignChannelListAfterSearchJump(_:)), name: .mezonAlignChannelListAfterSearchJump, object: nil)

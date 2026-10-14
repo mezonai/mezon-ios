@@ -1101,6 +1101,7 @@ final class ChannelListViewController: ViewController {
             },
             onLeaveClan: { [weak self] in self?.presentLeaveClanConfirm() },
             onDeleteClan: { [weak self] in self?.presentDeleteClanConfirm() },
+            onMarkClanAsRead: { [weak self] in self?.handleMarkClanAsRead() },
             onSearchTapped: { [weak self] in self?.searchTappedPipe.putNext(()) },
             onQRTapped: { [weak self] in
                 guard let self else { return }
@@ -1168,6 +1169,7 @@ final class ChannelListViewController: ViewController {
         }
         NotificationCenter.default.addObserver(self, selector: #selector(handleThemeChange), name: ThemeManager.didChangeNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelMarkedAsRead(_:)), name: Notification.Name("MezonChannelMarkedAsRead"), object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleClanMarkedAsRead(_:)), name: Notification.Name("MezonClanMarkedAsRead"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleNewMessageReceived(_:)), name: Notification.Name("MezonNewMessageReceived"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleMentionReceived(_:)), name: Notification.Name("MezonMentionReceived"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleBuzzStateChanged), name: .mezonBuzzStateChanged, object: context.buzz)
@@ -2287,6 +2289,24 @@ final class ChannelListViewController: ViewController {
         }
     }
 
+    private func handleMarkClanAsRead() {
+        let clanId = self.clanId
+        guard clanId != 0 else { return }
+        Task { @MainActor in
+            guard let token = await context.getToken() else { return }
+            do {
+                try await MezonHTTPClient.shared.markAsRead(channelId: 0, clanId: clanId, categoryId: 0, token: token)
+                NotificationCenter.default.post(
+                    name: Notification.Name("MezonClanMarkedAsRead"),
+                    object: nil,
+                    userInfo: ["clanId": clanId, "categoryId": Int64(0)]
+                )
+            } catch {
+                Toast.error(error.localizedDescription)
+            }
+        }
+    }
+
     private func handleMarkFavorite(_ channel: Mezon_Api_ChannelDescription) {
         Task { @MainActor in
             guard let token = await context.getToken() else { return }
@@ -2931,6 +2951,45 @@ final class ChannelListViewController: ViewController {
         }
         rebuildAndReload()
         if didClearUnreadState, clanId != 0 {
+            persistFullChannelListCache(
+                clanId: clanId,
+                channels: allChannels,
+                categoryDescs: channelListCategoryDescs,
+                favoriteIds: channelListFavoriteIds,
+                categories: categories
+            )
+        }
+    }
+
+    @objc private func handleClanMarkedAsRead(_ notification: Notification) {
+        guard clanId != 0, Self.int64UserInfo(notification.userInfo?["clanId"]) == clanId else { return }
+        let categoryId = Self.int64UserInfo(notification.userInfo?["categoryId"]) ?? 0
+        let categoryIdsByChannel = Dictionary(
+            allChannels.map { ($0.channelID, $0.categoryID) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let now = UInt32(Date().timeIntervalSince1970)
+        var didClearUnreadState = false
+        for i in 0..<allChannels.count {
+            let ch = allChannels[i]
+            if categoryId != 0 {
+                let category = ch.parentID != 0 ? (categoryIdsByChannel[ch.parentID] ?? ch.categoryID) : ch.categoryID
+                guard category == categoryId else { continue }
+            }
+            clearPendingMentionUnreadFloor(clanId: clanId, channelId: ch.channelID)
+            badgeReadMessageIds[ch.channelID] = max(badgeReadMessageIds[ch.channelID] ?? 0, ch.lastSentMessage.id)
+            badgeReadTimestamps[ch.channelID] = max(badgeReadTimestamps[ch.channelID] ?? 0, now)
+            if ch.countMessUnread != 0
+                || (ch.hasLastSentMessage
+                    && ch.lastSeenMessage.timestampSeconds < ch.lastSentMessage.timestampSeconds) {
+                didClearUnreadState = true
+            }
+            allChannels[i].countMessUnread = 0
+            allChannels[i].lastSeenMessage.id = max(ch.lastSeenMessage.id, ch.lastSentMessage.id)
+            allChannels[i].lastSeenMessage.timestampSeconds = max(ch.lastSeenMessage.timestampSeconds, now)
+        }
+        rebuildAndReload()
+        if didClearUnreadState {
             persistFullChannelListCache(
                 clanId: clanId,
                 channels: allChannels,

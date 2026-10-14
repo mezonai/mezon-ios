@@ -15,6 +15,7 @@ struct ChannelListInteraction {
     let isClanOwner: (() -> Bool)?
     let onLeaveClan: (() -> Void)?
     let onDeleteClan: (() -> Void)?
+    let onMarkClanAsRead: (() -> Void)?
     let onSearchTapped: (() -> Void)?
     let onQRTapped: (() -> Void)?
     let onEventTapped: (() -> Void)?
@@ -2221,6 +2222,8 @@ final class ChannelListContainerNode: ASDisplayNode {
                     self.interaction.onLeaveClan?()
                 case .deleteClan:
                     self.interaction.onDeleteClan?()
+                case .markAsRead:
+                    self.interaction.onMarkClanAsRead?()
                 default:
                     break
                 }

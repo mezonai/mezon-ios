@@ -3497,6 +3497,11 @@ extension MezonHTTPClient {
             Task { await MezonSocketRequestCoalescer.shared.invalidateBadgeCounts() }
         }
         NotificationCenter.default.addObserver(
+            forName: Notification.Name("MezonClanMarkedAsRead"), object: nil, queue: nil
+        ) { _ in
+            Task { await MezonSocketRequestCoalescer.shared.invalidateBadgeCounts() }
+        }
+        NotificationCenter.default.addObserver(
             forName: .mezonChannelDescriptionDidUpdate, object: nil, queue: nil
         ) { notification in
             let clanId = (notification.userInfo?["clanId"] as? NSNumber)?.int64Value
