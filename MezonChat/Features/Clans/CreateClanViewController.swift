@@ -454,11 +454,6 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
                     resetSubmittingState()
                     return
                 }
-            } catch {
-                
-            }
-
-            do {
                 let desc = try await context.engine.clanData.createClanDesc(
                     name: name,
                     logo: logoURL,
@@ -470,33 +465,6 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
                     await context.engine.clanData.applyCreationTemplateChannels(clanId: newId, template: t, token: token)
                 }
                 popCreateFlowAndNotify(clanId: newId)
-            } catch let error as MezonError {
-                if case .httpError(let code, let msg) = error {
-                    var toastMsg = msg
-                    if let data = msg.data(using: .utf8),
-                       let apiErr = try? JSONDecoder().decode(APIError.self, from: data),
-                       let inner = apiErr.message, !inner.isEmpty {
-                        toastMsg = inner
-                    }
-                    if toastMsg.hasPrefix("HTTP ") {
-                        if let colonIdx = toastMsg.firstIndex(of: ":") {
-                            toastMsg = String(toastMsg[toastMsg.index(after: colonIdx)...]).trimmingCharacters(in: .whitespaces)
-                        } else {
-                            toastMsg = ""
-                        }
-                    }
-                    
-                    if code == 6 || code == 13 || toastMsg.lowercased().contains("exist") {
-                        toastMsg = L(L10n.Clan.duplicateName)
-                    } else if toastMsg.lowercased().contains("valid") {
-                        toastMsg = L(L10n.Clan.invalidName)
-                    } 
-                    
-                    Toast.error(toastMsg)
-                } else {
-                    Toast.error(error.localizedDescription)
-                }
-                resetSubmittingState()
             } catch {
                 Toast.error(error.localizedDescription)
                 resetSubmittingState()

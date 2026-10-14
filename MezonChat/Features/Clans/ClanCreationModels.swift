@@ -131,3 +131,35 @@ enum ClanCreationNameRules {
         return true
     }
 }
+
+enum ClanNameChange {
+    case unchanged
+    case ownName
+    case renamed
+
+    static func classify(newName: String, savedName: String, currentName: String) -> ClanNameChange {
+        let name = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name == savedName.trimmingCharacters(in: .whitespacesAndNewlines) {
+            return .unchanged
+        }
+        if folded(name) == folded(currentName) {
+            return .ownName
+        }
+        return .renamed
+    }
+
+    private static func folded(_ name: String) -> [Unicode.Scalar] {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.map { scalar in
+            String(scalar).lowercased().unicodeScalars.first ?? scalar
+        }
+    }
+}
+
+enum ClanUpdateErrorMessage {
+    static func message(for error: Error, nameSent: Bool) -> String {
+        if nameSent, let apiError = error as? APIError, apiError.code == 6 {
+            return L(L10n.Clan.duplicateName)
+        }
+        return L(L10n.ClanSetting.Overview.saveError)
+    }
+}
