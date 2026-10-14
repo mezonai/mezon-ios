@@ -13,6 +13,12 @@ final class MessageTextContentNode: ASDisplayNode {
     var onHashtagTapped: ((ChannelHashtagTapInfo) -> Void)?
     var onLinkTapped: ((URL) -> Void)?
 
+    private static let tappableAttributeNames = [
+        NSAttributedString.Key.mezonMention.rawValue,
+        NSAttributedString.Key.mezonLink.rawValue,
+        NSAttributedString.Key.mezonHashtag.rawValue,
+    ]
+
     private var currentParsedContent: ParsedContent?
     private var currentAttrText: NSAttributedString?
     private var hasEmoji = false
@@ -87,6 +93,7 @@ final class MessageTextContentNode: ASDisplayNode {
             let tn = ASTextNode2()
             tn.isUserInteractionEnabled = false
             tn.maximumNumberOfLines = 0
+            tn.linkAttributeNames = Self.tappableAttributeNames
             tn.attributedText = attrText
             textNode = tn
             addSubnode(tn)
@@ -130,6 +137,7 @@ final class MessageTextContentNode: ASDisplayNode {
                     let tn = ASTextNode2()
                     tn.isUserInteractionEnabled = false
                     tn.maximumNumberOfLines = 0
+                    tn.linkAttributeNames = Self.tappableAttributeNames
                     tn.attributedText = attrText
                     addSubnode(tn)
                     segmentNodes.append((tn, .zero))
@@ -318,36 +326,35 @@ final class MessageTextContentNode: ASDisplayNode {
     @objc private func handleTap(_ gesture: UITapGestureRecognizer) {
         let point = gesture.location(in: view)
 
-        if let emojiLabelNode, let emojiView = emojiLabelNode.view as? EmojiTextView,
-           let attrText = emojiView.attributedText {
+        if let emojiLabelNode, let emojiView = emojiLabelNode.view as? EmojiTextView {
             let localPoint = view.convert(point, to: emojiView.textView)
-            if let result = linkAttribute(in: attrText, at: localPoint, containerSize: emojiView.textView.bounds.size) {
+            if let result = linkAttribute(in: emojiView.textView, at: localPoint) {
                 dispatchLinkAction(result)
                 return
             }
         }
 
-        if let textNode, let attrText = textNode.attributedText, attrText.length > 0 {
+        if let textNode {
             let localPoint = view.convert(point, to: textNode.view)
-            if let result = linkAttribute(in: attrText, at: localPoint, containerSize: textNode.bounds.size) {
+            if let result = linkAttribute(in: textNode, at: localPoint) {
                 dispatchLinkAction(result)
                 return
             }
         }
 
         for (seg, _) in segmentNodes {
-            if let tn = seg as? ASTextNode2, let attrText = tn.attributedText, attrText.length > 0 {
+            if let tn = seg as? ASTextNode2 {
                 let localPoint = view.convert(point, to: tn.view)
                 guard tn.bounds.contains(localPoint) else { continue }
-                if let result = linkAttribute(in: attrText, at: localPoint, containerSize: tn.bounds.size) {
+                if let result = linkAttribute(in: tn, at: localPoint) {
                     dispatchLinkAction(result)
                     return
                 }
-            } else if let emojiView = seg.view as? EmojiTextView, let attrText = emojiView.attributedText, attrText.length > 0 {
+            } else if let emojiView = seg.view as? EmojiTextView {
                 let inWrap = view.convert(point, to: seg.view)
                 guard seg.bounds.contains(inWrap) else { continue }
                 let localPoint = view.convert(point, to: emojiView.textView)
-                if let result = linkAttribute(in: attrText, at: localPoint, containerSize: emojiView.textView.bounds.size) {
+                if let result = linkAttribute(in: emojiView.textView, at: localPoint) {
                     dispatchLinkAction(result)
                     return
                 }
@@ -355,27 +362,41 @@ final class MessageTextContentNode: ASDisplayNode {
         }
     }
 
-    private func linkAttribute(in attrText: NSAttributedString, at point: CGPoint, containerSize: CGSize) -> (key: NSAttributedString.Key, value: Any)? {
-        let layoutManager = NSLayoutManager()
-        let textContainer = NSTextContainer(size: containerSize)
-        let textStorage = NSTextStorage(attributedString: attrText)
-        textContainer.lineFragmentPadding = 0
-        layoutManager.addTextContainer(textContainer)
-        textStorage.addLayoutManager(layoutManager)
+    private func linkAttribute(in textNode: ASTextNode2, at point: CGPoint) -> (key: NSAttributedString.Key, value: Any)? {
+        guard let attrText = textNode.attributedText, attrText.length > 0 else { return nil }
+        var attributeName: NSString?
+        var range = NSRange(location: 0, length: 0)
+        guard let value = textNode.linkAttributeValue(at: point, attributeName: &attributeName, range: &range),
+              let name = attributeName as String? else { return nil }
+        return tappableResult(key: NSAttributedString.Key(name), value: value)
+    }
 
-        let charIndex = layoutManager.characterIndex(
-            for: point, in: textContainer,
+    private func linkAttribute(in textView: UITextView, at point: CGPoint) -> (key: NSAttributedString.Key, value: Any)? {
+        guard let attrText = textView.attributedText, attrText.length > 0 else { return nil }
+        let charIndex = textView.layoutManager.characterIndex(
+            for: point, in: textView.textContainer,
             fractionOfDistanceBetweenInsertionPoints: nil
         )
         guard charIndex < attrText.length else { return nil }
         let attrs = attrText.attributes(at: charIndex, effectiveRange: nil)
-
-        if let val = attrs[.mezonMention] { return (.mezonMention, val) }
-        if let val = attrs[.mezonLink] { return (.mezonLink, val) }
-        if let pay = attrs[.mezonHashtag], let info = ChannelHashtagTapInfo.parse(pay) {
-            return (.mezonHashtag, info)
+        for key in Self.tappableAttributeNames.map({ NSAttributedString.Key($0) }) {
+            if let value = attrs[key], let result = tappableResult(key: key, value: value) {
+                return result
+            }
         }
         return nil
+    }
+
+    private func tappableResult(key: NSAttributedString.Key, value: Any) -> (key: NSAttributedString.Key, value: Any)? {
+        switch key {
+        case .mezonMention, .mezonLink:
+            return (key, value)
+        case .mezonHashtag:
+            guard let info = ChannelHashtagTapInfo.parse(value) else { return nil }
+            return (key, info)
+        default:
+            return nil
+        }
     }
 
     private func dispatchLinkAction(_ result: (key: NSAttributedString.Key, value: Any)) {
