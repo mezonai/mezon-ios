@@ -1514,7 +1514,12 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private let joinRole: SfuRole
     private var currentRole: SfuRole
     private var sfuSession: MezonSfuSession?
-    private var sfuParticipants: [SfuParticipant] = []
+    private var sfuParticipants: [SfuParticipant] = [] {
+        didSet {
+            remoteMutedByDevice = Dictionary(sfuParticipants.map { ($0.peerId ?? $0.id, $0.muted) }, uniquingKeysWith: { _, last in last })
+        }
+    }
+    private var remoteMutedByDevice: [String: Bool] = [:]
     private var hasEverConnected = false
     private var connectTask: Task<Void, Never>?
     private var voiceReactionDisposable: Disposable?
@@ -1604,17 +1609,16 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
     private static let participantRowsRefreshDelay: TimeInterval = 0.15
     private static let participantGridReorderInterval: CFTimeInterval = 1.5
-    private static let participantMicPriorityHold: CFTimeInterval = 5
+    private static let participantSpeakerHold: CFTimeInterval = 5
 
     private let participantGridLayout = VoiceParticipantGridLayout()
     private lazy var contentScroll = UICollectionView(frame: .zero, collectionViewLayout: participantGridLayout)
     private lazy var participantGridDataSource = makeParticipantGridDataSource()
     private var orderedDescriptorKeys: [String] = []
     private var pendingParticipantGridOrder: [String]?
-    // An open mic has an infinite deadline; muting starts a short hold.
-    private var participantMicPriorityDeadlines: [String: CFTimeInterval] = [:]
-    private var participantMicPriorityWorkItem: DispatchWorkItem?
-    private var participantMicPriorityNextExpiration: CFTimeInterval?
+    private var participantSpeakerDeadlines: [String: CFTimeInterval] = [:]
+    private var participantSpeakerWorkItem: DispatchWorkItem?
+    private var participantSpeakerNextExpiration: CFTimeInterval?
     private var lastParticipantGridReorderTime: CFTimeInterval = 0
     private var participantGridNeedsReload = false
     private var isParticipantGridVisible = false
@@ -2369,7 +2373,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     deinit {
-        participantMicPriorityWorkItem?.cancel()
+        participantSpeakerWorkItem?.cancel()
         voiceReactionDisposable?.dispose()
         clanUsersUpdatedDisposable?.dispose()
         if let obs = callPiPBackgroundObserver {
@@ -3050,11 +3054,16 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         applyNetworkWeak(session.isNetworkWeak)
         session.onParticipants = { [weak self] list in
             guard let self else { return }
-            let previousShares = self.screenShareTrackIdentities(in: self.sfuParticipants)
+            let previous = self.sfuParticipants
+            let previousShares = self.screenShareTrackIdentities(in: previous)
             let nextShares = self.screenShareTrackIdentities(in: list)
             let sharesChanged = previousShares != nextShares
             self.sfuParticipants = list
-            self.scheduleParticipantRowsRefresh(urgent: sharesChanged)
+            if self.participantTilesChanged(from: previous, to: list) {
+                self.scheduleParticipantRowsRefresh(urgent: sharesChanged)
+            } else {
+                self.applyParticipantMuteState()
+            }
         }
         session.onRoleChanged = { [weak self] role in
             self?.applyRole(role)
@@ -3071,6 +3080,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                 let identity = key.components(separatedBy: "|").first ?? key
                 row.setSpeaking(speakingIds.contains(identity))
             }
+            self.updateParticipantSpeakerOrder(speaking: speakingIds)
         }
         session.onPushToTalkActive = { [weak self] active in
             self?.applyPttActive(active)
@@ -3381,7 +3391,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
     private func applyParticipantGridOrdering(orderedKeys: [String]) {
         var keySet = Set<String>()
-        let keys = orderedKeys.filter { participantDescriptors[$0] != nil && keySet.insert($0).inserted }
+        let keys = stableParticipantGridOrder(orderedKeys.filter { participantDescriptors[$0] != nil && keySet.insert($0).inserted })
         let previousKeys = orderedDescriptorKeys
         if Set(previousKeys) != keySet {
             cancelPendingParticipantGridReorder()
@@ -3396,6 +3406,56 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             cancelPendingParticipantGridReorder()
         }
         syncRaiseHandBadgesToParticipantRows()
+    }
+
+    private func stableParticipantGridOrder(_ keys: [String]) -> [String] {
+        let incoming = Set(keys)
+        let kept = orderedDescriptorKeys.filter { incoming.contains($0) }
+        let keptSet = Set(kept)
+        let ordered = kept + keys.filter { !keptSet.contains($0) }
+        let screens = ordered.filter { participantDescriptors[$0]?.kind == .screenShare }
+        let mains = ordered.filter { participantDescriptors[$0]?.kind != .screenShare }
+        return promotingHiddenSpeakers(in: screens + mains)
+    }
+
+    private func promotingHiddenSpeakers(in keys: [String]) -> [String] {
+        guard let visible = fullyVisibleParticipantGridKeys() else { return keys }
+        func mainIdentity(_ index: Int) -> String? {
+            guard let descriptor = participantDescriptors[keys[index]], descriptor.kind == .mainVideo else { return nil }
+            return descriptor.entry.identity
+        }
+        let now = CACurrentMediaTime()
+        let tiles = keys.indices.filter { mainIdentity($0) != nil }
+        let shown = tiles.filter { visible.contains(keys[$0]) }
+        let shownIdentities = Set(shown.compactMap(mainIdentity))
+        var promotedIdentities = Set<String>()
+        let hiddenSpeakers = tiles.filter { index in
+            guard let identity = mainIdentity(index),
+                  participantSpeakerDeadlines[identity]?.isInfinite == true,
+                  !shownIdentities.contains(identity) else { return false }
+            return promotedIdentities.insert(identity).inserted
+        }
+        let quietSlots = shown.reversed().filter { index in
+            guard let identity = mainIdentity(index) else { return false }
+            return (participantSpeakerDeadlines[identity] ?? 0) <= now
+        }
+        var result = keys
+        for (from, to) in zip(hiddenSpeakers, quietSlots) {
+            result.swapAt(from, to)
+        }
+        return result
+    }
+
+    private func fullyVisibleParticipantGridKeys() -> Set<String>? {
+        guard isParticipantGridVisible, view.window != nil, !isScreenShareDetailCoveringVoiceRoom,
+              !voiceParticipantListUserScrolling else { return nil }
+        let bounds = contentScroll.bounds.insetBy(dx: -1, dy: -1)
+        let keys = contentScroll.indexPathsForVisibleItems.compactMap { indexPath -> String? in
+            guard let frame = contentScroll.layoutAttributesForItem(at: indexPath)?.frame,
+                  bounds.contains(frame) else { return nil }
+            return participantGridDataSource.itemIdentifier(for: indexPath)
+        }
+        return keys.isEmpty ? nil : Set(keys)
     }
 
     private var isMinimizingToPiP = false
@@ -3604,7 +3664,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         guard !isEndingVoiceRoom else { return }
         isEndingVoiceRoom = true
         context.engine.channels.stopTrackingVoiceChannel(channelId: channel.channelID)
-        clearParticipantMicPriority()
+        clearParticipantSpeakerPriority()
         lowerRaiseHandIfActive()
         dismissVoiceMoreToolsPopover()
         unbindVoiceReactionSocketForPiP()
@@ -4020,6 +4080,22 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         return tracks
     }
 
+    private func participantTilesChanged(from previous: [SfuParticipant], to list: [SfuParticipant]) -> Bool {
+        previous.count != list.count || zip(previous, list).contains { old, new in
+            old.id != new.id || old.userId != new.userId || old.peerId != new.peerId || old.role != new.role
+                || old.video !== new.video || old.screen !== new.screen
+                || old.screenActive != new.screenActive || old.cameraActive != new.cameraActive
+        }
+    }
+
+    private func applyParticipantMuteState() {
+        for (key, row) in participantRows {
+            if let descriptor = participantDescriptors[key] {
+                configureParticipantRow(row, descriptor: descriptor)
+            }
+        }
+    }
+
     private func scheduleParticipantRowsRefresh(urgent: Bool = false) {
         if urgent {
             participantRowsRefreshWorkItem?.cancel()
@@ -4100,6 +4176,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             mirrorVideo = entry.isLocal && entry.mirror
             speaking = sfuSession?.speakingIds.contains(entry.identity) ?? entry.speaking
         }
+        let micOn = entry.deviceId.flatMap { remoteMutedByDevice[$0] }.map { !$0 } ?? entry.micOn
         let videoSource = "tile-\(ObjectIdentifier(row))"
         row.onVideoAttached = { [weak self] track in
             self?.sfuSession?.setVideoTrackVisible(track, visible: true, source: videoSource)
@@ -4110,7 +4187,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         row.configure(
             username: entry.username,
             displayName: entry.displayName,
-            micOn: entry.micOn,
+            micOn: micOn,
             speaking: speaking,
             avatarURL: entry.avatarURL,
             videoTrack: videoTrack,
@@ -4250,7 +4327,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         participantRows.removeAll()
         participantDescriptors.removeAll()
         soundReactionUserIds.removeAll()
-        clearParticipantMicPriority()
+        clearParticipantSpeakerPriority()
         lastSyncedParticipantTileMetrics = nil
         orderedDescriptorKeys = []
         participantGridNeedsReload = true
@@ -4297,10 +4374,6 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                 avatarURL: profile.avatarURL
             ))
         }
-        updateParticipantMicPriority(entries: entries, now: CACurrentMediaTime())
-        scheduleParticipantMicPriorityExpiration()
-        // Keep the displayed order within each priority group. Name/profile
-        // updates and changes in the SFU member array must not shuffle peers.
         let previousPositions = Dictionary(uniqueKeysWithValues: orderedDescriptorKeys.enumerated().map { ($0.element, $0.offset) })
         entries.sort { a, b in
             let pa = tileSortPriority(a)
@@ -4321,51 +4394,49 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         return entries
     }
 
-    private func updateParticipantMicPriority(entries: [VoiceTileEntry], now: CFTimeInterval) {
-        let liveKeys = Set(entries.map(\.tileKey))
-        participantMicPriorityDeadlines = participantMicPriorityDeadlines.filter { liveKeys.contains($0.key) }
-        for entry in entries {
-            let key = entry.tileKey
-            if entry.micOn {
-                participantMicPriorityDeadlines[key] = .infinity
-            } else if let deadline = participantMicPriorityDeadlines[key] {
-                if deadline.isInfinite {
-                    participantMicPriorityDeadlines[key] = now + Self.participantMicPriorityHold
-                } else if deadline <= now {
-                    participantMicPriorityDeadlines.removeValue(forKey: key)
-                }
+    private func updateParticipantSpeakerOrder(speaking: Set<String>) {
+        let now = CACurrentMediaTime()
+        for (identity, deadline) in participantSpeakerDeadlines where !speaking.contains(identity) {
+            if deadline.isInfinite {
+                participantSpeakerDeadlines[identity] = now + Self.participantSpeakerHold
+            } else if deadline <= now {
+                participantSpeakerDeadlines.removeValue(forKey: identity)
             }
         }
+        for identity in speaking {
+            participantSpeakerDeadlines[identity] = .infinity
+        }
+        scheduleParticipantSpeakerPriorityExpiration()
+        applyParticipantGridOrdering(orderedKeys: orderedDescriptorKeys)
     }
 
-    private func scheduleParticipantMicPriorityExpiration() {
-        let next = participantMicPriorityDeadlines.values.filter { $0.isFinite }.min()
-        guard next != participantMicPriorityNextExpiration else { return }
-        participantMicPriorityWorkItem?.cancel()
-        participantMicPriorityWorkItem = nil
-        participantMicPriorityNextExpiration = next
+    private func scheduleParticipantSpeakerPriorityExpiration() {
+        let next = participantSpeakerDeadlines.values.filter { $0.isFinite }.min()
+        guard next != participantSpeakerNextExpiration else { return }
+        participantSpeakerWorkItem?.cancel()
+        participantSpeakerWorkItem = nil
+        participantSpeakerNextExpiration = next
         guard let next else { return }
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
-            self.participantMicPriorityWorkItem = nil
-            self.participantMicPriorityNextExpiration = nil
-            // Demote even if no more participant/speaking events arrive.
-            self.refreshParticipantRowsFromSession()
+            self.participantSpeakerWorkItem = nil
+            self.participantSpeakerNextExpiration = nil
+            self.updateParticipantSpeakerOrder(speaking: self.sfuSession?.speakingIds ?? [])
         }
-        participantMicPriorityWorkItem = work
+        participantSpeakerWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + max(0, next - CACurrentMediaTime()), execute: work)
     }
 
-    private func clearParticipantMicPriority() {
-        participantMicPriorityWorkItem?.cancel()
-        participantMicPriorityWorkItem = nil
-        participantMicPriorityNextExpiration = nil
-        participantMicPriorityDeadlines.removeAll()
+    private func clearParticipantSpeakerPriority() {
+        participantSpeakerWorkItem?.cancel()
+        participantSpeakerWorkItem = nil
+        participantSpeakerNextExpiration = nil
+        participantSpeakerDeadlines.removeAll()
     }
 
     private func tileSortPriority(_ entry: VoiceTileEntry) -> Int {
         if entry.screenTrack != nil { return 0 }
-        if participantMicPriorityDeadlines[entry.tileKey] != nil { return 1 }
+        if participantSpeakerDeadlines[entry.identity] != nil { return 1 }
         if entry.cameraTrack != nil { return 2 }
         if entry.isLocal { return 3 }
         return 4
@@ -4685,7 +4756,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         participantRowsRefreshWorkItem?.cancel()
         participantRowsRefreshWorkItem = nil
         cancelPendingParticipantGridReorder()
-        clearParticipantMicPriority()
+        clearParticipantSpeakerPriority()
 
         let session = sfuSession
         sfuSession = nil

@@ -1579,7 +1579,9 @@ enum MezonApiNameRegistry {
         "UploadBatchAttachmentFile",
         "SearchCtrlK",
         "SearchMentionUsers",
-        "GenerateCDNSignature"
+        "GenerateCDNSignature",
+        "GetStreamPlayback",
+        "LinkCDNFile"
     ]
 
     private static let nameToIndex: [String: Int32] = {

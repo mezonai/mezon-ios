@@ -7,7 +7,8 @@ enum ImgproxyURL {
         return "\(env.imgproxyBaseURL)/\(env.imgproxySigningPath)"
     }
     private static var cdnHosts: [String] {
-        ["cdn.mezon", "cdn.komu", "profile.mezon"] + [URL(string: MezonConfig.baseImgURL)?.host].compactMap { $0 }
+        ["cdn.mezon", "cdn.komu", "profile.mezon"]
+            + [MezonConfig.baseImgURL, MezonConfig.baseMezonImgURL].compactMap { URL(string: $0)?.host }
     }
     private static let skipExtensions: Set<String> = ["gif", "webp"]
 

@@ -549,6 +549,7 @@ final class MezonSfuSession: NSObject {
     private var slotAssignments: [Int: SlotAssignment] = [:]
     private var transceiverCache: [RTCRtpTransceiver] = []
     private var remoteSnapshot: [SfuRemoteTransceiverSnapshot] = []
+    private var remoteAudioEnabled: [String: Bool] = [:]
     private var remoteMediaSyncScheduled = false
     private var remoteMediaSyncRunning = false
     private var remoteMediaRevision = 0
@@ -2982,7 +2983,10 @@ final class MezonSfuSession: NSObject {
             let assignment = midNumber >= 3 ? slotAssignments[(midNumber - 3) / 3] : nil
             if fixedPool {
                 let bound = assignment?.peerId != nil && midNumber >= 3 && assignment?.active[(midNumber - 3) % 3] == true
-                (item.track as? RTCAudioTrack)?.isEnabled = bound
+                if let audio = item.track as? RTCAudioTrack, let trackId = item.trackId,
+                   remoteAudioEnabled.updateValue(bound, forKey: trackId) != bound {
+                    audio.isEnabled = bound
+                }
                 if !bound {
                     clearRemoteKind(id: id, kind: kind)
                     continue
@@ -3292,6 +3296,7 @@ final class MezonSfuSession: NSObject {
         Self.releaseOffMain(remoteSnapshot.compactMap { $0.track })
         transceiverCache = []
         remoteSnapshot = []
+        remoteAudioEnabled.removeAll()
     }
 
     private func rollbackIfStuck(_ pc: RTCPeerConnection) async {

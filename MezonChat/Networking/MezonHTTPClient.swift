@@ -1943,6 +1943,11 @@ final class MezonHTTPClient {
     private static let uploadExtensionMaxBytes = 16
 
     static func fittedUploadFilename(_ filename: String) -> String {
+        lengthFittedUploadFilename(filename)
+            .replacingOccurrences(of: "\\.{2,}", with: ".", options: .regularExpression)
+    }
+
+    private static func lengthFittedUploadFilename(_ filename: String) -> String {
         guard filename.utf8.count > uploadFilenameMaxBytes else { return filename }
         let ext = (filename as NSString).pathExtension
         let suffix = ext.isEmpty ? "" : ".\(ext)"
@@ -2416,6 +2421,18 @@ final class MezonHTTPClient {
             auth: .bearer(token)
         )
         return response
+    }
+
+    func linkCDNFile(src: String, dst: String, token: String) async throws {
+        var req = Mezon_Api_LinkCDNFileRequest()
+        req.src = src
+        req.dst = dst
+        try await postProtoIgnoringBody(
+            path: "/mezon.api.Mezon/LinkCDNFile",
+            message: req,
+            auth: .bearer(token),
+            preserveAlreadyExistsError: true
+        )
     }
 
     func listFriends(
