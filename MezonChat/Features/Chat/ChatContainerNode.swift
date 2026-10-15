@@ -150,6 +150,7 @@ final class ChatContainerNode: ASDisplayNode {
         loadingOlderNode.isHidden = true
 
         super.init()
+        listView.useMainQueueTransactions = true
         headerNode.onBackTapped = { interaction.onBackTapped() }
         headerNode.onHeaderTapped = { interaction.onHeaderTapped() }
         headerNode.onSearchTapped = { interaction.onSearchTapped() }
@@ -507,11 +508,11 @@ final class ChatContainerNode: ASDisplayNode {
         return items
     }
 
-    private func reloadAllItems() {
+    private func reloadAllItems(recreateNodes: Bool = false) {
         let items = buildItems(from: state)
         let newIds = buildIds(from: state)
 
-        if !committedMessageIds.isEmpty, committedMessageIds == newIds {
+        if !recreateNodes, !committedMessageIds.isEmpty, committedMessageIds == newIds {
             let updateItems = items.enumerated().map { index, item in
                 ListViewUpdateItem(
                     index: index,
@@ -574,7 +575,7 @@ final class ChatContainerNode: ASDisplayNode {
         let newIds = buildIds(from: new)
 
         if oldIds == newIds {
-            applyInPlaceUpdates(old: old, new: new, newIds: newIds)
+            applyInPlaceUpdates(old: old, new: new)
             return
         }
 
@@ -583,45 +584,56 @@ final class ChatContainerNode: ASDisplayNode {
             return
         }
 
+        let oldSet = Set(oldIds)
+        let newSet = Set(newIds)
+        guard oldSet.count == oldIds.count, newSet.count == newIds.count else {
+            reloadAllItems()
+            return
+        }
+
         if oldIds.count == newIds.count {
-            var isPendingReplacement = true
-            var hasAnyChange = false
-            for i in 0..<oldIds.count {
-                if oldIds[i] != newIds[i] {
-                    hasAnyChange = true
-                    let isPendingSwap = oldIds[i].hasPrefix("pending-") && !newIds[i].hasPrefix("pending-")
-                    let isRealSwap = !oldIds[i].hasPrefix("pending-") && newIds[i].hasPrefix("pending-")
-                    if !isPendingSwap && !isRealSwap {
-                        isPendingReplacement = false
-                        break
-                    }
-                }
+            let onlyPendingReplacements = zip(oldIds, newIds).allSatisfy { oldId, newId in
+                oldId == newId || (
+                    oldId.hasPrefix("pending-") != newId.hasPrefix("pending-")
+                        && !newSet.contains(oldId) && !oldSet.contains(newId)
+                )
             }
-            if isPendingReplacement && hasAnyChange {
+            if onlyPendingReplacements {
                 committedMessageIds = Array(newIds)
-                applyInPlaceUpdates(old: old, new: new, newIds: newIds, forceAll: true)
+                applyInPlaceUpdates(old: old, new: new)
                 return
             }
         }
 
         let newItems = buildItems(from: new)
-
-        let oldSet = Set(oldIds)
-        let newSet = Set(newIds)
-        let removedIds = oldSet.subtracting(newSet)
-        let addedIds = newSet.subtracting(oldSet)
-
-        guard !addedIds.isEmpty || !removedIds.isEmpty else {
-            committedMessageIds = Array(newIds)
-            applyInPlaceUpdates(old: old, new: new, newIds: newIds, forceAll: true)
+        let oldItems = buildItems(from: old)
+        guard newItems.count == newIds.count, oldItems.count == oldIds.count else {
+            reloadAllItems()
             return
         }
+        let oldIndexMap = Dictionary(uniqueKeysWithValues: oldIds.enumerated().map { ($0.element, $0.offset) })
+        let newIndexMap = Dictionary(uniqueKeysWithValues: newIds.enumerated().map { ($0.element, $0.offset) })
+        let commonIds = oldSet.intersection(newSet)
+        let oldRetainedIds = oldIds.filter { commonIds.contains($0) }
+        let newRetainedIds = newIds.filter { commonIds.contains($0) }
+        let hasReorderedIds = oldRetainedIds != newRetainedIds
+        let anchor = hasReorderedIds ? captureVisibleMessageAnchor() : nil
 
-        var oldIndexMap: [String: Int] = [:]
-        oldIndexMap.reserveCapacity(oldIds.count)
-        for (index, id) in oldIds.enumerated() {
-            oldIndexMap[id] = index
-        }
+        let retypedIds = Set(commonIds.filter { id in
+            guard let oldIndex = oldIndexMap[id], let newIndex = newIndexMap[id] else { return false }
+            return ObjectIdentifier(type(of: oldItems[oldIndex])) != ObjectIdentifier(type(of: newItems[newIndex]))
+        })
+        let compatibleIds = commonIds.subtracting(retypedIds)
+        let keptIds = hasReorderedIds
+            ? Self.orderedRetainedIds(
+                oldIndexMap: oldIndexMap,
+                newIds: newIds.filter { compatibleIds.contains($0) }
+            )
+            : compatibleIds
+        let deletedIds = oldSet.subtracting(keptIds)
+        let insertedIds = newSet.subtracting(keptIds)
+        let addedIds = newSet.subtracting(oldSet)
+
         var oldFingerprintById: [String: String] = [:]
         oldFingerprintById.reserveCapacity(old.messages.count)
         for message in old.messages {
@@ -632,44 +644,30 @@ final class ChatContainerNode: ASDisplayNode {
         for message in new.messages {
             newMessageById[message.id] = message
         }
+        let welcomeChanged = Self.welcomeFingerprint(old) != Self.welcomeFingerprint(new)
 
-        var deleteItems: [ListViewDeleteItem] = []
-        for id in removedIds {
-            if let idx = oldIndexMap[id] {
-                deleteItems.append(ListViewDeleteItem(index: idx, directionHint: nil))
-            }
+        let deleteItems = oldIds.enumerated().reversed().compactMap { index, id -> ListViewDeleteItem? in
+            guard deletedIds.contains(id) else { return nil }
+            return ListViewDeleteItem(index: index, directionHint: nil)
         }
-        deleteItems.sort { $0.index > $1.index }
-
-        let hasNewAtBottom = !addedIds.isEmpty && newIds.first.map({ addedIds.contains($0) }) ?? false
-
-        var insertItems: [ListViewInsertItem] = []
-        for (newIdx, id) in newIds.enumerated() {
-            if addedIds.contains(id) {
-                let hint: ListViewItemOperationDirectionHint = hasNewAtBottom ? .Up : .Down
-                insertItems.append(ListViewInsertItem(index: newIdx, previousIndex: nil, item: newItems[newIdx], directionHint: hint))
-            }
+        let hasNewAtBottom = newIds.first.map { addedIds.contains($0) } ?? false
+        let insertItems = newIds.enumerated().compactMap { index, id -> ListViewInsertItem? in
+            guard insertedIds.contains(id) else { return nil }
+            let hint: ListViewItemOperationDirectionHint = hasNewAtBottom ? .Up : .Down
+            return ListViewInsertItem(
+                index: index,
+                previousIndex: retypedIds.contains(id) ? nil : oldIndexMap[id],
+                item: newItems[index],
+                directionHint: hint
+            )
         }
-        insertItems.sort { $0.index < $1.index }
-
-        var updateItems: [ListViewUpdateItem] = []
-        for (newIdx, id) in newIds.enumerated() {
-            guard !addedIds.contains(id),
-                  !removedIds.contains(id),
-                  let oldIdx = oldIndexMap[id],
-                  let oldFingerprint = oldFingerprintById[id],
-                  let newMessage = newMessageById[id],
-                  oldFingerprint != Self.listFingerprint(newMessage),
-                  newIdx < newItems.count,
-                  newItems[newIdx] is ChatMessageItem else {
-                continue
-            }
-            updateItems.append(ListViewUpdateItem(
-                index: newIdx,
-                previousIndex: oldIdx,
-                item: newItems[newIdx],
-                directionHint: nil
-            ))
+        let updateItems = newIds.enumerated().compactMap { index, id -> ListViewUpdateItem? in
+            guard keptIds.contains(id), let oldIndex = oldIndexMap[id] else { return nil }
+            let contentChanged = newMessageById[id].map {
+                oldFingerprintById[id] != Self.listFingerprint($0)
+            } ?? false
+            guard contentChanged || (newItems[index] is ChatWelcomeItem && welcomeChanged) else { return nil }
+            return ListViewUpdateItem(index: index, previousIndex: oldIndex, item: newItems[index], directionHint: nil)
         }
 
         let isAtBottom = self.isAtBottom
@@ -691,6 +689,13 @@ final class ChatContainerNode: ASDisplayNode {
         if hasNewAtBottom && !isLoadMoreResult && !new.hasMoreNewer && (isAtBottom || newestMessageIsMe) {
             didAutoScrollForNewMessages = true
             scrollToItem = ListViewScrollToItem(index: 0, position: .top(0), animated: true, curve: .Spring(duration: 0.3), directionHint: .Up)
+        }
+
+        if scrollToItem == nil, let anchor, let index = newIndexMap[anchor.messageId] {
+            scrollToItem = ListViewScrollToItem(
+                index: index, position: .top(anchor.offsetFromListTop), animated: false,
+                curve: .Default(duration: nil), directionHint: .Down
+            )
         }
 
         let transactionOptions: ListViewDeleteAndInsertOptions = [.Synchronous, .LowLatency]
@@ -775,55 +780,36 @@ final class ChatContainerNode: ASDisplayNode {
         ].joined(separator: "|")
     }
 
-    private func applyInPlaceUpdates(old: ChatState, new: ChatState, newIds: [String], forceAll: Bool = false) {
+    private func applyInPlaceUpdates(old: ChatState, new: ChatState) {
         let newItems = buildItems(from: new)
-        var updateItems: [ListViewUpdateItem] = []
-
-        if Self.welcomeFingerprint(old) != Self.welcomeFingerprint(new),
-           let welcomeIndex = newItems.firstIndex(where: { $0 is ChatWelcomeItem }) {
-            updateItems.append(ListViewUpdateItem(
-                index: welcomeIndex,
-                previousIndex: welcomeIndex,
-                item: newItems[welcomeIndex],
-                directionHint: nil
-            ))
+        let oldItems = buildItems(from: old)
+        let newIds = buildIds(from: new)
+        guard newItems.count == newIds.count, oldItems.count == newItems.count else {
+            reloadAllItems()
+            return
         }
-
-        var oldLookup: [String: (reactions: [ParsedReaction], sendingState: SendingState, fingerprint: String)] = [:]
-        for msg in old.messages {
-            oldLookup[msg.id] = (msg.reactions, msg.sendingState, Self.listFingerprint(msg))
+        guard zip(oldItems, newItems).allSatisfy({
+            ObjectIdentifier(type(of: $0.0)) == ObjectIdentifier(type(of: $0.1))
+        }) else {
+            reloadAllItems(recreateNodes: true)
+            return
         }
-
-        var itemIdx = 0
-        for newMsg in new.messages.reversed() {
-            while itemIdx < newItems.count,
-                  !(newItems[itemIdx] is ChatMessageItem) {
-                itemIdx += 1
-            }
-            guard itemIdx < newItems.count else { break }
-
-            let changed: Bool
-            if let oldEntry = oldLookup[newMsg.id] {
-                let newFingerprint = Self.listFingerprint(newMsg)
-                let fingerprintChanged = oldEntry.fingerprint != newFingerprint
-                changed = oldEntry.reactions != newMsg.reactions
-                    || oldEntry.sendingState != newMsg.sendingState
-                    || fingerprintChanged
-            } else {
-                changed = forceAll
-            }
-
-            if changed {
-                updateItems.append(ListViewUpdateItem(
-                    index: itemIdx,
-                    previousIndex: itemIdx,
-                    item: newItems[itemIdx],
-                    directionHint: nil
-                ))
-            }
-            itemIdx += 1
+        var oldFingerprintById: [String: String] = [:]
+        for message in old.messages {
+            oldFingerprintById[message.id] = Self.listFingerprint(message)
         }
-
+        var newMessageById: [String: ChatMessageDisplay] = [:]
+        for message in new.messages {
+            newMessageById[message.id] = message
+        }
+        let welcomeChanged = Self.welcomeFingerprint(old) != Self.welcomeFingerprint(new)
+        let updateItems = newItems.enumerated().compactMap { index, item -> ListViewUpdateItem? in
+            let contentChanged = newMessageById[newIds[index]].map {
+                oldFingerprintById[$0.id] != Self.listFingerprint($0)
+            } ?? false
+            guard contentChanged || (item is ChatWelcomeItem && welcomeChanged) else { return nil }
+            return ListViewUpdateItem(index: index, previousIndex: index, item: item, directionHint: nil)
+        }
         if !updateItems.isEmpty {
             listView.transaction(
                 deleteIndices: [],
@@ -836,6 +822,25 @@ final class ChatContainerNode: ASDisplayNode {
                 completion: { _ in }
             )
         }
+    }
+
+    private static func orderedRetainedIds(oldIndexMap: [String: Int], newIds: [String]) -> Set<String> {
+        var lastIndex = -1
+        var keptIds: Set<String> = []
+        for id in newIds {
+            guard let index = oldIndexMap[id], index > lastIndex else { continue }
+            keptIds.insert(id)
+            lastIndex = index
+        }
+
+        var nextIndex = Int.max
+        var reverseKeptIds: Set<String> = []
+        for id in newIds.reversed() {
+            guard let index = oldIndexMap[id], index < nextIndex else { continue }
+            reverseKeptIds.insert(id)
+            nextIndex = index
+        }
+        return keptIds.count >= reverseKeptIds.count ? keptIds : reverseKeptIds
     }
 
     private func applyFrameLayout(transition: ContainedViewLayoutTransition) {
@@ -916,7 +921,7 @@ final class ChatContainerNode: ASDisplayNode {
         var newState = state
         newState.messages = newMessages
         state = newState
-        applyInPlaceUpdates(old: oldState, new: newState, newIds: buildIds(from: newState))
+        applyInPlaceUpdates(old: oldState, new: newState)
     }
 
     func forceUpdateItem(id: String) {

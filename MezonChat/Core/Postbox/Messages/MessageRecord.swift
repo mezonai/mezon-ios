@@ -383,3 +383,107 @@ extension MessageRecord {
         return UInt64(id)
     }
 }
+
+struct ChatMessageTimelineOrder {
+    struct Key: Comparable {
+        let serverId: UInt64
+        let localSequence: UInt64
+
+        static func < (lhs: Key, rhs: Key) -> Bool {
+            if lhs.serverId != rhs.serverId { return lhs.serverId < rhs.serverId }
+            return lhs.localSequence < rhs.localSequence
+        }
+    }
+
+    struct Row {
+        let id: String
+        let serverId: UInt64?
+        let createdAt: Date
+        let isPending: Bool
+    }
+
+    private struct LocalPosition {
+        var key: Key
+        var pendingAnchor: String?
+    }
+
+    private var positions: [String: LocalPosition] = [:]
+    private var sequence: UInt64 = 0
+    private var serverTailId: UInt64 = 0
+
+    var pendingAnchors: Set<String> {
+        Set(positions.values.compactMap(\.pendingAnchor))
+    }
+
+    static func serverId(_ id: String) -> UInt64? {
+        guard !id.isEmpty, id.allSatisfy({ $0.isASCII && $0.isNumber }),
+              let value = UInt64(id), value > 0 else { return nil }
+        return value
+    }
+
+    mutating func observeServerTail(_ serverId: UInt64) {
+        serverTailId = max(serverTailId, serverId)
+    }
+
+    mutating func keys(for rows: [Row], resolvedPendingIds: [String: UInt64]) -> [String: Key] {
+        for id in Array(positions.keys) {
+            guard var position = positions[id], let anchor = position.pendingAnchor,
+                  let serverId = resolvedPendingIds[anchor] else { continue }
+            position.key = Key(serverId: serverId, localSequence: position.key.localSequence)
+            position.pendingAnchor = nil
+            positions[id] = position
+        }
+
+        var keys: [String: Key] = [:]
+        var tail = LocalPosition(key: Key(serverId: serverTailId, localSequence: 0), pendingAnchor: nil)
+        var preceding = LocalPosition(key: Key(serverId: 0, localSequence: 0), pendingAnchor: nil)
+        for row in rows {
+            let position: LocalPosition?
+            if let serverId = row.serverId ?? (row.isPending ? resolvedPendingIds[row.id] : nil) {
+                observeServerTail(serverId)
+                positions.removeValue(forKey: row.id)
+                position = LocalPosition(key: Key(serverId: serverId, localSequence: 0), pendingAnchor: nil)
+            } else if row.isPending && positions[row.id] == nil {
+                sequence += 1
+                position = LocalPosition(
+                    key: Key(serverId: preceding.key.serverId, localSequence: sequence),
+                    pendingAnchor: row.id
+                )
+                positions[row.id] = position
+            } else {
+                position = positions[row.id]
+            }
+            if let position {
+                keys[row.id] = position.key
+                preceding = position
+                if tail.key < position.key { tail = position }
+            }
+        }
+
+        let unregistered = rows.filter { keys[$0.id] == nil }.sorted {
+            if $0.createdAt != $1.createdAt { return $0.createdAt < $1.createdAt }
+            return $0.id < $1.id
+        }
+        for row in unregistered {
+            sequence += 1
+            let position = LocalPosition(
+                key: Key(serverId: tail.key.serverId, localSequence: sequence),
+                pendingAnchor: tail.pendingAnchor
+            )
+            positions[row.id] = position
+            keys[row.id] = position.key
+            tail = position
+        }
+
+        let activeIds = Set(rows.map(\.id))
+        positions = positions.filter { activeIds.contains($0.key) }
+        return keys
+    }
+
+    mutating func placeReply(_ replyId: String, after serverId: UInt64) {
+        guard var position = positions[replyId], position.key.serverId < serverId else { return }
+        position.key = Key(serverId: serverId, localSequence: position.key.localSequence)
+        position.pendingAnchor = nil
+        positions[replyId] = position
+    }
+}

@@ -6926,6 +6926,7 @@ final class SendMessageInputViewController: UIViewController {
                                 return
                             }
                             let pending = tx.getMessageById(localId)
+                            let confirmed = tx.getMessageById("\(ack.messageID)", channelId: channelIdStr)
                             let baseAttachmentsJSON = pending?.attachmentsJSON ?? Data()
                             let attachmentsJSON: Data = {
                                 guard !uploadedAttachments.isEmpty else { return baseAttachmentsJSON }
@@ -6935,7 +6936,7 @@ final class SendMessageInputViewController: UIViewController {
                             }()
                             let createdAt: Date = ack.createTimeSeconds > 0
                                 ? Date(timeIntervalSince1970: TimeInterval(ack.createTimeSeconds))
-                                : (pending?.createdAt ?? pendingCreatedAt)
+                                : (confirmed?.createdAt ?? pending?.createdAt ?? pendingCreatedAt)
                             let editedAt: Date? = ack.updateTimeSeconds > ack.createTimeSeconds && ack.updateTimeSeconds > 0
                                 ? Date(timeIntervalSince1970: TimeInterval(ack.updateTimeSeconds))
                                 : nil

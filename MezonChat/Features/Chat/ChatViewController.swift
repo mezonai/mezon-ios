@@ -260,6 +260,8 @@ struct ChatMessageDisplay: Identifiable {
     let pollData: PollData?
     let rawContentData: Data?
     var botCommand: BotCommandDisplay? = nil
+    var timelineServerId: UInt64? = nil
+    var timelineOrderKey: ChatMessageTimelineOrder.Key? = nil
     var isFailed: Bool { sendingState == .failed }
     var isSending: Bool { sendingState == .pending && showsSendingFeedback }
     var isBuzzMessage: Bool { messageCode == MezonConstants.MessageCode.buzz.rawValue }
@@ -457,6 +459,7 @@ final class ChatViewController: ViewController {
     private(set) var messages: [ChatMessageDisplay] = []
     private var persistentMessages: [ChatMessageDisplay] = []  
     private var ephemeralMessages: [ChatMessageDisplay] = []
+    private var timelineOrder = ChatMessageTimelineOrder()
     private lazy var botCommandTracker: BotCommandTracker = {
         let tracker = BotCommandTracker(context: context)
         tracker.onChange = { [weak self] in
@@ -1191,7 +1194,7 @@ final class ChatViewController: ViewController {
                 replyRef: nil, isDeletedReply: false, isWelcome: false, callLog: nil,
                 topicData: nil, locationData: nil, isMe: record.senderId == context.currentUser?.id,
                 sendingState: record.sendingState, showsSendingFeedback: false, hasIncludeMention: false,
-                isForward: false, showForwardHeader: false, messageCode: record.code,
+                isForward: false, showForwardHeader: false, messageCode: MezonConstants.MessageCode.ephemeral.rawValue,
                 clanInviteLinkCode: nil, replyRefSourceContent: "", pollData: nil, rawContentData: record.content
             )
             if let idx = ephemeralMessages.firstIndex(where: { $0.id == targetId || $0.message.id == targetId }) {
@@ -1205,7 +1208,7 @@ final class ChatViewController: ViewController {
 
         guard messageCode == MezonConstants.MessageCode.ephemeral.rawValue else { return }
 
-        let targetId = "ephemeral-\(apiMessage.createTimeSeconds)-\(apiMessage.senderID)"
+        let targetId = Self.ephemeralRowId(serverId: apiMessage.messageID)
         let record = MessageRecord(from: apiMessage, customId: targetId)
         let parsedRaw = MessageContentParser.parse(data: record.content, mentionsData: record.mentionsJSON)
         let parsed = enrichParsedContent(parsedRaw, fallbackClanId: record.clanId)
@@ -1225,11 +1228,22 @@ final class ChatViewController: ViewController {
             isForward: false, showForwardHeader: false, messageCode: record.code,
             clanInviteLinkCode: nil, replyRefSourceContent: "", pollData: nil, rawContentData: record.content
         )
-        ephemeralMessages.append(display)
+        if let index = ephemeralMessages.firstIndex(where: { $0.id == targetId }) {
+            ephemeralMessages[index] = display
+        } else {
+            ephemeralMessages.append(display)
+        }
+        let serverTailId = context.account.postbox.read { tx in
+            tx.getMessages(channelId: storageChannelId).compactMap { ChatMessageTimelineOrder.serverId($0.id) }.max() ?? 0
+        }
+        timelineOrder.observeServerTail(serverTailId)
         updateMessagesWithEphemeral()
     }
 
-    
+    private static func ephemeralRowId(serverId: Int64) -> String {
+        serverId > 0 ? "\(serverId)" : "ephemeral-\(UUID().uuidString)"
+    }
+
     private func updateMessagesWithEphemeral() {
         messages = normalizedDisplayOrder(persistentMessages + ephemeralMessages + botCommandRows())
         needsReloadPipe.putNext(())
@@ -1261,7 +1275,8 @@ final class ChatViewController: ViewController {
                 sendingState: .sent, showsSendingFeedback: false, hasIncludeMention: false,
                 isForward: false, showForwardHeader: false, messageCode: MezonConstants.MessageCode.ephemeral.rawValue,
                 clanInviteLinkCode: nil, replyRefSourceContent: "", pollData: nil, rawContentData: contentData,
-                botCommand: entry.display
+                botCommand: entry.display,
+                timelineServerId: entry.commandMessageId > 0 ? UInt64(entry.commandMessageId) : nil
             )
         }
     }
@@ -1807,7 +1822,7 @@ final class ChatViewController: ViewController {
     private func setMessages(_ v: [ChatMessageDisplay]) {
         let oldFirstId = messages.first(where: { !$0.isWelcome })?.id
         let oldLastId = messages.last?.id
-        persistentMessages = normalizedDisplayOrder(v)
+        persistentMessages = Self.applyCombine(to: Self.sortMessagesLikeChannelStore(v))
         messages = normalizedDisplayOrder(persistentMessages + ephemeralMessages + botCommandRows())
         if !persistentMessages.isEmpty {
             skipRemoteFetchWhileTopicIsEmpty = false
@@ -1875,7 +1890,27 @@ final class ChatViewController: ViewController {
     }
 
     private func normalizedDisplayOrder(_ displays: [ChatMessageDisplay]) -> [ChatMessageDisplay] {
-        Self.applyCombine(to: Self.sortMessagesLikeChannelStore(displays))
+        let anchors = timelineOrder.pendingAnchors.union(displays.lazy.filter { $0.id.hasPrefix("pending-") }.map(\.id))
+        let resolved: [String: UInt64] = anchors.isEmpty ? [:] : context.account.postbox.read { tx in
+            tx.resolvedPendingMessageIds(anchors)
+        }
+        for entry in botCommandTracker.entries where entry.commandMessageId > 0 {
+            if case let .answered(replyId) = entry.status {
+                timelineOrder.placeReply(replyId, after: UInt64(entry.commandMessageId))
+            }
+        }
+        let keys = timelineOrder.keys(for: displays.map {
+            ChatMessageTimelineOrder.Row(
+                id: $0.id, serverId: $0.timelineServerId ?? ChatMessageTimelineOrder.serverId($0.id),
+                createdAt: $0.message.createdAt, isPending: $0.id.hasPrefix("pending-")
+            )
+        }, resolvedPendingIds: resolved)
+        let orderedDisplays = displays.map { display -> ChatMessageDisplay in
+            var display = display
+            display.timelineOrderKey = keys[display.id]
+            return display
+        }
+        return Self.applyCombine(to: Self.sortMessagesLikeChannelStore(orderedDisplays))
     }
     private func setChannelLabel(_ v: String) {
         if topicId != 0 { return }
@@ -3442,7 +3477,11 @@ final class ChatViewController: ViewController {
     }
 
     private static func messageDisplayLessThan(_ a: ChatMessageDisplay, _ b: ChatMessageDisplay) -> Bool {
-        MessageRecord.compareAscending(
+        if let aKey = a.timelineOrderKey, let bKey = b.timelineOrderKey {
+            if aKey != bKey { return aKey < bKey }
+            return a.id < b.id
+        }
+        return MessageRecord.compareAscending(
             id: a.id,
             createdAt: a.message.createdAt,
             id: b.id,
@@ -3565,7 +3604,9 @@ final class ChatViewController: ViewController {
                 replyRefSourceContent: d.replyRefSourceContent,
                 pollData: d.pollData,
                 rawContentData: d.rawContentData,
-                botCommand: d.botCommand
+                botCommand: d.botCommand,
+                timelineServerId: d.timelineServerId,
+                timelineOrderKey: d.timelineOrderKey
             )
         }
     }
@@ -6109,7 +6150,9 @@ final class ChatViewController: ViewController {
             replyRefSourceContent: display.replyRefSourceContent,
             pollData: display.pollData,
             rawContentData: display.rawContentData,
-            botCommand: display.botCommand
+            botCommand: display.botCommand,
+            timelineServerId: display.timelineServerId,
+            timelineOrderKey: display.timelineOrderKey
         )
     }
 
