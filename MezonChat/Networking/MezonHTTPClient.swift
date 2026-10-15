@@ -519,7 +519,8 @@ final class MezonHTTPClient {
         try await postProtoIgnoringBody(
             path: "/mezon.api.Mezon/UpdateClanDesc",
             message: request,
-            auth: .bearer(token)
+            auth: .bearer(token),
+            preserveAlreadyExistsError: true
         )
     }
     func deleteClanDesc(clanId: Int64, token: String) async throws {
@@ -2920,7 +2921,8 @@ final class MezonHTTPClient {
 
     private func sendOverSocketIfPossible<Request: SwiftProtobuf.Message, Response: SwiftProtobuf.Message>(
         path: String,
-        message: Request
+        message: Request,
+        preserveAlreadyExistsError: Bool = false
     ) async throws -> Response? {
         let prefix = "/mezon.api.Mezon/"
         guard path.hasPrefix(prefix) else { return nil }
@@ -2978,6 +2980,11 @@ final class MezonHTTPClient {
                 return nil
             }
         } catch {
+            if preserveAlreadyExistsError,
+               case let MezonError.httpError(code, message) = error,
+               code == 6 {
+                throw APIError(message: message, code: code)
+            }
             let ms = Int(Date().timeIntervalSince(started) * 1000)
             NSLog("%@", "[MezonSocket] api '\(apiName)' failed after \(ms)ms, falling back to HTTP: \(error)" as NSString)
             if ms >= profile.degradeAfterMilliseconds {
@@ -3131,12 +3138,14 @@ final class MezonHTTPClient {
         path: String,
         message: Request,
         auth: AuthMethod,
-        allowBearerRetry: Bool = true
+        allowBearerRetry: Bool = true,
+        preserveAlreadyExistsError: Bool = false
     ) async throws {
         if case .bearer = auth {
             let acknowledged: SwiftProtobuf.Google_Protobuf_Empty? = try await sendOverSocketIfPossible(
                 path: path,
-                message: message
+                message: message,
+                preserveAlreadyExistsError: preserveAlreadyExistsError
             )
             if acknowledged != nil {
                 return
@@ -3176,12 +3185,18 @@ final class MezonHTTPClient {
                     path: path,
                     message: message,
                     auth: .bearer(newToken),
-                    allowBearerRetry: false
+                    allowBearerRetry: false,
+                    preserveAlreadyExistsError: preserveAlreadyExistsError
                 )
                 return
             }
         }
 
+        if preserveAlreadyExistsError,
+           let apiError = try? JSONDecoder().decode(APIError.self, from: data),
+           apiError.code == 6 {
+            throw apiError
+        }
         let msg = apiFailureMessage(httpStatusCode: http.statusCode, data: data)
         throw MezonError.httpError(statusCode: http.statusCode, message: msg)
     }
@@ -3492,7 +3507,12 @@ final class MezonHTTPClient {
 
 private struct EmptyBody: Encodable {}
 struct EmptyResponse: Decodable {}
-struct APIError: Decodable { let message: String?; let code: Int? }
+struct APIError: Decodable, LocalizedError {
+    let message: String?
+    let code: Int?
+
+    var errorDescription: String? { L(L10n.Error.somethingWentWrong) }
+}
 
 extension MezonHTTPClient {
 
