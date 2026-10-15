@@ -488,7 +488,7 @@ final class EmojiItemCell: UITableViewCell {
             return
         }
 
-        let avatarUrl = avatar.hasPrefix("http") ? avatar : "\(MezonConfig.cloudflareCdnURL)/\(avatar)"
+        let avatarUrl = ImgproxyURL.absoluteResourceURL(from: avatar)
         let side = Int(Self.creatorAvatarSize * UIScreen.main.scale)
         let loadKey = ImgproxyURL.avatarProxyURL(from: avatarUrl, width: side, height: side)
         let resolvedKey = loadKey.isEmpty ? avatarUrl : loadKey

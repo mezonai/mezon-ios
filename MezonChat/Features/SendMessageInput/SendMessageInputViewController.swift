@@ -2020,12 +2020,11 @@ final class SendMessageInputViewController: UIViewController {
         if editingDisplay != nil {
             clearEditingMessage()
         }
-        let src = sticker.source.trimmingCharacters(in: .whitespacesAndNewlines)
-        let imageUrl = !src.isEmpty ? src : "\(MezonConfig.cloudflareCdnURL)/stickers/\(sticker.id).webp"
+        let imageUrl = sticker.displayImageURLString
 
         var att = Mezon_Api_MessageAttachment()
         att.url = imageUrl
-        let srcLower = src.lowercased()
+        let srcLower = imageUrl.lowercased()
         let isAudio = sticker.mediaType == StickerMediaType.audio.rawValue
             || srcLower.hasSuffix(".mp3")
             || srcLower.hasSuffix(".wav")
@@ -6161,7 +6160,7 @@ final class SendMessageInputViewController: UIViewController {
                 contentType: filetype
             )
 
-            let cdnURL = MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: uploadInfo.filename)
+            let cdnURL = try MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: uploadInfo.filename)
 
             ImageCache.shared.setImage(image, data: fileData, forKey: cdnURL)
 

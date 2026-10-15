@@ -1074,7 +1074,7 @@ final class AttachmentUploadCoordinator {
                 let uploadInfo = try await context.account.network.uploadAttachmentFile(
                     filename: payload.filename, filetype: payload.filetype, size: payload.data.count,
                     width: width, height: height, channelId: channelId, token: token)
-                let cdnURL = MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: uploadInfo.filename)
+                let cdnURL = try MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: uploadInfo.filename)
                 att.filename = payload.filename
                 att.filetype = AttachmentTypeClassifier.uploadType(for: payload.filetype)
                 att.url = cdnURL
@@ -1115,14 +1115,15 @@ final class AttachmentUploadCoordinator {
         let progressKey = fileURL.path
         if size >= AttachmentUploader.minMultipartFileSize {
             do {
-                let partCount = max(1, Int((Double(size) / Double(AttachmentUploader.partSize)).rounded(.up)))
+                let partCount = AttachmentUploader.multipartPartCount(fileSize: size)
                 let start = try await context.account.network.multipartUploadAttachmentFileStart(
                     filename: filename, filetype: filetype, size: size,
                     width: width, height: height, partCount: partCount,
                     channelId: channelId, token: token)
                 let serverFilename = start.filename
-                let cdnURL = MezonConfig.attachmentViewURL(typeCdn: start.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: serverFilename)
-                if start.urls.count > 1, !start.uploadID.isEmpty {
+                let cdnURL = try MezonConfig.attachmentViewURL(typeCdn: start.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: serverFilename)
+                if !start.uploadID.isEmpty {
+                    try AttachmentUploader.validateMultipartUpload(partURLs: start.urls, fileSize: size)
                     let plan = MultipartPlan(
                         fileURL: fileURL, partURLs: start.urls, uploadId: start.uploadID,
                         filename: serverFilename, fileSize: size, contentType: filetype)
@@ -1130,7 +1131,7 @@ final class AttachmentUploadCoordinator {
                         minioURL: "", contentType: filetype, body: .multipart(plan),
                         progressKey: progressKey, cacheImage: nil))
                 }
-                if let first = start.urls.first, !first.isEmpty {
+                if start.urls.count == 1, let first = start.urls.first, !first.isEmpty {
                     return (cdnURL, PendingMinIOUpload(
                         minioURL: first, contentType: filetype, body: .file(fileURL),
                         progressKey: progressKey, cacheImage: nil))
@@ -1146,7 +1147,7 @@ final class AttachmentUploadCoordinator {
         let info = try await context.account.network.uploadAttachmentFile(
             filename: filename, filetype: filetype, size: size,
             width: width, height: height, channelId: channelId, token: token)
-        return (MezonConfig.attachmentViewURL(typeCdn: info.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: info.filename), PendingMinIOUpload(
+        return (try MezonConfig.attachmentViewURL(typeCdn: info.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: info.filename), PendingMinIOUpload(
             minioURL: info.url, contentType: filetype, body: .file(fileURL),
             progressKey: progressKey, cacheImage: nil))
     }
@@ -1170,7 +1171,7 @@ final class AttachmentUploadCoordinator {
             let uploadInfo = try await context.account.network.uploadAttachmentFile(
                 filename: thumbFilename, filetype: "image/jpeg", size: thumbData.count,
                 width: width, height: height, channelId: channelId, token: token)
-            let cdnURL = MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: uploadInfo.filename)
+            let cdnURL = try MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: uploadInfo.filename)
             let pending = PendingMinIOUpload(
                 minioURL: uploadInfo.url,
                 contentType: "image/jpeg",
@@ -1341,6 +1342,7 @@ final class AttachmentUploadCoordinator {
         progressKey: String
     ) async throws {
         let network = context.account.network
+        try AttachmentUploader.validateMultipartUpload(partURLs: plan.partURLs, fileSize: plan.fileSize)
         let partCount = plan.partURLs.count
         let total = max(plan.fileSize, 1)
         var collected: [(partNumber: Int, eTag: String)] = []
@@ -1398,7 +1400,11 @@ final class AttachmentUploadCoordinator {
         if offset > 0 {
             try handle.seek(toOffset: UInt64(offset))
         }
-        return handle.readData(ofLength: length)
+        let chunk = handle.readData(ofLength: length)
+        guard chunk.count == length else {
+            throw MezonError.httpError(statusCode: 0, message: "Multipart upload file ended before the expected part length")
+        }
+        return chunk
     }
 
     // MARK: - Background I/O

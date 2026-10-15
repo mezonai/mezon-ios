@@ -607,20 +607,12 @@ final class StickersPanel: UIView {
 
 
     static func resolvedStickerMediaURLString(for sticker: CachedClanStickerRecord) -> String {
-        let src = sticker.source.trimmingCharacters(in: .whitespacesAndNewlines)
-        if src.isEmpty { return "" }
-        if let u = URL(string: src), u.scheme != nil { return src }
-        if src.hasPrefix("//") { return "https:\(src)" }
-        let base = MezonConfig.cloudflareCdnURL
-        if src.hasPrefix("/") { return "\(base)\(src)" }
-        return "\(base)/\(src)"
+        guard !sticker.source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return "" }
+        return sticker.displayImageURLString
     }
 
     fileprivate static func stickerImageURL(for sticker: CachedClanStickerRecord) -> String {
-        let src = sticker.source.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !src.isEmpty, URL(string: src)?.scheme != nil { return src }
-
-        return "\(MezonConfig.cloudflareCdnURL)/stickers/\(sticker.id).webp"
+        sticker.displayImageURLString
     }
 
     fileprivate func loadStickerImage(for sticker: CachedClanStickerRecord, into imageView: UIImageView) {

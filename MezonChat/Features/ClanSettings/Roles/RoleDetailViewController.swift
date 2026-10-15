@@ -799,7 +799,7 @@ extension RoleDetailViewController: UIImagePickerControllerDelegate, UINavigatio
                 try await self.context.account.network.uploadToMinIO(
                     url: upload.url, data: data, contentType: "image/jpeg"
                 )
-                let cdnURL = MezonConfig.attachmentViewURL(typeCdn: upload.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: upload.filename)
+                let cdnURL = try MezonConfig.attachmentViewURL(typeCdn: upload.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: upload.filename)
                 ImageCache.shared.setImage(image, data: data, forKey: cdnURL)
 
                 try await self.repository.updateRole(

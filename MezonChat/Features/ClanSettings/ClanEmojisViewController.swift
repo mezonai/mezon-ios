@@ -645,7 +645,7 @@ extension ClanEmojisViewController: UIImagePickerControllerDelegate, UINavigatio
                 data: uploadPayload.data,
                 contentType: uploadPayload.contentType
             )
-            let cdnURL = MezonConfig.attachmentViewURL(typeCdn: upload.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: upload.filename)
+            let cdnURL = try MezonConfig.attachmentViewURL(typeCdn: upload.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: upload.filename)
             ImageCache.shared.setImage(image, data: uploadPayload.data, forKey: cdnURL)
             let listIconSide = Int(40 * UIScreen.main.scale)
             let listProxyURL = ImgproxyURL.createEmoji(from: cdnURL, width: listIconSide, height: listIconSide)
