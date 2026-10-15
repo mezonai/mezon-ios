@@ -825,19 +825,7 @@ final class ClanOverviewViewController: BaseViewController {
             return
         }
         
-        let isDuplicate = context.account.postbox.read({ tx -> Bool in
-            let clans = tx.getClans()
-            return clans.contains(where: { $0.id != self.clanId && $0.name.lowercased() == name.lowercased() })
-        })
-        
-        if isDuplicate {
-            Toast.error(L(L10n.Clan.duplicateName))
-            isSaving = false
-            updateSaveButtonState()
-            return
-        }
-
-        Task { [weak self] in
+        Task { @MainActor [weak self] in
             guard let self else { return }
             defer {
                 self.isSaving = false
@@ -847,8 +835,30 @@ final class ClanOverviewViewController: BaseViewController {
 
             guard let clan = self.context.account.postbox.read({ tx in tx.getClan(id: self.clanId) }) else { return }
             
-            let currentName = self.clanNameTextField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let isNameChanged = currentName != clan.name
+            let nameChange = ClanNameChange.classify(
+                newName: name,
+                savedName: self.initialClanName,
+                currentName: clan.name
+            )
+            let isNameChanged = nameChange != .unchanged
+
+            if nameChange == .renamed {
+                do {
+                    let isDuplicate = try await self.context.account.network.checkDuplicateName(
+                        name: name,
+                        type: 0,
+                        conditionId: 0,
+                        token: token
+                    )
+                    if isDuplicate {
+                        Toast.error(L(L10n.Clan.duplicateName))
+                        return
+                    }
+                } catch {
+                    Toast.error(L(L10n.ClanSetting.Overview.saveError))
+                    return
+                }
+            }
             let isAvatarChanged = self.selectedAvatarData != nil
             let isAnonymousChanged = self.anonymousSwitch.isOn != clan.preventsAnonymousMessages
             let isNotifChanged = self.selectedNotificationType != self.initialNotificationType
@@ -866,7 +876,7 @@ final class ClanOverviewViewController: BaseViewController {
             if isNameChanged || isAvatarChanged || isAnonymousChanged {
                 var req = Mezon_Api_UpdateClanDescRequest()
                 req.clanID = self.clanId
-                req.clanName = name
+                req.clanName = isNameChanged ? name : ""
                 req.preventAnonymous = self.anonymousSwitch.isOn
                 req.logo = SwiftProtobuf.Google_Protobuf_StringValue(clan.icon ?? "")
                 
@@ -905,7 +915,9 @@ final class ClanOverviewViewController: BaseViewController {
                     try await self.context.account.network.updateClanDesc(request: req, token: token)
                     
                     if var d = try? Mezon_Api_ClanDesc(serializedBytes: clan.data) {
-                        d.clanName = req.clanName
+                        let updatedName = isNameChanged ? name :
+                            (self.context.account.postbox.read({ tx in tx.getClan(id: self.clanId) })?.name ?? clan.name)
+                        d.clanName = updatedName
                         d.preventAnonymous = req.preventAnonymous
                         if !req.logo.value.isEmpty {
                             d.logo = req.logo.value
@@ -915,7 +927,7 @@ final class ClanOverviewViewController: BaseViewController {
                         }
                         let updatedClan = ClanRecord(
                             id: clan.id,
-                            name: req.clanName,
+                            name: updatedName,
                             icon: clan.icon,
                             ownerId: clan.ownerId,
                             data: try d.serializedData()
@@ -925,7 +937,7 @@ final class ClanOverviewViewController: BaseViewController {
                         }
                     }
                 } catch {
-                    await MainActor.run { Toast.error("ClanDesc error: \(error.localizedDescription)") }
+                    Toast.error(ClanUpdateErrorMessage.message(for: error, nameSent: isNameChanged))
                     return
                 }
             }
@@ -943,7 +955,7 @@ final class ClanOverviewViewController: BaseViewController {
                 do {
                     try await self.context.account.network.updateSystemMessage(request: sysReq, token: token)
                 } catch {
-                    await MainActor.run { Toast.error("SysMsg error: \(error.localizedDescription)") }
+                    Toast.error(L(L10n.ClanSetting.Overview.saveError))
                     return
                 }
             }
@@ -964,15 +976,13 @@ final class ClanOverviewViewController: BaseViewController {
                         tx.updateNotificationSetting(newSetting)
                     }
                 } catch {
-                    await MainActor.run { Toast.error("Notif error: \(error.localizedDescription)") }
+                    Toast.error(L(L10n.ClanSetting.Overview.saveError))
                     return
                 }
             }
             
-            await MainActor.run {
-                Toast.success(L(L10n.ClanSetting.Overview.saveSuccess))
-                self.navigationController?.popViewController(animated: true)
-            }
+            Toast.success(L(L10n.ClanSetting.Overview.saveSuccess))
+            self.navigationController?.popViewController(animated: true)
         }
     }
 
