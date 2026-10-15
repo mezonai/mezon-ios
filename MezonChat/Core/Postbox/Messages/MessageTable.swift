@@ -18,6 +18,8 @@ final class MessageTable: Table {
     private var cache: [String: [MessageRecord]] = [:]
     private var pendingWrites:  Set<String> = []
     private var pendingDeletes: Set<String> = []
+    private var pendingResolutions: [String: UInt64] = [:]
+    private var pendingResolutionOrder: [String] = []
     private var topicMeta: [Int64: TopicMetaValue] = [:]
 
     override func createTable() {
@@ -395,6 +397,7 @@ final class MessageTable: Table {
                 if let pidx = current.firstIndex(where: { serverEchoMatchesPending(server: msg, pending: $0) }) {
                     let pending = current[pidx]
                     let pid = pending.id
+                    recordPendingResolution(pendingId: pid, serverId: msg.id)
                     let echo = Self.mergePendingIdentityIntoServerEcho(pending: pending, server: msg)
                     if let existingIdx {
                         current[existingIdx] = MessageRecord.mergingIncomingPreservingEmptyAttachments(
@@ -527,6 +530,11 @@ final class MessageTable: Table {
         let droppedLocalIds = existing
             .filter { $0.id.hasPrefix("pending-") && !keptPendingIds.contains($0.id) }
             .map { $0.id }
+        for pending in existing where droppedLocalIds.contains(pending.id) {
+            if let confirmed = mergedBelonging.first(where: { serverEchoMatchesPending(server: $0, pending: pending) }) {
+                recordPendingResolution(pendingId: pending.id, serverId: confirmed.id)
+            }
+        }
         cache[channelId] = (mergedBelonging + preservedHistory + pendingsToKeep)
             .sorted { MessageRecord.isOrderedAscending($0, $1) }
         pendingWrites.insert(channelId)
@@ -1090,6 +1098,7 @@ final class MessageTable: Table {
     }
 
     func replaceMessage(pendingId: String, with record: MessageRecord) {
+        recordPendingResolution(pendingId: pendingId, serverId: record.id)
         for channelId in cache.keys {
             cache[channelId]?.removeAll { $0.id == pendingId }
         }
@@ -1097,6 +1106,24 @@ final class MessageTable: Table {
             sqlite3_bind_text($0, 1, pendingId, -1, sqliteTransient)
         }
         addMessages([record])
+    }
+
+    func resolvedPendingMessageIds(_ pendingIds: Set<String>) -> [String: UInt64] {
+        var result: [String: UInt64] = [:]
+        for id in pendingIds { result[id] = pendingResolutions[id] }
+        return result
+    }
+
+    private func recordPendingResolution(pendingId: String, serverId: String) {
+        guard pendingId.hasPrefix("pending-"), let numericId = ChatMessageTimelineOrder.serverId(serverId) else { return }
+        if pendingResolutions[pendingId] == nil { pendingResolutionOrder.append(pendingId) }
+        pendingResolutions[pendingId] = numericId
+        // Controllers consume resolutions on the next history update. Bound
+        // session-only aliases; resolved form keys no longer need an alias.
+        if pendingResolutionOrder.count > 512 {
+            for id in pendingResolutionOrder.prefix(128) { pendingResolutions.removeValue(forKey: id) }
+            pendingResolutionOrder.removeFirst(128)
+        }
     }
 
     private static func jsonContent(from data: Data) -> [String: Any] {

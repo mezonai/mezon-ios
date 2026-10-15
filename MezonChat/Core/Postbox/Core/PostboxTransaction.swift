@@ -84,6 +84,10 @@ final class PostboxTransaction {
         messageTable.getMessages(channelId: channelId, limit: limit)
     }
 
+    func resolvedPendingMessageIds(_ pendingIds: Set<String>) -> [String: UInt64] {
+        messageTable.resolvedPendingMessageIds(pendingIds)
+    }
+
     func getRecentMessages(channelId: String, limit: Int = 50) -> [MessageRecord] {
         messageTable.getRecentMessages(channelId: channelId, limit: limit)
     }
