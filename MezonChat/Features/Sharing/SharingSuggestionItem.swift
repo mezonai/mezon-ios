@@ -132,7 +132,7 @@ enum SharingImageProxy {
         guard !t.isEmpty else { return "" }
         if let u = URL(string: t), u.scheme != nil { return t }
         if t.hasPrefix("//") { return "https:\(t)" }
-        let base = MezonConfig.baseImgURL
+        let base = MezonConfig.cloudflareCdnURL
         if t.hasPrefix("/") { return "\(base)\(t)" }
         return "\(base)/\(t)"
     }

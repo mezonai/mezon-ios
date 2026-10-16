@@ -13,7 +13,7 @@ final class WebhookListViewController: BaseViewController {
 
     private let webhookNames = ["Captain hook", "Spidey bot", "Komu Knight"]
     private var webhookAvatars: [String] {
-        let baseUrl = MezonEnvironment.current.baseImgURL
+        let baseUrl = MezonEnvironment.current.cloudflareCdnURL
         return [
             "\(baseUrl)/1787707828677382144/1791037204600983552/1787691797724532700/211_0mezon_logo_white.png",
             "\(baseUrl)/1787707828677382144/1791037204600983552/1787691797724532700/211_1mezon_logo_black.png",

@@ -62,17 +62,17 @@ enum MezonEnvironment {
 
     var useSSL: Bool { return true }
 
-    var baseImgURL: String {
+    var cloudflareCdnURL: String {
         switch self {
-        case .dev:  return Secrets.devBaseImgURL
-        case .prod: return Secrets.prodBaseImgURL
+        case .dev:  return Secrets.devCloudflareCdnURL
+        case .prod: return Secrets.prodCloudflareCdnURL
         }
     }
 
-    var baseMezonImgURL: String {
+    var mezonCdnURL: String {
         switch self {
-        case .dev:  return Secrets.devBaseMezonImgURL
-        case .prod: return Secrets.prodBaseMezonImgURL
+        case .dev:  return Secrets.devMezonCdnURL
+        case .prod: return Secrets.prodMezonCdnURL
         }
     }
 

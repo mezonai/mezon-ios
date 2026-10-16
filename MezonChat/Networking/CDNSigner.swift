@@ -385,7 +385,7 @@ final class CDNSigner {
     }
 
     private static func mediaOrigins() -> [String] {
-        ([MezonConfig.baseImgURL, MezonConfig.baseMezonImgURL] + knownMediaOrigins).compactMap(urlBase)
+        ([MezonConfig.cloudflareCdnURL, MezonConfig.mezonCdnURL] + knownMediaOrigins).compactMap(urlBase)
     }
 
     private static func urlBase(_ raw: String) -> String? {

@@ -51,7 +51,7 @@ private enum ForwardOutgoing {
     }
 
     static func cdnLink(for url: String, into channelID: Int64) -> (src: String, dst: String, url: String)? {
-        var origin = MezonConfig.baseMezonImgURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        var origin = MezonConfig.mezonCdnURL.trimmingCharacters(in: .whitespacesAndNewlines)
         while origin.hasSuffix("/") {
             origin.removeLast()
         }

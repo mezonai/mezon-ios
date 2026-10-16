@@ -1994,14 +1994,14 @@ final class MezonHTTPClient {
             auth: .bearer(token),
             preferHTTPFirst: preferHTTPFirst
         )
-        guard !response.filename.isEmpty else {
+        guard !response.filename.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw MezonError.httpError(statusCode: 0, message: "UploadAttachmentFile returned an empty filename")
         }
         return response
     }
 
     func uploadToMinIO(url: String, data: Data, contentType: String) async throws {
-        guard let uploadURL = URL(string: url) else {
+        guard let uploadURL = PresignedUploadURL.make(url) else {
             throw MezonError.httpError(statusCode: 0, message: "Invalid MinIO URL")
         }
         var request = URLRequest(url: uploadURL)
@@ -2043,7 +2043,7 @@ final class MezonHTTPClient {
             auth: .bearer(token),
             preferHTTPFirst: preferHTTPFirst
         )
-        guard !response.filename.isEmpty else {
+        guard !response.filename.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw MezonError.httpError(statusCode: 0, message: "MultipartUploadAttachmentFileStart returned an empty filename")
         }
         return response
@@ -2074,7 +2074,7 @@ final class MezonHTTPClient {
     }
 
     func uploadPartToMinIO(url: String, data: Data, contentType: String) async throws -> String {
-        guard let uploadURL = URL(string: url) else {
+        guard let uploadURL = PresignedUploadURL.make(url) else {
             throw MezonError.httpError(statusCode: 0, message: "Invalid MinIO URL")
         }
         var request = URLRequest(url: uploadURL)
@@ -2099,7 +2099,7 @@ final class MezonHTTPClient {
     }
 
     func uploadToMinIO(url: String, fileURL: URL, contentType: String) async throws {
-        guard let uploadURL = URL(string: url) else {
+        guard let uploadURL = PresignedUploadURL.make(url) else {
             throw MezonError.httpError(statusCode: 0, message: "Invalid MinIO URL")
         }
         let attrs = try FileManager.default.attributesOfItem(atPath: fileURL.path)
