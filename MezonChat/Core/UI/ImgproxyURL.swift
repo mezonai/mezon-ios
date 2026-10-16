@@ -6,8 +6,25 @@ enum ImgproxyURL {
         let env = MezonEnvironment.current
         return "\(env.imgproxyBaseURL)/\(env.imgproxySigningPath)"
     }
-    private static var cdnHosts: [String] {
-        ["cdn.mezon", "cdn.komu", "profile.mezon"] + [URL(string: MezonConfig.baseImgURL)?.host].compactMap { $0 }
+    private static var cdnHosts: Set<String> {
+        Set([
+            "cdn.mezon.ai", "cdn.mezon.vn", "cdn.komu.vn", "cdn.komu.ai",
+            "profile.mezon.ai", "profile.mezon.vn",
+        ] + [MezonConfig.cloudflareCdnURL, MezonConfig.mezonCdnURL, MezonConfig.profileImgURL]
+            .compactMap { URL(string: $0)?.host?.lowercased() })
+    }
+
+    private static var proxyHosts: Set<String> {
+        Set([
+            "imgproxy.mezon.ai", "imgproxy.mezon.vn", "imgproxy.komu.vn", "imgproxy.komu.ai",
+        ] + [URL(string: MezonEnvironment.current.imgproxyBaseURL)?.host?.lowercased()].compactMap { $0 })
+    }
+
+    private static func hasHost(_ sourceURL: String, in hosts: Set<String>) -> Bool {
+        guard let components = URLComponents(string: sourceURL),
+              let scheme = components.scheme?.lowercased(), ["http", "https"].contains(scheme),
+              let host = components.host?.lowercased() else { return false }
+        return hosts.contains(host)
     }
     private static let skipExtensions: Set<String> = ["gif", "webp"]
 
@@ -28,15 +45,13 @@ enum ImgproxyURL {
 
     static func secureURLString(from sourceURL: String) -> String {
         let s = sourceURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard s.hasPrefix("http://"),
-              cdnHosts.contains(where: { s.contains($0) }) else {
+        guard var components = URLComponents(string: s),
+              components.scheme?.lowercased() == "http",
+              hasHost(s, in: cdnHosts) else {
             return s
         }
-        if var components = URLComponents(string: s) {
-            components.scheme = "https"
-            return components.string ?? "https://" + String(s.dropFirst("http://".count))
-        }
-        return "https://" + String(s.dropFirst("http://".count))
+        components.scheme = "https"
+        return components.string ?? s
     }
 
     static func absoluteResourceURL(from raw: String) -> String {
@@ -44,7 +59,7 @@ enum ImgproxyURL {
         guard !t.isEmpty else { return "" }
         if let u = URL(string: t), u.scheme != nil { return secureURLString(from: t) }
         if t.hasPrefix("//") { return secureURLString(from: "https:\(t)") }
-        let base = MezonConfig.baseImgURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let base = MezonConfig.cloudflareCdnURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         if t.hasPrefix("/") { return "\(base)\(t)" }
         return "\(base)/\(t)"
     }
@@ -58,7 +73,7 @@ enum ImgproxyURL {
     ) -> String {
         let resolvedSourceURL = secureURLString(from: sourceURL)
         guard !resolvedSourceURL.isEmpty else { return resolvedSourceURL }
-        guard cdnHosts.contains(where: { resolvedSourceURL.contains($0) }) else {
+        guard hasHost(resolvedSourceURL, in: cdnHosts) else {
             return resolvedSourceURL
         }
         if !forceProxy && shouldSkipProxy(resolvedSourceURL) {
@@ -79,7 +94,7 @@ enum ImgproxyURL {
     ) -> String {
         let resolvedSourceURL = secureURLString(from: sourceURL)
         guard !resolvedSourceURL.isEmpty else { return resolvedSourceURL }
-        if resolvedSourceURL.contains("imgproxy.mezon") || resolvedSourceURL.contains("imgproxy.komu") {
+        if hasHost(resolvedSourceURL, in: proxyHosts) {
             return resolvedSourceURL
         }
 
@@ -87,7 +102,7 @@ enum ImgproxyURL {
             return resolvedSourceURL
         }
 
-        guard cdnHosts.contains(where: { resolvedSourceURL.contains($0) }) else {
+        guard hasHost(resolvedSourceURL, in: cdnHosts) else {
             return resolvedSourceURL
         }
 
@@ -99,13 +114,13 @@ enum ImgproxyURL {
     static func avatarProxyURL(from sourceURL: String, width: Int = 100, height: Int = 100) -> String {
         let s = secureURLString(from: sourceURL)
         guard !s.isEmpty else { return s }
-        if s.contains("imgproxy.mezon") || s.contains("imgproxy.komu") {
+        if hasHost(s, in: proxyHosts) {
             return s
         }
         guard s.hasPrefix("http://") || s.hasPrefix("https://") else {
             return s
         }
-        guard cdnHosts.contains(where: { s.contains($0) }) else {
+        guard hasHost(s, in: cdnHosts) else {
             return s
         }
         if shouldSkipProxy(s) {
@@ -121,11 +136,11 @@ enum ImgproxyURL {
     static func avatarPreviewProxyURL(from sourceURL: String, width: Int = 100, height: Int = 100) -> String {
         let s = secureURLString(from: sourceURL)
         guard !s.isEmpty else { return s }
-        if s.contains("imgproxy.mezon") || s.contains("imgproxy.komu") {
+        if hasHost(s, in: proxyHosts) {
             return s
         }
         guard s.hasPrefix("http://") || s.hasPrefix("https://") else { return s }
-        guard cdnHosts.contains(where: { s.contains($0) }) else { return s }
+        guard hasHost(s, in: cdnHosts) else { return s }
         let w = max(1, width)
         let h = max(1, height)
         let processingOptions = "rs:fit:\(w):\(h):1/mb:2097152"
@@ -139,7 +154,7 @@ enum ImgproxyURL {
         if shouldSkipProxy(resolvedSourceURL) {
             return resolvedSourceURL
         }
-        guard cdnHosts.contains(where: { resolvedSourceURL.contains($0) }) else {
+        guard hasHost(resolvedSourceURL, in: cdnHosts) else {
             return resolvedSourceURL
         }
         let processingOptions = "rs:\(resizeType):\(width):\(height):1/mb:2097152"

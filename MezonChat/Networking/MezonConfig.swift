@@ -11,8 +11,8 @@ enum MezonConfig {
     static var protoBaseURL: URL     { env.protoBaseURL }
     static var serverKey: String     { env.serverKey }
     static var basicAuthHeader: String { env.basicAuthHeader }
-    static var baseImgURL: String    { env.baseImgURL }
-    static var baseMezonImgURL: String { env.baseMezonImgURL }
+    static var cloudflareCdnURL: String    { normalizedCDNBaseURL(env.cloudflareCdnURL) }
+    static var mezonCdnURL: String { normalizedCDNBaseURL(env.mezonCdnURL) }
     static var profileImgURL: String { env.profileImgURL }
     static var mmnAPIURL: URL         { env.mmnAPIURL }
     static var zkAPIURL: URL          { env.zkAPIURL }
@@ -61,14 +61,23 @@ enum MezonConfig {
         return t.isEmpty ? nil : t
     }
 
-    static func attachmentViewURL(typeCdn: Int32, fallback: String, filename: String) -> String {
+    private static func normalizedCDNBaseURL(_ raw: String) -> String {
+        var base = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        while base.hasSuffix("/") { base.removeLast() }
+        return base
+    }
+
+    static func attachmentViewURL(typeCdn: Int32, fallback: String, filename: String) throws -> String {
+        guard !filename.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw MezonError.httpError(statusCode: 0, message: "Cannot build attachment URL with an empty filename")
+        }
         let baseURL: String
         switch typeCdn {
-        case 1: baseURL = baseMezonImgURL
-        case 2: baseURL = baseImgURL
+        case 1: baseURL = mezonCdnURL
+        case 2: baseURL = cloudflareCdnURL
         default: baseURL = fallback
         }
-        return "\(baseURL)/\(filename)"
+        return "\(normalizedCDNBaseURL(baseURL))/\(filename)"
     }
 
     static func emojiImageURL(emojiId: String) -> URL? {
@@ -78,7 +87,7 @@ enum MezonConfig {
            let url = URL(string: emoji.displayImageURLString) {
             return url
         }
-        let path = "\(env.baseImgURL)/emojis/\(emojiId).webp"
+        let path = "\(env.cloudflareCdnURL)/emojis/\(emojiId).webp"
         return URL(string: path)
     }
 

@@ -105,13 +105,7 @@ extension Mezon_Api_ClanSticker {
 extension CachedClanEmojiRecord {
     var displayImageURLString: String {
         let src = self.src.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !src.isEmpty, URL(string: src)?.scheme != nil { return src }
-        if src.hasPrefix("//") { return "https:\(src)" }
-        if !src.isEmpty {
-            let base = MezonConfig.baseImgURL
-            return src.hasPrefix("/") ? "\(base)\(src)" : "\(base)/\(src)"
-        }
-        return "\(MezonConfig.baseImgURL)/emojis/\(id).webp"
+        return ImgproxyURL.absoluteResourceURL(from: src.isEmpty ? "emojis/\(id).webp" : src)
     }
 
     static func innerName(from shortname: String) -> String {
@@ -129,13 +123,7 @@ extension CachedClanEmojiRecord {
 extension CachedClanStickerRecord {
     var displayImageURLString: String {
         let src = source.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !src.isEmpty, URL(string: src)?.scheme != nil { return src }
-        if src.hasPrefix("//") { return "https:\(src)" }
-        if !src.isEmpty {
-            let base = MezonConfig.baseImgURL
-            return src.hasPrefix("/") ? "\(base)\(src)" : "\(base)/\(src)"
-        }
-        return "\(MezonConfig.baseImgURL)/stickers/\(id).webp"
+        return ImgproxyURL.absoluteResourceURL(from: src.isEmpty ? "stickers/\(id).webp" : src)
     }
 }
 

@@ -465,7 +465,7 @@ final class StickerItemCell: UITableViewCell {
 
         guard let avatar, !avatar.isEmpty else { return }
 
-        let avatarUrl = avatar.hasPrefix("http") ? avatar : "\(MezonConfig.baseImgURL)/\(avatar)"
+        let avatarUrl = ImgproxyURL.absoluteResourceURL(from: avatar)
         let side = Int(Self.creatorAvatarSize * UIScreen.main.scale)
         let loadKey = ImgproxyURL.avatarProxyURL(from: avatarUrl, width: side, height: side)
         let resolvedKey = loadKey.isEmpty ? avatarUrl : loadKey

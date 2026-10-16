@@ -74,6 +74,22 @@ final class AttachmentUploader {
     static let minMultipartFileSize = 50 * 1024 * 1024
     private static let maxParallelParts = 3
 
+    static func multipartPartCount(fileSize: Int) -> Int {
+        guard fileSize > 0 else { return 0 }
+        return (fileSize - 1) / partSize + 1
+    }
+
+    static func validateMultipartUpload(partURLs: [String], fileSize: Int) throws {
+        let expectedCount = multipartPartCount(fileSize: fileSize)
+        guard expectedCount > 0, partURLs.count == expectedCount,
+              partURLs.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
+            throw MezonError.httpError(
+                statusCode: 0,
+                message: "Invalid multipart upload plan: expected \(expectedCount) nonempty part URLs, received \(partURLs.count)"
+            )
+        }
+    }
+
     private struct MultipartNotApplicable: Error {}
 
     private let stateLock = NSLock()
@@ -152,7 +168,7 @@ final class AttachmentUploader {
                 width: width, height: height, channelId: channelId, token: token,
                 preferHTTPFirst: preferHTTPFirst)
         }
-        guard !info.filename.isEmpty else {
+        guard !info.filename.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw MezonError.httpError(statusCode: 0, message: "UploadAttachmentFile returned an empty filename")
         }
         _ = try await MinIOStreamingUploader.shared.put(
@@ -163,7 +179,7 @@ final class AttachmentUploader {
         reportProgress(1, forKey: progressKey)
         return UploadedAttachmentFile(
             serverFilename: info.filename,
-            cdnURL: MezonConfig.attachmentViewURL(typeCdn: info.typeCdn, fallback: MezonConfig.baseImgURL, filename: info.filename))
+            cdnURL: try MezonConfig.attachmentViewURL(typeCdn: info.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: info.filename))
     }
 
     private func uploadMultipart(
@@ -179,7 +195,7 @@ final class AttachmentUploader {
         preferHTTPFirst: Bool,
         network: MezonHTTPClient
     ) async throws -> UploadedAttachmentFile {
-        let requestedPartCount = max(1, Int((Double(fileSize) / Double(Self.partSize)).rounded(.up)))
+        let requestedPartCount = Self.multipartPartCount(fileSize: fileSize)
         let start = try await network.multipartUploadAttachmentFileStart(
             filename: filename, filetype: filetype, size: fileSize,
             width: width, height: height, partCount: requestedPartCount,
@@ -197,13 +213,14 @@ final class AttachmentUploader {
             reportProgress(1, forKey: progressKey)
             return UploadedAttachmentFile(
                 serverFilename: start.filename,
-                cdnURL: MezonConfig.attachmentViewURL(typeCdn: start.typeCdn, fallback: MezonConfig.baseImgURL, filename: start.filename))
+                cdnURL: try MezonConfig.attachmentViewURL(typeCdn: start.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: start.filename))
         }
 
         if urls.isEmpty || uploadId.isEmpty {
             throw MultipartNotApplicable()
         }
 
+        try Self.validateMultipartUpload(partURLs: urls, fileSize: fileSize)
         let partCount = urls.count
         let total = max(fileSize, 1)
 
@@ -251,7 +268,7 @@ final class AttachmentUploader {
         let serverFilename = finish.filename.isEmpty ? start.filename : finish.filename
         return UploadedAttachmentFile(
             serverFilename: serverFilename,
-            cdnURL: MezonConfig.attachmentViewURL(typeCdn: start.typeCdn, fallback: MezonConfig.baseImgURL, filename: serverFilename))
+            cdnURL: try MezonConfig.attachmentViewURL(typeCdn: start.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: serverFilename))
     }
 
     private static func readChunk(fileURL: URL, offset: Int, length: Int) throws -> Data {
@@ -260,7 +277,11 @@ final class AttachmentUploader {
         if offset > 0 {
             try handle.seek(toOffset: UInt64(offset))
         }
-        return handle.readData(ofLength: length)
+        let chunk = handle.readData(ofLength: length)
+        guard chunk.count == length else {
+            throw MezonError.httpError(statusCode: 0, message: "Multipart upload file ended before the expected part length")
+        }
+        return chunk
     }
 
     private func reportProgress(_ value: Double, forKey key: String) {
@@ -285,6 +306,19 @@ final class AttachmentUploader {
 extension Notification.Name {
     static let mezonAttachmentUploadProgress = Notification.Name("mezon.attachment.uploadProgress")
     static let mezonAttachmentUploadSlotStateChanged = Notification.Name("mezon.attachment.uploadSlotStateChanged")
+}
+
+enum PresignedUploadURL {
+    static func make(_ raw: String) -> URL? {
+        guard let url = URL(string: raw) else { return nil }
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              components.scheme?.lowercased() == "https", components.port == 443 else {
+            return url
+        }
+
+        components.port = nil
+        return components.url
+    }
 }
 
 final class MinIOStreamingUploader: NSObject, URLSessionTaskDelegate {
@@ -322,7 +356,7 @@ final class MinIOStreamingUploader: NSObject, URLSessionTaskDelegate {
         contentType: String,
         onProgress: @escaping (Double) -> Void
     ) async throws -> (etag: String?, statusCode: Int) {
-        guard let uploadURL = URL(string: url) else {
+        guard let uploadURL = PresignedUploadURL.make(url) else {
             throw MezonError.httpError(statusCode: 0, message: "Invalid MinIO URL")
         }
         var request = URLRequest(url: uploadURL)
@@ -364,7 +398,7 @@ final class MinIOStreamingUploader: NSObject, URLSessionTaskDelegate {
         contentType: String,
         onProgress: @escaping (Double) -> Void
     ) async throws -> (etag: String?, statusCode: Int) {
-        guard let uploadURL = URL(string: url) else {
+        guard let uploadURL = PresignedUploadURL.make(url) else {
             throw MezonError.httpError(statusCode: 0, message: "Invalid MinIO URL")
         }
         var request = URLRequest(url: uploadURL)
