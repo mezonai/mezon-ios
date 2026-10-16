@@ -10,6 +10,10 @@ enum MessageAction: CaseIterable {
     case copyText
     case shareText
     case saveImage
+    case saveVideo
+    case copyImageLink
+    case copyVideoLink
+    case shareImage
     case copyImage
     case addToInbox
     case markUnread
@@ -34,6 +38,10 @@ enum MessageAction: CaseIterable {
         case .copyText:         return L(L10n.MessageAction.copyText)
         case .shareText:        return L(L10n.MessageAction.shareText)
         case .saveImage:        return L(L10n.MessageAction.saveImage)
+        case .saveVideo:        return L(L10n.MessageAction.saveVideo)
+        case .copyImageLink:    return L(L10n.MessageAction.copyImageLink)
+        case .copyVideoLink:    return L(L10n.MessageAction.copyVideoLink)
+        case .shareImage:       return L(L10n.MessageAction.shareImage)
         case .copyImage:        return L(L10n.MessageAction.copyImage)
         case .addToInbox:       return L(L10n.MessageAction.addToInbox)
         case .markUnread:       return L(L10n.MessageAction.markUnread)
@@ -59,7 +67,7 @@ enum MessageAction: CaseIterable {
         case .createThread:     return nil
         case .copyText:         return "Chat/IconCopy"
         case .shareText:        return nil
-        case .saveImage:        return nil
+        case .saveImage, .saveVideo, .copyImageLink, .copyVideoLink, .shareImage: return nil
         case .copyImage:        return "Chat/IconCopy"
         case .addToInbox:       return nil
         case .markUnread:       return "Chat/IconMarkUnread"
@@ -79,7 +87,9 @@ enum MessageAction: CaseIterable {
     var sfSymbolName: String? {
         switch self {
         case .createThread:     return "square.and.pencil"
-        case .saveImage:        return "square.and.arrow.down"
+        case .saveImage, .saveVideo: return "square.and.arrow.down"
+        case .copyImageLink, .copyVideoLink: return "link"
+        case .shareImage:       return "square.and.arrow.up"
         case .shareText:        return "square.and.arrow.up"
         case .addToInbox:       return "tray.and.arrow.down"
         case .topicDiscussion:  return "text.bubble"
@@ -97,15 +107,17 @@ enum MessageAction: CaseIterable {
     }
 
     enum Group {
-        case frequent, normal, warning
+        case frequent, normal, media, warning
     }
 
     var group: Group {
         switch self {
         case .giveACoffee, .reply, .forwardMessage, .forwardAll, .createThread, .resend, .editMessage, .forward:
             return .frequent
-        case .copyText, .shareText, .saveImage, .copyImage, .addToInbox, .markUnread, .topicDiscussion, .pinMessage, .unpinMessage, .markMessage, .quickMenu:
+        case .copyText, .shareText, .addToInbox, .markUnread, .topicDiscussion, .pinMessage, .unpinMessage, .markMessage, .quickMenu:
             return .normal
+        case .saveImage, .saveVideo, .copyImageLink, .copyVideoLink, .copyImage, .shareImage:
+            return .media
         case .deleteMessage, .report:
             return .warning
         }
@@ -281,15 +293,20 @@ final class MessageActionSheetController: ViewController {
         if hasText {
             actions.append(.shareText)
         }
-        if display.singleImageMediaAttachment != nil {
-            actions.append(.saveImage)
+        if let attachment = display.primaryMediaAttachment {
+            actions.append(attachment.isVideo ? .saveVideo : .saveImage)
+            if !attachment.url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                actions.append(attachment.isVideo ? .copyVideoLink : .copyImageLink)
+            }
+        }
+        if display.primaryImageAttachment != nil {
             actions.append(.copyImage)
+            actions.append(.shareImage)
         }
         if Self.canAddToInbox(display: display) {
             actions.append(.addToInbox)
         }
 
-        // actions.append(.markUnread)
         if canCreateTopicDiscussion {
             actions.append(.topicDiscussion)
         }
@@ -498,12 +515,14 @@ private final class MessageActionSheetNode: ASDisplayNode {
 
         let frequent = messageActions.filter { $0.group == .frequent }
         let normal = messageActions.filter { $0.group == .normal }
+        let media = messageActions.filter { $0.group == .media }
         let warning = messageActions.filter { $0.group == .warning }
 
         let quickReactionsBlockH: CGFloat = includeQuickReactions ? (emojiRowH + groupSpacing) : 0
         var totalContentH: CGFloat = quickReactionsBlockH
         if !frequent.isEmpty { totalContentH += CGFloat(frequent.count) * rowH + groupSpacing }
         if !normal.isEmpty { totalContentH += CGFloat(normal.count) * rowH + groupSpacing }
+        if !media.isEmpty { totalContentH += CGFloat(media.count) * rowH + groupSpacing }
         if !warning.isEmpty { totalContentH += CGFloat(warning.count) * rowH + groupSpacing }
         totalContentH += 10
 
@@ -570,6 +589,7 @@ private final class MessageActionSheetNode: ASDisplayNode {
 
         let frequent = messageActions.filter { $0.group == .frequent }
         let normal = messageActions.filter { $0.group == .normal }
+        let media = messageActions.filter { $0.group == .media }
         let warning = messageActions.filter { $0.group == .warning }
 
         if !frequent.isEmpty {
@@ -579,6 +599,10 @@ private final class MessageActionSheetNode: ASDisplayNode {
         if !normal.isEmpty {
             buildActionGroup(normal, at: y, contentW: contentW, isWarning: false)
             y += CGFloat(normal.count) * rowH + groupSpacing
+        }
+        if !media.isEmpty {
+            buildActionGroup(media, at: y, contentW: contentW, isWarning: false)
+            y += CGFloat(media.count) * rowH + groupSpacing
         }
         if !warning.isEmpty {
             buildActionGroup(warning, at: y, contentW: contentW, isWarning: true)

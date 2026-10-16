@@ -1,7 +1,6 @@
 import Foundation
 import UIKit
 import AsyncDisplayKit
-import Photos
 import AVFoundation
 
 private extension ExistingVideoSharePayload {
@@ -455,12 +454,6 @@ private final class GalleryVideoSharePreparationOverlay: UIView {
 }
 
 final class GalleryController: UIViewController {
-    private enum PhotoLibrarySaveAuthorizationResult {
-        case authorized
-        case denied
-        case restricted
-    }
-
     private var items: [GalleryItemInfo]
     private let initialIndex: Int
     private let channelItemsLoader: (() async -> [GalleryItemInfo])?
@@ -486,14 +479,7 @@ final class GalleryController: UIViewController {
     private let placeholderImageView = UIImageView()
     private var didPerformDeferredSetup = false
 
-    private var isSavingVideo = false
-    private var didSetupVideoSaveOverlay = false
-    private var videoSaveProgressObservation: NSKeyValueObservation?
-    private let videoSaveBackdrop = UIView()
-    private let videoSavePanel = UIView()
-    private let videoSaveSpinner = UIActivityIndicatorView(style: .large)
-    private let videoSaveLabel = UILabel()
-    private let videoSaveProgressView = UIProgressView(progressViewStyle: .default)
+    private lazy var mediaActionHandler = MediaActionHandler(presenter: self)
     private var videoSharePreparationOverlay: GalleryVideoSharePreparationOverlay?
     private var shouldResumeVideoPlaybackWhenActive = false
 
@@ -705,7 +691,6 @@ final class GalleryController: UIViewController {
         loadChannelItemsIfNeeded()
 
         dismissPlaceholderWhenGalleryReady()
-        setupVideoSaveOverlayIfNeeded()
     }
 
     private func dismissPlaceholderWhenGalleryReady(attempt: Int = 0) {
@@ -738,91 +723,6 @@ final class GalleryController: UIViewController {
             }
             self.dismissPlaceholderWhenGalleryReady(attempt: attempt + 1)
         }
-    }
-
-    private func setupVideoSaveOverlayIfNeeded() {
-        guard !didSetupVideoSaveOverlay else { return }
-        didSetupVideoSaveOverlay = true
-
-        videoSaveBackdrop.translatesAutoresizingMaskIntoConstraints = false
-        videoSaveBackdrop.backgroundColor = UIColor.black.withAlphaComponent(0.55)
-        videoSaveBackdrop.isHidden = true
-        videoSaveBackdrop.isUserInteractionEnabled = true
-        view.addSubview(videoSaveBackdrop)
-
-        videoSavePanel.translatesAutoresizingMaskIntoConstraints = false
-        videoSavePanel.backgroundColor = UIColor(red: 0.12, green: 0.12, blue: 0.16, alpha: 0.96)
-        videoSavePanel.layer.cornerRadius = 14
-        videoSavePanel.isHidden = true
-        videoSaveBackdrop.addSubview(videoSavePanel)
-
-        videoSaveSpinner.translatesAutoresizingMaskIntoConstraints = false
-        videoSaveSpinner.color = .white
-        videoSaveSpinner.hidesWhenStopped = true
-        videoSavePanel.addSubview(videoSaveSpinner)
-
-        videoSaveLabel.translatesAutoresizingMaskIntoConstraints = false
-        videoSaveLabel.font = .systemFont(ofSize: 14, weight: .medium)
-        videoSaveLabel.textColor = .white
-        videoSaveLabel.textAlignment = .center
-        videoSaveLabel.numberOfLines = 2
-        videoSavePanel.addSubview(videoSaveLabel)
-
-        videoSaveProgressView.translatesAutoresizingMaskIntoConstraints = false
-        videoSaveProgressView.progressTintColor = .systemBlue
-        videoSaveProgressView.trackTintColor = UIColor.white.withAlphaComponent(0.25)
-        videoSaveProgressView.progress = 0
-        videoSavePanel.addSubview(videoSaveProgressView)
-
-        NSLayoutConstraint.activate([
-            videoSaveBackdrop.topAnchor.constraint(equalTo: view.topAnchor),
-            videoSaveBackdrop.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            videoSaveBackdrop.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            videoSaveBackdrop.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-
-            videoSavePanel.centerXAnchor.constraint(equalTo: videoSaveBackdrop.centerXAnchor),
-            videoSavePanel.centerYAnchor.constraint(equalTo: videoSaveBackdrop.centerYAnchor),
-            videoSavePanel.widthAnchor.constraint(equalToConstant: 240),
-
-            videoSaveSpinner.topAnchor.constraint(equalTo: videoSavePanel.topAnchor, constant: 22),
-            videoSaveSpinner.centerXAnchor.constraint(equalTo: videoSavePanel.centerXAnchor),
-
-            videoSaveLabel.topAnchor.constraint(equalTo: videoSaveSpinner.bottomAnchor, constant: 12),
-            videoSaveLabel.leadingAnchor.constraint(equalTo: videoSavePanel.leadingAnchor, constant: 16),
-            videoSaveLabel.trailingAnchor.constraint(equalTo: videoSavePanel.trailingAnchor, constant: -16),
-
-            videoSaveProgressView.topAnchor.constraint(equalTo: videoSaveLabel.bottomAnchor, constant: 14),
-            videoSaveProgressView.leadingAnchor.constraint(equalTo: videoSavePanel.leadingAnchor, constant: 20),
-            videoSaveProgressView.trailingAnchor.constraint(equalTo: videoSavePanel.trailingAnchor, constant: -20),
-            videoSaveProgressView.bottomAnchor.constraint(equalTo: videoSavePanel.bottomAnchor, constant: -22),
-        ])
-    }
-
-    private func showVideoSaveOverlay(progress: Float) {
-        setupVideoSaveOverlayIfNeeded()
-        let percent = Int((min(max(progress, 0), 1) * 100).rounded())
-        videoSaveLabel.text = "\(L(L10n.Gallery.videoDownloading)) \(percent)%"
-        videoSaveProgressView.isHidden = false
-        videoSaveProgressView.setProgress(min(max(progress, 0), 1), animated: progress > 0)
-        videoSaveSpinner.startAnimating()
-        videoSaveBackdrop.isHidden = false
-        videoSavePanel.isHidden = false
-        view.bringSubviewToFront(videoSaveBackdrop)
-    }
-
-    private func updateVideoSaveOverlaySavingPhase() {
-        videoSaveLabel.text = L(L10n.Gallery.videoSaving)
-        videoSaveProgressView.setProgress(1, animated: true)
-    }
-
-    private func hideVideoSaveOverlay() {
-        videoSaveProgressObservation?.invalidate()
-        videoSaveProgressObservation = nil
-        videoSaveSpinner.stopAnimating()
-        videoSaveProgressView.progress = 0
-        videoSaveBackdrop.isHidden = true
-        videoSavePanel.isHidden = true
-        isSavingVideo = false
     }
 
     private func showVideoSharePreparationOverlay(progress: Float, over activity: UIActivityViewController) {
@@ -1171,7 +1071,7 @@ final class GalleryController: UIViewController {
                 guard let self else { return }
                 let item = self.items[self.pagingNode.centralItemIndex]
                 let videoURLString = item.sourceURL ?? item.url
-                self.saveVideoToPhotoLibrary(urlString: videoURLString)
+                self.mediaActionHandler.saveVideoToPhotoLibrary(urlString: videoURLString)
             })
         } else {
             sheet.addAction(UIAlertAction(title: L(L10n.MessageAction.saveImage), style: .default) { [weak self] _ in
@@ -1181,7 +1081,7 @@ final class GalleryController: UIViewController {
                     Toast.error(L(L10n.Gallery.imageSaveFailed))
                     return
                 }
-                self.saveImageToPhotoLibrary(image)
+                self.mediaActionHandler.saveImageToPhotoLibrary(image)
             })
             sheet.addAction(UIAlertAction(title: L(L10n.MessageAction.copyImage), style: .default) { [weak self] _ in
                 guard let node = self?.pagingNode.currentItemNode() as? ChatImageGalleryItemNode,
@@ -1194,6 +1094,12 @@ final class GalleryController: UIViewController {
         sheet.addAction(UIAlertAction(title: "Share", style: .default) { [weak self] _ in
             guard let self else { return }
             let item = self.items[self.pagingNode.centralItemIndex]
+            if !item.isVideo,
+               let node = self.pagingNode.currentItemNode() as? ChatImageGalleryItemNode,
+               let image = node.currentImage {
+                MediaActionHandler.shareImage(image, from: self, sourceView: self.moreButton)
+                return
+            }
             var shareItems: [Any] = []
             var videoProvider: GalleryVideoActivityItemProvider?
             if item.isVideo,
@@ -1201,9 +1107,6 @@ final class GalleryController: UIViewController {
                let provider = GalleryVideoActivityItemProvider(payload: payload) {
                 videoProvider = provider
                 shareItems.append(provider)
-            } else if let node = self.pagingNode.currentItemNode() as? ChatImageGalleryItemNode,
-               let image = node.currentImage {
-                shareItems.append(image)
             } else if let url = URL(string: item.url) {
                 shareItems.append(url)
             }
@@ -1221,7 +1124,7 @@ final class GalleryController: UIViewController {
                 videoProvider.photoLibrarySaveHandler = { [weak self, weak activity] in
                     guard let self else { return }
                     let save: () -> Void = { [weak self] in
-                        self?.saveVideoToPhotoLibrary(urlString: videoURLString)
+                        self?.mediaActionHandler.saveVideoToPhotoLibrary(urlString: videoURLString)
                     }
                     if activity?.presentingViewController != nil {
                         activity?.dismiss(animated: false, completion: save)
@@ -1285,196 +1188,6 @@ final class GalleryController: UIViewController {
             popover.sourceRect = moreButton.bounds
         }
         present(sheet, animated: true)
-    }
-
-    private func saveImageToPhotoLibrary(_ image: UIImage) {
-        requestPhotoLibrarySaveAuthorization { [weak self] result in
-            switch result {
-            case .authorized:
-                PHPhotoLibrary.shared().performChanges({
-                    PHAssetChangeRequest.creationRequestForAsset(from: image)
-                }, completionHandler: { success, error in
-                    DispatchQueue.main.async {
-                        if success {
-                            Toast.success(L(L10n.Gallery.imageSaved))
-                        } else {
-                            Toast.error(error?.localizedDescription ?? L(L10n.Gallery.imageSaveFailed))
-                        }
-                    }
-                })
-            case .denied:
-                DispatchQueue.main.async {
-                    self?.presentPhotoPermissionSettingsAlert()
-                }
-            case .restricted:
-                DispatchQueue.main.async {
-                    Toast.error(L(L10n.Gallery.photoPermissionDenied))
-                }
-            }
-        }
-    }
-
-    private func saveVideoToPhotoLibrary(urlString: String) {
-        guard !isSavingVideo else { return }
-        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let remoteURL = URL(string: trimmed) else {
-            Toast.error(L(L10n.Gallery.videoSaveFailed))
-            return
-        }
-
-        isSavingVideo = true
-        requestPhotoLibrarySaveAuthorization { [weak self] result in
-            guard let self else { return }
-            switch result {
-            case .authorized:
-                DispatchQueue.main.async {
-                    self.showVideoSaveOverlay(progress: 0)
-                }
-                CDNSigner.shared.downloadTask(with: remoteURL, in: .shared, onStart: { [weak self] started in
-                    self?.videoSaveProgressObservation = started.progress.observe(\.fractionCompleted) { [weak self] progress, _ in
-                        DispatchQueue.main.async {
-                            self?.showVideoSaveOverlay(progress: Float(progress.fractionCompleted))
-                        }
-                    }
-                }) { [weak self] tempURL, response, error in
-                    guard let self else { return }
-                    guard let tempURL, error == nil else {
-                        DispatchQueue.main.async {
-                            self.hideVideoSaveOverlay()
-                            Toast.error(error?.localizedDescription ?? L(L10n.Gallery.videoSaveFailed))
-                        }
-                        return
-                    }
-
-                    let ext = remoteURL.pathExtension.isEmpty ? "mp4" : remoteURL.pathExtension
-                    let destURL = FileManager.default.temporaryDirectory
-                        .appendingPathComponent("gallery-video-\(UUID().uuidString).\(ext)")
-
-                    do {
-                        if FileManager.default.fileExists(atPath: destURL.path) {
-                            try FileManager.default.removeItem(at: destURL)
-                        }
-                        try FileManager.default.moveItem(at: tempURL, to: destURL)
-                    } catch {
-                        DispatchQueue.main.async {
-                            self.hideVideoSaveOverlay()
-                            Toast.error(L(L10n.Gallery.videoSaveFailed))
-                        }
-                        return
-                    }
-
-                    DispatchQueue.main.async {
-                        self.updateVideoSaveOverlaySavingPhase()
-                    }
-
-                    let savedAt = Date()
-                    PHPhotoLibrary.shared().performChanges({
-                        let request = PHAssetCreationRequest.forAsset()
-                        request.creationDate = savedAt
-                        request.addResource(with: .video, fileURL: destURL, options: nil)
-                    }, completionHandler: { success, saveError in
-                        try? FileManager.default.removeItem(at: destURL)
-                        DispatchQueue.main.async {
-                            self.hideVideoSaveOverlay()
-                            if success {
-                                Toast.success(L(L10n.Gallery.videoSaved))
-                            } else {
-                                Toast.error(saveError?.localizedDescription ?? L(L10n.Gallery.videoSaveFailed))
-                            }
-                        }
-                    })
-                }
-            case .denied:
-                DispatchQueue.main.async {
-                    self.hideVideoSaveOverlay()
-                    self.presentPhotoPermissionSettingsAlert()
-                }
-            case .restricted:
-                DispatchQueue.main.async {
-                    self.hideVideoSaveOverlay()
-                    Toast.error(L(L10n.Gallery.photoPermissionDenied))
-                }
-            }
-        }
-    }
-
-    private func requestPhotoLibrarySaveAuthorization(completion: @escaping (PhotoLibrarySaveAuthorizationResult) -> Void) {
-        if #available(iOS 14.0, *) {
-            switch PHPhotoLibrary.authorizationStatus(for: .addOnly) {
-            case .authorized, .limited:
-                completion(.authorized)
-            case .notDetermined:
-                PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
-                    switch status {
-                    case .authorized, .limited:
-                        completion(.authorized)
-                    case .denied:
-                        completion(.denied)
-                    case .restricted:
-                        completion(.restricted)
-                    case .notDetermined:
-                        completion(.denied)
-                    @unknown default:
-                        completion(.denied)
-                    }
-                }
-            case .denied:
-                completion(.denied)
-            case .restricted:
-                completion(.restricted)
-            @unknown default:
-                completion(.denied)
-            }
-        } else {
-            switch PHPhotoLibrary.authorizationStatus() {
-            case .authorized, .limited:
-                completion(.authorized)
-            case .notDetermined:
-                PHPhotoLibrary.requestAuthorization { status in
-                    switch status {
-                    case .authorized, .limited:
-                        completion(.authorized)
-                    case .denied:
-                        completion(.denied)
-                    case .restricted:
-                        completion(.restricted)
-                    case .notDetermined:
-                        completion(.denied)
-                    @unknown default:
-                        completion(.denied)
-                    }
-                }
-            case .denied:
-                completion(.denied)
-            case .restricted:
-                completion(.restricted)
-            @unknown default:
-                completion(.denied)
-            }
-        }
-    }
-
-    private func presentPhotoPermissionSettingsAlert() {
-        let presentAlert = { [weak self] in
-            guard let self else { return }
-            let alert = UIAlertController(
-                title: L(L10n.Gallery.photoPermissionTitle),
-                message: L(L10n.Gallery.photoPermissionMessage),
-                preferredStyle: .alert
-            )
-            alert.addAction(UIAlertAction(title: L(L10n.Common.cancel), style: .cancel))
-            alert.addAction(UIAlertAction(title: L(L10n.Common.settings), style: .default) { _ in
-                guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
-                UIApplication.shared.open(url)
-            })
-            self.present(alert, animated: true)
-        }
-
-        if let presentedViewController {
-            presentedViewController.dismiss(animated: true, completion: presentAlert)
-        } else {
-            presentAlert()
-        }
     }
 
     @objc private func handlePanDismiss(_ gesture: UIPanGestureRecognizer) {
