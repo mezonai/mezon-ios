@@ -8650,6 +8650,8 @@ struct Mezon_Api_GenerateMeetTokenExternalResponse: Sendable {
 
   var guestAccessToken: String = String()
 
+  var url: String = String()
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
@@ -9489,6 +9491,61 @@ struct Mezon_Api_GenerateCDNSignatureResponse: Sendable {
   // methods supported on all messages.
 
   var signature: String = String()
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+/// Where a client publishes to or watches a stream channel served by mezon-streaming-server.
+struct Mezon_Api_GetStreamPlaybackRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var channelID: Int64 = 0
+
+  /// Publish (WHIP) instead of watching.
+  var publish: Bool = false
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Mezon_Api_GetStreamPlaybackResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// Bearer token for whip_url and whep_url.
+  var token: String = String()
+
+  /// Publish: the origin's WHIP endpoint.
+  var whipURL: String = String()
+
+  /// Watch over WebRTC; empty when no edge has room, and the client then plays hls_url.
+  var whepURL: String = String()
+
+  /// Watch over LL-HLS, with the credential in its query. Also the fallback when WebRTC cannot connect.
+  var hlsURL: String = String()
+
+  /// Unix seconds; the token is refused for new sessions after this.
+  var expiresAt: Int64 = 0
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Mezon_Api_LinkCDNFileRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var src: String = String()
+
+  var dst: String = String()
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -25802,7 +25859,7 @@ extension Mezon_Api_ListClanDiscover: SwiftProtobuf.Message, SwiftProtobuf._Mess
 
 extension Mezon_Api_GenerateMeetTokenExternalResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".GenerateMeetTokenExternalResponse"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}token\0\u{3}guest_user_id\0\u{3}guest_access_token\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}token\0\u{3}guest_user_id\0\u{3}guest_access_token\0\u{1}url\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -25813,6 +25870,7 @@ extension Mezon_Api_GenerateMeetTokenExternalResponse: SwiftProtobuf.Message, Sw
       case 1: try { try decoder.decodeSingularStringField(value: &self.token) }()
       case 2: try { try decoder.decodeSingularInt64Field(value: &self.guestUserID) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.guestAccessToken) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.url) }()
       default: break
       }
     }
@@ -25828,6 +25886,9 @@ extension Mezon_Api_GenerateMeetTokenExternalResponse: SwiftProtobuf.Message, Sw
     if !self.guestAccessToken.isEmpty {
       try visitor.visitSingularStringField(value: self.guestAccessToken, fieldNumber: 3)
     }
+    if !self.url.isEmpty {
+      try visitor.visitSingularStringField(value: self.url, fieldNumber: 4)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -25835,6 +25896,7 @@ extension Mezon_Api_GenerateMeetTokenExternalResponse: SwiftProtobuf.Message, Sw
     if lhs.token != rhs.token {return false}
     if lhs.guestUserID != rhs.guestUserID {return false}
     if lhs.guestAccessToken != rhs.guestAccessToken {return false}
+    if lhs.url != rhs.url {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -27459,6 +27521,126 @@ extension Mezon_Api_GenerateCDNSignatureResponse: SwiftProtobuf.Message, SwiftPr
 
   static func ==(lhs: Mezon_Api_GenerateCDNSignatureResponse, rhs: Mezon_Api_GenerateCDNSignatureResponse) -> Bool {
     if lhs.signature != rhs.signature {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Api_GetStreamPlaybackRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".GetStreamPlaybackRequest"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}channel_id\0\u{1}publish\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.channelID) }()
+      case 2: try { try decoder.decodeSingularBoolField(value: &self.publish) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.channelID != 0 {
+      try visitor.visitSingularInt64Field(value: self.channelID, fieldNumber: 1)
+    }
+    if self.publish != false {
+      try visitor.visitSingularBoolField(value: self.publish, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Api_GetStreamPlaybackRequest, rhs: Mezon_Api_GetStreamPlaybackRequest) -> Bool {
+    if lhs.channelID != rhs.channelID {return false}
+    if lhs.publish != rhs.publish {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Api_GetStreamPlaybackResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".GetStreamPlaybackResponse"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}token\0\u{3}whip_url\0\u{3}whep_url\0\u{3}hls_url\0\u{3}expires_at\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.token) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.whipURL) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.whepURL) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.hlsURL) }()
+      case 5: try { try decoder.decodeSingularInt64Field(value: &self.expiresAt) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.token.isEmpty {
+      try visitor.visitSingularStringField(value: self.token, fieldNumber: 1)
+    }
+    if !self.whipURL.isEmpty {
+      try visitor.visitSingularStringField(value: self.whipURL, fieldNumber: 2)
+    }
+    if !self.whepURL.isEmpty {
+      try visitor.visitSingularStringField(value: self.whepURL, fieldNumber: 3)
+    }
+    if !self.hlsURL.isEmpty {
+      try visitor.visitSingularStringField(value: self.hlsURL, fieldNumber: 4)
+    }
+    if self.expiresAt != 0 {
+      try visitor.visitSingularInt64Field(value: self.expiresAt, fieldNumber: 5)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Api_GetStreamPlaybackResponse, rhs: Mezon_Api_GetStreamPlaybackResponse) -> Bool {
+    if lhs.token != rhs.token {return false}
+    if lhs.whipURL != rhs.whipURL {return false}
+    if lhs.whepURL != rhs.whepURL {return false}
+    if lhs.hlsURL != rhs.hlsURL {return false}
+    if lhs.expiresAt != rhs.expiresAt {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Api_LinkCDNFileRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".LinkCDNFileRequest"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}src\0\u{1}dst\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.src) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.dst) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.src.isEmpty {
+      try visitor.visitSingularStringField(value: self.src, fieldNumber: 1)
+    }
+    if !self.dst.isEmpty {
+      try visitor.visitSingularStringField(value: self.dst, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Api_LinkCDNFileRequest, rhs: Mezon_Api_LinkCDNFileRequest) -> Bool {
+    if lhs.src != rhs.src {return false}
+    if lhs.dst != rhs.dst {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

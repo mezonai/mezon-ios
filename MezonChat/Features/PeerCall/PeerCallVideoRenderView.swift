@@ -1,3 +1,4 @@
+import Accelerate
 import AVFoundation
 import WebRTC
 import MetalKit
@@ -491,27 +492,39 @@ private final class PeerCallSampleBufferRenderSurface: UIView, RTCVideoRenderer 
         let dstYStride = CVPixelBufferGetBytesPerRowOfPlane(output, 0)
         let dstUVStride = CVPixelBufferGetBytesPerRowOfPlane(output, 1)
         let dstY = dstYBase.assumingMemoryBound(to: UInt8.self)
-        let dstUV = dstUVBase.assumingMemoryBound(to: UInt8.self)
         let srcY = i420.dataY
-        let srcU = i420.dataU
-        let srcV = i420.dataV
         let srcYStride = Int(i420.strideY)
-        let srcUStride = Int(i420.strideU)
-        let srcVStride = Int(i420.strideV)
         for row in 0..<height {
             memcpy(dstY + row * dstYStride, srcY + row * srcYStride, width)
         }
-        let chromaWidth = (width + 1) / 2
-        let chromaHeight = (height + 1) / 2
-        for row in 0..<chromaHeight {
-            let uRow = srcU + row * srcUStride
-            let vRow = srcV + row * srcVStride
-            let uvRow = dstUV + row * dstUVStride
-            for col in 0..<chromaWidth {
-                uvRow[col * 2] = uRow[col]
-                uvRow[col * 2 + 1] = vRow[col]
-            }
-        }
-        return output
+        let chromaWidth = vImagePixelCount((width + 1) / 2)
+        let chromaHeight = vImagePixelCount((height + 1) / 2)
+        let chromaPlanes = UnsafeMutablePointer<vImage_Buffer>.allocate(capacity: 2)
+        defer { chromaPlanes.deallocate() }
+        chromaPlanes.initialize(to: vImage_Buffer(
+            data: UnsafeMutableRawPointer(mutating: i420.dataU),
+            height: chromaHeight,
+            width: chromaWidth,
+            rowBytes: Int(i420.strideU)
+        ))
+        (chromaPlanes + 1).initialize(to: vImage_Buffer(
+            data: UnsafeMutableRawPointer(mutating: i420.dataV),
+            height: chromaHeight,
+            width: chromaWidth,
+            rowBytes: Int(i420.strideV)
+        ))
+        var sources: [UnsafePointer<vImage_Buffer>?] = [UnsafePointer(chromaPlanes), UnsafePointer(chromaPlanes + 1)]
+        var destinations: [UnsafeMutableRawPointer?] = [dstUVBase, dstUVBase + 1]
+        let error = vImageConvert_PlanarToChunky8(
+            &sources,
+            &destinations,
+            2,
+            2,
+            chromaWidth,
+            chromaHeight,
+            dstUVStride,
+            vImage_Flags(kvImageNoFlags)
+        )
+        return error == kvImageNoError ? output : nil
     }
 }

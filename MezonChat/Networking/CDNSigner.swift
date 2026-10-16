@@ -57,7 +57,7 @@ final class CDNSigner {
         let build: (String) -> URL?
     }
 
-    private static let refreshAfter: TimeInterval = 3 * 60 * 60
+    private static let refreshAfter: TimeInterval = 2 * 60 * 60
     private static let refusedRetryAfter: TimeInterval = 60
     private static let forbiddenRefetchAfter: TimeInterval = 30
     private static let fetchTimeoutNanoseconds: UInt64 = 5_000_000_000

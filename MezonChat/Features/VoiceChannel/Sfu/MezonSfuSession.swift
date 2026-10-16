@@ -322,6 +322,15 @@ final class MezonSfuSession: NSObject {
         "publisher_not_found", "recovery_queue_full", "invalid_kind", "invalid_publisher_id",
     ]
     private static let keyframeRequestErrorWindow: TimeInterval = 5
+    private static let cameraRefusalErrors: Set<String> = ["camera_capacity_full", "camera_update_failed"]
+    private static let sessionLostErrors: Set<String> = [
+        "session_not_found", "must_join_room_first", "routing_registration_failed",
+        "invalid_answer_sdp", "invalid_answer_ufrag", "missing_offer_generation",
+    ]
+    private static let ignoredErrors: Set<String> = [
+        "stale_mute_revision", "invalid_camera_active", "screen_share_capacity_full", "screen_share_update_failed",
+    ]
+    private static let mediaPoolVersion = 1
     private static let cameraKeyframeFirstRequestGrace: TimeInterval = 0.35
     private static let keyframeGlobalSpacing: TimeInterval = 0.25
     private static let screenKeyframeRetryDelays: [TimeInterval] = [1.5, 3, 12, 24]
@@ -429,6 +438,7 @@ final class MezonSfuSession: NSObject {
     var onPttFeedbackChanged: ((SfuPttFeedbackState) -> Void)?
     var onParticipantActionFailed: ((String) -> Void)?
     var onMutedByModerator: (() -> Void)?
+    var onCameraRefused: ((String) -> Void)?
     var onRemoved: ((SfuRemovalCause, String?) -> Void)?
     var onNoiseStateChanged: ((NoiseSuppressionState) -> Void)?
     private(set) var noiseState: NoiseSuppressionState = .off
@@ -545,10 +555,27 @@ final class MezonSfuSession: NSObject {
         let peerId: String?
         let active: [Bool]
     }
+    private struct PoolLayout {
+        let audio: Int
+        let camera: Int
+        let screen: Int
+    }
+    private struct PoolSlot: Hashable {
+        let kind: String
+        let slot: Int
+    }
+    private struct PoolAssignment {
+        let generation: UInt64
+        let peerId: String?
+        let active: Bool
+    }
     private var fixedPool = false
     private var slotAssignments: [Int: SlotAssignment] = [:]
+    private var poolLayout: PoolLayout?
+    private var poolAssignments: [PoolSlot: PoolAssignment] = [:]
     private var transceiverCache: [RTCRtpTransceiver] = []
     private var remoteSnapshot: [SfuRemoteTransceiverSnapshot] = []
+    private var remoteAudioEnabled: [String: Bool] = [:]
     private var remoteMediaSyncScheduled = false
     private var remoteMediaSyncRunning = false
     private var remoteMediaRevision = 0
@@ -608,6 +635,7 @@ final class MezonSfuSession: NSObject {
         onPttFeedbackChanged = nil
         onParticipantActionFailed = nil
         onMutedByModerator = nil
+        onCameraRefused = nil
         onRemoved = nil
         onNoiseStateChanged = nil
     }
@@ -890,8 +918,6 @@ final class MezonSfuSession: NSObject {
 
     private func discardFailedTransport() {
         stopAudioSendProbe()
-        // Invalidate callbacks before closing: no old SDP/candidate/receiver
-        // callback may mutate the replacement connection during backoff.
         connectionGen += 1
         connectionReadiness = SfuConnectionReadiness()
         socketOpen = false
@@ -931,8 +957,6 @@ final class MezonSfuSession: NSObject {
         let retiring = retiringPeerConnection
         peerConnection = nil
         retiringPeerConnection = nil
-        // Every signaling recovery starts fresh, including fatal DTLS failures.
-        // Closing the PC discards its SDP, ICE credentials and candidate pairs.
         Self.closeOffMain(failed)
         Self.closeOffMain(retiring)
         discardTransceiverState()
@@ -942,6 +966,8 @@ final class MezonSfuSession: NSObject {
         userIdByMid.removeAll()
         fixedPool = false
         slotAssignments.removeAll()
+        poolLayout = nil
+        poolAssignments.removeAll()
         peerIdByMid.removeAll()
         roleByMid.removeAll()
         memberByPeerId.removeAll()
@@ -949,8 +975,6 @@ final class MezonSfuSession: NSObject {
         remoteOrder.removeAll()
         participants = []
         speakingIds = []
-        // Keep device tracks and user intent; attachLocalTracks + room_snapshot
-        // republish them on the new PC and restore mute/camera/PTT signaling.
         localAudioTrack?.isEnabled = false
         pttActive = false
     }
@@ -1109,6 +1133,8 @@ final class MezonSfuSession: NSObject {
         userIdByMid.removeAll()
         fixedPool = false
         slotAssignments.removeAll()
+        poolLayout = nil
+        poolAssignments.removeAll()
         peerIdByMid.removeAll()
         roleByMid.removeAll()
         memberByPeerId.removeAll()
@@ -1302,6 +1328,8 @@ final class MezonSfuSession: NSObject {
             userIdByMid.removeAll()
             fixedPool = false
             slotAssignments.removeAll()
+            poolLayout = nil
+            poolAssignments.removeAll()
             peerIdByMid.removeAll()
             roleByMid.removeAll()
             memberByPeerId.removeAll()
@@ -1351,6 +1379,7 @@ final class MezonSfuSession: NSObject {
             "room": String(channelId),
             "token": token,
             "role": role.rawValue,
+            "media_pool_version": Self.mediaPoolVersion,
         ]
         guard let task = webSocketTask,
               let data = try? JSONSerialization.data(withJSONObject: payload),
@@ -1440,6 +1469,14 @@ final class MezonSfuSession: NSObject {
             if let peerId = stringValue(msg["peer_id"]), peerId != "0", !peerId.isEmpty {
                 selfPeerId = peerId
             }
+            if (msg["media_pool_mode"] as? String) == "decoupled" {
+                poolLayout = PoolLayout(
+                    audio: stringValue(msg["max_audio_slots"]).flatMap(Int.init) ?? 0,
+                    camera: stringValue(msg["max_camera_slots"]).flatMap(Int.init) ?? 0,
+                    screen: stringValue(msg["max_screen_slots"]).flatMap(Int.init) ?? 0
+                )
+                fixedPool = true
+            }
             emitState(.awaitingOffer)
         case "room_snapshot":
             admitted = true
@@ -1498,7 +1535,6 @@ final class MezonSfuSession: NSObject {
             handlePeerLeft(msg)
             emitParticipants()
         case "push_to_talk_changed":
-            // A delayed grant must not reopen the microphone after release.
             guard role == .audience else { break }
             let isActive = (boolValue(msg["active"]) ?? false) && pttRequested
             pttActive = isActive
@@ -1547,6 +1583,13 @@ final class MezonSfuSession: NSObject {
             } else if Self.keyframeRequestErrors.contains(detail),
                       let requestedAt = lastKeyframeRequestUptime,
                       ProcessInfo.processInfo.systemUptime - requestedAt < Self.keyframeRequestErrorWindow {
+                break
+            } else if Self.cameraRefusalErrors.contains(detail) {
+                if cameraEnabled { setCameraEnabled(false) }
+                onCameraRefused?(detail)
+            } else if Self.sessionLostErrors.contains(detail) {
+                recoverTransport(gen: connectionGen)
+            } else if Self.ignoredErrors.contains(detail) {
                 break
             } else {
                 onError?(detail, detail)
@@ -2708,6 +2751,7 @@ final class MezonSfuSession: NSObject {
                 state.screenActive = screenActive && (boolValue(peer["screen_requested"]) ?? true)
             }
             _ = applySlotMessage(peer, membership: true)
+            applyPoolMembership(peer, peerId: peerId)
             if fixedPool {
                 revivedMids = true
                 continue
@@ -2752,6 +2796,7 @@ final class MezonSfuSession: NSObject {
     }
 
     private func applySlotMessage(_ msg: [String: Any], membership: Bool = false) -> Bool {
+        if msg["kind"] != nil { return applyPoolSlotMessage(msg) }
         guard let rawSlot = stringValue(msg["slot"] ?? msg["remote_slot"]),
               let slot = Int(rawSlot), slot >= 0, slot <= (Int(UInt32.max) - 5) / 3,
               let rawGeneration = stringValue(msg[membership ? "assignment_generation" : "generation"]),
@@ -2786,6 +2831,99 @@ final class MezonSfuSession: NSObject {
             for offset in 0...2 { claimMid(String(base + offset), peerId: peerId) }
         }
         return true
+    }
+
+    private func applyPoolSlotMessage(_ msg: [String: Any]) -> Bool {
+        guard let kind = msg["kind"] as? String,
+              let slot = stringValue(msg["slot"]).flatMap(Int.init),
+              let generation = stringValue(msg["generation"]).flatMap(UInt64.init), generation > 0 else { return false }
+        let key = PoolSlot(kind: kind, slot: slot)
+        if (msg["type"] as? String) == "slot_released" {
+            return applyPoolSlot(key, generation: generation, peerId: nil, userId: nil, mid: nil, active: false, membership: false)
+        }
+        guard let peerId = stringValue(msg["peer_id"]), !peerId.isEmpty, peerId != "0" else { return false }
+        return applyPoolSlot(
+            key, generation: generation, peerId: peerId, userId: stringValue(msg["user_id"]), mid: stringValue(msg["mid"]),
+            active: boolValue(msg["active"]) ?? false, membership: false
+        )
+    }
+
+    private func applyPoolMembership(_ peer: [String: Any], peerId: String) {
+        guard let slots = peer["media_slots"] as? [String: Any] else { return }
+        for kind in ["audio", "camera", "screen"] {
+            guard let granted = slots[kind] as? [String: Any],
+                  let slot = stringValue(granted["slot"]).flatMap(Int.init),
+                  let generation = stringValue(granted["generation"]).flatMap(UInt64.init), generation > 0 else { continue }
+            applyPoolSlot(
+                PoolSlot(kind: kind, slot: slot), generation: generation, peerId: peerId,
+                userId: stringValue(peer["user_id"]), mid: stringValue(granted["mid"]),
+                active: true, membership: true
+            )
+        }
+    }
+
+    @discardableResult
+    private func applyPoolSlot(
+        _ key: PoolSlot,
+        generation: UInt64,
+        peerId: String?,
+        userId: String?,
+        mid: String?,
+        active: Bool,
+        membership: Bool
+    ) -> Bool {
+        guard let layout = poolLayout, let expected = poolMid(layout, kind: key.kind, slot: key.slot).map({ String($0) }) else {
+            return false
+        }
+        if peerId != nil, let mid, mid != expected { return false }
+        let previous = poolAssignments[key]
+        if let previous, previous.generation > generation || (membership && previous.generation == generation) { return false }
+        if let peerId, let previous, previous.generation == generation, previous.peerId != peerId { return false }
+        if let previousPeer = previous?.peerId, previousPeer != peerId {
+            clearPoolMapping(mid: expected, kind: key.kind, peerId: previousPeer)
+        }
+        poolAssignments[key] = PoolAssignment(generation: generation, peerId: peerId, active: active)
+        if let peerId {
+            let state = memberState(peerId: peerId)
+            if let userId, !userId.isEmpty { state.userId = userId }
+            claimMid(expected, peerId: peerId)
+        }
+        return true
+    }
+
+    private func clearPoolMapping(mid: String, kind: String, peerId: String) {
+        peerIdByMid.removeValue(forKey: mid)
+        userIdByMid.removeValue(forKey: mid)
+        roleByMid.removeValue(forKey: mid)
+        if let track = remoteSnapshot.first(where: { $0.mid == mid })?.track as? RTCVideoTrack {
+            VideoTrackLastFrameStore.clearFrame(of: track)
+        }
+        clearRemoteKind(id: "sfu-peer-\(peerId)", kind: kind)
+    }
+
+    private func poolMid(_ layout: PoolLayout, kind: String, slot: Int) -> Int? {
+        let block: (start: Int, count: Int)
+        switch kind {
+        case "audio":
+            block = (0, layout.audio)
+        case "camera":
+            block = (layout.audio, layout.camera)
+        case "screen":
+            block = (layout.audio + layout.camera, layout.screen)
+        default:
+            return nil
+        }
+        return slot >= 0 && slot < block.count ? 3 + block.start + slot : nil
+    }
+
+    private func poolSlotOf(_ layout: PoolLayout, mid: Int) -> PoolSlot? {
+        var rest = mid - 3
+        guard rest >= 0 else { return nil }
+        for (kind, count) in [("audio", layout.audio), ("camera", layout.camera), ("screen", layout.screen)] {
+            if rest < count { return PoolSlot(kind: kind, slot: rest) }
+            rest -= count
+        }
+        return nil
     }
 
     private func activeCameraCount() -> Int {
@@ -2892,6 +3030,13 @@ final class MezonSfuSession: NSObject {
                 clearSlotMapping(slot)
                 slotAssignments[slot] = SlotAssignment(generation: assignment.generation, peerId: nil, active: assignment.active)
             }
+            for (key, assignment) in poolAssignments {
+                guard let holder = assignment.peerId, holder == peerId else { continue }
+                if let layout = poolLayout, let mid = poolMid(layout, kind: key.kind, slot: key.slot) {
+                    clearPoolMapping(mid: String(mid), kind: key.kind, peerId: holder)
+                }
+                poolAssignments[key] = PoolAssignment(generation: assignment.generation, peerId: nil, active: assignment.active)
+            }
             if let peerId { memberByPeerId.removeValue(forKey: peerId) }
             syncRemoteMedia()
             return
@@ -2980,9 +3125,18 @@ final class MezonSfuSession: NSObject {
             let kind = remoteKind(mid)
             let midNumber = Int(mid) ?? -1
             let assignment = midNumber >= 3 ? slotAssignments[(midNumber - 3) / 3] : nil
+            let poolAssignment = poolLayout.flatMap { poolSlotOf($0, mid: midNumber) }.flatMap { poolAssignments[$0] }
             if fixedPool {
-                let bound = assignment?.peerId != nil && midNumber >= 3 && assignment?.active[(midNumber - 3) % 3] == true
-                (item.track as? RTCAudioTrack)?.isEnabled = bound
+                let bound: Bool
+                if poolLayout != nil {
+                    bound = poolAssignment?.peerId != nil && (kind != "audio" || poolAssignment?.active == true)
+                } else {
+                    bound = assignment?.peerId != nil && midNumber >= 3 && assignment?.active[(midNumber - 3) % 3] == true
+                }
+                if let audio = item.track as? RTCAudioTrack, let trackId = item.trackId,
+                   remoteAudioEnabled.updateValue(bound, forKey: trackId) != bound {
+                    audio.isEnabled = bound
+                }
                 if !bound {
                     clearRemoteKind(id: id, kind: kind)
                     continue
@@ -3088,6 +3242,7 @@ final class MezonSfuSession: NSObject {
                 video: entry.video,
                 screen: entry.screen,
                 screenActive: entry.screenActive && (!fixedPool || entry.screen != nil),
+                screenPublishing: entry.screenActive,
                 cameraActive: entry.cameraActive && (!fixedPool || entry.video != nil)
             )
         }
@@ -3097,6 +3252,9 @@ final class MezonSfuSession: NSObject {
     }
 
     private func remoteParticipantId(_ mid: String) -> String {
+        if poolLayout != nil {
+            return peerIdByMid[mid].map { "sfu-peer-\($0)" } ?? "mid-\(mid)"
+        }
         if let n = Int(mid), n >= 3 {
             return "peer-\((n - 3) / 3)"
         }
@@ -3105,6 +3263,7 @@ final class MezonSfuSession: NSObject {
 
     private func remoteKind(_ mid: String) -> String? {
         guard let n = Int(mid), n >= 3 else { return nil }
+        if let poolLayout { return poolSlotOf(poolLayout, mid: n)?.kind }
         switch (n - 3) % 3 {
         case 0:
             return "audio"
@@ -3292,6 +3451,7 @@ final class MezonSfuSession: NSObject {
         Self.releaseOffMain(remoteSnapshot.compactMap { $0.track })
         transceiverCache = []
         remoteSnapshot = []
+        remoteAudioEnabled.removeAll()
     }
 
     private func rollbackIfStuck(_ pc: RTCPeerConnection) async {

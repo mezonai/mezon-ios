@@ -5,6 +5,7 @@ import WebRTC
 
 protocol ScreenShareExpandedPiPHost: AnyObject {
     func noteScreenShareExpandedSessionEnded()
+    func screenShareExpandedWillDismiss()
     func screenShareExpandedDidDismiss()
     func restoreOrientationLockAfterScreenShareDetailIfNeeded()
     func retainScreenSharePiPHost(_ vc: AnyObject)
@@ -35,9 +36,10 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
     private var controlsVisible = true
     private var isClosingDetail = false
 
-    private let shareTrack: RTCVideoTrack
+    private var shareTrack: RTCVideoTrack
     private let personName: String
     private let videoView = RTCMTLVideoView()
+    private weak var pipVideoView: PeerCallVideoRenderView?
     private var pipController: AVPictureInPictureController?
     private var didAutoDismissForPiP = false
     private var screenShareFocusPollTimer: Foundation.Timer?
@@ -524,6 +526,13 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
         screenShareFocusPollTimer = timer
     }
 
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        if isBeingDismissed {
+            pipHost?.screenShareExpandedWillDismiss()
+        }
+    }
+
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         releasePttIfHeld()
@@ -602,6 +611,7 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
         contentVC.view.backgroundColor = .black
 
         let pipVideoView = PeerCallVideoRenderView()
+        self.pipVideoView = pipVideoView
         pipVideoView.translatesAutoresizingMaskIntoConstraints = false
         pipVideoView.renderContentMode = .fit
         pipVideoView.attach(track: shareTrack)
@@ -694,6 +704,15 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
     }
 
     // MARK: - Tear Down
+
+    func replaceShareTrack(_ track: RTCVideoTrack) {
+        guard track !== shareTrack else { return }
+        shareTrack.remove(videoView)
+        shareTrack = track
+        track.add(videoView)
+        VideoTrackLastFrameStore.replayLastFrame(of: track, to: [videoView])
+        pipVideoView?.attach(track: track)
+    }
 
     func tearDownForVoiceRoomLeaving() {
         releasePttIfHeld()

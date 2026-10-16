@@ -50,6 +50,37 @@ private enum ForwardOutgoing {
         }
     }
 
+    static func cdnLink(for url: String, into channelID: Int64) -> (src: String, dst: String, url: String)? {
+        var origin = MezonConfig.mezonCdnURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        while origin.hasSuffix("/") {
+            origin.removeLast()
+        }
+        guard channelID != 0, !origin.isEmpty, url.hasPrefix(origin + "/") else { return nil }
+        let src = String(url.dropFirst(origin.count + 1))
+        let parts = src.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 2,
+              parts[0].utf8.count == 16,
+              parts[0].utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }),
+              !parts[1].contains("?"), !parts[1].contains("#"),
+              let separator = parts[1].firstIndex(of: "_"),
+              separator != parts[1].startIndex,
+              parts[1][..<separator].allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
+        let folder = String(format: "%016llx", UInt64(bitPattern: channelID))
+        guard parts[0] != folder else { return nil }
+        let dst = "\(folder)/\(parts[1])"
+        return (src, dst, "\(origin)/\(dst)")
+    }
+
+    static func isAlreadyLinked(_ error: Error) -> Bool {
+        if let apiError = error as? APIError {
+            return apiError.code == 6
+        }
+        if case let MezonError.httpError(code, _) = error {
+            return code == 409
+        }
+        return false
+    }
+
     static func parsedAttachments(for record: MessageRecord, fallback: [ParsedAttachment] = []) -> [ParsedAttachment] {
         var out: [ParsedAttachment] = []
         var seen = Set<String>()
@@ -1140,6 +1171,34 @@ final class ForwardMessageViewController: UIViewController {
         return created
     }
 
+    private func linkedAttachments(
+        _ attachments: [Mezon_Api_MessageAttachment],
+        into channelID: Int64,
+        token: String
+    ) async -> [Mezon_Api_MessageAttachment] {
+        let network = context.account.network
+        return await withTaskGroup(of: (Int, String?).self) { group in
+            for (index, attachment) in attachments.enumerated() {
+                guard let link = ForwardOutgoing.cdnLink(for: attachment.url, into: channelID) else { continue }
+                group.addTask {
+                    do {
+                        try await network.linkCDNFile(src: link.src, dst: link.dst, token: token)
+                        return (index, link.url)
+                    } catch {
+                        return (index, ForwardOutgoing.isAlreadyLinked(error) ? link.url : nil)
+                    }
+                }
+            }
+            var linked = attachments
+            for await (index, url) in group {
+                if let url {
+                    linked[index].url = url
+                }
+            }
+            return linked
+        }
+    }
+
     @objc private func sendTapped() {
         guard !isSending, !selectedItems.isEmpty else { return }
         let extraRaw = ForwardOutgoing.sanitizedComment(commentField.text ?? "")
@@ -1174,7 +1233,11 @@ final class ForwardMessageViewController: UIViewController {
                             destinationChannelID: dest.channelID,
                             forwardFromChannelID: forwardFromChannelID
                         )
-                        let atts = ForwardOutgoing.attachments(for: msg, fallback: attachmentHints[msg.id] ?? [])
+                        let atts = await linkedAttachments(
+                            ForwardOutgoing.attachments(for: msg, fallback: attachmentHints[msg.id] ?? []),
+                            into: dest.channelID,
+                            token: tok
+                        )
                         _ = try await context.account.network.sendChannelMessage(
                             clanId: cid,
                             channelId: dest.channelID,
