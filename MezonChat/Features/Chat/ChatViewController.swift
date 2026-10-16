@@ -4432,7 +4432,8 @@ final class ChatViewController: ViewController {
         let on = AnonymousMessageStore.isEnabled(clanId: clanId)
         let items = AdvancedFunctionPanelView.defaultActionItems(
             anonymousOn: on,
-            includeAnonymous: clanId != 0 && !prevent
+            includeAnonymous: clanId != 0 && !prevent,
+            includeCreatePoll: channel.type != MezonConstants.ChannelType.dm.rawValue
         )
         advancePanelView.setActions(items)
     }
