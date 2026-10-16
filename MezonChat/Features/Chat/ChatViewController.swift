@@ -2,7 +2,6 @@ import SwiftProtobuf
 import UIKit
 import CoreLocation
 import QuartzCore
-import Photos
 
 enum ActiveChannelTracker {
     private static let lock = NSLock()
@@ -272,13 +271,18 @@ struct ChatMessageDisplay: Identifiable {
     var isCallLog: Bool { callLog != nil }
     var isTopic: Bool { topicData != nil }
     var isLocation: Bool { locationData != nil }
-    var singleImageMediaAttachment: ParsedAttachment? {
-        guard attachments.count == 1,
-              let attachment = attachments.first,
-              attachment.isImage,
-              !attachment.isVideo else { return nil }
-        if attachment.localImage != nil { return attachment }
-        return attachment.url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : attachment
+    var primaryMediaAttachment: ParsedAttachment? {
+        attachments.first { attachment in
+            attachment.isMedia
+                && (!attachment.url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || (attachment.isImage && !attachment.isVideo && attachment.localImage != nil))
+        }
+    }
+    var primaryImageAttachment: ParsedAttachment? {
+        attachments.first { attachment in
+            attachment.isImage && !attachment.isVideo
+                && (attachment.localImage != nil || !attachment.url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
     }
     var shareContactData: ShareContactData? {
         guard let embed = parsedContent.embeds.first else { return nil }
@@ -6689,11 +6693,7 @@ final class ChatViewController: ViewController {
         return (name.isEmpty ? idString : name, avatarURL)
     }
 
-    private enum PhotoLibrarySaveAuthorizationResult {
-        case authorized
-        case denied
-        case restricted
-    }
+    private lazy var mediaActionHandler = MediaActionHandler(presenter: self)
 
     private func shareMessageText(display: ChatMessageDisplay) {
         let text = display.parsedContent.text
@@ -6707,19 +6707,19 @@ final class ChatViewController: ViewController {
         present(activity, animated: true)
     }
 
-    private func saveSingleMessageImage(display: ChatMessageDisplay) {
-        loadSingleMessageImage(display: display) { [weak self] image in
+    private func saveMessageImage(display: ChatMessageDisplay) {
+        loadMessageImage(display: display) { [weak self] image in
             guard let self else { return }
             guard let image else {
                 Toast.error(L(L10n.Gallery.imageLoadFailed))
                 return
             }
-            self.saveImageToPhotoLibrary(image)
+            self.mediaActionHandler.saveImageToPhotoLibrary(image)
         }
     }
 
-    private func copySingleMessageImage(display: ChatMessageDisplay) {
-        loadSingleMessageImage(display: display) { image in
+    private func copyMessageImage(display: ChatMessageDisplay) {
+        loadMessageImage(display: display) { image in
             guard let image else {
                 Toast.error(L(L10n.Gallery.imageLoadFailed))
                 return
@@ -6729,8 +6729,8 @@ final class ChatViewController: ViewController {
         }
     }
 
-    private func loadSingleMessageImage(display: ChatMessageDisplay, completion: @escaping (UIImage?) -> Void) {
-        guard let attachment = display.singleImageMediaAttachment else {
+    private func loadMessageImage(display: ChatMessageDisplay, completion: @escaping (UIImage?) -> Void) {
+        guard let attachment = display.primaryImageAttachment else {
             completion(nil)
             return
         }
@@ -6772,110 +6772,23 @@ final class ChatViewController: ViewController {
         }
     }
 
-    private func saveImageToPhotoLibrary(_ image: UIImage) {
-        requestPhotoLibrarySaveAuthorization { [weak self] result in
-            switch result {
-            case .authorized:
-                PHPhotoLibrary.shared().performChanges({
-                    PHAssetChangeRequest.creationRequestForAsset(from: image)
-                }, completionHandler: { success, error in
-                    DispatchQueue.main.async {
-                        if success {
-                            Toast.success(L(L10n.Gallery.imageSaved))
-                        } else {
-                            Toast.error(error?.localizedDescription ?? L(L10n.Gallery.imageSaveFailed))
-                        }
-                    }
-                })
-            case .denied:
-                DispatchQueue.main.async {
-                    self?.presentPhotoPermissionSettingsAlert()
-                }
-            case .restricted:
-                DispatchQueue.main.async {
-                    Toast.error(L(L10n.Gallery.photoPermissionDenied))
-                }
-            }
-        }
-    }
-
-    private func requestPhotoLibrarySaveAuthorization(completion: @escaping (PhotoLibrarySaveAuthorizationResult) -> Void) {
-        if #available(iOS 14.0, *) {
-            switch PHPhotoLibrary.authorizationStatus(for: .addOnly) {
-            case .authorized, .limited:
-                completion(.authorized)
-            case .notDetermined:
-                PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
-                    switch status {
-                    case .authorized, .limited:
-                        completion(.authorized)
-                    case .denied:
-                        completion(.denied)
-                    case .restricted:
-                        completion(.restricted)
-                    case .notDetermined:
-                        completion(.denied)
-                    @unknown default:
-                        completion(.denied)
-                    }
-                }
-            case .denied:
-                completion(.denied)
-            case .restricted:
-                completion(.restricted)
-            @unknown default:
-                completion(.denied)
-            }
-        } else {
-            switch PHPhotoLibrary.authorizationStatus() {
-            case .authorized, .limited:
-                completion(.authorized)
-            case .notDetermined:
-                PHPhotoLibrary.requestAuthorization { status in
-                    switch status {
-                    case .authorized, .limited:
-                        completion(.authorized)
-                    case .denied:
-                        completion(.denied)
-                    case .restricted:
-                        completion(.restricted)
-                    case .notDetermined:
-                        completion(.denied)
-                    @unknown default:
-                        completion(.denied)
-                    }
-                }
-            case .denied:
-                completion(.denied)
-            case .restricted:
-                completion(.restricted)
-            @unknown default:
-                completion(.denied)
-            }
-        }
-    }
-
-    private func presentPhotoPermissionSettingsAlert() {
-        let presentAlert = { [weak self] in
+    private func shareMessageImage(display: ChatMessageDisplay) {
+        loadMessageImage(display: display) { [weak self] image in
             guard let self else { return }
-            let alert = UIAlertController(
-                title: L(L10n.Gallery.photoPermissionTitle),
-                message: L(L10n.Gallery.photoPermissionMessage),
-                preferredStyle: .alert
-            )
-            alert.addAction(UIAlertAction(title: L(L10n.Common.cancel), style: .cancel))
-            alert.addAction(UIAlertAction(title: L(L10n.Common.settings), style: .default) { _ in
-                guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
-                UIApplication.shared.open(url)
-            })
-            self.present(alert, animated: true)
+            guard let image else {
+                Toast.error(L(L10n.Gallery.imageLoadFailed))
+                return
+            }
+            MediaActionHandler.shareImage(image, from: self, sourceView: self.view)
         }
+    }
 
-        if let presentedViewController {
-            presentedViewController.dismiss(animated: true, completion: presentAlert)
-        } else {
-            presentAlert()
-        }
+    private func copyMessageMediaLink(display: ChatMessageDisplay) {
+        guard let attachment = display.primaryMediaAttachment else { return }
+        let url = attachment.url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !url.isEmpty else { return }
+        UIPasteboard.general.string = url
+        Toast.success(L(L10n.MessageAction.copied))
     }
 
     private var supportsQuickMenus: Bool {
@@ -7007,9 +6920,16 @@ final class ChatViewController: ViewController {
         case .shareText:
             shareMessageText(display: display)
         case .saveImage:
-            saveSingleMessageImage(display: display)
+            saveMessageImage(display: display)
+        case .saveVideo:
+            guard let attachment = display.primaryMediaAttachment, attachment.isVideo else { return }
+            mediaActionHandler.saveVideoToPhotoLibrary(urlString: attachment.url)
+        case .copyImageLink, .copyVideoLink:
+            copyMessageMediaLink(display: display)
         case .copyImage:
-            copySingleMessageImage(display: display)
+            copyMessageImage(display: display)
+        case .shareImage:
+            shareMessageImage(display: display)
         case .addToInbox:
             performAddToInbox(display: display)
         case .deleteMessage:
