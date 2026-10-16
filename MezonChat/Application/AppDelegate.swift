@@ -24,7 +24,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
     ) -> Bool {
         ASDisableLogging()
         StorageMaintenance.shared.noteProcessLaunch()
-        MezonEnvironment.current = .dev
+        MezonEnvironment.current = .prod
         SentryLogger.start()
         CallKitManager.shared.configure()
         DispatchQueue.main.async {

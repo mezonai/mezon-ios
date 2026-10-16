@@ -40,13 +40,15 @@ struct SfuParticipant: Equatable {
     let video: RTCVideoTrack?
     let screen: RTCVideoTrack?
     let screenActive: Bool
+    let screenPublishing: Bool
     let cameraActive: Bool
 
     static func == (lhs: SfuParticipant, rhs: SfuParticipant) -> Bool {
         lhs.id == rhs.id && lhs.userId == rhs.userId && lhs.peerId == rhs.peerId
             && lhs.role == rhs.role && lhs.muted == rhs.muted
             && lhs.audio === rhs.audio && lhs.video === rhs.video && lhs.screen === rhs.screen
-            && lhs.screenActive == rhs.screenActive && lhs.cameraActive == rhs.cameraActive
+            && lhs.screenActive == rhs.screenActive && lhs.screenPublishing == rhs.screenPublishing
+            && lhs.cameraActive == rhs.cameraActive
     }
 }
 

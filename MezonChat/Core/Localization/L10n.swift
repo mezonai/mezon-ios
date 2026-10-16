@@ -1024,10 +1024,6 @@ enum L10n {
         static let waveWelcome = "chat.system.waveWelcome"
     }
 
-    enum Attachment {
-        static let fromPrivateChannel = "attachment.fromPrivateChannel"
-    }
-
     enum Channel {
         static let label          = "channel.label"
         static let thread         = "channel.thread"
@@ -2306,7 +2302,6 @@ extension L10n {
         "chat.system.deletedThread": "deleted a thread:",
         "chat.system.seeAllThreads": "See",
         "chat.system.waveWelcome": "Wave to say hi!",
-        "attachment.fromPrivateChannel": "Media from private channel",
         "channel.settings": "Channel Settings",
         "channel.threadSettings": "Thread Settings",
         "channel.name":   "Channel Name",
@@ -3727,7 +3722,6 @@ extension L10n {
         "chat.system.deletedThread": "đã xóa chủ đề:",
         "chat.system.seeAllThreads": "Xem",
         "chat.system.waveWelcome": "Vẫy tay để chào!",
-        "attachment.fromPrivateChannel": "Ảnh/video từ kênh riêng tư",
         "channel.settings": "Cài đặt kênh",
         "channel.threadSettings": "Cài đặt chủ đề",
         "channel.name":   "Tên kênh",

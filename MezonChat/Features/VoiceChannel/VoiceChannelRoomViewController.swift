@@ -47,6 +47,7 @@ private struct VoiceTileEntry {
     let speaking: Bool
     let cameraTrack: RTCVideoTrack?
     let screenTrack: RTCVideoTrack?
+    let screenPublishing: Bool
     let mirror: Bool
     let isAudience: Bool
     let displayName: String
@@ -1610,6 +1611,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private static let participantRowsRefreshDelay: TimeInterval = 0.15
     private static let participantGridReorderInterval: CFTimeInterval = 1.5
     private static let participantSpeakerHold: CFTimeInterval = 5
+    private static let screenShareExpandedUnboundTimeout: TimeInterval = 5
 
     private let participantGridLayout = VoiceParticipantGridLayout()
     private lazy var contentScroll = UICollectionView(frame: .zero, collectionViewLayout: participantGridLayout)
@@ -3102,6 +3104,9 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         session.onMutedByModerator = { [weak self] in
             self?.handleMutedByModerator()
         }
+        session.onCameraRefused = { [weak self] code in
+            self?.handleCameraRefused(code)
+        }
         session.onRemoved = { [weak self] cause, reason in
             self?.handleRemovedFromRoom(cause: cause, reason: reason)
         }
@@ -3220,6 +3225,20 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         Toast.info(NSLocalizedString(
             "voiceChannel.mutedByModerator", tableName: nil, bundle: .main,
             value: "You have been muted by a channel moderator.", comment: ""))
+    }
+
+    private func handleCameraRefused(_ code: String) {
+        refreshCamButtonIcon()
+        refreshParticipantRowsFromSession()
+        let message = code == "camera_capacity_full"
+            ? NSLocalizedString(
+                "voiceChannel.cameraLimitReached", tableName: nil, bundle: .main,
+                value: "This voice channel has reached its camera limit. Try again when someone turns their camera off.",
+                comment: "")
+            : NSLocalizedString(
+                "voiceChannel.cameraUpdateFailed", tableName: nil, bundle: .main,
+                value: "Couldn't turn your camera on or off. Please try again.", comment: "")
+        Toast.info(message)
     }
 
     private func handleRemovedFromRoom(cause: SfuRemovalCause, reason: String?) {
@@ -3463,6 +3482,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private var screenShareExpandedSourceParticipantKey: String?
     private weak var screenShareExpandedSourceTrack: RTCVideoTrack?
     private var screenShareExpandedPresentedAt: Date?
+    private var screenShareExpandedUnboundSince: Date?
 
     private var isScreenShareDetailCoveringVoiceRoom: Bool {
         if #available(iOS 15.0, *),
@@ -3470,6 +3490,10 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             return !expanded.isBeingDismissed
         }
         return isScreenShareExpandedPresented
+    }
+
+    func screenShareExpandedWillDismiss() {
+        isScreenShareExpandedPresented = false
     }
 
     func screenShareExpandedDidDismiss() {
@@ -3493,6 +3517,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         screenShareExpandedSourceParticipantKey = nil
         screenShareExpandedSourceTrack = nil
         screenShareExpandedPresentedAt = nil
+        screenShareExpandedUnboundSince = nil
     }
 
     func dismissScreenShareExpandedIfSourceShareEnded() {
@@ -3501,19 +3526,34 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
     private func dismissScreenShareExpandedIfSourceShareEnded(entries: [VoiceTileEntry]?) {
         guard let key = screenShareExpandedSourceParticipantKey else { return }
-        guard sfuSession != nil else { return }
+        guard sfuSession?.isConnected == true else {
+            screenShareExpandedUnboundSince = nil
+            return
+        }
         let entry = (entries ?? orderedTileEntries()).first(where: { $0.tileKey == key })
         guard let entry else {
             tearDownScreenSharePresentationAndPiP()
             return
         }
-        let pastAttachGrace = screenShareExpandedPresentedAt.map { Date().timeIntervalSince($0) >= 2.0 } ?? true
-        let current = entry.screenTrack
-        if pastAttachGrace, current == nil {
-            tearDownScreenSharePresentationAndPiP()
+        if let current = entry.screenTrack {
+            screenShareExpandedUnboundSince = nil
+            if screenShareExpandedSourceTrack !== current {
+                if let shown = screenShareExpandedSourceTrack {
+                    sfuSession?.setVideoTrackVisible(shown, visible: false, source: "expanded")
+                }
+                screenShareExpandedSourceTrack = current
+                sfuSession?.setVideoTrackVisible(current, visible: true, source: "expanded", focused: true)
+                if #available(iOS 15.0, *) {
+                    activeScreenShareExpandedViewController()?.replaceShareTrack(current)
+                }
+            }
             return
         }
-        if let shown = screenShareExpandedSourceTrack, let current, current !== shown {
+        let pastAttachGrace = screenShareExpandedPresentedAt.map { Date().timeIntervalSince($0) >= 2.0 } ?? true
+        guard pastAttachGrace else { return }
+        let unboundSince = screenShareExpandedUnboundSince ?? Date()
+        screenShareExpandedUnboundSince = unboundSince
+        if !entry.screenPublishing || Date().timeIntervalSince(unboundSince) >= Self.screenShareExpandedUnboundTimeout {
             tearDownScreenSharePresentationAndPiP()
         }
     }
@@ -4348,6 +4388,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             speaking: session.speakingIds.contains(localId),
             cameraTrack: session.cameraEnabled ? session.localCameraTrack : nil,
             screenTrack: nil,
+            screenPublishing: false,
             mirror: session.cameraPosition == .front,
             isAudience: currentRole == .audience,
             displayName: localIdentity.displayName,
@@ -4367,6 +4408,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                 speaking: session.speakingIds.contains(identity),
                 cameraTrack: p.cameraActive ? p.video : nil,
                 screenTrack: p.screenActive ? p.screen : nil,
+                screenPublishing: p.screenPublishing,
                 mirror: false,
                 isAudience: p.role == .audience,
                 displayName: profile.displayName,

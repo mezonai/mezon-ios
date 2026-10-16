@@ -206,8 +206,6 @@ private final class MediaUploadingOverlayNode: ASDisplayNode {
 
 private final class MediaPlaceholderNode: ASDisplayNode {
     private let iconNode = ASImageNode()
-    private let labelNode = ASTextNode2()
-    private(set) var isLocked = false
 
     override init() {
         super.init()
@@ -216,48 +214,15 @@ private final class MediaPlaceholderNode: ASDisplayNode {
         clipsToBounds = true
         backgroundColor = UIColor(white: 0.18, alpha: 1)
         automaticallyManagesSubnodes = true
+        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 28, weight: .thin)
+        iconNode.image = UIImage(systemName: "photo", withConfiguration: symbolConfig)?
+            .withTintColor(UIColor(white: 0.55, alpha: 1), renderingMode: .alwaysOriginal)
         iconNode.contentMode = .scaleAspectFit
         iconNode.style.preferredSize = CGSize(width: 36, height: 36)
-        labelNode.maximumNumberOfLines = 2
-        applyIcon()
-    }
-
-    func setLocked(_ locked: Bool) {
-        guard isLocked != locked else { return }
-        isLocked = locked
-        applyIcon()
-        setNeedsLayout()
-    }
-
-    private func applyIcon() {
-        let symbolConfig = UIImage.SymbolConfiguration(pointSize: isLocked ? 24 : 28, weight: isLocked ? .regular : .thin)
-        let tint = UIColor(white: isLocked ? 0.85 : 0.55, alpha: 1)
-        iconNode.image = UIImage(systemName: isLocked ? "lock.fill" : "photo", withConfiguration: symbolConfig)?
-            .withTintColor(tint, renderingMode: .alwaysOriginal)
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .center
-        labelNode.attributedText = NSAttributedString(
-            string: L(L10n.Attachment.fromPrivateChannel),
-            attributes: [
-                .font: UIFont.systemFont(ofSize: 13, weight: .medium),
-                .foregroundColor: tint,
-                .paragraphStyle: paragraph,
-            ])
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        guard isLocked, constrainedSize.max.width >= 140, constrainedSize.max.height >= 90 else {
-            return ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: iconNode)
-        }
-        labelNode.style.maxWidth = ASDimension(unit: .points, value: constrainedSize.max.width - 24)
-        let stack = ASStackLayoutSpec(
-            direction: .vertical,
-            spacing: 8,
-            justifyContent: .center,
-            alignItems: .center,
-            children: [iconNode, labelNode]
-        )
-        return ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: stack)
+        ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: iconNode)
     }
 }
 
@@ -870,7 +835,6 @@ final class MessageMediaContentNode: ASDisplayNode {
             index = cachedImageFrames.enumerated().first(where: { $1.contains(point) })?.offset
         }
         guard let index else { return }
-        if index < placeholderNodes.count, placeholderNodes[index].isLocked { return }
         onImageTapped?(index)
     }
 
@@ -1351,14 +1315,7 @@ final class MessageMediaContentNode: ASDisplayNode {
                     return
                 }
                 let media = self.attachments[index]
-                if self.isForbidden(media) {
-                    skeleton?.isHidden = true
-                    placeholder?.setLocked(true)
-                    placeholder?.isHidden = false
-                    if index < self.videoOverlayNodes.count {
-                        self.videoOverlayNodes[index].isHidden = true
-                    }
-                } else if Self.shouldShowStaticPlaceholder(for: media) {
+                if self.isForbidden(media) || Self.shouldShowStaticPlaceholder(for: media) {
                     skeleton?.isHidden = true
                     placeholder?.isHidden = false
                 } else if Self.shouldShowLoadingSkeleton(for: media) {
