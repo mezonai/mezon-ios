@@ -1251,7 +1251,7 @@ final class ForwardMessageViewController: UIViewController {
                             mentionEveryone: false,
                             avatar: avatar,
                             topicId: 0,
-                            code: msg.code,
+                            code: msg.code == MezonConstants.MessageCode.buzz.rawValue ? 0 : msg.code,
                             token: tok
                         )
                     }
