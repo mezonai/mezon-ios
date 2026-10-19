@@ -31,8 +31,6 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
             PeerWebRTCCallSession.prewarmWebRTCInfrastructure()
         }
         NotificationCenter.default.addObserver(self, selector: #selector(handleVoIPTokenDidUpdate), name: .mezonVoIPTokenDidUpdate, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(handleSocketStatusForVoiceMembers(_:)), name: .mezonSocketStatusChanged, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(handleNetworkStatusForVoiceMembers(_:)), name: NetworkMonitor.statusDidChangeNotification, object: nil)
         NotificationCenter.default.addObserver(
             forName: UIApplication.protectedDataDidBecomeAvailableNotification,
             object: nil,
@@ -343,16 +341,6 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
             }
             await ctx.engine.clanData.refetchVoiceChannelUsers(clanId: clanId, token: token)
         }
-    }
-
-    @objc private func handleSocketStatusForVoiceMembers(_ notification: Notification) {
-        guard notification.userInfo?["isConnected"] as? Bool == true else { return }
-        refreshVoiceChannelMembers()
-    }
-
-    @objc private func handleNetworkStatusForVoiceMembers(_ notification: Notification) {
-        guard notification.userInfo?["isConnected"] as? Bool == true else { return }
-        refreshVoiceChannelMembers()
     }
 
     @objc private func handleDidBecomeActive() {

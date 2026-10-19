@@ -1029,6 +1029,11 @@ extension MezonEngine {
             await fetchVoiceChannelUsers(clanId: clanId, token: token)
         }
 
+        func refetchVoiceChannelUsersAfterClanJoin(clanId: Int64, token: String) async {
+            invalidateVoiceSnapshots()
+            await fetchVoiceChannelUsers(clanId: clanId, token: token)
+        }
+
         func applyVoiceJoined(clanId: Int64, channelId: Int64, userId: Int64) {
             guard clanId != 0, channelId != 0, userId != 0 else {
                 return
