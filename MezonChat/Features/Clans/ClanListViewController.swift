@@ -633,6 +633,9 @@ final class ClanListViewController: ViewController {
             await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: self.context, clanId: clanId, force: true)
             guard self.context.currentClanId == clanId else { return }
             self.context.account.socket.joinClanChat(clanId: clanId)
+            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait(),
+                  self.context.currentClanId == clanId else { return }
+            await self.context.engine.clanData.refetchVoiceChannelUsersAfterClanJoin(clanId: clanId, token: token)
         }
     }
 

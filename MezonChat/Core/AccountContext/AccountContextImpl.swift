@@ -866,6 +866,9 @@ final class AccountContextImpl: AccountContext {
                 guard let self else { return }
                 await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: self, clanId: cachedClanId, force: true)
                 self.account.socket.joinClanChat(clanId: cachedClanId)
+                guard let token = await self.getTokenPreferringCachedSkipSessionReadyWait(),
+                      self.currentClanId == cachedClanId else { return }
+                await self.engine.clanData.refetchVoiceChannelUsersAfterClanJoin(clanId: cachedClanId, token: token)
             }
         }
     }
