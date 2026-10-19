@@ -124,6 +124,14 @@ extension MessageRecord {
         )
     }
 
+    static func fromHistory(_ api: Mezon_Api_ChannelMessage, merging previous: MessageRecord?) -> MessageRecord {
+        var snapshot = api
+        if snapshot.reactions.isEmpty {
+            snapshot.reactions = Data("[]".utf8)
+        }
+        return fromApi(snapshot, merging: previous)
+    }
+
     static func fromApi(_ api: Mezon_Api_ChannelMessage, merging previous: MessageRecord?, customId: String? = nil) -> MessageRecord {
         var fresh = MessageRecord(from: api, customId: customId)
         guard let prev = previous, prev.id == fresh.id else { return fresh }

@@ -2528,7 +2528,7 @@ final class SendMessageInputViewController: UIViewController {
             postbox.write { tx in
                 for api in response.messages {
                     let existing = tx.getMessageById("\(api.messageID)", channelId: storageChannelId)
-                    tx.addMessages([MessageRecord.fromApi(api, merging: existing)])
+                    tx.addMessages([MessageRecord.fromHistory(api, merging: existing)])
                 }
             }
         } catch {
@@ -2581,7 +2581,7 @@ final class SendMessageInputViewController: UIViewController {
             postbox.write { tx in
                 for api in response.messages {
                     let existing = tx.getMessageById("\(api.messageID)", channelId: storageChannelId)
-                    tx.addMessages([MessageRecord.fromApi(api, merging: existing)])
+                    tx.addMessages([MessageRecord.fromHistory(api, merging: existing)])
                 }
                 for id in unconfirmed where !serverIds.contains(id) {
                     guard let record = tx.getMessageById(id, channelId: storageChannelId),
