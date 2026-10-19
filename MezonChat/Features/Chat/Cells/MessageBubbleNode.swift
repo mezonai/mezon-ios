@@ -1507,6 +1507,8 @@ final class MessageBubbleNode: ASDisplayNode {
             cachedReplySize = .zero
         }
 
+        let avatarBottom = isCombine ? CGFloat.zero : totalH + Self.avatarSize
+
         if !isCombine {
             cachedTimeSize = timeNode.measure(CGSize(width: contentWidth, height: 30))
             let hasRoleIcon = roleIconNode != nil
@@ -1666,7 +1668,7 @@ final class MessageBubbleNode: ASDisplayNode {
             totalH += max(12.sf, indicatorTextSize.height) + 4.sh
         }
 
-        totalH += 4.sh
+        totalH = max(totalH, avatarBottom) + 4.sh
 
         cachedTotalSize = CGSize(width: width, height: totalH)
         return cachedTotalSize
