@@ -2263,6 +2263,7 @@ final class MezonHTTPClient {
         messageSenderId: Int64,
         actionDelete: Bool,
         topicId: Int64 = 0,
+        senderName: String = "",
         token: String
     ) async throws -> Mezon_Api_MessageReaction {
         var req = Mezon_Api_MessageReaction()
@@ -2277,6 +2278,7 @@ final class MezonHTTPClient {
         req.messageSenderID = messageSenderId
         req.action = actionDelete
         req.topicID = topicId
+        req.senderName = senderName
 
         return try await postProto(
             path: "/mezon.api.Mezon/ReactChannelMessage",
@@ -2682,6 +2684,7 @@ final class MezonHTTPClient {
     private static let singleTransportOnlyApiNames: Set<String> = [
         "UpdateChannelMessage",
         "SearchCtrlK",
+        "ReactChannelMessage",
     ]
     private static let socketFallbackGraceWaitNanoseconds: UInt64 = 2_000_000_000
     private static let socketFallbackApiTimeoutNanoseconds: UInt64 = 4_000_000_000

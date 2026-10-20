@@ -118,6 +118,18 @@ final class PostboxTransaction {
         updatedMessageChannelIds.formUnion(messageTable.deleteMessage(id: id))
     }
 
+    func beginOptimisticReaction(id: UUID, reaction: Mezon_Api_MessageReaction) {
+        updatedMessageChannelIds.formUnion(messageTable.beginOptimisticReaction(id: id, reaction: reaction))
+    }
+
+    func completeOptimisticReaction(id: UUID, reaction: Mezon_Api_MessageReaction) {
+        updatedMessageChannelIds.formUnion(messageTable.completeOptimisticReaction(id: id, reaction: reaction))
+    }
+
+    func rollbackOptimisticReaction(id: UUID, reaction: Mezon_Api_MessageReaction) {
+        updatedMessageChannelIds.formUnion(messageTable.rollbackOptimisticReaction(id: id, reaction: reaction))
+    }
+
     func updateMessageReactions(messageId: String, reaction: Mezon_Api_MessageReaction) {
         let updatedChannels = messageTable.updateMessageReactions(messageId: messageId, reaction: reaction)
         updatedMessageChannelIds.formUnion(updatedChannels)

@@ -1828,8 +1828,13 @@ final class ChatViewController: ViewController {
         let oldLastId = messages.last?.id
         persistentMessages = Self.applyCombine(to: Self.sortMessagesLikeChannelStore(v))
         messages = normalizedDisplayOrder(persistentMessages + ephemeralMessages + botCommandRows())
-        if let sheet = reactionDetailSheet, let display = messages.first(where: { $0.id == sheet.messageId }) {
-            sheet.updateReactions(display.reactions)
+        if let sheet = reactionDetailSheet {
+            if let display = messages.first(where: { $0.id == sheet.messageId }), !display.message.isDeleted {
+                sheet.updateReactions(display.reactions)
+            } else {
+                reactionDetailSheet = nil
+                sheet.animateDismiss(completion: nil)
+            }
         }
         if !persistentMessages.isEmpty {
             skipRemoteFetchWhileTopicIsEmpty = false
@@ -6335,10 +6340,9 @@ final class ChatViewController: ViewController {
         shortname: String,
         actionDelete: Bool
     ) {
-        guard let msgId = Int64(display.message.id),
-              let currentUserId = context.currentUser?.id,
-              let messageSenderId = Int64(currentUserId), messageSenderId != 0 else { return }
+        guard let msgId = Int64(display.message.id) else { return }
         let emojiIdInt = Int64(emojiId) ?? 0
+        let messageSenderId = Int64(display.message.senderId) ?? 0
         let mode = streamModeForCurrentChannel()
         let isPublic = isCurrentChannelPublicClanRoot
         Task { @MainActor in
@@ -6346,24 +6350,19 @@ final class ChatViewController: ViewController {
                 Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
                 return
             }
-            do {
-                _ = try await self.context.account.network.writeMessageReaction(
-                    clanId: self.clanId,
-                    channelId: self.channel.channelID,
-                    mode: mode,
-                    isPublic: isPublic,
-                    messageId: msgId,
-                    emojiId: emojiIdInt,
-                    emoji: shortname,
-                    count: 1,
-                    messageSenderId: messageSenderId,
-                    actionDelete: actionDelete,
-                    topicId: self.topicId,
-                    token: token
-                )
-            } catch {
-                Toast.error(error.localizedDescription)
-            }
+            try? await self.context.sendMessageReaction(
+                clanId: self.clanId,
+                channelId: self.channel.channelID,
+                mode: mode,
+                isPublic: isPublic,
+                messageId: msgId,
+                emojiId: emojiIdInt,
+                emoji: shortname,
+                messageSenderId: messageSenderId,
+                actionDelete: actionDelete,
+                topicId: self.topicId,
+                token: token
+            )
         }
     }
 
@@ -6402,7 +6401,10 @@ final class ChatViewController: ViewController {
             reactionMemberLookupClanId: clanId,
             initialEmojiId: initialReaction.emojiId,
             onRemoveReaction: { [weak self] emojiId, shortname, _, display in
-                self?.writeMessageReaction(display: display, emojiId: emojiId, shortname: shortname, actionDelete: true)
+                guard let self,
+                      let current = self.messages.first(where: { $0.id == display.id }),
+                      !current.message.isDeleted else { return }
+                self.writeMessageReaction(display: current, emojiId: emojiId, shortname: shortname, actionDelete: true)
             }
         )
         reactionDetailSheet = sheet

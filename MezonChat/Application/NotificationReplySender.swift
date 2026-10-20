@@ -89,22 +89,36 @@ enum NotificationReplySender {
             stage = "target"
             let target = try await resolveTarget(userInfo: userInfo, token: token)
             stage = "react"
-            guard let messageSenderId = Int64(accountContext?.currentUser?.id ?? SessionStore.load()?.userId ?? ""),
-                  messageSenderId != 0 else { throw ReplyError.notLoggedIn }
-            _ = try await MezonHTTPClient.shared.writeMessageReaction(
-                clanId: target.clanId,
-                channelId: target.channelId,
-                mode: target.mode,
-                isPublic: target.isPublic,
-                messageId: messageId,
-                emojiId: MezonConstants.likeEmojiId,
-                emoji: MezonConstants.likeEmojiShortname,
-                count: 1,
-                messageSenderId: messageSenderId,
-                actionDelete: false,
-                topicId: target.topicId,
-                token: token
-            )
+            if let accountContext {
+                try await accountContext.sendMessageReaction(
+                    clanId: target.clanId,
+                    channelId: target.channelId,
+                    mode: target.mode,
+                    isPublic: target.isPublic,
+                    messageId: messageId,
+                    emojiId: MezonConstants.likeEmojiId,
+                    emoji: MezonConstants.likeEmojiShortname,
+                    messageSenderId: resolveMessageSenderId(userInfo: userInfo),
+                    actionDelete: false,
+                    topicId: target.topicId,
+                    token: token
+                )
+            } else {
+                _ = try await MezonHTTPClient.shared.writeMessageReaction(
+                    clanId: target.clanId,
+                    channelId: target.channelId,
+                    mode: target.mode,
+                    isPublic: target.isPublic,
+                    messageId: messageId,
+                    emojiId: MezonConstants.likeEmojiId,
+                    emoji: MezonConstants.likeEmojiShortname,
+                    count: 1,
+                    messageSenderId: resolveMessageSenderId(userInfo: userInfo),
+                    actionDelete: false,
+                    topicId: target.topicId,
+                    token: token
+                )
+            }
         } catch {
             SentryLogger.capture(error, extras: [
                 "where": "NotificationReplySender.sendLike",
@@ -129,6 +143,10 @@ enum NotificationReplySender {
         if let id = object["id"] as? String { return Int64(id) ?? 0 }
         if let id = object["id"] as? NSNumber { return id.int64Value }
         return 0
+    }
+
+    private static func resolveMessageSenderId(userInfo: [AnyHashable: Any]) -> Int64 {
+        AppDelegate.pushPayloadInt64(userInfo, keys: ["sender", "sender_id", "senderId", "senderID"]) ?? 0
     }
 
     @MainActor

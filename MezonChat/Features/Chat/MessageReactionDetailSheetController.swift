@@ -69,7 +69,7 @@ final class MessageReactionDetailSheetController: ViewController {
         sheetNode.animateIn()
     }
 
-    private func animateDismiss(completion: (() -> Void)?) {
+    func animateDismiss(completion: (() -> Void)?) {
         sheetNode.animateOut { [weak self] in
             self?.dismiss(animated: false)
             completion?()
