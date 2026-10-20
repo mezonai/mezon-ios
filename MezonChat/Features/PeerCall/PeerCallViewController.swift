@@ -25,6 +25,7 @@ final class PeerCallViewController: ViewController {
     private let remoteVideoView = PeerCallVideoRenderView()
     private let localVideoView = PeerCallVideoRenderView()
     private let remoteBackdrop = UIView()
+    private var microphonePromptView: PeerCallMicPermissionPromptView?
 
     private let avatarBlock = UIView()
     private let ringContainer = UIView()
@@ -710,6 +711,21 @@ final class PeerCallViewController: ViewController {
         session?.toggleMicrophoneEnabled()
     }
 
+    private func presentMicrophonePermissionPrompt() {
+        guard microphonePromptView == nil else { return }
+        let prompt = PeerCallMicPermissionPromptView(endAccent: Self.peerCallEndAccent)
+        prompt.onOpenSettings = { [weak self] in
+            self?.endTapped()
+            guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+            UIApplication.shared.open(url)
+        }
+        prompt.onEndCall = { [weak self] in
+            self?.endTapped()
+        }
+        microphonePromptView = prompt
+        prompt.show(in: view)
+    }
+
     private func shouldKeepFinalStatusVisible() -> Bool {
         guard !isCallConnected else { return false }
         let label = subtitleLabel.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -967,6 +983,10 @@ final class PeerCallViewController: ViewController {
             } else {
                 self.leaveCallScreen(animated: true)
             }
+        }
+
+        session?.onMicrophoneDenied = { [weak self] in
+            self?.presentMicrophonePermissionPrompt()
         }
 
         session?.onRemoteVideoInboundActive = { [weak self] active in
@@ -1369,5 +1389,166 @@ final class PeerCallViewController: ViewController {
         let img = UIImage(systemName: systemImage)
         b.setImage(img, for: .normal)
         b.imageView?.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)
+    }
+}
+
+private final class PeerCallMicPermissionPromptView: UIView {
+
+    var onOpenSettings: (() -> Void)?
+    var onEndCall: (() -> Void)?
+
+    private let card = UIView()
+
+    init(endAccent: UIColor) {
+        super.init(frame: .zero)
+        let theme = UIColor.theme
+        backgroundColor = UIColor.black.withAlphaComponent(0.6)
+        accessibilityViewIsModal = true
+
+        card.translatesAutoresizingMaskIntoConstraints = false
+        card.backgroundColor = theme.secondary
+        card.layer.cornerRadius = 20
+        card.layer.borderWidth = 1
+        card.layer.borderColor = theme.border.cgColor
+        addSubview(card)
+
+        let iconBadge = UIView()
+        iconBadge.translatesAutoresizingMaskIntoConstraints = false
+        iconBadge.backgroundColor = theme.bgViolet.withAlphaComponent(0.16)
+        iconBadge.layer.cornerRadius = 32
+        let icon = UIImageView(image: UIImage(
+            systemName: "mic.slash.fill",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 26, weight: .semibold)
+        ))
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        icon.tintColor = theme.bgViolet
+        iconBadge.addSubview(icon)
+        let iconRow = UIView()
+        iconRow.addSubview(iconBadge)
+
+        let titleLabel = UILabel()
+        titleLabel.text = PeerCallLocalizedStrings.micPermissionTitle
+        titleLabel.font = .systemFont(ofSize: 18, weight: .semibold)
+        titleLabel.textColor = theme.textStrong
+        titleLabel.textAlignment = .center
+        titleLabel.numberOfLines = 0
+
+        let messageLabel = UILabel()
+        messageLabel.text = PeerCallLocalizedStrings.micPermissionBody
+        messageLabel.font = .systemFont(ofSize: 14)
+        messageLabel.textColor = theme.text
+        messageLabel.textAlignment = .center
+        messageLabel.numberOfLines = 0
+
+        let pathContainer = UIView()
+        pathContainer.backgroundColor = theme.tertiary.withAlphaComponent(0.5)
+        pathContainer.layer.cornerRadius = 10
+        let pathIcon = UIImageView(image: UIImage(
+            systemName: "gearshape.fill",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
+        ))
+        pathIcon.tintColor = theme.iconTertiary
+        pathIcon.setContentHuggingPriority(.required, for: .horizontal)
+        let pathLabel = UILabel()
+        pathLabel.text = PeerCallLocalizedStrings.micPermissionPath
+        pathLabel.font = .systemFont(ofSize: 13, weight: .medium)
+        pathLabel.textColor = theme.textStrong
+        pathLabel.numberOfLines = 0
+        let pathRow = UIStackView(arrangedSubviews: [pathIcon, pathLabel])
+        pathRow.translatesAutoresizingMaskIntoConstraints = false
+        pathRow.axis = .horizontal
+        pathRow.alignment = .center
+        pathRow.spacing = 8
+        pathContainer.addSubview(pathRow)
+
+        let settingsButton = UIButton(type: .system)
+        settingsButton.setTitle(PeerCallLocalizedStrings.actionOpenSettings, for: .normal)
+        settingsButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
+        settingsButton.setTitleColor(.white, for: .normal)
+        settingsButton.backgroundColor = theme.bgViolet
+        settingsButton.layer.cornerRadius = 12
+        settingsButton.addTarget(self, action: #selector(settingsTapped), for: .touchUpInside)
+
+        let endButton = UIButton(type: .system)
+        endButton.setTitle(PeerCallLocalizedStrings.actionEndCall, for: .normal)
+        endButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
+        endButton.setTitleColor(endAccent, for: .normal)
+        endButton.addTarget(self, action: #selector(endTapped), for: .touchUpInside)
+
+        let stack = UIStackView(arrangedSubviews: [iconRow, titleLabel, messageLabel, pathContainer, settingsButton, endButton])
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .vertical
+        stack.alignment = .fill
+        stack.setCustomSpacing(16, after: iconRow)
+        stack.setCustomSpacing(8, after: titleLabel)
+        stack.setCustomSpacing(16, after: messageLabel)
+        stack.setCustomSpacing(20, after: pathContainer)
+        stack.setCustomSpacing(6, after: settingsButton)
+        card.addSubview(stack)
+
+        let preferredWidth = card.widthAnchor.constraint(equalTo: widthAnchor, constant: -48)
+        preferredWidth.priority = .defaultHigh
+        NSLayoutConstraint.activate([
+            card.centerXAnchor.constraint(equalTo: centerXAnchor),
+            card.centerYAnchor.constraint(equalTo: centerYAnchor),
+            card.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 24),
+            card.widthAnchor.constraint(lessThanOrEqualToConstant: 360),
+            preferredWidth,
+
+            stack.topAnchor.constraint(equalTo: card.topAnchor, constant: 28),
+            stack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 20),
+            stack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -20),
+            stack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -14),
+
+            iconBadge.topAnchor.constraint(equalTo: iconRow.topAnchor),
+            iconBadge.bottomAnchor.constraint(equalTo: iconRow.bottomAnchor),
+            iconBadge.centerXAnchor.constraint(equalTo: iconRow.centerXAnchor),
+            iconBadge.widthAnchor.constraint(equalToConstant: 64),
+            iconBadge.heightAnchor.constraint(equalToConstant: 64),
+            icon.centerXAnchor.constraint(equalTo: iconBadge.centerXAnchor),
+            icon.centerYAnchor.constraint(equalTo: iconBadge.centerYAnchor),
+
+            pathRow.topAnchor.constraint(equalTo: pathContainer.topAnchor, constant: 10),
+            pathRow.bottomAnchor.constraint(equalTo: pathContainer.bottomAnchor, constant: -10),
+            pathRow.centerXAnchor.constraint(equalTo: pathContainer.centerXAnchor),
+            pathRow.leadingAnchor.constraint(greaterThanOrEqualTo: pathContainer.leadingAnchor, constant: 14),
+
+            settingsButton.heightAnchor.constraint(equalToConstant: 48),
+            endButton.heightAnchor.constraint(equalToConstant: 44),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func show(in host: UIView) {
+        translatesAutoresizingMaskIntoConstraints = false
+        host.addSubview(self)
+        NSLayoutConstraint.activate([
+            leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            topAnchor.constraint(equalTo: host.topAnchor),
+            bottomAnchor.constraint(equalTo: host.bottomAnchor),
+        ])
+        alpha = 0
+        card.transform = CGAffineTransform(scaleX: 0.92, y: 0.92)
+        UIView.animate(
+            withDuration: 0.32, delay: 0, usingSpringWithDamping: 0.82, initialSpringVelocity: 0,
+            options: [.curveEaseOut]
+        ) {
+            self.alpha = 1
+            self.card.transform = .identity
+        }
+        UINotificationFeedbackGenerator().notificationOccurred(.warning)
+        UIAccessibility.post(notification: .screenChanged, argument: card)
+    }
+
+    @objc private func settingsTapped() {
+        isUserInteractionEnabled = false
+        onOpenSettings?()
+    }
+
+    @objc private func endTapped() {
+        isUserInteractionEnabled = false
+        onEndCall?()
     }
 }

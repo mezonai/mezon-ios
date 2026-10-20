@@ -1473,6 +1473,9 @@ enum L10n {
         static let errorMicrophoneDenied     = "peerCall.errorMicrophoneDenied"
         static let micPermissionTitle        = "peerCall.micPermissionTitle"
         static let micPermissionBody         = "peerCall.micPermissionBody"
+        static let micPermissionPath         = "peerCall.micPermissionPath"
+        static let actionOpenSettings        = "peerCall.actionOpenSettings"
+        static let actionEndCall             = "peerCall.actionEndCall"
         static let errorCameraDenied         = "peerCall.errorCameraDenied"
         static let errorCouldNotStartCall    = "peerCall.errorCouldNotStartCall"
         static let errorCouldNotAnswerCall   = "peerCall.errorCouldNotAnswerCall"
@@ -2929,8 +2932,11 @@ extension L10n {
         "peerCall.statusCouldNotConnect":   "Could not connect",
         "peerCall.statusUnlockForMicrophone": "Unlock your phone to allow microphone access",
         "peerCall.errorMicrophoneDenied":   "Microphone access denied",
-        "peerCall.micPermissionTitle":      "Microphone",
-        "peerCall.micPermissionBody":       "Allow microphone access in Settings to join this call.",
+        "peerCall.micPermissionTitle":      "Microphone access needed",
+        "peerCall.micPermissionBody":       "Mezon needs your microphone so the other person can hear you. Turn on Microphone for Mezon in Settings.",
+        "peerCall.micPermissionPath":       "Settings › Mezon › Microphone",
+        "peerCall.actionOpenSettings":      "Open Settings",
+        "peerCall.actionEndCall":           "End call",
         "peerCall.errorCameraDenied":       "Camera access denied",
         "peerCall.errorCouldNotStartCall":  "Could not start call",
         "peerCall.errorCouldNotAnswerCall": "Could not answer call",
@@ -4354,8 +4360,11 @@ extension L10n {
         "peerCall.statusCouldNotConnect":   "Không kết nối được",
         "peerCall.statusUnlockForMicrophone": "Mở khóa điện thoại để cấp quyền micro",
         "peerCall.errorMicrophoneDenied":   "Quyền truy cập micro bị từ chối",
-        "peerCall.micPermissionTitle":      "Micro",
-        "peerCall.micPermissionBody":       "Cho phép truy cập micro trong Cài đặt để tham gia cuộc gọi.",
+        "peerCall.micPermissionTitle":      "Cần quyền truy cập micro",
+        "peerCall.micPermissionBody":       "Mezon cần micro để người bên kia nghe được bạn. Hãy bật Micro cho Mezon trong Cài đặt.",
+        "peerCall.micPermissionPath":       "Cài đặt › Mezon › Micro",
+        "peerCall.actionOpenSettings":      "Mở Cài đặt",
+        "peerCall.actionEndCall":           "Kết thúc cuộc gọi",
         "peerCall.errorCameraDenied":       "Quyền truy cập camera bị từ chối",
         "peerCall.errorCouldNotStartCall":  "Không thể bắt đầu cuộc gọi",
         "peerCall.errorCouldNotAnswerCall": "Không thể trả lời cuộc gọi",
