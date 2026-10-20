@@ -1037,6 +1037,9 @@ final class MezonSocket: NSObject {
         case .messageTypingEvent(let m):
             eventPipe.putNext(.typing(m))
         case .messageReactionEvent(let m):
+            guard cid == 0 else {
+                return
+            }
             eventPipe.putNext(.reaction(m))
         case .channelPresenceEvent(let m):
             eventPipe.putNext(.presence(m))

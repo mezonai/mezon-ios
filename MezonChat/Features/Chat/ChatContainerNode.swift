@@ -178,8 +178,6 @@ final class ChatContainerNode: ASDisplayNode {
                 self.interaction.onScrolledToBottom(atBottom)
                 self.refreshJumpButtonVisibility()
             case .unknown:
-                // Index 0 is no longer loaded. In this reversed list that means the
-                // viewport is away from the newest message, not that its offset is zero.
                 self.lastKnownDistanceFromBottom = Self.nearBottomDistanceThreshold
                 self.interaction.onScrolledToBottom(false)
                 self.refreshJumpButtonVisibility()
@@ -634,10 +632,10 @@ final class ChatContainerNode: ASDisplayNode {
         let insertedIds = newSet.subtracting(keptIds)
         let addedIds = newSet.subtracting(oldSet)
 
-        var oldFingerprintById: [String: String] = [:]
-        oldFingerprintById.reserveCapacity(old.messages.count)
+        var oldUpdateTokenById: [String: MessageListUpdateToken] = [:]
+        oldUpdateTokenById.reserveCapacity(old.messages.count)
         for message in old.messages {
-            oldFingerprintById[message.id] = Self.listFingerprint(message)
+            oldUpdateTokenById[message.id] = Self.listUpdateToken(message)
         }
         var newMessageById: [String: ChatMessageDisplay] = [:]
         newMessageById.reserveCapacity(new.messages.count)
@@ -664,7 +662,7 @@ final class ChatContainerNode: ASDisplayNode {
         let updateItems = newIds.enumerated().compactMap { index, id -> ListViewUpdateItem? in
             guard keptIds.contains(id), let oldIndex = oldIndexMap[id] else { return nil }
             let contentChanged = newMessageById[id].map {
-                oldFingerprintById[id] != Self.listFingerprint($0)
+                oldUpdateTokenById[id] != Self.listUpdateToken($0)
             } ?? false
             guard contentChanged || (newItems[index] is ChatWelcomeItem && welcomeChanged) else { return nil }
             return ListViewUpdateItem(index: index, previousIndex: oldIndex, item: newItems[index], directionHint: nil)
@@ -714,6 +712,15 @@ final class ChatContainerNode: ASDisplayNode {
                 }
             }
         )
+    }
+
+    private struct MessageListUpdateToken: Equatable {
+        let contentFingerprint: String
+        let reactions: [ParsedReaction]
+    }
+
+    private static func listUpdateToken(_ message: ChatMessageDisplay) -> MessageListUpdateToken {
+        MessageListUpdateToken(contentFingerprint: listFingerprint(message), reactions: message.reactions)
     }
 
     private static func listFingerprint(_ m: ChatMessageDisplay) -> String {
@@ -794,9 +801,9 @@ final class ChatContainerNode: ASDisplayNode {
             reloadAllItems(recreateNodes: true)
             return
         }
-        var oldFingerprintById: [String: String] = [:]
+        var oldUpdateTokenById: [String: MessageListUpdateToken] = [:]
         for message in old.messages {
-            oldFingerprintById[message.id] = Self.listFingerprint(message)
+            oldUpdateTokenById[message.id] = Self.listUpdateToken(message)
         }
         var newMessageById: [String: ChatMessageDisplay] = [:]
         for message in new.messages {
@@ -805,7 +812,7 @@ final class ChatContainerNode: ASDisplayNode {
         let welcomeChanged = Self.welcomeFingerprint(old) != Self.welcomeFingerprint(new)
         let updateItems = newItems.enumerated().compactMap { index, item -> ListViewUpdateItem? in
             let contentChanged = newMessageById[newIds[index]].map {
-                oldFingerprintById[$0.id] != Self.listFingerprint($0)
+                oldUpdateTokenById[$0.id] != Self.listUpdateToken($0)
             } ?? false
             guard contentChanged || (item is ChatWelcomeItem && welcomeChanged) else { return nil }
             return ListViewUpdateItem(index: index, previousIndex: index, item: item, directionHint: nil)
