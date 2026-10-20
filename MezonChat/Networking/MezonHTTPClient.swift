@@ -2263,7 +2263,6 @@ final class MezonHTTPClient {
         messageSenderId: Int64,
         actionDelete: Bool,
         topicId: Int64 = 0,
-        emojiRecentId: Int64 = 0,
         senderName: String = "",
         token: String
     ) async throws -> Mezon_Api_MessageReaction {
@@ -2279,79 +2278,13 @@ final class MezonHTTPClient {
         req.messageSenderID = messageSenderId
         req.action = actionDelete
         req.topicID = topicId
-        req.emojiRecentID = emojiRecentId
         req.senderName = senderName
 
-        if await MezonSocket.shared.canSendChannelMessageRealtime(clanId: clanId, channelId: channelId),
-           await writeMessageReactionOverSocket(req) != .notApplied {
-            return Mezon_Api_MessageReaction()
-        }
-
-        return try await postReactionHTTP(req, token: token)
-    }
-
-    private enum RealtimeReactionOutcome {
-        case applied
-        case maybeApplied
-        case notApplied
-    }
-
-    private func writeMessageReactionOverSocket(_ req: Mezon_Api_MessageReaction) async -> RealtimeReactionOutcome {
-        var envelope = Mezon_Realtime_Envelope()
-        envelope.messageReactionEvent = req
-        let started = Date()
-        do {
-            let reply = try await MezonSocket.shared.sendAwaitingReply(
-                envelope,
-                timeoutNanoseconds: Self.realtimeSendAckTimeoutNanoseconds
-            )
-            await MezonSocket.shared.noteApiRequestSucceeded()
-            switch reply.message {
-            case .some(.messageReactionEvent):
-                return .applied
-            case .some(.error):
-                return .notApplied
-            default:
-                return .maybeApplied
-            }
-        } catch SocketReplyError.undelivered(_) {
-            return .notApplied
-        } catch {
-            if Date().timeIntervalSince(started) >= 1.5 {
-                await MezonSocket.shared.noteApiRequestTimedOut()
-            }
-            return .maybeApplied
-        }
-    }
-
-    private static let reactionHTTPRetryDelaysNanoseconds: [UInt64] = [1_000_000_000, 3_000_000_000]
-
-    private func postReactionHTTP(_ req: Mezon_Api_MessageReaction, token: String) async throws -> Mezon_Api_MessageReaction {
-        var pendingDelays = Self.reactionHTTPRetryDelaysNanoseconds[...]
-        while true {
-            do {
-                return try await postProtoHTTP(
-                    path: "/mezon.api.Mezon/ReactChannelMessage",
-                    message: req,
-                    auth: .bearer(token)
-                )
-            } catch {
-                guard Self.isRequestNeverSent(error), let delay = pendingDelays.popFirst() else { throw error }
-                try await Task.sleep(nanoseconds: delay)
-            }
-        }
-    }
-
-    private static func isRequestNeverSent(_ error: Error) -> Bool {
-        let ns = error as NSError
-        guard ns.domain == NSURLErrorDomain else { return false }
-        switch ns.code {
-        case NSURLErrorNotConnectedToInternet, NSURLErrorCannotConnectToHost, NSURLErrorCannotFindHost,
-             NSURLErrorDNSLookupFailed, NSURLErrorDataNotAllowed:
-            return true
-        default:
-            return false
-        }
+        return try await postProto(
+            path: "/mezon.api.Mezon/ReactChannelMessage",
+            message: req,
+            auth: .bearer(token)
+        )
     }
 
     func listUserClansByUserId(token: String) async throws -> Mezon_Api_AllUserClans {
@@ -2751,6 +2684,7 @@ final class MezonHTTPClient {
     private static let singleTransportOnlyApiNames: Set<String> = [
         "UpdateChannelMessage",
         "SearchCtrlK",
+        "ReactChannelMessage",
     ]
     private static let socketFallbackGraceWaitNanoseconds: UInt64 = 2_000_000_000
     private static let socketFallbackApiTimeoutNanoseconds: UInt64 = 4_000_000_000

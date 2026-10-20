@@ -3,7 +3,7 @@ import UIKit
 
 final class MessageReactionDetailSheetController: ViewController {
 
-    private let reactions: [ParsedReaction]
+    private var reactions: [ParsedReaction]
     private let display: ChatMessageDisplay
     private let context: AccountContext
     private let reactionMemberLookupClanId: Int64
@@ -12,6 +12,16 @@ final class MessageReactionDetailSheetController: ViewController {
 
     private var sheetNode: MessageReactionDetailSheetNode {
         displayNode as! MessageReactionDetailSheetNode
+    }
+
+    var messageId: String { display.id }
+
+    func updateReactions(_ reactions: [ParsedReaction]) {
+        guard self.reactions != reactions else { return }
+        self.reactions = reactions
+        if isViewLoaded {
+            sheetNode.updateReactions(reactions)
+        }
     }
 
     init(
@@ -59,7 +69,7 @@ final class MessageReactionDetailSheetController: ViewController {
         sheetNode.animateIn()
     }
 
-    private func animateDismiss(completion: (() -> Void)?) {
+    func animateDismiss(completion: (() -> Void)?) {
         sheetNode.animateOut { [weak self] in
             self?.dismiss(animated: false)
             completion?()
@@ -224,7 +234,6 @@ private final class MessageReactionDetailSheetNode: ASDisplayNode, UICollectionV
         let eid = reactions[idx].emojiId
         let em = reactions[idx].emoji
         let c = Int32(entry.count)
-        applyOptimisticRemoveCurrentUser(forEmojiId: eid, myUserId: uid)
         onRemoveReaction(eid, em, c, display)
     }
 
@@ -245,29 +254,14 @@ private final class MessageReactionDetailSheetNode: ASDisplayNode, UICollectionV
         return newTabs.first?.emojiId
     }
 
-    private func applyOptimisticRemoveCurrentUser(forEmojiId emojiId: String, myUserId uid: String) {
-        let oldTabs = reactions
-        guard let oldIndex = oldTabs.firstIndex(where: { $0.emojiId == emojiId }) else { return }
-        let rx = oldTabs[oldIndex]
-        guard rx.senders.contains(where: { $0.userId == uid }) else { return }
-
-        var newTabs = oldTabs
-        let newSenders = rx.senders.filter { $0.userId != uid }
-        if newSenders.isEmpty {
-            newTabs.remove(at: oldIndex)
-            selectedEmojiId = neighborEmojiIdAfterRemoving(at: oldIndex, oldTabs: oldTabs, newTabs: newTabs) ?? ""
-        } else {
-            let sum = newSenders.reduce(0) { $0 + $1.count }
-            newTabs[oldIndex] = ParsedReaction(
-                emojiId: rx.emojiId,
-                emoji: rx.emoji,
-                count: sum,
-                senders: newSenders,
-                isMe: false
-            )
-            selectedEmojiId = emojiId
+    func updateReactions(_ reactions: [ParsedReaction]) {
+        guard self.reactions != reactions else { return }
+        let oldTabs = self.reactions
+        if !reactions.contains(where: { $0.emojiId == selectedEmojiId }) {
+            let oldIndex = oldTabs.firstIndex(where: { $0.emojiId == selectedEmojiId }) ?? 0
+            selectedEmojiId = neighborEmojiIdAfterRemoving(at: oldIndex, oldTabs: oldTabs, newTabs: reactions) ?? ""
         }
-        reactions = newTabs
+        self.reactions = reactions
         refreshFullUI()
     }
 

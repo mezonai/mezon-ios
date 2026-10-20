@@ -2,6 +2,51 @@ import Foundation
 import SwiftProtobuf
 
 extension AccountContext {
+    func sendMessageReaction(
+        clanId: Int64,
+        channelId: Int64,
+        mode: Int32,
+        isPublic: Bool,
+        messageId: Int64,
+        emojiId: Int64,
+        emoji: String,
+        messageSenderId: Int64,
+        actionDelete: Bool,
+        topicId: Int64 = 0,
+        token: String
+    ) async throws {
+        var reaction = Mezon_Api_MessageReaction()
+        reaction.clanID = clanId
+        reaction.channelID = channelId
+        reaction.topicID = topicId
+        reaction.messageID = messageId
+        reaction.emojiID = emojiId
+        reaction.emoji = emoji
+        reaction.senderID = Int64(currentUser?.id ?? session?.userId ?? "") ?? 0
+        reaction.senderName = currentUser.map { $0.displayName.isEmpty ? $0.username : $0.displayName } ?? ""
+        reaction.action = actionDelete
+        let optimistic = reaction
+        let id = UUID()
+        let epoch = sessionEpoch
+        account.postbox.write { $0.beginOptimisticReaction(id: id, reaction: optimistic) }
+        do {
+            _ = try await account.network.writeMessageReaction(
+                clanId: clanId, channelId: channelId, mode: mode, isPublic: isPublic,
+                messageId: messageId, emojiId: emojiId, emoji: emoji, count: 1,
+                messageSenderId: messageSenderId, actionDelete: actionDelete,
+                topicId: topicId, senderName: optimistic.senderName, token: token
+            )
+            if isStillCurrentSession(epoch: epoch) {
+                account.postbox.write { $0.completeOptimisticReaction(id: id, reaction: optimistic) }
+            }
+        } catch {
+            if isStillCurrentSession(epoch: epoch) {
+                account.postbox.write { $0.rollbackOptimisticReaction(id: id, reaction: optimistic) }
+            }
+            throw error
+        }
+    }
+
     func meetTokenMetadata(clanId: Int64) -> String {
         let userId = Int64(currentUser?.id ?? session?.userId ?? "")
         let member = engine.clanData.getClanUsers(clanId: clanId)?.clanUsers.first {

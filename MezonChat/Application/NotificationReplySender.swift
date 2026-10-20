@@ -89,21 +89,36 @@ enum NotificationReplySender {
             stage = "target"
             let target = try await resolveTarget(userInfo: userInfo, token: token)
             stage = "react"
-            _ = try await MezonHTTPClient.shared.writeMessageReaction(
-                clanId: target.clanId,
-                channelId: target.channelId,
-                mode: target.mode,
-                isPublic: target.isPublic,
-                messageId: messageId,
-                emojiId: MezonConstants.likeEmojiId,
-                emoji: MezonConstants.likeEmojiShortname,
-                count: 1,
-                messageSenderId: resolveMessageSenderId(userInfo: userInfo),
-                actionDelete: false,
-                topicId: target.topicId,
-                senderName: accountContext?.currentUser.map { $0.displayName.isEmpty ? $0.username : $0.displayName } ?? "",
-                token: token
-            )
+            if let accountContext {
+                try await accountContext.sendMessageReaction(
+                    clanId: target.clanId,
+                    channelId: target.channelId,
+                    mode: target.mode,
+                    isPublic: target.isPublic,
+                    messageId: messageId,
+                    emojiId: MezonConstants.likeEmojiId,
+                    emoji: MezonConstants.likeEmojiShortname,
+                    messageSenderId: resolveMessageSenderId(userInfo: userInfo),
+                    actionDelete: false,
+                    topicId: target.topicId,
+                    token: token
+                )
+            } else {
+                _ = try await MezonHTTPClient.shared.writeMessageReaction(
+                    clanId: target.clanId,
+                    channelId: target.channelId,
+                    mode: target.mode,
+                    isPublic: target.isPublic,
+                    messageId: messageId,
+                    emojiId: MezonConstants.likeEmojiId,
+                    emoji: MezonConstants.likeEmojiShortname,
+                    count: 1,
+                    messageSenderId: resolveMessageSenderId(userInfo: userInfo),
+                    actionDelete: false,
+                    topicId: target.topicId,
+                    token: token
+                )
+            }
         } catch {
             SentryLogger.capture(error, extras: [
                 "where": "NotificationReplySender.sendLike",

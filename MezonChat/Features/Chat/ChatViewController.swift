@@ -1828,6 +1828,14 @@ final class ChatViewController: ViewController {
         let oldLastId = messages.last?.id
         persistentMessages = Self.applyCombine(to: Self.sortMessagesLikeChannelStore(v))
         messages = normalizedDisplayOrder(persistentMessages + ephemeralMessages + botCommandRows())
+        if let sheet = reactionDetailSheet {
+            if let display = messages.first(where: { $0.id == sheet.messageId }), !display.message.isDeleted {
+                sheet.updateReactions(display.reactions)
+            } else {
+                reactionDetailSheet = nil
+                sheet.animateDismiss(completion: nil)
+            }
+        }
         if !persistentMessages.isEmpty {
             skipRemoteFetchWhileTopicIsEmpty = false
         }
@@ -3535,7 +3543,7 @@ final class ChatViewController: ViewController {
     private func messageRecord(from api: Mezon_Api_ChannelMessage) -> MessageRecord {
         let mid = "\(api.messageID)"
         let existing = context.account.postbox.read { tx in tx.getMessageById(mid, channelId: storageChannelId) }
-        var record = MessageRecord.fromApi(api, merging: existing)
+        var record = MessageRecord.fromHistory(api, merging: existing)
         if record.channelId != storageChannelId {
             record = MessageRecord(
                 id: record.id, channelId: storageChannelId, clanId: record.clanId,
@@ -3898,7 +3906,8 @@ final class ChatViewController: ViewController {
             reactionSenderRowCountJSON(item)
         }
         for item in items {
-            guard reactionEmojiKeyJSON(item) == emojiKey else { continue }
+            guard reactionEmojiKeyJSON(item) == emojiKey,
+                  !isReactionTotalCountRowJSON(item) else { continue }
             let sid = reactionSenderIdJSON(item)
             guard !sid.isEmpty else { continue }
             let actionAdd = reactionBoolJSON(item["action"], default: true)
@@ -6325,55 +6334,10 @@ final class ChatViewController: ViewController {
         clanId != 0 && channel.parentID == 0 && channel.channelPrivate == 0
     }
 
-    private var reactionSenderName: String {
-        guard let user = context.currentUser else { return "" }
-        return user.displayName.isEmpty ? user.username : user.displayName
-    }
-
-    private func makeLocalReactionEvent(
-        display: ChatMessageDisplay,
-        emojiId: String,
-        shortname: String,
-        count: Int32,
-        actionDelete: Bool
-    ) -> Mezon_Api_MessageReaction? {
-        guard let messageId = Int64(display.message.id) else { return nil }
-        guard let uid = context.currentUser?.id, let senderId = Int64(uid) else { return nil }
-        var r = Mezon_Api_MessageReaction()
-        r.channelID = Int64(display.message.channelId) ?? channel.channelID
-        r.clanID = clanId
-        r.messageID = messageId
-        r.topicID = topicId
-        r.emojiID = Int64(emojiId) ?? 0
-        r.emoji = shortname.isEmpty ? emojiId : shortname
-        r.senderID = senderId
-        if let n = context.currentUser?.displayName, !n.isEmpty {
-            r.senderName = n
-        }
-        r.action = actionDelete
-        r.count = count
-        return r
-    }
-
-    private func applyLocalReactionRemoveForMessage(display: ChatMessageDisplay, emojiId: String, shortname: String, removeCount: Int32) {
-        guard removeCount > 0,
-              let r = makeLocalReactionEvent(
-                display: display,
-                emojiId: emojiId,
-                shortname: shortname,
-                count: removeCount,
-                actionDelete: true
-              ) else { return }
-        context.account.postbox.write { tx in
-            tx.updateMessageReactions(messageId: display.message.id, reaction: r)
-        }
-    }
-
     private func writeMessageReaction(
         display: ChatMessageDisplay,
         emojiId: String,
         shortname: String,
-        count: Int32,
         actionDelete: Bool
     ) {
         guard let msgId = Int64(display.message.id) else { return }
@@ -6381,76 +6345,32 @@ final class ChatViewController: ViewController {
         let messageSenderId = Int64(display.message.senderId) ?? 0
         let mode = streamModeForCurrentChannel()
         let isPublic = isCurrentChannelPublicClanRoot
-        if !actionDelete,
-           let optimisticReaction = makeLocalReactionEvent(
-            display: display,
-            emojiId: emojiId,
-            shortname: shortname,
-            count: 0,
-            actionDelete: false
-           ) {
-            context.account.postbox.write { tx in
-                tx.updateMessageReactions(messageId: display.message.id, reaction: optimisticReaction)
-            }
-        }
-
         Task { @MainActor in
-            guard let token = await self.context.getToken() else { return }
-            do {
-                var applied = try await self.context.account.network.writeMessageReaction(
-                    clanId: self.clanId,
-                    channelId: self.channel.channelID,
-                    mode: mode,
-                    isPublic: isPublic,
-                    messageId: msgId,
-                    emojiId: emojiIdInt,
-                    emoji: shortname,
-                    count: count,
-                    messageSenderId: messageSenderId,
-                    actionDelete: actionDelete,
-                    topicId: self.topicId,
-                    senderName: self.reactionSenderName,
-                    token: token
-                )
-                let responseCarriesReaction = applied.id != 0
-                    || applied.messageID != 0
-                    || applied.channelID != 0
-                    || applied.topicID != 0
-                    || applied.emojiID != 0
-                    || !applied.emoji.isEmpty
-                    || applied.senderID != 0
-                    || applied.count != 0
-                guard responseCarriesReaction else { return }
-                if applied.messageID == 0 { applied.messageID = msgId }
-                if applied.channelID == 0 { applied.channelID = self.channel.channelID }
-                if applied.clanID == 0 { applied.clanID = self.clanId }
-                if applied.topicID == 0 { applied.topicID = self.topicId }
-                if applied.emojiID == 0 { applied.emojiID = emojiIdInt }
-                if applied.emoji.isEmpty { applied.emoji = shortname }
-                if applied.senderID == 0, let uid = self.context.currentUser?.id {
-                    applied.senderID = Int64(uid) ?? 0
-                }
-                if applied.senderName.isEmpty, let name = self.context.currentUser?.displayName {
-                    applied.senderName = name
-                }
-                applied.action = actionDelete
-                if applied.count == 0, actionDelete {
-                    applied.count = count
-                }
-                self.context.account.postbox.write { tx in
-                    tx.updateMessageReactions(messageId: "\(applied.messageID)", reaction: applied)
-                }
-            } catch {
-                if !actionDelete {
-                    self.applyLocalReactionRemoveForMessage(display: display, emojiId: emojiId, shortname: shortname, removeCount: 1)
-                }
+            guard let token = await self.context.getToken() else {
+                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                return
             }
+            try? await self.context.sendMessageReaction(
+                clanId: self.clanId,
+                channelId: self.channel.channelID,
+                mode: mode,
+                isPublic: isPublic,
+                messageId: msgId,
+                emojiId: emojiIdInt,
+                emoji: shortname,
+                messageSenderId: messageSenderId,
+                actionDelete: actionDelete,
+                topicId: self.topicId,
+                token: token
+            )
         }
     }
 
     private func handleEmojiReaction(emojiId: String, shortname: String, display: ChatMessageDisplay) {
-        writeMessageReaction(display: display, emojiId: emojiId, shortname: shortname, count: 1, actionDelete: false)
+        writeMessageReaction(display: display, emojiId: emojiId, shortname: shortname, actionDelete: false)
     }
+
+    private weak var reactionDetailSheet: MessageReactionDetailSheetController?
 
     private weak var reactionEmojiPickerSheet: ReactionEmojiPickerSheetController?
 
@@ -6480,11 +6400,14 @@ final class ChatViewController: ViewController {
             context: context,
             reactionMemberLookupClanId: clanId,
             initialEmojiId: initialReaction.emojiId,
-            onRemoveReaction: { [weak self] emojiId, shortname, count, display in
-                self?.applyLocalReactionRemoveForMessage(display: display, emojiId: emojiId, shortname: shortname, removeCount: count)
-                self?.writeMessageReaction(display: display, emojiId: emojiId, shortname: shortname, count: count, actionDelete: true)
+            onRemoveReaction: { [weak self] emojiId, shortname, _, display in
+                guard let self,
+                      let current = self.messages.first(where: { $0.id == display.id }),
+                      !current.message.isDeleted else { return }
+                self.writeMessageReaction(display: current, emojiId: emojiId, shortname: shortname, actionDelete: true)
             }
         )
+        reactionDetailSheet = sheet
         presentInGlobalOverlay(sheet)
         sheet.animateIn()
     }
@@ -7089,7 +7012,6 @@ final class ChatViewController: ViewController {
                     display: display,
                     emojiId: Self.giveCoffeeEmojiId,
                     shortname: Self.giveCoffeeShortname,
-                    count: 1,
                     actionDelete: false
                 )
                 Toast.success(L(L10n.MessageAction.giveCoffeeSuccess))

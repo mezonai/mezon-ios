@@ -15,6 +15,51 @@ final class MessageTable: Table {
         var authoritative: Bool
     }
 
+    private struct ReactionKey: Hashable {
+        let messageId: String
+        let channelId: String
+        let senderId: Int64
+        let emoji: String
+
+        init?(_ reaction: Mezon_Api_MessageReaction) {
+            let emoji = reaction.emojiID == 0 ? reaction.emoji.trimmingCharacters(in: .whitespacesAndNewlines) : "\(reaction.emojiID)"
+            guard reaction.senderID != 0, !emoji.isEmpty else { return nil }
+            self.messageId = "\(reaction.messageID)"
+            self.channelId = reaction.topicID != 0 ? "topic-\(reaction.topicID)" : "\(reaction.channelID)"
+            self.senderId = reaction.senderID
+            self.emoji = emoji
+        }
+    }
+
+    private struct OptimisticReaction {
+        struct Operation {
+            let id: UUID
+            let remove: Bool
+            var received = false
+            var finished = false
+        }
+
+        var baseCounts: [String: Int]
+        var operations: [Operation] = []
+
+        func count(in channelId: String) -> Int {
+            operations.reduce(baseCounts[channelId] ?? 0) { count, operation in
+                operation.remove ? 0 : count + 1
+            }
+        }
+
+        mutating func commitReceivedOperations() {
+            while let first = operations.first, first.received, first.finished {
+                for channelId in baseCounts.keys {
+                    baseCounts[channelId] = first.remove ? 0 : (baseCounts[channelId] ?? 0) + 1
+                }
+                operations.removeFirst()
+            }
+        }
+    }
+
+    private var optimisticReactions: [ReactionKey: OptimisticReaction] = [:]
+
     private var cache: [String: [MessageRecord]] = [:]
     private var pendingWrites:  Set<String> = []
     private var pendingDeletes: Set<String> = []
@@ -565,6 +610,7 @@ final class MessageTable: Table {
 
     @discardableResult
     func deleteMessage(id: String) -> [String] {
+        optimisticReactions = optimisticReactions.filter { $0.key.messageId != id }
         pendingDeletes.insert(id)
         var affectedChannelIds: [String] = []
         for key in cache.keys {
@@ -575,88 +621,136 @@ final class MessageTable: Table {
         return affectedChannelIds
     }
 
+    func beginOptimisticReaction(id: UUID, reaction: Mezon_Api_MessageReaction) -> [String] {
+        guard let key = ReactionKey(reaction) else { return [] }
+        let targets = reactionTargets(messageId: key.messageId, reaction: reaction)
+        guard !targets.isEmpty else { return [] }
+        var pending = optimisticReactions[key] ?? OptimisticReaction(baseCounts: [:])
+        for (channelId, record) in targets where pending.baseCounts[channelId] == nil {
+            pending.baseCounts[channelId] = Self.activeReactionCountJSON(
+                items: Self.reactionRows(from: record.reactionsJSON),
+                emojiKey: key.emoji, senderId: "\(key.senderId)"
+            )
+        }
+        pending.operations.append(.init(id: id, remove: reaction.action))
+        optimisticReactions[key] = pending
+        return applyReaction(reaction, targets: targets, pending: pending)
+    }
+
+    func completeOptimisticReaction(id: UUID, reaction: Mezon_Api_MessageReaction) -> [String] {
+        guard let key = ReactionKey(reaction), var pending = optimisticReactions[key],
+              let index = pending.operations.firstIndex(where: { $0.id == id }) else { return [] }
+        pending.operations[index].finished = true
+        pending.commitReceivedOperations()
+        optimisticReactions[key] = pending.operations.isEmpty ? nil : pending
+        return applyPendingReaction(reaction, pending: pending)
+    }
+
+    func rollbackOptimisticReaction(id: UUID, reaction: Mezon_Api_MessageReaction) -> [String] {
+        guard let key = ReactionKey(reaction), var pending = optimisticReactions[key],
+              let index = pending.operations.firstIndex(where: { $0.id == id }) else { return [] }
+        if pending.operations[index].received {
+            if let replacement = pending.operations.firstIndex(where: {
+                $0.id != id && !$0.received && $0.remove == reaction.action
+            }) {
+                pending.operations[replacement].received = true
+            } else {
+                pending.operations[index].finished = true
+                pending.commitReceivedOperations()
+                optimisticReactions[key] = pending.operations.isEmpty ? nil : pending
+                return applyPendingReaction(reaction, pending: pending)
+            }
+        }
+        pending.operations.remove(at: index)
+        pending.commitReceivedOperations()
+        optimisticReactions[key] = pending.operations.isEmpty ? nil : pending
+        return applyPendingReaction(reaction, pending: pending)
+    }
+
+    private func applyPendingReaction(
+        _ reaction: Mezon_Api_MessageReaction,
+        pending: OptimisticReaction
+    ) -> [String] {
+        let targets = pending.baseCounts.keys.sorted().compactMap { channelId -> (String, MessageRecord)? in
+            guard let record = getMessageById("\(reaction.messageID)", channelId: channelId) else { return nil }
+            return (channelId, record)
+        }
+        return applyReaction(reaction, targets: targets, pending: pending)
+    }
+
     func updateMessageReactions(messageId: String, reaction: Mezon_Api_MessageReaction) -> [String] {
+        let targets = reactionTargets(messageId: messageId, reaction: reaction)
+        guard let key = ReactionKey(reaction), var pending = optimisticReactions[key] else {
+            return applyReaction(reaction, targets: targets)
+        }
+        if let index = pending.operations.firstIndex(where: { !$0.received && $0.remove == reaction.action }) {
+            pending.operations[index].received = true
+            pending.commitReceivedOperations()
+            optimisticReactions[key] = pending.operations.isEmpty ? nil : pending
+            return applyReaction(reaction, targets: targets, pending: pending)
+        }
+        optimisticReactions.removeValue(forKey: key)
+        return applyReaction(reaction, targets: targets)
+    }
+
+    private func reactionTargets(
+        messageId: String,
+        reaction: Mezon_Api_MessageReaction
+    ) -> [(channelId: String, record: MessageRecord)] {
         let preferredChannelIds = Self.preferredReactionChannelIds(for: reaction)
-        let cacheTargets: [String]
-        if preferredChannelIds.isEmpty {
-            cacheTargets = cache.keys
-                .filter { channelId in
-                    cache[channelId]?.contains(where: { $0.id == messageId && !$0.isDeleted }) == true
-                }
-                .sorted()
+        var scopedTargets: [(channelId: String, record: MessageRecord)] = preferredChannelIds.compactMap { channelId in
+            guard let record = cache[channelId]?.first(where: { $0.id == messageId && !$0.isDeleted }) else { return nil }
+            return (channelId, record)
+        }
+        if scopedTargets.isEmpty {
+            scopedTargets = preferredChannelIds.compactMap { channelId in
+                guard let record = getMessageById(messageId, channelId: channelId) else { return nil }
+                return (channelId, record)
+            }
+        }
+
+        let targets: [(channelId: String, record: MessageRecord)]
+        if !scopedTargets.isEmpty {
+            targets = scopedTargets
         } else {
-            cacheTargets = preferredChannelIds.filter { channelId in
-                cache[channelId]?.contains(where: { $0.id == messageId && !$0.isDeleted }) == true
+            targets = cache.keys.sorted().compactMap { channelId in
+                guard preferredChannelIds.isEmpty || channelId.hasPrefix(Self.topicChannelKeyPrefix),
+                      let record = cache[channelId]?.first(where: { $0.id == messageId && !$0.isDeleted }) else { return nil }
+                return (channelId, record)
             }
         }
 
         if preferredChannelIds.isEmpty {
             os_log(.error, log: Self.reactionLog,
                    "unscoped msg=%{public}@ emoji=%{public}@ targets=%{public}@",
-                   messageId, reaction.emoji, cacheTargets.joined(separator: ","))
-        }
-        if cacheTargets.count > 1 {
-            os_log(.error, log: Self.reactionLog,
-                   "multi msg=%{public}@ ch=%{public}lld topic=%{public}lld targets=%{public}@",
-                   messageId, reaction.channelID, reaction.topicID, cacheTargets.joined(separator: ","))
+                   messageId, reaction.emoji, targets.map(\.channelId).joined(separator: ","))
         }
 
-        var updatedChannelIds = Set<String>()
-        for channelId in cacheTargets {
-            if updateCachedMessageReaction(messageId: messageId, channelId: channelId, reaction: reaction) {
-                updatedChannelIds.insert(channelId)
-            }
-        }
-
-        if updatedChannelIds.isEmpty {
-            let unscopedMatches = cache.keys
-                .filter { channelId in
-                    !cacheTargets.contains(channelId)
-                        && cache[channelId]?.contains(where: { $0.id == messageId && !$0.isDeleted }) == true
-                }
-                .sorted()
-            let fallbackCacheTargets = unscopedMatches
-                .filter { $0.hasPrefix(Self.topicChannelKeyPrefix) }
-            let blockedCrossChannelTargets = unscopedMatches
-                .filter { !$0.hasPrefix(Self.topicChannelKeyPrefix) }
-            if !blockedCrossChannelTargets.isEmpty {
-                os_log(.error, log: Self.reactionLog,
-                       "blocked msg=%{public}@ ch=%{public}lld topic=%{public}lld emoji=%{public}@ wouldWrite=%{public}@",
-                       messageId, reaction.channelID, reaction.topicID, reaction.emoji,
-                       blockedCrossChannelTargets.joined(separator: ","))
-            }
-            for channelId in fallbackCacheTargets {
-                if updateCachedMessageReaction(messageId: messageId, channelId: channelId, reaction: reaction) {
-                    updatedChannelIds.insert(channelId)
-                }
-            }
-        }
-
-        if updatedChannelIds.isEmpty, !preferredChannelIds.isEmpty {
-            for channelId in preferredChannelIds {
-                if updateStoredMessageReaction(messageId: messageId, channelId: channelId, reaction: reaction) {
-                    updatedChannelIds.insert(channelId)
-                }
-            }
-        }
-
-        return Array(updatedChannelIds)
+        return targets
     }
 
-    private func updateCachedMessageReaction(messageId: String, channelId: String, reaction: Mezon_Api_MessageReaction) -> Bool {
-        guard let idx = cache[channelId]?.firstIndex(where: { $0.id == messageId && !$0.isDeleted }) else { return false }
-        let old = cache[channelId]![idx]
-        guard let updated = Self.recordByApplyingReaction(reaction, to: old) else { return false }
-        cache[channelId]![idx] = updated
-        pendingWrites.insert(channelId)
-        return true
-    }
-
-    private func updateStoredMessageReaction(messageId: String, channelId: String, reaction: Mezon_Api_MessageReaction) -> Bool {
-        guard let old = getMessageById(messageId, channelId: channelId),
-              let updated = Self.recordByApplyingReaction(reaction, to: old) else { return false }
-        updateStoredMessageReactions(updated)
-        return true
+    private func applyReaction(
+        _ reaction: Mezon_Api_MessageReaction,
+        targets: [(channelId: String, record: MessageRecord)],
+        pending: OptimisticReaction? = nil
+    ) -> [String] {
+        var updatedChannelIds: [String] = []
+        for (channelId, old) in targets {
+            guard let updated = Self.recordByApplyingReaction(
+                reaction, to: old,
+                count: pending.flatMap { $0.baseCounts[channelId] == nil ? nil : $0.count(in: channelId) }
+            ) else {
+                continue
+            }
+            if let index = cache[channelId]?.firstIndex(where: { $0.id == old.id && !$0.isDeleted }) {
+                cache[channelId]![index] = updated
+                pendingWrites.insert(channelId)
+            } else {
+                updateStoredMessageReactions(updated)
+            }
+            updatedChannelIds.append(channelId)
+        }
+        return updatedChannelIds
     }
 
     private static func preferredReactionChannelIds(for reaction: Mezon_Api_MessageReaction) -> [String] {
@@ -673,139 +767,84 @@ final class MessageTable: Table {
         return ids
     }
 
-    private static func recordByApplyingReaction(_ reaction: Mezon_Api_MessageReaction, to old: MessageRecord) -> MessageRecord? {
-        var reactionsArray = reactionRows(from: old.reactionsJSON)
-
-        let emojiIdForJson = reaction.emojiID != 0 ? "\(reaction.emojiID)" : ""
-        let isAdding = !reaction.action
-        var appendedCount: Int = {
-            if isAdding { return 0 }
-            let c = Int(reaction.count)
-            return c > 0 ? c : 1
-        }()
-
-        var newEntry: [String: Any] = [
-            "emoji_id": emojiIdForJson,
+    private static func recordByApplyingReaction(
+        _ reaction: Mezon_Api_MessageReaction,
+        to old: MessageRecord,
+        count: Int? = nil
+    ) -> MessageRecord? {
+        var rows = reactionRows(from: old.reactionsJSON)
+        let emojiId = reaction.emojiID != 0 ? "\(reaction.emojiID)" : ""
+        var entry: [String: Any] = [
+            "emoji_id": emojiId,
             "emoji": reaction.emoji,
-            "action": isAdding,
-            "count": appendedCount
+            "sender_id": "\(reaction.senderID)",
+            "action": true
         ]
-        if reaction.senderID != 0 {
-            newEntry["sender_id"] = "\(reaction.senderID)"
-        }
-        if !reaction.senderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            newEntry["sender_name"] = reaction.senderName
-        }
-        if reaction.id != 0 {
-            newEntry["id"] = "\(reaction.id)"
-        }
-        if reaction.channelID != 0 {
-            newEntry["channel_id"] = "\(reaction.channelID)"
-        }
-        if reaction.topicID != 0 {
-            newEntry["topic_id"] = "\(reaction.topicID)"
-        }
-
-        var didChange = false
-        if let key = reactionEmojiKeyJSON(newEntry) {
-            let senderId = reactionSenderIdJSON(newEntry)
-            if isAdding, reaction.count > 0 {
-                didChange = upsertReactionTotalCountJSON(
-                    items: &reactionsArray,
-                    emojiKey: key,
-                    emojiId: emojiIdForJson,
-                    emoji: reaction.emoji,
-                    totalCount: Int(reaction.count)
-                ) || didChange
-            }
-            if !senderId.isEmpty {
-                let activeCount = activeReactionCountJSON(items: reactionsArray, emojiKey: key, senderId: senderId)
-                if isAdding, activeCount > 0, reaction.count > 0 {
-                    guard didChange else { return nil }
-                    guard let newData = try? JSONSerialization.data(withJSONObject: reactionsArray) else { return nil }
-                    return replacingReactions(old, reactionsJSON: newData)
-                }
-                if !isAdding {
-                    guard activeCount > 0 else { return nil }
-                    if appendedCount > activeCount {
-                        appendedCount = activeCount
-                        newEntry["count"] = appendedCount
-                    }
-                }
-                if isAdding {
-                    if reaction.count == 0 || !didChange {
-                        didChange = adjustReactionTotalCountJSON(
-                            items: &reactionsArray,
-                            emojiKey: key,
-                            delta: 1
-                        ) || didChange
-                    }
-                } else {
-                    didChange = adjustReactionTotalCountJSON(
-                        items: &reactionsArray,
-                        emojiKey: key,
-                        delta: -appendedCount
-                    ) || didChange
-                }
-            } else {
-                guard didChange else { return nil }
-                guard let newData = try? JSONSerialization.data(withJSONObject: reactionsArray) else { return nil }
-                return replacingReactions(old, reactionsJSON: newData)
-            }
-        } else {
+        guard let key = reactionEmojiKeyJSON(entry), reaction.senderID != 0 else {
             return nil
         }
 
-        reactionsArray.append(newEntry)
-        guard let newData = try? JSONSerialization.data(withJSONObject: reactionsArray) else { return nil }
-        return replacingReactions(old, reactionsJSON: newData)
-    }
+        let senderId = "\(reaction.senderID)"
+        let activeCount = activeReactionCountJSON(items: rows, emojiKey: key, senderId: senderId)
+        let newCount = count ?? (reaction.action ? 0 : activeCount + 1)
+        guard newCount != activeCount else {
+            return nil
+        }
 
-    private static func upsertReactionTotalCountJSON(
-        items: inout [[String: Any]],
-        emojiKey: String,
-        emojiId: String,
-        emoji: String,
-        totalCount: Int
-    ) -> Bool {
-        guard totalCount > 0 else { return false }
-        if let index = items.firstIndex(where: { reactionEmojiKeyJSON($0) == emojiKey && isReactionTotalCountRowJSON($0) }) {
-            let old = reactionTotalCountJSON(items[index]) ?? 0
-            let normalizedTotal = max(old, totalCount)
-            if old == normalizedTotal { return false }
-            items[index]["count"] = normalizedTotal
-            items[index]["count_is_total"] = true
-            return true
+        let previousSenderRows = rows.filter {
+            reactionEmojiKeyJSON($0) == key && reactionSenderIdJSON($0) == senderId
+                && !isReactionTotalCountRowJSON($0)
         }
-        var row: [String: Any] = [
-            "emoji_id": emojiId,
-            "emoji": emoji,
-            "action": true,
-            "count": totalCount,
-            "count_is_total": true
-        ]
-        if emojiId.isEmpty {
-            row.removeValue(forKey: "emoji_id")
+        if reaction.emoji.isEmpty {
+            entry["emoji"] = previousSenderRows.last?["emoji"]
         }
-        items.append(row)
-        return true
+        entry["sender_name"] = previousSenderRows.reversed()
+            .compactMap { $0["sender_name"] as? String }
+            .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if !reaction.senderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            entry["sender_name"] = reaction.senderName
+        }
+        if reaction.id != 0 { entry["id"] = "\(reaction.id)" }
+        if reaction.channelID != 0 { entry["channel_id"] = "\(reaction.channelID)" }
+        if reaction.topicID != 0 { entry["topic_id"] = "\(reaction.topicID)" }
+
+        adjustReactionTotalCountJSON(items: &rows, emojiKey: key, delta: newCount - activeCount)
+        let senderIndex = rows.firstIndex {
+            reactionEmojiKeyJSON($0) == key && reactionSenderIdJSON($0) == senderId
+                && !isReactionTotalCountRowJSON($0)
+        }
+        rows.removeAll {
+            reactionEmojiKeyJSON($0) == key && reactionSenderIdJSON($0) == senderId
+                && !isReactionTotalCountRowJSON($0)
+        }
+        if newCount > 0 {
+            entry["count"] = newCount
+            rows.insert(entry, at: min(senderIndex ?? rows.count, rows.count))
+        }
+        guard let data = try? JSONSerialization.data(withJSONObject: rows) else {
+            return nil
+        }
+        return replacingReactions(old, reactionsJSON: data)
     }
 
     private static func adjustReactionTotalCountJSON(
         items: inout [[String: Any]],
         emojiKey: String,
         delta: Int
-    ) -> Bool {
-        guard delta != 0,
-              let index = items.firstIndex(where: { reactionEmojiKeyJSON($0) == emojiKey && isReactionTotalCountRowJSON($0) }) else {
-            return false
+    ) {
+        let indices = items.indices.filter {
+            reactionEmojiKeyJSON(items[$0]) == emojiKey && isReactionTotalCountRowJSON(items[$0])
         }
-        let old = reactionTotalCountJSON(items[index]) ?? 0
+        guard delta != 0, !indices.isEmpty else { return }
+        let old = indices.compactMap { reactionTotalCountJSON(items[$0]) }.max() ?? 0
         let updated = max(0, old + delta)
-        if updated == old { return false }
-        items[index]["count"] = updated
-        items[index]["count_is_total"] = true
-        return true
+        for index in indices {
+            items[index].removeValue(forKey: "total_count")
+            items[index].removeValue(forKey: "totalCount")
+            items[index].removeValue(forKey: "countIsTotal")
+            items[index]["count"] = updated
+            items[index]["count_is_total"] = true
+        }
     }
 
     private static func reactionRows(from data: Data) -> [[String: Any]] {
@@ -843,19 +882,6 @@ final class MessageTable: Table {
             }
             return row
         }
-    }
-
-    private static func reactionEventIdJSON(_ item: [String: Any]) -> String {
-        for key in ["id", "reaction_id", "reactionId"] {
-            if let s = item[key] as? String {
-                let v = s.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !v.isEmpty, v != "0" { return v }
-            }
-            if let n = item[key] as? Int, n != 0 { return "\(n)" }
-            if let n = item[key] as? Int64, n != 0 { return "\(n)" }
-            if let n = item[key] as? NSNumber, n.int64Value != 0 { return "\(n.int64Value)" }
-        }
-        return ""
     }
 
     private static func reactionEmojiKeyJSON(_ item: [String: Any]) -> String? {
@@ -931,7 +957,8 @@ final class MessageTable: Table {
         var count = 0
         for item in items {
             guard reactionEmojiKeyJSON(item) == emojiKey,
-                  reactionSenderIdJSON(item) == senderId else { continue }
+                  reactionSenderIdJSON(item) == senderId,
+                  !isReactionTotalCountRowJSON(item) else { continue }
             let actionAdd = boolValue(item["action"], default: true)
             let rowCount = reactionRowCountJSON(item)
             if actionAdd {
@@ -1118,8 +1145,6 @@ final class MessageTable: Table {
         guard pendingId.hasPrefix("pending-"), let numericId = ChatMessageTimelineOrder.serverId(serverId) else { return }
         if pendingResolutions[pendingId] == nil { pendingResolutionOrder.append(pendingId) }
         pendingResolutions[pendingId] = numericId
-        // Controllers consume resolutions on the next history update. Bound
-        // session-only aliases; resolved form keys no longer need an alias.
         if pendingResolutionOrder.count > 512 {
             for id in pendingResolutionOrder.prefix(128) { pendingResolutions.removeValue(forKey: id) }
             pendingResolutionOrder.removeFirst(128)
@@ -1341,6 +1366,7 @@ final class MessageTable: Table {
     }
 
     override func clearMemoryCache() {
+        optimisticReactions.removeAll()
         cache.removeAll()
     }
 }
