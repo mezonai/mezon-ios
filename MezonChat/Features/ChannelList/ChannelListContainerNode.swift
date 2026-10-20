@@ -2208,7 +2208,7 @@ final class ChannelListContainerNode: ASDisplayNode {
             onAction: { [weak self] action in
                 guard let self else { return }
                 switch action {
-                case .settings:
+                case .settings, .editClanProfile:
                     self.interaction.onPresentSettings?()
                 case .notifications:
                     self.interaction.onPresentClanNotifications?()
