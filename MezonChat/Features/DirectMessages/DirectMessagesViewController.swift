@@ -1119,7 +1119,6 @@ final class DirectMessagesViewController: ViewController {
         var profileById: [Int64: (displayName: String, username: String, avatar: String)] = [:]
         for f in friends {
             guard f.hasUser, f.user.id != 0 else { continue }
-            guard f.state != EStateFriend.block.rawValue else { continue }
             let u = f.user
             let disp = u.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
             let name = disp.isEmpty ? u.username : disp
@@ -1160,13 +1159,16 @@ final class DirectMessagesViewController: ViewController {
                 profileById[uid] = p
             }
         }
-        var actByUser: [Int64: Mezon_Api_UserActivity] = [:]
-        for a in activities {
-            actByUser[a.userID] = a
-        }
+        let ordered = activities.enumerated().sorted { lhs, rhs in
+            let lhsRank = activitySectionRank(lhs.element.activityType)
+            let rhsRank = activitySectionRank(rhs.element.activityType)
+            return lhsRank != rhsRank ? lhsRank < rhsRank : lhs.offset < rhs.offset
+        }.map(\.element)
         var rows: [DmMessageActivityItem] = []
-        for (uid, prof) in profileById where uid != myUserId {
-            guard let act = actByUser[uid] else { continue }
+        var shownUserIds = Set<Int64>()
+        for act in ordered {
+            let uid = act.userID
+            guard uid != myUserId, !shownUserIds.contains(uid), let prof = profileById[uid] else { continue }
             let desc = act.activityDescription.trimmingCharacters(in: .whitespacesAndNewlines)
             let actName = act.activityName.trimmingCharacters(in: .whitespacesAndNewlines)
             let subtitle: String
@@ -1179,6 +1181,7 @@ final class DirectMessagesViewController: ViewController {
             }
             let trimmedSub = subtitle.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmedSub.isEmpty else { continue }
+            shownUserIds.insert(uid)
             rows.append(DmMessageActivityItem(
                 userId: uid,
                 displayName: prof.displayName,
@@ -1187,10 +1190,16 @@ final class DirectMessagesViewController: ViewController {
                 activitySubtitle: trimmedSub
             ))
         }
-        rows.sort {
-            $0.resolvedDisplayName.localizedCaseInsensitiveCompare($1.resolvedDisplayName) == .orderedAscending
-        }
         return rows
+    }
+
+    private static func activitySectionRank(_ activityType: Int32) -> Int {
+        switch activityType {
+        case 1: return 0
+        case 2: return 1
+        case 3: return 2
+        default: return 3
+        }
     }
 
     private static func buildResolvedAvatarURLCache(
