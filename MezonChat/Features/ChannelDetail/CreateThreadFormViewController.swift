@@ -120,6 +120,9 @@ final class CreateThreadFormViewController: UIViewController {
             self?.updateInlineSuggestionHostLayout(height: h)
         }
         vc.inlineSuggestionHost = inlineSuggestionHost
+        vc.onAnonymousModeChanged = { [weak self] in
+            self?.rebuildAdvancePanelActions()
+        }
         return vc
     }()
 
@@ -765,11 +768,10 @@ final class CreateThreadFormViewController: UIViewController {
     }
 
     private func rebuildAdvancePanelActions() {
-        let prevent = clanPreventsAnonymous()
         let on = AnonymousMessageStore.isEnabled(clanId: clanId)
         let items = AdvancedFunctionPanelView.defaultActionItems(
             anonymousOn: on,
-            includeAnonymous: clanId != 0 && !prevent,
+            includeAnonymous: clanId != 0,
             includeCreateThread: false
         )
         advancePanelView.setActions(items)
@@ -856,10 +858,7 @@ final class CreateThreadFormViewController: UIViewController {
             }
             presentFromTopMost(buzzVC)
         case "anonymous":
-            guard clanId != 0, !clanPreventsAnonymous() else { return }
-            _ = AnonymousMessageStore.toggle(clanId: clanId)
-            sendInputVC.refreshAnonymousUI()
-            rebuildAdvancePanelActions()
+            guard sendInputVC.toggleAnonymousMode() else { return }
             DispatchQueue.main.async { [weak self] in self?.sendInputVC.focusTextInput() }
         case "transfer_funds":
             navigateToTransferFundsForThreadForm()

@@ -1160,6 +1160,7 @@ enum L10n {
         static let yesterdayAt   = "channelMessages.yesterdayAt"
         static let writeMessage   = "channelMessages.writeMessage"
         static let noSendPermission = "channelMessages.noSendPermission"
+        static let anonymousNotAllowed = "channelMessages.anonymousNotAllowed"
         static let userIsTyping        = "channelMessages.userIsTyping"
         static let usersAreTyping      = "channelMessages.usersAreTyping"
         static let severalPeopleTyping = "channelMessages.severalPeopleTyping"
@@ -2440,6 +2441,7 @@ extension L10n {
         "channelMessages.yesterdayAt": "Yesterday at %@",
         "channelMessages.writeMessage": "Write message...",
         "channelMessages.noSendPermission": "You do not have permission to send messages in this channel.",
+        "channelMessages.anonymousNotAllowed": "Anonymous mode is not allowed in this clan",
         "channelMessages.userIsTyping": "%@ is typing…",
         "channelMessages.usersAreTyping": "%@ are typing…",
         "channelMessages.severalPeopleTyping": "Several people are typing…",
@@ -3864,6 +3866,7 @@ extension L10n {
         "channelMessages.yesterdayAt": "Hôm qua lúc %@",
         "channelMessages.writeMessage": "Nhập tin nhắn...",
         "channelMessages.noSendPermission": "Bạn không có quyền gửi tin nhắn trong kênh này.",
+        "channelMessages.anonymousNotAllowed": "Không cho phép dùng ẩn danh trên clan này",
         "channelMessages.userIsTyping": "%@ đang nhập…",
         "channelMessages.usersAreTyping": "%@ đang nhập…",
         "channelMessages.severalPeopleTyping": "Nhiều người đang nhập…",

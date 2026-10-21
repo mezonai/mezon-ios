@@ -4441,11 +4441,10 @@ final class ChatViewController: ViewController {
     }
 
     private func rebuildAdvancePanelActions() {
-        let prevent = clanPreventsAnonymous()
         let on = AnonymousMessageStore.isEnabled(clanId: clanId)
         let items = AdvancedFunctionPanelView.defaultActionItems(
             anonymousOn: on,
-            includeAnonymous: clanId != 0 && !prevent,
+            includeAnonymous: clanId != 0,
             includeCreatePoll: channel.type != MezonConstants.ChannelType.dm.rawValue
         )
         advancePanelView.setActions(items)
@@ -4534,10 +4533,7 @@ final class ChatViewController: ViewController {
         case "buzz":
             handleBuzzMessage()
         case "anonymous":
-            guard clanId != 0, !clanPreventsAnonymous() else { return }
-            _ = AnonymousMessageStore.toggle(clanId: clanId)
-            sendInputViewController.refreshAnonymousUI()
-            rebuildAdvancePanelActions()
+            guard sendInputViewController.toggleAnonymousMode() else { return }
             DispatchQueue.main.async { [weak self] in
                 self?.sendInputViewController.focusTextInput()
             }
