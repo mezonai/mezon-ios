@@ -3975,8 +3975,9 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         }
         if networkWarningHint != nil, networkWarningTarget === target { return }
         networkWarningHint?.removeFromSuperview()
-        let message = L(L10n.VoiceChannel.networkWarning)
-        let hint = VoiceNetworkWarningHintView(message: message)
+        let warningTitle = L(L10n.VoiceChannel.networkWarningTitle)
+        let warningBody = L(L10n.VoiceChannel.networkWarningBody)
+        let hint = VoiceNetworkWarningHintView(title: warningTitle, body: warningBody)
         hint.translatesAutoresizingMaskIntoConstraints = false
         hint.onDismiss = { [weak self] in
             self?.networkWarningDismissed = true
@@ -4001,7 +4002,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         UIView.animate(withDuration: 0.18) {
             hint.alpha = 1
         }
-        UIAccessibility.post(notification: .announcement, argument: message)
+        UIAccessibility.post(notification: .announcement, argument: "\(warningTitle). \(warningBody)")
     }
 
     private func hideNetworkWarningHint() {

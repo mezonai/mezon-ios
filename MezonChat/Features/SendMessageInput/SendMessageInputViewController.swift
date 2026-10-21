@@ -2441,6 +2441,7 @@ final class SendMessageInputViewController: UIViewController {
                     avatar: avatar,
                     topicId: self.topicId,
                     code: record.code,
+                    clientMessageId: MezonHTTPClient.clientMessageId(pendingId: localId),
                     token: token
                 )
                 self.context.account.postbox.write { tx in
@@ -6957,6 +6958,7 @@ final class SendMessageInputViewController: UIViewController {
                         mentionEveryone: false,
                         avatar: avatar,
                         topicId: self.topicId,
+                        clientMessageId: MezonHTTPClient.clientMessageId(pendingId: localId),
                         token: token
                     )
                     if !sendAsAnonymous {
