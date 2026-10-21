@@ -910,7 +910,7 @@ final class VoiceChannelPiPOverlay: NSObject {
         if let remoteShare = session.participants.first(where: { $0.screenActive && $0.screen != nil }),
            let track = remoteShare.screen,
            let identity = remoteShare.userId {
-            showVideo(track: track, mirror: false)
+            showVideo(track: track, mirror: false, fitContent: true)
             let name = resolveDisplayName(identityKey: identity, isLocal: false)
             showBadge(icon: "rectangle.on.rectangle", name: "\(name) Share Screen", micOn: true)
             return
@@ -918,7 +918,7 @@ final class VoiceChannelPiPOverlay: NSObject {
 
         let localMicOn = session.micEnabled || session.pttActive
         if session.cameraEnabled, let track = session.localCameraTrack {
-            showVideo(track: track, mirror: session.cameraPosition == .front)
+            showVideo(track: track, mirror: session.cameraPosition == .front, fitContent: false)
             let name = resolveDisplayName(identityKey: "", isLocal: true)
             showBadge(icon: localMicOn ? "mic.fill" : "mic.slash.fill", name: name, micOn: localMicOn)
             return
@@ -936,17 +936,20 @@ final class VoiceChannelPiPOverlay: NSObject {
         if let track { session?.setVideoTrackVisible(track, visible: true, source: "mini-overlay", focused: true) }
     }
 
-    private func showVideo(track: RTCVideoTrack, mirror: Bool) {
+    private func showVideo(track: RTCVideoTrack, mirror: Bool, fitContent: Bool) {
+        let contentMode: PeerCallVideoRenderView.RenderContentMode = fitContent ? .fit : .fill
         setOverlayRecoveryTrack(track)
         textAvatar.isHidden = true
         videoView.isHidden = false
         videoView.alpha = 1
         videoView.isMirrored = mirror
+        videoView.renderContentMode = contentMode
         videoView.attach(track: track)
         if let container = systemCallPiPContentVC?.view {
             systemCallPiPVideoView.isHidden = false
             systemCallPiPVideoView.alpha = 1
             systemCallPiPVideoView.isMirrored = mirror
+            systemCallPiPVideoView.renderContentMode = contentMode
             systemCallPiPVideoView.attach(track: track)
             voiceCallSystemPiPSetChromeHidden(container, hidden: true)
         }
