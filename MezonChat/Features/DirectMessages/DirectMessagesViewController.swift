@@ -10,10 +10,37 @@ struct DirectMessagesState {
     var resolvedAvatarURLByChannelId: [Int64: String]
     var inVoiceUserIds: Set<Int64> = []
     var screenSharingUserIds: Set<Int64> = []
+    var pinnedChannelIds: Set<Int64> = []
 
     static let empty = DirectMessagesState(
         directMessages: [], isEmpty: true, isLoading: false, errorMessage: nil,
         incomingFriendRequestCount: 0, messageActivityRows: [], resolvedAvatarURLByChannelId: [:])
+}
+
+enum DmPinStore {
+    static let maxPinned = 10
+
+    static func pinnedIds(postbox: Postbox) -> [Int64] {
+        guard let data = postbox.getPreferenceData(key: PreferencesKeys.dmPinnedChannelIds),
+              let ids = try? JSONDecoder().decode([Int64].self, from: data) else { return [] }
+        return Array(ids.prefix(maxPinned))
+    }
+
+    static func isFull(postbox: Postbox) -> Bool {
+        pinnedIds(postbox: postbox).count >= maxPinned
+    }
+
+    static func setPinned(_ pinned: Bool, channelId: Int64, postbox: Postbox) {
+        var ids = pinnedIds(postbox: postbox)
+        if pinned {
+            guard !ids.contains(channelId), ids.count < maxPinned else { return }
+            ids.append(channelId)
+        } else {
+            guard let index = ids.firstIndex(of: channelId) else { return }
+            ids.remove(at: index)
+        }
+        postbox.setPreferenceData(key: PreferencesKeys.dmPinnedChannelIds, value: try? JSONEncoder().encode(ids))
+    }
 }
 
 final class DirectMessagesViewController: ViewController {
@@ -204,6 +231,7 @@ final class DirectMessagesViewController: ViewController {
         guard let channelId = Self.int64UserInfo(notification.userInfo?["channelId"]) else { return }
 
         if (notification.userInfo?["removed"] as? Bool) == true {
+            DmPinStore.setPinned(false, channelId: channelId, postbox: context.account.postbox)
             let oldCount = directMessages.count
             directMessages.removeAll { $0.channelID == channelId }
             guard oldCount != directMessages.count else { return }
@@ -494,7 +522,8 @@ final class DirectMessagesViewController: ViewController {
             friend: friend,
             currentUserId: currentUserId,
             isMuted: DmMenuContext.isConversationMuted(record: notificationRecord),
-            groupMemberUserIds: groupMemberUserIds
+            groupMemberUserIds: groupMemberUserIds,
+            isPinned: DmPinStore.pinnedIds(postbox: context.account.postbox).contains(channel.channelID)
         )
     }
 
@@ -550,6 +579,10 @@ final class DirectMessagesViewController: ViewController {
             handleUnblockUser(channel: channel, menuContext: menuContext)
         case .markAsRead:
             handleMarkDmAsRead(channel)
+        case .pinConversation:
+            presentDmPinConfirm(channel, pin: true)
+        case .unpinConversation:
+            presentDmPinConfirm(channel, pin: false)
         case .muteConversation:
             presentDmMuteDurationSheet(channel)
         case .unmuteConversation:
@@ -746,6 +779,24 @@ final class DirectMessagesViewController: ViewController {
                 Toast.error(error.localizedDescription)
             }
         }
+    }
+
+    private func presentDmPinConfirm(_ channel: Mezon_Api_ChannelDescription, pin: Bool) {
+        if pin, DmPinStore.isFull(postbox: context.account.postbox) {
+            Toast.error(L(L10n.DmMenu.pinLimitExceeded, DmPinStore.maxPinned))
+            return
+        }
+        MezonConfirm.present(
+            from: self,
+            title: L(pin ? L10n.DmMenu.pinConfirmTitle : L10n.DmMenu.unpinConfirmTitle),
+            content: L(pin ? L10n.DmMenu.pinConfirmMessage : L10n.DmMenu.unpinConfirmMessage),
+            confirmTitle: L(pin ? L10n.DmMenu.pinConfirmAction : L10n.DmMenu.unpinConfirmAction),
+            onConfirm: { [weak self] in
+                guard let self else { return }
+                DmPinStore.setPinned(pin, channelId: channel.channelID, postbox: self.context.account.postbox)
+                self.needsReloadPipe.putNext(())
+            }
+        )
     }
 
     private func presentDmMuteDurationSheet(_ channel: Mezon_Api_ChannelDescription) {
@@ -1407,7 +1458,8 @@ final class DirectMessagesViewController: ViewController {
                 postboxAvatarURL: postboxAvatarURL
             ),
             inVoiceUserIds: inVoiceUserIds.subtracting([myUserId]),
-            screenSharingUserIds: screenSharingUserIds.subtracting([myUserId])
+            screenSharingUserIds: screenSharingUserIds.subtracting([myUserId]),
+            pinnedChannelIds: Set(DmPinStore.pinnedIds(postbox: context.account.postbox))
         )
     }
 

@@ -1531,6 +1531,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private var micButton: UIButton!
     private var camButton: UIButton!
     private var raiseHandButton: UIButton!
+    private var screenShareButton: UIButton!
     private var isLocalRaiseHandActive = false
     private var raisedHandUserIds: Set<Int64> = []
     private var raiseHandBannerVisibleUserIds: Set<Int64> = []
@@ -1605,6 +1606,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private weak var noisePopoverStatusLabel: UILabel?
     private weak var noisePopoverSpinner: UIActivityIndicatorView?
     private var noiseFeedbackWorkItem: DispatchWorkItem?
+    private let screenSharePicker = ScreenShareBroadcastPicker()
     private weak var voiceReactionEmojiPickerSheet: ReactionEmojiPickerSheetController?
     private weak var voiceReactionSoundStickerPickerSheet: ReactionSoundStickerPickerSheetController?
 
@@ -1792,6 +1794,10 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         styleHeaderCircleButton(moreButton, systemImage: "ellipsis", pointSize: 18)
         moreButton.tintColor = UIColor.theme.white
         moreButton.addTarget(self, action: #selector(moreButtonTapped), for: .touchUpInside)
+        let hand = UIButton(type: .custom)
+        styleHeaderCircleButton(hand, systemImage: "hand.raised.fill", pointSize: 16)
+        hand.addTarget(self, action: #selector(raiseHandTapped), for: .touchUpInside)
+        raiseHandButton = hand
 
         styleVoiceAgentHeaderButton(agentToggleButton)
         agentToggleButton.addTarget(self, action: #selector(agentToggleTapped), for: .touchUpInside)
@@ -1807,6 +1813,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
         headerRight.addArrangedSubview(agentToggleButton)
         headerRight.addArrangedSubview(cameraSwitchButton)
+        headerRight.addArrangedSubview(raiseHandButton)
         headerRight.addArrangedSubview(audioRouteControl)
         headerRight.addArrangedSubview(moreButton)
 
@@ -1856,11 +1863,15 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             micWeakDot.trailingAnchor.constraint(equalTo: mic.trailingAnchor),
         ])
         let chat = makeControlBarIconButton(systemName: "bubble.left.and.bubble.right.fill", action: #selector(openChatTapped))
-        let hand = makeControlBarIconButton(systemName: "hand.raised.fill", action: #selector(raiseHandTapped))
-        raiseHandButton = hand
+        let share = makeControlBarIconButton(systemName: "rectangle.on.rectangle", action: #selector(screenShareBarTapped))
+        if let icon = UIImage(named: "Channel/VoiceScreenShare") {
+            share.setImage(icon.withRenderingMode(.alwaysTemplate), for: .normal)
+        }
+        screenShareButton = share
         refreshRaiseHandButtonAppearance()
+        refreshScreenShareButtonAppearance()
         let leave = makeEndCallButton()
-        [cam, mic, chat, hand, leave].forEach { bottomControlsStack.addArrangedSubview($0) }
+        [cam, mic, chat, share, leave].forEach { bottomControlsStack.addArrangedSubview($0) }
 
         bottomPill.addSubview(bottomControlsStack)
 
@@ -1919,7 +1930,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         headerTrailing.identifier = "voice.room.header.trailing"
         bannerLeading.identifier = "voice.room.raiseHand.leading"
 
-        let headerButtons: [UIView] = [collapseButton, cameraSwitchButton, agentToggleButton, audioRouteControl, moreButton]
+        let headerButtons: [UIView] = [collapseButton, cameraSwitchButton, agentToggleButton, raiseHandButton, audioRouteControl, moreButton]
         let headerButtonWidths = headerButtons.map { $0.widthAnchor.constraint(equalToConstant: 40) }
         for constraint in headerButtonWidths {
             constraint.priority = UILayoutPriority(999)
@@ -1944,6 +1955,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             collapseButton.heightAnchor.constraint(equalToConstant: 40),
             cameraSwitchButton.heightAnchor.constraint(equalToConstant: 40),
             agentToggleButton.heightAnchor.constraint(equalToConstant: 40),
+            raiseHandButton.heightAnchor.constraint(equalToConstant: 40),
             audioRouteControl.heightAnchor.constraint(equalToConstant: 40),
             moreButton.heightAnchor.constraint(equalToConstant: 40),
 
@@ -2761,6 +2773,16 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         presentReactionSoundStickerPickerForVoiceChannel()
     }
 
+    @objc private func screenShareBarTapped() {
+        guard let session = sfuSession else { return }
+        if session.screenShareEnabled {
+            session.stopScreenShare()
+            return
+        }
+        guard currentRole == .speaker, session.isConnected else { return }
+        screenSharePicker.present(in: view)
+    }
+
     private func presentReactionEmojiPickerForVoiceChannel(mediaType: Int32) {
         view.endEditing(true)
         let sheet = ReactionEmojiPickerSheetController(engine: context.engine, dismissOnEmojiSelect: false) { [weak self] emojiId, _ in
@@ -2884,19 +2906,31 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private func refreshRaiseHandButtonAppearance() {
         refreshExpandedCallControls()
         guard raiseHandButton != nil else { return }
-        let cfg = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
+        let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
         raiseHandButton.setImage(
             UIImage(systemName: "hand.raised.fill", withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate),
             for: .normal
         )
+        raiseHandButton.layer.borderColor = UIColor.theme.border.cgColor
         if isLocalRaiseHandActive {
             raiseHandButton.tintColor = UIColor.theme.textLink
             raiseHandButton.backgroundColor = UIColor.theme.textLink.withAlphaComponent(0.22)
         } else {
-            raiseHandButton.tintColor = UIColor.theme.textStrong
-            raiseHandButton.backgroundColor = UIColor.theme.tertiary
+            raiseHandButton.tintColor = UIColor.theme.white
+            raiseHandButton.backgroundColor = UIColor.theme.secondary
         }
         refreshPttRaiseHandTint()
+    }
+
+    private func refreshScreenShareButtonAppearance() {
+        guard screenShareButton != nil else { return }
+        if sfuSession?.screenShareEnabled == true {
+            screenShareButton.tintColor = UIColor.mezonVoiceActive
+            screenShareButton.backgroundColor = UIColor.mezonVoiceActive.withAlphaComponent(0.22)
+        } else {
+            screenShareButton.tintColor = UIColor.theme.textStrong
+            screenShareButton.backgroundColor = UIColor.theme.tertiary
+        }
     }
 
     private func lowerRaiseHandIfActive() {
@@ -3107,6 +3141,13 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         session.onCameraRefused = { [weak self] code in
             self?.handleCameraRefused(code)
         }
+        session.onScreenShareChanged = { [weak self] _ in
+            self?.refreshScreenShareButtonAppearance()
+            self?.refreshParticipantRowsFromSession()
+        }
+        session.onScreenShareRefused = { [weak self] code in
+            self?.handleScreenShareRefused(code)
+        }
         session.onRemoved = { [weak self] cause, reason in
             self?.handleRemovedFromRoom(cause: cause, reason: reason)
         }
@@ -3144,6 +3185,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         applyRole(session.role)
         refreshMicButtonIcon()
         refreshCamButtonIcon()
+        refreshScreenShareButtonAppearance()
         if let preservedAudioRoute {
             switch preservedAudioRoute {
             case .speaker: currentAudioOutput = .speaker
@@ -3241,6 +3283,26 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         Toast.info(message)
     }
 
+    private func handleScreenShareRefused(_ code: String) {
+        let message: String
+        switch code {
+        case "screen_share_capacity_full":
+            message = NSLocalizedString(
+                "voiceChannel.screenShareLimitReached", tableName: nil, bundle: .main,
+                value: "This voice channel has reached its screen share limit. Try again when someone stops sharing.",
+                comment: "")
+        case "screen_share_not_allowed":
+            message = NSLocalizedString(
+                "voiceChannel.screenShareNotAllowed", tableName: nil, bundle: .main,
+                value: "Only speakers can share their screen in this voice channel.", comment: "")
+        default:
+            message = NSLocalizedString(
+                "voiceChannel.screenShareUpdateFailed", tableName: nil, bundle: .main,
+                value: "Couldn't start or stop screen sharing. Please try again.", comment: "")
+        }
+        Toast.info(message)
+    }
+
     private func handleRemovedFromRoom(cause: SfuRemovalCause, reason: String?) {
         Toast.info(voiceChannelRemovalMessage(cause: cause, reason: reason))
         popTapped()
@@ -3250,6 +3312,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         currentRole = role
         let audience = role == .audience
         bottomPill.isHidden = audience
+        raiseHandButton?.isHidden = audience
         pttContainer.isHidden = !audience
         if audience {
             contentScrollBottomToPill?.isActive = false
@@ -3683,6 +3746,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         refreshSpeakerRouteUI()
         refreshCamButtonIcon()
         refreshRaiseHandButtonAppearance()
+        refreshScreenShareButtonAppearance()
         refreshRaiseHandTopBanners()
         refreshPttFeedback()
         if #available(iOS 15.0, *) {
@@ -3911,8 +3975,9 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         }
         if networkWarningHint != nil, networkWarningTarget === target { return }
         networkWarningHint?.removeFromSuperview()
-        let message = L(L10n.VoiceChannel.networkWarning)
-        let hint = VoiceNetworkWarningHintView(message: message)
+        let warningTitle = L(L10n.VoiceChannel.networkWarningTitle)
+        let warningBody = L(L10n.VoiceChannel.networkWarningBody)
+        let hint = VoiceNetworkWarningHintView(title: warningTitle, body: warningBody)
         hint.translatesAutoresizingMaskIntoConstraints = false
         hint.onDismiss = { [weak self] in
             self?.networkWarningDismissed = true
@@ -3937,7 +4002,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         UIView.animate(withDuration: 0.18) {
             hint.alpha = 1
         }
-        UIAccessibility.post(notification: .announcement, argument: message)
+        UIAccessibility.post(notification: .announcement, argument: "\(warningTitle). \(warningBody)")
     }
 
     private func hideNetworkWarningHint() {
@@ -4387,7 +4452,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             micOn: session.micEnabled || session.pttActive,
             speaking: session.speakingIds.contains(localId),
             cameraTrack: session.cameraEnabled ? session.localCameraTrack : nil,
-            screenTrack: nil,
+            screenTrack: session.screenShareEnabled ? session.screenTrack : nil,
             screenPublishing: false,
             mirror: session.cameraPosition == .front,
             isAudience: currentRole == .audience,
@@ -4996,6 +5061,10 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private func applyParticipantRowCallbacks(rowKey: String, row: VoiceParticipantRowView, entry: VoiceTileEntry, displayName: String) {
         if rowKey.hasSuffix("|screen") {
             row.onMainTileLongPress = nil
+            guard !entry.isLocal else {
+                row.onExpandScreenShare = nil
+                return
+            }
             let sourceKey = entry.tileKey
             row.onExpandScreenShare = { [weak self] in
                 guard let self else { return }
@@ -5578,7 +5647,9 @@ private final class VoiceParticipantGridCell: UICollectionViewCell {
 private final class VoiceParticipantRowView: UIView {
 
     let identityKey: String
-    var onExpandScreenShare: (() -> Void)?
+    var onExpandScreenShare: (() -> Void)? {
+        didSet { expandButton.isHidden = tileKind != .screenShare || onExpandScreenShare == nil }
+    }
     var onMainTileLongPress: (() -> Void)?
     var onVideoAttached: ((RTCVideoTrack) -> Void)?
     var onVideoDetached: ((RTCVideoTrack) -> Void)?

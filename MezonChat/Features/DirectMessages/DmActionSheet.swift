@@ -9,6 +9,8 @@ enum DmAction: Hashable {
     case blockUser
     case unblockUser
     case markAsRead
+    case pinConversation
+    case unpinConversation
     case muteConversation
     case unmuteConversation
 
@@ -31,6 +33,8 @@ enum DmAction: Hashable {
         case .blockUser: return L(L10n.DmMenu.blockUser)
         case .unblockUser: return L(L10n.DmMenu.unblockUser)
         case .markAsRead: return L(L10n.ChannelAction.markAsRead)
+        case .pinConversation: return L(L10n.DmMenu.pinConversation)
+        case .unpinConversation: return L(L10n.DmMenu.unpinConversation)
         case .muteConversation: return L(L10n.DmMenu.muteConversation)
         case .unmuteConversation: return L(L10n.DmMenu.unmuteConversation)
         }
@@ -39,6 +43,8 @@ enum DmAction: Hashable {
     var iconName: String? {
         switch self {
         case .markAsRead: return "ChannelSetting/MarkAsRead"
+        case .pinConversation: return "Chat/IconPin"
+        case .unpinConversation: return "Chat/IconUnpin"
         case .muteConversation: return "ChannelSetting/MuteChannel"
         case .unmuteConversation: return "ChannelSetting/UmuteChannelIcon"
         case .addFriend: return "Notifications/AddFriendIcon"
@@ -60,6 +66,7 @@ struct DmMenuContext {
     let currentUserId: Int64
     let isMuted: Bool
     let groupMemberUserIds: [Int64]
+    let isPinned: Bool
 
     var isGroup: Bool {
         channel.type == MezonConstants.ChannelType.group.rawValue
@@ -119,9 +126,12 @@ struct DmMenuContext {
             groups.append(profileGroup)
         }
 
+        var readGroup: [DmAction] = []
         if !isChatWithMyself {
-            groups.append([.markAsRead])
+            readGroup.append(.markAsRead)
         }
+        readGroup.append(isPinned ? .unpinConversation : .pinConversation)
+        groups.append(readGroup)
 
         if !isChatWithMyself {
             groups.append([currentIsMuted ? .unmuteConversation : .muteConversation])
@@ -507,6 +517,9 @@ private final class DmActionSheetNode: ASDisplayNode, UIGestureRecognizerDelegat
             } else if action == .unblockUser {
                 icon.image = base.withRenderingMode(.alwaysTemplate)
                 icon.tintColor = .gray
+            } else if action == .pinConversation || action == .unpinConversation {
+                icon.image = base.withRenderingMode(.alwaysTemplate)
+                icon.tintColor = UIColor.theme.textStrong
             } else {
                 icon.image = base.withRenderingMode(.alwaysOriginal)
             }

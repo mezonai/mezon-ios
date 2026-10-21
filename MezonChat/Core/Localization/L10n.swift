@@ -1213,6 +1213,17 @@ enum L10n {
         static let unblockUserSuccess = "dmMenu.unblockUserSuccess"
         static let unblockUserError = "dmMenu.unblockUserError"
         static let unmuteError = "dmMenu.unmuteError"
+        static let pinConversation = "dmMenu.pinConversation"
+        static let unpinConversation = "dmMenu.unpinConversation"
+        static let pinConfirmTitle = "dmMenu.pinConfirmTitle"
+        static let pinConfirmMessage = "dmMenu.pinConfirmMessage"
+        static let pinConfirmAction = "dmMenu.pinConfirmAction"
+        static let unpinConfirmTitle = "dmMenu.unpinConfirmTitle"
+        static let unpinConfirmMessage = "dmMenu.unpinConfirmMessage"
+        static let unpinConfirmAction = "dmMenu.unpinConfirmAction"
+        static let pinLimitExceeded = "dmMenu.pinLimitExceeded"
+        static let pinnedSection = "dmMenu.pinnedSection"
+        static let allMessagesSection = "dmMenu.allMessagesSection"
     }
 
     enum ReportMessage {
@@ -1473,6 +1484,9 @@ enum L10n {
         static let errorMicrophoneDenied     = "peerCall.errorMicrophoneDenied"
         static let micPermissionTitle        = "peerCall.micPermissionTitle"
         static let micPermissionBody         = "peerCall.micPermissionBody"
+        static let micPermissionPath         = "peerCall.micPermissionPath"
+        static let actionOpenSettings        = "peerCall.actionOpenSettings"
+        static let actionEndCall             = "peerCall.actionEndCall"
         static let errorCameraDenied         = "peerCall.errorCameraDenied"
         static let errorCouldNotStartCall    = "peerCall.errorCouldNotStartCall"
         static let errorCouldNotAnswerCall   = "peerCall.errorCouldNotAnswerCall"
@@ -1529,7 +1543,8 @@ enum L10n {
         static let rejoinBody = "voiceChannel.rejoinBody"
         static let retry = "voiceChannel.retry"
         static let leaveRoom = "voiceChannel.leaveRoom"
-        static let networkWarning = "voiceChannel.networkWarning"
+        static let networkWarningTitle = "voiceChannel.networkWarningTitle"
+        static let networkWarningBody = "voiceChannel.networkWarningBody"
         static let pttHold = "voiceChannel.pttHold"
         static let pttWaiting = "voiceChannel.pttWaiting"
         static let pttPreparing = "voiceChannel.pttPreparing"
@@ -2896,6 +2911,17 @@ extension L10n {
         "dmMenu.blockUserError": "Failed to block user",
         "dmMenu.unblockUserSuccess": "User unblocked successfully",
         "dmMenu.unblockUserError": "Failed to unblock user",
+        "dmMenu.pinConversation": "Pin Conversation",
+        "dmMenu.unpinConversation": "Unpin Conversation",
+        "dmMenu.pinConfirmTitle": "Pin Conversation?",
+        "dmMenu.pinConfirmMessage": "This conversation will be moved to the top of your messages list for easy access.",
+        "dmMenu.pinConfirmAction": "Pin",
+        "dmMenu.unpinConfirmTitle": "Unpin Conversation?",
+        "dmMenu.unpinConfirmMessage": "This conversation will be returned to its normal position in the messages list.",
+        "dmMenu.unpinConfirmAction": "Unpin",
+        "dmMenu.pinLimitExceeded": "You can only pin up to %d conversations. Please unpin another conversation to pin this one",
+        "dmMenu.pinnedSection": "PINNED",
+        "dmMenu.allMessagesSection": "ALL MESSAGES",
 
         "embed.onlyVisibleToRecipient": "Only visible to recipient",
 
@@ -2929,8 +2955,11 @@ extension L10n {
         "peerCall.statusCouldNotConnect":   "Could not connect",
         "peerCall.statusUnlockForMicrophone": "Unlock your phone to allow microphone access",
         "peerCall.errorMicrophoneDenied":   "Microphone access denied",
-        "peerCall.micPermissionTitle":      "Microphone",
-        "peerCall.micPermissionBody":       "Allow microphone access in Settings to join this call.",
+        "peerCall.micPermissionTitle":      "Microphone access needed",
+        "peerCall.micPermissionBody":       "Mezon needs your microphone so the other person can hear you. Turn on Microphone for Mezon in Settings.",
+        "peerCall.micPermissionPath":       "Settings › Mezon › Microphone",
+        "peerCall.actionOpenSettings":      "Open Settings",
+        "peerCall.actionEndCall":           "End call",
         "peerCall.errorCameraDenied":       "Camera access denied",
         "peerCall.errorCouldNotStartCall":  "Could not start call",
         "peerCall.errorCouldNotAnswerCall": "Could not answer call",
@@ -3017,7 +3046,8 @@ extension L10n {
         "voiceChannel.rejoinBody": "The voice connection could not be restored. Check your connection and try joining again.",
         "voiceChannel.retry": "Rejoin",
         "voiceChannel.leaveRoom": "Exit",
-        "voiceChannel.networkWarning": "Your internet connection is unstable.",
+        "voiceChannel.networkWarningTitle": "Your internet connection is unstable",
+        "voiceChannel.networkWarningBody": "Please check your network connection.",
         "voiceChannel.pttHold": "Hold to talk",
         "voiceChannel.pttWaiting": "Waiting to speak…",
         "voiceChannel.pttPreparing": "Preparing microphone…",
@@ -4321,6 +4351,17 @@ extension L10n {
         "dmMenu.blockUserError": "Không thể chặn người dùng",
         "dmMenu.unblockUserSuccess": "Bỏ chặn người dùng thành công",
         "dmMenu.unblockUserError": "Không thể bỏ chặn người dùng",
+        "dmMenu.pinConversation": "Ghim cuộc trò chuyện",
+        "dmMenu.unpinConversation": "Bỏ ghim cuộc trò chuyện",
+        "dmMenu.pinConfirmTitle": "Ghim cuộc trò chuyện?",
+        "dmMenu.pinConfirmMessage": "Cuộc trò chuyện này sẽ được chuyển lên đầu danh sách tin nhắn để dễ truy cập.",
+        "dmMenu.pinConfirmAction": "Ghim",
+        "dmMenu.unpinConfirmTitle": "Bỏ ghim cuộc trò chuyện?",
+        "dmMenu.unpinConfirmMessage": "Cuộc trò chuyện này sẽ trở về vị trí bình thường trong danh sách tin nhắn.",
+        "dmMenu.unpinConfirmAction": "Bỏ ghim",
+        "dmMenu.pinLimitExceeded": "Bạn chỉ có thể ghim tối đa %d cuộc trò chuyện. Vui lòng bỏ ghim cuộc trò chuyện khác để ghim cuộc trò chuyện này",
+        "dmMenu.pinnedSection": "ĐÃ GHIM",
+        "dmMenu.allMessagesSection": "TẤT CẢ TIN NHẮN",
 
         "embed.onlyVisibleToRecipient": "Chỉ người nhận mới thấy được",
 
@@ -4354,8 +4395,11 @@ extension L10n {
         "peerCall.statusCouldNotConnect":   "Không kết nối được",
         "peerCall.statusUnlockForMicrophone": "Mở khóa điện thoại để cấp quyền micro",
         "peerCall.errorMicrophoneDenied":   "Quyền truy cập micro bị từ chối",
-        "peerCall.micPermissionTitle":      "Micro",
-        "peerCall.micPermissionBody":       "Cho phép truy cập micro trong Cài đặt để tham gia cuộc gọi.",
+        "peerCall.micPermissionTitle":      "Cần quyền truy cập micro",
+        "peerCall.micPermissionBody":       "Mezon cần micro để người bên kia nghe được bạn. Hãy bật Micro cho Mezon trong Cài đặt.",
+        "peerCall.micPermissionPath":       "Cài đặt › Mezon › Micro",
+        "peerCall.actionOpenSettings":      "Mở Cài đặt",
+        "peerCall.actionEndCall":           "Kết thúc cuộc gọi",
         "peerCall.errorCameraDenied":       "Quyền truy cập camera bị từ chối",
         "peerCall.errorCouldNotStartCall":  "Không thể bắt đầu cuộc gọi",
         "peerCall.errorCouldNotAnswerCall": "Không thể trả lời cuộc gọi",
@@ -4442,7 +4486,8 @@ extension L10n {
         "voiceChannel.rejoinBody": "Không thể khôi phục kết nối thoại. Hãy kiểm tra kết nối và thử tham gia lại.",
         "voiceChannel.retry": "Tham gia lại",
         "voiceChannel.leaveRoom": "Thoát",
-        "voiceChannel.networkWarning": "Kết nối mạng của bạn không ổn định.",
+        "voiceChannel.networkWarningTitle": "Kết nối mạng của bạn không ổn định",
+        "voiceChannel.networkWarningBody": "Hãy kiểm tra lại đường truyền mạng của bạn.",
         "voiceChannel.pttHold": "Giữ để nói",
         "voiceChannel.pttWaiting": "Đang chờ quyền nói…",
         "voiceChannel.pttPreparing": "Đang chuẩn bị micro…",

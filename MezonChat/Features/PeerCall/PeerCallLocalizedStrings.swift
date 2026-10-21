@@ -24,6 +24,11 @@ enum PeerCallLocalizedStrings {
     static var statusRemoteEnded: String { "Call ended" }
 
     static var errorMicrophoneDenied: String { L(L10n.PeerCall.errorMicrophoneDenied) }
+    static var micPermissionTitle: String { L(L10n.PeerCall.micPermissionTitle) }
+    static var micPermissionBody: String { L(L10n.PeerCall.micPermissionBody) }
+    static var micPermissionPath: String { L(L10n.PeerCall.micPermissionPath) }
+    static var actionOpenSettings: String { L(L10n.PeerCall.actionOpenSettings) }
+    static var actionEndCall: String { L(L10n.PeerCall.actionEndCall) }
     static var errorCameraDenied: String { L(L10n.PeerCall.errorCameraDenied) }
     static var errorCouldNotStartCall: String { L(L10n.PeerCall.errorCouldNotStartCall) }
     static var errorCouldNotAnswerCall: String { L(L10n.PeerCall.errorCouldNotAnswerCall) }

@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import UIKit
 import WebRTC
 
 private struct IceCandidateWire: Codable {
@@ -184,6 +185,13 @@ final class PeerWebRTCCallSession: NSObject {
     var onStatusLabel: ((String) -> Void)?
     var onCallMediaConnectedAt: ((Date) -> Void)?
     var onEnded: (() -> Void)?
+    var onMicrophoneDenied: (() -> Void)? {
+        didSet {
+            guard microphoneDeniedPending, !ended else { return }
+            onMicrophoneDenied?()
+        }
+    }
+    private var microphoneDeniedPending = false
     var onRemoteMedia: ((Bool) -> Void)?
     var onLocalMedia: ((Bool, Bool) -> Void)?
     var onNetworkBanner: ((String?) -> Void)?
@@ -292,11 +300,10 @@ final class PeerWebRTCCallSession: NSObject {
         onStatusLabel?(PeerCallLocalizedStrings.statusRinging)
         beginOutgoingCallTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let micOk = await Self.requestMicPermission()
+            let micOk = await ensureMicrophoneAccess()
             guard !Task.isCancelled, !ended else { return }
             guard micOk else {
-                onStatusLabel?(PeerCallLocalizedStrings.errorMicrophoneDenied)
-                finishCall(sendQuit: false)
+                reportMicrophoneDenied()
                 return
             }
             do {
@@ -415,11 +422,10 @@ final class PeerWebRTCCallSession: NSObject {
         answerIncomingCallTask?.cancel()
         answerIncomingCallTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let micOk = await Self.requestMicPermission()
+            let micOk = await ensureMicrophoneAccess()
             guard !Task.isCancelled, !ended else { return }
             guard micOk else {
-                onStatusLabel?(PeerCallLocalizedStrings.errorMicrophoneDenied)
-                finishCall(sendQuit: true)
+                reportMicrophoneDenied()
                 return
             }
             do {
@@ -1001,6 +1007,21 @@ final class PeerWebRTCCallSession: NSObject {
         }
         onRemoteVideoTrack?(nil)
         onLocalVideoTrack?(nil)
+    }
+
+    private func ensureMicrophoneAccess() async -> Bool {
+        if AVAudioSession.sharedInstance().recordPermission == .granted { return true }
+        while UIApplication.shared.applicationState != .active, !Task.isCancelled, !ended {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+        }
+        guard !Task.isCancelled, !ended else { return false }
+        return await Self.requestMicPermission()
+    }
+
+    private func reportMicrophoneDenied() {
+        onStatusLabel?(PeerCallLocalizedStrings.errorMicrophoneDenied)
+        microphoneDeniedPending = true
+        onMicrophoneDenied?()
     }
 
     private static func requestMicPermission() async -> Bool {

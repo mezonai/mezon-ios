@@ -588,6 +588,7 @@ final class AttachmentUploadCoordinator {
                 mentionEveryone: false,
                 avatar: p.avatar,
                 topicId: p.topicId,
+                clientMessageId: MezonHTTPClient.clientMessageId(pendingId: p.localId),
                 token: token
             )
             session.serverMessageId = ack.messageID
