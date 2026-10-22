@@ -233,6 +233,7 @@ extension AddMemberOrRoleSheetController: UITableViewDataSource, UITableViewDele
             let cell = tableView.dequeueReusableCell(withIdentifier: ChannelPermissionRowCell.reuseId, for: indexPath) as! ChannelPermissionRowCell
             cell.configureMember(
                 name: RoleMemberDisplay.displayName(member),
+                username: member.username,
                 subtitle: member.username,
                 avatarURL: RoleMemberDisplay.avatarURL(member),
                 isOwner: false,

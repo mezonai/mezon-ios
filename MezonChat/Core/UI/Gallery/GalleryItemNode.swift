@@ -33,6 +33,7 @@ public struct GalleryItemInfo {
     public let pixelSize: CGSize?
     public let placeholderURL: String?
     public let senderName: String
+    public let senderUsername: String
     public let senderId: String?
     public let senderAvatarURL: String?
     public let timestamp: Date?
@@ -51,6 +52,7 @@ public struct GalleryItemInfo {
         pixelSize: CGSize? = nil,
         placeholderURL: String? = nil,
         senderName: String = "",
+        senderUsername: String = "",
         senderId: String? = nil,
         senderAvatarURL: String? = nil,
         timestamp: Date? = nil,
@@ -63,6 +65,7 @@ public struct GalleryItemInfo {
         self.pixelSize = pixelSize
         self.placeholderURL = placeholderURL
         self.senderName = senderName
+        self.senderUsername = senderUsername
         self.senderId = senderId
         self.senderAvatarURL = senderAvatarURL
         self.timestamp = timestamp
@@ -86,6 +89,7 @@ public struct GalleryItemInfo {
         pixelSize: CGSize? = nil,
         placeholderProxySize: Int = 400,
         senderName: String = "",
+        senderUsername: String = "",
         senderId: String? = nil,
         senderAvatarURL: String? = nil,
         timestamp: Date? = nil
@@ -113,6 +117,7 @@ public struct GalleryItemInfo {
             pixelSize: pixelSize,
             placeholderURL: placeholderURL,
             senderName: senderName,
+            senderUsername: senderUsername,
             senderId: senderId,
             senderAvatarURL: senderAvatarURL,
             timestamp: timestamp,

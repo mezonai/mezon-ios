@@ -20,7 +20,7 @@ final class ChannelPermissionsRowView: UIView {
     private let onTap: (() -> Void)?
 
     private let avatarView = UIImageView()
-    private let avatarInitials = UILabel()
+    private let textAvatarView = TextAvatarView(username: "", size: 36.swh)
     private let roleIconView = UIImageView()
     private let nameLabel = UILabel()
     private let subLabel = UILabel()
@@ -57,10 +57,6 @@ final class ChannelPermissionsRowView: UIView {
         avatarView.clipsToBounds = true
         avatarView.contentMode = .scaleAspectFill
 
-        avatarInitials.font = .systemFont(ofSize: 13.sf, weight: .bold)
-        avatarInitials.textColor = .white
-        avatarInitials.textAlignment = .center
-
         roleIconView.contentMode = .scaleAspectFit
         roleIconView.image = UIImage(systemName: "shield.lefthalf.filled")?.withRenderingMode(.alwaysTemplate)
         roleIconView.isHidden = true
@@ -86,7 +82,7 @@ final class ChannelPermissionsRowView: UIView {
         chevron.contentMode = .scaleAspectFit
         chevron.isHidden = true
 
-        [avatarView, avatarInitials, roleIconView, nameLabel, subLabel, ownerIcon, trailingButton, chevron].forEach {
+        [textAvatarView, avatarView, roleIconView, nameLabel, subLabel, ownerIcon, trailingButton, chevron].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             addSubview($0)
         }
@@ -99,8 +95,10 @@ final class ChannelPermissionsRowView: UIView {
             avatarView.widthAnchor.constraint(equalToConstant: 36.swh),
             avatarView.heightAnchor.constraint(equalToConstant: 36.swh),
 
-            avatarInitials.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
-            avatarInitials.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
+            textAvatarView.leadingAnchor.constraint(equalTo: avatarView.leadingAnchor),
+            textAvatarView.trailingAnchor.constraint(equalTo: avatarView.trailingAnchor),
+            textAvatarView.topAnchor.constraint(equalTo: avatarView.topAnchor),
+            textAvatarView.bottomAnchor.constraint(equalTo: avatarView.bottomAnchor),
 
             roleIconView.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
             roleIconView.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
@@ -140,7 +138,7 @@ final class ChannelPermissionsRowView: UIView {
             nameLabel.text = title
             subLabel.text = L(L10n.ChannelPermission.role)
             subLabel.isHidden = false
-            avatarInitials.isHidden = true
+            textAvatarView.isHidden = true
             ownerIcon.isHidden = true
             avatarView.image = nil
             avatarView.backgroundColor = color.withAlphaComponent(0.18)
@@ -151,11 +149,11 @@ final class ChannelPermissionsRowView: UIView {
             nameLabel.text = name
             subLabel.text = username
             subLabel.isHidden = username.isEmpty
-            avatarInitials.text = RoleMemberDisplay.initials(name)
-            avatarInitials.isHidden = false
+            textAvatarView.configure(username: username)
+            textAvatarView.isHidden = false
             ownerIcon.isHidden = !isOwner
             roleIconView.isHidden = true
-            avatarView.backgroundColor = UIColor.theme.secondary
+            avatarView.backgroundColor = .clear
             avatarView.image = nil
             if let urlString = avatarURL, !urlString.isEmpty {
                 let resolved = ImgproxyURL.create(from: urlString, width: 100, height: 100)
@@ -164,7 +162,7 @@ final class ChannelPermissionsRowView: UIView {
                     DispatchQueue.main.async {
                         if let image {
                             self.avatarView.image = image
-                            self.avatarInitials.isHidden = true
+                            self.textAvatarView.isHidden = true
                         }
                     }
                 }

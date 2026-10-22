@@ -1312,6 +1312,7 @@ final class MessageBubbleNode: ASDisplayNode {
                     pixelSize: GalleryItemInfo.pixelSize(width: att.width, height: att.height),
                     placeholderURL: nil,
                     senderName: display.senderDisplayName,
+                    senderUsername: display.senderUsername,
                     senderId: display.message.senderId,
                     senderAvatarURL: display.avatarURL,
                     timestamp: display.message.createdAt,
@@ -1331,6 +1332,7 @@ final class MessageBubbleNode: ASDisplayNode {
                     ?? (itemIndex == index ? att.localImage : nil),
                 pixelSize: GalleryItemInfo.pixelSize(width: att.width, height: att.height),
                 senderName: display.senderDisplayName,
+                senderUsername: display.senderUsername,
                 senderId: display.message.senderId,
                 senderAvatarURL: display.avatarURL,
                 timestamp: display.message.createdAt
@@ -1352,6 +1354,7 @@ final class MessageBubbleNode: ASDisplayNode {
                 sourceURL: url,
                 placeholderProxySize: EmbedItemNode.embedImageProxyDimension,
                 senderName: display.senderDisplayName,
+                senderUsername: display.senderUsername,
                 senderId: display.message.senderId,
                 senderAvatarURL: display.avatarURL,
                 timestamp: display.message.createdAt

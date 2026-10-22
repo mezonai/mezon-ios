@@ -5893,7 +5893,8 @@ final class ChatViewController: ViewController {
     }
 
     private func showMemberProfileById(_ userId: String) {
-        guard let userIdInt = Int64(userId) else { return }
+        guard userId != ChatMessageDisplay.mentionHereUserId,
+              let userIdInt = Int64(userId) else { return }
         let isCurrentUser = userId == context.currentUser?.id
 
         var user = Mezon_Api_User()
@@ -6452,6 +6453,7 @@ final class ChatViewController: ViewController {
                 pixelSize: GalleryItemInfo.pixelSize(width: attachment.width, height: attachment.height),
                 placeholderURL: nil,
                 senderName: display.senderDisplayName,
+                senderUsername: display.senderUsername,
                 senderId: display.message.senderId,
                 senderAvatarURL: display.avatarURL,
                 timestamp: display.message.createdAt,
@@ -6471,6 +6473,7 @@ final class ChatViewController: ViewController {
                 ?? attachment.localImage,
             pixelSize: GalleryItemInfo.pixelSize(width: attachment.width, height: attachment.height),
             senderName: display.senderDisplayName,
+            senderUsername: display.senderUsername,
             senderId: display.message.senderId,
             senderAvatarURL: display.avatarURL,
             timestamp: display.message.createdAt
@@ -6553,6 +6556,7 @@ final class ChatViewController: ViewController {
                 pixelSize: GalleryItemInfo.pixelSize(width: attachment.width, height: attachment.height),
                 placeholderURL: nil,
                 senderName: uploader.name,
+                senderUsername: uploader.username,
                 senderId: String(attachment.uploader),
                 senderAvatarURL: uploader.avatarURL,
                 timestamp: timestamp,
@@ -6569,6 +6573,7 @@ final class ChatViewController: ViewController {
             pixelSize: GalleryItemInfo.pixelSize(width: attachment.width, height: attachment.height),
             placeholderProxySize: 150,
             senderName: uploader.name,
+            senderUsername: uploader.username,
             senderId: String(attachment.uploader),
             senderAvatarURL: uploader.avatarURL,
             timestamp: timestamp
@@ -6597,13 +6602,15 @@ final class ChatViewController: ViewController {
             || ["mp4", "mov", "m4v", "webm"].contains(urlExtension)
     }
 
-    private func resolvedUploaderInfo(uploaderId: Int64) -> (name: String, avatarURL: String?) {
-        guard uploaderId != 0 else { return ("", nil) }
+    private func resolvedUploaderInfo(uploaderId: Int64) -> (name: String, username: String, avatarURL: String?) {
+        guard uploaderId != 0 else { return ("", "", nil) }
         let idString = String(uploaderId)
         var name = ""
+        var username = ""
         var avatarURL: String?
         context.account.postbox.read { tx in
             guard let profile = tx.getProfile(userId: idString) else { return }
+            username = profile.username
             if let displayName = profile.displayName, !displayName.isEmpty {
                 name = displayName
             } else if !profile.username.isEmpty {
@@ -6613,7 +6620,7 @@ final class ChatViewController: ViewController {
                 avatarURL = avatar
             }
         }
-        return (name.isEmpty ? idString : name, avatarURL)
+        return (name.isEmpty ? idString : name, username, avatarURL)
     }
 
     private lazy var mediaActionHandler = MediaActionHandler(presenter: self)

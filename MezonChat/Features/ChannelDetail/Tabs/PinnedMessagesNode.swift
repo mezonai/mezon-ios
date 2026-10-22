@@ -922,6 +922,7 @@ private final class PinnedMessageCellNode: ASCellNode, ASNetworkImageNodeDelegat
                     pixelSize: GalleryItemInfo.pixelSize(width: att.width, height: att.height),
                     placeholderURL: nil,
                     senderName: displayNameForGallery,
+                    senderUsername: avatarUsernameForFallback,
                     senderId: String(pinForGallery.senderID),
                     senderAvatarURL: avatarURLForGallery,
                     timestamp: Self.galleryTimestamp(for: pinForGallery),
@@ -939,6 +940,7 @@ private final class PinnedMessageCellNode: ASCellNode, ASNetworkImageNodeDelegat
                 image: itemIndex == index ? att.localImage : nil,
                 pixelSize: GalleryItemInfo.pixelSize(width: att.width, height: att.height),
                 senderName: displayNameForGallery,
+                senderUsername: avatarUsernameForFallback,
                 senderId: String(pinForGallery.senderID),
                 senderAvatarURL: avatarURLForGallery,
                 timestamp: Self.galleryTimestamp(for: pinForGallery)

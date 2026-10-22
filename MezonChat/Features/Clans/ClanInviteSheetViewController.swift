@@ -714,7 +714,7 @@ private final class ClanInviteFriendCellNode: ASCellNode {
     private let avatarMode: AvatarMode
     private let needsSpinner: Bool
 
-    init(name: String, avatarURL: String?, isGroupDM: Bool, isSent: Bool, isLoading: Bool) {
+    init(name: String, username: String, avatarURL: String?, isGroupDM: Bool, isSent: Bool, isLoading: Bool) {
         self.needsSpinner = isLoading
 
         spinnerWrapNode = ASDisplayNode { () -> UIView in
@@ -734,7 +734,8 @@ private final class ClanInviteFriendCellNode: ASCellNode {
             avatarMode = .initial
         }
 
-        self.textAvatarNode = TextAvatarNode(username: name, size: 40.swh)
+        let avatarUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.textAvatarNode = TextAvatarNode(username: avatarUsername.isEmpty ? name : avatarUsername, size: 40.swh)
 
         super.init()
         automaticallyManagesSubnodes = true
@@ -1358,6 +1359,7 @@ final class ClanInviteSheetViewController: ViewController {
     private struct FriendItem: Hashable {
         let id: Int64
         let name: String
+        let username: String
         let avatarURL: String?
         let isGroupDM: Bool
         let target: InviteTarget
@@ -1531,6 +1533,7 @@ final class ClanInviteSheetViewController: ViewController {
                     merged["user_\(uid)"] = FriendItem(
                         id: uid,
                         name: name,
+                        username: u.username,
                         avatarURL: avatar,
                         isGroupDM: false,
                         target: .friend(userId: uid)
@@ -1555,6 +1558,7 @@ final class ClanInviteSheetViewController: ViewController {
                         merged["user_\(uid)"] = FriendItem(
                             id: dm.channelID,
                             name: name,
+                            username: dm.usernames.first ?? "",
                             avatarURL: avatar,
                             isGroupDM: false,
                             target: .direct(channelId: dm.channelID, type: dm.type, isPublic: dm.channelPrivate == 0)
@@ -1567,6 +1571,7 @@ final class ClanInviteSheetViewController: ViewController {
                         merged["group_\(dm.channelID)"] = FriendItem(
                             id: dm.channelID,
                             name: name,
+                            username: "",
                             avatarURL: avatar,
                             isGroupDM: true,
                             target: .direct(channelId: dm.channelID, type: dm.type, isPublic: dm.channelPrivate == 0)
@@ -1582,6 +1587,7 @@ final class ClanInviteSheetViewController: ViewController {
                         merged["user_\(member.userId)"] = FriendItem(
                             id: member.userId,
                             name: name,
+                            username: member.username,
                             avatarURL: avatar.isEmpty ? nil : avatar,
                             isGroupDM: false,
                             target: .friend(userId: member.userId)
@@ -1956,6 +1962,7 @@ extension ClanInviteSheetViewController: ASTableDataSource, ASTableDelegate {
         return { [weak self] in
             let cell = ClanInviteFriendCellNode(
                 name: item.name,
+                username: item.username,
                 avatarURL: item.avatarURL,
                 isGroupDM: item.isGroupDM,
                 isSent: isSent,

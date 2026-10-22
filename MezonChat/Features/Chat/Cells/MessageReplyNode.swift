@@ -138,7 +138,8 @@ final class MessageReplyNode: ASDisplayNode {
             avatarImageNode.isHidden = true
             avatarPlaceholderNode.isHidden = false
             
-            let charSource = ref.messageSenderUsername.isEmpty ? displayName : ref.messageSenderUsername
+            let charSource = (ref.messageSenderUsername.isEmpty ? displayName : ref.messageSenderUsername)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             let charStr = String(charSource.prefix(1)).uppercased()
             
             avatarPlaceholderNode.attributedText = NSAttributedString(

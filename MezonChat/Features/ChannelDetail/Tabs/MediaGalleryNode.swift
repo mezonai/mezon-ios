@@ -290,6 +290,7 @@ final class MediaGalleryNode: ASDisplayNode {
                     pixelSize: GalleryItemInfo.pixelSize(width: att.width, height: att.height),
                     placeholderURL: nil,
                     senderName: uploader.name,
+                    senderUsername: uploader.username,
                     senderId: String(att.uploader),
                     senderAvatarURL: uploader.avatarURL,
                     timestamp: ts,
@@ -307,6 +308,7 @@ final class MediaGalleryNode: ASDisplayNode {
                 pixelSize: GalleryItemInfo.pixelSize(width: Int(att.width), height: Int(att.height)),
                 placeholderProxySize: 150,
                 senderName: uploader.name,
+                senderUsername: uploader.username,
                 senderId: String(att.uploader),
                 senderAvatarURL: uploader.avatarURL,
                 timestamp: ts
@@ -317,13 +319,15 @@ final class MediaGalleryNode: ASDisplayNode {
         vc.present(gallery, animated: true)
     }
 
-    private func resolvedUploaderInfo(uploaderId: Int64) -> (name: String, avatarURL: String?) {
-        guard uploaderId != 0 else { return ("", nil) }
+    private func resolvedUploaderInfo(uploaderId: Int64) -> (name: String, username: String, avatarURL: String?) {
+        guard uploaderId != 0 else { return ("", "", nil) }
         let idString = String(uploaderId)
         var name = ""
+        var username = ""
         var avatarURL: String?
         context.account.postbox.read { tx in
             guard let profile = tx.getProfile(userId: idString) else { return }
+            username = profile.username
             if let displayName = profile.displayName, !displayName.isEmpty {
                 name = displayName
             } else if !profile.username.isEmpty {
@@ -333,7 +337,7 @@ final class MediaGalleryNode: ASDisplayNode {
                 avatarURL = avatar
             }
         }
-        return (name.isEmpty ? idString : name, avatarURL)
+        return (name.isEmpty ? idString : name, username, avatarURL)
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {

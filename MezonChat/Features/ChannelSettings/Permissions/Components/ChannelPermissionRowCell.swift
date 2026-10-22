@@ -13,7 +13,7 @@ final class ChannelPermissionRowCell: UITableViewCell {
     }
 
     private let avatarView = UIImageView()
-    private let avatarInitials = UILabel()
+    private let textAvatarView = TextAvatarView(username: "", size: 36.swh)
     private let roleIconView = UIImageView()
     private let nameLabel = UILabel()
     private let subLabel = UILabel()
@@ -43,10 +43,6 @@ final class ChannelPermissionRowCell: UITableViewCell {
         avatarView.contentMode = .scaleAspectFill
         avatarView.backgroundColor = UIColor.theme.tertiary
 
-        avatarInitials.font = .systemFont(ofSize: 13.sf, weight: .bold)
-        avatarInitials.textColor = .white
-        avatarInitials.textAlignment = .center
-
         roleIconView.contentMode = .scaleAspectFit
         roleIconView.image = UIImage(systemName: "shield.lefthalf.filled")?.withRenderingMode(.alwaysTemplate)
         roleIconView.isHidden = true
@@ -75,7 +71,7 @@ final class ChannelPermissionRowCell: UITableViewCell {
         chevron.contentMode = .scaleAspectFit
         chevron.isHidden = true
 
-        [avatarView, avatarInitials, roleIconView, nameLabel, subLabel, ownerIcon, trailingButton, checkboxView, chevron].forEach {
+        [textAvatarView, avatarView, roleIconView, nameLabel, subLabel, ownerIcon, trailingButton, checkboxView, chevron].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             contentView.addSubview($0)
         }
@@ -86,8 +82,10 @@ final class ChannelPermissionRowCell: UITableViewCell {
             avatarView.widthAnchor.constraint(equalToConstant: 36.swh),
             avatarView.heightAnchor.constraint(equalToConstant: 36.swh),
 
-            avatarInitials.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
-            avatarInitials.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
+            textAvatarView.leadingAnchor.constraint(equalTo: avatarView.leadingAnchor),
+            textAvatarView.trailingAnchor.constraint(equalTo: avatarView.trailingAnchor),
+            textAvatarView.topAnchor.constraint(equalTo: avatarView.topAnchor),
+            textAvatarView.bottomAnchor.constraint(equalTo: avatarView.bottomAnchor),
 
             roleIconView.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
             roleIconView.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
@@ -129,6 +127,7 @@ final class ChannelPermissionRowCell: UITableViewCell {
 
     func configureMember(
         name: String,
+        username: String,
         subtitle: String?,
         avatarURL: String?,
         isOwner: Bool,
@@ -137,18 +136,18 @@ final class ChannelPermissionRowCell: UITableViewCell {
         nameLabel.text = name
         subLabel.text = subtitle
         subLabel.isHidden = subtitle?.isEmpty ?? true
-        avatarInitials.text = RoleMemberDisplay.initials(name)
+        textAvatarView.configure(username: username)
         ownerIcon.isHidden = !isOwner
 
         roleIconView.isHidden = true
         avatarView.isHidden = false
-        avatarInitials.isHidden = false
+        textAvatarView.isHidden = false
 
         imageTask?.cancel()
         imageTask = nil
         configuredAvatarURL = nil
         avatarView.image = nil
-        avatarView.backgroundColor = UIColor.theme.tertiary
+        avatarView.backgroundColor = .clear
         if let urlString = avatarURL, !urlString.isEmpty {
             let resolved = ImgproxyURL.create(from: urlString, width: 100, height: 100)
             configuredAvatarURL = resolved
@@ -158,7 +157,7 @@ final class ChannelPermissionRowCell: UITableViewCell {
                     guard self.configuredAvatarURL == resolved else { return }
                     if let image {
                         self.avatarView.image = image
-                        self.avatarInitials.isHidden = true
+                        self.textAvatarView.isHidden = true
                     }
                 }
             }
@@ -178,7 +177,7 @@ final class ChannelPermissionRowCell: UITableViewCell {
         imageTask?.cancel()
         imageTask = nil
         configuredAvatarURL = nil
-        avatarInitials.isHidden = true
+        textAvatarView.isHidden = true
         ownerIcon.isHidden = true
 
         avatarView.image = nil
@@ -230,7 +229,7 @@ final class ChannelPermissionRowCell: UITableViewCell {
         avatarView.image = nil
         avatarView.isHidden = false
         avatarView.backgroundColor = UIColor.theme.tertiary
-        avatarInitials.isHidden = false
+        textAvatarView.isHidden = true
         roleIconView.isHidden = true
         ownerIcon.isHidden = true
         trailingButton.isHidden = true

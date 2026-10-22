@@ -465,6 +465,8 @@ final class GalleryController: UIViewController {
     private let headerView = UIView()
     private let backButton = UIButton(type: .system)
     private let avatarImageView = UIImageView()
+    private let avatarPlaceholderView = TextAvatarView(username: "", size: 40)
+    private var avatarLoadGeneration = 0
     private let nameLabel = UILabel()
     private let dateLabel = UILabel()
     private let moreButton = UIButton(type: .system)
@@ -783,6 +785,15 @@ final class GalleryController: UIViewController {
         avatarImageView.translatesAutoresizingMaskIntoConstraints = false
         headerView.addSubview(avatarImageView)
 
+        avatarPlaceholderView.translatesAutoresizingMaskIntoConstraints = false
+        avatarImageView.addSubview(avatarPlaceholderView)
+        NSLayoutConstraint.activate([
+            avatarPlaceholderView.leadingAnchor.constraint(equalTo: avatarImageView.leadingAnchor),
+            avatarPlaceholderView.trailingAnchor.constraint(equalTo: avatarImageView.trailingAnchor),
+            avatarPlaceholderView.topAnchor.constraint(equalTo: avatarImageView.topAnchor),
+            avatarPlaceholderView.bottomAnchor.constraint(equalTo: avatarImageView.bottomAnchor),
+        ])
+
         nameLabel.font = .systemFont(ofSize: 16, weight: .semibold)
         nameLabel.textColor = .white
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -879,6 +890,11 @@ final class GalleryController: UIViewController {
         let item = items[index]
         
         let isAnonymous = item.senderId == "\(MezonConstants.anonymousUserId)"
+        avatarLoadGeneration += 1
+        let generation = avatarLoadGeneration
+        let username = item.senderUsername.trimmingCharacters(in: .whitespacesAndNewlines)
+        avatarPlaceholderView.configure(username: username.isEmpty ? item.senderName : username)
+        avatarPlaceholderView.isHidden = isAnonymous
 
         if isAnonymous {
             nameLabel.text = item.senderName.isEmpty ? "Anonymous" : item.senderName
@@ -917,11 +933,13 @@ final class GalleryController: UIViewController {
             )
             if let cached = ImageCache.shared.memoryImage(forKey: proxyURL) {
                 avatarImageView.image = cached
+                avatarPlaceholderView.isHidden = true
             } else {
                 avatarImageView.image = nil
                 ImageCache.shared.loadImage(urlString: proxyURL) { [weak self] image in
-                    guard let self, let image else { return }
+                    guard let self, self.avatarLoadGeneration == generation, let image else { return }
                     self.avatarImageView.image = image
+                    self.avatarPlaceholderView.isHidden = true
                 }
             }
         } else {
