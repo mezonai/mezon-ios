@@ -323,12 +323,17 @@ final class MezonSfuSession: NSObject {
     ]
     private static let keyframeRequestErrorWindow: TimeInterval = 5
     private static let cameraRefusalErrors: Set<String> = ["camera_capacity_full", "camera_update_failed"]
+    private static let screenShareRefusalErrors: Set<String> = [
+        "screen_share_capacity_full", "screen_share_update_failed", "screen_share_not_allowed", "invalid_screen_share_active",
+    ]
+    private static let screenShareMaxBitrateBps = 3_500_000
+    private static let screenShareMaxFps = 15
     private static let sessionLostErrors: Set<String> = [
         "session_not_found", "must_join_room_first", "routing_registration_failed",
         "invalid_answer_sdp", "invalid_answer_ufrag", "missing_offer_generation",
     ]
     private static let ignoredErrors: Set<String> = [
-        "stale_mute_revision", "invalid_camera_active", "screen_share_capacity_full", "screen_share_update_failed",
+        "stale_mute_revision", "invalid_camera_active",
     ]
     private static let mediaPoolVersion = 1
     private static let cameraKeyframeFirstRequestGrace: TimeInterval = 0.35
@@ -439,6 +444,8 @@ final class MezonSfuSession: NSObject {
     var onParticipantActionFailed: ((String) -> Void)?
     var onMutedByModerator: (() -> Void)?
     var onCameraRefused: ((String) -> Void)?
+    var onScreenShareChanged: ((Bool) -> Void)?
+    var onScreenShareRefused: ((String) -> Void)?
     var onRemoved: ((SfuRemovalCause, String?) -> Void)?
     var onNoiseStateChanged: ((NoiseSuppressionState) -> Void)?
     private(set) var noiseState: NoiseSuppressionState = .off
@@ -490,6 +497,11 @@ final class MezonSfuSession: NSObject {
     private var cameraSource: RTCVideoSource?
     private var cameraTrack: RTCVideoTrack?
     private var cameraCapturing = false
+    private(set) var screenShareEnabled = false
+    private let screenShareReceiver = ScreenShareFrameReceiver()
+    private var screenSource: RTCVideoSource?
+    private var screenCapturer: RTCVideoCapturer?
+    private(set) var screenTrack: RTCVideoTrack?
 
     private var joined = false
     private var localTracksAdded = false
@@ -636,6 +648,8 @@ final class MezonSfuSession: NSObject {
         onParticipantActionFailed = nil
         onMutedByModerator = nil
         onCameraRefused = nil
+        onScreenShareChanged = nil
+        onScreenShareRefused = nil
         onRemoved = nil
         onNoiseStateChanged = nil
     }
@@ -645,6 +659,11 @@ final class MezonSfuSession: NSObject {
         self.clanId = clanId
         self.userId = userId
         super.init()
+        screenShareReceiver.onConnectionChanged = { [weak self] connected in
+            Task { @MainActor [weak self] in
+                self?.handleScreenBroadcast(connected: connected)
+            }
+        }
         noiseAudioDevice.onProcessingError = { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, self.active, self.noiseRequestedEnabled else { return }
@@ -749,6 +768,7 @@ final class MezonSfuSession: NSObject {
         }
         pollTasks = [speakingTask, reconnectTask, playoutWatchdogTask]
         startPathMonitor()
+        screenShareReceiver.start()
     }
 
     private func startPathMonitor() {
@@ -1101,11 +1121,18 @@ final class MezonSfuSession: NSObject {
         urlSession?.invalidateAndCancel()
         urlSession = nil
         stopCameraCapture()
+        screenShareReceiver.stop()
+        screenShareReceiver.setFrameHandler(nil)
+        screenShareEnabled = false
         let retiredMedia: [AnyObject] = [cameraCapturer, cameraTrack, cameraSource,
-                                         localCameraTrack, localAudioTrack, audioSource].compactMap { $0 }
+                                         localCameraTrack, localAudioTrack, audioSource,
+                                         screenCapturer, screenTrack, screenSource].compactMap { $0 }
         cameraCapturer = nil
         cameraTrack = nil
         cameraSource = nil
+        screenCapturer = nil
+        screenTrack = nil
+        screenSource = nil
         localCameraTrack = nil
         localAudioTrack = nil
         audioSource = nil
@@ -1228,6 +1255,70 @@ final class MezonSfuSession: NSObject {
         cameraPosition = cameraPosition == .front ? .back : .front
         guard cameraCapturing, let capturer = cameraCapturer else { return }
         beginCapture(on: capturer)
+    }
+
+    func stopScreenShare() {
+        endScreenShare()
+        screenShareReceiver.disconnectClient()
+    }
+
+    private func handleScreenBroadcast(connected: Bool) {
+        guard connected else {
+            endScreenShare()
+            return
+        }
+        guard active, role == .speaker else {
+            screenShareReceiver.disconnectClient()
+            onScreenShareRefused?("screen_share_not_allowed")
+            return
+        }
+        guard !screenShareEnabled else { return }
+        ensureScreenTrack()
+        screenShareEnabled = true
+        attachScreenTrack()
+        if stateRestored {
+            send(["type": "share_screen", "active": true])
+        }
+        onScreenShareChanged?(true)
+    }
+
+    private func endScreenShare() {
+        guard screenShareEnabled else { return }
+        screenShareEnabled = false
+        if let tc = findTransceiver(mid: Self.midScreen, kind: "video"), tc.sender.track != nil {
+            tc.sender.track = nil
+        }
+        if stateRestored {
+            send(["type": "share_screen", "active": false])
+        }
+        onScreenShareChanged?(false)
+    }
+
+    private func ensureScreenTrack() {
+        guard screenTrack == nil else { return }
+        let source = factory.videoSource(forScreenCast: true)
+        let capturer = RTCVideoCapturer(delegate: source)
+        screenSource = source
+        screenCapturer = capturer
+        screenTrack = factory.videoTrack(with: source, trackId: "sfu_screen")
+        screenShareReceiver.setFrameHandler(Self.screenFrameForwarder(source: source, capturer: capturer))
+    }
+
+    private func attachScreenTrack() {
+        guard screenShareEnabled, let screenTrack,
+              let tc = findTransceiver(mid: Self.midScreen, kind: "video") else { return }
+        if tc.sender.track !== screenTrack {
+            tc.sender.track = screenTrack
+        }
+        tc.sender.applyScreenShareEncoding(maxBitrateBps: Self.screenShareMaxBitrateBps, maxFps: Self.screenShareMaxFps)
+        setTransceiverDirection(tc, .sendOnly)
+    }
+
+    private nonisolated static func screenFrameForwarder(
+        source: RTCVideoSource,
+        capturer: RTCVideoCapturer
+    ) -> (RTCVideoFrame) -> Void {
+        { frame in source.capturer(capturer, didCapture: frame) }
     }
 
     func pttPress() {
@@ -1506,6 +1597,9 @@ final class MezonSfuSession: NSObject {
                 }
                 if role == .speaker {
                     send(["type": "camera", "active": cameraEnabled])
+                    if screenShareEnabled {
+                        send(["type": "share_screen", "active": true])
+                    }
                 }
                 send(["type": "visibility", "visible": true])
             }
@@ -1587,6 +1681,9 @@ final class MezonSfuSession: NSObject {
             } else if Self.cameraRefusalErrors.contains(detail) {
                 if cameraEnabled { setCameraEnabled(false) }
                 onCameraRefused?(detail)
+            } else if Self.screenShareRefusalErrors.contains(detail) {
+                stopScreenShare()
+                onScreenShareRefused?(detail)
             } else if Self.sessionLostErrors.contains(detail) {
                 recoverTransport(gen: connectionGen)
             } else if Self.ignoredErrors.contains(detail) {
@@ -2489,6 +2586,9 @@ final class MezonSfuSession: NSObject {
             screen.setDirection(.sendOnly, error: &screenError)
             if let screenError { throw screenError }
         }
+        if screenShareEnabled, role == .speaker {
+            attachScreenTrack()
+        }
         localTracksAdded = true
     }
 
@@ -2518,6 +2618,7 @@ final class MezonSfuSession: NSObject {
             }
             pttActive = false
             onPushToTalkActive?(false)
+            stopScreenShare()
         }
         updatePttFeedback()
         onRoleChanged?(newRole)
@@ -3774,6 +3875,17 @@ extension RTCRtpSender {
             encoding.maxBitrateBps = tier.uncapped ? nil : NSNumber(value: tier.maxBitrateBps)
             encoding.maxFramerate = tier.uncapped ? nil : NSNumber(value: tier.maxFps)
             encoding.scaleResolutionDownBy = tier.uncapped ? nil : NSNumber(value: tier.scaleDown)
+        }
+        self.parameters = parameters
+    }
+
+    func applyScreenShareEncoding(maxBitrateBps: Int, maxFps: Int) {
+        let parameters = self.parameters
+        parameters.degradationPreference = NSNumber(value: RTCDegradationPreference.maintainResolution.rawValue)
+        for encoding in parameters.encodings {
+            encoding.maxBitrateBps = NSNumber(value: maxBitrateBps)
+            encoding.maxFramerate = NSNumber(value: maxFps)
+            encoding.scaleResolutionDownBy = nil
         }
         self.parameters = parameters
     }

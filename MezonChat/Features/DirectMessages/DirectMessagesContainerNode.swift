@@ -12,6 +12,39 @@ struct DirectMessagesInteraction {
     let onSelectMessageActivity: (DmMessageActivityItem) -> Void
 }
 
+private struct DmListSection {
+    enum Kind {
+        case all
+        case pinned
+        case unpinned
+    }
+
+    let kind: Kind
+    let channels: [Mezon_Api_ChannelDescription]
+
+    var title: String? {
+        switch kind {
+        case .all: return nil
+        case .pinned: return L(L10n.DmMenu.pinnedSection)
+        case .unpinned: return L(L10n.DmMenu.allMessagesSection)
+        }
+    }
+
+    static func build(from state: DirectMessagesState) -> [DmListSection] {
+        let pinnedIds = state.pinnedChannelIds
+        let pinned = pinnedIds.isEmpty ? [] : state.directMessages.filter { pinnedIds.contains($0.channelID) }
+        guard !pinned.isEmpty else {
+            return [DmListSection(kind: .all, channels: state.directMessages)]
+        }
+        let unpinned = state.directMessages.filter { !pinnedIds.contains($0.channelID) }
+        var sections = [DmListSection(kind: .pinned, channels: pinned)]
+        if !unpinned.isEmpty {
+            sections.append(DmListSection(kind: .unpinned, channels: unpinned))
+        }
+        return sections
+    }
+}
+
 final class DirectMessagesContainerNode: ASDisplayNode {
     private let buzz: BuzzController
     private var buzzObserver: NSObjectProtocol?
@@ -27,6 +60,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
     private let activityTableHeaderWrapper = UIView()
 
     private var state: DirectMessagesState = .empty
+    private var sections: [DmListSection] = []
     private let interaction: DirectMessagesInteraction
     private let disposables = DisposableSet()
     private var needsReloadOnLayout = false
@@ -51,6 +85,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
                 guard let self else { return }
                 let previousState = self.state
                 let directMessagesChanged = previousState.directMessages != newState.directMessages
+                    || previousState.pinnedChannelIds != newState.pinnedChannelIds
                 let activityRowsChanged = previousState.messageActivityRows != newState.messageActivityRows
                 let avatarURLCacheChanged = previousState.resolvedAvatarURLByChannelId != newState.resolvedAvatarURLByChannelId
                 let activityHeaderVisibilityChanged = previousState.messageActivityRows.isEmpty != newState.messageActivityRows.isEmpty
@@ -77,10 +112,12 @@ final class DirectMessagesContainerNode: ASDisplayNode {
                 }
                 
                 if directMessagesChanged || avatarURLCacheChanged {
-                    self.prefetchAvatarImages(for: Array(newState.directMessages.prefix(16)))
+                    let previousSections = self.sections
+                    self.sections = DmListSection.build(from: newState)
+                    self.prefetchAvatarImages(for: Array(self.sections.flatMap(\.channels).prefix(16)))
                     self.applyDirectMessageUpdates(
-                        previous: previousState.directMessages,
-                        new: newState.directMessages
+                        previous: previousSections,
+                        new: self.sections
                     )
                 } else if inVoiceChanged {
                     self.reconfigureVisibleCells()
@@ -107,6 +144,9 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         tableView.separatorStyle = .none
         tableView.rowHeight = 62.sh
         tableView.estimatedRowHeight = 62.sh
+        if #available(iOS 15.0, *) {
+            tableView.sectionHeaderTopPadding = 0
+        }
         tableView.register(DmListItemCell.self, forCellReuseIdentifier: DmListItemCell.reuseId)
         tableView.dataSource = self
         tableView.delegate = self
@@ -346,10 +386,15 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         guard gesture.state == .began else { return }
         let point = gesture.location(in: tableView)
         guard let indexPath = tableView.indexPathForRow(at: point),
-              indexPath.row >= 0,
-              indexPath.row < state.directMessages.count else { return }
-        let channel = state.directMessages[indexPath.row]
+              let channel = directMessage(at: indexPath) else { return }
         interaction.onLongPressDirectMessage(channel)
+    }
+
+    private func directMessage(at indexPath: IndexPath) -> Mezon_Api_ChannelDescription? {
+        guard sections.indices.contains(indexPath.section) else { return nil }
+        let channels = sections[indexPath.section].channels
+        guard channels.indices.contains(indexPath.row) else { return nil }
+        return channels[indexPath.row]
     }
 
     @objc private func addFriendTapped() { interaction.onAddFriendTapped() }
@@ -414,41 +459,44 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         }
     }
 
-    private static func channelIdOrder(_ channels: [Mezon_Api_ChannelDescription]) -> [Int64] {
-        channels.map(\.channelID)
-    }
-
     private func applyDirectMessageUpdates(
-        previous: [Mezon_Api_ChannelDescription],
-        new: [Mezon_Api_ChannelDescription]
+        previous: [DmListSection],
+        new: [DmListSection]
     ) {
         guard tableView.frame.width > 0 else {
             needsReloadOnLayout = true
             return
         }
 
-        let oldOrder = Self.channelIdOrder(previous)
-        let newOrder = Self.channelIdOrder(new)
+        let oldOrder = previous.map { $0.channels.map(\.channelID) }
+        let newOrder = new.map { $0.channels.map(\.channelID) }
 
-        if oldOrder == newOrder {
+        if oldOrder == newOrder, previous.map(\.kind) == new.map(\.kind) {
             reconfigureVisibleCells()
             return
         }
 
-        if oldOrder.count == newOrder.count, Set(oldOrder) == Set(newOrder) {
-            var oldIndexById: [Int64: Int] = [:]
-            oldIndexById.reserveCapacity(oldOrder.count)
-            for (index, id) in oldOrder.enumerated() {
-                oldIndexById[id] = index
+        let sameRowsPerSection = previous.map(\.kind) == new.map(\.kind)
+            && zip(oldOrder, newOrder).allSatisfy { oldIds, newIds in
+                oldIds.count == newIds.count && Set(oldIds) == Set(newIds)
             }
+
+        if sameRowsPerSection {
             UIView.performWithoutAnimation {
                 tableView.performBatchUpdates({
-                    for (newIndex, id) in newOrder.enumerated() {
-                        guard let oldIndex = oldIndexById[id], oldIndex != newIndex else { continue }
-                        tableView.moveRow(
-                            at: IndexPath(row: oldIndex, section: 0),
-                            to: IndexPath(row: newIndex, section: 0)
-                        )
+                    for (section, (oldIds, newIds)) in zip(oldOrder, newOrder).enumerated() {
+                        var oldIndexById: [Int64: Int] = [:]
+                        oldIndexById.reserveCapacity(oldIds.count)
+                        for (index, id) in oldIds.enumerated() {
+                            oldIndexById[id] = index
+                        }
+                        for (newIndex, id) in newIds.enumerated() {
+                            guard let oldIndex = oldIndexById[id], oldIndex != newIndex else { continue }
+                            tableView.moveRow(
+                                at: IndexPath(row: oldIndex, section: section),
+                                to: IndexPath(row: newIndex, section: section)
+                            )
+                        }
                     }
                 }, completion: { [weak self] _ in
                     self?.reconfigureVisibleCells()
@@ -463,12 +511,10 @@ final class DirectMessagesContainerNode: ASDisplayNode {
     private func reconfigureVisibleCells() {
         guard let visibleIndexPaths = tableView.indexPathsForVisibleRows else { return }
         for indexPath in visibleIndexPaths {
-            guard indexPath.row >= 0,
-                  indexPath.row < state.directMessages.count,
+            guard let channel = directMessage(at: indexPath),
                   let cell = tableView.cellForRow(at: indexPath) as? DmListItemCell else {
                 continue
             }
-            let channel = state.directMessages[indexPath.row]
             cell.configure(
                 channel: channel,
                 resolvedAvatarURL: state.resolvedAvatarURLByChannelId[channel.channelID],
@@ -499,13 +545,43 @@ private extension DirectMessagesContainerNode {
 
 extension DirectMessagesContainerNode: UITableViewDataSource, UITableViewDelegate, UITableViewDataSourcePrefetching {
 
+    func numberOfSections(in tableView: UITableView) -> Int {
+        sections.count
+    }
+
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        state.directMessages.count
+        sections.indices.contains(section) ? sections[section].channels.count : 0
+    }
+
+    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        sectionTitle(section) == nil ? 0 : 28.sh
+    }
+
+    func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+        guard let title = sectionTitle(section) else { return nil }
+        let header = UIView()
+        header.backgroundColor = UIColor.theme.secondary
+        let label = UILabel()
+        label.text = title
+        label.font = .systemFont(ofSize: 12.sf, weight: .semibold)
+        label.textColor = UIColor.theme.textDisabled
+        label.translatesAutoresizingMaskIntoConstraints = false
+        header.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 18.sw),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: header.trailingAnchor, constant: -18.sw),
+            label.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+        ])
+        return header
+    }
+
+    private func sectionTitle(_ section: Int) -> String? {
+        sections.indices.contains(section) ? sections[section].title : nil
     }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: DmListItemCell.reuseId, for: indexPath) as! DmListItemCell
-        let channel = state.directMessages[indexPath.row]
+        let channel = sections[indexPath.section].channels[indexPath.row]
         cell.configure(
             channel: channel,
             resolvedAvatarURL: state.resolvedAvatarURLByChannelId[channel.channelID],
@@ -517,14 +593,11 @@ extension DirectMessagesContainerNode: UITableViewDataSource, UITableViewDelegat
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        interaction.onSelectDirectMessage(state.directMessages[indexPath.row])
+        guard let channel = directMessage(at: indexPath) else { return }
+        interaction.onSelectDirectMessage(channel)
     }
 
     func tableView(_ tableView: UITableView, prefetchRowsAt indexPaths: [IndexPath]) {
-        let channels = indexPaths.compactMap { indexPath -> Mezon_Api_ChannelDescription? in
-            guard indexPath.row >= 0, indexPath.row < state.directMessages.count else { return nil }
-            return state.directMessages[indexPath.row]
-        }
-        prefetchAvatarImages(for: channels)
+        prefetchAvatarImages(for: indexPaths.compactMap { directMessage(at: $0) })
     }
 }

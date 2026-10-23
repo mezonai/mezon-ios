@@ -447,6 +447,8 @@ final class SendMessageInputViewController: UIViewController {
     private var ambiguousDeliveryVerifyTask: Task<Void, Never>?
     private var deliveryConfirmTask: Task<Void, Never>?
     private var pendingDeliveryConfirmations: [String: Date] = [:]
+    private var lastTypingSentKey: Int64 = 0
+    private var lastTypingSentAt: CFTimeInterval = 0
     private var locallyReactivatedThreadIds = Set<Int64>()
     private var locallyJoinedThreadIds = Set<Int64>()
     private var disposables = DisposableSet()
@@ -1128,6 +1130,50 @@ final class SendMessageInputViewController: UIViewController {
                 ? MezonConstants.ChannelStreamMode.group.rawValue
                 : MezonConstants.ChannelStreamMode.channel.rawValue
         }
+    }
+
+    private static let typingSendThrottle: CFTimeInterval = 2
+
+    private func sendTypingIfNeeded() {
+        guard !text.isEmpty,
+              editingDisplay == nil,
+              !composerSendPermissionBlocked,
+              !shouldSendAsAnonymousMessage,
+              channel.channelID != 0 else { return }
+        let socket = context.account.socket
+        guard socket.isConnected, let me = context.currentUser else { return }
+        let key = topicId != 0 ? topicId : channel.channelID
+        let now = CACurrentMediaTime()
+        if key == lastTypingSentKey, now - lastTypingSentAt < Self.typingSendThrottle { return }
+        lastTypingSentKey = key
+        lastTypingSentAt = now
+        ensureChannelMetadataResolvedFromPostboxIfNeeded()
+        socket.sendMessageTyping(
+            clanId: clanId,
+            channelId: channel.channelID,
+            mode: channelStreamMode,
+            isPublic: channel.channelPrivate == 0,
+            senderId: Int64(me.id) ?? 0,
+            senderUsername: me.username,
+            senderDisplayName: typingSenderDisplayName(me),
+            topicId: topicId
+        )
+    }
+
+    private func typingSenderDisplayName(_ me: User) -> String {
+        let mode = channelStreamMode
+        let usesClanNick = clanId != 0
+            && (mode == MezonConstants.ChannelStreamMode.channel.rawValue
+                || mode == MezonConstants.ChannelStreamMode.thread.rawValue)
+        if usesClanNick,
+           let myId = Int64(me.id),
+           let nick = context.engine.clanData.getClanUsers(clanId: clanId)?.clanUsers
+               .first(where: { $0.user.id == myId })?
+               .clanNick.trimmingCharacters(in: .whitespacesAndNewlines),
+           !nick.isEmpty {
+            return nick
+        }
+        return me.displayName.isEmpty ? me.username : me.displayName
     }
 
     private var includeRoleMentions: Bool {
@@ -2417,6 +2463,7 @@ final class SendMessageInputViewController: UIViewController {
                     avatar: avatar,
                     topicId: self.topicId,
                     code: record.code,
+                    clientMessageId: MezonHTTPClient.clientMessageId(pendingId: localId),
                     token: token
                 )
                 self.context.account.postbox.write { tx in
@@ -6936,6 +6983,7 @@ final class SendMessageInputViewController: UIViewController {
                         mentionEveryone: false,
                         avatar: avatar,
                         topicId: self.topicId,
+                        clientMessageId: MezonHTTPClient.clientMessageId(pendingId: localId),
                         token: token
                     )
                     if !sendAsAnonymous {
@@ -7284,6 +7332,7 @@ extension SendMessageInputViewController: UITextViewDelegate {
         syncAttachControlsWithTypedText()
         refreshComposerTypingAttributesForSelection()
         scheduleOgpPreviewUpdate(for: text)
+        sendTypingIfNeeded()
     }
 
     func textViewDidEndEditing(_ textView: UITextView) {

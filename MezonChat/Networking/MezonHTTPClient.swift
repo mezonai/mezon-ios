@@ -16,6 +16,8 @@ final class MezonHTTPClient {
     static let listClanUsersCap = 1000
     private let rosterCapLock = NSLock()
     private var rosterCappedByClanId: [Int64: Bool] = [:]
+    private let acknowledgedMessageIdsLock = NSLock()
+    private var acknowledgedMessageIds: [Int64] = []
 
     private init() {
         MezonHTTPClient.observeCoalescedCacheInvalidations()
@@ -1121,10 +1123,12 @@ final class MezonHTTPClient {
         avatar: String = "",
         topicId: Int64 = 0,
         code: Int32 = 0,
+        clientMessageId: Int64 = 0,
         token: String,
         httpOnly: Bool = false
     ) async throws -> Mezon_Realtime_ChannelMessageAck {
         var req = Mezon_Realtime_ChannelMessageSend()
+        req.id = clientMessageId != 0 ? clientMessageId : Int64.random(in: 1...Int64.max)
         req.clanID = clanId
         req.channelID = channelId
         req.mode = mode
@@ -1141,15 +1145,24 @@ final class MezonHTTPClient {
 
         if !httpOnly,
            await MezonSocket.shared.canSendChannelMessageRealtime(clanId: clanId, channelId: channelId),
-           let ack = await sendChannelMessageOverSocket(req) {
-            return ack
+           let ack = try await sendChannelMessageOverSocket(req, token: token) {
+            return rememberAcknowledged(ack)
         }
 
-        return try await postProtoHTTP(
+        let ack: Mezon_Realtime_ChannelMessageAck = try await postProtoHTTP(
             path: "/mezon.api.Mezon/\(Self.sendChannelMessageApiName)",
             message: req,
             auth: .bearer(token)
         )
+        return rememberAcknowledged(ack)
+    }
+
+    static func clientMessageId(pendingId: String) -> Int64 {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for byte in pendingId.utf8 {
+            hash = (hash ^ UInt64(byte)) &* 0x0000_0100_0000_01b3
+        }
+        return max(1, Int64(bitPattern: hash >> 1))
     }
 
     func sendEphemeralMessageToBot(
@@ -1167,10 +1180,17 @@ final class MezonHTTPClient {
 
     private static let sendChannelMessageApiName = "SendChannelMessage"
     private static let realtimeSendAckTimeoutNanoseconds: UInt64 = 5_000_000_000
+    private static let deliveryLookupInitialDelayNanoseconds: UInt64 = 1_500_000_000
+    private static let deliveryLookupRetryDelayNanoseconds: UInt64 = 2_000_000_000
+    private static let deliveryLookupWindow: TimeInterval = 20
+    private static let deliveryLookupLimit: Int32 = 50
+    private static let deliveryLookupClockSkewSeconds: TimeInterval = 300
+    private static let acknowledgedMessageIdHistory = 256
 
     private func sendChannelMessageOverSocket(
-        _ req: Mezon_Realtime_ChannelMessageSend
-    ) async -> Mezon_Realtime_ChannelMessageAck? {
+        _ req: Mezon_Realtime_ChannelMessageSend,
+        token: String
+    ) async throws -> Mezon_Realtime_ChannelMessageAck? {
         var envelope = Mezon_Realtime_Envelope()
         envelope.channelMessageSend = req
         let started = Date()
@@ -1188,6 +1208,10 @@ final class MezonHTTPClient {
         } catch {
             if Date().timeIntervalSince(started) >= 1.5 {
                 await MezonSocket.shared.noteApiRequestTimedOut()
+            }
+            if case SocketReplyError.unresolved(_) = error,
+               let delivered = try await findDeliveredChannelMessage(req, sentAt: started, token: token, socketError: error) {
+                return delivered
             }
             fallbackReason = "\(error)"
         }
@@ -1214,6 +1238,100 @@ final class MezonHTTPClient {
         default:
             return "unexpected reply"
         }
+    }
+
+    private func findDeliveredChannelMessage(
+        _ req: Mezon_Realtime_ChannelMessageSend,
+        sentAt: Date,
+        token: String,
+        socketError: Error
+    ) async throws -> Mezon_Realtime_ChannelMessageAck? {
+        let selfId = Int64(SessionStore.load()?.userId ?? "") ?? 0
+        let deadline = Date().addingTimeInterval(Self.deliveryLookupWindow)
+        var delay = Self.deliveryLookupInitialDelayNanoseconds
+        while true {
+            try await Task.sleep(nanoseconds: delay)
+            do {
+                let page = try await listChannelMessages(
+                    clanId: req.clanID,
+                    channelId: req.channelID,
+                    limit: Self.deliveryLookupLimit,
+                    topicId: req.topicID,
+                    token: token
+                )
+                guard let delivered = page.messages
+                    .filter({ isDeliveredCopy($0, of: req, sentAt: sentAt, selfId: selfId) })
+                    .min(by: { $0.messageID < $1.messageID }) else { return nil }
+                SentryLogger.addBreadcrumb(
+                    category: "socket.send",
+                    message: "channel_message_send_recovered_delivered",
+                    level: .warning,
+                    data: [
+                        "clan_id": req.clanID,
+                        "channel_id": req.channelID,
+                        "message_id": delivered.messageID,
+                        "elapsed_ms": Int(Date().timeIntervalSince(sentAt) * 1000)
+                    ]
+                )
+                var ack = Mezon_Realtime_ChannelMessageAck()
+                ack.channelID = delivered.channelID
+                ack.messageID = delivered.messageID
+                ack.code = delivered.code
+                ack.username = delivered.username
+                ack.createTimeSeconds = delivered.createTimeSeconds
+                ack.updateTimeSeconds = delivered.updateTimeSeconds
+                return ack
+            } catch {
+                if error is CancellationError { throw error }
+                if Date() >= deadline { throw socketError }
+                delay = Self.deliveryLookupRetryDelayNanoseconds
+            }
+        }
+    }
+
+    private func isDeliveredCopy(
+        _ candidate: Mezon_Api_ChannelMessage,
+        of req: Mezon_Realtime_ChannelMessageSend,
+        sentAt: Date,
+        selfId: Int64
+    ) -> Bool {
+        if TimeInterval(candidate.createTimeSeconds) + Self.deliveryLookupClockSkewSeconds < sentAt.timeIntervalSince1970 {
+            return false
+        }
+        let senderMatches = (selfId != 0 && candidate.senderID == selfId)
+            || (req.anonymousMessage && candidate.senderID == MezonConstants.anonymousUserId)
+        guard senderMatches else { return false }
+        if req.topicID != 0, candidate.topicID != req.topicID { return false }
+        guard Self.storedContent(candidate.content) == Self.storedContent(req.content) else { return false }
+        guard Self.attachmentURLs(candidate.attachments) == req.attachments.map(\.url) else { return false }
+        return !isAcknowledged(candidate.messageID)
+    }
+
+    private static func storedContent(_ content: String) -> String {
+        content.isEmpty ? "[]" : content
+    }
+
+    private static func attachmentURLs(_ data: Data) -> [String] {
+        guard !data.isEmpty,
+              let list = try? Mezon_Api_MessageAttachmentList(serializedBytes: data) else { return [] }
+        return list.attachments.map(\.url)
+    }
+
+    private func rememberAcknowledged(_ ack: Mezon_Realtime_ChannelMessageAck) -> Mezon_Realtime_ChannelMessageAck {
+        guard ack.messageID != 0 else { return ack }
+        acknowledgedMessageIdsLock.lock()
+        defer { acknowledgedMessageIdsLock.unlock() }
+        acknowledgedMessageIds.append(ack.messageID)
+        if acknowledgedMessageIds.count > Self.acknowledgedMessageIdHistory {
+            acknowledgedMessageIds.removeFirst(acknowledgedMessageIds.count - Self.acknowledgedMessageIdHistory)
+        }
+        return ack
+    }
+
+    private func isAcknowledged(_ messageId: Int64) -> Bool {
+        acknowledgedMessageIdsLock.lock()
+        defer { acknowledgedMessageIdsLock.unlock() }
+        return acknowledgedMessageIds.contains(messageId)
     }
 
     func messageButtonClick(

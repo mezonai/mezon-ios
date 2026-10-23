@@ -4,17 +4,22 @@ final class VoiceNetworkWarningHintView: UIView {
 
     private static let fillColor = UIColor(rgb: 0xFDE8D7)
     private static let textColor = UIColor(rgb: 0x202124)
+    private static let iconColor = UIColor(rgb: 0xB45309)
     private static let cornerRadius: CGFloat = 16
 
     let arrowView = UIView()
     var onDismiss: (() -> Void)?
 
     private let bubble = UIView()
-    private let messageLabel = UILabel()
+    private let iconBadge = UIView()
+    private let iconView = UIImageView()
+    private let titleLabel = UILabel()
+    private let bodyLabel = UILabel()
+    private let textStack = UIStackView()
     private let closeButton = UIButton(type: .custom)
     private let arrowLayer = CAShapeLayer()
 
-    init(message: String) {
+    init(title: String, body: String) {
         super.init(frame: .zero)
         bubble.translatesAutoresizingMaskIntoConstraints = false
         bubble.backgroundColor = Self.fillColor
@@ -24,11 +29,37 @@ final class VoiceNetworkWarningHintView: UIView {
         bubble.layer.shadowRadius = 12
         bubble.layer.shadowOffset = CGSize(width: 0, height: 6)
 
-        messageLabel.translatesAutoresizingMaskIntoConstraints = false
-        messageLabel.numberOfLines = 0
-        messageLabel.font = .systemFont(ofSize: 14)
-        messageLabel.textColor = Self.textColor
-        messageLabel.text = message
+        iconBadge.translatesAutoresizingMaskIntoConstraints = false
+        iconBadge.backgroundColor = Self.iconColor.withAlphaComponent(0.15)
+        iconBadge.layer.cornerRadius = 16
+
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.image = UIImage(
+            systemName: "exclamationmark.triangle.fill",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
+        )
+        iconView.tintColor = Self.iconColor
+        iconView.contentMode = .center
+
+        titleLabel.numberOfLines = 0
+        titleLabel.lineBreakMode = .byWordWrapping
+        titleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
+        titleLabel.textColor = Self.textColor
+        titleLabel.text = title
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        bodyLabel.numberOfLines = 0
+        bodyLabel.lineBreakMode = .byWordWrapping
+        bodyLabel.font = .systemFont(ofSize: 12)
+        bodyLabel.textColor = Self.textColor.withAlphaComponent(0.75)
+        bodyLabel.text = body
+        bodyLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        textStack.addArrangedSubview(titleLabel)
+        textStack.addArrangedSubview(bodyLabel)
+        textStack.translatesAutoresizingMaskIntoConstraints = false
+        textStack.axis = .vertical
+        textStack.spacing = 2
 
         closeButton.translatesAutoresizingMaskIntoConstraints = false
         closeButton.setImage(
@@ -45,7 +76,9 @@ final class VoiceNetworkWarningHintView: UIView {
 
         addSubview(bubble)
         addSubview(arrowView)
-        bubble.addSubview(messageLabel)
+        iconBadge.addSubview(iconView)
+        bubble.addSubview(iconBadge)
+        bubble.addSubview(textStack)
         bubble.addSubview(closeButton)
 
         let arrowCentered = arrowView.centerXAnchor.constraint(equalTo: bubble.centerXAnchor)
@@ -54,11 +87,18 @@ final class VoiceNetworkWarningHintView: UIView {
             bubble.topAnchor.constraint(equalTo: topAnchor),
             bubble.leadingAnchor.constraint(equalTo: leadingAnchor),
             bubble.trailingAnchor.constraint(equalTo: trailingAnchor),
-            messageLabel.topAnchor.constraint(equalTo: bubble.topAnchor, constant: 16),
-            messageLabel.leadingAnchor.constraint(equalTo: bubble.leadingAnchor, constant: 16),
-            messageLabel.bottomAnchor.constraint(equalTo: bubble.bottomAnchor, constant: -16),
-            messageLabel.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -12),
-            closeButton.topAnchor.constraint(equalTo: bubble.topAnchor, constant: 14),
+            iconBadge.leadingAnchor.constraint(equalTo: bubble.leadingAnchor, constant: 16),
+            iconBadge.centerYAnchor.constraint(equalTo: bubble.centerYAnchor),
+            iconBadge.topAnchor.constraint(greaterThanOrEqualTo: bubble.topAnchor, constant: 12),
+            iconBadge.widthAnchor.constraint(equalToConstant: 32),
+            iconBadge.heightAnchor.constraint(equalToConstant: 32),
+            iconView.centerXAnchor.constraint(equalTo: iconBadge.centerXAnchor),
+            iconView.centerYAnchor.constraint(equalTo: iconBadge.centerYAnchor),
+            textStack.topAnchor.constraint(equalTo: bubble.topAnchor, constant: 12),
+            textStack.bottomAnchor.constraint(equalTo: bubble.bottomAnchor, constant: -12),
+            textStack.leadingAnchor.constraint(equalTo: iconBadge.trailingAnchor, constant: 12),
+            textStack.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -12),
+            closeButton.centerYAnchor.constraint(equalTo: bubble.centerYAnchor),
             closeButton.trailingAnchor.constraint(equalTo: bubble.trailingAnchor, constant: -12),
             closeButton.widthAnchor.constraint(equalToConstant: 24),
             closeButton.heightAnchor.constraint(equalToConstant: 24),
@@ -78,6 +118,13 @@ final class VoiceNetworkWarningHintView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        bubble.layoutIfNeeded()
+        let textWidth = textStack.bounds.width
+        if textWidth > 0, titleLabel.preferredMaxLayoutWidth != textWidth {
+            titleLabel.preferredMaxLayoutWidth = textWidth
+            bodyLabel.preferredMaxLayoutWidth = textWidth
+            superview?.setNeedsLayout()
+        }
         let size = arrowView.bounds.size
         let arrow = UIBezierPath()
         arrow.move(to: .zero)
