@@ -26,6 +26,7 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
     var onOpenChat: (() -> Void)?
     var onRaiseHand: (() -> Void)?
     var onLeave: (() -> Void)?
+    var showsChatAndRaiseHand = true
 
     private let callControls = UIStackView()
     private let cameraButton = UIButton(type: .custom)
@@ -238,6 +239,8 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
         leaveButton.backgroundColor = UIColor(red: 0.89, green: 0.18, blue: 0.18, alpha: 1)
         leaveButton.tintColor = .white
         leaveButton.layer.borderWidth = 0
+        chatButton.isHidden = !showsChatAndRaiseHand
+        handButton.isHidden = !showsChatAndRaiseHand
         view.addSubview(callControls)
         NSLayoutConstraint.activate([
             callControls.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),

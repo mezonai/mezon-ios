@@ -320,6 +320,7 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
         }
         if controllersUpdated {
             let previousControllers = self.controllers
+            ClanBannerDebug.log("NavigationContainer controllers \(ClanBannerDebug.names(previousControllers)) -> \(ClanBannerDebug.names(controllers)) transition=\(transition) inFlightTransition=\(self.state.transition != nil) pending=\(self.state.pending.map { String(describing: type(of: $0.value.value)) } ?? "nil")")
             self.controllers = controllers
 
             for i in 0 ..< controllers.count {
@@ -366,6 +367,7 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
                         self.state.pending = PendingChild(value: self.makeChild(layout: updatedLayout, value: last), transitionType: transitionType, transition: transition, update: { [weak self] pendingChild in
                             self?.pendingChildIsReady(pendingChild)
                         })
+                        ClanBannerDebug.log("NavigationContainer pending created vc=\(type(of: last)) type=\(transitionType) isReadyNow=\(self.state.pending?.isReady ?? false)")
                     }
                 }
             }
@@ -387,6 +389,7 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
                 if case .regular = layout.metrics.widthClass, pending.value.layout.inputHeight == nil {
                     ignoreInputHeight = true
                 }
+                ClanBannerDebug.log("NavigationContainer pending ready -> topTransition from=\(previous.map { String(describing: type(of: $0.value)) } ?? "nil") to=\(type(of: pending.value.value)) type=\(pending.transitionType)")
                 self.topTransition(from: previous, to: pending.value, transitionType: pending.transitionType, layout: updatedLayout, transition: pending.transition)
                 self.state.top?.value.isInFocus = self.isInFocus
                 statusBarTransition = pending.transition
@@ -394,6 +397,8 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
                     self.isReady = true
                     self.isReadyUpdated?()
                 }
+            } else {
+                ClanBannerDebug.log("NavigationContainer update while pending NOT ready vc=\(type(of: pending.value.value)) type=\(pending.transitionType)")
             }
         }
 
@@ -446,6 +451,7 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
     public var shouldAnimateDisappearance: Bool = false
 
     private func topTransition(from fromValue: Child?, to toValue: Child?, transitionType: PendingChild.TransitionType, layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
+        ClanBannerDebug.log("NavigationContainer topTransition from=\(fromValue.map { String(describing: type(of: $0.value)) } ?? "nil") to=\(toValue.map { String(describing: type(of: $0.value)) } ?? "nil") type=\(transitionType) transition=\(transition) inFlight=\(self.state.transition != nil) inFlightInteractive=\(self.state.transition?.coordinator.isInteractive ?? false) containerSize=\(self.bounds.size)")
         let completesInteractiveTransition: Bool
         if let currentTransition = self.state.transition,
            currentTransition.coordinator.isInteractive,
@@ -508,8 +514,10 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
 
             topTransition.coordinator.animateCompletion(0.0, completion: { [weak self, weak topTransition] in
                 guard let strongSelf = self, let topTransition = topTransition, strongSelf.state.transition === topTransition else {
+                    ClanBannerDebug.log("NavigationContainer animateCompletion SKIPPED self=\(self != nil) topTransition=\(topTransition != nil) matchesState=\(self?.state.transition === topTransition) to=\(type(of: toValue.value))")
                     return
                 }
+                ClanBannerDebug.log("NavigationContainer animateCompletion run type=\(transitionType) previous=\(type(of: topTransition.previous.value)) to=\(type(of: toValue.value))")
 
                 if viewTreeContainsFirstResponder(view: topTransition.previous.value.view) {
                     strongSelf.ignoreInputHeight = true
@@ -536,8 +544,10 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
                 toValue.value.finishAppearanceTransition()
 
                 strongSelf.ignoreInputHeight = false
+                ClanBannerDebug.log("NavigationContainer animateCompletion done to=\(type(of: toValue.value)) toInContainer=\(toValue.value.displayNode.supernode === strongSelf) toFrame=\(toValue.value.displayNode.frame) toAlpha=\(toValue.value.displayNode.alpha) toHidden=\(toValue.value.displayNode.isHidden) previousRemoved=\(topTransition.previous.value.displayNode.supernode == nil) subnodes=\(strongSelf.subnodes?.count ?? -1)")
             })
         } else {
+            ClanBannerDebug.log("NavigationContainer immediate transition from=\(fromValue.map { String(describing: type(of: $0.value)) } ?? "nil") to=\(toValue.map { String(describing: type(of: $0.value)) } ?? "nil") completesInteractive=\(completesInteractiveTransition)")
             if let fromValue = fromValue {
                 if viewTreeContainsFirstResponder(view: fromValue.value.view) {
                     self.ignoreInputHeight = true
@@ -635,6 +645,7 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
     }
 
     private func pendingChildIsReady(_ child: PendingChild) {
+        ClanBannerDebug.log("NavigationContainer pendingChildIsReady vc=\(type(of: child.value.value)) isCurrentPending=\(self.state.pending === child)")
         if let pending = self.state.pending, pending === child {
             pending.isReady = true
             self.performUpdate(transition: .immediate)
@@ -652,6 +663,7 @@ public final class NavigationContainer: ASDisplayNode, ASGestureRecognizerDelega
             return nil
         }
         if self.state.transition != nil {
+            ClanBannerDebug.logTransitionSwallow()
             return self.view
         }
         return super.hitTest(point, with: event)

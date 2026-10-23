@@ -71,6 +71,7 @@ struct ChatInteraction {
     var onMediaRetryTapped: ((_ index: Int, _ display: ChatMessageDisplay) -> Void)? = nil
     var onInVoiceTapped: (() -> Void)? = nil
     var onBotCommandAction: ((_ messageId: String, _ action: BotCommandUserAction) -> Void)? = nil
+    var onExternalMeetingLinkTapped: ((ExternalMeetingRoom, URL) -> Void)? = nil
 }
 
 final class ChatContainerNode: ASDisplayNode {

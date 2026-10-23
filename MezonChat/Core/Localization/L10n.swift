@@ -958,6 +958,8 @@ enum L10n {
         static let deleteMessage     = "eventMenu.deleteMessage"
         static let deleted           = "eventMenu.deleted"
         static let openLink          = "eventMenu.openLink"
+        static let joinInApp         = "eventMenu.joinInApp"
+        static let openInBrowser     = "eventMenu.openInBrowser"
     }
 
     enum OnboardingClan {
@@ -1549,6 +1551,10 @@ enum L10n {
         static let pttWaiting = "voiceChannel.pttWaiting"
         static let pttPreparing = "voiceChannel.pttPreparing"
         static let pttReady = "voiceChannel.pttReady"
+        static let externalCall = "voiceChannel.externalCall"
+        static let externalLinkInvalid = "voiceChannel.externalLinkInvalid"
+        static let externalLinkPrompt = "voiceChannel.externalLinkPrompt"
+        static let externalGuest = "voiceChannel.externalGuest"
     }
 }
 
@@ -1996,6 +2002,8 @@ extension L10n {
         "eventMenu.deleteMessage":                "Are you sure you want to delete \"%@\"?",
         "eventMenu.deleted":                      "Event deleted",
         "eventMenu.openLink":                     "Open Link",
+        "eventMenu.joinInApp":                    "Join in App",
+        "eventMenu.openInBrowser":                "Open in Browser",
 
         "clan.action.invite":               "Invite",
         "clan.action.markAsRead":           "Mark as Read",
@@ -3052,6 +3060,10 @@ extension L10n {
         "voiceChannel.pttWaiting": "Waiting to speak…",
         "voiceChannel.pttPreparing": "Preparing microphone…",
         "voiceChannel.pttReady": "You can speak now",
+        "voiceChannel.externalCall": "External call",
+        "voiceChannel.externalLinkInvalid": "This meeting link is invalid or has expired.",
+        "voiceChannel.externalLinkPrompt": "Join this call in the app or open it in your browser.",
+        "voiceChannel.externalGuest": "Guest",
     ]
 
     private static let vi: [String: String] = [
@@ -3434,6 +3446,8 @@ extension L10n {
         "eventMenu.deleteMessage":                "Bạn có chắc muốn xóa \"%@\" không?",
         "eventMenu.deleted":                      "Đã xóa sự kiện",
         "eventMenu.openLink":                     "Mở liên kết",
+        "eventMenu.joinInApp":                    "Tham gia trong ứng dụng",
+        "eventMenu.openInBrowser":                "Mở bằng trình duyệt",
 
         "clan.action.invite":               "Mời",
         "clan.action.markAsRead":           "Đánh dấu là đã đọc",
@@ -4492,5 +4506,9 @@ extension L10n {
         "voiceChannel.pttWaiting": "Đang chờ quyền nói…",
         "voiceChannel.pttPreparing": "Đang chuẩn bị micro…",
         "voiceChannel.pttReady": "Bạn có thể nói",
+        "voiceChannel.externalCall": "Cuộc gọi ngoài",
+        "voiceChannel.externalLinkInvalid": "Liên kết cuộc họp không hợp lệ hoặc đã hết hạn.",
+        "voiceChannel.externalLinkPrompt": "Tham gia cuộc gọi này ngay trong ứng dụng hoặc mở bằng trình duyệt.",
+        "voiceChannel.externalGuest": "Khách",
     ]
 }

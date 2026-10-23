@@ -36,7 +36,30 @@ final class ClanOverviewViewController: BaseViewController {
 
     private let deleteButton = UIButton(type: .system)
 
+    private let saveSpinner: UIActivityIndicatorView = {
+        let s = UIActivityIndicatorView(style: .medium)
+        s.color = UIColor.theme.bgViolet
+        s.hidesWhenStopped = true
+        return s
+    }()
+    private let bannerLoadingView: UIView = {
+        let v = UIView()
+        v.backgroundColor = UIColor.black.withAlphaComponent(0.35)
+        v.layer.cornerRadius = 12.swh
+        v.isHidden = true
+        v.isUserInteractionEnabled = false
+        return v
+    }()
+    private let bannerSpinner: UIActivityIndicatorView = {
+        let s = UIActivityIndicatorView(style: .medium)
+        s.color = .white
+        s.hidesWhenStopped = true
+        s.translatesAutoresizingMaskIntoConstraints = false
+        return s
+    }()
+
     private var isSaving = false
+    private var isProcessingBanner = false
     private var selectedAvatarImage: UIImage?
     private var selectedAvatarData: Data? = nil {
         didSet { updateSaveButtonState() }
@@ -52,6 +75,9 @@ final class ClanOverviewViewController: BaseViewController {
         self.context = context
         self.clanId = clanId
         super.init(navigationBarPresentationData: nil)
+        attemptNavigation = { [weak self] _ in
+            !(self?.isSaving ?? false)
+        }
     }
 
     required init(coder: NSCoder) {
@@ -72,6 +98,7 @@ final class ClanOverviewViewController: BaseViewController {
 
 
     deinit {
+        ClanBannerDebug.log("ClanOverview deinit clanId=\(clanId)")
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -79,7 +106,8 @@ final class ClanOverviewViewController: BaseViewController {
         guard let userInfo = notification.userInfo,
               let id = userInfo["clanId"] as? Int64,
               id == self.clanId else { return }
-        
+        ClanBannerDebug.log("ClanOverview clanDescDidUpdate clanId=\(id) selectedAvatarData=\(selectedAvatarData?.count ?? -1)")
+
         Task { @MainActor [weak self] in
             guard let self else { return }
             guard let clan = self.context.account.postbox.read({ tx in tx.getClan(id: self.clanId) }) else { return }
@@ -118,7 +146,23 @@ final class ClanOverviewViewController: BaseViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        ClanBannerDebug.log("ClanOverview viewWillAppear animated=\(animated) stack=\(ClanBannerDebug.names(navigationController?.viewControllers ?? []))")
         navigationController?.setNavigationBarHidden(true, animated: animated)
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        ClanBannerDebug.log("ClanOverview viewDidAppear animated=\(animated)")
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        ClanBannerDebug.log("ClanOverview viewWillDisappear animated=\(animated)")
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        ClanBannerDebug.log("ClanOverview viewDidDisappear animated=\(animated) stack=\(ClanBannerDebug.names(navigationController?.viewControllers ?? []))")
     }
 
     override func setupUI() {
@@ -151,6 +195,7 @@ final class ClanOverviewViewController: BaseViewController {
         ])
 
         buildForm()
+
         updateNotificationUI()
         updateSaveButtonState()
     }
@@ -175,7 +220,7 @@ final class ClanOverviewViewController: BaseViewController {
         saveButton.setTitleColor(UIColor.theme.textDisabled, for: .disabled)
         saveButton.addTarget(self, action: #selector(saveTapped), for: .touchUpInside)
 
-        [backButton, headerTitleLabel, saveButton].forEach {
+        [backButton, headerTitleLabel, saveButton, saveSpinner].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             headerView.addSubview($0)
         }
@@ -195,7 +240,10 @@ final class ClanOverviewViewController: BaseViewController {
             headerTitleLabel.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
 
             saveButton.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -16.sw),
-            saveButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor)
+            saveButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+
+            saveSpinner.centerXAnchor.constraint(equalTo: saveButton.centerXAnchor),
+            saveSpinner.centerYAnchor.constraint(equalTo: saveButton.centerYAnchor)
         ])
     }
 
@@ -255,17 +303,26 @@ final class ClanOverviewViewController: BaseViewController {
         clanNameTextField.textColor = UIColor.theme.textStrong
         clanNameTextField.addTarget(self, action: #selector(textFieldDidChange), for: .editingChanged)
         
-        [avatarImageView, cameraIcon, changeAvatarLabel, pickAvatarButton, label, inputContainer, clanNameTextField].forEach {
+        [avatarImageView, cameraIcon, changeAvatarLabel, bannerLoadingView, pickAvatarButton, label, inputContainer, clanNameTextField].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview($0)
         }
-        
+        bannerLoadingView.addSubview(bannerSpinner)
+
         NSLayoutConstraint.activate([
             avatarImageView.topAnchor.constraint(equalTo: container.topAnchor),
             avatarImageView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             avatarImageView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             avatarImageView.heightAnchor.constraint(equalTo: avatarImageView.widthAnchor, multiplier: 9.0 / 16.0),
-            
+
+            bannerLoadingView.topAnchor.constraint(equalTo: avatarImageView.topAnchor),
+            bannerLoadingView.leadingAnchor.constraint(equalTo: avatarImageView.leadingAnchor),
+            bannerLoadingView.trailingAnchor.constraint(equalTo: avatarImageView.trailingAnchor),
+            bannerLoadingView.bottomAnchor.constraint(equalTo: avatarImageView.bottomAnchor),
+
+            bannerSpinner.centerXAnchor.constraint(equalTo: bannerLoadingView.centerXAnchor),
+            bannerSpinner.centerYAnchor.constraint(equalTo: bannerLoadingView.centerYAnchor),
+
             cameraIcon.centerXAnchor.constraint(equalTo: avatarImageView.centerXAnchor),
             cameraIcon.centerYAnchor.constraint(equalTo: avatarImageView.centerYAnchor, constant: -12.sh),
             cameraIcon.widthAnchor.constraint(equalToConstant: 32.swh),
@@ -699,13 +756,31 @@ final class ClanOverviewViewController: BaseViewController {
         let name = clanNameTextField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let isInvalidFormat = !ClanCreationNameRules.isValid(name)
         
-        if isSaving || isInvalidFormat {
+        if isSaving || isProcessingBanner || isInvalidFormat {
             saveButton.isEnabled = false
             saveButton.alpha = 0.5
         } else {
             saveButton.isEnabled = true
             saveButton.alpha = 1.0
         }
+    }
+
+    private func setLoading(_ loading: Bool) {
+        isSaving = loading
+        saveButton.isHidden = loading
+        if loading { saveSpinner.startAnimating() } else { saveSpinner.stopAnimating() }
+        backButton.isEnabled = !loading
+        scrollView.isUserInteractionEnabled = !loading
+        if loading { view.endEditing(true) }
+        updateSaveButtonState()
+    }
+
+    private func setBannerProcessing(_ processing: Bool) {
+        isProcessingBanner = processing
+        bannerLoadingView.isHidden = !processing
+        if processing { bannerSpinner.startAnimating() } else { bannerSpinner.stopAnimating() }
+        pickAvatarButton.isEnabled = !processing
+        updateSaveButtonState()
     }
 
     private func updateAvatarOverlay() {
@@ -759,6 +834,7 @@ final class ClanOverviewViewController: BaseViewController {
         picker.sourceType = .photoLibrary
         picker.allowsEditing = true
         picker.delegate = self
+        ClanBannerDebug.log("banner picker present style=\(picker.modalPresentationStyle.rawValue)")
         present(picker, animated: true)
     }
 
@@ -825,16 +901,28 @@ final class ClanOverviewViewController: BaseViewController {
             return
         }
         
+        let saveStart = ClanBannerDebug.now()
+        ClanBannerDebug.log("save tapped clanId=\(clanId) hasNewBanner=\(selectedAvatarData != nil) bannerBytes=\(selectedAvatarData?.count ?? 0)")
+        ClanBannerDebug.startMainThreadWatchdog(label: "bannerSave", duration: 90)
+        setLoading(true)
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer {
-                self.isSaving = false
-                self.updateSaveButtonState()
+                ClanBannerDebug.log("save task end total=\(ClanBannerDebug.ms(since: saveStart))")
+                self.setLoading(false)
             }
-            guard let token = await self.context.getToken() else { return }
+            let tokenStart = ClanBannerDebug.now()
+            guard let token = await self.context.getToken() else {
+                ClanBannerDebug.log("save abort: token nil after \(ClanBannerDebug.ms(since: tokenStart))")
+                return
+            }
+            ClanBannerDebug.log("save token ok \(ClanBannerDebug.ms(since: tokenStart))")
 
-            guard let clan = self.context.account.postbox.read({ tx in tx.getClan(id: self.clanId) }) else { return }
-            
+            guard let clan = self.context.account.postbox.read({ tx in tx.getClan(id: self.clanId) }) else {
+                ClanBannerDebug.log("save abort: clan not found in postbox")
+                return
+            }
+
             let nameChange = ClanNameChange.classify(
                 newName: name,
                 savedName: self.initialClanName,
@@ -851,10 +939,12 @@ final class ClanOverviewViewController: BaseViewController {
                         token: token
                     )
                     if isDuplicate {
+                        ClanBannerDebug.log("save abort: duplicate name")
                         Toast.error(L(L10n.Clan.duplicateName))
                         return
                     }
                 } catch {
+                    ClanBannerDebug.log("save abort: checkDuplicateName error=\(error)")
                     Toast.error(L(L10n.ClanSetting.Overview.saveError))
                     return
                 }
@@ -890,30 +980,44 @@ final class ClanOverviewViewController: BaseViewController {
                     req.communityBanner = SwiftProtobuf.Google_Protobuf_StringValue(d.communityBanner)
                 }
                 
+                ClanBannerDebug.log("save changes name=\(isNameChanged) banner=\(isAvatarChanged) anonymous=\(isAnonymousChanged) sysMsg=\(isSysMsgChanged) notif=\(isNotifChanged) oldBanner=\(req.banner.value)")
                 var bannerUrlToSave: String? = nil
                 if let data = self.selectedAvatarData {
-                    let uploadInfo = try await self.context.account.network.uploadAttachmentFile(
-                        filename: "banner.jpg",
-                        filetype: "image/jpeg",
-                        size: data.count,
-                        width: Int(self.selectedAvatarImage?.size.width ?? 0),
-                        height: Int(self.selectedAvatarImage?.size.height ?? 0),
-                        token: token
-                    )
-                    try await self.context.account.network.uploadToMinIO(
-                        url: uploadInfo.url,
-                        data: data,
-                        contentType: "image/jpeg"
-                    )
-                    bannerUrlToSave = try MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: uploadInfo.filename)
+                    ClanBannerDebug.log("save upload start bytes=\(data.count) image=\(ClanBannerDebug.imageInfo(self.selectedAvatarImage))")
+                    let uploadStart = ClanBannerDebug.now()
+                    do {
+                        let uploadInfo = try await self.context.account.network.uploadAttachmentFile(
+                            filename: "banner.jpg",
+                            filetype: "image/jpeg",
+                            size: data.count,
+                            width: Int(self.selectedAvatarImage?.size.width ?? 0),
+                            height: Int(self.selectedAvatarImage?.size.height ?? 0),
+                            token: token
+                        )
+                        ClanBannerDebug.log("save uploadAttachmentFile done \(ClanBannerDebug.ms(since: uploadStart)) typeCdn=\(uploadInfo.typeCdn) filename=\(uploadInfo.filename)")
+                        let minioStart = ClanBannerDebug.now()
+                        try await self.context.account.network.uploadToMinIO(
+                            url: uploadInfo.url,
+                            data: data,
+                            contentType: "image/jpeg"
+                        )
+                        ClanBannerDebug.log("save uploadToMinIO done \(ClanBannerDebug.ms(since: minioStart)) bytes=\(data.count)")
+                        bannerUrlToSave = try MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: uploadInfo.filename)
+                        ClanBannerDebug.log("save bannerUrl=\(bannerUrlToSave ?? "nil")")
+                    } catch {
+                        ClanBannerDebug.log("save upload FAILED after \(ClanBannerDebug.ms(since: uploadStart)) error=\(error)")
+                        throw error
+                    }
                 }
                 if let b = bannerUrlToSave {
                     req.banner = SwiftProtobuf.Google_Protobuf_StringValue(b)
                 }
-                
+
                 do {
+                    let updateStart = ClanBannerDebug.now()
                     try await self.context.account.network.updateClanDesc(request: req, token: token)
-                    
+                    ClanBannerDebug.log("save updateClanDesc done \(ClanBannerDebug.ms(since: updateStart))")
+
                     if var d = try? Mezon_Api_ClanDesc(serializedBytes: clan.data) {
                         let updatedName = isNameChanged ? name :
                             (self.context.account.postbox.read({ tx in tx.getClan(id: self.clanId) })?.name ?? clan.name)
@@ -932,11 +1036,16 @@ final class ClanOverviewViewController: BaseViewController {
                             ownerId: clan.ownerId,
                             data: try d.serializedData()
                         )
+                        let writeStart = ClanBannerDebug.now()
                         self.context.account.postbox.writeSync { tx in
                             tx.updateClans([updatedClan])
                         }
+                        ClanBannerDebug.log("save postbox writeSync updateClans done \(ClanBannerDebug.ms(since: writeStart)) banner=\(d.banner)")
+                    } else {
+                        ClanBannerDebug.log("save skip local write: clan.data not decodable")
                     }
                 } catch {
+                    ClanBannerDebug.log("save updateClanDesc FAILED error=\(error)")
                     Toast.error(ClanUpdateErrorMessage.message(for: error, nameSent: isNameChanged))
                     return
                 }
@@ -953,8 +1062,11 @@ final class ClanOverviewViewController: BaseViewController {
                 sysReq.boostMessage = self.initialSysMsg?.boostMessage ?? ""
                 
                 do {
+                    let sysStart = ClanBannerDebug.now()
                     try await self.context.account.network.updateSystemMessage(request: sysReq, token: token)
+                    ClanBannerDebug.log("save updateSystemMessage done \(ClanBannerDebug.ms(since: sysStart))")
                 } catch {
+                    ClanBannerDebug.log("save updateSystemMessage FAILED error=\(error)")
                     Toast.error(L(L10n.ClanSetting.Overview.saveError))
                     return
                 }
@@ -976,13 +1088,20 @@ final class ClanOverviewViewController: BaseViewController {
                         tx.updateNotificationSetting(newSetting)
                     }
                 } catch {
+                    ClanBannerDebug.log("save setDefaultNotificationClan FAILED error=\(error)")
                     Toast.error(L(L10n.ClanSetting.Overview.saveError))
                     return
                 }
             }
-            
+
+            let nav = self.navigationController
+            ClanBannerDebug.log("save success, before pop nav=\(nav.map { String(describing: type(of: $0)) } ?? "nil") stack=\(ClanBannerDebug.names(nav?.viewControllers ?? [])) isTop=\(nav?.viewControllers.last === self)")
             Toast.success(L(L10n.ClanSetting.Overview.saveSuccess))
-            self.navigationController?.popViewController(animated: true)
+            if self.navigationController?.viewControllers.last === self {
+                self.navigationController?.popViewController(animated: true)
+            }
+            ClanBannerDebug.log("save after pop call stack=\(ClanBannerDebug.names(nav?.viewControllers ?? []))")
+            ClanBannerDebug.scheduleProbes(label: "afterBannerSavePop", nav: nav)
         }
     }
 
@@ -1037,21 +1156,40 @@ extension ClanOverviewViewController: UIImagePickerControllerDelegate, UINavigat
         didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
     ) {
         let image = (info[.editedImage] as? UIImage) ?? (info[.originalImage] as? UIImage)
-        picker.dismiss(animated: true) { [weak self] in
-            guard let self, let image else { return }
-            guard let data = image.jpegData(compressionQuality: 0.85) else { return }
-            
-            let maxSize = 10 * 1024 * 1024 
-            if data.count > maxSize {
-                Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge10MB))
-                return
-            }
+        ClanBannerDebug.log("banner picked edited=\(ClanBannerDebug.imageInfo(info[.editedImage] as? UIImage)) original=\(ClanBannerDebug.imageInfo(info[.originalImage] as? UIImage))")
+        let dismissStart = ClanBannerDebug.now()
+        picker.dismiss(animated: true) {
+            ClanBannerDebug.log("banner picker dismissed \(ClanBannerDebug.ms(since: dismissStart))")
+        }
+        guard let image else { return }
+        setBannerProcessing(true)
 
-            self.selectedAvatarImage = image
-            self.selectedAvatarData = data
-            self.avatarImageView.image = image
-            self.updateAvatarOverlay()
-            self.updateSaveButtonState()
+        let encodeStart = ClanBannerDebug.now()
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let encoded = image.jpegData(compressionQuality: 0.85)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.setBannerProcessing(false)
+                guard let data = encoded else { return }
+                ClanBannerDebug.log("banner jpeg encode \(ClanBannerDebug.ms(since: encodeStart)) bytes=\(data.count)")
+
+                let maxSize = 10 * 1024 * 1024
+                if data.count > maxSize {
+                    Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge10MB))
+                    return
+                }
+
+                let applyStart = ClanBannerDebug.now()
+                self.selectedAvatarImage = image
+                self.selectedAvatarData = data
+                self.avatarImageView.image = image
+                self.updateAvatarOverlay()
+                self.updateSaveButtonState()
+                ClanBannerDebug.log("banner preview applied \(ClanBannerDebug.ms(since: applyStart))")
+                DispatchQueue.main.async {
+                    ClanBannerDebug.log("banner next runloop after preview \(ClanBannerDebug.ms(since: applyStart))")
+                }
+            }
         }
     }
 }
@@ -1265,4 +1403,131 @@ final class SysMsgSelectChannelViewController: BaseViewController {
 
 private final class ChannelRowButton: UIButton {
     var channel: Mezon_Api_ChannelDescription?
+}
+
+// FOR TEST ONLY: remove before release
+enum ClanBannerDebug {
+    private static let origin = CACurrentMediaTime()
+    private static var lastSwallowLogAt: CFTimeInterval = 0
+
+    private final class TickBox {
+        let lock = NSLock()
+        var value: CFTimeInterval = CACurrentMediaTime()
+    }
+
+    static func log(_ message: @autoclosure () -> String) {
+        let t = String(format: "%.3f", CACurrentMediaTime() - origin)
+        print("[ClanBannerDebug] t=\(t) main=\(Thread.isMainThread) \(message())")
+    }
+
+    static func now() -> CFTimeInterval {
+        CACurrentMediaTime()
+    }
+
+    static func ms(since start: CFTimeInterval) -> String {
+        String(format: "%.0fms", (CACurrentMediaTime() - start) * 1000)
+    }
+
+    static func names(_ controllers: [UIViewController]) -> String {
+        controllers.map { String(describing: type(of: $0)) }.joined(separator: " > ")
+    }
+
+    static func imageInfo(_ image: UIImage?) -> String {
+        guard let image else { return "nil" }
+        let px = CGSize(width: image.size.width * image.scale, height: image.size.height * image.scale)
+        return "pt=\(Int(image.size.width))x\(Int(image.size.height)) scale=\(image.scale) px=\(Int(px.width))x\(Int(px.height))"
+    }
+
+    static func shortStack(_ count: Int = 8) -> String {
+        Thread.callStackSymbols.dropFirst(2).prefix(count).joined(separator: "\n    ")
+    }
+
+    static func logTransitionSwallow() {
+        let t = CACurrentMediaTime()
+        guard t - lastSwallowLogAt > 0.5 else { return }
+        lastSwallowLogAt = t
+        log("NavigationContainer.hitTest swallowed touch: transition still in progress")
+    }
+
+    static func startMainThreadWatchdog(label: String, duration: TimeInterval) {
+        let box = TickBox()
+        let end = CACurrentMediaTime() + duration
+        log("watchdog[\(label)] start for \(Int(duration))s")
+        DispatchQueue.global(qos: .userInitiated).async {
+            var stalled = false
+            while CACurrentMediaTime() < end {
+                DispatchQueue.main.async {
+                    box.lock.lock()
+                    box.value = CACurrentMediaTime()
+                    box.lock.unlock()
+                }
+                Thread.sleep(forTimeInterval: 0.25)
+                box.lock.lock()
+                let lag = CACurrentMediaTime() - box.value
+                box.lock.unlock()
+                if lag > 0.5 {
+                    log("watchdog[\(label)] MAIN THREAD STALL lag=\(Int(lag * 1000))ms")
+                    stalled = true
+                } else if stalled {
+                    log("watchdog[\(label)] main thread recovered")
+                    stalled = false
+                }
+            }
+            log("watchdog[\(label)] finished stalled=\(stalled)")
+        }
+    }
+
+    static func scheduleProbes(label: String, nav: UINavigationController?) {
+        weak var weakNav = nav
+        for delay in [0.05, 0.3, 0.6, 1.0, 2.0, 4.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                probe(label: "\(label)+\(delay)s", nav: weakNav)
+            }
+        }
+    }
+
+    static func probe(label: String, nav: UINavigationController?) {
+        log("probe[\(label)] ----- begin")
+        logWindows(label: label)
+        guard let nav else {
+            log("probe[\(label)] nav=nil")
+            return
+        }
+        log("probe[\(label)] stack=\(names(nav.viewControllers)) navInWindow=\(nav.view.window != nil) navFrame=\(nav.view.frame)")
+        for vc in nav.viewControllers.suffix(3) {
+            guard vc.isViewLoaded else {
+                log("probe[\(label)]   vc=\(type(of: vc)) viewNotLoaded")
+                continue
+            }
+            let v = vc.view!
+            let pres = v.layer.presentation()?.frame ?? .zero
+            log("probe[\(label)]   vc=\(type(of: vc)) inWindow=\(v.window != nil) superview=\(v.superview.map { String(describing: type(of: $0)) } ?? "nil") frame=\(v.frame) presFrame=\(pres) alpha=\(v.alpha) hidden=\(v.isHidden) subviews=\(v.subviews.count)")
+        }
+        var budget = 150
+        dumpTree(nav.view, label: label, depth: 0, maxDepth: 6, budget: &budget)
+        log("probe[\(label)] ----- end")
+    }
+
+    private static func logWindows(label: String) {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        for scene in scenes {
+            for w in scene.windows {
+                log("probe[\(label)] window=\(type(of: w)) level=\(w.windowLevel.rawValue) key=\(w.isKeyWindow) hidden=\(w.isHidden) alpha=\(w.alpha) frame=\(w.frame) root=\(w.rootViewController.map { String(describing: type(of: $0)) } ?? "nil") presented=\(w.rootViewController?.presentedViewController.map { String(describing: type(of: $0)) } ?? "nil")")
+            }
+        }
+    }
+
+    private static func dumpTree(_ view: UIView, label: String, depth: Int, maxDepth: Int, budget: inout Int) {
+        guard budget > 0 else { return }
+        budget -= 1
+        let indent = String(repeating: "  ", count: depth)
+        let pres = view.layer.presentation()?.frame
+        let presText = (pres != nil && pres != view.frame) ? " presFrame=\(pres!)" : ""
+        let bg = view.backgroundColor.map { "\($0)" } ?? "nil"
+        log("tree[\(label)] \(indent)\(type(of: view)) frame=\(view.frame)\(presText) alpha=\(view.alpha) hidden=\(view.isHidden) clips=\(view.clipsToBounds) bg=\(bg) subviews=\(view.subviews.count)")
+        guard depth < maxDepth else { return }
+        for sub in view.subviews.prefix(8) {
+            dumpTree(sub, label: label, depth: depth + 1, maxDepth: maxDepth, budget: &budget)
+        }
+    }
 }

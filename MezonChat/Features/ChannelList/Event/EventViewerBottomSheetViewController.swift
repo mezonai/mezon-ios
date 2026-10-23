@@ -38,6 +38,7 @@ enum EventDisplayHelper {
     static let clanEventBadgeColor = UIColor(rgb: 0x3B82F6)
     static let channelEventBadgeColor = UIColor(rgb: 0xF97316)
     static let externalEventBadgeColor = UIColor(rgb: 0xEF4444)
+    static let joinInAppColor = UIColor(red: 0.39, green: 0.38, blue: 0.91, alpha: 1)
 
     static func resolvedStatus(for event: Mezon_Api_EventManagement, now: Date = Date()) -> EventDisplayStatus {
         guard event.startTimeSeconds != 0 else {
@@ -154,6 +155,25 @@ enum EventDisplayHelper {
         button.titleEdgeInsets = UIEdgeInsets(top: 0, left: 2, bottom: 0, right: -2)
     }
 
+    static func applyJoinInAppStyle(_ button: UIButton, iconHeight: CGFloat = 14) {
+        button.setImage(voiceIcon(height: iconHeight), for: .normal)
+        button.tintColor = .white
+        button.setTitleColor(.white, for: .normal)
+        button.backgroundColor = joinInAppColor
+        button.layer.borderWidth = 0
+    }
+
+    static func voiceIcon(height: CGFloat) -> UIImage? {
+        guard let source = UIImage(named: "Chat/SpeakerIcon"), source.size.height > 0 else {
+            return UIImage(systemName: "speaker.wave.2.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: height, weight: .medium))?
+                .withRenderingMode(.alwaysTemplate)
+        }
+        let size = CGSize(width: (source.size.width * height / source.size.height).rounded(.up), height: height)
+        return UIGraphicsImageRenderer(size: size).image { _ in
+            source.draw(in: CGRect(origin: .zero, size: size))
+        }.withRenderingMode(.alwaysTemplate)
+    }
+
     private static let eventDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
@@ -177,6 +197,7 @@ final class EventViewerBottomSheetViewController: UIViewController {
 
     var onOpenChannel: ((Mezon_Api_ChannelDescription) -> Void)?
     var onPresentJoinVoice: ((Mezon_Api_ChannelDescription) -> Void)?
+    var onJoinExternalMeeting: ((ExternalMeetingRoom) -> Void)?
 
     private let scrollView = UIScrollView()
     private let contentStack = UIStackView()
@@ -521,6 +542,9 @@ final class EventViewerBottomSheetViewController: UIViewController {
         row.onOpenExternalLink = { url in
             UIApplication.shared.open(url)
         }
+        row.onJoinExternalMeeting = { [weak self] meeting in
+            self?.onJoinExternalMeeting?(meeting)
+        }
         row.onCopyExternalLink = { url in
             UIPasteboard.general.string = url.absoluteString
             Toast.success(L(L10n.ClanInviteSheet.linkCopied))
@@ -574,6 +598,9 @@ final class EventViewerBottomSheetViewController: UIViewController {
             },
             onPresentJoinVoice: { [weak self] channel in
                 self?.onPresentJoinVoice?(channel)
+            },
+            onJoinExternalMeeting: { [weak self] meeting in
+                self?.onJoinExternalMeeting?(meeting)
             }
         )
         present(vc, animated: true)
@@ -605,6 +632,7 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
     var onOpenExternalLink: ((URL) -> Void)?
     var onCopyExternalLink: ((URL) -> Void)?
     var onInviteToExternalEvent: ((URL) -> Void)?
+    var onJoinExternalMeeting: ((ExternalMeetingRoom) -> Void)?
 
     private let event: Mezon_Api_EventManagement
     private let creator: ClanMemberRecord?
@@ -696,11 +724,22 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
 
         root.addArrangedSubview(contentStack)
         if event.isPrivate, let url = MezonConfig.externalEventURL(event.meetRoom.externalLink) {
+            if let meeting = ExternalMeetingRoom(externalLink: event.meetRoom.externalLink, title: event.title) {
+                root.addArrangedSubview(makeJoinInAppButton(meeting))
+            }
             root.addArrangedSubview(makeExternalActionsRow(url: url))
         }
         if canEditEvent || EventDisplayHelper.resolvedStatus(for: event) != .ongoing || canEndEvent {
             root.addArrangedSubview(makeActionsRow())
         }
+    }
+
+    private func makeJoinInAppButton(_ meeting: ExternalMeetingRoom) -> UIView {
+        let button = EventEditorButton()
+        EventDisplayHelper.configureActionButton(button, title: L(L10n.EventMenu.joinInApp), iconName: "speaker.wave.2.fill")
+        EventDisplayHelper.applyJoinInAppStyle(button)
+        button.action = { [weak self] in self?.onJoinExternalMeeting?(meeting) }
+        return button
     }
 
     private func makeExternalActionsRow(url: URL) -> UIView {
