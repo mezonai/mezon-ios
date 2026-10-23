@@ -332,7 +332,7 @@ private final class MessageReactionDetailSheetNode: ASDisplayNode, UICollectionV
             context: context,
             clanId: reactionMemberLookupClanId
         )
-        cell.configure(username: visual.username, displayName: visual.name, avatarURLString: visual.avatarURL, reactionCount: sender.count, theme: ThemeManager.shared.attributes)
+        cell.configure(displayName: visual.name, avatarURLString: visual.avatarURL, reactionCount: sender.count, theme: ThemeManager.shared.attributes)
         return cell
     }
 
@@ -473,7 +473,7 @@ private final class MessageReactionDetailSheetNode: ASDisplayNode, UICollectionV
         sender: ParsedReactionSender,
         context: AccountContext,
         clanId: Int64
-    ) -> (name: String, username: String, avatarURL: String?) {
+    ) -> (name: String, avatarURL: String?) {
         let uid = sender.userId
 
         if clanId != 0, let id64 = Int64(uid) {
@@ -496,7 +496,7 @@ private final class MessageReactionDetailSheetNode: ASDisplayNode, UICollectionV
                     }
                     return m.resolvedAvatarURL(fallbackProfileAvatar: profile?.avatarUrl)
                 }()
-                return (name, m.username, avatar)
+                return (name, avatar)
             }
         }
 
@@ -506,7 +506,7 @@ private final class MessageReactionDetailSheetNode: ASDisplayNode, UICollectionV
                 if !cur.username.isEmpty { return cur.username }
                 return uid
             }()
-            return (name, cur.username, cur.avatarURL?.absoluteString)
+            return (name, cur.avatarURL?.absoluteString)
         }
 
         let profile = context.account.postbox.read { tx in tx.getProfile(userId: uid) }
@@ -518,7 +518,7 @@ private final class MessageReactionDetailSheetNode: ASDisplayNode, UICollectionV
             }
             return uid
         }()
-        return (name, profile?.username ?? "", profile?.avatarUrl)
+        return (name, profile?.avatarUrl)
     }
 }
 
@@ -588,7 +588,7 @@ private final class ReactionEmojiTabCell: UICollectionViewCell {
 private final class ReactionParticipantCell: UITableViewCell {
     static let reuseId = "ReactionParticipantCell"
 
-    private let textAvatar = TextAvatarView(username: "", size: 40, fontSize: 14.sf)
+    private let textAvatar = TextAvatarView(size: 40)
     private let avatarImageView = UIImageView()
     private let nameLabel = UILabel()
     private let countLabel = UILabel()
@@ -630,7 +630,7 @@ private final class ReactionParticipantCell: UITableViewCell {
         countLabel.frame = CGRect(x: 60, y: 30, width: bounds.width - 120, height: 18)
     }
 
-    func configure(username: String, displayName: String, avatarURLString: String?, reactionCount: Int, theme: ThemeAttributes) {
+    func configure(displayName: String, avatarURLString: String?, reactionCount: Int, theme: ThemeAttributes) {
         nameLabel.textColor = theme.textStrong
         countLabel.textColor = theme.textDisabled
 
@@ -650,7 +650,6 @@ private final class ReactionParticipantCell: UITableViewCell {
                 textAvatar.showImageMode()
             } else {
                 textAvatar.showSkeleton()
-                let captureUsername = username
                 ImageCache.shared.loadAvatar(urlString: proxied) { [weak self] image in
                     guard let self else { return }
                     if let image {
@@ -658,12 +657,12 @@ private final class ReactionParticipantCell: UITableViewCell {
                         self.textAvatar.showImageMode()
                     } else {
                         self.avatarImageView.image = nil
-                        self.textAvatar.configure(username: captureUsername, fontSize: 14.sf)
+                        self.textAvatar.showPlaceholder()
                     }
                 }
             }
         } else {
-            textAvatar.configure(username: username, fontSize: 14.sf)
+            textAvatar.showPlaceholder()
         }
     }
 }

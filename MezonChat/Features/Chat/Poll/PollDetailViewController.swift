@@ -346,7 +346,7 @@ final class PollDetailViewController: UIViewController {
                 let voterView = UIView()
                 voterView.translatesAutoresizingMaskIntoConstraints = false
 
-                let avatarContainer = TextAvatarView(username: voter.username, size: Self.avatarSize, fontSize: 12)
+                let avatarContainer = TextAvatarView(size: Self.avatarSize)
                 avatarContainer.translatesAutoresizingMaskIntoConstraints = false
 
                 let avatarImageView = UIImageView()
@@ -365,7 +365,6 @@ final class PollDetailViewController: UIViewController {
                     } else {
                         avatarImageView.image = nil
                         avatarContainer.showSkeleton()
-                        let voterUsername = voter.username
                         Task { [weak avatarContainer] in
                             if let data = try? await URLSession.shared.data(from: URL(string: proxyURL) ?? url).0,
                                let image = UIImage(data: data) {
@@ -375,7 +374,7 @@ final class PollDetailViewController: UIViewController {
                                 }
                             } else {
                                 await MainActor.run {
-                                    avatarContainer?.configure(username: voterUsername, fontSize: 12)
+                                    avatarContainer?.showPlaceholder()
                                 }
                             }
                         }

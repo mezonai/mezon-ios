@@ -370,7 +370,7 @@ final class FriendRequestItemNode: ASCellNode, ASNetworkImageNodeDelegate {
 
     private let cardNode = ASDisplayNode()
     private let avatarNode = ASNetworkImageNode()
-    private let textAvatarNode = TextAvatarNode(username: "", size: 44.swh, fontSize: 16.sf)
+    private let textAvatarNode = TextAvatarNode(size: 44.swh)
     private let displayNameNode = ASTextNode()
     private let usernameNode = ASTextNode()
     private let rejectButton = ASButtonNode()
@@ -411,11 +411,11 @@ final class FriendRequestItemNode: ASCellNode, ASNetworkImageNodeDelegate {
                 textAvatarNode.showSkeleton()
             } else {
                 avatarNode.url = nil
-                textAvatarNode.configure(username: user.username, fontSize: 16.sf)
+                textAvatarNode.showPlaceholder()
             }
         } else {
             avatarNode.url = nil
-            textAvatarNode.configure(username: user.username, fontSize: 16.sf)
+            textAvatarNode.showPlaceholder()
         }
 
         displayNameNode.attributedText = NSAttributedString(
@@ -499,14 +499,14 @@ final class FriendRequestItemNode: ASCellNode, ASNetworkImageNodeDelegate {
     }
 
     @objc func imageNode(_ imageNode: ASNetworkImageNode, didFailWithError error: Error) {
-        guard imageNode === avatarNode else { return }
-        textAvatarNode.configure(username: friend.user.username, fontSize: 16.sf)
+        guard imageNode === avatarNode, !imageNode.fallBackToImgproxySource() else { return }
+        textAvatarNode.showPlaceholder()
     }
 
     @objc func imageNode(_ imageNode: ASNetworkImageNode, didLoad image: UIImage) {
         guard imageNode === avatarNode else { return }
         if image.size.width < 0.5 || image.size.height < 0.5 {
-            textAvatarNode.configure(username: friend.user.username, fontSize: 16.sf)
+            textAvatarNode.showPlaceholder()
         } else {
             textAvatarNode.showImageMode()
         }

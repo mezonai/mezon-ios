@@ -3488,7 +3488,6 @@ final class ChannelListViewController: ViewController {
         if VoiceAgentIdentity.isAgent(uid) {
             let display = VoiceMemberDisplay(
                 name: VoiceAgentIdentity.displayName,
-                username: VoiceAgentIdentity.displayName,
                 avatarURL: VoiceAgentIdentity.avatarURL,
                 isSharingScreen: voiceScreenSharingIds.contains(uid)
             )
@@ -3508,7 +3507,6 @@ final class ChannelListViewController: ViewController {
             : nil
 
         let name: String
-        let username: String
         if let m = member, !(m.clanNick.isEmpty && m.displayName.isEmpty && m.username.isEmpty) {
             if !m.clanNick.isEmpty {
                 name = m.clanNick
@@ -3517,13 +3515,10 @@ final class ChannelListViewController: ViewController {
             } else {
                 name = m.username
             }
-            username = m.username
         } else if let profile, !((profile.displayName ?? "").isEmpty && profile.username.isEmpty) {
             name = (profile.displayName?.isEmpty == false ? profile.displayName : nil) ?? profile.username
-            username = profile.username
         } else {
             name = ""
-            username = ""
         }
 
         let avatar: String?
@@ -3542,7 +3537,7 @@ final class ChannelListViewController: ViewController {
         }
 
         let display = VoiceMemberDisplay(
-            name: name, username: username, avatarURL: avatar,
+            name: name, avatarURL: avatar,
             isSharingScreen: voiceScreenSharingIds.contains(uid))
         voiceMemberDisplayCache[uid] = display
         return display

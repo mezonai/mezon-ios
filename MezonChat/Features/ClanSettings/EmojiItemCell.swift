@@ -30,7 +30,7 @@ final class EmojiItemCell: UITableViewCell {
     private let nameTextField = UITextField()
     private let colonSuffixLabel = UILabel()
     private let nameFieldStack = UIStackView()
-    private let creatorTextAvatar = TextAvatarView(username: "", size: creatorAvatarSize, fontSize: 12.sf)
+    private let creatorTextAvatar = TextAvatarView(size: creatorAvatarSize)
     private let creatorAvatarImageView = UIImageView()
     private let creatorNameLabel = UILabel()
     private let emptyStateLabel = UILabel()
@@ -343,7 +343,7 @@ final class EmojiItemCell: UITableViewCell {
         isUserInteractionEnabled = true
         applyRowSeparator(isLast: isLast)
 
-        loadCreatorAvatar(creatorAvatar, displayName: creatorName)
+        loadCreatorAvatar(creatorAvatar)
         loadEmojiIcon(emoji)
     }
 
@@ -470,21 +470,14 @@ final class EmojiItemCell: UITableViewCell {
         }
     }
 
-    private func loadCreatorAvatar(_ avatar: String?, displayName: String) {
+    private func loadCreatorAvatar(_ avatar: String?) {
         creatorAvatarLoadGeneration += 1
         let generation = creatorAvatarLoadGeneration
-        let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let hasDisplayName = !trimmedName.isEmpty
 
         creatorAvatarImageView.image = nil
-        creatorAvatarImageView.tintColor = nil
 
         guard let avatar, !avatar.isEmpty else {
-            if hasDisplayName {
-                creatorTextAvatar.configure(username: trimmedName, fontSize: 12.sf)
-            } else {
-                setLegacyPlaceholderAvatar()
-            }
+            creatorTextAvatar.showPlaceholder()
             return
         }
 
@@ -495,7 +488,6 @@ final class EmojiItemCell: UITableViewCell {
 
         func applyLoadedImage(_ image: UIImage) {
             creatorAvatarImageView.image = image
-            creatorAvatarImageView.tintColor = nil
             creatorTextAvatar.showImageMode()
         }
 
@@ -504,27 +496,16 @@ final class EmojiItemCell: UITableViewCell {
             return
         }
 
-        creatorTextAvatar.configure(username: trimmedName, fontSize: 12.sf)
         creatorTextAvatar.showSkeleton()
 
         ImageCache.shared.loadAvatar(urlString: resolvedKey) { [weak self] image in
             guard let self, generation == self.creatorAvatarLoadGeneration else { return }
             if let image {
                 applyLoadedImage(image)
-            } else if hasDisplayName {
-                creatorAvatarImageView.image = nil
-                creatorTextAvatar.configure(username: trimmedName, fontSize: 12.sf)
             } else {
-                setLegacyPlaceholderAvatar()
+                creatorTextAvatar.showPlaceholder()
             }
         }
-    }
-
-    private func setLegacyPlaceholderAvatar() {
-        creatorTextAvatar.showImageMode()
-        creatorAvatarImageView.image = UIImage(systemName: "person.circle.fill")?
-            .withRenderingMode(.alwaysTemplate)
-        creatorAvatarImageView.tintColor = UIColor.theme.textDisabled
     }
 
     private func loadEmojiIcon(_ emoji: CachedClanEmojiRecord) {

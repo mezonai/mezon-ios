@@ -614,7 +614,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         ])
 
         for (i, member) in visible.enumerated() {
-            let container = TextAvatarView(username: member.username, size: avatarSize, fontSize: 16)
+            let container = TextAvatarView(size: avatarSize)
             container.translatesAutoresizingMaskIntoConstraints = false
             container.layer.borderWidth = 2
             container.layer.borderColor = UIColor.theme.secondary.cgColor
@@ -629,15 +629,16 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
                 let px = Int(avatarSize * UIScreen.main.scale)
                 let proxy = ImgproxyURL.create(from: av, width: px, height: px)
                 container.showSkeleton()
-                let fallbackUsername = member.username
                 ImageCache.shared.loadAvatar(urlString: proxy) { [weak container] img in
                     imageView.image = img
                     if img != nil {
                         container?.showImageMode()
                     } else {
-                        container?.configure(username: fallbackUsername, fontSize: 16)
+                        container?.showPlaceholder()
                     }
                 }
+            } else {
+                container.showPlaceholder()
             }
 
             container.addSubview(imageView)

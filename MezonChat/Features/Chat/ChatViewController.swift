@@ -3455,7 +3455,7 @@ final class ChatViewController: ViewController {
             let isForward = Self.parseContentIsForward(from: record.content)
             let locationData = LocationData.parse(
                 from: record.content, code: record.code,
-                avatarURL: mergedAvatar, senderName: record.senderDisplayName, senderUsername: senderUsername, isMe: isMe
+                avatarURL: mergedAvatar, senderName: record.senderDisplayName, isMe: isMe
             )
             let clanInviteLinkCode = ClanInviteLinkParser.firstInviteCode(in: content)
             let parsedPollData = PollData.parse(from: record.content)
@@ -5412,7 +5412,6 @@ final class ChatViewController: ViewController {
             $0.getClanMembers(clanId: clanIdForMembers)
         }.first(where: { $0.userId == uidInt })
         let name: String
-        let username: String
         if let m = member {
             if !m.clanNick.isEmpty {
                 name = m.clanNick
@@ -5423,10 +5422,8 @@ final class ChatViewController: ViewController {
             } else {
                 return nil
             }
-            username = m.username
         } else if let profile {
             name = (profile.displayName?.isEmpty == false ? profile.displayName : nil) ?? profile.username
-            username = profile.username
         } else {
             return nil
         }
@@ -5436,7 +5433,7 @@ final class ChatViewController: ViewController {
         } else {
             avatar = profile?.avatarUrl.flatMap { $0.isEmpty ? nil : $0 }
         }
-        return VoiceMemberDisplay(name: name, username: username, avatarURL: avatar)
+        return VoiceMemberDisplay(name: name, avatarURL: avatar)
     }
 
     private func parentChannelNameForVoice(channel: Mezon_Api_ChannelDescription) -> String? {

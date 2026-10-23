@@ -385,7 +385,6 @@ final class StreamingRoomViewController: ViewController {
         }.first(where: { $0.userId == uidInt })
 
         let name: String
-        let username: String
         if let m = member {
             if !m.clanNick.isEmpty {
                 name = m.clanNick
@@ -396,10 +395,8 @@ final class StreamingRoomViewController: ViewController {
             } else {
                 return nil
             }
-            username = m.username
         } else if let profile {
             name = (profile.displayName?.isEmpty == false ? profile.displayName : nil) ?? profile.username
-            username = profile.username
         } else {
             return nil
         }
@@ -419,7 +416,7 @@ final class StreamingRoomViewController: ViewController {
             }
         }
 
-        return VoiceMemberDisplay(name: name, username: username, avatarURL: avatar)
+        return VoiceMemberDisplay(name: name, avatarURL: avatar)
     }
 
     private func refreshMembersRow() {
@@ -454,7 +451,7 @@ final class StreamingRoomViewController: ViewController {
         let overflowCount = members.count - visible.count
 
         for (index, member) in visible.enumerated() {
-            let container = TextAvatarView(username: member.username, size: avatarSize, fontSize: 16)
+            let container = TextAvatarView(size: avatarSize)
             container.translatesAutoresizingMaskIntoConstraints = false
             container.layer.borderWidth = 2
             container.layer.borderColor = UIColor.theme.secondary.cgColor
@@ -469,15 +466,16 @@ final class StreamingRoomViewController: ViewController {
                 let px = Int(avatarSize * UIScreen.main.scale)
                 let proxy = ImgproxyURL.create(from: av, width: px, height: px)
                 container.showSkeleton()
-                let fallbackUsername = member.username
                 ImageCache.shared.loadAvatar(urlString: proxy) { [weak container] img in
                     imageView.image = img
                     if img != nil {
                         container?.showImageMode()
                     } else {
-                        container?.configure(username: fallbackUsername, fontSize: 16)
+                        container?.showPlaceholder()
                     }
                 }
+            } else {
+                container.showPlaceholder()
             }
 
             container.addSubview(imageView)

@@ -605,10 +605,10 @@ private final class ShareContactPickerCell: UITableViewCell {
     static let reuseIdentifier = "ShareContactPickerCell"
 
     private let avatarView = UIImageView()
-    private let placeholderLabel = UILabel()
     private let nameLabel = UILabel()
     private let usernameLabel = UILabel()
     private var imageTask: URLSessionDataTask?
+    private var avatarGeneration = 0
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -622,12 +622,6 @@ private final class ShareContactPickerCell: UITableViewCell {
         avatarView.clipsToBounds = true
         avatarView.layer.cornerRadius = 22
         contentView.addSubview(avatarView)
-
-        placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
-        placeholderLabel.font = .systemFont(ofSize: 17, weight: .semibold)
-        placeholderLabel.textColor = .white
-        placeholderLabel.textAlignment = .center
-        avatarView.addSubview(placeholderLabel)
 
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         nameLabel.font = .systemFont(ofSize: 15, weight: .semibold)
@@ -652,11 +646,6 @@ private final class ShareContactPickerCell: UITableViewCell {
             avatarView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             avatarView.widthAnchor.constraint(equalToConstant: 44),
             avatarView.heightAnchor.constraint(equalToConstant: 44),
-
-            placeholderLabel.leadingAnchor.constraint(equalTo: avatarView.leadingAnchor),
-            placeholderLabel.trailingAnchor.constraint(equalTo: avatarView.trailingAnchor),
-            placeholderLabel.topAnchor.constraint(equalTo: avatarView.topAnchor),
-            placeholderLabel.bottomAnchor.constraint(equalTo: avatarView.bottomAnchor),
 
             chevron.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -18),
             chevron.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
@@ -690,24 +679,26 @@ private final class ShareContactPickerCell: UITableViewCell {
 
         nameLabel.text = resolvedName
         usernameLabel.text = username.isEmpty ? "" : "@\(username)"
-        placeholderLabel.text = String((username.isEmpty ? resolvedName : username).prefix(1)).uppercased()
-        avatarView.backgroundColor = UIColor.avatarColor(for: username.isEmpty ? resolvedName : username)
-        placeholderLabel.isHidden = false
+        avatarView.backgroundColor = UIColor.theme.secondaryWeight
         avatarView.image = nil
+        avatarGeneration += 1
+        let generation = avatarGeneration
 
         let rawAvatar = user.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !rawAvatar.isEmpty else { return }
+        guard !rawAvatar.isEmpty else {
+            avatarView.image = DefaultUserAvatar.image(side: 44)
+            avatarView.backgroundColor = .clear
+            return
+        }
         let proxied = ImgproxyURL.avatarProxyURL(from: rawAvatar, width: 120, height: 120)
         if let cached = ImageCache.shared.cachedImage(forURL: proxied) {
             avatarView.image = cached
-            placeholderLabel.isHidden = true
             avatarView.backgroundColor = .clear
             return
         }
         imageTask = ImageCache.shared.loadImage(urlString: proxied) { [weak self] image in
-            guard let self, let image else { return }
-            self.avatarView.image = image
-            self.placeholderLabel.isHidden = true
+            guard let self, generation == self.avatarGeneration else { return }
+            self.avatarView.image = image ?? DefaultUserAvatar.image(side: 44)
             self.avatarView.backgroundColor = .clear
         }
     }

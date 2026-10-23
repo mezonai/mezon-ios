@@ -234,7 +234,7 @@ final class BlockedUserItemCell: UITableViewCell {
 
     static let reuseId = "BlockedUserItemCell"
 
-    private let avatarView = TextAvatarView(username: "", size: 40)
+    private let avatarView = TextAvatarView(size: 40)
     private let avatarImageView = UIImageView()
     private let nameLabel = UILabel()
     private let unblockButton = UIButton(type: .system)
@@ -313,8 +313,6 @@ final class BlockedUserItemCell: UITableViewCell {
         let displayName = friend.user.displayName.isEmpty ? friend.user.username : friend.user.displayName
         nameLabel.text = displayName
         separatorView.isHidden = isLast
-
-        avatarView.configure(username: friend.user.username)
 
         let targetUrl = friend.user.avatarURL
         if !targetUrl.isEmpty {

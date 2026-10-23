@@ -5,7 +5,7 @@ final class WelcomeCellNode: ASDisplayNode {
 
     private enum Mode {
         case clan(channelType: Int32, isPrivate: Bool, isAgeRestricted: Bool, isMediaChannel: Bool, threadCreatorName: String)
-        case dmOneToOne(label: String, username: String, priorityName: String, avatarURL: String, placeholderLetter: String)
+        case dmOneToOne(label: String, username: String, priorityName: String, avatarURL: String)
         case dmGroup(label: String, groupAvatarURL: String?)
     }
 
@@ -16,7 +16,6 @@ final class WelcomeCellNode: ASDisplayNode {
 
     private let dmAvatarBgNode = ASDisplayNode()
     private let dmAvatarImageNode = TransformImageNode()
-    private let dmAvatarPlaceholderNode = ASTextNode2()
 
     private let groupDmOuterNode = ASDisplayNode()
     private let groupDmImageNode = TransformImageNode()
@@ -70,16 +69,13 @@ final class WelcomeCellNode: ASDisplayNode {
             resolvedMode = .dmGroup(label: channelLabel, groupAvatarURL: url)
             showsUsernameRow = false
         } else if isDM {
-            let letterSource = dmPeerUsername.isEmpty ? channelLabel : dmPeerUsername
-            let letter = String(letterSource.prefix(1)).uppercased()
             let priorityNameRaw = dmPeerDisplayName.isEmpty ? dmPeerUsername : dmPeerDisplayName
             let priorityName = priorityNameRaw.isEmpty ? channelLabel : priorityNameRaw
             resolvedMode = .dmOneToOne(
                 label: channelLabel,
                 username: dmPeerUsername,
                 priorityName: priorityName,
-                avatarURL: dmAvatarURL.trimmingCharacters(in: .whitespacesAndNewlines),
-                placeholderLetter: letter.isEmpty ? "" : letter
+                avatarURL: dmAvatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
             )
             showsUsernameRow = !dmPeerUsername.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         } else {
@@ -162,24 +158,20 @@ final class WelcomeCellNode: ASDisplayNode {
                 ]
             )
 
-        case let .dmOneToOne(label, username, priorityName, avatarURL, placeholderLetter):
-            dmAvatarBgNode.backgroundColor = UIColor.avatarColor(for: username)
+        case let .dmOneToOne(label, username, priorityName, avatarURL):
+            dmAvatarBgNode.backgroundColor = t.secondaryWeight
             dmAvatarBgNode.cornerRadius = Self.dmAvatarSize / 2
             dmAvatarBgNode.clipsToBounds = true
             addSubnode(dmAvatarBgNode)
 
             dmAvatarBgNode.addSubnode(dmAvatarImageNode)
-            dmAvatarPlaceholderNode.maximumNumberOfLines = 1
-            dmAvatarBgNode.addSubnode(dmAvatarPlaceholderNode)
 
             Self.applyRoundAvatar(
                 imageNode: dmAvatarImageNode,
-                placeholderNode: dmAvatarPlaceholderNode,
                 urlString: avatarURL.isEmpty ? nil : avatarURL,
-                placeholderLetter: placeholderLetter,
                 size: Self.dmAvatarSize,
-                placeholderFontSize: 22.sf,
-                containerNode: dmAvatarBgNode
+                containerNode: dmAvatarBgNode,
+                fallbackImage: DefaultUserAvatar.image(side: Self.dmAvatarSize)
             )
 
             titleNode.attributedText = NSAttributedString(
@@ -225,11 +217,8 @@ final class WelcomeCellNode: ASDisplayNode {
                 groupDmIconNode.isHidden = true
                 Self.applyRoundAvatar(
                     imageNode: groupDmImageNode,
-                    placeholderNode: nil,
                     urlString: groupAvatarURL,
-                    placeholderLetter: "",
                     size: Self.groupDmSize,
-                    placeholderFontSize: 12,
                     containerNode: groupDmOuterNode
                 )
             } else {
@@ -272,12 +261,10 @@ final class WelcomeCellNode: ASDisplayNode {
 
     private static func applyRoundAvatar(
         imageNode: TransformImageNode,
-        placeholderNode: ASTextNode2?,
         urlString: String?,
-        placeholderLetter: String,
         size: CGFloat,
-        placeholderFontSize: CGFloat,
-        containerNode: ASDisplayNode? = nil
+        containerNode: ASDisplayNode? = nil,
+        fallbackImage: UIImage? = nil
     ) {
         let args = TransformImageArguments(
             corners: ImageCorners(radius: size / 2),
@@ -286,13 +273,22 @@ final class WelcomeCellNode: ASDisplayNode {
             intrinsicInsets: .zero
         )
         if let urlString, !urlString.isEmpty {
-            placeholderNode?.isHidden = true
             containerNode?.backgroundColor = .clear
             let proxyURL = ImgproxyURL.create(from: urlString, width: 200, height: 200)
             let hasMem = ImageCache.shared.memoryImage(forKey: proxyURL) != nil
                 || ImageCache.shared.memoryImage(forKey: urlString) != nil
             imageNode.reset()
-            imageNode.setSignal(remoteAvatarSignal(proxiedURL: proxyURL, originalURL: urlString), attemptSynchronously: hasMem)
+            imageNode.setSignal(
+                remoteAvatarSignal(proxiedURL: proxyURL, originalURL: urlString, fallbackImage: fallbackImage),
+                attemptSynchronously: hasMem
+            )
+            let avatarLayout = imageNode.asyncLayout()
+            let apply = avatarLayout(args)
+            apply()
+            imageNode.isHidden = false
+        } else if let fallbackImage {
+            imageNode.reset()
+            imageNode.setSignal(staticImageSignal(image: fallbackImage), attemptSynchronously: true)
             let avatarLayout = imageNode.asyncLayout()
             let apply = avatarLayout(args)
             apply()
@@ -300,15 +296,6 @@ final class WelcomeCellNode: ASDisplayNode {
         } else {
             imageNode.reset()
             imageNode.isHidden = true
-            guard let placeholderNode else { return }
-            placeholderNode.isHidden = false
-            placeholderNode.attributedText = NSAttributedString(
-                string: placeholderLetter,
-                attributes: [
-                    .font: UIFont.systemFont(ofSize: placeholderFontSize, weight: .semibold),
-                    .foregroundColor: UIColor.white,
-                ]
-            )
         }
     }
 
@@ -374,13 +361,6 @@ final class WelcomeCellNode: ASDisplayNode {
         case .dmOneToOne:
             dmAvatarBgNode.frame = CGRect(x: insetH, y: y, width: Self.dmAvatarSize, height: Self.dmAvatarSize)
             dmAvatarImageNode.frame = dmAvatarBgNode.bounds
-            let phSize = dmAvatarPlaceholderNode.measure(dmAvatarBgNode.bounds.size)
-            dmAvatarPlaceholderNode.frame = CGRect(
-                x: (Self.dmAvatarSize - phSize.width) / 2,
-                y: (Self.dmAvatarSize - phSize.height) / 2,
-                width: phSize.width,
-                height: phSize.height
-            )
             y += Self.dmAvatarSize + spacing
 
             titleNode.frame = CGRect(x: insetH, y: y, width: min(cachedTitleSize.width, contentW), height: cachedTitleSize.height)

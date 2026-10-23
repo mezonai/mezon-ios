@@ -204,22 +204,6 @@ private func voiceChannelResolveDisplayName(context: AccountContext, clanId: Int
     return idKey.isEmpty ? "…" : idKey
 }
 
-@MainActor
-private func voiceChannelResolveUsername(context: AccountContext, clanId: Int64, identityKey: String, isLocal: Bool) -> String {
-    let idKey = isLocal ? (context.currentUser?.id ?? "") : identityKey
-    if VoiceAgentIdentity.isAgent(idKey) { return VoiceAgentIdentity.displayName }
-    if let cu = voiceChannelFindClanUser(context: context, clanId: clanId, identityKey: idKey) {
-        if !cu.user.username.isEmpty { return cu.user.username }
-    }
-    if isLocal {
-        if let n = context.currentUser?.username, !n.isEmpty { return n }
-    }
-    if let profile = context.account.postbox.read({ $0.getProfile(userId: idKey) }) {
-        if !profile.username.isEmpty { return profile.username }
-    }
-    return ""
-}
-
 fileprivate enum VoiceChannelPiPPreservedAudioRoute {
     case speaker
     case earpiece
@@ -466,7 +450,7 @@ final class VoiceChannelPiPOverlay: NSObject {
     private var overlayRecoveryTrack: RTCVideoTrack?
     private let videoView = PeerCallVideoRenderView()
     private let systemCallPiPVideoView = PeerCallVideoRenderView()
-    private let textAvatar = TextAvatarView(username: "", size: 50, fontSize: 20)
+    private let textAvatar = TextAvatarView(size: 50)
     private let avatarView = UIImageView()
     private let badgeContainer = UIView()
     private let badgeIcon = UIImageView()
@@ -620,9 +604,6 @@ final class VoiceChannelPiPOverlay: NSObject {
             }
             if let pipStatusLabel = vc.view.viewWithTag(VoiceCallSystemPiPViewTag.status) as? UILabel {
                 pipStatusLabel.textColor = t.textDisabled
-            }
-            if let pipInitialLabel = vc.view.viewWithTag(VoiceCallSystemPiPViewTag.initial) as? UILabel {
-                pipInitialLabel.textColor = t.textStrong
             }
         }
     }
@@ -980,7 +961,6 @@ final class VoiceChannelPiPOverlay: NSObject {
             lastAvatarURL = url
             lastParticipantIdentity = identity
             avatarView.image = nil
-            let username = resolveUsername(identityKey: identity, isLocal: true)
             if let raw = url, !raw.isEmpty {
                 let proxy = ImgproxyURL.create(from: raw, width: 150, height: 150)
                 textAvatar.showSkeleton()
@@ -990,11 +970,11 @@ final class VoiceChannelPiPOverlay: NSObject {
                     if img != nil {
                         self.textAvatar.showImageMode()
                     } else {
-                        self.textAvatar.configure(username: username, fontSize: 20)
+                        self.textAvatar.showPlaceholder()
                     }
                 }
             } else {
-                textAvatar.configure(username: username, fontSize: 20)
+                textAvatar.showPlaceholder()
             }
         }
     }
@@ -1012,11 +992,6 @@ final class VoiceChannelPiPOverlay: NSObject {
             return session?.externalPeerProfiles[identityKey]?.name ?? L(L10n.VoiceChannel.externalGuest)
         }
         return voiceChannelResolveDisplayName(context: ctx, clanId: ch.clanID, identityKey: identityKey, isLocal: isLocal)
-    }
-
-    private func resolveUsername(identityKey: String, isLocal: Bool) -> String {
-        guard let ctx = context, let ch = channel else { return "" }
-        return voiceChannelResolveUsername(context: ctx, clanId: ch.clanID, identityKey: identityKey, isLocal: isLocal)
     }
 
     private func resolveAvatarURL(_ key: String) -> String? {
@@ -1335,7 +1310,6 @@ private final class VoicePiPPassthroughWindow: UIWindow {
 private enum VoiceCallSystemPiPViewTag {
     static let status = 9001
     static let name = 9002
-    static let initial = 9003
     static let avatar = 9010
     static let phoneIcon = 9011
 }
@@ -1348,7 +1322,7 @@ private enum VoiceCallSystemPiPSourceLayout {
 
 @MainActor
 private func voiceCallSystemPiPChromeTags() -> [Int] {
-    [VoiceCallSystemPiPViewTag.status, VoiceCallSystemPiPViewTag.name, VoiceCallSystemPiPViewTag.initial, VoiceCallSystemPiPViewTag.avatar, VoiceCallSystemPiPViewTag.phoneIcon]
+    [VoiceCallSystemPiPViewTag.status, VoiceCallSystemPiPViewTag.name, VoiceCallSystemPiPViewTag.avatar, VoiceCallSystemPiPViewTag.phoneIcon]
 }
 
 @MainActor
@@ -1390,14 +1364,7 @@ private enum VoiceCallSystemPiPFactory {
         pipAvatarView.clipsToBounds = true
         pipAvatarView.layer.cornerRadius = 30
         pipAvatarView.tag = VoiceCallSystemPiPViewTag.avatar
-        pipAvatarView.backgroundColor = UIColor.avatarColor(for: context.currentUser?.username ?? "")
-
-        let pipInitialLabel = UILabel()
-        pipInitialLabel.translatesAutoresizingMaskIntoConstraints = false
-        pipInitialLabel.font = .systemFont(ofSize: 24, weight: .bold)
-        pipInitialLabel.textColor = .white
-        pipInitialLabel.textAlignment = .center
-        pipInitialLabel.tag = VoiceCallSystemPiPViewTag.initial
+        pipAvatarView.image = DefaultUserAvatar.image(side: 60)
 
         let pipNameLabel = UILabel()
         pipNameLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -1422,7 +1389,6 @@ private enum VoiceCallSystemPiPFactory {
         iconView.tintColor = UIColor(red: 0.3, green: 0.85, blue: 0.4, alpha: 1)
 
         contentVC.view.addSubview(pipAvatarView)
-        contentVC.view.addSubview(pipInitialLabel)
         contentVC.view.addSubview(iconView)
         contentVC.view.addSubview(pipNameLabel)
         contentVC.view.addSubview(pipStatusLabel)
@@ -1432,10 +1398,6 @@ private enum VoiceCallSystemPiPFactory {
             pipAvatarView.centerYAnchor.constraint(equalTo: contentVC.view.centerYAnchor, constant: -24),
             pipAvatarView.widthAnchor.constraint(equalToConstant: 60),
             pipAvatarView.heightAnchor.constraint(equalToConstant: 60),
-
-            pipInitialLabel.centerXAnchor.constraint(equalTo: pipAvatarView.centerXAnchor),
-            pipInitialLabel.centerYAnchor.constraint(equalTo: pipAvatarView.centerYAnchor),
-            pipInitialLabel.widthAnchor.constraint(equalTo: pipAvatarView.widthAnchor),
 
             iconView.trailingAnchor.constraint(equalTo: pipNameLabel.leadingAnchor, constant: -4),
             iconView.centerYAnchor.constraint(equalTo: pipNameLabel.centerYAnchor),
@@ -1456,22 +1418,10 @@ private enum VoiceCallSystemPiPFactory {
         let localId = context.currentUser?.id ?? ""
         let avatarURLStr = voiceChannelResolveAvatarURL(context: context, clanId: clanId, identityKey: localId)
         if let avatarURLStr, !avatarURLStr.isEmpty {
-            pipInitialLabel.isHidden = true
             let proxy = ImgproxyURL.create(from: avatarURLStr, width: 150, height: 150)
             ImageCache.shared.loadAvatar(urlString: proxy) { img in
-                pipAvatarView.image = img
-                if img != nil {
-                    pipAvatarView.backgroundColor = .clear
-                } else {
-                    pipInitialLabel.isHidden = false
-                    let username = context.currentUser?.username ?? ""
-                    pipInitialLabel.text = String(username.prefix(1)).uppercased()
-                }
+                pipAvatarView.image = img ?? DefaultUserAvatar.image(side: 60)
             }
-        } else {
-            pipInitialLabel.isHidden = false
-            let username = context.currentUser?.username ?? ""
-            pipInitialLabel.text = String(username.prefix(1)).uppercased()
         }
 
         let source = AVPictureInPictureController.ContentSource(
@@ -3831,7 +3781,6 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         vc.view.backgroundColor = t.primary
         (vc.view.viewWithTag(VoiceCallSystemPiPViewTag.status) as? UILabel)?.textColor = t.textDisabled
         (vc.view.viewWithTag(VoiceCallSystemPiPViewTag.name) as? UILabel)?.textColor = t.textStrong
-        (vc.view.viewWithTag(VoiceCallSystemPiPViewTag.initial) as? UILabel)?.textColor = t.textStrong
     }
 
     @objc private func popTapped() {
@@ -4739,10 +4688,6 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         return (name ?? (key.isEmpty ? "…" : key), username ?? "", avatar)
     }
 
-    private func resolveUsername(identityKey: String, isLocal: Bool) -> String {
-        voiceChannelResolveUsername(context: context, clanId: channel.clanID, identityKey: identityKey, isLocal: isLocal)
-    }
-
     private func resolveAvatarURL(identityKey: String) -> String? {
         voiceChannelResolveAvatarURL(context: context, clanId: channel.clanID, identityKey: identityKey)
     }
@@ -5640,7 +5585,6 @@ private struct VoiceParticipantTileLayoutMetrics: Equatable {
     var badgeHeight: CGFloat
     var badgeIconSide: CGFloat
     var badgeFontSize: CGFloat
-    var initialFontSize: CGFloat
     var soundCornerSide: CGFloat
     var soundIconSide: CGFloat
     var raiseHandCornerSide: CGFloat
@@ -5656,7 +5600,6 @@ private struct VoiceParticipantTileLayoutMetrics: Equatable {
         badgeHeight: 24,
         badgeIconSide: 14,
         badgeFontSize: 12,
-        initialFontSize: 20,
         soundCornerSide: 28,
         soundIconSide: 16,
         raiseHandCornerSide: 26,
@@ -5677,7 +5620,6 @@ private func voiceParticipantTileLayoutMetrics(gridWidth: CGFloat) -> VoiceParti
     let badgeH = max(20, min(34, 24 * s))
     let badgeIconS = max(12, min(18, 14 * s))
     let badgeFont = max(10, min(16, 12 * s))
-    let initialF = max(16, min(26, 20 * s))
     let soundC = max(24, min(36, 28 * s))
     let soundI = max(14, min(20, 16 * s))
     let raiseC = max(22, min(32, 26 * s))
@@ -5692,7 +5634,6 @@ private func voiceParticipantTileLayoutMetrics(gridWidth: CGFloat) -> VoiceParti
         badgeHeight: badgeH,
         badgeIconSide: badgeIconS,
         badgeFontSize: badgeFont,
-        initialFontSize: initialF,
         soundCornerSide: soundC,
         soundIconSide: soundI,
         raiseHandCornerSide: raiseC,
@@ -5802,7 +5743,7 @@ private final class VoiceParticipantRowView: UIView {
     private var mirrorsVideo = false
     private var isOnScreen = false
     private let avatarView = UIImageView()
-    private let textAvatar = TextAvatarView(username: "", size: 50, fontSize: 20)
+    private let textAvatar = TextAvatarView(size: 50)
     private let expandButton = UIButton(type: .system)
     private let badgeContainer = UIView()
     private let badgeIcon = UIImageView()
@@ -6287,19 +6228,18 @@ private final class VoiceParticipantRowView: UIView {
             if let raw = avatarURL, !raw.isEmpty {
                 let proxy = ImgproxyURL.create(from: raw, width: 150, height: 150)
                 textAvatar.showSkeleton()
-                let fontSize = layoutMetrics.initialFontSize
                 ImageCache.shared.loadAvatar(urlString: proxy) { [weak self] img in
                     guard let self else { return }
                     self.avatarView.image = img
                     if img != nil {
                         self.textAvatar.showImageMode()
                     } else {
-                        self.textAvatar.configure(username: username, fontSize: fontSize)
+                        self.textAvatar.showPlaceholder()
                     }
                 }
             } else {
                 avatarView.image = nil
-                textAvatar.configure(username: username, fontSize: layoutMetrics.initialFontSize)
+                textAvatar.showPlaceholder()
             }
         }
         lastTileVisualState = (username, displayName, micOn, speaking, mirrorVideo, videoTrack, avatarURL, isAudience)
