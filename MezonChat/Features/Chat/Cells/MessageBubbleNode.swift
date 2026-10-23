@@ -404,6 +404,7 @@ final class MessageBubbleNode: ASDisplayNode {
             tcn.onLinkTapped = { url in
                 let scheme = url.scheme?.lowercased() ?? ""
                 guard scheme == "https" || scheme == "http" else { return }
+                guard !Self.handleExternalMeetingLink(url, interaction: interaction) else { return }
                 CDNSigner.shared.openExternally(url)
             }
             textContentNode = tcn
@@ -414,6 +415,7 @@ final class MessageBubbleNode: ASDisplayNode {
             let on = MessageOgpPreviewNode()
             on.configure(preview)
             on.onTapped = { url in
+                guard !Self.handleExternalMeetingLink(url, interaction: interaction) else { return }
                 UIApplication.shared.open(url)
             }
             ogpPreviewNode = on
@@ -769,9 +771,10 @@ final class MessageBubbleNode: ASDisplayNode {
                 )
                 tcn.onMentionTapped = { self.interaction.onMentionTapped($0) }
                 tcn.onHashtagTapped = { self.interaction.onHashtagTapped($0) }
-                tcn.onLinkTapped = { url in
+                tcn.onLinkTapped = { [interaction = self.interaction] url in
                     let scheme = url.scheme?.lowercased() ?? ""
                     guard scheme == "https" || scheme == "http" else { return }
+                    guard !Self.handleExternalMeetingLink(url, interaction: interaction) else { return }
                     CDNSigner.shared.openExternally(url)
                 }
                 textContentNode = tcn
@@ -798,7 +801,8 @@ final class MessageBubbleNode: ASDisplayNode {
             } else {
                 let on = MessageOgpPreviewNode()
                 on.configure(preview)
-                on.onTapped = { url in
+                on.onTapped = { [interaction = self.interaction] url in
+                    guard !Self.handleExternalMeetingLink(url, interaction: interaction) else { return }
                     UIApplication.shared.open(url)
                 }
                 ogpPreviewNode = on
@@ -1018,6 +1022,13 @@ final class MessageBubbleNode: ASDisplayNode {
         if display.isSendTokenLog { return false }
         if display.checkOneLinkImage { return false }
         return !display.parsedContent.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private static func handleExternalMeetingLink(_ url: URL, interaction: ChatInteraction) -> Bool {
+        guard let handler = interaction.onExternalMeetingLinkTapped,
+              let meeting = ExternalMeetingRoom(meetingURL: url) else { return false }
+        handler(meeting, url)
+        return true
     }
 
     private static func shouldShowOgpPreview(for display: ChatMessageDisplay) -> Bool {

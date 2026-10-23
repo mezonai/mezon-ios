@@ -1036,6 +1036,9 @@ final class ChatViewController: ViewController {
         interaction.onBotCommandAction = { [weak self] messageId, action in
             self?.handleBotCommandAction(messageId: messageId, action: action)
         }
+        interaction.onExternalMeetingLinkTapped = { [weak self] meeting, url in
+            self?.presentExternalMeetingLinkSheet(meeting, url: url)
+        }
 
         let containerNode = ChatContainerNode(
             signal: stateSignal(),
@@ -2738,7 +2741,6 @@ final class ChatViewController: ViewController {
 
     func fetchNewerMessages() {
         guard hasMoreNewer, !isLoadingNewer else { return }
-        guard messages.count >= 10 else { return }
         guard let msgId = Self.newestServerMessageId(in: messages) else { return }
 
         guard msgId != lastFetchedNewerMessageId else { return }
@@ -2757,7 +2759,7 @@ final class ChatViewController: ViewController {
                     clanId: clanId, channelId: channel.channelID,
                     messageId: msgId, direction: 1, limit: 30, topicId: self.topicId, token: token
                 )
-                self.setHasMoreNewer(!response.messages.isEmpty)
+                self.setHasMoreNewer(response.messages.contains(where: { $0.messageID > msgId }))
                 if !response.messages.isEmpty {
                     self.context.account.postbox.write { tx in
                         tx.addMessages(response.messages.map { self.messageRecord(from: $0) })
@@ -5483,6 +5485,22 @@ final class ChatViewController: ViewController {
             guard let self, let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
             self.context.engine.clanData.fetchAllClanData(clanId: targetClan, token: token)
         }
+    }
+
+    private func presentExternalMeetingLinkSheet(_ meeting: ExternalMeetingRoom, url: URL) {
+        view.endEditing(true)
+        let sheet = ExternalMeetingLinkSheetViewController(
+            meeting: meeting,
+            url: url,
+            onJoinInApp: { [weak self] in
+                guard let self, let nav = self.navigationController else { return }
+                VoiceChannelRoomViewController.openExternalMeeting(meeting, context: self.context, from: nav)
+            },
+            onOpenInBrowser: {
+                CDNSigner.shared.openExternally(url)
+            }
+        )
+        sheet.present(from: self)
     }
 
     private func pushVoiceChannelRoomFromChat(channel: Mezon_Api_ChannelDescription, role: SfuRole = .speaker) {

@@ -335,7 +335,7 @@ final class MezonSfuSession: NSObject {
     private static let ignoredErrors: Set<String> = [
         "stale_mute_revision", "invalid_camera_active",
     ]
-    private static let mediaPoolVersion = 1
+    static let mediaPoolVersion = 1
     private static let cameraKeyframeFirstRequestGrace: TimeInterval = 0.35
     private static let keyframeGlobalSpacing: TimeInterval = 0.25
     private static let screenKeyframeRetryDelays: [TimeInterval] = [1.5, 3, 12, 24]
@@ -487,6 +487,8 @@ final class MezonSfuSession: NSObject {
     // A session belongs to one call, including token refreshes and PiP transfers.
     let channelId: Int64
     let clanId: Int64
+    let externalRoomName: String?
+    private(set) var externalPeerProfiles: [String: SfuPeerProfile] = [:]
     private let userId: String
     private var token = ""
     private var sfuURL = ""
@@ -654,9 +656,10 @@ final class MezonSfuSession: NSObject {
         onNoiseStateChanged = nil
     }
 
-    init(channelId: Int64, clanId: Int64, userId: String) {
+    init(channelId: Int64, clanId: Int64, userId: String, externalRoomName: String? = nil) {
         self.channelId = channelId
         self.clanId = clanId
+        self.externalRoomName = externalRoomName
         self.userId = userId
         super.init()
         screenShareReceiver.onConnectionChanged = { [weak self] connected in
@@ -939,7 +942,7 @@ final class MezonSfuSession: NSObject {
     private func discardFailedTransport() {
         stopAudioSendProbe()
         connectionGen += 1
-        connectionReadiness = SfuConnectionReadiness()
+        connectionReadiness = SfuConnectionReadiness(requiresVoiceJoined: externalRoomName == nil)
         socketOpen = false
         connecting = false
         isConnected = false
@@ -1382,7 +1385,7 @@ final class MezonSfuSession: NSObject {
         isConnected = false
         connectionGen += 1
         let gen = connectionGen
-        connectionReadiness = SfuConnectionReadiness(requiresVoiceJoined: !hasReachedConnected)
+        connectionReadiness = SfuConnectionReadiness(requiresVoiceJoined: externalRoomName == nil && !hasReachedConnected)
         stateRestored = false
         admitted = false
         selfPeerId = nil
@@ -1467,7 +1470,7 @@ final class MezonSfuSession: NSObject {
     private func sendJoin(gen: Int) {
         let payload: [String: Any] = [
             "type": "join",
-            "room": String(channelId),
+            "room": externalRoomName ?? String(channelId),
             "token": token,
             "role": role.rawValue,
             "media_pool_version": Self.mediaPoolVersion,
@@ -2838,6 +2841,10 @@ final class MezonSfuSession: NSObject {
             let state = memberState(peerId: peerId)
             if let userIdValue = stringValue(peer["user_id"]), !userIdValue.isEmpty {
                 state.userId = userIdValue
+            }
+            if externalRoomName != nil, let userIdValue = state.userId,
+               let profile = SfuPeerProfile(metadata: stringValue(peer["metadata"])) {
+                externalPeerProfiles[userIdValue] = profile
             }
             if peer["role"] != nil {
                 state.role = SfuRole.fromWire(stringValue(peer["role"]))

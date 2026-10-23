@@ -2070,6 +2070,11 @@ final class ChannelListViewController: ViewController {
                 }
             )
         }
+        vc.onJoinExternalMeeting = { [weak self] meeting in
+            self?.dismissEventBottomSheets(animated: false) {
+                self?.pushExternalMeetingRoom(meeting)
+            }
+        }
         present(vc, animated: true)
     }
 
@@ -3742,6 +3747,11 @@ final class ChannelListViewController: ViewController {
             parentChannelName: parentChannelName(for: channel),
             joinRole: role)
         nav.pushViewController(vc, animated: true)
+    }
+
+    private func pushExternalMeetingRoom(_ meeting: ExternalMeetingRoom) {
+        guard let nav = enclosingNavigationController else { return }
+        VoiceChannelRoomViewController.openExternalMeeting(meeting, context: context, from: nav)
     }
 
     private func pushStreamingRoom(for channel: Mezon_Api_ChannelDescription) {

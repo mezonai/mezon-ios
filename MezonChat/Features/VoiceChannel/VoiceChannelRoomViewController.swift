@@ -457,6 +457,7 @@ final class VoiceChannelPiPOverlay: NSObject {
     private(set) var context: AccountContext?
     private(set) var channel: Mezon_Api_ChannelDescription?
     private(set) var parentChannelName: String?
+    private(set) var externalMeeting: ExternalMeetingRoom?
     private var preservedAudioRoute: VoiceChannelPiPPreservedAudioRoute?
 
     private var pipWindow: UIWindow?
@@ -636,13 +637,15 @@ final class VoiceChannelPiPOverlay: NSObject {
         didAnnounceMeetJoin: Bool,
         didAnnounceMeetLeave: Bool,
         preservedAudioRoute: VoiceChannelPiPPreservedAudioRoute,
-        crossClanVoiceExitAlignClanId: Int64? = nil
+        crossClanVoiceExitAlignClanId: Int64? = nil,
+        externalMeeting: ExternalMeetingRoom? = nil
     ) {
         self.crossClanVoiceExitAlignClanId = crossClanVoiceExitAlignClanId
         self.session = session
         self.context = context
         self.channel = channel
         self.parentChannelName = parentChannelName
+        self.externalMeeting = externalMeeting
         self.didAnnounceMeetJoin = didAnnounceMeetJoin
         self.didAnnounceMeetLeave = didAnnounceMeetLeave
         self.preservedAudioRoute = preservedAudioRoute
@@ -847,6 +850,7 @@ final class VoiceChannelPiPOverlay: NSObject {
         session = nil
         context = nil
         channel = nil
+        externalMeeting = nil
         lastAvatarURL = nil
         lastParticipantIdentity = nil
         preservedAudioRoute = nil
@@ -897,6 +901,7 @@ final class VoiceChannelPiPOverlay: NSObject {
         session = nil
         context = nil
         channel = nil
+        externalMeeting = nil
         lastAvatarURL = nil
         lastParticipantIdentity = nil
         crossClanVoiceExitAlignClanId = nil
@@ -1003,6 +1008,9 @@ final class VoiceChannelPiPOverlay: NSObject {
 
     private func resolveDisplayName(identityKey: String, isLocal: Bool) -> String {
         guard let ctx = context, let ch = channel else { return identityKey.isEmpty ? "…" : identityKey }
+        if externalMeeting != nil, !isLocal {
+            return session?.externalPeerProfiles[identityKey]?.name ?? L(L10n.VoiceChannel.externalGuest)
+        }
         return voiceChannelResolveDisplayName(context: ctx, clanId: ch.clanID, identityKey: identityKey, isLocal: isLocal)
     }
 
@@ -1068,7 +1076,8 @@ final class VoiceChannelPiPOverlay: NSObject {
             channel: ch,
             parentChannelName: parentChannelName,
             voiceChannelCrossClanExitAlignClanId: crossClanVoiceExitAlignClanId,
-            existingPiPOverlay: self
+            existingPiPOverlay: self,
+            externalMeeting: externalMeeting
         )
         vc.loadViewIfNeeded()
         let frame = nav.view.bounds
@@ -1514,6 +1523,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private let parentChannelName: String?
     private let voiceChannelCrossClanExitAlignClanId: Int64?
     private let existingPiPOverlay: VoiceChannelPiPOverlay?
+    private let externalMeeting: ExternalMeetingRoom?
+    private var isExternalMeeting: Bool { externalMeeting != nil }
 
     private let joinRole: SfuRole
     private var currentRole: SfuRole
@@ -1660,7 +1671,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private var pttReadyShown = false
     private var pttHintView: UIView?
 
-    init(context: AccountContext, channel: Mezon_Api_ChannelDescription, parentChannelName: String? = nil, joinRole: SfuRole = .speaker, voiceChannelCrossClanExitAlignClanId alignId: Int64? = nil, existingPiPOverlay: VoiceChannelPiPOverlay? = nil) {
+    init(context: AccountContext, channel: Mezon_Api_ChannelDescription, parentChannelName: String? = nil, joinRole: SfuRole = .speaker, voiceChannelCrossClanExitAlignClanId alignId: Int64? = nil, existingPiPOverlay: VoiceChannelPiPOverlay? = nil, externalMeeting: ExternalMeetingRoom? = nil) {
         self.context = context
         self.channel = channel
         self.parentChannelName = parentChannelName
@@ -1668,6 +1679,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         self.currentRole = joinRole
         self.voiceChannelCrossClanExitAlignClanId = alignId ?? existingPiPOverlay?.crossClanVoiceExitAlignClanId
         self.existingPiPOverlay = existingPiPOverlay
+        self.externalMeeting = externalMeeting
         super.init(navigationBarPresentationData: nil)
         hidesBottomBarWhenPushed = true
         self.attemptNavigation = { _ in return false }
@@ -1676,6 +1688,37 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     required init(coder aDecoder: NSCoder) { fatalError() }
+
+    static func openExternalMeeting(_ meeting: ExternalMeetingRoom, context: AccountContext, from nav: UINavigationController) {
+        let channel = meeting.channelDescription
+        if let existing = nav.viewControllers.last(where: {
+            ($0 as? VoiceChannelRoomViewController)?.voiceChannelId == channel.channelID
+        }) {
+            if nav.topViewController !== existing {
+                nav.popToViewController(existing, animated: false)
+            }
+            return
+        }
+
+        let pip = VoiceChannelPiPOverlay.shared
+        if pip.isActive {
+            if pip.channel?.channelID == channel.channelID, pip.externalMeeting != nil {
+                let vc = VoiceChannelRoomViewController(
+                    context: context, channel: channel,
+                    existingPiPOverlay: pip,
+                    externalMeeting: meeting)
+                nav.pushViewController(vc, animated: true)
+                return
+            } else {
+                pip.dismiss()
+            }
+        }
+
+        let vc = VoiceChannelRoomViewController(
+            context: context, channel: channel,
+            externalMeeting: meeting)
+        nav.pushViewController(vc, animated: true)
+    }
 
     private func popVoiceRoomOrAlignHomeAfterCrossClanVoice() {
         if let align = voiceChannelCrossClanExitAlignClanId, align != 0 {
@@ -1776,6 +1819,14 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
         headerLeft.addArrangedSubview(collapseButton)
         headerLeft.addArrangedSubview(channelTitleLabel)
+        if isExternalMeeting {
+            let externalTag = EventDisplayHelper.makeBadgeView(
+                text: L(L10n.VoiceChannel.externalCall),
+                color: EventDisplayHelper.externalEventBadgeColor
+            )
+            headerLeft.addArrangedSubview(externalTag)
+            headerLeft.setCustomSpacing(10, after: externalTag)
+        }
         headerLeft.addArrangedSubview(connectingOverlay)
         headerLeft.setCustomSpacing(10, after: channelTitleLabel)
 
@@ -1800,6 +1851,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         let hand = UIButton(type: .custom)
         styleHeaderCircleButton(hand, systemImage: "hand.raised.fill", pointSize: 16)
         hand.addTarget(self, action: #selector(raiseHandTapped), for: .touchUpInside)
+        hand.isHidden = isExternalMeeting
         raiseHandButton = hand
 
         styleVoiceAgentHeaderButton(agentToggleButton)
@@ -1811,7 +1863,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             agentToggleSpinner.centerXAnchor.constraint(equalTo: agentToggleButton.centerXAnchor),
             agentToggleSpinner.centerYAnchor.constraint(equalTo: agentToggleButton.centerYAnchor),
         ])
-        agentToggleButton.isHidden = !voiceChannelCanManageVoice()
+        agentToggleButton.isHidden = isExternalMeeting || !voiceChannelCanManageVoice()
         refreshVoiceAgentButtonAppearance()
 
         headerRight.addArrangedSubview(agentToggleButton)
@@ -1874,6 +1926,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         refreshRaiseHandButtonAppearance()
         refreshScreenShareButtonAppearance()
         let leave = makeEndCallButton()
+        chat.isHidden = isExternalMeeting
         [cam, mic, chat, share, leave].forEach { bottomControlsStack.addArrangedSubview($0) }
 
         bottomPill.addSubview(bottomControlsStack)
@@ -2223,6 +2276,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         pttChatPill.addSubview(chatIcon)
         centerPttPillIcon(chatIcon, in: pttChatPill)
         pttChatPill.addTarget(self, action: #selector(openChatTapped), for: .touchUpInside)
+        pttRaisePill.isHidden = isExternalMeeting
+        pttChatPill.isHidden = isExternalMeeting
 
         pttBottomRow.translatesAutoresizingMaskIntoConstraints = false
         pttBottomRow.axis = .horizontal
@@ -2459,7 +2514,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     private func bindVoiceReactionSocketIfActive() {
-        guard !isMinimizingToPiP else { return }
+        guard !isMinimizingToPiP, !isExternalMeeting else { return }
         voiceReactionDisposable?.dispose()
         voiceReactionDisposable = MezonSocket.shared.events().start(next: { [weak self] event in
             guard let self, !self.isMinimizingToPiP else { return }
@@ -2584,7 +2639,9 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         toolsRow.spacing = 8
         toolsRow.alignment = .fill
         toolsRow.distribution = .fillEqually
-        stack.addArrangedSubview(toolsRow)
+        if !isExternalMeeting {
+            stack.addArrangedSubview(toolsRow)
+        }
 
         let noiseButton = UIButton(type: .custom)
         noiseButton.translatesAutoresizingMaskIntoConstraints = false
@@ -2861,6 +2918,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     @objc private func raiseHandTapped() {
+        guard !isExternalMeeting else { return }
         isLocalRaiseHandActive.toggle()
         if let uid = Int64(context.currentUser?.id ?? "") {
             applyRaiseHandTileState(userId: uid, raised: isLocalRaiseHandActive)
@@ -3154,6 +3212,14 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         session.onRemoved = { [weak self] cause, reason in
             self?.handleRemovedFromRoom(cause: cause, reason: reason)
         }
+        if let externalMeeting {
+            let meetingContext = context
+            session.tokenProvider = {
+                guard !Task.isCancelled else { return nil }
+                return try? await Self.requestExternalMeetingToken(externalMeeting, context: meetingContext).token
+            }
+            return
+        }
         let tokenContext = context
         let tokenChannelId = session.channelId
         let tokenClanId = session.clanId
@@ -3315,7 +3381,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         currentRole = role
         let audience = role == .audience
         bottomPill.isHidden = audience
-        raiseHandButton?.isHidden = audience
+        raiseHandButton?.isHidden = audience || isExternalMeeting
         pttContainer.isHidden = !audience
         if audience {
             contentScrollBottomToPill?.isActive = false
@@ -3384,7 +3450,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         // PiP takeover creates/attaches the grid before the navigation animation finishes.
         // Replay once the destination is on screen even if the same rows stayed attached.
         syncParticipantVideoVisibility(replayFrames: true)
-        if !didPrefetchVoiceChannelPermissions {
+        if !didPrefetchVoiceChannelPermissions, !isExternalMeeting {
             didPrefetchVoiceChannelPermissions = true
             Task { await prefetchVoiceChannelPermissions() }
         }
@@ -3663,7 +3729,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                 didAnnounceMeetJoin: didAnnounceMeetJoin,
                 didAnnounceMeetLeave: didAnnounceMeetLeave,
                 preservedAudioRoute: preservedRoute,
-                crossClanVoiceExitAlignClanId: voiceChannelCrossClanExitAlignClanId
+                crossClanVoiceExitAlignClanId: voiceChannelCrossClanExitAlignClanId,
+                externalMeeting: externalMeeting
             )
             return true
         } else {
@@ -3812,7 +3879,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             didAnnounceMeetJoin: didAnnounceMeetJoin,
             didAnnounceMeetLeave: didAnnounceMeetLeave,
             preservedAudioRoute: preservedRoute,
-            crossClanVoiceExitAlignClanId: voiceChannelCrossClanExitAlignClanId
+            crossClanVoiceExitAlignClanId: voiceChannelCrossClanExitAlignClanId,
+            externalMeeting: externalMeeting
         )
 
         navigationController?.popViewController(animated: true)
@@ -3839,6 +3907,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     @objc private func openChatTapped() {
+        guard !isExternalMeeting else { return }
         let chatVC = ChatViewController(
             clanId: channel.clanID,
             channel: channel,
@@ -3849,6 +3918,10 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     private func runVoiceConnectionPipeline() async {
+        if let externalMeeting {
+            await runExternalMeetingConnectionPipeline(externalMeeting)
+            return
+        }
         guard !context.engine.channels.isAccessRevoked(channelId: channel.channelID), !isEndingVoiceRoom else {
             performSfuFinalTeardown(message: nil)
             return
@@ -3947,6 +4020,65 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                 title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Voice", comment: ""),
                 message: error.localizedDescription)
             sfuSession = nil
+        }
+    }
+
+    private static func requestExternalMeetingToken(
+        _ meeting: ExternalMeetingRoom,
+        context: AccountContext
+    ) async throws -> Mezon_Api_GenerateMeetTokenExternalResponse {
+        let user = context.currentUser
+        return try await context.account.network.generateMeetTokenExternal(
+            code: meeting.code,
+            username: ExternalMeetingRoom.sfuIdentity(username: user?.username, displayName: user?.displayName, userId: user?.id),
+            metadata: context.meetTokenMetadata(clanId: 0)
+        )
+    }
+
+    private func runExternalMeetingConnectionPipeline(_ meeting: ExternalMeetingRoom) async {
+        guard !isEndingVoiceRoom else { return }
+        setConnectingOverlayVisible(true)
+        await context.waitForSessionReady()
+        guard !Task.isCancelled, !isEndingVoiceRoom else { return }
+        _ = await VoiceChannelMicPermission.requestIfNeeded()
+        guard !Task.isCancelled, !isEndingVoiceRoom else { return }
+        do {
+            let meetToken = try await Self.requestExternalMeetingToken(meeting, context: context)
+            guard !Task.isCancelled, !isEndingVoiceRoom else { return }
+            let session = MezonSfuSession(
+                channelId: channel.channelID,
+                clanId: channel.clanID,
+                userId: context.currentUser?.id ?? "",
+                externalRoomName: meeting.code
+            )
+            wireSessionCallbacks(session)
+            sfuSession = session
+
+            ensureVoiceChannelAudioSessionCategory()
+            session.join(
+                token: meetToken.token,
+                role: joinRole
+            )
+            guard !Task.isCancelled, !isEndingVoiceRoom, sfuSession === session else { return }
+
+            refreshMicButtonIcon()
+            detectInitialAudioRoute()
+            refreshCamButtonIcon()
+            refreshParticipantRowsFromSession()
+        } catch {
+            guard !Task.isCancelled else { return }
+            setConnectingOverlayVisible(false)
+            sfuSession = nil
+            var message = error.localizedDescription
+            if case MezonError.httpError(let statusCode, _) = error, (400..<500).contains(statusCode) {
+                message = L(L10n.VoiceChannel.externalLinkInvalid)
+            }
+            presentVoiceAlert(
+                title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Voice", comment: ""),
+                message: message
+            ) { [weak self] in
+                self?.popTapped()
+            }
         }
     }
 
@@ -4579,6 +4711,11 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         if VoiceAgentIdentity.isAgent(key) {
             return (VoiceAgentIdentity.displayName, VoiceAgentIdentity.displayName, VoiceAgentIdentity.avatarURL)
         }
+        if isExternalMeeting, !isLocal {
+            let profile = sfuSession?.externalPeerProfiles[key]
+            let name = profile?.name ?? L(L10n.VoiceChannel.externalGuest)
+            return (name, name, profile?.avatarURL)
+        }
         let clanUser = voiceChannelFindClanUser(context: context, clanId: channel.clanID, identityKey: key)
         var name = clanUser.flatMap(voiceChannelDisplayNameFromClanUser)
         var username = nonEmpty(clanUser?.user.username)
@@ -5078,7 +5215,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             return
         }
         row.onExpandScreenShare = nil
-        if entry.isLocal {
+        if entry.isLocal || isExternalMeeting {
             row.onMainTileLongPress = nil
         } else {
             let identity = entry.identity
@@ -5276,6 +5413,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         }
         vc.onCameraToggle = { [weak self] in self?.cameraBarTapped() }
         vc.onMicToggle = { [weak self] in self?.micTapped() }
+        vc.showsChatAndRaiseHand = !isExternalMeeting
         vc.onOpenChat = { [weak self] in self?.openChatTapped() }
         vc.onRaiseHand = { [weak self] in self?.raiseHandTapped() }
         vc.onLeave = { [weak self] in self?.popTapped() }

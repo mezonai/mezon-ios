@@ -153,6 +153,7 @@ final class StreamingWebRTCSession: NSObject {
                 "room": room,
                 "token": token,
                 "role": "audience",
+                "media_pool_version": MezonSfuSession.mediaPoolVersion,
             ],
             transportGeneration: transportGeneration
         ) { [weak self] error in

@@ -754,3 +754,270 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         button.clipsToBounds = true
     }
 }
+
+final class ExternalMeetingLinkSheetViewController: UIViewController {
+
+    @available(iOS 15.0, *)
+    static let contentSizedDetentIdentifier = UISheetPresentationController.Detent.Identifier("mezon.externalMeeting.content")
+
+    private static let iconOuterSize: CGFloat = 64
+    private static let actionHeight: CGFloat = 50
+
+    static func preferredSheetHeight(safeAreaBottomInset: CGFloat) -> CGFloat {
+        let grabberBlock: CGFloat = 8 + 5 + 12
+        let header: CGFloat = 44
+        let headerToCenter: CGFloat = 16
+        let stackSpacing: CGFloat = 12 + 6
+        let linkLine: CGFloat = 22
+        let promptLines: CGFloat = 40
+        let centerToActions: CGFloat = 24
+        let actions = actionHeight + 10 + actionHeight
+        let bottomPadding: CGFloat = 16
+        return grabberBlock + header + headerToCenter + iconOuterSize + stackSpacing + linkLine + promptLines
+            + centerToActions + actions + bottomPadding + safeAreaBottomInset
+    }
+
+    private let meeting: ExternalMeetingRoom
+    private let url: URL
+    private let onJoinInApp: () -> Void
+    private let onOpenInBrowser: () -> Void
+
+    private let grabber = UIView()
+    private let headerRow = UIStackView()
+    private let dismissButton = UIButton(type: .custom)
+    private let titleLabel = UILabel()
+    private let centerStack = UIStackView()
+    private let iconOuter = UIView()
+    private let iconView = UIImageView()
+    private let linkLabel = UILabel()
+    private let promptLabel = UILabel()
+    private let actionStack = UIStackView()
+    private let joinButton = UIButton(type: .custom)
+    private let browserButton = UIButton(type: .custom)
+
+    init(
+        meeting: ExternalMeetingRoom,
+        url: URL,
+        onJoinInApp: @escaping () -> Void,
+        onOpenInBrowser: @escaping () -> Void
+    ) {
+        self.meeting = meeting
+        self.url = url
+        self.onJoinInApp = onJoinInApp
+        self.onOpenInBrowser = onOpenInBrowser
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func present(from presenter: UIViewController) {
+        modalPresentationStyle = .pageSheet
+        if #available(iOS 15.0, *) {
+            sheetPresentationController?.prefersGrabberVisible = false
+            if #available(iOS 16.0, *) {
+                let bottomInset = presenter.view.window?.safeAreaInsets.bottom ?? 34
+                let targetHeight = Self.preferredSheetHeight(safeAreaBottomInset: bottomInset)
+                let detentId = Self.contentSizedDetentIdentifier
+                let contentDetent = UISheetPresentationController.Detent.custom(identifier: detentId) { ctx in
+                    min(targetHeight, ctx.maximumDetentValue)
+                }
+                sheetPresentationController?.detents = [contentDetent]
+                sheetPresentationController?.selectedDetentIdentifier = detentId
+            } else {
+                sheetPresentationController?.detents = [.medium(), .large()]
+            }
+        }
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(JoinVoiceChannelSheetViewController.sheetTransitionDuration)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        presenter.present(self, animated: true)
+        CATransaction.commit()
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.layer.cornerRadius = 16
+        view.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        view.clipsToBounds = true
+
+        grabber.layer.cornerRadius = 2.5
+        grabber.translatesAutoresizingMaskIntoConstraints = false
+
+        dismissButton.translatesAutoresizingMaskIntoConstraints = false
+        dismissButton.layer.cornerRadius = 22
+        dismissButton.setImage(
+            UIImage(systemName: "chevron.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium))?
+                .withRenderingMode(.alwaysTemplate),
+            for: .normal)
+        dismissButton.imageView?.contentMode = .scaleAspectFit
+        dismissButton.contentEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+        dismissButton.accessibilityLabel = L(L10n.Common.close)
+        dismissButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
+
+        titleLabel.font = .systemFont(ofSize: 20, weight: .semibold)
+        titleLabel.numberOfLines = 1
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.text = L(L10n.VoiceChannel.externalCall)
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        headerRow.axis = .horizontal
+        headerRow.alignment = .center
+        headerRow.spacing = 10
+        headerRow.translatesAutoresizingMaskIntoConstraints = false
+        headerRow.addArrangedSubview(dismissButton)
+        headerRow.addArrangedSubview(titleLabel)
+
+        iconOuter.translatesAutoresizingMaskIntoConstraints = false
+        iconOuter.layer.cornerRadius = Self.iconOuterSize / 2
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.contentMode = .scaleAspectFit
+        iconView.image = (UIImage(named: "Chat/SpeakerIcon") ?? UIImage(systemName: "speaker.wave.2.fill"))?
+            .withRenderingMode(.alwaysTemplate)
+        iconOuter.addSubview(iconView)
+
+        linkLabel.font = .systemFont(ofSize: 16, weight: .semibold)
+        linkLabel.textAlignment = .center
+        linkLabel.numberOfLines = 1
+        linkLabel.lineBreakMode = meeting.title.isEmpty ? .byTruncatingMiddle : .byTruncatingTail
+        linkLabel.text = meeting.title.isEmpty ? (url.host ?? "") + url.path : meeting.title
+
+        promptLabel.font = .systemFont(ofSize: 15, weight: .regular)
+        promptLabel.textAlignment = .center
+        promptLabel.numberOfLines = 2
+        promptLabel.lineBreakMode = .byTruncatingTail
+        promptLabel.text = L(L10n.VoiceChannel.externalLinkPrompt)
+        promptLabel.setContentCompressionResistancePriority(.required, for: .vertical)
+
+        centerStack.axis = .vertical
+        centerStack.alignment = .center
+        centerStack.spacing = 6
+        centerStack.translatesAutoresizingMaskIntoConstraints = false
+        centerStack.addArrangedSubview(iconOuter)
+        centerStack.addArrangedSubview(linkLabel)
+        centerStack.addArrangedSubview(promptLabel)
+        centerStack.setCustomSpacing(12, after: iconOuter)
+
+        styleActionButton(joinButton, title: L(L10n.EventMenu.joinInApp), systemImage: "speaker.wave.2.fill")
+        joinButton.addTarget(self, action: #selector(joinTapped), for: .touchUpInside)
+        styleActionButton(browserButton, title: L(L10n.EventMenu.openInBrowser), systemImage: "safari")
+        browserButton.addTarget(self, action: #selector(openInBrowserTapped), for: .touchUpInside)
+
+        actionStack.axis = .vertical
+        actionStack.spacing = 10
+        actionStack.translatesAutoresizingMaskIntoConstraints = false
+        actionStack.addArrangedSubview(joinButton)
+        actionStack.addArrangedSubview(browserButton)
+
+        view.addSubview(grabber)
+        view.addSubview(headerRow)
+        view.addSubview(centerStack)
+        view.addSubview(actionStack)
+
+        NSLayoutConstraint.activate([
+            grabber.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
+            grabber.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            grabber.widthAnchor.constraint(equalToConstant: 36),
+            grabber.heightAnchor.constraint(equalToConstant: 5),
+
+            headerRow.topAnchor.constraint(equalTo: grabber.bottomAnchor, constant: 12),
+            headerRow.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 10),
+            headerRow.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -10),
+            dismissButton.widthAnchor.constraint(equalToConstant: 44),
+            dismissButton.heightAnchor.constraint(equalToConstant: 44),
+
+            iconOuter.widthAnchor.constraint(equalToConstant: Self.iconOuterSize),
+            iconOuter.heightAnchor.constraint(equalToConstant: Self.iconOuterSize),
+            iconView.centerXAnchor.constraint(equalTo: iconOuter.centerXAnchor),
+            iconView.centerYAnchor.constraint(equalTo: iconOuter.centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 30),
+            iconView.heightAnchor.constraint(equalToConstant: 30),
+
+            centerStack.topAnchor.constraint(equalTo: headerRow.bottomAnchor, constant: 16),
+            centerStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
+            centerStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
+            centerStack.bottomAnchor.constraint(lessThanOrEqualTo: actionStack.topAnchor, constant: -24),
+
+            actionStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
+            actionStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            actionStack.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
+        ])
+
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(applyTheme), name: ThemeManager.didChangeNotification, object: nil)
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self, name: ThemeManager.didChangeNotification, object: nil)
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        applyTheme()
+    }
+
+    private func styleActionButton(_ button: UIButton, title: String, systemImage: String) {
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.setTitle(title, for: .normal)
+        button.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
+        button.titleLabel?.lineBreakMode = .byTruncatingTail
+        button.setImage(
+            UIImage(systemName: systemImage, withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold))?
+                .withRenderingMode(.alwaysTemplate),
+            for: .normal)
+        button.contentEdgeInsets = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
+        button.imageEdgeInsets = UIEdgeInsets(top: 0, left: -4, bottom: 0, right: 4)
+        button.titleEdgeInsets = UIEdgeInsets(top: 0, left: 4, bottom: 0, right: -4)
+        button.layer.cornerRadius = Self.actionHeight / 2
+        button.layer.cornerCurve = .continuous
+        button.clipsToBounds = true
+        button.heightAnchor.constraint(equalToConstant: Self.actionHeight).isActive = true
+    }
+
+    @objc private func applyTheme() {
+        view.backgroundColor = UIColor.theme.secondary
+        grabber.backgroundColor = UIColor.theme.textDisabled.withAlphaComponent(0.5)
+        dismissButton.backgroundColor = UIColor.theme.tertiary
+        dismissButton.tintColor = UIColor.theme.textStrong
+        titleLabel.textColor = UIColor.theme.textStrong
+        iconOuter.backgroundColor = EventDisplayHelper.externalEventBadgeColor.withAlphaComponent(0.16)
+        iconView.tintColor = EventDisplayHelper.externalEventBadgeColor
+        linkLabel.textColor = UIColor.theme.textStrong
+        promptLabel.textColor = UIColor.theme.textDisabled
+        EventDisplayHelper.applyJoinInAppStyle(joinButton, iconHeight: 16)
+        joinButton.setTitleColor(.white, for: .highlighted)
+        browserButton.backgroundColor = UIColor.theme.tertiary
+        browserButton.tintColor = UIColor.theme.textStrong
+        browserButton.setTitleColor(UIColor.theme.textStrong, for: .normal)
+        browserButton.setTitleColor(UIColor.theme.textStrong, for: .highlighted)
+    }
+
+    @objc private func closeTapped() {
+        dismissSheet(completion: nil)
+    }
+
+    @objc private func joinTapped() {
+        let action = onJoinInApp
+        dismissSheet {
+            DispatchQueue.main.async {
+                action()
+            }
+        }
+    }
+
+    @objc private func openInBrowserTapped() {
+        let action = onOpenInBrowser
+        dismissSheet {
+            DispatchQueue.main.async {
+                action()
+            }
+        }
+    }
+
+    private func dismissSheet(completion: (() -> Void)?) {
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(JoinVoiceChannelSheetViewController.sheetTransitionDuration)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        dismiss(animated: true, completion: completion)
+        CATransaction.commit()
+    }
+}
