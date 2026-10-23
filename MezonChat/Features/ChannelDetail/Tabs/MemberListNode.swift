@@ -529,17 +529,6 @@ fileprivate func memberListUniqueNonEmpty(_ values: [String?]) -> [String] {
     return result
 }
 
-fileprivate func memberListAvatarInitial(from name: String) -> String {
-    let t = name.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !t.isEmpty else { return "" }
-    for ch in t {
-        if ch.isLetter || ch.isNumber {
-            return String(ch).uppercased(with: Locale.current)
-        }
-    }
-    return String(t.prefix(1)).uppercased(with: Locale.current)
-}
-
 extension MemberListNode: ASTableDataSource, ASTableDelegate {
     func numberOfSections(in tableNode: ASTableNode) -> Int {
         return 3
@@ -584,7 +573,7 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                     return MemberCellNode(
                         context: context, userId: member.userId, displayName: presentation.displayName,
                         avatarUrl: presentation.avatarUrl, clanNick: presentation.clanNick,
-                        clanAvatar: presentation.clanAvatar, username: presentation.username,
+                        clanAvatar: presentation.clanAvatar,
                         avatarUrls: presentation.avatarUrls,
                         prefersProfileAvatar: self.prefersProfileAvatar,
                         roleColor: color, isOwner: isOwner,
@@ -599,7 +588,7 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                     return MemberCellNode(
                         context: context, userId: member.userId, displayName: presentation.displayName,
                         avatarUrl: presentation.avatarUrl, clanNick: presentation.clanNick,
-                        clanAvatar: presentation.clanAvatar, username: presentation.username,
+                        clanAvatar: presentation.clanAvatar,
                         avatarUrls: presentation.avatarUrls,
                         prefersProfileAvatar: self.prefersProfileAvatar,
                         roleColor: color, isOwner: isOwner,
@@ -616,7 +605,7 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                     return MemberCellNode(
                         context: context, userId: member.userId, displayName: presentation.displayName,
                         avatarUrl: presentation.avatarUrl, clanNick: presentation.clanNick,
-                        clanAvatar: presentation.clanAvatar, username: presentation.username,
+                        clanAvatar: presentation.clanAvatar,
                         avatarUrls: presentation.avatarUrls,
                         prefersProfileAvatar: self.prefersProfileAvatar,
                         roleColor: nil, isOwner: isOwner,
@@ -630,7 +619,7 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                     return MemberCellNode(
                         context: context, userId: member.userId, displayName: presentation.displayName,
                         avatarUrl: presentation.avatarUrl, clanNick: presentation.clanNick,
-                        clanAvatar: presentation.clanAvatar, username: presentation.username,
+                        clanAvatar: presentation.clanAvatar,
                         avatarUrls: presentation.avatarUrls,
                         prefersProfileAvatar: self.prefersProfileAvatar,
                         roleColor: nil, isOwner: isOwner,
@@ -990,13 +979,12 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
     private let initialAvatarUrls: [String]
     private let clanNick: String
     private let clanAvatar: String
-    private let username: String
 
     private var avatarUrlLoadKey: String = ""
     private var avatarURLCandidates: [URL] = []
     private var avatarURLCandidateIndex: Int = 0
 
-    private let textAvatarNode = TextAvatarNode(username: "", size: 40.sf, fontSize: 16.sf)
+    private let textAvatarNode = TextAvatarNode(size: 40.sf)
     private let avatarNode = ASNetworkImageNode()
     private let nameNode = ASTextNode2()
     private let crownNode = ASTextNode2()
@@ -1013,7 +1001,7 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
 
     init(
         context: AccountContext, userId: Int64, displayName: String, avatarUrl: String,
-        clanNick: String, clanAvatar: String, username: String,
+        clanNick: String, clanAvatar: String,
         avatarUrls: [String] = [],
         prefersProfileAvatar: Bool = false,
         roleColor: UIColor? = nil, isOwner: Bool = false,
@@ -1026,7 +1014,6 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         self.initialAvatarUrls = avatarUrls
         self.clanNick = clanNick
         self.clanAvatar = clanAvatar
-        self.username = username
         self.prefersProfileAvatar = prefersProfileAvatar
         self.roleColor = roleColor
         self.isOwner = isOwner
@@ -1035,8 +1022,6 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         self.automaticallyManagesSubnodes = true
         self.backgroundColor = .clear
         self.selectionStyle = .none
-
-        textAvatarNode.configure(username: username, fontSize: 16.sf)
 
         avatarNode.style.preferredSize = CGSize(width: 40.sf, height: 40.sf)
         avatarNode.cornerRadius = 20.sf
@@ -1177,7 +1162,7 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
 
     private func loadAvatarCandidate(at index: Int) {
         guard index < avatarURLCandidates.count else {
-            showAvatarInitials(clearCandidates: false)
+            showAvatarPlaceholder(clearCandidates: false)
             return
         }
         let url = avatarURLCandidates[index]
@@ -1188,7 +1173,7 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         textAvatarNode.showSkeleton()
     }
 
-    private func showAvatarInitials(clearCandidates: Bool = true) {
+    private func showAvatarPlaceholder(clearCandidates: Bool = true) {
         if clearCandidates {
             avatarURLCandidates = []
             avatarURLCandidateIndex = 0
@@ -1196,7 +1181,7 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         avatarUrlLoadKey = ""
         avatarNode.url = nil
         avatarNode.alpha = 0.0
-        textAvatarNode.configure(username: username, fontSize: 16.sf)
+        textAvatarNode.showPlaceholder()
     }
 
     private func loadNextAvatarCandidateIfKeyMatches(_ key: String) {
@@ -1205,7 +1190,7 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         if nextIndex < avatarURLCandidates.count {
             loadAvatarCandidate(at: nextIndex)
         } else {
-            showAvatarInitials()
+            showAvatarPlaceholder()
         }
     }
 
@@ -1220,6 +1205,10 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
 
     @objc func imageNode(_ imageNode: ASNetworkImageNode, didFailWithError error: Error) {
         guard imageNode === self.avatarNode, let u = imageNode.url else { return }
+        if u.absoluteString == avatarUrlLoadKey, imageNode.fallBackToImgproxySource() {
+            avatarUrlLoadKey = imageNode.url?.absoluteString ?? ""
+            return
+        }
         loadNextAvatarCandidateIfKeyMatches(u.absoluteString)
     }
 

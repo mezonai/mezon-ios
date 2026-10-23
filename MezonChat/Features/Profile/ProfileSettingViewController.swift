@@ -148,15 +148,6 @@ final class ProfileSettingViewController: BaseViewController {
         iv.clipsToBounds = true
         return iv
     }()
-    private let avatarPlaceholderLabel: UILabel = {
-        let l = UILabel()
-        l.textAlignment = .center
-        l.textColor = .white
-        l.adjustsFontSizeToFitWidth = true
-        l.minimumScaleFactor = 0.5
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
-    }()
     private let avatarSpinner: UIActivityIndicatorView = {
         let s = UIActivityIndicatorView(style: .medium)
         s.hidesWhenStopped = true
@@ -501,8 +492,6 @@ final class ProfileSettingViewController: BaseViewController {
         detailCard.layer.borderColor = UIColor.mezonBorder.cgColor
         detailNameLabel.textColor = .mezonTextStrong
         detailUsernameLabel.textColor = .mezonTextPrimary
-        avatarPlaceholderLabel.font = .systemFont(ofSize: avatarSize * 0.36, weight: .semibold)
-        avatarPlaceholderLabel.textColor = .white
 
         displayNameLabel.textColor = .mezonTextPrimary
         displayNameFieldContainer.backgroundColor = .mezonSecondaryBackground
@@ -565,7 +554,6 @@ final class ProfileSettingViewController: BaseViewController {
         avatarImageView.translatesAutoresizingMaskIntoConstraints = false
         avatarImageView.layer.cornerRadius = avatarSize / 2
         avatarContainerView.addSubview(avatarImageView)
-        avatarContainerView.addSubview(avatarPlaceholderLabel)
         avatarContainerView.addSubview(avatarSpinner)
 
         let avatarTap = UITapGestureRecognizer(target: self, action: #selector(avatarTapped))
@@ -589,11 +577,6 @@ final class ProfileSettingViewController: BaseViewController {
             avatarImageView.leadingAnchor.constraint(equalTo: avatarContainerView.leadingAnchor),
             avatarImageView.trailingAnchor.constraint(equalTo: avatarContainerView.trailingAnchor),
             avatarImageView.bottomAnchor.constraint(equalTo: avatarContainerView.bottomAnchor),
-
-            avatarPlaceholderLabel.topAnchor.constraint(equalTo: avatarContainerView.topAnchor),
-            avatarPlaceholderLabel.leadingAnchor.constraint(equalTo: avatarContainerView.leadingAnchor),
-            avatarPlaceholderLabel.trailingAnchor.constraint(equalTo: avatarContainerView.trailingAnchor),
-            avatarPlaceholderLabel.bottomAnchor.constraint(equalTo: avatarContainerView.bottomAnchor),
 
             avatarSpinner.centerXAnchor.constraint(equalTo: avatarContainerView.centerXAnchor),
             avatarSpinner.centerYAnchor.constraint(equalTo: avatarContainerView.centerYAnchor),
@@ -1011,16 +994,9 @@ final class ProfileSettingViewController: BaseViewController {
         }
     }
 
-    private func avatarInitialText() -> String {
-        let trimmed = userName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.first.map { String($0).uppercased() } ?? ""
-    }
-
     private func showAvatarPlaceholder() {
-        avatarPlaceholderLabel.text = avatarInitialText()
-        avatarPlaceholderLabel.isHidden = false
-        avatarImageView.image = nil
-        avatarContainerView.backgroundColor = UIColor.avatarColor(for: userName)
+        avatarImageView.image = DefaultUserAvatar.image(side: avatarSize)
+        avatarContainerView.backgroundColor = .clear
         bannerColorView.backgroundColor = .outgoingBubble
     }
 
@@ -1030,8 +1006,7 @@ final class ProfileSettingViewController: BaseViewController {
             return
         }
         
-        avatarPlaceholderLabel.isHidden = true
-        avatarContainerView.backgroundColor = UIColor.avatarColor(for: userName)
+        avatarContainerView.backgroundColor = UIColor.theme.secondaryWeight
 
         if let cached = ImageCache.shared.memoryImage(forKey: urlString) {
             avatarImageView.image = cached
@@ -1048,7 +1023,6 @@ final class ProfileSettingViewController: BaseViewController {
             }
             DispatchQueue.main.async {
                 self.avatarImageView.image = img
-                self.avatarPlaceholderLabel.isHidden = true
                 self.avatarContainerView.backgroundColor = .clear
                 self.bannerColorView.backgroundColor = img.dominantColor() ?? .mezonBackground
             }
@@ -1309,7 +1283,6 @@ final class ProfileSettingViewController: BaseViewController {
         case .userAvatar:
             userAvatarUrl = kMezonLogoURL
             avatarImageView.image = logo
-            avatarPlaceholderLabel.isHidden = true
             avatarContainerView.backgroundColor = .clear
             bannerColorView.backgroundColor = bannerTint
         case .clanAvatar:
@@ -1400,13 +1373,11 @@ final class ProfileSettingViewController: BaseViewController {
                 case .userAvatar:
                     userAvatarUrl = cdnURL
                     targetImageView.image = image
-                    avatarPlaceholderLabel.isHidden = true
                     avatarContainerView.backgroundColor = .clear
                     bannerColorView.backgroundColor = image.dominantColor() ?? .outgoingBubble
                 case .clanAvatar:
                     clanAvatarUrl = cdnURL
                     targetImageView.image = image
-                    avatarPlaceholderLabel.isHidden = true
                     avatarContainerView.backgroundColor = .clear
                     bannerColorView.backgroundColor = image.dominantColor() ?? .outgoingBubble
                 case .dmIcon:

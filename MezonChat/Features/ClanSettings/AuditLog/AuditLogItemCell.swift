@@ -10,7 +10,7 @@ final class AuditLogItemCell: UITableViewCell {
         return f
     }()
 
-    private let avatarView = TextAvatarView(username: "", size: 36)
+    private let avatarView = TextAvatarView(size: 36)
     private let avatarImageView = UIImageView()
     private let contentStackView = UIStackView()
     private let actionLabel = UILabel()
@@ -119,8 +119,6 @@ final class AuditLogItemCell: UITableViewCell {
         timeLabel.text = formatTime(seconds: log.timeLogSeconds)
         
         separatorView.isHidden = isLast
-
-        avatarView.configure(username: username)
 
         let avatar = memberInfo?.userAvatarURL ?? ""
         imageTask?.cancel()

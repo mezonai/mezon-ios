@@ -699,23 +699,24 @@ private final class ClanInviteEmptyStateNode: ASDisplayNode {
     }
 }
 
-private final class ClanInviteFriendCellNode: ASCellNode {
+private final class ClanInviteFriendCellNode: ASCellNode, ASNetworkImageNodeDelegate {
     var onInvite: (() -> Void)?
 
     private let avatarBgNode = ASDisplayNode()
     private let avatarNode = ASNetworkImageNode()
-    private let textAvatarNode: TextAvatarNode
     private let groupIconNode = ASImageNode()
     private let nameNode = ASTextNode()
     private let inviteButtonNode = ASButtonNode()
     private let spinnerWrapNode: ASDisplayNode
 
-    private enum AvatarMode { case image, group, initial }
+    private enum AvatarMode { case image, group, placeholder }
     private let avatarMode: AvatarMode
     private let needsSpinner: Bool
+    private let isGroupDM: Bool
 
     init(name: String, avatarURL: String?, isGroupDM: Bool, isSent: Bool, isLoading: Bool) {
         self.needsSpinner = isLoading
+        self.isGroupDM = isGroupDM
 
         spinnerWrapNode = ASDisplayNode { () -> UIView in
             let sp = UIActivityIndicatorView(style: .medium)
@@ -731,10 +732,8 @@ private final class ClanInviteFriendCellNode: ASCellNode {
         } else if isGroupDM {
             avatarMode = .group
         } else {
-            avatarMode = .initial
+            avatarMode = .placeholder
         }
-
-        self.textAvatarNode = TextAvatarNode(username: name, size: 40.swh)
 
         super.init()
         automaticallyManagesSubnodes = true
@@ -753,6 +752,7 @@ private final class ClanInviteFriendCellNode: ASCellNode {
         avatarNode.cornerRadius = avatarSize / 2
         avatarNode.clipsToBounds = true
         avatarNode.contentMode = .scaleAspectFill
+        avatarNode.delegate = self
 
         groupIconNode.image = UIImage(systemName: "person.2.fill")?.withRenderingMode(.alwaysTemplate)
         groupIconNode.tintColor = .white
@@ -766,8 +766,8 @@ private final class ClanInviteFriendCellNode: ASCellNode {
             avatarBgNode.backgroundColor = UIColor.theme.border
         case .group:
             avatarBgNode.backgroundColor = UIColor(red: 0.96, green: 0.55, blue: 0.16, alpha: 1)
-        case .initial:
-            break
+        case .placeholder:
+            avatarNode.defaultImage = DefaultUserAvatar.image(side: avatarSize)
         }
 
         nameNode.maximumNumberOfLines = 1
@@ -837,6 +837,11 @@ private final class ClanInviteFriendCellNode: ASCellNode {
 
     @objc private func inviteTapped() { onInvite?() }
 
+    @objc func imageNode(_ imageNode: ASNetworkImageNode, didFailWithError error: Error) {
+        guard !imageNode.fallBackToImgproxySource(), !isGroupDM else { return }
+        imageNode.defaultImage = DefaultUserAvatar.image(side: 40.swh)
+    }
+
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         let avatarSize: CGFloat = 40.swh
 
@@ -844,15 +849,13 @@ private final class ClanInviteFriendCellNode: ASCellNode {
 
         let avatarComposite: ASLayoutElement
         switch avatarMode {
-        case .image:
+        case .image, .placeholder:
             avatarNode.style.preferredSize = CGSize(width: avatarSize, height: avatarSize)
             avatarComposite = ASOverlayLayoutSpec(child: avatarBgNode, overlay: avatarNode)
         case .group:
             groupIconNode.style.preferredSize = CGSize(width: 20.swh, height: 20.swh)
             let overlay = ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: .minimumXY, child: groupIconNode)
             avatarComposite = ASOverlayLayoutSpec(child: avatarBgNode, overlay: overlay)
-        case .initial:
-            avatarComposite = textAvatarNode
         }
         avatarComposite.style.preferredSize = CGSize(width: avatarSize, height: avatarSize)
 

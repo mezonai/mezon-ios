@@ -1,18 +1,15 @@
 import UIKit
 import AsyncDisplayKit
 
-final class MessageReplyNode: ASDisplayNode {
+final class MessageReplyNode: ASDisplayNode, ASNetworkImageNodeDelegate {
 
     private let iconNode = ASImageNode()
-    private let avatarContainerNode = ASDisplayNode()
     private let avatarImageNode = ASNetworkImageNode()
-    private let avatarPlaceholderNode = ASTextNode2()
     private let nameNode = ASTextNode2()
     private let previewNode = ASTextNode2()
     private let attachmentIconNode = ASImageNode()
 
     private var hasAttachment = false
-    private var hasAvatar = false
 
     var onTapped: (() -> Void)?
 
@@ -31,16 +28,12 @@ final class MessageReplyNode: ASDisplayNode {
         iconNode.contentMode = .scaleAspectFit
         addSubnode(iconNode)
 
-
-        avatarContainerNode.cornerRadius = 10
-        avatarContainerNode.clipsToBounds = true
-
         avatarImageNode.cornerRadius = 10
         avatarImageNode.clipsToBounds = true
         avatarImageNode.contentMode = .scaleAspectFill
         avatarImageNode.defaultImage = nil
-
-        avatarPlaceholderNode.isLayerBacked = true
+        avatarImageNode.delegate = self
+        addSubnode(avatarImageNode)
 
         nameNode.maximumNumberOfLines = 1
         addSubnode(nameNode)
@@ -64,6 +57,11 @@ final class MessageReplyNode: ASDisplayNode {
         onTapped?()
     }
 
+    @objc func imageNode(_ imageNode: ASNetworkImageNode, didFailWithError error: Error) {
+        guard imageNode.url != nil, !imageNode.fallBackToImgproxySource() else { return }
+        imageNode.defaultImage = DefaultUserAvatar.image(side: avatarSz)
+    }
+
     func configure(ref: Mezon_Api_MessageRef) {
         let t = UIColor.theme
         let name = ref.messageSenderClanNick.isEmpty
@@ -85,9 +83,6 @@ final class MessageReplyNode: ASDisplayNode {
         let isSystemSender = Self.isSystemSender(ref)
 
         if isAnonymous, ref.messageSenderAvatar.isEmpty {
-            hasAvatar = true
-            avatarPlaceholderNode.isHidden = true
-            avatarImageNode.isHidden = false
             avatarImageNode.url = nil
             avatarImageNode.contentMode = .scaleAspectFit
             avatarImageNode.backgroundColor = UIColor.theme.tertiary
@@ -107,53 +102,22 @@ final class MessageReplyNode: ASDisplayNode {
             } else {
                 avatarImageNode.image = nil
             }
-            
-            avatarContainerNode.removeFromSupernode()
-            avatarPlaceholderNode.removeFromSupernode()
-            if avatarImageNode.supernode == nil { addSubnode(avatarImageNode) }
         } else if isSystemSender, let logo = Self.systemAvatarImage() {
-            hasAvatar = true
-            avatarPlaceholderNode.isHidden = true
-            avatarImageNode.isHidden = false
             avatarImageNode.url = nil
             avatarImageNode.image = logo
             avatarImageNode.contentMode = .scaleAspectFit
             avatarImageNode.backgroundColor = .clear
-            avatarContainerNode.removeFromSupernode()
-            avatarPlaceholderNode.removeFromSupernode()
-            if avatarImageNode.supernode == nil { addSubnode(avatarImageNode) }
         } else if !ref.messageSenderAvatar.isEmpty, let url = URL(string: ref.messageSenderAvatar) {
-            hasAvatar = true
-            avatarPlaceholderNode.isHidden = true
-            avatarImageNode.isHidden = false
+            avatarImageNode.defaultImage = nil
             avatarImageNode.image = nil
             avatarImageNode.url = url
             avatarImageNode.contentMode = .scaleAspectFill
             avatarImageNode.backgroundColor = UIColor.theme.primary
-            avatarContainerNode.removeFromSupernode()
-            avatarPlaceholderNode.removeFromSupernode()
-            if avatarImageNode.supernode == nil { addSubnode(avatarImageNode) }
         } else {
-            hasAvatar = false
-            avatarImageNode.isHidden = true
-            avatarPlaceholderNode.isHidden = false
-            
-            let charSource = ref.messageSenderUsername.isEmpty ? displayName : ref.messageSenderUsername
-            let charStr = String(charSource.prefix(1)).uppercased()
-            
-            avatarPlaceholderNode.attributedText = NSAttributedString(
-                string: charStr,
-                attributes: [
-                    .font: UIFont.systemFont(ofSize: 10.sf, weight: .semibold),
-                    .foregroundColor: UIColor.white
-                ]
-            )
-            avatarContainerNode.backgroundColor = UIColor.avatarColor(for: charSource)
-            avatarImageNode.removeFromSupernode()
-            if avatarContainerNode.supernode == nil {
-                addSubnode(avatarContainerNode)
-                avatarContainerNode.addSubnode(avatarPlaceholderNode)
-            }
+            avatarImageNode.url = nil
+            avatarImageNode.image = DefaultUserAvatar.image(side: avatarSz)
+            avatarImageNode.contentMode = .scaleAspectFill
+            avatarImageNode.backgroundColor = .clear
         }
 
         if ref.hasAttachment_p {
@@ -290,17 +254,7 @@ final class MessageReplyNode: ASDisplayNode {
         iconNode.frame = CGRect(x: x, y: centerY - cachedIconSize.height / 2, width: cachedIconSize.width, height: cachedIconSize.height)
         x += cachedIconSize.width + spacing
 
-        if hasAvatar {
-            avatarImageNode.frame = CGRect(x: x, y: centerY - avatarSz / 2, width: avatarSz, height: avatarSz)
-        } else {
-            avatarContainerNode.frame = CGRect(x: x, y: centerY - avatarSz / 2, width: avatarSz, height: avatarSz)
-            let phSize = avatarPlaceholderNode.measure(CGSize(width: avatarSz, height: avatarSz))
-            avatarPlaceholderNode.frame = CGRect(
-                x: (avatarSz - phSize.width) / 2,
-                y: (avatarSz - phSize.height) / 2,
-                width: phSize.width, height: phSize.height
-            )
-        }
+        avatarImageNode.frame = CGRect(x: x, y: centerY - avatarSz / 2, width: avatarSz, height: avatarSz)
         x += avatarSz + spacing
 
         nameNode.frame = CGRect(x: x, y: centerY - cachedNameSize.height / 2, width: cachedNameSize.width, height: cachedNameSize.height)

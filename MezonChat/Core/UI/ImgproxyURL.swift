@@ -43,6 +43,18 @@ enum ImgproxyURL {
         skipExtensions.contains(sourceExtension(sourceURL))
     }
 
+    static func sourceURL(fromProxyURL proxyURL: String) -> URL? {
+        guard hasHost(proxyURL, in: proxyHosts),
+              let marker = proxyURL.range(of: "/plain/") else { return nil }
+        var encoded = proxyURL[marker.upperBound...]
+        if let suffix = encoded.lastIndex(of: "@") {
+            encoded = encoded[..<suffix]
+        }
+        let source = String(encoded).removingPercentEncoding ?? String(encoded)
+        guard source.hasPrefix("http://") || source.hasPrefix("https://") else { return nil }
+        return URL(string: source)
+    }
+
     static func secureURLString(from sourceURL: String) -> String {
         let s = sourceURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard var components = URLComponents(string: s),

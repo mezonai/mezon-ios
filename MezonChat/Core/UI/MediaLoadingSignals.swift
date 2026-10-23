@@ -1,6 +1,7 @@
 import Foundation
 import CryptoKit
 import UIKit
+import AsyncDisplayKit
 import AVFoundation
 import MobileVLCKit
 
@@ -373,7 +374,7 @@ final class ImageCache {
                 return
             }
             if Self.isCancellation(error) {
-                DispatchQueue.main.async { completion(nil) }
+                self.handOverCancelledImageRequest(url: url, key: key, completion: completion)
                 return
             }
 
@@ -396,6 +397,11 @@ final class ImageCache {
                         next, url: url, key: key, attempt: attempt,
                         isSignatureRetry: true, completion: completion)
                 }
+                return
+            }
+
+            if let sourceURL = ImgproxyURL.sourceURL(fromProxyURL: url.absoluteString) {
+                _ = self.startImageDownload(url: sourceURL, key: key, attempt: 0, completion: completion)
                 return
             }
 
@@ -429,6 +435,24 @@ final class ImageCache {
         }
         task.resume()
         return task
+    }
+
+    private func handOverCancelledImageRequest(
+        url: URL,
+        key: String,
+        completion: @escaping (UIImage?) -> Void
+    ) {
+        inflightLock.lock()
+        guard let waiting = inflightCallbacks[key], waiting.count > 1 else {
+            inflightLock.unlock()
+            DispatchQueue.main.async { completion(nil) }
+            return
+        }
+        inflightCallbacks[key] = Array(waiting.dropFirst())
+        inflightLock.unlock()
+        let cancelledOwner = waiting[0]
+        DispatchQueue.main.async { cancelledOwner(nil) }
+        _ = startImageDownload(url: url, key: key, attempt: 0, completion: completion)
     }
 
     func cachedImage(forURL urlString: String) -> UIImage? {
@@ -634,6 +658,17 @@ final class ImageCache {
                 return
             }
 
+            if let sourceURL = ImgproxyURL.sourceURL(fromProxyURL: url.absoluteString) {
+                self.downloadOptimizedAvatar(
+                    url: sourceURL,
+                    rawKey: rawKey,
+                    variantKey: variantKey,
+                    targetPixelSize: targetPixelSize,
+                    attempt: 0
+                )
+                return
+            }
+
             if let error {
                 SentryLogger.captureMediaError(error, extras: [
                     "where": "ImageCache.downloadOptimizedAvatar",
@@ -679,6 +714,11 @@ final class ImageCache {
                let image = UIImage.decompressedImage(from: data) {
                 self.setImage(image, data: data, forKey: key)
                 deliver(image)
+                return
+            }
+
+            if let sourceURL = ImgproxyURL.sourceURL(fromProxyURL: url.absoluteString) {
+                self.startAvatarDownload(url: sourceURL, key: key, attempt: 0, deliver: deliver)
                 return
             }
 
@@ -767,7 +807,7 @@ private func makeTransform(for image: UIImage, resizeMode: ImageResizeMode = .fi
 }
 
 
-func remoteAvatarSignal(proxiedURL: String, originalURL: String, sharesForNotifications: Bool = false) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
+func remoteAvatarSignal(proxiedURL: String, originalURL: String, sharesForNotifications: Bool = false, fallbackImage: UIImage? = nil) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
     return Signal { subscriber in
         let orig = originalURL
         let proxy = proxiedURL
@@ -806,28 +846,12 @@ func remoteAvatarSignal(proxiedURL: String, originalURL: String, sharesForNotifi
             subscriber.putCompletion()
         }
 
-        func load(_ url: String, onNil: @escaping () -> Void) {
-            guard !url.isEmpty else {
-                onNil()
-                return
-            }
-            cache.loadAvatar(urlString: url) { image in
-                guard !cancelled.with({ $0 }) else { return }
-                if let image {
-                    emit(image)
-                } else {
-                    onNil()
-                }
-            }
-        }
-
-        if proxy.isEmpty {
-            load(orig, onNil: finishEmpty)
-        } else if orig.isEmpty || proxy == orig {
-            load(proxy, onNil: finishEmpty)
-        } else {
-            load(proxy) {
-                load(orig, onNil: finishEmpty)
+        cache.loadAvatar(urlString: proxy.isEmpty ? orig : proxy) { image in
+            guard !cancelled.with({ $0 }) else { return }
+            if let image = image ?? fallbackImage {
+                emit(image)
+            } else {
+                finishEmpty()
             }
         }
 
@@ -1084,5 +1108,14 @@ func prefetchImages(urls: [String]) {
             continue
         }
         cache.loadImage(urlString: url) { _ in }
+    }
+}
+
+extension ASNetworkImageNode {
+    func fallBackToImgproxySource() -> Bool {
+        guard let failed = url,
+              let source = ImgproxyURL.sourceURL(fromProxyURL: failed.absoluteString) else { return false }
+        url = source
+        return true
     }
 }

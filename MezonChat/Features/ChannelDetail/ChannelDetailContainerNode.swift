@@ -2,7 +2,7 @@ import AsyncDisplayKit
 import UIKit
 
 @MainActor
-final class ChannelDetailContainerNode: ASDisplayNode {
+final class ChannelDetailContainerNode: ASDisplayNode, ASNetworkImageNodeDelegate {
 
     private enum AssetTab: Int {
         case members, media, files, pins, canvas
@@ -179,6 +179,7 @@ final class ChannelDetailContainerNode: ASDisplayNode {
         groupAvatarNode.cornerRadius = 14.sf
         groupAvatarNode.clipsToBounds = true
         groupAvatarNode.contentMode = .scaleAspectFill
+        groupAvatarNode.delegate = self
 
         headerTrailingSpacerNode.style.preferredSize = CGSize(width: 52.sf, height: 44.sf)
         headerTrailingSpacerNode.isUserInteractionEnabled = false
@@ -321,6 +322,10 @@ final class ChannelDetailContainerNode: ASDisplayNode {
         case .pins: return pinnedMessagesNode
         case .canvas: return canvasNode
         }
+    }
+
+    @objc func imageNode(_ imageNode: ASNetworkImageNode, didFailWithError error: Error) {
+        _ = imageNode.fallBackToImgproxySource()
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {

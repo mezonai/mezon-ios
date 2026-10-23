@@ -102,15 +102,6 @@ final class SharingViewController: UIViewController {
         return iv
     }()
 
-    private let selectedInitialLabel: UILabel = {
-        let l = UILabel()
-        l.translatesAutoresizingMaskIntoConstraints = false
-        l.font = .systemFont(ofSize: 11, weight: .semibold)
-        l.textAlignment = .center
-        l.isHidden = true
-        return l
-    }()
-
     private let selectedNameLabel: UILabel = {
         let l = UILabel()
         l.translatesAutoresizingMaskIntoConstraints = false
@@ -369,7 +360,6 @@ final class SharingViewController: UIViewController {
         searchContainer.addSubview(searchTextField)
         searchContainer.addSubview(searchClearButton)
         searchContainer.addSubview(selectedAvatarView)
-        selectedAvatarView.addSubview(selectedInitialLabel)
         searchContainer.addSubview(selectedNameLabel)
 
         view.addSubview(suggestionsCard)
@@ -432,9 +422,6 @@ final class SharingViewController: UIViewController {
             selectedAvatarView.centerYAnchor.constraint(equalTo: searchContainer.centerYAnchor),
             selectedAvatarView.widthAnchor.constraint(equalToConstant: 20),
             selectedAvatarView.heightAnchor.constraint(equalToConstant: 20),
-
-            selectedInitialLabel.centerXAnchor.constraint(equalTo: selectedAvatarView.centerXAnchor),
-            selectedInitialLabel.centerYAnchor.constraint(equalTo: selectedAvatarView.centerYAnchor),
 
             selectedNameLabel.leadingAnchor.constraint(equalTo: selectedAvatarView.trailingAnchor, constant: 8),
             selectedNameLabel.trailingAnchor.constraint(equalTo: searchClearButton.leadingAnchor, constant: -4),
@@ -1071,7 +1058,6 @@ final class SharingViewController: UIViewController {
         searchClearButton.backgroundColor = t.tertiary
 
         selectedAvatarView.backgroundColor = t.tertiary
-        selectedInitialLabel.textColor = t.textStrong
         selectedNameLabel.textColor = t.textStrong
 
         suggestionsTitle.textColor = t.textDisabled
@@ -1183,16 +1169,14 @@ final class SharingViewController: UIViewController {
         selectedAvatarView.tintColor = st.iconSecondary
 
         if isDM, let avatarURL = channel.avatars.first, !avatarURL.isEmpty, let url = URL(string: avatarURL) {
-            selectedInitialLabel.isHidden = true
             selectedAvatarView.contentMode = .scaleAspectFill
             selectedAvatarView.backgroundColor = .clear
             let urlStr = SharingImageProxy.proxiedAvatarURLString(url.absoluteString)
             _ = ImageCache.shared.loadImage(urlString: urlStr) { [weak self] image in
-                self?.selectedAvatarView.image = image
+                self?.selectedAvatarView.image = image ?? DefaultUserAvatar.image(side: 24)
             }
         } else if isGroup, !channel.channelAvatar.isEmpty, !channel.channelAvatar.contains("avatar-group.png"),
                   let url = URL(string: channel.channelAvatar) {
-            selectedInitialLabel.isHidden = true
             selectedAvatarView.contentMode = .scaleAspectFill
             selectedAvatarView.backgroundColor = .clear
             let urlStr = SharingImageProxy.proxiedAvatarURLString(url.absoluteString)
@@ -1202,19 +1186,15 @@ final class SharingViewController: UIViewController {
         } else if isGroup {
             selectedAvatarView.image = UIImage(systemName: "person.2.fill")?.withRenderingMode(.alwaysTemplate)
             selectedAvatarView.contentMode = .scaleAspectFit
-            selectedInitialLabel.isHidden = true
             selectedAvatarView.backgroundColor = SharingChannelCell.groupDefaultAvatarBackground
         } else if isDM {
-            selectedAvatarView.image = nil
+            selectedAvatarView.image = DefaultUserAvatar.image(side: 24)
             selectedAvatarView.contentMode = .scaleAspectFill
-            selectedAvatarView.backgroundColor = UIColor.avatarColor(for: channel.usernames.first ?? name)
-            selectedInitialLabel.text = String(name.prefix(1)).uppercased()
-            selectedInitialLabel.isHidden = false
+            selectedAvatarView.backgroundColor = .clear
         } else {
             let iconName = channel.channelListIconAssetName()
             selectedAvatarView.image = (UIImage(named: iconName) ?? UIImage(systemName: "number"))?.withRenderingMode(.alwaysTemplate)
             selectedAvatarView.contentMode = .scaleAspectFit
-            selectedInitialLabel.isHidden = true
             selectedAvatarView.backgroundColor = st.tertiary
         }
     }
@@ -1224,7 +1204,6 @@ final class SharingViewController: UIViewController {
         searchIconView.isHidden = false
         selectedAvatarView.isHidden = true
         selectedNameLabel.isHidden = true
-        selectedInitialLabel.isHidden = true
     }
 
     private func resolvedClanInfo(for ch: Mezon_Api_ChannelDescription) -> (clanID: Int64, channelClanName: String) {

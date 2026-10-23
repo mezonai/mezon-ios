@@ -366,22 +366,6 @@ extension NotificationRecord {
         return ""
     }
 
-    static func placeholderName(from subject: String) -> String {
-        let markers = [
-            " wants to add you",
-            " wants to be your friend",
-            " sent you a friend request",
-            " sent you",
-        ]
-        let trimmed = subject.trimmingCharacters(in: .whitespacesAndNewlines)
-        for marker in markers {
-            guard let range = trimmed.range(of: marker, options: .caseInsensitive) else { continue }
-            let name = String(trimmed[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !name.isEmpty { return name }
-        }
-        return ""
-    }
-
     func enrichedSenderAvatar(transaction tx: PostboxTransaction, fallbackAvatarURL: String = "") -> NotificationRecord {
         let existing = avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
         if !existing.isEmpty, existing != "default" { return self }

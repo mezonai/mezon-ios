@@ -5,7 +5,6 @@ final class MessageBubbleNode: ASDisplayNode {
 
     private let avatarContainerNode = ASDisplayNode()
     private let avatarImageNode = TransformImageNode()
-    private let avatarPlaceholderNode = ASTextNode2()
 
     private let nameNode = ASTextNode2()
     private let timeNode = ASTextNode2()
@@ -237,21 +236,10 @@ final class MessageBubbleNode: ASDisplayNode {
 
         let t = UIColor.theme
 
-        avatarContainerNode.backgroundColor = display.isAnonymousSender
-            ? t.tertiary
-            : UIColor.avatarColor(for: display.senderUsername)
+        avatarContainerNode.backgroundColor = display.isAnonymousSender ? t.tertiary : t.secondaryWeight
         avatarContainerNode.cornerRadius = Self.avatarSize / 2
         avatarContainerNode.clipsToBounds = true
-        avatarContainerNode.addSubnode(avatarPlaceholderNode)
         avatarContainerNode.addSubnode(avatarImageNode)
-
-        avatarPlaceholderNode.attributedText = NSAttributedString(
-            string: String(display.senderUsername.prefix(1)).uppercased(),
-            attributes: [
-                .font: UIFont.systemFont(ofSize: 14.sf, weight: .semibold),
-                .foregroundColor: UIColor.white,
-            ]
-        )
 
         let resolvedNameColor = interaction.resolveSenderRoleColor(display.message.senderId, t.textRoleLink)
         currentNameColor = resolvedNameColor
@@ -704,13 +692,6 @@ final class MessageBubbleNode: ASDisplayNode {
         let senderChanged = oldDisplay.message.senderId != newDisplay.message.senderId
         if !isCombine {
             if nameChanged || senderChanged {
-                avatarPlaceholderNode.attributedText = NSAttributedString(
-                    string: String(newDisplay.senderUsername.prefix(1)).uppercased(),
-                    attributes: [
-                        .font: UIFont.systemFont(ofSize: 14.sf, weight: .semibold),
-                        .foregroundColor: UIColor.white,
-                    ]
-                )
                 let resolvedNameColor = interaction.resolveSenderRoleColor(
                     newDisplay.message.senderId, t.textRoleLink
                 )
@@ -1167,7 +1148,6 @@ final class MessageBubbleNode: ASDisplayNode {
         if display.isAnonymousSender, (display.avatarURL ?? "").isEmpty {
             avatarContainerNode.backgroundColor = UIColor.theme.tertiary
             if let raw = UIImage(named: "Chat/AnonymousIcon") {
-                avatarPlaceholderNode.isHidden = true
                 let img = Self.anonymousAvatarCompositeImage(
                     raw: raw,
                     tint: UIColor.theme.textStrong
@@ -1179,27 +1159,33 @@ final class MessageBubbleNode: ASDisplayNode {
                 apply()
             } else {
                 avatarImageNode.reset()
-                avatarPlaceholderNode.isHidden = false
             }
             return
         }
         if let urlString = display.avatarURL, !urlString.isEmpty {
-            avatarPlaceholderNode.isHidden = true
             avatarContainerNode.backgroundColor = .clear
             let proxyURL = ImgproxyURL.create(from: urlString, width: 100, height: 100)
             let hasMem = ImageCache.shared.memoryImage(forKey: proxyURL) != nil
                 || ImageCache.shared.memoryImage(forKey: urlString) != nil
             avatarImageNode.reset()
-            avatarImageNode.setSignal(remoteAvatarSignal(proxiedURL: proxyURL, originalURL: urlString, sharesForNotifications: true), attemptSynchronously: hasMem)
+            avatarImageNode.setSignal(
+                remoteAvatarSignal(
+                    proxiedURL: proxyURL,
+                    originalURL: urlString,
+                    sharesForNotifications: true,
+                    fallbackImage: DefaultUserAvatar.image(side: size)
+                ),
+                attemptSynchronously: hasMem
+            )
             let avatarLayout = avatarImageNode.asyncLayout()
             let apply = avatarLayout(args)
             apply()
         } else {
             avatarImageNode.reset()
-            avatarPlaceholderNode.isHidden = false
-            avatarContainerNode.backgroundColor = display.isAnonymousSender
-                ? UIColor.theme.tertiary
-                : UIColor.avatarColor(for: display.senderUsername)
+            avatarImageNode.setSignal(staticImageSignal(image: DefaultUserAvatar.image(side: size)), attemptSynchronously: true)
+            let avatarLayout = avatarImageNode.asyncLayout()
+            let apply = avatarLayout(args)
+            apply()
         }
     }
 
@@ -1721,12 +1707,6 @@ final class MessageBubbleNode: ASDisplayNode {
             let avatarSz = Self.avatarSize
             avatarContainerNode.frame = CGRect(x: avatarX, y: y, width: avatarSz, height: avatarSz)
             avatarImageNode.frame = CGRect(origin: .zero, size: CGSize(width: avatarSz, height: avatarSz))
-            let phSize = avatarPlaceholderNode.measure(CGSize(width: avatarSz, height: avatarSz))
-            avatarPlaceholderNode.frame = CGRect(
-                x: (avatarSz - phSize.width) / 2,
-                y: (avatarSz - phSize.height) / 2,
-                width: phSize.width, height: phSize.height
-            )
 
             nameNode.frame = CGRect(x: contentX, y: y, width: cachedNameSize.width, height: cachedNameSize.height)
             let nameRowH = max(cachedNameSize.height, max(cachedTimeSize.height, cachedRoleIconSize.height))
@@ -2030,7 +2010,6 @@ private final class MessageShareContactNode: ASDisplayNode {
     private let actionBackgroundNode = ASDisplayNode()
     private let dividerNode = ASDisplayNode()
     private let avatarNode = ASImageNode()
-    private let avatarPlaceholderNode = ASTextNode2()
     private let nameNode = ASTextNode2()
     private let usernameNode = ASTextNode2()
     private let profileControl = UIButton(type: .custom)
@@ -2070,7 +2049,6 @@ private final class MessageShareContactNode: ASDisplayNode {
         avatarNode.borderWidth = 2
         avatarNode.borderColor = UIColor.white.cgColor
         addSubnode(avatarNode)
-        addSubnode(avatarPlaceholderNode)
 
         nameNode.maximumNumberOfLines = 2
         nameNode.truncationMode = .byTruncatingTail
@@ -2105,19 +2083,10 @@ private final class MessageShareContactNode: ASDisplayNode {
 
         let displayName = data.resolvedDisplayName
         let username = data.resolvedUsername
-        let avatarSeed = username.isEmpty ? displayName : username
 
-        avatarNode.backgroundColor = UIColor.avatarColor(for: avatarSeed)
+        avatarNode.backgroundColor = t.secondaryWeight
         avatarNode.image = nil
-        avatarPlaceholderNode.attributedText = NSAttributedString(
-            string: String(avatarSeed.prefix(1)).uppercased(),
-            attributes: [
-                .font: UIFont.systemFont(ofSize: 17.sf, weight: .semibold),
-                .foregroundColor: UIColor.white,
-            ]
-        )
-        avatarPlaceholderNode.isHidden = false
-        loadAvatar(data.avatar, seed: avatarSeed)
+        loadAvatar(data.avatar)
 
         nameNode.attributedText = NSAttributedString(
             string: displayName,
@@ -2145,15 +2114,14 @@ private final class MessageShareContactNode: ASDisplayNode {
         setNeedsLayout()
     }
 
-    private func loadAvatar(_ rawAvatar: String, seed: String) {
+    private func loadAvatar(_ rawAvatar: String) {
         avatarLoadGeneration += 1
         let generation = avatarLoadGeneration
         let avatar = rawAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
         let proxied = ImgproxyURL.avatarProxyURL(from: avatar, width: 120, height: 120)
         guard !proxied.isEmpty, URL(string: proxied) != nil else {
-            avatarNode.image = nil
-            avatarNode.backgroundColor = UIColor.avatarColor(for: seed)
-            avatarPlaceholderNode.isHidden = false
+            avatarNode.image = DefaultUserAvatar.image(side: 40)
+            avatarNode.backgroundColor = .clear
             return
         }
 
@@ -2161,7 +2129,6 @@ private final class MessageShareContactNode: ASDisplayNode {
             guard generation == avatarLoadGeneration else { return }
             avatarNode.image = cached
             avatarNode.backgroundColor = .clear
-            avatarPlaceholderNode.isHidden = true
             return
         }
 
@@ -2170,11 +2137,9 @@ private final class MessageShareContactNode: ASDisplayNode {
             if let image {
                 self.avatarNode.image = image
                 self.avatarNode.backgroundColor = .clear
-                self.avatarPlaceholderNode.isHidden = true
             } else {
-                self.avatarNode.image = nil
-                self.avatarNode.backgroundColor = UIColor.avatarColor(for: seed)
-                self.avatarPlaceholderNode.isHidden = false
+                self.avatarNode.image = DefaultUserAvatar.image(side: 40)
+                self.avatarNode.backgroundColor = .clear
             }
         }
     }
@@ -2217,13 +2182,6 @@ private final class MessageShareContactNode: ASDisplayNode {
         let gap: CGFloat = 12
         let avatarY = max((topHeight - avatarSide) / 2, 0)
         avatarNode.frame = CGRect(x: inset, y: avatarY, width: avatarSide, height: avatarSide)
-        let phSize = avatarPlaceholderNode.measure(CGSize(width: avatarSide, height: avatarSide))
-        avatarPlaceholderNode.frame = CGRect(
-            x: avatarNode.frame.minX + (avatarSide - phSize.width) / 2,
-            y: avatarNode.frame.minY + (avatarSide - phSize.height) / 2,
-            width: phSize.width,
-            height: phSize.height
-        )
 
         let textX = inset + avatarSide + gap
         let textWidth = max(bounds.width - textX - inset, 1)

@@ -42,7 +42,7 @@ final class MyQRCodeContainerNode: ASDisplayNode, ASNetworkImageNodeDelegate {
     private let cardNode = ASDisplayNode()
     private let cardGradientLayer = CAGradientLayer()
     private let editCenterImageButton = ASButtonNode()
-    private let avatarFallbackNode = TextAvatarNode(username: "", size: 48.swh)
+    private let avatarFallbackNode = TextAvatarNode(size: 48.swh)
     private let avatarNode = ASNetworkImageNode()
     private let nameNode = ASTextNode()
     private let usernameNode = ASTextNode()
@@ -54,7 +54,7 @@ final class MyQRCodeContainerNode: ASDisplayNode, ASNetworkImageNodeDelegate {
     private let qrTypeNode = ASTextNode()
     private let qrTypeBackgroundNode = ASDisplayNode()
     private let qrImageNode = ASImageNode()
-    private let qrLogoFallbackNode = TextAvatarNode(username: "", size: 48.swh)
+    private let qrLogoFallbackNode = TextAvatarNode(size: 48.swh)
     private let qrLogoNode = ASNetworkImageNode()
     private let verifiedIconNode = ASImageNode()
     private let verifiedTextNode = ASTextNode()
@@ -259,7 +259,7 @@ final class MyQRCodeContainerNode: ASDisplayNode, ASNetworkImageNodeDelegate {
         let username = user.map { $0.username.isEmpty ? displayName : $0.username }
             ?? displayName
 
-        avatarFallbackNode.configure(username: user?.username ?? "")
+        avatarFallbackNode.showPlaceholder()
         if let avatarURL = user?.avatarURL {
             if avatarNode.url == avatarURL, hasValidImage(avatarNode.image) {
                 avatarFallbackNode.showImageMode()
@@ -326,7 +326,7 @@ final class MyQRCodeContainerNode: ASDisplayNode, ASNetworkImageNodeDelegate {
         switch centerImageSelection {
         case .profileAvatar:
             let user = context.currentUser
-            qrLogoFallbackNode.configure(username: user?.username ?? "")
+            qrLogoFallbackNode.showPlaceholder()
             if let avatarURL = user?.avatarURL {
                 if qrLogoNode.url == avatarURL, hasValidImage(qrLogoNode.image) {
                     qrLogoFallbackNode.showImageMode()
