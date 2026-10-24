@@ -42,6 +42,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
     private var event: Mezon_Api_EventManagement
     private let onOpenChannel: ((Mezon_Api_ChannelDescription) -> Void)?
     private let onPresentJoinVoice: ((Mezon_Api_ChannelDescription) -> Void)?
+    private let onJoinExternalMeeting: ((ExternalMeetingRoom) -> Void)?
 
     private let segmentedControl = UISegmentedControl()
     private let scrollView = UIScrollView()
@@ -57,7 +58,8 @@ final class EventDetailBottomSheetViewController: UIViewController {
         channels: [Mezon_Api_ChannelDescription],
         event: Mezon_Api_EventManagement,
         onOpenChannel: ((Mezon_Api_ChannelDescription) -> Void)? = nil,
-        onPresentJoinVoice: ((Mezon_Api_ChannelDescription) -> Void)? = nil
+        onPresentJoinVoice: ((Mezon_Api_ChannelDescription) -> Void)? = nil,
+        onJoinExternalMeeting: ((ExternalMeetingRoom) -> Void)? = nil
     ) {
         self.context = context
         self.clanId = clanId
@@ -67,6 +69,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
         self.event = event
         self.onOpenChannel = onOpenChannel
         self.onPresentJoinVoice = onPresentJoinVoice
+        self.onJoinExternalMeeting = onJoinExternalMeeting
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .pageSheet
     }
@@ -372,6 +375,16 @@ final class EventDetailBottomSheetViewController: UIViewController {
         let actionsRow = makeActionsRow()
         stack.addArrangedSubview(actionsRow)
         actionsRow.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+
+        if event.isPrivate, eventURL != nil,
+           let meeting = ExternalMeetingRoom(externalLink: event.meetRoom.externalLink, title: event.title) {
+            let joinButton = actionButton(L(L10n.EventMenu.joinInApp), symbol: "speaker.wave.2.fill") { [weak self] in
+                self?.onJoinExternalMeeting?(meeting)
+            }
+            EventDisplayHelper.applyJoinInAppStyle(joinButton)
+            stack.addArrangedSubview(joinButton)
+            joinButton.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        }
 
         if event.isPrivate, eventURL != nil {
             let externalActions = UIStackView()

@@ -1953,6 +1953,47 @@ final class MezonHTTPClient {
         return response
     }
 
+    private static let meetExternalQueryAllowed = CharacterSet(
+        charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+    )
+
+    func generateMeetTokenExternal(code: String, username: String, metadata: String) async throws -> Mezon_Api_GenerateMeetTokenExternalResponse {
+        let data = try await retryingTransientRequest(operationName: "GenerateMeetTokenExternal") {
+            try await self.postMeetTokenExternalHTTP(code: code, username: username, metadata: metadata)
+        }
+        guard let response = try? Mezon_Api_GenerateMeetTokenExternalResponse(serializedBytes: data),
+              !response.token.isEmpty else {
+            throw MezonError.invalidResponse
+        }
+        return response
+    }
+
+    private func postMeetTokenExternalHTTP(code: String, username: String, metadata: String) async throws -> Data {
+        let allowed = Self.meetExternalQueryAllowed
+        guard var components = URLComponents(url: authBaseURL, resolvingAgainstBaseURL: false),
+              let encodedCode = code.addingPercentEncoding(withAllowedCharacters: allowed) else {
+            throw MezonError.invalidResponse
+        }
+        components.percentEncodedPath = "/v2/meet/external/\(encodedCode)"
+        components.percentEncodedQueryItems = [
+            URLQueryItem(name: "username", value: username.addingPercentEncoding(withAllowedCharacters: allowed)),
+            URLQueryItem(name: "metadata", value: metadata.addingPercentEncoding(withAllowedCharacters: allowed)),
+            URLQueryItem(name: "is_guest", value: "false"),
+        ]
+        guard let url = components.url else { throw MezonError.invalidResponse }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/x-protobuf", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await httpData(request)
+        guard let http = response as? HTTPURLResponse else { throw MezonError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else {
+            throw MezonError.httpError(statusCode: http.statusCode, message: apiFailureMessage(httpStatusCode: http.statusCode, data: data))
+        }
+        return data
+    }
+
     func muteMezonMeetParticipant(clanId: Int64, channelId: Int64, userId: Int64, token: String) async throws -> String {
         var req = Mezon_Api_MeetParticipantRequest()
         req.clanID = clanId

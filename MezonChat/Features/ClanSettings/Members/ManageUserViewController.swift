@@ -148,7 +148,7 @@ final class ManageUserViewController: BaseViewController {
         card.addSubview(stack)
 
         let avatarSize: CGFloat = 40.swh
-        let textAvatar = TextAvatarView(username: member.username, size: avatarSize)
+        let textAvatar = TextAvatarView(size: avatarSize)
         textAvatar.translatesAutoresizingMaskIntoConstraints = false
 
         let avatarImageView = UIImageView()

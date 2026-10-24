@@ -617,7 +617,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
     private let bannerNode = ASDisplayNode()
 
     private let avatarNode = ASImageNode()
-    private let textAvatarNode = TextAvatarNode(username: "", size: 80.sf, fontSize: 32.sf)
+    private let textAvatarNode = TextAvatarNode(size: 80.sf)
     private let statusDotNode = ASDisplayNode()
 
     private let infoCardNode = ASDisplayNode()
@@ -757,7 +757,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
             avatarNode.backgroundColor = t.tertiary
         } else {
             textAvatarNode.alpha = 1
-            textAvatarNode.configure(username: user.username, fontSize: 32.sf)
+            textAvatarNode.showPlaceholder()
         }
 
         statusDotNode.backgroundColor = user.online ? UIColor(red: 0.3, green: 0.78, blue: 0.47, alpha: 1) : UIColor.gray
@@ -1481,11 +1481,11 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
         scheduleBannerTintUpdate(from: image)
     }
 
-    private func showAvatarInitialsOnly() {
+    private func showAvatarPlaceholder() {
         avatarNode.image = nil
         avatarNode.backgroundColor = .clear
         textAvatarNode.alpha = 1
-        textAvatarNode.configure(username: user.username, fontSize: 32.sf)
+        textAvatarNode.showPlaceholder()
         resetBannerToUsernameAccent()
     }
 
@@ -1497,7 +1497,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
             return
         }
         guard let k = profileAvatarCacheKeys() else {
-            showAvatarInitialsOnly()
+            showAvatarPlaceholder()
             return
         }
         ImageCache.shared.loadAvatar(urlString: k.full) { [weak self] image in
@@ -1517,7 +1517,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
                     if let v = im {
                         self.applyLoadedAvatarImage(v)
                     } else {
-                        self.showAvatarInitialsOnly()
+                        self.showAvatarPlaceholder()
                     }
                 }
             }

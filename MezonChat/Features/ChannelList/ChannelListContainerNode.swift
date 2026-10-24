@@ -2067,6 +2067,7 @@ final class ChannelListContainerNode: ASDisplayNode {
             isChannelAppsExpanded = true
         }
 
+        ClanBannerDebug.log("ChannelListNode configure clanId=\(clanId) clanChanged=\(clanChanged) banner=\(bannerURL ?? "nil") hadBanner=\(hasClanBanner) headerH=\(currentHeaderH) tableInWindow=\(tableNode.isNodeLoaded && tableNode.view.window != nil) tableBounds=\(tableNode.bounds)")
         UIView.performWithoutAnimation {
             if let url = bannerURL, !url.isEmpty {
                 applyClanHeaderMetrics(hasBanner: true)
@@ -2086,11 +2087,13 @@ final class ChannelListContainerNode: ASDisplayNode {
                     verticalFittingPriority: .fittingSizeLevel
                 )
                 if header.frame.size.height != size.height {
+                    ClanBannerDebug.log("ChannelListNode configure tableHeaderView height \(header.frame.size.height) -> \(size.height)")
                     header.frame.size.height = size.height
                     tableNode.view.tableHeaderView = header
                 }
             }
         }
+        ClanBannerDebug.log("ChannelListNode configure done headerH=\(currentHeaderH) hasBanner=\(hasClanBanner)")
         if clanChanged && !isClanSwitching {
             tableNode.view.contentOffset = .zero
         }

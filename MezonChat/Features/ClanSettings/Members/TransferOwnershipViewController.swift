@@ -129,8 +129,7 @@ final class TransferOwnershipViewController: BaseViewController {
 
         let myMember = context.currentUser
         let myAvatarUrl = myMember?.avatarURL?.absoluteString ?? ""
-        let myUsername = myMember?.username ?? ""
-        let myAvatar = createAvatarView(url: myAvatarUrl, username: myUsername)
+        let myAvatar = createAvatarView(url: myAvatarUrl)
         avatarStack.addArrangedSubview(myAvatar)
 
         let arrowView = UIImageView(image: UIImage(systemName: "arrow.right")?.withRenderingMode(.alwaysTemplate))
@@ -143,7 +142,7 @@ final class TransferOwnershipViewController: BaseViewController {
         targetContainer.translatesAutoresizingMaskIntoConstraints = false
 
         let targetAvatarUrl = targetMember.clanAvatar.isEmpty ? targetMember.userAvatarURL : targetMember.clanAvatar
-        let targetAvatar = createAvatarView(url: targetAvatarUrl, username: targetMember.username)
+        let targetAvatar = createAvatarView(url: targetAvatarUrl)
         targetAvatar.translatesAutoresizingMaskIntoConstraints = false
         targetContainer.addSubview(targetAvatar)
 
@@ -175,9 +174,9 @@ final class TransferOwnershipViewController: BaseViewController {
         contentStack.addArrangedSubview(avatarStack)
     }
 
-    private func createAvatarView(url: String, username: String) -> UIView {
+    private func createAvatarView(url: String) -> UIView {
         let size: CGFloat = 80.swh
-        let textAvatar = TextAvatarView(username: username, size: size, fontSize: 28.sf)
+        let textAvatar = TextAvatarView(size: size)
         textAvatar.translatesAutoresizingMaskIntoConstraints = false
 
         let imageView = UIImageView()
@@ -193,6 +192,8 @@ final class TransferOwnershipViewController: BaseViewController {
                 if let image {
                     imageView.image = image
                     textAvatar.showImageMode()
+                } else {
+                    textAvatar.showPlaceholder()
                 }
             }
         } else {

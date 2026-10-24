@@ -114,7 +114,7 @@ private final class DmMessageActivityCell: UICollectionViewCell {
     static let reuseId = "DmMessageActivityCell"
 
     private let card = UIView()
-    private let textAvatar = TextAvatarView(username: "", size: 36.swh, fontSize: 14.sf)
+    private let textAvatar = TextAvatarView(size: 36.swh)
     private let avatarImageView = UIImageView()
     private let nameLabel = UILabel()
     private let subtitleLabel = UILabel()
@@ -220,17 +220,17 @@ private final class DmMessageActivityCell: UICollectionViewCell {
             return nil
         }()
         if let url = resolvedURL {
-            loadAvatar(url: url, fallbackUsername: item.username)
+            loadAvatar(url: url)
         } else {
             avatarLoadGeneration += 1
             isAvatarLoadInFlight = false
             configuredAvatarURLString = nil
             avatarImageView.image = nil
-            textAvatar.configure(username: item.username, fontSize: 14.sf)
+            textAvatar.showPlaceholder()
         }
     }
 
-    private func loadAvatar(url: URL, fallbackUsername: String) {
+    private func loadAvatar(url: URL) {
         let source = url.absoluteString
         if configuredAvatarURLString == source && (isAvatarLoadInFlight || avatarImageView.image != nil) {
             return
@@ -250,7 +250,7 @@ private final class DmMessageActivityCell: UICollectionViewCell {
         }
         avatarImageView.image = nil
         isAvatarLoadInFlight = true
-        textAvatar.configure(username: fallbackUsername, fontSize: 14.sf)
+        textAvatar.showPlaceholder()
         ImageCache.shared.loadAvatar(urlString: proxied) { [weak self] image in
             if let image { Self.avatarMemoryCache.setObject(image, forKey: proxiedKey) }
             guard let self, gen == self.avatarLoadGeneration else { return }
@@ -260,7 +260,7 @@ private final class DmMessageActivityCell: UICollectionViewCell {
                 self.textAvatar.showImageMode()
             } else {
                 self.avatarImageView.image = nil
-                self.textAvatar.configure(username: fallbackUsername, fontSize: 14.sf)
+                self.textAvatar.showPlaceholder()
             }
         }
     }

@@ -17,15 +17,6 @@ final class SharingChannelCell: UITableViewCell {
         return iv
     }()
 
-    private let avatarPlaceholder: UILabel = {
-        let l = UILabel()
-        l.translatesAutoresizingMaskIntoConstraints = false
-        l.font = .systemFont(ofSize: 12, weight: .semibold)
-        l.textColor = .white
-        l.textAlignment = .center
-        return l
-    }()
-
     private let channelIconView: UIImageView = {
         let iv = UIImageView()
         iv.translatesAutoresizingMaskIntoConstraints = false
@@ -114,6 +105,7 @@ final class SharingChannelCell: UITableViewCell {
     }()
 
     private var mainImageTask: URLSessionDataTask?
+    private var mainAvatarGeneration = 0
     private var clanImageTask: URLSessionDataTask?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
@@ -125,14 +117,13 @@ final class SharingChannelCell: UITableViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        mainAvatarGeneration += 1
         mainImageTask?.cancel()
         clanImageTask?.cancel()
         mainImageTask = nil
         clanImageTask = nil
         avatarView.image = nil
         clanAvatarView.image = nil
-        avatarPlaceholder.text = nil
-        avatarPlaceholder.isHidden = true
         channelIconView.isHidden = true
         checkmarkView.isHidden = true
         clanRowStack.isHidden = true
@@ -151,7 +142,6 @@ final class SharingChannelCell: UITableViewCell {
         selectionStyle = .none
 
         contentView.addSubview(avatarView)
-        avatarView.addSubview(avatarPlaceholder)
         avatarView.addSubview(channelIconView)
         contentView.addSubview(textColumnStack)
         textColumnStack.addArrangedSubview(nameLabel)
@@ -171,9 +161,6 @@ final class SharingChannelCell: UITableViewCell {
             avatarView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             avatarView.widthAnchor.constraint(equalToConstant: avatarSize),
             avatarView.heightAnchor.constraint(equalToConstant: avatarSize),
-
-            avatarPlaceholder.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
-            avatarPlaceholder.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
 
             channelIconView.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
             channelIconView.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
@@ -263,19 +250,13 @@ final class SharingChannelCell: UITableViewCell {
         if isDM {
             channelIconView.isHidden = true
             let urlStr = item.avatarURL ?? ch?.avatars.first
-            let avatarSeed = ch?.usernames.first ?? item.displayName
+            avatarView.backgroundColor = theme.secondaryWeight
             if let s = urlStr, !s.isEmpty {
-                avatarPlaceholder.isHidden = true
-                avatarView.backgroundColor = UIColor.avatarColor(for: avatarSeed)
-                loadMainAvatar(raw: s)
+                loadMainAvatar(raw: s, fallbackImage: DefaultUserAvatar.image(side: 32))
             } else {
-                avatarView.image = nil
-                avatarView.backgroundColor = UIColor.avatarColor(for: avatarSeed)
-                avatarPlaceholder.isHidden = false
-                avatarPlaceholder.text = String(avatarSeed.prefix(1)).uppercased()
+                avatarView.image = DefaultUserAvatar.image(side: 32)
             }
         } else if isGroup {
-            avatarPlaceholder.isHidden = true
             channelIconView.isHidden = false
             channelIconView.image = UIImage(systemName: "person.2.fill")?.withRenderingMode(.alwaysTemplate)
             channelIconView.tintColor = theme.iconSecondary
@@ -290,7 +271,6 @@ final class SharingChannelCell: UITableViewCell {
             }
         } else {
             avatarView.image = nil
-            avatarPlaceholder.isHidden = true
             channelIconView.isHidden = false
             let iconName: String
             if let ch {
@@ -310,7 +290,9 @@ final class SharingChannelCell: UITableViewCell {
         checkmarkView.isHidden = isForwardingBlocked || !isSelected
     }
 
-    private func loadMainAvatar(raw: String) {
+    private func loadMainAvatar(raw: String, fallbackImage: UIImage? = nil) {
+        mainAvatarGeneration += 1
+        let generation = mainAvatarGeneration
         let proxied = SharingImageProxy.proxiedAvatarURLString(raw)
         guard !proxied.isEmpty else { return }
         if let cached = ImageCache.shared.cachedImage(forURL: proxied) {
@@ -319,9 +301,11 @@ final class SharingChannelCell: UITableViewCell {
             return
         }
         mainImageTask = ImageCache.shared.loadImage(urlString: proxied) { [weak self] image in
-            self?.avatarView.image = image
-            if image != nil {
-                self?.avatarView.backgroundColor = .clear
+            guard let self, generation == self.mainAvatarGeneration else { return }
+            let shown = image ?? fallbackImage
+            self.avatarView.image = shown
+            if shown != nil {
+                self.avatarView.backgroundColor = .clear
             }
         }
     }

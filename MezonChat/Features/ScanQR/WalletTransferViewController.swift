@@ -775,7 +775,7 @@ private struct TransferRecipientRow {
 private final class TransferRecipientPickerCell: UITableViewCell {
 
     static let reuseId = "TransferRecipientPickerCell"
-    private let textAvatar = TextAvatarView(username: "", size: 34, fontSize: 12)
+    private let textAvatar = TextAvatarView(size: 34)
     private let avatarImageView: UIImageView = {
         let iv = UIImageView()
         iv.translatesAutoresizingMaskIntoConstraints = false
@@ -831,11 +831,11 @@ private final class TransferRecipientPickerCell: UITableViewCell {
         if !row.avatarURL.isEmpty {
             let proxied = ImgproxyURL.create(from: row.avatarURL, width: 68, height: 68)
             if let url = URL(string: proxied) {
-                loadAvatar(from: url, key: proxied, fallbackUsername: row.user.username)
+                loadAvatar(from: url, key: proxied)
                 return
             }
         }
-        textAvatar.configure(username: row.user.username, fontSize: 12)
+        textAvatar.showPlaceholder()
     }
 
     private func cancelAvatarLoad() {
@@ -844,7 +844,7 @@ private final class TransferRecipientPickerCell: UITableViewCell {
         currentAvatarKey = nil
     }
 
-    private func loadAvatar(from url: URL, key: String, fallbackUsername: String) {
+    private func loadAvatar(from url: URL, key: String) {
         currentAvatarKey = key
         if let cached = ImageCache.shared.image(forKey: key) {
             avatarImageView.image = cached
@@ -860,7 +860,7 @@ private final class TransferRecipientPickerCell: UITableViewCell {
                     self.avatarImageView.image = image
                     self.textAvatar.showImageMode()
                 } else {
-                    self.textAvatar.configure(username: fallbackUsername, fontSize: 12)
+                    self.textAvatar.showPlaceholder()
                 }
             }
         }

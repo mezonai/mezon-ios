@@ -601,6 +601,7 @@ public protocol CustomViewControllerNavigationDataSummary: AnyObject {
     }
 
     override open func dismiss(animated flag: Bool, completion: (() -> Void)? = nil) {
+        ClanBannerDebug.log("ViewController.dismiss on \(type(of: self)) inNav=\(self.navigationController is NavigationController) presenting=\(self.presentingViewController.map { String(describing: type(of: $0)) } ?? "nil")\n    \(ClanBannerDebug.shortStack())")
         if let navigationController = self.navigationController as? NavigationController {
             var animated = flag
             if case .standaloneModal = self.navigationPresentation {

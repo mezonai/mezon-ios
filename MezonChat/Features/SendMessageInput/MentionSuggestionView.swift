@@ -105,15 +105,6 @@ private final class MentionSuggestionCell: UITableViewCell {
         return iv
     }()
 
-    private let placeholderLabel: UILabel = {
-        let lbl = UILabel()
-        lbl.translatesAutoresizingMaskIntoConstraints = false
-        lbl.textAlignment = .center
-        lbl.font = .systemFont(ofSize: 12, weight: .semibold)
-        lbl.textColor = .white
-        return lbl
-    }()
-
     private let nameLabel: UILabel = {
         let lbl = UILabel()
         lbl.translatesAutoresizingMaskIntoConstraints = false
@@ -145,7 +136,6 @@ private final class MentionSuggestionCell: UITableViewCell {
     private func setupViews() {
         selectionStyle = .none
         contentView.addSubview(avatarImageView)
-        contentView.addSubview(placeholderLabel)
         contentView.addSubview(nameLabel)
         contentView.addSubview(usernameLabel)
 
@@ -158,9 +148,6 @@ private final class MentionSuggestionCell: UITableViewCell {
             avatarImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             avatarWidthConstraint,
             avatarImageView.heightAnchor.constraint(equalToConstant: 28),
-
-            placeholderLabel.centerXAnchor.constraint(equalTo: avatarImageView.centerXAnchor),
-            placeholderLabel.centerYAnchor.constraint(equalTo: avatarImageView.centerYAnchor),
 
             nameLeadingToAvatarConstraint,
             nameLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
@@ -178,7 +165,6 @@ private final class MentionSuggestionCell: UITableViewCell {
         contentView.backgroundColor = t.secondary
         cancelAvatarLoad()
         avatarImageView.isHidden = false
-        placeholderLabel.isHidden = true
         avatarImageView.image = nil
         avatarImageView.tintColor = nil
         avatarImageView.contentMode = .scaleAspectFill
@@ -197,14 +183,13 @@ private final class MentionSuggestionCell: UITableViewCell {
             if let raw = member.avatarURL, !raw.isEmpty {
                 let proxied = ImgproxyURL.create(from: raw, width: 56, height: 56)
                 if let imageURL = URL(string: proxied) {
-                    placeholderLabel.isHidden = true
-                    avatarImageView.backgroundColor = UIColor.avatarColor(for: member.username)
-                    loadAvatar(from: imageURL, key: proxied)
+                    avatarImageView.backgroundColor = t.secondaryWeight
+                    loadAvatar(from: imageURL, key: proxied, fallbackImage: DefaultUserAvatar.image(side: 28))
                 } else {
-                    showPlaceholder(for: member.displayName, username: member.username)
+                    showUserPlaceholder()
                 }
             } else {
-                showPlaceholder(for: member.displayName, username: member.username)
+                showUserPlaceholder()
             }
 
         case .role(_, let title, let colorHex, let iconURL):
@@ -237,11 +222,9 @@ private final class MentionSuggestionCell: UITableViewCell {
         }
     }
 
-    private func showPlaceholder(for displayName: String, username: String) {
-        avatarImageView.backgroundColor = UIColor.avatarColor(for: username)
-        let initial = String(username.prefix(1)).uppercased()
-        placeholderLabel.text = initial
-        placeholderLabel.isHidden = false
+    private func showUserPlaceholder() {
+        avatarImageView.image = DefaultUserAvatar.image(side: 28)
+        avatarImageView.backgroundColor = .clear
     }
 
     private func showRolePlaceholder(accent: UIColor) {
@@ -257,7 +240,7 @@ private final class MentionSuggestionCell: UITableViewCell {
         currentAvatarURL = nil
     }
 
-    private func loadAvatar(from url: URL, key: String) {
+    private func loadAvatar(from url: URL, key: String, fallbackImage: UIImage? = nil) {
         currentAvatarURL = key
         if let cached = ImageCache.shared.image(forKey: key) {
             avatarImageView.image = cached
@@ -265,12 +248,16 @@ private final class MentionSuggestionCell: UITableViewCell {
             return
         }
         avatarImageView.image = nil
-        let task = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data, let image = UIImage(data: data) else { return }
-            ImageCache.shared.setImage(image, data: data, forKey: key)
+        let task = URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
+            if ImageCache.isCancellation(error) { return }
+            let image = data.flatMap { UIImage(data: $0) }
+            if let data, let image {
+                ImageCache.shared.setImage(image, data: data, forKey: key)
+            }
+            guard let shown = image ?? fallbackImage else { return }
             DispatchQueue.main.async {
                 guard let self, self.currentAvatarURL == key else { return }
-                self.avatarImageView.image = image
+                self.avatarImageView.image = shown
                 self.avatarImageView.backgroundColor = .clear
             }
         }
@@ -284,8 +271,6 @@ private final class MentionSuggestionCell: UITableViewCell {
         avatarImageView.image = nil
         avatarImageView.tintColor = nil
         avatarImageView.backgroundColor = .clear
-        placeholderLabel.text = nil
-        placeholderLabel.textColor = .white
         nameLabel.text = nil
         usernameLabel.text = nil
         avatarImageView.isHidden = false

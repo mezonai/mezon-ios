@@ -1543,6 +1543,7 @@ final class AccountContextImpl: AccountContext {
             engine.clanData.applyClanEventFromSocket(ev)
 
         case .clanUpdated(let ev):
+            ClanBannerDebug.log("socket clanUpdated clanId=\(ev.clanID) logo=\(ev.logo) banner=\(ev.banner)")
             account.postbox.write { tx in
                 guard let existingClan = tx.getClan(id: ev.clanID) else { return }
                 var d = (try? Mezon_Api_ClanDesc(serializedBytes: existingClan.data)) ?? Mezon_Api_ClanDesc()

@@ -785,15 +785,6 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
         return iv
     }()
 
-    private let initialsLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 14.sf, weight: .semibold)
-        l.textColor = .white
-        l.textAlignment = .center
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
-    }()
-
     private let avatarContainer: UIView = {
         let v = UIView()
         v.clipsToBounds = true
@@ -835,7 +826,6 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
 
         contentView.addSubview(avatarContainer)
         avatarContainer.addSubview(avatarImageView)
-        avatarContainer.addSubview(initialsLabel)
         avatarContainer.addSubview(groupIconView)
         contentView.addSubview(badgeLabel)
 
@@ -852,9 +842,6 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
             avatarImageView.leadingAnchor.constraint(equalTo: avatarContainer.leadingAnchor),
             avatarImageView.trailingAnchor.constraint(equalTo: avatarContainer.trailingAnchor),
             avatarImageView.bottomAnchor.constraint(equalTo: avatarContainer.bottomAnchor),
-
-            initialsLabel.centerXAnchor.constraint(equalTo: avatarContainer.centerXAnchor),
-            initialsLabel.centerYAnchor.constraint(equalTo: avatarContainer.centerYAnchor),
 
             groupIconView.centerXAnchor.constraint(equalTo: avatarContainer.centerXAnchor),
             groupIconView.centerYAnchor.constraint(equalTo: avatarContainer.centerYAnchor),
@@ -876,7 +863,6 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
         imageTask = nil
         boundChannelId = nil
         avatarImageView.image = nil
-        initialsLabel.text = nil
         groupIconView.isHidden = true
         avatarContainer.backgroundColor = .clear
         badgeLabel.isHidden = true
@@ -891,10 +877,6 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
         boundChannelId = expectChannelId
 
         let isDM = dm.type == MezonConstants.ChannelType.dm.rawValue
-        let username = dm.usernames.first ?? ""
-        let avatarSeed = username
-        let name = avatarSeed
-        let placeholderBg = UIColor.avatarColor(for: avatarSeed)
 
         let avatarURL: String
         if isDM {
@@ -910,7 +892,6 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
             avatarContainer.backgroundColor = .clear
             let proxyURL = ImgproxyURL.create(from: resolvedAvatarURL, width: 150, height: 150)
             avatarImageView.isHidden = false
-            initialsLabel.isHidden = true
             imageTask?.cancel()
             imageTask = nil
             if let cached = ImageCache.shared.cachedImage(forURL: proxyURL) {
@@ -921,11 +902,10 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
                 avatarImageView.image = nil
                 loadDmAvatar(
                     proxyURL: proxyURL, expectChannelId: expectChannelId, generation: generation,
-                    isDM: isDM, placeholderBg: placeholderBg, name: name, attempt: 0)
+                    isDM: isDM, attempt: 0)
             }
         } else {
-            avatarImageView.isHidden = true
-            applyDmAvatarFallback(isDM: isDM, placeholderBg: placeholderBg, name: name)
+            applyDmAvatarFallback(isDM: isDM)
         }
 
         let count = dm.countMessUnread
@@ -942,7 +922,7 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
 
     private func loadDmAvatar(
         proxyURL: String, expectChannelId: Int64, generation: Int,
-        isDM: Bool, placeholderBg: UIColor, name: String, attempt: Int
+        isDM: Bool, attempt: Int
     ) {
         imageTask = ImageCache.shared.loadImage(urlString: proxyURL) { [weak self] image in
             guard let self else { return }
@@ -950,7 +930,6 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
             if let image {
                 self.avatarImageView.image = image
                 self.avatarImageView.isHidden = false
-                self.initialsLabel.isHidden = true
                 self.contentView.setNeedsLayout()
                 self.contentView.layoutIfNeeded()
             } else if attempt < sidebarAvatarLoadRetryDelays.count {
@@ -959,26 +938,25 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
                     guard self.boundChannelId == expectChannelId, self.dmAvatarGeneration == generation else { return }
                     self.loadDmAvatar(
                         proxyURL: proxyURL, expectChannelId: expectChannelId, generation: generation,
-                        isDM: isDM, placeholderBg: placeholderBg, name: name, attempt: attempt + 1)
+                        isDM: isDM, attempt: attempt + 1)
                 }
             } else {
-                self.applyDmAvatarFallback(isDM: isDM, placeholderBg: placeholderBg, name: name)
+                self.applyDmAvatarFallback(isDM: isDM)
                 self.contentView.setNeedsLayout()
                 self.contentView.layoutIfNeeded()
             }
         }
     }
 
-    private func applyDmAvatarFallback(isDM: Bool, placeholderBg: UIColor, name: String) {
-        avatarImageView.isHidden = true
+    private func applyDmAvatarFallback(isDM: Bool) {
         if isDM {
             groupIconView.isHidden = true
-            avatarContainer.backgroundColor = placeholderBg
-            initialsLabel.isHidden = false
-            initialsLabel.text = String(name.prefix(1)).uppercased()
+            avatarContainer.backgroundColor = .clear
+            avatarImageView.image = DefaultUserAvatar.image(side: ClanListContainerNode.iconSize)
+            avatarImageView.isHidden = false
         } else {
+            avatarImageView.isHidden = true
             avatarContainer.backgroundColor = .groupDMDefaultAvatar
-            initialsLabel.isHidden = true
             groupIconView.tintColor = .white
             groupIconView.isHidden = false
         }

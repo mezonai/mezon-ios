@@ -29,7 +29,7 @@ final class PeerCallViewController: ViewController {
 
     private let avatarBlock = UIView()
     private let ringContainer = UIView()
-    private let textAvatarView = TextAvatarView(username: "", size: 100, fontSize: 40)
+    private let textAvatarView = TextAvatarView(size: 100)
     private let avatarImageView = UIImageView()
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
@@ -1086,7 +1086,7 @@ final class PeerCallViewController: ViewController {
     }
 
     private func loadRemoteAvatar() {
-        textAvatarView.configure(username: remoteDisplayNameForBanner, fontSize: 40)
+        textAvatarView.showPlaceholder()
         avatarImageView.image = nil
         let urlString = remoteAvatarURLString() ?? ""
         guard !urlString.isEmpty else {

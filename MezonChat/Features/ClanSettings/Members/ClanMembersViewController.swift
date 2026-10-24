@@ -315,7 +315,7 @@ final class ClanMembersViewController: BaseViewController, UITableViewDataSource
 private final class MemberCell: UITableViewCell {
     static let reuseId = "MemberCell"
 
-    private let textAvatar = TextAvatarView(username: "", size: 40.swh)
+    private let textAvatar = TextAvatarView(size: 40.swh)
     private let avatarView = UIImageView()
     private let displayNameLabel = UILabel()
     private let usernameLabel = UILabel()
@@ -412,7 +412,7 @@ private final class MemberCell: UITableViewCell {
         chevronView.isHidden = !showChevron
 
         let avatarURL = member.clanAvatar.isEmpty ? member.userAvatarURL : member.clanAvatar
-        textAvatar.configure(username: member.username)
+        textAvatar.showPlaceholder()
         
         if !avatarURL.isEmpty {
             avatarView.isHidden = false

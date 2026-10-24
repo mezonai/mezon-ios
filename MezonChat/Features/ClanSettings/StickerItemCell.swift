@@ -27,7 +27,7 @@ final class StickerItemCell: UITableViewCell {
     private let forSaleBadgeHost = UIView()
     private let forSaleBadgeView = UIImageView()
     private let nameTextField = UITextField()
-    private let creatorTextAvatar = TextAvatarView(username: "", size: creatorAvatarSize, fontSize: 12.sf)
+    private let creatorTextAvatar = TextAvatarView(size: creatorAvatarSize)
     private let creatorAvatarImageView = UIImageView()
     private let creatorNameLabel = UILabel()
     private let emptyStateLabel = UILabel()
@@ -322,7 +322,7 @@ final class StickerItemCell: UITableViewCell {
         isUserInteractionEnabled = true
         applyRowSeparator(isLast: isLast)
 
-        loadCreatorAvatar(creatorAvatar, displayName: creatorName)
+        loadCreatorAvatar(creatorAvatar)
         loadStickerIcon(sticker)
     }
 
@@ -449,19 +449,12 @@ final class StickerItemCell: UITableViewCell {
         }
     }
 
-    private func loadCreatorAvatar(_ avatar: String?, displayName: String) {
+    private func loadCreatorAvatar(_ avatar: String?) {
         creatorAvatarLoadGeneration += 1
         let generation = creatorAvatarLoadGeneration
-        let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let hasDisplayName = !trimmedName.isEmpty
 
         creatorAvatarImageView.image = nil
-        creatorAvatarImageView.tintColor = nil
-        if hasDisplayName {
-            creatorTextAvatar.configure(username: trimmedName, fontSize: 12.sf)
-        } else {
-            setLegacyPlaceholderAvatar()
-        }
+        creatorTextAvatar.showPlaceholder()
 
         guard let avatar, !avatar.isEmpty else { return }
 
@@ -472,31 +465,15 @@ final class StickerItemCell: UITableViewCell {
 
         if let cached = ImageCache.shared.memoryImage(forKey: resolvedKey) {
             creatorAvatarImageView.image = cached
-            creatorAvatarImageView.tintColor = nil
             creatorTextAvatar.showImageMode()
             return
         }
 
         ImageCache.shared.loadAvatar(urlString: resolvedKey) { [weak self] image in
-            guard let self, generation == self.creatorAvatarLoadGeneration else { return }
-            if let image {
-                self.creatorAvatarImageView.image = image
-                self.creatorAvatarImageView.tintColor = nil
-                self.creatorTextAvatar.showImageMode()
-            } else if hasDisplayName {
-                self.creatorAvatarImageView.image = nil
-                self.creatorTextAvatar.configure(username: trimmedName, fontSize: 12.sf)
-            } else {
-                self.setLegacyPlaceholderAvatar()
-            }
+            guard let self, generation == self.creatorAvatarLoadGeneration, let image else { return }
+            self.creatorAvatarImageView.image = image
+            self.creatorTextAvatar.showImageMode()
         }
-    }
-
-    private func setLegacyPlaceholderAvatar() {
-        creatorTextAvatar.showImageMode()
-        creatorAvatarImageView.image = UIImage(systemName: "person.circle.fill")?
-            .withRenderingMode(.alwaysTemplate)
-        creatorAvatarImageView.tintColor = UIColor.theme.textDisabled
     }
 
     private func loadStickerIcon(_ sticker: CachedClanStickerRecord) {

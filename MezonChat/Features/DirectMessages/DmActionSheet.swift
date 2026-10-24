@@ -414,7 +414,9 @@ private final class DmActionSheetNode: ASDisplayNode, UIGestureRecognizerDelegat
     private func buildHeader(width: CGFloat) -> UIView {
         let v = UIView()
         let avatarSize: CGFloat = 56.swh
-        let avatar = TextAvatarView(username: menuContext.userName, size: avatarSize, fontSize: 18.sf)
+        let avatar = menuContext.isGroup
+            ? TextAvatarView(username: menuContext.userName, size: avatarSize, fontSize: 18.sf)
+            : TextAvatarView(size: avatarSize)
         avatar.frame = CGRect(x: 0, y: 0, width: avatarSize, height: avatarSize)
         avatar.layer.cornerRadius = menuContext.isGroup ? 12.swh : avatarSize / 2
         v.addSubview(avatar)
@@ -444,6 +446,8 @@ private final class DmActionSheetNode: ASDisplayNode, UIGestureRecognizerDelegat
                     avatar?.showPlaceholder()
                 }
             }
+        } else {
+            avatar.showPlaceholder()
         }
 
         let textX = avatarSize + 12.sw

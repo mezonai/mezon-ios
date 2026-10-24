@@ -231,7 +231,6 @@ final class ChannelItemCellNode: ASCellNode {
 
 struct VoiceMemberDisplay: Equatable {
     let name: String
-    let username: String
     let avatarURL: String?
     var isSharingScreen: Bool = false
 }
@@ -245,9 +244,9 @@ final class VoiceAvatarNode: ASDisplayNode, ASNetworkImageNodeDelegate {
     }()
 
     private let imgNode = ASNetworkImageNode()
-    private let initNode = ASTextNode2()
     private let proxiedURL: URL?
     private let originalURL: URL?
+    private let avatarSide: CGFloat
 
     private var didLoadImage = false
     private var usingFallback = false
@@ -275,23 +274,13 @@ final class VoiceAvatarNode: ASDisplayNode, ASNetworkImageNodeDelegate {
             proxiedURL = nil
             originalURL = nil
         }
+        avatarSide = s
         super.init()
         automaticallyManagesSubnodes = true
         style.preferredSize = CGSize(width: s, height: s)
         cornerRadius = s / 2
         clipsToBounds = true
-        let avatarSeed = m.username.isEmpty ? m.name : m.username
-        backgroundColor = UIColor.avatarColor(for: avatarSeed)
-
-        let initial = String(avatarSeed.prefix(1)).uppercased()
-        let fontSize: CGFloat = s < 22 ? 9 : 11
-        initNode.maximumNumberOfLines = 1
-        initNode.attributedText = NSAttributedString(
-            string: initial,
-            attributes: [
-                .font: UIFont.systemFont(ofSize: fontSize, weight: .bold),
-                .foregroundColor: UIColor.white,
-            ])
+        backgroundColor = UIColor.theme.secondaryWeight
 
         imgNode.style.preferredSize = CGSize(width: s, height: s)
         imgNode.cornerRadius = s / 2
@@ -316,7 +305,7 @@ final class VoiceAvatarNode: ASDisplayNode, ASNetworkImageNodeDelegate {
                 )
             }
         } else {
-            imgNode.isHidden = true
+            imgNode.image = DefaultUserAvatar.image(side: s)
         }
     }
 
@@ -325,8 +314,7 @@ final class VoiceAvatarNode: ASDisplayNode, ASNetworkImageNodeDelegate {
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        let center = ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: initNode)
-        return ASOverlayLayoutSpec(child: center, overlay: imgNode)
+        ASWrapperLayoutSpec(layoutElement: imgNode)
     }
 
     private func reloadAvatar() {
@@ -363,7 +351,10 @@ final class VoiceAvatarNode: ASDisplayNode, ASNetworkImageNodeDelegate {
             }
             return
         }
-        guard retryCount < Self.maxRetries else { return }
+        guard retryCount < Self.maxRetries else {
+            imageNode.defaultImage = DefaultUserAvatar.image(side: avatarSide)
+            return
+        }
         retryCount += 1
         let delay = Double(retryCount) * 1.5
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
@@ -410,9 +401,7 @@ final class VoiceMemberExpandedCellNode: ASCellNode {
 
     func update(member: VoiceMemberDisplay) {
         guard self.member != member else { return }
-        let oldSeed = self.member.username.isEmpty ? self.member.name : self.member.username
-        let newSeed = member.username.isEmpty ? member.name : member.username
-        if self.member.avatarURL != member.avatarURL || oldSeed != newSeed {
+        if self.member.avatarURL != member.avatarURL {
             avatarNode = VoiceAvatarNode(member: member, size: Self.avatarSize)
         }
         if self.member.name != member.name {

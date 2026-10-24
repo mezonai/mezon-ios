@@ -1290,7 +1290,6 @@ final class SearchViewController: ViewController {
         if VoiceAgentIdentity.isAgent(uid) {
             return VoiceMemberDisplay(
                 name: VoiceAgentIdentity.displayName,
-                username: VoiceAgentIdentity.displayName,
                 avatarURL: VoiceAgentIdentity.avatarURL,
                 isSharingScreen: context.engine.clanData.voiceScreenSharingUserIds(clanId: clanIdForChannel).contains(uid)
             )
@@ -1305,7 +1304,6 @@ final class SearchViewController: ViewController {
         }.first(where: { $0.userId == uidInt })
 
         let name: String
-        let username: String
         if let m = member {
             if !m.clanNick.isEmpty {
                 name = m.clanNick
@@ -1316,10 +1314,8 @@ final class SearchViewController: ViewController {
             } else {
                 return nil
             }
-            username = m.username
         } else if let profile {
             name = (profile.displayName?.isEmpty == false ? profile.displayName : nil) ?? profile.username
-            username = profile.username
         } else {
             return nil
         }
@@ -1331,7 +1327,7 @@ final class SearchViewController: ViewController {
             avatar = profile?.avatarUrl.flatMap { $0.isEmpty ? nil : $0 }
         }
 
-        return VoiceMemberDisplay(name: name, username: username, avatarURL: avatar)
+        return VoiceMemberDisplay(name: name, avatarURL: avatar)
     }
 
     private func presentJoinVoiceSheet(for channel: Mezon_Api_ChannelDescription) {
@@ -2361,7 +2357,6 @@ final class SearchEmptyCellNode: ASCellNode {
 
 final class MemberSearchCellNode: ASCellNode, ASNetworkImageNodeDelegate {
     private let avatarBackplate = ASDisplayNode()
-    private let avatarPlaceholderNode = ASTextNode2()
     private let avatarNode = ASNetworkImageNode()
     private let statusDotNode = ASDisplayNode()
     private let nameNode = ASTextNode2()
@@ -2370,7 +2365,6 @@ final class MemberSearchCellNode: ASCellNode, ASNetworkImageNodeDelegate {
     private let isFirst: Bool
     private let isLast: Bool
     private let hasUsername: Bool
-    private let avatarColorSeed: String
     private var avatarURLCandidates: [URL] = []
     private var avatarURLCandidateIndex: Int = 0
     private var avatarURLLoadKey: String = ""
@@ -2391,7 +2385,6 @@ final class MemberSearchCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         self.isFirst = isFirst
         self.isLast = isLast
         self.hasUsername = !user.username.isEmpty
-        self.avatarColorSeed = user.username
         super.init()
         selectionStyle = .none
         let t = UIColor.theme
@@ -2412,9 +2405,7 @@ final class MemberSearchCellNode: ASCellNode, ASNetworkImageNodeDelegate {
 
         avatarBackplate.cornerRadius = Self.avatarSize / 2
         avatarBackplate.clipsToBounds = true
-        avatarBackplate.backgroundColor = UIColor.avatarColor(for: avatarColorSeed)
-
-        avatarPlaceholderNode.maximumNumberOfLines = 1
+        avatarBackplate.backgroundColor = t.secondaryWeight
 
         avatarNode.cornerRadius = Self.avatarSize / 2
         avatarNode.clipsToBounds = true
@@ -2446,22 +2437,6 @@ final class MemberSearchCellNode: ASCellNode, ASNetworkImageNodeDelegate {
             )
         }
 
-        let initialSource = user.username.trimmingCharacters(in: .whitespacesAndNewlines)
-        let initialChar = initialSource.isEmpty ? "" : String(initialSource.prefix(1)).uppercased()
-        let side = Self.avatarSize
-        let para = NSMutableParagraphStyle()
-        para.alignment = .center
-        para.minimumLineHeight = side
-        para.maximumLineHeight = side
-        avatarPlaceholderNode.attributedText = NSAttributedString(
-            string: initialChar,
-            attributes: [
-                .font: UIFont.systemFont(ofSize: 16.sf, weight: .semibold),
-                .foregroundColor: UIColor.white,
-                .paragraphStyle: para,
-            ]
-        )
-
         var seen = Set<String>()
         avatarURLCandidates = avatarURLs.compactMap { raw in
             let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2474,7 +2449,6 @@ final class MemberSearchCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         loadAvatarCandidate(at: 0)
 
         addSubnode(avatarBackplate)
-        addSubnode(avatarPlaceholderNode)
         addSubnode(avatarNode)
         addSubnode(statusDotNode)
         addSubnode(nameNode)
@@ -2489,18 +2463,18 @@ final class MemberSearchCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         let url = avatarURLCandidates[index]
         avatarURLCandidateIndex = index
         avatarURLLoadKey = url.absoluteString
+        avatarNode.defaultImage = nil
         avatarNode.url = url
         avatarNode.isHidden = false
-        avatarPlaceholderNode.isHidden = true
         avatarBackplate.backgroundColor = .clear
     }
 
     private func showAvatarPlaceholder() {
         avatarURLLoadKey = ""
         avatarNode.url = nil
-        avatarNode.isHidden = true
-        avatarPlaceholderNode.isHidden = false
-        avatarBackplate.backgroundColor = UIColor.avatarColor(for: avatarColorSeed)
+        avatarNode.defaultImage = DefaultUserAvatar.image(side: Self.avatarSize)
+        avatarNode.isHidden = false
+        avatarBackplate.backgroundColor = .clear
     }
 
     private func loadNextAvatarCandidateIfKeyMatches(_ key: String) {
@@ -2522,6 +2496,10 @@ final class MemberSearchCellNode: ASCellNode, ASNetworkImageNodeDelegate {
 
     @objc func imageNode(_ imageNode: ASNetworkImageNode, didFailWithError error: Error) {
         guard imageNode === avatarNode, let url = imageNode.url else { return }
+        if url.absoluteString == avatarURLLoadKey, imageNode.fallBackToImgproxySource() {
+            avatarURLLoadKey = imageNode.url?.absoluteString ?? ""
+            return
+        }
         loadNextAvatarCandidateIfKeyMatches(url.absoluteString)
     }
 
@@ -2542,7 +2520,6 @@ final class MemberSearchCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         let avatarY = (bounds.height - avatarSz) / 2
         let avatarFrame = CGRect(x: contentX, y: avatarY, width: avatarSz, height: avatarSz)
         avatarBackplate.frame = avatarFrame
-        avatarPlaceholderNode.frame = avatarFrame
         avatarNode.frame = avatarFrame
 
         statusDotNode.frame = CGRect(
@@ -2747,7 +2724,7 @@ final class ChannelSearchCellNode: ASCellNode {
     }
 }
 
-final class MessageSearchCellNode: ASCellNode {
+final class MessageSearchCellNode: ASCellNode, ASNetworkImageNodeDelegate {
     private let avatarNode = ASNetworkImageNode()
     private let senderNode = ASTextNode2()
     private let contentNode = ASTextNode2()
@@ -2789,9 +2766,12 @@ final class MessageSearchCellNode: ASCellNode {
             avatarNode.image = Self.anonymousAvatarImage(size: Self.avatarSize)
         } else {
             avatarNode.contentMode = .scaleAspectFill
+            avatarNode.delegate = self
             let resolvedAvatar = (clanAvatar?.isEmpty == false ? clanAvatar : nil) ?? (document.avatarURL.isEmpty ? nil : document.avatarURL)
             if let resolvedAvatar, let url = URL(string: ImgproxyURL.create(from: resolvedAvatar, width: 150, height: 150)) {
                 avatarNode.url = url
+            } else {
+                avatarNode.defaultImage = DefaultUserAvatar.image(side: Self.avatarSize)
             }
         }
 
@@ -2851,6 +2831,11 @@ final class MessageSearchCellNode: ASCellNode {
             ?? isoFormatterNoFrac.date(from: timeStr)
         guard let date else { return timeStr }
         return relativeFormatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    @objc func imageNode(_ imageNode: ASNetworkImageNode, didFailWithError error: Error) {
+        guard !imageNode.fallBackToImgproxySource() else { return }
+        imageNode.defaultImage = DefaultUserAvatar.image(side: Self.avatarSize)
     }
 
     override func calculateSizeThatFits(_ constrainedSize: CGSize) -> CGSize {
@@ -3012,7 +2997,7 @@ final class SearchFilterTooltipView: UIView {
     }
 }
 
-final class DMGroupSearchCellNode: ASCellNode {
+final class DMGroupSearchCellNode: ASCellNode, ASNetworkImageNodeDelegate {
 
     private static let avatarSize: CGFloat = 40.sf
     private static let margin: CGFloat = 12.sf
@@ -3054,6 +3039,7 @@ final class DMGroupSearchCellNode: ASCellNode {
             avatarNode.cornerRadius = Self.avatarSize / 2
             avatarNode.clipsToBounds = true
             avatarNode.contentMode = .scaleAspectFill
+            avatarNode.delegate = self
             if let url = URL(string: ImgproxyURL.create(from: avatarRaw, width: 150, height: 150)) {
                 avatarNode.url = url
             }
@@ -3087,6 +3073,10 @@ final class DMGroupSearchCellNode: ASCellNode {
         addSubnode(groupIconNode)
         addSubnode(nameNode)
         addSubnode(subtitleNode)
+    }
+
+    @objc func imageNode(_ imageNode: ASNetworkImageNode, didFailWithError error: Error) {
+        _ = imageNode.fallBackToImgproxySource()
     }
 
     override func calculateSizeThatFits(_ constrainedSize: CGSize) -> CGSize {

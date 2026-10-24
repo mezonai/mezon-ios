@@ -37,6 +37,25 @@ final class ClanSettingsContainerNode: ASDisplayNode {
     private let avatarContainer = UIView()
     private let avatarImageView = UIImageView()
     private let removeAvatarBtn = UIButton(type: .system)
+    private let avatarLoadingView: UIView = {
+        let v = UIView()
+        v.backgroundColor = UIColor.black.withAlphaComponent(0.45)
+        v.layer.cornerRadius = 16.swh
+        v.clipsToBounds = true
+        v.isHidden = true
+        v.isUserInteractionEnabled = false
+        v.translatesAutoresizingMaskIntoConstraints = false
+        return v
+    }()
+    private let avatarSpinner: UIActivityIndicatorView = {
+        let s = UIActivityIndicatorView(style: .medium)
+        s.color = .white
+        s.hidesWhenStopped = true
+        s.translatesAutoresizingMaskIntoConstraints = false
+        return s
+    }()
+    private weak var closeButton: UIButton?
+    private var isAvatarUploading = false
 
     private let headerH: CGFloat = 64.sh
     private let padH: CGFloat = 12.sw
@@ -87,6 +106,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         ).height
         stackView.frame = CGRect(x: 0, y: 0, width: stackW, height: stackH)
         scrollView.contentSize = stackView.frame.size
+        ClanBannerDebug.log("ClanSettingsNode updateLayout scrollFrame=\(scrollView.frame) stackFrame=\(stackView.frame) arranged=\(stackView.arrangedSubviews.count) nodeFrame=\(frame) inWindow=\(isNodeLoaded && view.window != nil)")
     }
 
     private func buildContent() {
@@ -158,6 +178,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
     }
 
     private func rebuildContent() {
+        ClanBannerDebug.log("ClanSettingsNode rebuildContent roles=\(canShowRoles) integrations=\(canShowIntegrations) overview=\(canShowOverview) auditLog=\(canShowAuditLog) hasValidLayout=\(validLayout != nil)")
         for view in stackView.arrangedSubviews {
             stackView.removeArrangedSubview(view)
             view.removeFromSuperview()
@@ -177,6 +198,8 @@ final class ClanSettingsContainerNode: ASDisplayNode {
             UIImage(systemName: "xmark")?.withRenderingMode(.alwaysTemplate), for: .normal)
         closeBtn.tintColor = UIColor.theme.textStrong
         closeBtn.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
+        closeBtn.isEnabled = !isAvatarUploading
+        closeButton = closeBtn
         v.addSubview(closeBtn)
 
         let titleLabel = UILabel()
@@ -220,6 +243,8 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         avatarImageView.clipsToBounds = true
         avatarImageView.layer.cornerRadius = 16.swh
         textAvatar.addSubview(avatarImageView)
+        avatarContainer.addSubview(avatarLoadingView)
+        avatarLoadingView.addSubview(avatarSpinner)
 
         if !avatarURL.isEmpty {
             ImageCache.shared.loadImage(urlString: ImgproxyURL.create(from: avatarURL, width: 150, height: 150)) {
@@ -269,6 +294,14 @@ final class ClanSettingsContainerNode: ASDisplayNode {
             avatarImageView.leadingAnchor.constraint(equalTo: textAvatar.leadingAnchor),
             avatarImageView.trailingAnchor.constraint(equalTo: textAvatar.trailingAnchor),
 
+            avatarLoadingView.topAnchor.constraint(equalTo: avatarContainer.topAnchor),
+            avatarLoadingView.bottomAnchor.constraint(equalTo: avatarContainer.bottomAnchor),
+            avatarLoadingView.leadingAnchor.constraint(equalTo: avatarContainer.leadingAnchor),
+            avatarLoadingView.trailingAnchor.constraint(equalTo: avatarContainer.trailingAnchor),
+
+            avatarSpinner.centerXAnchor.constraint(equalTo: avatarLoadingView.centerXAnchor),
+            avatarSpinner.centerYAnchor.constraint(equalTo: avatarLoadingView.centerYAnchor),
+
             nameLabel.topAnchor.constraint(equalTo: avatarContainer.bottomAnchor, constant: 16.sh),
             nameLabel.centerXAnchor.constraint(equalTo: v.centerXAnchor),
             nameLabel.leadingAnchor.constraint(greaterThanOrEqualTo: v.leadingAnchor, constant: 16.sw),
@@ -294,6 +327,13 @@ final class ClanSettingsContainerNode: ASDisplayNode {
 
     @objc private func removeAvatarTapped() {
         onRemoveAvatar?()
+    }
+
+    func setAvatarUploading(_ uploading: Bool) {
+        isAvatarUploading = uploading
+        avatarLoadingView.isHidden = !uploading
+        if uploading { avatarSpinner.startAnimating() } else { avatarSpinner.stopAnimating() }
+        closeButton?.isEnabled = !uploading
     }
 
     func updateClanDetails(name: String, avatarURL: String) {

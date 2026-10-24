@@ -2159,7 +2159,7 @@ private final class NewGroupDMFriendCell: UITableViewCell {
 
     static let reuseId = "NewGroupDMFriendCell"
 
-    private let avatarView = TextAvatarView(username: "", size: 40.swh, fontSize: 16.sf)
+    private let avatarView = TextAvatarView(size: 40.swh)
     private let avatarImageView = UIImageView()
     private let nameLabel = UILabel()
     private let usernameLabel = UILabel()
@@ -2265,7 +2265,6 @@ private final class NewGroupDMFriendCell: UITableViewCell {
         nameLabel.textColor = t.textStrong
         usernameLabel.text = username.isEmpty ? "" : "@\(username)"
         usernameLabel.textColor = t.textDisabled
-        avatarView.configure(username: username.isEmpty ? name : username, fontSize: 16.sf)
 
         let symbol = selected ? "checkmark.circle.fill" : "circle"
         checkImageView.image = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 21.sf, weight: .semibold))

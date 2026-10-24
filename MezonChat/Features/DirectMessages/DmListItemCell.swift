@@ -5,7 +5,7 @@ final class DmListItemCell: UITableViewCell {
 
     static let reuseId = "DmListItemCell"
 
-    private let textAvatar = TextAvatarView(username: "", size: 40.swh, fontSize: 16.sf)
+    private let textAvatar = TextAvatarView(size: 40.swh)
 
     private let avatarImageView: UIImageView = {
         let iv = UIImageView()
@@ -261,7 +261,7 @@ final class DmListItemCell: UITableViewCell {
         if isGroup {
             onlineIndicator.isHidden = true
             if let urlString = resolvedAvatarURL, let url = URL(string: urlString) {
-                loadImage(url: url, fallbackUsername: nil)
+                loadImage(url: url, isGroup: true)
             } else {
                 avatarLoadGeneration += 1
                 isAvatarLoadInFlight = false
@@ -274,17 +274,14 @@ final class DmListItemCell: UITableViewCell {
             let isOnline = channel.onlines.contains(true)
             onlineIndicator.isHidden = !isOnline
 
-            let username = channel.usernames.first ?? ""
-            let avatarSeed = username
-
             if let urlString = resolvedAvatarURL, let url = URL(string: urlString) {
-                loadImage(url: url, fallbackUsername: avatarSeed)
+                loadImage(url: url, isGroup: false)
             } else {
                 avatarLoadGeneration += 1
                 isAvatarLoadInFlight = false
                 configuredAvatarURLString = nil
                 avatarImageView.image = nil
-                textAvatar.configure(username: avatarSeed, fontSize: 16.sf)
+                textAvatar.showPlaceholder()
             }
         }
 
@@ -355,7 +352,7 @@ final class DmListItemCell: UITableViewCell {
         groupIconView.isHidden = false
     }
 
-    private func loadImage(url: URL, fallbackUsername: String?) {
+    private func loadImage(url: URL, isGroup: Bool) {
         let source = url.absoluteString
         if configuredAvatarURLString == source && (isAvatarLoadInFlight || avatarImageView.image != nil) {
             return
@@ -372,7 +369,7 @@ final class DmListItemCell: UITableViewCell {
         let raw = url.absoluteString
         let proxiedKey = proxied as NSString
         let rawKey = raw as NSString
-        if fallbackUsername != nil {
+        if !isGroup {
             ImageCache.shared.shareAvatarForNotifications(avatarURL: raw, cacheKeys: [proxied, raw])
         }
         
@@ -432,9 +429,9 @@ final class DmListItemCell: UITableViewCell {
                 self.isAvatarLoadInFlight = false
                 if let rawImage {
                     self.showAvatarImage(rawImage)
-                } else if let fallbackUsername {
+                } else if !isGroup {
                     self.avatarImageView.image = nil
-                    self.textAvatar.configure(username: fallbackUsername, fontSize: 16.sf)
+                    self.textAvatar.showPlaceholder()
                 } else {
                     self.avatarImageView.image = nil
                     self.showGroupAvatarPlaceholder()
@@ -456,14 +453,12 @@ final class DmListItemCell: UITableViewCell {
                 guard let self, gen == self.avatarLoadGeneration else { return }
                 self.isAvatarLoadInFlight = false
                 self.showAvatarImage(image)
-            } else if proxied != raw {
-                loadRawAvatar()
             } else {
                 guard let self, gen == self.avatarLoadGeneration else { return }
                 self.isAvatarLoadInFlight = false
-                if let fallbackUsername {
+                if !isGroup {
                     self.avatarImageView.image = nil
-                    self.textAvatar.configure(username: fallbackUsername, fontSize: 16.sf)
+                    self.textAvatar.showPlaceholder()
                 } else {
                     self.avatarImageView.image = nil
                     self.showGroupAvatarPlaceholder()

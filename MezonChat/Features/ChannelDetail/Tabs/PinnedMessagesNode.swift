@@ -243,21 +243,6 @@ final class PinnedMessagesNode: ASDisplayNode {
         return idStr
     }
 
-    private func resolvedSenderUsername(for pin: Mezon_Api_PinMessage) -> String {
-        let idStr = String(pin.senderID)
-        var resolved = ""
-        context.account.postbox.read { tx in
-            if let p = tx.getProfile(userId: idStr) {
-                if !p.username.isEmpty {
-                    resolved = p.username
-                }
-            }
-        }
-        if !resolved.isEmpty { return resolved }
-        if !pin.username.isEmpty { return pin.username }
-        return idStr
-    }
-
     private func resolvedAvatarURLString(for pin: Mezon_Api_PinMessage) -> String {
         let idStr = String(pin.senderID)
         var fromProfile = ""
@@ -276,7 +261,6 @@ final class PinnedMessagesNode: ASDisplayNode {
             return PinRowDisplayItem(
                 pin: pin,
                 displayName: resolvedSenderDisplayName(for: pin),
-                username: resolvedSenderUsername(for: pin),
                 row: PinRowContent.make(from: pin, context: context, attachmentExtras: extras),
                 avatarURL: resolvedAvatarURLString(for: pin)
             )
@@ -288,7 +272,6 @@ final class PinnedMessagesNode: ASDisplayNode {
 private struct PinRowDisplayItem {
     let pin: Mezon_Api_PinMessage
     let displayName: String
-    let username: String
     let row: PinRowContent
     let avatarURL: String
 }
@@ -319,7 +302,6 @@ extension PinnedMessagesNode: ASTableDataSource {
         let item = pinRowDisplayItems[indexPath.row]
         return { [weak self] in
             PinnedMessageCellNode(
-                username: item.username,
                 displayName: item.displayName,
                 pin: item.pin,
                 row: item.row,
@@ -767,11 +749,10 @@ private final class PinnedMessageCellNode: ASCellNode, ASNetworkImageNodeDelegat
     private let avatarURLForGallery: String
     private let onUnpin: () -> Void
     private let includeCaption: Bool
-    private let avatarUsernameForFallback: String
     private let displayName: String
 
     private let cardNode = ASDisplayNode()
-    private let textAvatarNode = TextAvatarNode(username: "", size: 40.sf, fontSize: 16.sf)
+    private let textAvatarNode = TextAvatarNode(size: 40.sf)
     private let avatarNode = ASNetworkImageNode()
     private let nameNode = ASTextNode2()
     private let contentNode = ASTextNode2()
@@ -783,7 +764,6 @@ private final class PinnedMessageCellNode: ASCellNode, ASNetworkImageNodeDelegat
     private var lastAttachMaxWidth: CGFloat = 300
 
     init(
-        username: String,
         displayName: String,
         pin: Mezon_Api_PinMessage,
         row: PinRowContent,
@@ -795,7 +775,6 @@ private final class PinnedMessageCellNode: ASCellNode, ASNetworkImageNodeDelegat
         self.pinForGallery = pin
         self.avatarURLForGallery = avatarURLString
         self.onUnpin = onUnpin
-        self.avatarUsernameForFallback = username
         self.displayName = displayName
         let cap = row.caption?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         self.includeCaption = !cap.isEmpty
@@ -880,7 +859,7 @@ private final class PinnedMessageCellNode: ASCellNode, ASNetworkImageNodeDelegat
         } else {
             avatarNode.url = nil
             avatarNode.isHidden = true
-            textAvatarNode.configure(username: avatarUsernameForFallback, fontSize: 16.sf)
+            textAvatarNode.showPlaceholder()
         }
 
         if !row.mediaAttachments.isEmpty {
@@ -982,11 +961,10 @@ private final class PinnedMessageCellNode: ASCellNode, ASNetworkImageNodeDelegat
 
     @objc func imageNode(_ imageNode: ASNetworkImageNode, didLoad image: UIImage) {
         guard imageNode === avatarNode else { return }
-        let username = avatarUsernameForFallback
         runOnMainThread { [weak self] in
             guard let self, imageNode === self.avatarNode else { return }
             if image.size.width < 0.5 || image.size.height < 0.5 {
-                self.textAvatarNode.configure(username: username, fontSize: 16.sf)
+                self.textAvatarNode.showPlaceholder()
             } else {
                 self.textAvatarNode.showImageMode()
             }
@@ -994,11 +972,10 @@ private final class PinnedMessageCellNode: ASCellNode, ASNetworkImageNodeDelegat
     }
 
     @objc func imageNode(_ imageNode: ASNetworkImageNode, didFailWithError error: Error) {
-        guard imageNode === avatarNode else { return }
-        let username = avatarUsernameForFallback
+        guard imageNode === avatarNode, !imageNode.fallBackToImgproxySource() else { return }
         runOnMainThread { [weak self] in
             guard let self, imageNode === self.avatarNode else { return }
-            self.textAvatarNode.configure(username: username, fontSize: 16.sf)
+            self.textAvatarNode.showPlaceholder()
         }
     }
 

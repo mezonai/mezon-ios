@@ -442,7 +442,9 @@ final class HomeViewController: BaseViewController {
                     if let selectedId = self.clanListVC.selectedClanId, selectedId != 0,
                        let clan = clans.first(where: { $0.clanID == selectedId }) {
                         let memberCount = self.channelSidebarMemberCount(clanId: selectedId)
+                        let configureStart = ClanBannerDebug.now()
                         self.channelListVC.configure(clanId: selectedId, clanName: clan.clanName, logoURL: clan.logo, bannerURL: clan.banner, memberCount: memberCount, isCommunity: clan.isCommunity)
+                        ClanBannerDebug.log("Home clansSignal -> channelListVC.configure clanId=\(selectedId) banner=\(clan.banner) took=\(ClanBannerDebug.ms(since: configureStart)) homeInWindow=\(self.isViewLoaded && self.view.window != nil)")
                     }
                 })
         )

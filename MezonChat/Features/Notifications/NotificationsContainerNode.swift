@@ -222,17 +222,6 @@ enum NotificationItem {
         }
     }
 
-    var avatarPlaceholderSeed: String {
-        switch self {
-        case .notification(let n):
-            let name = NotificationRecord.placeholderName(from: n.subject)
-            if !name.isEmpty { return name }
-            return n.subject
-        case .topic(let t):
-            if !t.senderDisplayName.isEmpty { return t.senderDisplayName }
-            return String(t.lastSenderID)
-        }
-    }
 
     var createTimeSeconds: UInt32 {
         switch self {
@@ -275,15 +264,6 @@ final class NotificationItemCell: UITableViewCell {
         iv.layer.cornerRadius = 18
         iv.translatesAutoresizingMaskIntoConstraints = false
         return iv
-    }()
-
-    private let avatarPlaceholder: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 16, weight: .semibold)
-        l.textAlignment = .center
-        l.textColor = .white
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
     }()
 
     private let titleLabel: UILabel = {
@@ -359,7 +339,6 @@ final class NotificationItemCell: UITableViewCell {
         contentView.addSubview(timeLabel)
         contentView.addSubview(avatarSkeleton)
         contentView.addSubview(avatarView)
-        avatarView.addSubview(avatarPlaceholder)
 
         NSLayoutConstraint.activate([
 
@@ -373,8 +352,6 @@ final class NotificationItemCell: UITableViewCell {
             avatarView.widthAnchor.constraint(equalToConstant: avatarSize),
             avatarView.heightAnchor.constraint(equalToConstant: avatarSize),
 
-            avatarPlaceholder.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
-            avatarPlaceholder.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
 
 
             timeLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 16),
@@ -454,19 +431,15 @@ final class NotificationItemCell: UITableViewCell {
         contentLabel.text = body.isEmpty ? nil : item.content
         setPreviewBlockVisible(!body.isEmpty)
 
-        let avatarSeed = item.avatarPlaceholderSeed
-        avatarPlaceholder.text =
-            avatarSeed.first.map { String($0).uppercased() } ?? "N"
-
         let rawAvatarURL = item.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
         if !rawAvatarURL.isEmpty, rawAvatarURL != "default" {
             let avatarURL = ImgproxyURL.absoluteResourceURL(from: rawAvatarURL)
-            loadAvatar(sourceURL: avatarURL, placeholderSeed: avatarSeed)
+            loadAvatar(sourceURL: avatarURL)
         } else {
             avatarLoadGeneration += 1
             configuredAvatarURLString = nil
             isAvatarLoadInFlight = false
-            showAvatarPlaceholder(seed: avatarSeed)
+            showAvatarPlaceholder()
         }
 
         let date = Date(timeIntervalSince1970: TimeInterval(item.createTimeSeconds))
@@ -487,10 +460,9 @@ final class NotificationItemCell: UITableViewCell {
         timeLabel.textColor = t.textDisabled
         verticalLine.backgroundColor = t.border
         separatorLine.backgroundColor = t.borderDim
-        avatarPlaceholder.textColor = .white
     }
 
-    private func loadAvatar(sourceURL: String, placeholderSeed: String) {
+    private func loadAvatar(sourceURL: String) {
         if configuredAvatarURLString == sourceURL,
            isAvatarLoadInFlight || avatarView.image != nil {
             return
@@ -521,7 +493,6 @@ final class NotificationItemCell: UITableViewCell {
         avatarView.stopAnimating()
         avatarView.image = nil
         avatarView.backgroundColor = .clear
-        avatarPlaceholder.isHidden = true
         isAvatarLoadInFlight = true
         startAvatarSkeleton()
 
@@ -557,7 +528,7 @@ final class NotificationItemCell: UITableViewCell {
                 if let image {
                     self.showAvatarImage(image)
                 } else {
-                    self.showAvatarPlaceholder(seed: placeholderSeed)
+                    self.showAvatarPlaceholder()
                 }
             }
         }
@@ -575,12 +546,10 @@ final class NotificationItemCell: UITableViewCell {
                 guard let self, generation == self.avatarLoadGeneration else { return }
                 self.isAvatarLoadInFlight = false
                 self.showAvatarImage(image)
-            } else if proxiedURL != sourceURL {
-                loadRawAvatar()
             } else {
                 guard let self, generation == self.avatarLoadGeneration else { return }
                 self.isAvatarLoadInFlight = false
-                self.showAvatarPlaceholder(seed: placeholderSeed)
+                self.showAvatarPlaceholder()
             }
         }
     }
@@ -590,18 +559,17 @@ final class NotificationItemCell: UITableViewCell {
         avatarView.stopAnimating()
         avatarView.image = image
         avatarView.backgroundColor = .clear
-        avatarPlaceholder.isHidden = true
         if (image.images?.count ?? 0) > 1 {
             avatarView.startAnimating()
         }
     }
 
-    private func showAvatarPlaceholder(seed: String) {
+    private func showAvatarPlaceholder() {
         stopAvatarSkeleton()
+        configuredAvatarURLString = nil
         avatarView.stopAnimating()
-        avatarView.image = nil
-        avatarView.backgroundColor = UIColor.avatarColor(for: seed)
-        avatarPlaceholder.isHidden = false
+        avatarView.image = DefaultUserAvatar.image(side: avatarSize)
+        avatarView.backgroundColor = .clear
     }
 
     override func prepareForReuse() {
@@ -613,8 +581,6 @@ final class NotificationItemCell: UITableViewCell {
         avatarView.stopAnimating()
         avatarView.image = nil
         avatarView.backgroundColor = .clear
-        avatarPlaceholder.isHidden = false
-        avatarPlaceholder.text = nil
     }
 }
 
