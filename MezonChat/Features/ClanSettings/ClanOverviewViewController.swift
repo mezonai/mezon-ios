@@ -986,15 +986,13 @@ final class ClanOverviewViewController: BaseViewController {
                     ClanBannerDebug.log("save upload start bytes=\(data.count) image=\(ClanBannerDebug.imageInfo(self.selectedAvatarImage))")
                     let uploadStart = ClanBannerDebug.now()
                     do {
-                        let uploadInfo = try await self.context.account.network.uploadAttachmentFile(
+                        let uploadInfo = try await self.context.account.network.uploadOauthFile(
                             filename: "banner.jpg",
                             filetype: "image/jpeg",
                             size: data.count,
-                            width: Int(self.selectedAvatarImage?.size.width ?? 0),
-                            height: Int(self.selectedAvatarImage?.size.height ?? 0),
                             token: token
                         )
-                        ClanBannerDebug.log("save uploadAttachmentFile done \(ClanBannerDebug.ms(since: uploadStart)) typeCdn=\(uploadInfo.typeCdn) filename=\(uploadInfo.filename)")
+                        ClanBannerDebug.log("save uploadOauthFile done \(ClanBannerDebug.ms(since: uploadStart)) filename=\(uploadInfo.filename)")
                         let minioStart = ClanBannerDebug.now()
                         try await self.context.account.network.uploadToMinIO(
                             url: uploadInfo.url,
@@ -1002,7 +1000,7 @@ final class ClanOverviewViewController: BaseViewController {
                             contentType: "image/jpeg"
                         )
                         ClanBannerDebug.log("save uploadToMinIO done \(ClanBannerDebug.ms(since: minioStart)) bytes=\(data.count)")
-                        bannerUrlToSave = try MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: uploadInfo.filename)
+                        bannerUrlToSave = "\(MezonConfig.profileImgURL)/\(uploadInfo.filename)"
                         ClanBannerDebug.log("save bannerUrl=\(bannerUrlToSave ?? "nil")")
                     } catch {
                         ClanBannerDebug.log("save upload FAILED after \(ClanBannerDebug.ms(since: uploadStart)) error=\(error)")

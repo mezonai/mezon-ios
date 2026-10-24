@@ -323,15 +323,13 @@ extension ClanSettingsViewController: UIImagePickerControllerDelegate, UINavigat
             ClanBannerDebug.log("avatar token ok \(ClanBannerDebug.ms(since: tokenStart))")
             do {
                 let uploadStart = ClanBannerDebug.now()
-                let uploadInfo = try await self.context.account.network.uploadAttachmentFile(
+                let uploadInfo = try await self.context.account.network.uploadOauthFile(
                     filename: "avatar.jpg",
                     filetype: "image/jpeg",
                     size: data.count,
-                    width: Int(image.size.width),
-                    height: Int(image.size.height),
                     token: token
                 )
-                ClanBannerDebug.log("avatar uploadAttachmentFile done \(ClanBannerDebug.ms(since: uploadStart)) typeCdn=\(uploadInfo.typeCdn) filename=\(uploadInfo.filename)")
+                ClanBannerDebug.log("avatar uploadOauthFile done \(ClanBannerDebug.ms(since: uploadStart)) filename=\(uploadInfo.filename)")
                 let minioStart = ClanBannerDebug.now()
                 try await self.context.account.network.uploadToMinIO(
                     url: uploadInfo.url,
@@ -339,7 +337,7 @@ extension ClanSettingsViewController: UIImagePickerControllerDelegate, UINavigat
                     contentType: "image/jpeg"
                 )
                 ClanBannerDebug.log("avatar uploadToMinIO done \(ClanBannerDebug.ms(since: minioStart)) bytes=\(data.count)")
-                let avatarUrlToSave = try MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: uploadInfo.filename)
+                let avatarUrlToSave = "\(MezonConfig.profileImgURL)/\(uploadInfo.filename)"
                 ClanBannerDebug.log("avatar url=\(avatarUrlToSave)")
 
                 guard let clan = self.context.account.postbox.read({ tx in tx.getClan(id: self.clanId) }) else {

@@ -792,14 +792,10 @@ extension RoleDetailViewController: UIImagePickerControllerDelegate, UINavigatio
                     Toast.error(L(L10n.ClanRoles.iconFailed))
                     return
                 }
-                let upload = try await self.context.account.network.uploadAttachmentFile(
-                    filename: filename, filetype: "image/jpeg", size: data.count,
-                    width: Int(image.size.width), height: Int(image.size.height), token: token
+                let cdnURL = try await AttachmentUploader.shared.uploadPublicImage(
+                    data: data, filename: filename, filetype: "image/jpeg",
+                    token: token, network: self.context.account.network
                 )
-                try await self.context.account.network.uploadToMinIO(
-                    url: upload.url, data: data, contentType: "image/jpeg"
-                )
-                let cdnURL = try MezonConfig.attachmentViewURL(typeCdn: upload.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: upload.filename)
                 ImageCache.shared.setImage(image, data: data, forKey: cdnURL)
 
                 try await self.repository.updateRole(

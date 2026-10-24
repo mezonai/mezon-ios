@@ -1358,15 +1358,10 @@ final class ProfileSettingViewController: BaseViewController {
                 let filename = "avatar_\(Int(Date().timeIntervalSince1970)).jpg"
                 let filetype = "image/jpeg"
 
-                let uploadInfo = try await context.account.network.uploadAttachmentFile(
-                    filename: filename, filetype: filetype, size: data.count,
-                    width: Int(image.size.width), height: Int(image.size.height), token: token
+                let cdnURL = try await AttachmentUploader.shared.uploadPublicImage(
+                    data: data, filename: filename, filetype: filetype,
+                    token: token, network: context.account.network
                 )
-                try await context.account.network.uploadToMinIO(
-                    url: uploadInfo.url, data: data, contentType: filetype
-                )
-
-                let cdnURL = try MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: uploadInfo.filename)
                 ImageCache.shared.setImage(image, data: data, forKey: cdnURL)
 
                 switch target {

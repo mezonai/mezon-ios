@@ -522,14 +522,10 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
             guard let token = await context.getToken() else { return }
             do {
                 let filename = "clan_create_logo_\(Int(Date().timeIntervalSince1970)).jpg"
-                let uploadInfo = try await context.account.network.uploadAttachmentFile(
-                    filename: filename, filetype: "image/jpeg", size: data.count,
-                    width: Int(image.size.width), height: Int(image.size.height), token: token
+                let cdnURL = try await AttachmentUploader.shared.uploadPublicImage(
+                    data: data, filename: filename, filetype: "image/jpeg",
+                    token: token, network: context.account.network
                 )
-                try await context.account.network.uploadToMinIO(
-                    url: uploadInfo.url, data: data, contentType: "image/jpeg"
-                )
-                let cdnURL = try MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: uploadInfo.filename)
                 ImageCache.shared.setImage(image, data: data, forKey: cdnURL)
                 logoURL = cdnURL
                 logoImageView.image = image

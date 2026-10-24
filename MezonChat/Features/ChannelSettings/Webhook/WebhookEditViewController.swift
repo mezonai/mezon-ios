@@ -578,22 +578,14 @@ final class WebhookEditViewController: BaseViewController {
                 return
             }
             
-            if let imgData = self.selectedImageData, let img = self.selectedImage {
+            if let imgData = self.selectedImageData, self.selectedImage != nil {
                 do {
-                    let uploadInfo = try await self.context.account.network.uploadAttachmentFile(
-                        filename: "webhook_\(self.webhook.id)_\(Int(Date().timeIntervalSince1970)).jpg",
-                        filetype: "image/jpeg",
-                        size: imgData.count,
-                        width: Int(img.size.width),
-                        height: Int(img.size.height),
-                        token: token
-                    )
-                    try await self.context.account.network.uploadToMinIO(
-                        url: uploadInfo.url,
+                    self.avatarURL = try await AttachmentUploader.shared.uploadPublicImage(
                         data: imgData,
-                        contentType: "image/jpeg"
+                        filename: "webhook_\(self.webhook.id)_\(Int(Date().timeIntervalSince1970)).jpg",
+                        filetype: "image/jpeg", token: token,
+                        network: self.context.account.network
                     )
-                    self.avatarURL = try MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: uploadInfo.filename)
                 } catch {
                     Toast.error(L(L10n.Webhook.saveError))
                     return

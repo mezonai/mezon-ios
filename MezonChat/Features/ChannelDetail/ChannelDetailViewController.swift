@@ -958,20 +958,10 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
 
         let filename = "group_dm_\(originalChannel.channelID)_\(Int(Date().timeIntervalSince1970)).jpg"
         let filetype = "image/jpeg"
-        let uploadInfo = try await context.account.network.uploadAttachmentFile(
-            filename: filename,
-            filetype: filetype,
-            size: selectedImageData.count,
-            width: Int(selectedImage.size.width),
-            height: Int(selectedImage.size.height),
-            token: token
+        let cdnURL = try await AttachmentUploader.shared.uploadPublicImage(
+            data: selectedImageData, filename: filename, filetype: filetype,
+            token: token, network: context.account.network
         )
-        try await context.account.network.uploadToMinIO(
-            url: uploadInfo.url,
-            data: selectedImageData,
-            contentType: filetype
-        )
-        let cdnURL = try MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: uploadInfo.filename)
         ImageCache.shared.setImage(selectedImage, data: selectedImageData, forKey: cdnURL)
         return cdnURL
     }

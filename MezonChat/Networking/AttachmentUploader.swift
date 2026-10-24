@@ -104,6 +104,20 @@ final class AttachmentUploader {
         stateLock.lock(); skipMultipartForSession = true; stateLock.unlock()
     }
 
+    func uploadPublicImage(
+        data: Data,
+        filename: String,
+        filetype: String,
+        token: String,
+        network: MezonHTTPClient
+    ) async throws -> String {
+        let upload = try await network.uploadOauthFile(
+            filename: filename, filetype: filetype, size: data.count, token: token)
+        try Task.checkCancellation()
+        try await network.uploadToMinIO(url: upload.url, data: data, contentType: filetype)
+        return "\(MezonConfig.profileImgURL)/\(upload.filename)"
+    }
+
     func uploadFile(
         fileURL: URL,
         filename: String,
