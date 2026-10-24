@@ -1069,6 +1069,14 @@ final class SendMessageInputViewController: UIViewController {
         reloadEmojiSuggestionList()
         reloadHashtagChannelCandidates()
 
+        if clanId != 0 {
+            disposables.add((context.account.postbox.clanListView() |> deliverOnMainQueue).start(next: { [weak self] view in
+                guard let self else { return }
+                let prevent = view.clans.first(where: { $0.id == self.clanId })?.preventsAnonymousMessages ?? false
+                self.setClanAnonymousPolicy(preventAnonymous: prevent)
+            }))
+        }
+
         NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillShow(_:)),
                                                name: UIResponder.keyboardWillShowNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleEmojiListDidUpdate),
@@ -1755,10 +1763,24 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
     @objc private func anonymousIndicatorTapped() {
-        guard clanId != 0, !clanPreventAnonymous else { return }
+        toggleAnonymousMode()
+    }
+
+    @discardableResult
+    func toggleAnonymousMode() -> Bool {
+        guard clanId != 0 else { return false }
+        let prevent = context.account.postbox.read { tx in
+            tx.getClan(id: clanId)?.preventsAnonymousMessages ?? false
+        }
+        setClanAnonymousPolicy(preventAnonymous: prevent)
+        guard !prevent else {
+            Toast.info(L(L10n.ChannelMessages.anonymousNotAllowed))
+            return false
+        }
         _ = AnonymousMessageStore.toggle(clanId: clanId)
         refreshAnonymousUI()
         onAnonymousModeChanged?()
+        return true
     }
 
 
@@ -5874,11 +5896,14 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     func setClanAnonymousPolicy(preventAnonymous: Bool) {
+        let policyChanged = clanPreventAnonymous != preventAnonymous
+        let wasEnabled = AnonymousMessageStore.isEnabled(clanId: clanId)
         clanPreventAnonymous = preventAnonymous
-        if clanPreventAnonymous {
-            AnonymousMessageStore.setEnabled(false, clanId: clanId)
-        }
+        AnonymousMessageStore.applyClanPolicy(preventAnonymous: preventAnonymous, clanId: clanId)
         refreshAnonymousUI()
+        if policyChanged || (preventAnonymous && wasEnabled) {
+            onAnonymousModeChanged?()
+        }
     }
 
     func refreshAnonymousUI() {

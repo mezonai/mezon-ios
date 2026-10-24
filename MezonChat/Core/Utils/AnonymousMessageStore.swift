@@ -16,6 +16,12 @@ enum AnonymousMessageStore {
         UserDefaults.standard.set(value, forKey: storageKey(clanId: clanId))
     }
 
+    static func applyClanPolicy(preventAnonymous: Bool, clanId: Int64) {
+        if preventAnonymous && isEnabled(clanId: clanId) {
+            setEnabled(false, clanId: clanId)
+        }
+    }
+
     @discardableResult
     static func toggle(clanId: Int64) -> Bool {
         let next = !isEnabled(clanId: clanId)
