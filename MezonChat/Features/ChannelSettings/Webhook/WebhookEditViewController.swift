@@ -17,6 +17,7 @@ final class WebhookEditViewController: BaseViewController {
     private var avatarURL: String
     private var selectedImage: UIImage?
     private var selectedImageData: Data?
+    private var selectedImageFilename: String?
     private var selectedChannelId: Int64
     private var isSaving: Bool = false
 
@@ -578,22 +579,14 @@ final class WebhookEditViewController: BaseViewController {
                 return
             }
             
-            if let imgData = self.selectedImageData, let img = self.selectedImage {
+            if let imgData = self.selectedImageData, self.selectedImage != nil {
                 do {
-                    let uploadInfo = try await self.context.account.network.uploadAttachmentFile(
-                        filename: "webhook_\(self.webhook.id)_\(Int(Date().timeIntervalSince1970)).jpg",
-                        filetype: "image/jpeg",
-                        size: imgData.count,
-                        width: Int(img.size.width),
-                        height: Int(img.size.height),
-                        token: token
-                    )
-                    try await self.context.account.network.uploadToMinIO(
-                        url: uploadInfo.url,
+                    self.avatarURL = try await AttachmentUploader.shared.uploadPublicImage(
                         data: imgData,
-                        contentType: "image/jpeg"
+                        filename: "webhook_\(self.webhook.id)_\(Int(Date().timeIntervalSince1970)).jpg",
+                        filetype: "image/jpeg", token: token,
+                        network: self.context.account.network, originalFilename: self.selectedImageFilename
                     )
-                    self.avatarURL = try MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: uploadInfo.filename)
                 } catch {
                     Toast.error(L(L10n.Webhook.saveError))
                     return
@@ -654,6 +647,7 @@ final class WebhookEditViewController: BaseViewController {
                 self.selectedChannelId = self.webhook.channelID
                 self.selectedImage = nil
                 self.selectedImageData = nil
+                self.selectedImageFilename = nil
                 self.populateData()
             } catch {
                 
@@ -725,6 +719,7 @@ extension WebhookEditViewController: UIImagePickerControllerDelegate, UINavigati
         didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
     ) {
         let image = (info[.editedImage] as? UIImage) ?? (info[.originalImage] as? UIImage)
+        let originalFilename = (info[.imageURL] as? URL)?.lastPathComponent
         picker.dismiss(animated: true) { [weak self] in
             guard let self, let image else { return }
             guard let data = image.jpegData(compressionQuality: 0.85) else { return }
@@ -734,6 +729,7 @@ extension WebhookEditViewController: UIImagePickerControllerDelegate, UINavigati
             }
             self.selectedImage = image
             self.selectedImageData = data
+            self.selectedImageFilename = originalFilename
             self.avatarImageView.image = image
             self.avatarImageView.isHidden = false
             self.avatarView.showImageMode()

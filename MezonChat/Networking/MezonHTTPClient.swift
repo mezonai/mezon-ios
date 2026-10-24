@@ -2159,6 +2159,29 @@ final class MezonHTTPClient {
         return response
     }
 
+    func uploadOauthFile(
+        filename: String,
+        filetype: String,
+        size: Int,
+        token: String,
+        originalFilename: String? = nil
+    ) async throws -> Mezon_Api_UploadAttachment {
+        var req = Mezon_Api_UploadAttachmentRequest()
+        req.filename = Self.fittedUploadFilename(PublicImageFilename.make(
+            originalFilename: originalFilename, fallbackFilename: filename))
+        req.filetype = filetype
+        req.size = Int32(size)
+        let response: Mezon_Api_UploadAttachment = try await postProto(
+            path: "/mezon.api.Mezon/UploadOauthFile",
+            message: req,
+            auth: .bearer(token)
+        )
+        guard !response.filename.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw MezonError.httpError(statusCode: 0, message: "UploadOauthFile returned an empty filename")
+        }
+        return response
+    }
+
     func uploadToMinIO(url: String, data: Data, contentType: String) async throws {
         guard let uploadURL = PresignedUploadURL.make(url) else {
             throw MezonError.httpError(statusCode: 0, message: "Invalid MinIO URL")

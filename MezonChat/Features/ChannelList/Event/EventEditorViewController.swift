@@ -672,6 +672,7 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
     func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
         picker.dismiss(animated: true)
         guard let image = info[.originalImage] as? UIImage else { showError(L(L10n.EventEditor.coverFailed)); return }
+        let originalFilename = (info[.imageURL] as? URL)?.lastPathComponent
         let data: Data
         if let url = info[.imageURL] as? URL {
             if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > EventEditorDraft.maximumCoverBytes {
@@ -705,15 +706,14 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
             }
             do {
                 guard let token = await self.context.getToken() else { throw EventEditorError.sessionExpired }
-                let upload = try await self.context.account.network.uploadAttachmentFile(
-                    filename: "\(UUID().uuidString)_event_cover.\(format.1)", filetype: format.0, size: data.count,
-                    width: image.cgImage?.width ?? Int(image.size.width * image.scale), height: image.cgImage?.height ?? Int(image.size.height * image.scale), token: token
+                let cdnURL = try await AttachmentUploader.shared.uploadPublicImage(
+                    data: data, filename: "\(UUID().uuidString)_event_cover.\(format.1)",
+                    filetype: format.0, token: token, network: self.context.account.network,
+                    originalFilename: originalFilename
                 )
                 try Task.checkCancellation()
-                try await self.context.account.network.uploadToMinIO(url: upload.url, data: data, contentType: format.0)
-                try Task.checkCancellation()
                 guard !self.dismissed else { return }
-                self.draft.logoURL = try MezonConfig.attachmentViewURL(typeCdn: upload.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: upload.filename)
+                self.draft.logoURL = cdnURL
                 self.previewImage = image
                 ImageCache.shared.setImage(image, data: data, forKey: self.draft.logoURL)
             } catch is CancellationError {
