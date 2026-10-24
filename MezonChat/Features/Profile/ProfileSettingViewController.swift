@@ -1312,7 +1312,7 @@ final class ProfileSettingViewController: BaseViewController {
         }
     }
 
-    private func handlePickedImage(_ image: UIImage, data: Data) {
+    private func handlePickedImage(_ image: UIImage, data: Data, originalFilename: String?) {
         let maxBytes: Int
         switch pendingAvatarTarget {
         case .userAvatar, .clanAvatar:
@@ -1330,10 +1330,10 @@ final class ProfileSettingViewController: BaseViewController {
             return
         }
 
-        uploadImage(image: image, data: data, target: pendingAvatarTarget)
+        uploadImage(image: image, data: data, target: pendingAvatarTarget, originalFilename: originalFilename)
     }
 
-    private func uploadImage(image: UIImage, data: Data, target: AvatarTarget) {
+    private func uploadImage(image: UIImage, data: Data, target: AvatarTarget, originalFilename: String?) {
         isUploading = true
 
         let targetSpinner: UIActivityIndicatorView
@@ -1360,7 +1360,7 @@ final class ProfileSettingViewController: BaseViewController {
 
                 let cdnURL = try await AttachmentUploader.shared.uploadPublicImage(
                     data: data, filename: filename, filetype: filetype,
-                    token: token, network: context.account.network
+                    token: token, network: context.account.network, originalFilename: originalFilename
                 )
                 ImageCache.shared.setImage(image, data: data, forKey: cdnURL)
 
@@ -1525,6 +1525,7 @@ extension ProfileSettingViewController: PHPickerViewControllerDelegate {
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         picker.dismiss(animated: true)
         guard let provider = results.first?.itemProvider else { return }
+        let originalFilename = provider.suggestedName
 
         let typeId = provider.registeredTypeIdentifiers.first { $0.hasPrefix("public.") || $0.hasPrefix("com.apple.") } ?? "public.image"
         
@@ -1547,7 +1548,7 @@ extension ProfileSettingViewController: PHPickerViewControllerDelegate {
                 if let image = UIImage(data: data) {
                     let jpegData = image.jpegData(compressionQuality: 1.0) ?? data
                     DispatchQueue.main.async {
-                        self.handlePickedImage(image, data: jpegData)
+                        self.handlePickedImage(image, data: jpegData, originalFilename: originalFilename)
                     }
                     return
                 }
@@ -1557,7 +1558,7 @@ extension ProfileSettingViewController: PHPickerViewControllerDelegate {
                 guard let image = object as? UIImage else { return }
                 let jpegData = image.jpegData(compressionQuality: 1.0) ?? Data()
                 DispatchQueue.main.async {
-                    self.handlePickedImage(image, data: jpegData)
+                    self.handlePickedImage(image, data: jpegData, originalFilename: originalFilename)
                 }
             }
         }
@@ -1585,7 +1586,7 @@ extension ProfileSettingViewController: UIImagePickerControllerDelegate, UINavig
         
         guard let image = info[.originalImage] as? UIImage else { return }
         let jpegData = image.jpegData(compressionQuality: 1.0) ?? Data()
-        handlePickedImage(image, data: jpegData)
+        handlePickedImage(image, data: jpegData, originalFilename: (info[.imageURL] as? URL)?.lastPathComponent)
     }
 
     func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {

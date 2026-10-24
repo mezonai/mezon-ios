@@ -770,14 +770,14 @@ extension RoleDetailViewController: UIImagePickerControllerDelegate, UINavigatio
         guard let image else { return }
         let resized = Self.resizedImage(image, maxSide: 512)
         guard let data = resized.jpegData(compressionQuality: 0.85) else { return }
-        uploadIcon(image: resized, data: data)
+        uploadIcon(image: resized, data: data, originalFilename: (info[.imageURL] as? URL)?.lastPathComponent)
     }
 
     func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
         picker.dismiss(animated: true)
     }
 
-    private func uploadIcon(image: UIImage, data: Data) {
+    private func uploadIcon(image: UIImage, data: Data, originalFilename: String?) {
         isUploadingIcon = true
         refreshUI()
         let filename = "role_icon_\(roleId)_\(Int(Date().timeIntervalSince1970)).jpg"
@@ -794,7 +794,7 @@ extension RoleDetailViewController: UIImagePickerControllerDelegate, UINavigatio
                 }
                 let cdnURL = try await AttachmentUploader.shared.uploadPublicImage(
                     data: data, filename: filename, filetype: "image/jpeg",
-                    token: token, network: self.context.account.network
+                    token: token, network: self.context.account.network, originalFilename: originalFilename
                 )
                 ImageCache.shared.setImage(image, data: data, forKey: cdnURL)
 

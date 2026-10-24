@@ -259,6 +259,7 @@ extension ClanSettingsViewController: UIImagePickerControllerDelegate, UINavigat
             ClanBannerDebug.log("avatar picker dismissed \(ClanBannerDebug.ms(since: avatarStart))")
         }
         guard let image = info[.editedImage] as? UIImage ?? info[.originalImage] as? UIImage else { return }
+        let originalFilename = (info[.imageURL] as? URL)?.lastPathComponent
         let pickedFileBytes = pickedFileSize(info)
 
         ClanBannerDebug.startMainThreadWatchdog(label: "avatarSave", duration: 60)
@@ -292,7 +293,7 @@ extension ClanSettingsViewController: UIImagePickerControllerDelegate, UINavigat
                     self.setAvatarUploading(false)
                     return
                 }
-                self.uploadAvatar(image: image, data: data, avatarStart: avatarStart)
+                self.uploadAvatar(image: image, data: data, avatarStart: avatarStart, originalFilename: originalFilename)
             }
         }
     }
@@ -309,7 +310,7 @@ extension ClanSettingsViewController: UIImagePickerControllerDelegate, UINavigat
         settingsNode.setAvatarUploading(uploading)
     }
 
-    private func uploadAvatar(image: UIImage, data: Data, avatarStart: CFTimeInterval) {
+    private func uploadAvatar(image: UIImage, data: Data, avatarStart: CFTimeInterval, originalFilename: String?) {
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer {
@@ -327,7 +328,8 @@ extension ClanSettingsViewController: UIImagePickerControllerDelegate, UINavigat
                     filename: "avatar.jpg",
                     filetype: "image/jpeg",
                     size: data.count,
-                    token: token
+                    token: token,
+                    originalFilename: originalFilename
                 )
                 ClanBannerDebug.log("avatar uploadOauthFile done \(ClanBannerDebug.ms(since: uploadStart)) filename=\(uploadInfo.filename)")
                 let minioStart = ClanBannerDebug.now()

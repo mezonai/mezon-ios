@@ -17,6 +17,7 @@ final class WebhookEditViewController: BaseViewController {
     private var avatarURL: String
     private var selectedImage: UIImage?
     private var selectedImageData: Data?
+    private var selectedImageFilename: String?
     private var selectedChannelId: Int64
     private var isSaving: Bool = false
 
@@ -584,7 +585,7 @@ final class WebhookEditViewController: BaseViewController {
                         data: imgData,
                         filename: "webhook_\(self.webhook.id)_\(Int(Date().timeIntervalSince1970)).jpg",
                         filetype: "image/jpeg", token: token,
-                        network: self.context.account.network
+                        network: self.context.account.network, originalFilename: self.selectedImageFilename
                     )
                 } catch {
                     Toast.error(L(L10n.Webhook.saveError))
@@ -646,6 +647,7 @@ final class WebhookEditViewController: BaseViewController {
                 self.selectedChannelId = self.webhook.channelID
                 self.selectedImage = nil
                 self.selectedImageData = nil
+                self.selectedImageFilename = nil
                 self.populateData()
             } catch {
                 
@@ -717,6 +719,7 @@ extension WebhookEditViewController: UIImagePickerControllerDelegate, UINavigati
         didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
     ) {
         let image = (info[.editedImage] as? UIImage) ?? (info[.originalImage] as? UIImage)
+        let originalFilename = (info[.imageURL] as? URL)?.lastPathComponent
         picker.dismiss(animated: true) { [weak self] in
             guard let self, let image else { return }
             guard let data = image.jpegData(compressionQuality: 0.85) else { return }
@@ -726,6 +729,7 @@ extension WebhookEditViewController: UIImagePickerControllerDelegate, UINavigati
             }
             self.selectedImage = image
             self.selectedImageData = data
+            self.selectedImageFilename = originalFilename
             self.avatarImageView.image = image
             self.avatarImageView.isHidden = false
             self.avatarView.showImageMode()

@@ -2163,10 +2163,12 @@ final class MezonHTTPClient {
         filename: String,
         filetype: String,
         size: Int,
-        token: String
+        token: String,
+        originalFilename: String? = nil
     ) async throws -> Mezon_Api_UploadAttachment {
         var req = Mezon_Api_UploadAttachmentRequest()
-        req.filename = Self.fittedUploadFilename(filename)
+        req.filename = Self.fittedUploadFilename(PublicImageFilename.make(
+            originalFilename: originalFilename, fallbackFilename: filename))
         req.filetype = filetype
         req.size = Int32(size)
         let response: Mezon_Api_UploadAttachment = try await postProto(

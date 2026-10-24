@@ -61,6 +61,7 @@ final class ClanOverviewViewController: BaseViewController {
     private var isSaving = false
     private var isProcessingBanner = false
     private var selectedAvatarImage: UIImage?
+    private var selectedAvatarFilename: String?
     private var selectedAvatarData: Data? = nil {
         didSet { updateSaveButtonState() }
     }
@@ -990,7 +991,8 @@ final class ClanOverviewViewController: BaseViewController {
                             filename: "banner.jpg",
                             filetype: "image/jpeg",
                             size: data.count,
-                            token: token
+                            token: token,
+                            originalFilename: self.selectedAvatarFilename
                         )
                         ClanBannerDebug.log("save uploadOauthFile done \(ClanBannerDebug.ms(since: uploadStart)) filename=\(uploadInfo.filename)")
                         let minioStart = ClanBannerDebug.now()
@@ -1160,6 +1162,7 @@ extension ClanOverviewViewController: UIImagePickerControllerDelegate, UINavigat
             ClanBannerDebug.log("banner picker dismissed \(ClanBannerDebug.ms(since: dismissStart))")
         }
         guard let image else { return }
+        let originalFilename = (info[.imageURL] as? URL)?.lastPathComponent
         setBannerProcessing(true)
 
         let encodeStart = ClanBannerDebug.now()
@@ -1179,6 +1182,7 @@ extension ClanOverviewViewController: UIImagePickerControllerDelegate, UINavigat
 
                 let applyStart = ClanBannerDebug.now()
                 self.selectedAvatarImage = image
+                self.selectedAvatarFilename = originalFilename
                 self.selectedAvatarData = data
                 self.avatarImageView.image = image
                 self.updateAvatarOverlay()

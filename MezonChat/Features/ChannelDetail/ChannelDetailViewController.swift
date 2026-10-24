@@ -554,6 +554,7 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
     private var avatarURL: String
     private var selectedImage: UIImage?
     private var selectedImageData: Data?
+    private var selectedImageFilename: String?
     private var avatarLoadTask: URLSessionDataTask?
     private var isSaving = false
     private var trimmedGroupName: String {
@@ -819,6 +820,7 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
         avatarURL = ""
         selectedImage = nil
         selectedImageData = nil
+        selectedImageFilename = nil
         updateAvatarPreview()
     }
 
@@ -960,7 +962,7 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
         let filetype = "image/jpeg"
         let cdnURL = try await AttachmentUploader.shared.uploadPublicImage(
             data: selectedImageData, filename: filename, filetype: filetype,
-            token: token, network: context.account.network
+            token: token, network: context.account.network, originalFilename: selectedImageFilename
         )
         ImageCache.shared.setImage(selectedImage, data: selectedImageData, forKey: cdnURL)
         return cdnURL
@@ -975,6 +977,7 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
         didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
     ) {
         let image = (info[.editedImage] as? UIImage) ?? (info[.originalImage] as? UIImage)
+        let originalFilename = (info[.imageURL] as? URL)?.lastPathComponent
         picker.dismiss(animated: true) { [weak self] in
             guard let self, let image else { return }
             guard let data = image.jpegData(compressionQuality: 0.85) else { return }
@@ -984,6 +987,7 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
             }
             self.selectedImage = image
             self.selectedImageData = data
+            self.selectedImageFilename = originalFilename
             self.updateAvatarPreview()
         }
     }

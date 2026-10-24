@@ -506,6 +506,7 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
     ) {
         picker.dismiss(animated: true)
         guard let raw = info[.originalImage] as? UIImage else { return }
+        let originalFilename = (info[.imageURL] as? URL)?.lastPathComponent
         let image = Self.resizedImage(raw, maxSide: 512)
         guard let data = Self.jpegDataUnderLimit(image, maxBytes: kCreateClanMaxImageBytes) else {
             Toast.error(L(L10n.ProfileSetting.updateError))
@@ -524,7 +525,7 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
                 let filename = "clan_create_logo_\(Int(Date().timeIntervalSince1970)).jpg"
                 let cdnURL = try await AttachmentUploader.shared.uploadPublicImage(
                     data: data, filename: filename, filetype: "image/jpeg",
-                    token: token, network: context.account.network
+                    token: token, network: context.account.network, originalFilename: originalFilename
                 )
                 ImageCache.shared.setImage(image, data: data, forKey: cdnURL)
                 logoURL = cdnURL
