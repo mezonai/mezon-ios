@@ -4437,9 +4437,9 @@ final class ChatViewController: ViewController {
     }
 
     private func clanPreventsAnonymous() -> Bool {
-        guard clanId != 0 else { return true }
-        let rec = context.account.postbox.read { tx in tx.getClan(id: clanId) }
-        return rec?.preventsAnonymousMessages ?? false
+        AnonymousMessageStore.clanPreventsAnonymous(clanId: clanId) {
+            context.account.postbox.read { tx in tx.getClan(id: clanId) }
+        }
     }
 
     private func rebuildAdvancePanelActions() {
@@ -5262,6 +5262,9 @@ final class ChatViewController: ViewController {
             parentChannelLabel: ctx.parentLabel,
             composerParentChannel: ctx.composerSurface,
             seedMessageDisplay: display,
+            onAnonymousModeChanged: { [weak self] in
+                self?.configureAnonymousComposerAndAdvancePanel()
+            },
             onComplete: { [weak self] result in
                 guard let self else { return }
                 switch result {

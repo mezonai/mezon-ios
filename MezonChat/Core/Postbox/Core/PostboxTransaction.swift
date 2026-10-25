@@ -66,7 +66,7 @@ final class PostboxTransaction {
     func getClan(id: Int64) -> ClanRecord? { clanTable.getClan(id: id) }
 
     func updateClans(_ clans: [ClanRecord]) {
-        for clan in clans {
+        for clan in clans where AnonymousMessageStore.isEnabled(clanId: clan.id) {
             AnonymousMessageStore.applyClanPolicy(preventAnonymous: clan.preventsAnonymousMessages, clanId: clan.id)
         }
         clanTable.setClans(clans)
@@ -74,7 +74,7 @@ final class PostboxTransaction {
     }
 
     func replaceAllClans(_ clans: [ClanRecord]) {
-        for clan in clans {
+        for clan in clans where AnonymousMessageStore.isEnabled(clanId: clan.id) {
             AnonymousMessageStore.applyClanPolicy(preventAnonymous: clan.preventsAnonymousMessages, clanId: clan.id)
         }
         clanTable.replaceAllClans(clans)

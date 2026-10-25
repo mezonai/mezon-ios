@@ -2,6 +2,11 @@ import Foundation
 
 enum AnonymousMessageStore {
 
+    static func clanPreventsAnonymous(clanId: Int64, lookupClan: () -> ClanRecord?) -> Bool {
+        guard clanId != 0 else { return true }
+        return lookupClan()?.preventsAnonymousMessages ?? false
+    }
+
     private static func storageKey(clanId: Int64) -> String {
         "MezonChat.anonymousMessage.clan.\(clanId)"
     }

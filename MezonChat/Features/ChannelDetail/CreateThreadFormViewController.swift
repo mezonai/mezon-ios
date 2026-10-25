@@ -10,6 +10,7 @@ final class CreateThreadFormViewController: UIViewController {
     private let parentChannelLabel: String
     private let composerParentChannel: Mezon_Api_ChannelDescription
     private let seedMessageDisplay: ChatMessageDisplay?
+    private let onAnonymousModeChanged: (() -> Void)?
     private let onComplete: ((Result<Mezon_Api_ChannelDescription, Error>) -> Void)?
 
     private let seedMessageCaptionLabel = UILabel()
@@ -122,6 +123,7 @@ final class CreateThreadFormViewController: UIViewController {
         vc.inlineSuggestionHost = inlineSuggestionHost
         vc.onAnonymousModeChanged = { [weak self] in
             self?.rebuildAdvancePanelActions()
+            self?.onAnonymousModeChanged?()
         }
         return vc
     }()
@@ -136,6 +138,7 @@ final class CreateThreadFormViewController: UIViewController {
         parentChannelLabel: String,
         composerParentChannel: Mezon_Api_ChannelDescription,
         seedMessageDisplay: ChatMessageDisplay? = nil,
+        onAnonymousModeChanged: (() -> Void)? = nil,
         onComplete: ((Result<Mezon_Api_ChannelDescription, Error>) -> Void)? = nil
     ) {
         self.context = context
@@ -145,6 +148,7 @@ final class CreateThreadFormViewController: UIViewController {
         self.parentChannelLabel = parentChannelLabel
         self.composerParentChannel = composerParentChannel
         self.seedMessageDisplay = seedMessageDisplay
+        self.onAnonymousModeChanged = onAnonymousModeChanged
         self.onComplete = onComplete
         super.init(nibName: nil, bundle: nil)
     }
@@ -762,9 +766,9 @@ final class CreateThreadFormViewController: UIViewController {
     }
 
     private func clanPreventsAnonymous() -> Bool {
-        guard clanId != 0 else { return true }
-        let rec = context.account.postbox.read { tx in tx.getClan(id: clanId) }
-        return rec?.preventsAnonymousMessages ?? false
+        AnonymousMessageStore.clanPreventsAnonymous(clanId: clanId) {
+            context.account.postbox.read { tx in tx.getClan(id: clanId) }
+        }
     }
 
     private func rebuildAdvancePanelActions() {

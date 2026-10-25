@@ -1070,10 +1070,17 @@ final class SendMessageInputViewController: UIViewController {
         reloadHashtagChannelCandidates()
 
         if clanId != 0 {
-            disposables.add((context.account.postbox.clanListView() |> deliverOnMainQueue).start(next: { [weak self] view in
-                guard let self else { return }
-                let prevent = view.clans.first(where: { $0.id == self.clanId })?.preventsAnonymousMessages ?? false
-                self.setClanAnonymousPolicy(preventAnonymous: prevent)
+            let clanId = self.clanId
+            disposables.add((context.account.postbox.clanListView()
+                |> map { view in
+                    AnonymousMessageStore.clanPreventsAnonymous(clanId: clanId) {
+                        view.clans.first(where: { $0.id == clanId })
+                    }
+                }
+                |> distinctUntilChanged
+                |> deliverOnMainQueue
+            ).start(next: { [weak self] prevent in
+                self?.setClanAnonymousPolicy(preventAnonymous: prevent)
             }))
         }
 
@@ -1769,14 +1776,15 @@ final class SendMessageInputViewController: UIViewController {
     @discardableResult
     func toggleAnonymousMode() -> Bool {
         guard clanId != 0 else { return false }
-        let prevent = context.account.postbox.read { tx in
-            tx.getClan(id: clanId)?.preventsAnonymousMessages ?? false
+        let prevent = AnonymousMessageStore.clanPreventsAnonymous(clanId: clanId) {
+            context.account.postbox.read { tx in tx.getClan(id: clanId) }
         }
-        setClanAnonymousPolicy(preventAnonymous: prevent)
         guard !prevent else {
+            setClanAnonymousPolicy(preventAnonymous: true, notifyOnDisable: false)
             Toast.info(L(L10n.ChannelMessages.anonymousNotAllowed))
             return false
         }
+        clanPreventAnonymous = false
         _ = AnonymousMessageStore.toggle(clanId: clanId)
         refreshAnonymousUI()
         onAnonymousModeChanged?()
@@ -5895,15 +5903,38 @@ final class SendMessageInputViewController: UIViewController {
         anonymousIndicatorButton.tintColor = t.textStrong
     }
 
-    func setClanAnonymousPolicy(preventAnonymous: Bool) {
+    func setClanAnonymousPolicy(preventAnonymous: Bool, notifyOnDisable: Bool = true) {
         let policyChanged = clanPreventAnonymous != preventAnonymous
-        let wasEnabled = AnonymousMessageStore.isEnabled(clanId: clanId)
+        // Postbox may clear the stored mode before this composer receives the policy update.
+        let wasEnabled = AnonymousMessageStore.isEnabled(clanId: clanId) || !anonymousIndicatorButton.isHidden
         clanPreventAnonymous = preventAnonymous
         AnonymousMessageStore.applyClanPolicy(preventAnonymous: preventAnonymous, clanId: clanId)
         refreshAnonymousUI()
         if policyChanged || (preventAnonymous && wasEnabled) {
             onAnonymousModeChanged?()
         }
+        if notifyOnDisable && preventAnonymous && wasEnabled && canShowAnonymousPolicyNotice {
+            Toast.info(L(L10n.ChannelMessages.anonymousDisabledByClan))
+        }
+    }
+
+    private var canShowAnonymousPolicyNotice: Bool {
+        guard UIApplication.shared.applicationState == .active,
+              let view = viewIfLoaded, isViewVisibleInHierarchy(view) else { return false }
+        // ViewController presents native sheets through the window root.
+        if let presented = view.window?.rootViewController?.presentedViewController {
+            guard let presentedView = presented.viewIfLoaded,
+                  view.isDescendant(of: presentedView) else { return false }
+        }
+        var owner: UIViewController = self
+        while let parent = owner.parent, !(parent is UINavigationController) {
+            owner = parent
+        }
+        guard owner.presentedViewController == nil else { return false }
+        if let navigation = owner.navigationController {
+            return navigation.topViewController === owner && navigation.presentedViewController == nil
+        }
+        return true
     }
 
     func refreshAnonymousUI() {
