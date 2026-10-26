@@ -4437,17 +4437,16 @@ final class ChatViewController: ViewController {
     }
 
     private func clanPreventsAnonymous() -> Bool {
-        guard clanId != 0 else { return true }
-        let rec = context.account.postbox.read { tx in tx.getClan(id: clanId) }
-        return rec?.preventsAnonymousMessages ?? false
+        AnonymousMessageStore.clanPreventsAnonymous(clanId: clanId) {
+            context.account.postbox.read { tx in tx.getClan(id: clanId) }
+        }
     }
 
     private func rebuildAdvancePanelActions() {
-        let prevent = clanPreventsAnonymous()
         let on = AnonymousMessageStore.isEnabled(clanId: clanId)
         let items = AdvancedFunctionPanelView.defaultActionItems(
             anonymousOn: on,
-            includeAnonymous: clanId != 0 && !prevent,
+            includeAnonymous: clanId != 0,
             includeCreatePoll: channel.type != MezonConstants.ChannelType.dm.rawValue
         )
         advancePanelView.setActions(items)
@@ -4536,10 +4535,7 @@ final class ChatViewController: ViewController {
         case "buzz":
             handleBuzzMessage()
         case "anonymous":
-            guard clanId != 0, !clanPreventsAnonymous() else { return }
-            _ = AnonymousMessageStore.toggle(clanId: clanId)
-            sendInputViewController.refreshAnonymousUI()
-            rebuildAdvancePanelActions()
+            guard sendInputViewController.toggleAnonymousMode() else { return }
             DispatchQueue.main.async { [weak self] in
                 self?.sendInputViewController.focusTextInput()
             }
@@ -5266,6 +5262,9 @@ final class ChatViewController: ViewController {
             parentChannelLabel: ctx.parentLabel,
             composerParentChannel: ctx.composerSurface,
             seedMessageDisplay: display,
+            onAnonymousModeChanged: { [weak self] in
+                self?.configureAnonymousComposerAndAdvancePanel()
+            },
             onComplete: { [weak self] result in
                 guard let self else { return }
                 switch result {
