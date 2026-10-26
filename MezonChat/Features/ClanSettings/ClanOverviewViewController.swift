@@ -951,18 +951,11 @@ final class ClanOverviewViewController: BaseViewController {
                 req.clanID = self.clanId
                 req.clanName = isNameChanged ? name : ""
                 req.preventAnonymous = self.anonymousSwitch.isOn
-                req.logo = SwiftProtobuf.Google_Protobuf_StringValue(clan.icon ?? "")
-                
+
                 if let d = try? Mezon_Api_ClanDesc(serializedBytes: clan.data) {
-                    req.banner = SwiftProtobuf.Google_Protobuf_StringValue(d.banner)
-                    req.status = d.status
-                    req.isOnboarding = SwiftProtobuf.Google_Protobuf_BoolValue(d.isOnboarding)
                     req.welcomeChannelID = d.welcomeChannelID
-                    req.onboardingBanner = SwiftProtobuf.Google_Protobuf_StringValue(d.onboardingBanner)
-                    req.isCommunity = SwiftProtobuf.Google_Protobuf_BoolValue(d.isCommunity)
-                    req.communityBanner = SwiftProtobuf.Google_Protobuf_StringValue(d.communityBanner)
                 }
-                
+
                 var bannerUrlToSave: String? = nil
                 if let data = self.selectedAvatarData {
                     do {
@@ -991,29 +984,30 @@ final class ClanOverviewViewController: BaseViewController {
                 do {
                     try await self.context.account.network.updateClanDesc(request: req, token: token)
 
-                    if var d = try? Mezon_Api_ClanDesc(serializedBytes: clan.data) {
-                        let updatedName = isNameChanged ? name :
-                            (self.context.account.postbox.read({ tx in tx.getClan(id: self.clanId) })?.name ?? clan.name)
+                    var localWriteError: Error?
+                    self.context.account.postbox.writeSync { tx in
+                        guard let current = tx.getClan(id: self.clanId),
+                              var d = try? Mezon_Api_ClanDesc(serializedBytes: current.data) else { return }
+                        let updatedName = req.clanName.isEmpty ? current.name : req.clanName
                         d.clanName = updatedName
                         d.preventAnonymous = req.preventAnonymous
-                        if !req.logo.value.isEmpty {
-                            d.logo = req.logo.value
+                        if req.hasBanner {
+                            d.banner = req.banner.value
                         }
-                        if let b = bannerUrlToSave {
-                            d.banner = b
-                        }
-                        let updatedClan = ClanRecord(
-                            id: clan.id,
-                            name: updatedName,
-                            icon: clan.icon,
-                            ownerId: clan.ownerId,
-                            data: try d.serializedData()
-                        )
-                        self.context.account.postbox.writeSync { tx in
+                        do {
+                            let updatedClan = ClanRecord(
+                                id: current.id,
+                                name: updatedName,
+                                icon: current.icon,
+                                ownerId: current.ownerId,
+                                data: try d.serializedData()
+                            )
                             tx.updateClans([updatedClan])
+                        } catch {
+                            localWriteError = error
                         }
-                    } else {
                     }
+                    if let localWriteError { throw localWriteError }
                 } catch {
                     Toast.error(ClanUpdateErrorMessage.message(for: error, nameSent: isNameChanged))
                     return
