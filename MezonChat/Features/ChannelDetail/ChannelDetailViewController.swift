@@ -786,7 +786,7 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
             return
         }
 
-        let proxied = ImgproxyURL.avatarProxyURL(from: trimmed, width: 180, height: 180)
+        let proxied = ImgproxyURL.avatarProxyURL(from: trimmed, width: 100, height: 100)
         if let cached = ImageCache.shared.cachedImage(forURL: proxied) {
             avatarImageView.image = cached
             avatarImageView.isHidden = false

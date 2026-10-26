@@ -260,7 +260,8 @@ final class MyQRCodeContainerNode: ASDisplayNode, ASNetworkImageNodeDelegate {
             ?? displayName
 
         avatarFallbackNode.showPlaceholder()
-        if let avatarURL = user?.avatarURL {
+        if let rawAvatarURL = user?.avatarURL,
+           let avatarURL = URL(string: ImgproxyURL.iconURL(from: rawAvatarURL.absoluteString)) {
             if avatarNode.url == avatarURL, hasValidImage(avatarNode.image) {
                 avatarFallbackNode.showImageMode()
             } else {
@@ -327,7 +328,8 @@ final class MyQRCodeContainerNode: ASDisplayNode, ASNetworkImageNodeDelegate {
         case .profileAvatar:
             let user = context.currentUser
             qrLogoFallbackNode.showPlaceholder()
-            if let avatarURL = user?.avatarURL {
+            if let rawAvatarURL = user?.avatarURL,
+               let avatarURL = URL(string: ImgproxyURL.iconURL(from: rawAvatarURL.absoluteString)) {
                 if qrLogoNode.url == avatarURL, hasValidImage(qrLogoNode.image) {
                     qrLogoFallbackNode.showImageMode()
                 } else {

@@ -925,7 +925,7 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
             logoView.translatesAutoresizingMaskIntoConstraints = false
             logoView.widthAnchor.constraint(equalToConstant: 80).isActive = true
             logoView.heightAnchor.constraint(equalToConstant: 80).isActive = true
-            let proxied = ImgproxyURL.create(from: event.logo, width: 160, height: 160)
+            let proxied = ImgproxyURL.iconURL(from: event.logo, width: 100, height: 100)
             ImageCache.shared.loadImage(urlString: proxied) { image in
                 logoView.image = image
             }
@@ -986,7 +986,7 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
             imageView.tintColor = UIColor.theme.textDisabled
             return
         }
-        let proxied = ImgproxyURL.avatarProxyURL(from: raw, width: 56, height: 56)
+        let proxied = ImgproxyURL.avatarProxyURL(from: raw, width: 100, height: 100)
         ImageCache.shared.loadImage(urlString: proxied) { image in
             imageView.image = image ?? UIImage(systemName: "person.circle.fill")
         }

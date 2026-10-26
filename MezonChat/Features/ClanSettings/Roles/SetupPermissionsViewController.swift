@@ -438,7 +438,7 @@ final class SetupPermissionsViewController: BaseViewController {
                 self.refreshSaveButton()
                 self.navigationController?.popViewController(animated: true)
             } catch {
-                Toast.error(L(L10n.ClanRoles.failed))
+                Toast.error(error.localizedDescription)
             }
         }
     }
@@ -464,7 +464,7 @@ final class SetupPermissionsViewController: BaseViewController {
                     context: self.context, clanId: self.clanId, mode: .wizard(roleId: self.roleId))
                 self.navigationController?.pushViewController(next, animated: true)
             } catch {
-                Toast.error(L(L10n.ClanRoles.failed))
+                Toast.error(error.localizedDescription)
             }
         }
     }

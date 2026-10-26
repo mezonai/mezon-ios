@@ -41,7 +41,7 @@ final class QRClanInviteNode: ASDisplayNode {
         avatarNode.cornerRadius = 40
         avatarNode.clipsToBounds = true
         avatarNode.backgroundColor = theme.bgInfor
-        if let logo = inviteInfo.clan_logo, let url = URL(string: logo) {
+        if let logo = inviteInfo.clan_logo, let url = URL(string: ImgproxyURL.iconURL(from: logo)) {
             avatarNode.url = url
         }
         

@@ -254,21 +254,20 @@ final class VoiceAvatarNode: ASDisplayNode, ASNetworkImageNodeDelegate {
     private static let maxRetries = 4
 
     private func cachedAvatarImage() -> UIImage? {
-        if let p = proxiedURL, let img = Self.decodedImageCache.object(forKey: p.absoluteString as NSString) { return img }
-        if let o = originalURL, let img = Self.decodedImageCache.object(forKey: o.absoluteString as NSString) { return img }
-        return nil
+        guard let url = proxiedURL ?? originalURL else { return nil }
+        return Self.decodedImageCache.object(forKey: ImgproxyURL.cacheKey(from: url.absoluteString) as NSString)
     }
 
     private func storeAvatarImage(_ image: UIImage) {
-        if let p = proxiedURL { Self.decodedImageCache.setObject(image, forKey: p.absoluteString as NSString) }
-        if let o = originalURL { Self.decodedImageCache.setObject(image, forKey: o.absoluteString as NSString) }
+        guard let url = proxiedURL ?? originalURL else { return }
+        Self.decodedImageCache.setObject(image, forKey: ImgproxyURL.cacheKey(from: url.absoluteString) as NSString)
     }
 
     init(member m: VoiceMemberDisplay, size s: CGFloat) {
         if let av = m.avatarURL, !av.isEmpty {
             let absolute = ImgproxyURL.absoluteResourceURL(from: av)
-            let px = max(1, Int((s * UIScreen.main.scale).rounded(.up)))
-            proxiedURL = URL(string: ImgproxyURL.create(from: absolute, width: px, height: px))
+            let px = 100
+            proxiedURL = URL(string: ImgproxyURL.iconURL(from: absolute, width: px, height: px))
             originalURL = URL(string: absolute)
         } else {
             proxiedURL = nil

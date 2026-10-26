@@ -240,7 +240,9 @@ final class MmnClient: Sendable {
         if let httpRes = response as? HTTPURLResponse, !(200...299).contains(httpRes.statusCode) {
             let errorMsg = String(data: data, encoding: .utf8) ?? "none"
             if httpRes.statusCode >= 500 {
-                throw NSError(domain: "MmnClient", code: httpRes.statusCode, userInfo: [NSLocalizedDescriptionKey: L(L10n.Error.somethingWentWrong)])
+                let serverMessage = (try? JSONDecoder().decode(APIError.self, from: data))?.message ?? ""
+                let description = serverMessage.isEmpty ? HTTPURLResponse.localizedString(forStatusCode: httpRes.statusCode) : serverMessage
+                throw NSError(domain: "MmnClient", code: httpRes.statusCode, userInfo: [NSLocalizedDescriptionKey: description])
             }
             throw URLError(.badServerResponse)
         }

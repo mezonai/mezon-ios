@@ -246,9 +246,7 @@ final class ClanListContainerNode: ASDisplayNode {
             return
         }
         sidebarLogoDisplaySource = resolvedURL
-        let proxied = resolvedURL == MezonConstants.defaultDMLogoURL
-            ? resolvedURL
-            : ImgproxyURL.create(from: resolvedURL, width: 150, height: 150)
+        let proxied = ImgproxyURL.iconURL(from: resolvedURL, width: 100, height: 100, resizeType: "fill-down")
         if let cached = ImageCache.shared.cachedImage(forURL: proxied) {
             logoImageView.image = cached
             return
@@ -621,7 +619,7 @@ private final class ClanCell: UICollectionViewCell {
     private func loadExpectingClan(clanId: Int64, generation: Int, clanName: String, sourceURL: String, attempt: Int = 0) {
         imageTask?.cancel()
         imageTask = nil
-        let urlString = ImgproxyURL.create(from: sourceURL, width: 150, height: 150)
+        let urlString = ImgproxyURL.clanLogoURL(from: sourceURL, width: 100, height: 100)
         if let cached = ImageCache.shared.cachedImage(forURL: urlString) {
             guard boundClanId == clanId, avatarGeneration == generation else { return }
             avatarImageView.image = cached
@@ -890,7 +888,7 @@ private final class UnreadDMBadgeCell: UICollectionViewCell {
         if !resolvedAvatarURL.isEmpty {
             groupIconView.isHidden = true
             avatarContainer.backgroundColor = .clear
-            let proxyURL = ImgproxyURL.create(from: resolvedAvatarURL, width: 150, height: 150)
+            let proxyURL = ImgproxyURL.iconURL(from: resolvedAvatarURL, width: 100, height: 100)
             avatarImageView.isHidden = false
             imageTask?.cancel()
             imageTask = nil

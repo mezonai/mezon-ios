@@ -224,7 +224,6 @@ enum L10n {
         static let errorUpdateFail             = "setPassword.error.updateFail"
         static let errorCreateFail             = "setPassword.error.createFail"
         static let toastSuccess                = "setPassword.toast.success"
-        static let toastError                  = "setPassword.toast.error"
     }
 
     enum EmailSetting {
@@ -731,7 +730,6 @@ enum L10n {
         static let role                   = "clanRoles.role"
         static let save                   = "clanRoles.save"
         static let saved                  = "clanRoles.saved"
-        static let failed                 = "clanRoles.failed"
         static let skipStep               = "clanRoles.skipStep"
 
         static let createTitle            = "clanRoles.create.title"
@@ -1170,6 +1168,11 @@ enum L10n {
         static let voiceMessageA11y      = "channelMessages.voiceMessageA11y"
         static let yourLocation          = "channelMessages.yourLocation"
         static let locationOf            = "channelMessages.locationOf"
+        static let shareLocationTitle      = "channelMessages.shareLocationTitle"
+        static let shareLocationCoordinate = "channelMessages.shareLocationCoordinate"
+        static let shareLocationAccuracy   = "channelMessages.shareLocationAccuracy"
+        static let shareLocationLocating   = "channelMessages.shareLocationLocating"
+        static let shareLocationSend       = "channelMessages.shareLocationSend"
         static let clanInviteLoadFailed  = "channelMessages.clanInviteLoadFailed"
         static let pollUnsupported        = "channelMessages.pollUnsupported"
         static let pollComingSoon         = "channelMessages.pollComingSoon"
@@ -1313,7 +1316,7 @@ enum L10n {
     enum Error {
         static let networkError           = "error.networkError"
         static let connectionFailed       = "error.connectionFailed"
-        static let somethingWentWrong     = "error.somethingWentWrong"
+        static let messageTooLong         = "error.messageTooLong"
         static let sessionExpiredTitle    = "error.sessionExpiredTitle"
         static let sessionExpiredOrNetwork = "error.sessionExpiredOrNetwork"
         static let sessionExpiredContent  = "error.sessionExpiredContent"
@@ -1719,7 +1722,6 @@ extension L10n {
         "setPassword.error.updateFail": "Failed to update password",
         "setPassword.error.createFail": "Failed to set password",
         "setPassword.toast.success": "Password updated successfully",
-        "setPassword.toast.error": "Something went wrong. Please try again.",
 
         "emailSetting.updateEmailTitle": "Update Email",
         "emailSetting.newEmail": "New Email",
@@ -1849,7 +1851,7 @@ extension L10n {
         "updateUsername.usernamePreview": "Username: %@",
         "updateUsername.update": "Update",
         "updateUsername.errorDuplicate": "There's an issue or the name already exists, please choose another one.",
-        "updateUsername.errorGeneric": "Something went wrong. Please try again or enter another name.",
+        "updateUsername.errorGeneric": "Couldn't update your username. Please try again or enter another name.",
         "updateUsername.skipUpdateQuestion": "Want to sign in again with your phone number?",
         "updateUsername.skipUpdateBack": "Return to login with phone number",
 
@@ -2156,7 +2158,6 @@ extension L10n {
         "clanRoles.role":                   "Role",
         "clanRoles.save":                   "Save",
         "clanRoles.saved":                  "Changes saved",
-        "clanRoles.failed":                 "Something went wrong. Try again.",
         "clanRoles.skipStep":               "Skip this step",
 
         "clanRoles.create.title":           "Create a new role",
@@ -2473,6 +2474,11 @@ extension L10n {
         "channelMessages.voiceMessageA11y": "Voice message. Tap to play or pause.",
         "channelMessages.yourLocation": "Your location",
         "channelMessages.locationOf": "%@'s location",
+        "channelMessages.shareLocationTitle": "Send this location to %@",
+        "channelMessages.shareLocationCoordinate": "Coordinate (%@, %@)",
+        "channelMessages.shareLocationAccuracy": "Accurate to %@",
+        "channelMessages.shareLocationLocating": "Getting your location…",
+        "channelMessages.shareLocationSend": "Send",
         "channelMessages.clanInviteLoadFailed": "Couldn't load this clan invite.",
         "channelMessages.pollUnsupported": "Polls aren't supported in the app yet.",
         "channelMessages.pollComingSoon": "Coming soon.",
@@ -2845,7 +2851,7 @@ extension L10n {
 
         "error.networkError": "Network Error",
         "error.connectionFailed": "Connection failed. Please try again.",
-        "error.somethingWentWrong": "Something went wrong",
+        "error.messageTooLong": "Message is too long",
         "error.sessionExpiredTitle": "Session Expired",
         "error.sessionExpiredOrNetwork": "Session Expired or Network Error",
         "error.sessionExpiredContent":  "Your session has expired. Please log in again to continue.",
@@ -3165,7 +3171,6 @@ extension L10n {
         "setPassword.error.updateFail": "Không thể cập nhật mật khẩu",
         "setPassword.error.createFail": "Không thể đặt mật khẩu",
         "setPassword.toast.success": "Cập nhật mật khẩu thành công",
-        "setPassword.toast.error": "Đã xảy ra lỗi. Vui lòng thử lại.",
 
         "emailSetting.updateEmailTitle": "Cập nhật Email",
         "emailSetting.newEmail": "Email mới",
@@ -3295,7 +3300,7 @@ extension L10n {
         "updateUsername.usernamePreview": "Tên người dùng: %@",
         "updateUsername.update": "Cập nhật",
         "updateUsername.errorDuplicate": "Có sự cố hoặc tên đã tồn tại, vui lòng chọn tên khác.",
-        "updateUsername.errorGeneric": "Có lỗi xảy ra vui lòng thử lại hoặc nhập 1 cái tên khác",
+        "updateUsername.errorGeneric": "Không thể cập nhật tên, vui lòng thử lại hoặc nhập 1 cái tên khác",
         "updateUsername.skipUpdateQuestion": "Muốn đăng nhập lại với số điện thoại của bạn?",
         "updateUsername.skipUpdateBack": "Quay lại đăng nhập với số điện thoại",
 
@@ -3602,7 +3607,6 @@ extension L10n {
         "clanRoles.role":                   "Vai trò",
         "clanRoles.save":                   "Lưu",
         "clanRoles.saved":                  "Đã lưu thay đổi",
-        "clanRoles.failed":                 "Có lỗi xảy ra. Vui lòng thử lại.",
         "clanRoles.skipStep":               "Bỏ qua bước này",
 
         "clanRoles.create.title":           "Tạo vai trò mới",
@@ -3920,6 +3924,11 @@ extension L10n {
         "channelMessages.voiceMessageA11y": "Tin nhắn thoại. Chạm để phát hoặc tạm dừng.",
         "channelMessages.yourLocation": "Vị trí của bạn",
         "channelMessages.locationOf": "Vị trí của %@",
+        "channelMessages.shareLocationTitle": "Gửi vị trí này tới %@",
+        "channelMessages.shareLocationCoordinate": "Tọa độ (%@, %@)",
+        "channelMessages.shareLocationAccuracy": "Chính xác trong khoảng %@",
+        "channelMessages.shareLocationLocating": "Đang lấy vị trí của bạn…",
+        "channelMessages.shareLocationSend": "Gửi",
         "channelMessages.clanInviteLoadFailed": "Không tải được lời mời clan.",
         "channelMessages.pollUnsupported": "Bình chọn chưa được hỗ trợ trên ứng dụng này.",
         "channelMessages.pollComingSoon": "Sắp có.",
@@ -4292,7 +4301,7 @@ extension L10n {
 
         "error.networkError": "Lỗi kết nối mạng",
         "error.connectionFailed": "Kết nối thất bại. Vui lòng thử lại.",
-        "error.somethingWentWrong": "Đã xảy ra lỗi",
+        "error.messageTooLong": "Tin nhắn quá dài",
         "error.sessionExpiredTitle": "Phiên đăng nhập hết hạn",
         "error.sessionExpiredOrNetwork": "Phiên hết hạn hoặc lỗi mạng",
         "error.sessionExpiredContent":

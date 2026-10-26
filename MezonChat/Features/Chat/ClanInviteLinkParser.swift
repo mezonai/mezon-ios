@@ -161,7 +161,7 @@ enum ClanInviteJoiner {
         clanId: Int64? = nil,
         attempts: Int = 3,
         initialDelayNanoseconds: UInt64 = 500_000_000
-    ) async -> Int64? {
+    ) async throws -> Int64 {
         var targetClanId = clanId ?? 0
         if targetClanId == 0 {
             let token = await context.getToken() ?? ""
@@ -173,6 +173,7 @@ enum ClanInviteJoiner {
         }
         let total = max(attempts, 1)
         var delay = initialDelayNanoseconds
+        var lastError: Error = MezonError.invalidResponse
         for attempt in 0..<total {
             if targetClanId != 0 {
                 await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: context, clanId: targetClanId, force: true)
@@ -182,12 +183,13 @@ enum ClanInviteJoiner {
                 let response = try await context.engine.clanData.joinClanWithInvite(code: code, token: token)
                 return response.clanID
             } catch {
+                lastError = error
                 if attempt < total - 1 {
                     try? await Task.sleep(nanoseconds: delay)
                     delay *= 2
                 }
             }
         }
-        return nil
+        throw lastError
     }
 }

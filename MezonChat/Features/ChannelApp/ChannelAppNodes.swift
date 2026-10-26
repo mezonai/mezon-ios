@@ -9,11 +9,11 @@ enum ChannelAppLogoCache {
     }()
 
     static func image(forURL url: String) -> UIImage? {
-        cache.object(forKey: url as NSString)
+        cache.object(forKey: ImgproxyURL.cacheKey(from: url) as NSString)
     }
 
     static func store(_ image: UIImage, forURL url: String) {
-        cache.setObject(image, forKey: url as NSString)
+        cache.setObject(image, forKey: ImgproxyURL.cacheKey(from: url) as NSString)
     }
 
     static func apply(to imageNode: ASImageNode, urlString: String) {
@@ -65,7 +65,7 @@ final class ChannelAppCellNode: ASCellNode {
 
         let resolvedAppLogoURL = ImgproxyURL.absoluteResourceURL(from: app.appLogo)
         if !resolvedAppLogoURL.isEmpty {
-            let proxyURL = ImgproxyURL.create(from: resolvedAppLogoURL, width: 150, height: 150)
+            let proxyURL = ImgproxyURL.iconURL(from: resolvedAppLogoURL, width: 100, height: 100)
             ChannelAppLogoCache.apply(to: logoNode, urlString: proxyURL)
         } else {
             logoNode.image = UIImage(named: "Channel/channelApp")?.withRenderingMode(.alwaysTemplate)
@@ -251,7 +251,7 @@ final class ChannelAppIconNode: ASControlNode {
 
         let resolvedAppLogoURL = ImgproxyURL.absoluteResourceURL(from: app.appLogo)
         if !resolvedAppLogoURL.isEmpty {
-            let proxyURL = ImgproxyURL.create(from: resolvedAppLogoURL, width: 150, height: 150)
+            let proxyURL = ImgproxyURL.iconURL(from: resolvedAppLogoURL, width: 100, height: 100)
             ChannelAppLogoCache.apply(to: logoImageNode, urlString: proxyURL)
         } else {
             logoImageNode.image = UIImage(named: "Channel/channelApp")?.withRenderingMode(.alwaysTemplate)

@@ -40,8 +40,8 @@ private enum DiscoverClanImageProxy {
 
     static func avatarURL(_ raw: String) -> String {
         guard !raw.isEmpty else { return raw }
-        let px = Int(ceil(DiscoverClanLayout.avatarSide * UIScreen.main.scale))
-        return ImgproxyURL.create(from: raw, width: px, height: px, resizeType: "fill")
+        let px = 100
+        return ImgproxyURL.iconURL(from: raw, width: px, height: px, resizeType: "fill")
     }
 
     static func detailBannerURL(_ raw: String) -> String {
@@ -56,8 +56,8 @@ private enum DiscoverClanImageProxy {
 
     static func detailLogoURL(_ raw: String) -> String {
         guard !raw.isEmpty else { return raw }
-        let px = Int(80 * UIScreen.main.scale)
-        return ImgproxyURL.create(from: raw, width: px, height: px, resizeType: "fill")
+        let px = 100
+        return ImgproxyURL.iconURL(from: raw, width: px, height: px, resizeType: "fill")
     }
 }
 
@@ -109,6 +109,7 @@ private final class DiscoverClanListCell: UITableViewCell {
         verifiedLabel.textColor = .white
         verifiedLabel.text = L(L10n.Discover.verified)
         verifiedLabel.translatesAutoresizingMaskIntoConstraints = false
+        verifiedLabel.setContentHuggingPriority(.required, for: .horizontal)
         verifiedContainer.addSubview(verifiedLabel)
 
         let dot = UIView()
@@ -946,7 +947,7 @@ final class DiscoverClanDetailViewController: BaseViewController {
         joinButton.isEnabled = false
         Task { @MainActor in
             let code = "\(item.inviteID)"
-            let clanId = await ClanInviteJoiner.join(context: context, code: code, clanId: item.clanID)
+            let clanId = try? await ClanInviteJoiner.join(context: context, code: code, clanId: item.clanID)
             guard let clanId, clanId != 0 else {
                 joinButton.isEnabled = true
                 return

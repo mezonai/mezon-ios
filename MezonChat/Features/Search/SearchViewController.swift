@@ -808,7 +808,7 @@ final class SearchViewController: ViewController {
                 guard let raw = urls.first else { continue }
                 let absolute = ImgproxyURL.absoluteResourceURL(from: raw)
                 guard !absolute.isEmpty else { continue }
-                let proxied = ImgproxyURL.avatarProxyURL(from: absolute, width: 120, height: 120)
+                let proxied = ImgproxyURL.avatarProxyURL(from: absolute, width: 100, height: 100)
                 guard let url = URL(string: proxied) else { continue }
                 URLSession.shared.dataTask(with: url).resume()
             }
@@ -2443,7 +2443,7 @@ final class MemberSearchCellNode: ASCellNode, ASNetworkImageNodeDelegate {
             guard !trimmed.isEmpty, seen.insert(trimmed).inserted else { return nil }
             let absolute = ImgproxyURL.absoluteResourceURL(from: trimmed)
             guard !absolute.isEmpty else { return nil }
-            let proxied = ImgproxyURL.avatarProxyURL(from: absolute, width: 120, height: 120)
+            let proxied = ImgproxyURL.avatarProxyURL(from: absolute, width: 100, height: 100)
             return URL(string: proxied)
         }
         loadAvatarCandidate(at: 0)
@@ -2768,7 +2768,7 @@ final class MessageSearchCellNode: ASCellNode, ASNetworkImageNodeDelegate {
             avatarNode.contentMode = .scaleAspectFill
             avatarNode.delegate = self
             let resolvedAvatar = (clanAvatar?.isEmpty == false ? clanAvatar : nil) ?? (document.avatarURL.isEmpty ? nil : document.avatarURL)
-            if let resolvedAvatar, let url = URL(string: ImgproxyURL.create(from: resolvedAvatar, width: 150, height: 150)) {
+            if let resolvedAvatar, let url = URL(string: ImgproxyURL.iconURL(from: resolvedAvatar, width: 100, height: 100)) {
                 avatarNode.url = url
             } else {
                 avatarNode.defaultImage = DefaultUserAvatar.image(side: Self.avatarSize)
@@ -3040,7 +3040,7 @@ final class DMGroupSearchCellNode: ASCellNode, ASNetworkImageNodeDelegate {
             avatarNode.clipsToBounds = true
             avatarNode.contentMode = .scaleAspectFill
             avatarNode.delegate = self
-            if let url = URL(string: ImgproxyURL.create(from: avatarRaw, width: 150, height: 150)) {
+            if let url = URL(string: ImgproxyURL.iconURL(from: avatarRaw, width: 100, height: 100)) {
                 avatarNode.url = url
             }
             groupIconNode.isHidden = true

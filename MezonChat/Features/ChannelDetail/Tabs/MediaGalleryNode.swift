@@ -262,12 +262,10 @@ final class MediaGalleryNode: ASDisplayNode {
 
     private func presentGallery(startingAt index: Int, previewImage: UIImage? = nil) {
         guard index >= 0, index < attachments.count else { return }
-        let proxySide = Int(flowLayout.itemSize.width * UIScreen.main.scale)
         let items: [GalleryItemInfo] = attachments.enumerated().map { (itemIndex, att) in
             let uploader = resolvedUploaderInfo(uploaderId: att.uploader)
             let isVideo = Self.isVideo(att)
-            let imageThumbURL = ImgproxyURL.attachmentURL(
-                from: att.url, width: proxySide, height: proxySide, resizeType: "fill")
+            let imageThumbURL = ImgproxyURL.channelMediaThumbnailURL(from: att.url)
             let preview = itemIndex == index
                 ? (previewImage
                     ?? ImageCache.shared.memoryImage(forKey: imageThumbURL)
@@ -446,9 +444,7 @@ extension MediaGalleryNode: ASCollectionDataSource, ASCollectionDelegate {
     {
         let attachment = attachments[indexPath.item]
         let isVideo = Self.isVideo(attachment)
-        let proxySide = Int(flowLayout.itemSize.width * UIScreen.main.scale)
-        let imageThumbURL = ImgproxyURL.attachmentURL(
-            from: attachment.url, width: proxySide, height: proxySide, resizeType: "fill")
+        let imageThumbURL = ImgproxyURL.channelMediaThumbnailURL(from: attachment.url)
         let index = indexPath.item
         return { [weak self] in
             var cell: MediaThumbCellNode!
@@ -495,7 +491,7 @@ private final class MediaThumbCellNode: ASCellNode {
         imageNode.contentAnimations = [.firstUpdate]
         if isVideo {
             imageNode.setSignal(
-                videoThumbnailSignal(url: rawSourceURL, resizeMode: .fill),
+                videoThumbnailSignal(url: rawSourceURL, resizeMode: .fill, maxPixelSize: 200),
                 attemptSynchronously: false
             )
         } else {

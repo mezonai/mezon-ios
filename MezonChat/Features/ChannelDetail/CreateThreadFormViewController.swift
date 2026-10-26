@@ -97,7 +97,6 @@ final class CreateThreadFormViewController: UIViewController {
     )
 
     private let locationManager = CLLocationManager()
-    private var locationCompletion: ((CLLocationCoordinate2D?) -> Void)?
 
     private lazy var sendInputVC: SendMessageInputViewController = {
         let vc = SendMessageInputViewController(
@@ -900,13 +899,9 @@ final class CreateThreadFormViewController: UIViewController {
         switch status {
         case .notDetermined:
             locationManager.delegate = self
-            locationCompletion = { [weak self] coord in
-                guard let self, let coord else { return }
-                self.showLocationConfirmForThreadForm(coordinate: coord)
-            }
             locationManager.requestWhenInUseAuthorization()
         case .authorizedWhenInUse, .authorizedAlways:
-            fetchLocationAndShowConfirmForThreadForm()
+            showLocationConfirmForThreadForm()
         case .denied, .restricted:
             showLocationPermissionDeniedAlertForThreadForm()
         @unknown default:
@@ -914,18 +909,9 @@ final class CreateThreadFormViewController: UIViewController {
         }
     }
 
-    private func fetchLocationAndShowConfirmForThreadForm() {
-        locationManager.delegate = self
-        locationCompletion = { [weak self] coord in
-            guard let self, let coord else { return }
-            self.showLocationConfirmForThreadForm(coordinate: coord)
-        }
-        locationManager.requestLocation()
-    }
-
-    private func showLocationConfirmForThreadForm(coordinate: CLLocationCoordinate2D) {
+    private func showLocationConfirmForThreadForm() {
         let label = parentChannelLabel.isEmpty ? "this channel" : parentChannelLabel
-        let confirmVC = ShareLocationConfirmViewController(coordinate: coordinate, channelLabel: label)
+        let confirmVC = ShareLocationConfirmViewController(channelLabel: label)
         confirmVC.onSend = { [weak self] lat, lng in
             guard let self else { return }
             self.sendInputVC.sendLocation(latitude: lat, longitude: lng)
@@ -951,20 +937,6 @@ final class CreateThreadFormViewController: UIViewController {
 }
 
 extension CreateThreadFormViewController: CLLocationManagerDelegate {
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        manager.delegate = nil
-        let completion = locationCompletion
-        locationCompletion = nil
-        completion?(locations.last?.coordinate)
-    }
-
-    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        manager.delegate = nil
-        let completion = locationCompletion
-        locationCompletion = nil
-        completion?(nil)
-    }
-
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         let status: CLAuthorizationStatus
         if #available(iOS 14.0, *) {
@@ -973,13 +945,10 @@ extension CreateThreadFormViewController: CLLocationManagerDelegate {
             status = CLLocationManager.authorizationStatus()
         }
         guard status != .notDetermined else { return }
+        manager.delegate = nil
         if status == .authorizedWhenInUse || status == .authorizedAlways {
-            manager.requestLocation()
+            showLocationConfirmForThreadForm()
         } else {
-            manager.delegate = nil
-            let completion = locationCompletion
-            locationCompletion = nil
-            completion?(nil)
             showLocationPermissionDeniedAlertForThreadForm()
         }
     }

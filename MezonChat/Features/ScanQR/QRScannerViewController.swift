@@ -504,7 +504,7 @@ final class QRScannerViewController: ViewController {
                         guard let self = self else { return }
                         inviteNode?.setJoining(true)
                         Task {
-                            let clanId = await ClanInviteJoiner.join(context: self.context, code: code, clanId: inviteInfo.clan_id.flatMap(Int64.init))
+                            let clanId = try? await ClanInviteJoiner.join(context: self.context, code: code, clanId: inviteInfo.clan_id.flatMap(Int64.init))
                             await MainActor.run {
                                 guard let clanId else {
                                     self.hideClanInvite()

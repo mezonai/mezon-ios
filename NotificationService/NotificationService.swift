@@ -38,7 +38,7 @@ class NotificationService: UNNotificationServiceExtension {
         }
 
         if let avatarURLString = findAvatarURL(in: userInfo),
-           let avatarURL = URL(string: avatarURLString) {
+           let avatarURL = URL(string: AvatarProxyURL.normalized(avatarURLString)) {
             if let sharedAvatar = NotificationAvatarStore.data(for: avatarURLString).flatMap(Self.normalizedAvatarPNG) {
                 communicationContent(from: bestAttemptContent, avatarData: sharedAvatar, completion: contentHandler)
                 return
@@ -70,7 +70,7 @@ class NotificationService: UNNotificationServiceExtension {
     private static let avatarDownloadAttempts = 2
     private static let avatarRetryDelay: TimeInterval = 1
     private static let avatarProxyRetryDelay: TimeInterval = 0.5
-    private static let avatarMaxPixelSize = 168
+    private static let avatarMaxPixelSize = 100
     private static let proxiedImageScheme = "intents-remote-image-proxy"
     private static let avatarSession: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral

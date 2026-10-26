@@ -948,7 +948,7 @@ private final class PinnedMessageCellNode: ASCellNode, ASNetworkImageNodeDelegat
     private static func displayURL(from raw: String) -> URL? {
         let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !s.isEmpty else { return nil }
-        let proxied = ImgproxyURL.attachmentURL(from: s, width: 80, height: 80, resizeType: "fill")
+        let proxied = ImgproxyURL.iconURL(from: s, width: 100, height: 100, resizeType: "fill")
         if let u = URL(string: proxied) { return u }
         if let enc = proxied.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
             let u = URL(string: enc)

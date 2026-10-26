@@ -231,7 +231,7 @@ private final class ClanPickerCell: UITableViewCell {
         avatarView.isHidden = true
         separatorView.isHidden = !showSeparator
 
-        let url = clan.logo.trimmingCharacters(in: .whitespacesAndNewlines)
+        let url = ImgproxyURL.iconURL(from: clan.logo.trimmingCharacters(in: .whitespacesAndNewlines))
         if !url.isEmpty {
             initialLabel.isHidden = true
         } else {
