@@ -5908,7 +5908,8 @@ final class ChatViewController: ViewController {
     }
 
     private func showMemberProfileById(_ userId: String) {
-        guard let userIdInt = Int64(userId) else { return }
+        guard userId != ChatMessageDisplay.mentionHereUserId,
+              let userIdInt = Int64(userId) else { return }
         let isCurrentUser = userId == context.currentUser?.id
 
         var user = Mezon_Api_User()
