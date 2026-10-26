@@ -59,15 +59,18 @@ enum StreamingChannelBackground {
         height: Int,
         completion: @escaping (UIImage?) -> Void
     ) {
-        let absolute = ImgproxyURL.absoluteResourceURL(from: raw)
+        let absolute = ImgproxyURL.normalizedIconURL(
+            from: ImgproxyURL.absoluteResourceURL(from: raw), preserveResizeType: true)
         guard !absolute.isEmpty else {
             completion(nil)
             return
         }
         let w = max(width, 1)
         let h = max(height, 1)
-        let proxy = ImgproxyURL.create(from: absolute, width: w, height: h)
-        ImageCache.shared.loadAvatar(urlString: proxy) { image in
+        let proxy = w == h
+            ? ImgproxyURL.iconURL(from: absolute, width: w, height: h, resizeType: "fit")
+            : ImgproxyURL.create(from: absolute, width: w, height: h)
+        ImageCache.shared.loadImage(urlString: proxy) { image in
             if let image {
                 completion(image)
                 return

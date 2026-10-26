@@ -150,7 +150,7 @@ final class ChannelPermissionRowCell: UITableViewCell {
         avatarView.image = nil
         avatarView.backgroundColor = UIColor.theme.tertiary
         if let urlString = avatarURL, !urlString.isEmpty {
-            let resolved = ImgproxyURL.create(from: urlString, width: 100, height: 100)
+            let resolved = ImgproxyURL.iconURL(from: urlString, width: 100, height: 100)
             configuredAvatarURL = resolved
             imageTask = ImageCache.shared.loadImage(urlString: resolved) { [weak self] image in
                 guard let self else { return }

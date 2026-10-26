@@ -438,7 +438,7 @@ private final class DmActionSheetNode: ASDisplayNode, UIGestureRecognizerDelegat
         } else if !menuContext.avatarURL.isEmpty {
             avatar.showImageMode()
             ImageCache.shared.loadImage(
-                urlString: ImgproxyURL.create(from: menuContext.avatarURL, width: 150, height: 150)
+                urlString: ImgproxyURL.iconURL(from: menuContext.avatarURL, width: 100, height: 100)
             ) { [weak avatarImageView, weak avatar] image in
                 if let image {
                     avatarImageView?.image = image

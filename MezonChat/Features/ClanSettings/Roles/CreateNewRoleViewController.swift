@@ -321,7 +321,7 @@ final class CreateNewRoleViewController: BaseViewController {
                     .filter { $0 !== self }
                 self.navigationController?.setViewControllers(viewControllers + [next], animated: true)
             } catch {
-                Toast.error(L(L10n.ClanRoles.failed))
+                Toast.error(error.localizedDescription)
                 self.isCreating = false
                 self.refreshCreateButton()
             }

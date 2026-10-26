@@ -405,7 +405,7 @@ final class FriendRequestItemNode: ASCellNode, ASNetworkImageNodeDelegate {
 
         let avatarRaw = user.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
         if !avatarRaw.isEmpty {
-            let proxied = ImgproxyURL.create(from: avatarRaw, width: 120, height: 120)
+            let proxied = ImgproxyURL.iconURL(from: avatarRaw, width: 100, height: 100)
             if let url = URL(string: proxied) {
                 avatarNode.url = url
                 textAvatarNode.showSkeleton()

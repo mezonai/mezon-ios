@@ -463,6 +463,8 @@ final class NotificationItemCell: UITableViewCell {
     }
 
     private func loadAvatar(sourceURL: String) {
+        // Raw-cache lookups must use the original image, not a previously padded proxy rendition.
+        let sourceURL = ImgproxyURL.sourceURL(fromProxyURL: sourceURL)?.absoluteString ?? sourceURL
         if configuredAvatarURLString == sourceURL,
            isAvatarLoadInFlight || avatarView.image != nil {
             return
@@ -480,9 +482,6 @@ final class NotificationItemCell: UITableViewCell {
 
         if let cached = ImageCache.shared.memoryOptimizedAvatar(
             forURL: proxiedURL,
-            targetPixelSize: Self.avatarTargetPixelSize
-        ) ?? ImageCache.shared.memoryOptimizedAvatar(
-            forURL: sourceURL,
             targetPixelSize: Self.avatarTargetPixelSize
         ) {
             isAvatarLoadInFlight = false
@@ -502,7 +501,7 @@ final class NotificationItemCell: UITableViewCell {
                   self.isAvatarLoadInFlight else { return }
             self.showAvatarImage(image)
         }
-        let hasRawDiskCache = ImageCache.shared.hasOptimizedAvatarDiskCache(
+        let hasRawDiskCache = proxiedURL == sourceURL && ImageCache.shared.hasOptimizedAvatarDiskCache(
             forURL: sourceURL,
             targetPixelSize: Self.avatarTargetPixelSize
         )
@@ -978,7 +977,8 @@ final class NotificationsContainerNode: ASDisplayNode {
         for item in items {
             let rawAvatarURL = item.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !rawAvatarURL.isEmpty, rawAvatarURL != "default" else { continue }
-            let sourceURL = ImgproxyURL.absoluteResourceURL(from: rawAvatarURL)
+            let resolvedURL = ImgproxyURL.absoluteResourceURL(from: rawAvatarURL)
+            let sourceURL = ImgproxyURL.sourceURL(fromProxyURL: resolvedURL)?.absoluteString ?? resolvedURL
             guard !sourceURL.isEmpty else { continue }
 
             let proxiedURL = ImgproxyURL.avatarProxyURL(
@@ -992,7 +992,7 @@ final class NotificationsContainerNode: ASDisplayNode {
                 height: 100
             )
             let targetPixelSize = 120
-            let hasRawDiskCache = ImageCache.shared.hasOptimizedAvatarDiskCache(
+            let hasRawDiskCache = proxiedURL == sourceURL && ImageCache.shared.hasOptimizedAvatarDiskCache(
                 forURL: sourceURL,
                 targetPixelSize: targetPixelSize
             )
@@ -1006,9 +1006,6 @@ final class NotificationsContainerNode: ASDisplayNode {
             let cached = ImageCache.shared.memoryOptimizedAvatar(
                 forURL: proxiedURL,
                 targetPixelSize: targetPixelSize
-            ) ?? ImageCache.shared.memoryOptimizedAvatar(
-                forURL: sourceURL,
-                targetPixelSize: targetPixelSize
             )
             guard cached == nil else { continue }
 
@@ -1016,13 +1013,7 @@ final class NotificationsContainerNode: ASDisplayNode {
             ImageCache.shared.loadOptimizedAvatar(
                 urlString: loadURL,
                 targetPixelSize: targetPixelSize
-            ) { image in
-                guard image == nil, loadURL != sourceURL else { return }
-                ImageCache.shared.loadOptimizedAvatar(
-                    urlString: sourceURL,
-                    targetPixelSize: targetPixelSize
-                ) { _ in }
-            }
+            ) { _ in }
         }
     }
 }

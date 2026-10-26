@@ -482,7 +482,7 @@ final class EmojiItemCell: UITableViewCell {
         }
 
         let avatarUrl = ImgproxyURL.absoluteResourceURL(from: avatar)
-        let side = Int(Self.creatorAvatarSize * UIScreen.main.scale)
+        let side = 100
         let loadKey = ImgproxyURL.avatarProxyURL(from: avatarUrl, width: side, height: side)
         let resolvedKey = loadKey.isEmpty ? avatarUrl : loadKey
 
@@ -511,7 +511,7 @@ final class EmojiItemCell: UITableViewCell {
     private func loadEmojiIcon(_ emoji: CachedClanEmojiRecord) {
         iconTask?.cancel()
         iconTask = nil
-        let side = Int(Self.iconSize * UIScreen.main.scale)
+        let side = 100
         let proxyURL = ImgproxyURL.createEmoji(
             from: emoji.displayImageURLString,
             width: side,

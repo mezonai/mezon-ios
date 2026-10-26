@@ -626,8 +626,8 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
             imageView.layer.cornerRadius = avatarSize / 2
 
             if let av = member.avatarURL, !av.isEmpty {
-                let px = Int(avatarSize * UIScreen.main.scale)
-                let proxy = ImgproxyURL.create(from: av, width: px, height: px)
+                let px = 100
+                let proxy = ImgproxyURL.iconURL(from: av, width: px, height: px)
                 container.showSkeleton()
                 ImageCache.shared.loadAvatar(urlString: proxy) { [weak container] img in
                     imageView.image = img

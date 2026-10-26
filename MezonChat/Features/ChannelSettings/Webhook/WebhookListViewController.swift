@@ -529,8 +529,9 @@ final class WebhookItemCell: UITableViewCell {
         avatarView.configure(username: webhook.webhookName)
 
         imageTask?.cancel()
-        if !webhook.avatar.isEmpty, let url = URL(string: webhook.avatar) {
-            if let cachedImage = WebhookAvatarCache.shared.object(forKey: webhook.avatar as NSString) {
+        let avatarURL = ImgproxyURL.iconURL(from: webhook.avatar)
+        if !avatarURL.isEmpty, let url = URL(string: avatarURL) {
+            if let cachedImage = WebhookAvatarCache.shared.object(forKey: ImgproxyURL.cacheKey(from: avatarURL) as NSString) {
                 avatarImageView.image = cachedImage
                 avatarImageView.isHidden = false
                 avatarView.showImageMode()
@@ -545,7 +546,7 @@ final class WebhookItemCell: UITableViewCell {
                     }
                     return
                 }
-                WebhookAvatarCache.shared.setObject(image, forKey: webhook.avatar as NSString)
+                WebhookAvatarCache.shared.setObject(image, forKey: ImgproxyURL.cacheKey(from: avatarURL) as NSString)
                 DispatchQueue.main.async {
                     self?.avatarImageView.image = image
                     self?.avatarImageView.isHidden = false

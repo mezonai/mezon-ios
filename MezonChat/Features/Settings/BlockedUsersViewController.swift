@@ -317,7 +317,7 @@ final class BlockedUserItemCell: UITableViewCell {
         let targetUrl = friend.user.avatarURL
         if !targetUrl.isEmpty {
             avatarView.showSkeleton()
-            let resolvedUrlString = ImgproxyURL.create(from: targetUrl, width: 40, height: 40)
+            let resolvedUrlString = ImgproxyURL.iconURL(from: targetUrl, width: 100, height: 100)
             currentAvatarUrl = resolvedUrlString
             
             ImageCache.shared.loadImage(urlString: resolvedUrlString) { [weak self] image in

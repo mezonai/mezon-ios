@@ -181,7 +181,7 @@ private final class MentionSuggestionCell: UITableViewCell {
             usernameLabel.text = member.username
 
             if let raw = member.avatarURL, !raw.isEmpty {
-                let proxied = ImgproxyURL.create(from: raw, width: 56, height: 56)
+                let proxied = ImgproxyURL.iconURL(from: raw, width: 100, height: 100)
                 if let imageURL = URL(string: proxied) {
                     avatarImageView.backgroundColor = t.secondaryWeight
                     loadAvatar(from: imageURL, key: proxied, fallbackImage: DefaultUserAvatar.image(side: 28))

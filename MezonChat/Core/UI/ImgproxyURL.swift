@@ -15,9 +15,9 @@ enum ImgproxyURL {
     }
 
     private static var proxyHosts: Set<String> {
-        Set([
-            "imgproxy.mezon.ai", "imgproxy.mezon.vn", "imgproxy.komu.vn", "imgproxy.komu.ai",
-        ] + [URL(string: MezonEnvironment.current.imgproxyBaseURL)?.host?.lowercased()].compactMap { $0 })
+        AvatarProxyURL.knownHosts.union(
+            [URL(string: MezonEnvironment.current.imgproxyBaseURL)?.host?.lowercased()].compactMap { $0 }
+        )
     }
 
     private static func hasHost(_ sourceURL: String, in hosts: Set<String>) -> Bool {
@@ -25,6 +25,10 @@ enum ImgproxyURL {
               let scheme = components.scheme?.lowercased(), ["http", "https"].contains(scheme),
               let host = components.host?.lowercased() else { return false }
         return hosts.contains(host)
+    }
+
+    static func cacheKey(from key: String) -> String {
+        AvatarProxyURL.cacheKey(key, proxyHosts: proxyHosts)
     }
     private static let skipExtensions: Set<String> = ["gif", "webp"]
 
@@ -123,41 +127,71 @@ enum ImgproxyURL {
         return "\(proxyBase)/\(processingOptions)/plain/\(encodedSource)@webp"
     }
 
+    static func clanLogoURL(from sourceURL: String, width: Int = 100, height: Int = 100) -> String {
+        iconURL(from: absoluteResourceURL(from: sourceURL), width: width, height: height, resizeType: "fill-down")
+    }
+
+    static func channelMediaThumbnailURL(from sourceURL: String) -> String {
+        let source = secureURLString(from: sourceURL)
+        if hasHost(source, in: proxyHosts) {
+            return AvatarProxyURL.resized(
+                source, pixelSide: 200, resizeType: "fill", enlarge: true, extend: false,
+                proxyHosts: proxyHosts
+            )
+        }
+        return attachmentURL(from: source, width: 200, height: 200, resizeType: "fill")
+    }
+
+    /// Update incoming proxy URLs without creating a new rendition for direct image URLs.
+    static func normalizedIconURL(from sourceURL: String, preserveResizeType: Bool = false) -> String {
+        AvatarProxyURL.normalized(
+            secureURLString(from: sourceURL),
+            proxyHosts: proxyHosts,
+            preserveResizeType: preserveResizeType
+        )
+    }
+
+    /// Avatars and logos crop to fill by default, without upscaling small source images.
+    static func iconURL(
+        from sourceURL: String,
+        width: Int = 100,
+        height: Int = 100,
+        resizeType: String = "fill-down"
+    ) -> String {
+        iconProxyURL(from: sourceURL, width: width, height: height, resizeType: resizeType, outputFormat: "webp")
+    }
+
     static func avatarProxyURL(from sourceURL: String, width: Int = 100, height: Int = 100) -> String {
-        let s = secureURLString(from: sourceURL)
-        guard !s.isEmpty else { return s }
-        if hasHost(s, in: proxyHosts) {
-            return s
-        }
-        guard s.hasPrefix("http://") || s.hasPrefix("https://") else {
-            return s
-        }
-        guard hasHost(s, in: cdnHosts) else {
-            return s
-        }
-        if shouldSkipProxy(s) {
-            return s
-        }
-        let w = max(1, width)
-        let h = max(1, height)
-        let processingOptions = "rs:fit:\(w):\(h):1/mb:2097152"
-        let encodedSource = s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s
-        return "\(proxyBase)/\(processingOptions)/plain/\(encodedSource)@webp"
+        iconURL(from: sourceURL, width: width, height: height, resizeType: "fill-down")
     }
 
     static func avatarPreviewProxyURL(from sourceURL: String, width: Int = 100, height: Int = 100) -> String {
-        let s = secureURLString(from: sourceURL)
-        guard !s.isEmpty else { return s }
-        if hasHost(s, in: proxyHosts) {
-            return s
+        iconProxyURL(from: sourceURL, width: width, height: height, resizeType: "fill-down", outputFormat: "png", forceProxy: true)
+    }
+
+    private static func iconProxyURL(
+        from sourceURL: String,
+        width: Int,
+        height: Int,
+        resizeType: String,
+        outputFormat: String,
+        forceProxy: Bool = false
+    ) -> String {
+        let resolvedURL = absoluteResourceURL(from: sourceURL)
+        // Rebuild existing renditions so legacy proxy URLs receive the same resize options.
+        let proxySource = self.sourceURL(fromProxyURL: resolvedURL)
+        let source = secureURLString(from: proxySource?.absoluteString ?? resolvedURL)
+        guard !source.isEmpty, hasHost(source, in: cdnHosts) else {
+            return normalizedIconURL(from: resolvedURL, preserveResizeType: resizeType == "fit")
         }
-        guard s.hasPrefix("http://") || s.hasPrefix("https://") else { return s }
-        guard hasHost(s, in: cdnHosts) else { return s }
+        if !forceProxy && proxySource == nil && shouldSkipProxy(source) {
+            return resolvedURL
+        }
         let w = max(1, width)
         let h = max(1, height)
-        let processingOptions = "rs:fit:\(w):\(h):1/mb:2097152"
-        let encodedSource = s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s
-        return "\(proxyBase)/\(processingOptions)/plain/\(encodedSource)@png"
+        let processingOptions = "rs:\(resizeType):\(w):\(h):0:1/mb:2097152"
+        let encodedSource = source.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? source
+        return "\(proxyBase)/\(processingOptions)/plain/\(encodedSource)@\(outputFormat)"
     }
 
     static func createEmoji(from sourceURL: String, width: Int, height: Int, resizeType: String = "fit") -> String {

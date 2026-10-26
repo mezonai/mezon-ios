@@ -427,13 +427,14 @@ final class WebhookEditViewController: BaseViewController {
     }
 
     private func loadAvatarImage(_ urlString: String) {
+        let urlString = ImgproxyURL.iconURL(from: urlString)
         imageTask?.cancel()
         guard !urlString.isEmpty, let url = URL(string: urlString) else {
             avatarImageView.isHidden = true
             avatarView.showPlaceholder()
             return
         }
-        if let cachedImage = WebhookAvatarCache.shared.object(forKey: urlString as NSString) {
+        if let cachedImage = WebhookAvatarCache.shared.object(forKey: ImgproxyURL.cacheKey(from: urlString) as NSString) {
             avatarImageView.image = cachedImage
             avatarImageView.isHidden = false
             avatarView.showImageMode()
@@ -448,7 +449,7 @@ final class WebhookEditViewController: BaseViewController {
                 }
                 return 
             }
-            WebhookAvatarCache.shared.setObject(image, forKey: urlString as NSString)
+            WebhookAvatarCache.shared.setObject(image, forKey: ImgproxyURL.cacheKey(from: urlString) as NSString)
             DispatchQueue.main.async {
                 self?.avatarImageView.image = image
                 self?.avatarImageView.isHidden = false

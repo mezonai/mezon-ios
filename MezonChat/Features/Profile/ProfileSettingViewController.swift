@@ -1001,6 +1001,7 @@ final class ProfileSettingViewController: BaseViewController {
     }
 
     private func loadAvatarImage(urlString: String) {
+        let urlString = ImgproxyURL.iconURL(from: urlString)
         guard !urlString.isEmpty else {
             showAvatarPlaceholder()
             return
@@ -1030,6 +1031,7 @@ final class ProfileSettingViewController: BaseViewController {
     }
 
     private func loadRemoteImage(urlString: String, into imageView: UIImageView) {
+        let urlString = ImgproxyURL.iconURL(from: urlString)
         guard !urlString.isEmpty else { return }
         if let cached = ImageCache.shared.memoryImage(forKey: urlString) {
             imageView.image = cached
@@ -1041,6 +1043,7 @@ final class ProfileSettingViewController: BaseViewController {
     }
 
     private func loadClanSelectorAvatar(urlString: String) {
+        let urlString = ImgproxyURL.iconURL(from: urlString)
         guard !urlString.isEmpty else {
             clanSelectorAvatarImageView.image = nil
             return

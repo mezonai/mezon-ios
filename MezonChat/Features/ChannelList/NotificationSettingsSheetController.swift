@@ -225,7 +225,7 @@ final class NotificationSettingsSheetController: ViewController {
             guard let token = await context.getToken() else {
                 isSaving = false
                 sheetNode.setOptionsEnabled(true)
-                Toast.error(L(L10n.Error.somethingWentWrong))
+                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
                 return
             }
             do {
@@ -289,7 +289,7 @@ final class NotificationSettingsSheetController: ViewController {
             guard let token = await context.getToken() else {
                 isSaving = false
                 sheetNode.setOptionsEnabled(true)
-                Toast.error(L(L10n.Error.somethingWentWrong))
+                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
                 return
             }
             do {
@@ -358,7 +358,7 @@ final class NotificationSettingsSheetController: ViewController {
     }
 
     private func handleClanLoadFailure(_ error: Error? = nil) {
-        Toast.error(error?.localizedDescription ?? L(L10n.Error.somethingWentWrong))
+        Toast.error(error?.localizedDescription ?? L(L10n.ClanInviteSheet.sessionNotFound))
         dismissSheet()
     }
 }

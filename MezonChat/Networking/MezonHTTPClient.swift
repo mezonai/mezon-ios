@@ -1449,7 +1449,7 @@ final class MezonHTTPClient {
         token: String,
         preferHTTPFirst: Bool = false
     ) async throws -> Mezon_Api_ChannelMessageList {
-        try await retryingTransientRequest(
+        let response: Mezon_Api_ChannelMessageList = try await retryingTransientRequest(
             operationName: "ListChannelMessages clanId=\(clanId) channelId=\(channelId) messageId=\(messageId) direction=\(direction)",
             retryDelaysNanoseconds: Self.messageFetchRetryDelaysNanoseconds
         ) {
@@ -1467,6 +1467,7 @@ final class MezonHTTPClient {
                 preferHTTPFirst: preferHTTPFirst
             )
         }
+        return response
     }
 
     func updateChannelDesc(
@@ -3644,7 +3645,9 @@ struct APIError: Decodable, LocalizedError {
     let message: String?
     let code: Int?
 
-    var errorDescription: String? { L(L10n.Error.somethingWentWrong) }
+    var errorDescription: String? {
+        MezonError.httpError(statusCode: code ?? 0, message: message ?? "").errorDescription
+    }
 }
 
 extension MezonHTTPClient {
@@ -3891,7 +3894,12 @@ enum MezonError: LocalizedError {
     case socketError(String)
 
     var errorDescription: String? {
-        L(L10n.Error.somethingWentWrong)
+        switch self {
+        case .httpError(_, let msg) where !msg.isEmpty, .socketError(let msg) where !msg.isEmpty:
+            return msg
+        default:
+            return technicalDescription
+        }
     }
 
     var technicalDescription: String {

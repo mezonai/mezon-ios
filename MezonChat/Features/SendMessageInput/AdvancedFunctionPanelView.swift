@@ -690,7 +690,7 @@ private final class ShareContactPickerCell: UITableViewCell {
             avatarView.backgroundColor = .clear
             return
         }
-        let proxied = ImgproxyURL.avatarProxyURL(from: rawAvatar, width: 120, height: 120)
+        let proxied = ImgproxyURL.avatarProxyURL(from: rawAvatar, width: 100, height: 100)
         if let cached = ImageCache.shared.cachedImage(forURL: proxied) {
             avatarView.image = cached
             avatarView.backgroundColor = .clear

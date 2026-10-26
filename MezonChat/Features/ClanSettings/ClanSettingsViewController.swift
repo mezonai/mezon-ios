@@ -112,17 +112,14 @@ final class ClanSettingsViewController: BaseViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        ClanBannerDebug.log("ClanSettings viewWillAppear animated=\(animated) stack=\(ClanBannerDebug.names(navigationController?.viewControllers ?? []))")
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        ClanBannerDebug.log("ClanSettings viewDidAppear animated=\(animated) inWindow=\(view.window != nil) frame=\(view.frame)")
     }
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        ClanBannerDebug.log("ClanSettings viewDidDisappear animated=\(animated)")
     }
 
     override func setupBindings() {
@@ -141,7 +138,6 @@ final class ClanSettingsViewController: BaseViewController {
                 guard let self else { return }
                 if let clan = view.clans.first(where: { $0.id == self.clanId }) {
                     if let desc = try? Mezon_Api_ClanDesc(serializedBytes: clan.data) {
-                        ClanBannerDebug.log("ClanSettings clanListView update logo=\(desc.logo) banner=\(desc.banner) inWindow=\(self.isViewLoaded && self.view.window != nil)")
                         self.settingsNode.updateClanDetails(name: desc.clanName, avatarURL: desc.logo)
                     }
                 }
@@ -150,7 +146,6 @@ final class ClanSettingsViewController: BaseViewController {
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
         super.containerLayoutUpdated(layout, transition: transition)
-        ClanBannerDebug.log("ClanSettings containerLayoutUpdated size=\(layout.size) safeTop=\(layout.safeInsets.top) inWindow=\(isViewLoaded && view.window != nil)")
         settingsNode.updateLayout(layout: layout, transition: transition)
     }
 
@@ -186,7 +181,6 @@ final class ClanSettingsViewController: BaseViewController {
         picker.sourceType = .photoLibrary
         picker.allowsEditing = true
         picker.delegate = self
-        ClanBannerDebug.log("avatar picker present style=\(picker.modalPresentationStyle.rawValue)")
         present(picker, animated: true)
     }
 
@@ -253,47 +247,34 @@ final class ClanSettingsViewController: BaseViewController {
 
 extension ClanSettingsViewController: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
     func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
-        let avatarStart = ClanBannerDebug.now()
-        ClanBannerDebug.log("avatar picked edited=\(ClanBannerDebug.imageInfo(info[.editedImage] as? UIImage)) original=\(ClanBannerDebug.imageInfo(info[.originalImage] as? UIImage)) imageURL=\((info[.imageURL] as? URL)?.lastPathComponent ?? "nil")")
-        picker.dismiss(animated: true) {
-            ClanBannerDebug.log("avatar picker dismissed \(ClanBannerDebug.ms(since: avatarStart))")
-        }
+        picker.dismiss(animated: true)
         guard let image = info[.editedImage] as? UIImage ?? info[.originalImage] as? UIImage else { return }
         let originalFilename = (info[.imageURL] as? URL)?.lastPathComponent
         let pickedFileBytes = pickedFileSize(info)
 
-        ClanBannerDebug.startMainThreadWatchdog(label: "avatarSave", duration: 60)
         setAvatarUploading(true)
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let checkedBytes: Int?
             if let pickedFileBytes {
-                ClanBannerDebug.log("avatar size check via imageURL bytes=\(pickedFileBytes)")
                 checkedBytes = pickedFileBytes
             } else {
-                let checkStart = ClanBannerDebug.now()
                 checkedBytes = image.jpegData(compressionQuality: 1.0)?.count
-                ClanBannerDebug.log("avatar size check jpeg(1.0) \(ClanBannerDebug.ms(since: checkStart)) bytes=\(checkedBytes ?? -1)")
             }
             let isTooLarge = Double(checkedBytes ?? 0) / (1024 * 1024) > 1.0
 
-            let encodeStart = ClanBannerDebug.now()
             let encoded = isTooLarge ? nil : image.jpegData(compressionQuality: 0.8)
-            if let encoded {
-                ClanBannerDebug.log("avatar jpeg(0.8) encode \(ClanBannerDebug.ms(since: encodeStart)) bytes=\(encoded.count) sincePick=\(ClanBannerDebug.ms(since: avatarStart))")
-            }
 
             DispatchQueue.main.async {
                 guard let self else { return }
                 if isTooLarge {
-                    ClanBannerDebug.log("avatar abort: too large bytes=\(checkedBytes ?? -1)")
                     Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge1MB))
                 }
                 guard let data = encoded else {
                     self.setAvatarUploading(false)
                     return
                 }
-                self.uploadAvatar(image: image, data: data, avatarStart: avatarStart, originalFilename: originalFilename)
+                self.uploadAvatar(image: image, data: data, originalFilename: originalFilename)
             }
         }
     }
@@ -310,20 +291,16 @@ extension ClanSettingsViewController: UIImagePickerControllerDelegate, UINavigat
         settingsNode.setAvatarUploading(uploading)
     }
 
-    private func uploadAvatar(image: UIImage, data: Data, avatarStart: CFTimeInterval, originalFilename: String?) {
+    private func uploadAvatar(image: UIImage, data: Data, originalFilename: String?) {
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer {
                 self.setAvatarUploading(false)
             }
-            let tokenStart = ClanBannerDebug.now()
             guard let token = await self.context.getToken() else {
-                ClanBannerDebug.log("avatar abort: token nil after \(ClanBannerDebug.ms(since: tokenStart))")
                 return
             }
-            ClanBannerDebug.log("avatar token ok \(ClanBannerDebug.ms(since: tokenStart))")
             do {
-                let uploadStart = ClanBannerDebug.now()
                 let uploadInfo = try await self.context.account.network.uploadOauthFile(
                     filename: "avatar.jpg",
                     filetype: "image/jpeg",
@@ -331,19 +308,14 @@ extension ClanSettingsViewController: UIImagePickerControllerDelegate, UINavigat
                     token: token,
                     originalFilename: originalFilename
                 )
-                ClanBannerDebug.log("avatar uploadOauthFile done \(ClanBannerDebug.ms(since: uploadStart)) filename=\(uploadInfo.filename)")
-                let minioStart = ClanBannerDebug.now()
                 try await self.context.account.network.uploadToMinIO(
                     url: uploadInfo.url,
                     data: data,
                     contentType: "image/jpeg"
                 )
-                ClanBannerDebug.log("avatar uploadToMinIO done \(ClanBannerDebug.ms(since: minioStart)) bytes=\(data.count)")
                 let avatarUrlToSave = "\(MezonConfig.profileImgURL)/\(uploadInfo.filename)"
-                ClanBannerDebug.log("avatar url=\(avatarUrlToSave)")
 
                 guard let clan = self.context.account.postbox.read({ tx in tx.getClan(id: self.clanId) }) else {
-                    ClanBannerDebug.log("avatar abort: clan not found in postbox")
                     return
                 }
                 
@@ -363,9 +335,7 @@ extension ClanSettingsViewController: UIImagePickerControllerDelegate, UINavigat
                     req.communityBanner = SwiftProtobuf.Google_Protobuf_StringValue(d.communityBanner)
                 }
                 
-                let updateStart = ClanBannerDebug.now()
                 try await self.context.account.network.updateClanDesc(request: req, token: token)
-                ClanBannerDebug.log("avatar updateClanDesc done \(ClanBannerDebug.ms(since: updateStart))")
 
                 if var d = try? Mezon_Api_ClanDesc(serializedBytes: clan.data) {
                     d.logo = avatarUrlToSave
@@ -376,20 +346,16 @@ extension ClanSettingsViewController: UIImagePickerControllerDelegate, UINavigat
                         ownerId: clan.ownerId,
                         data: try d.serializedData()
                     )
-                    let writeStart = ClanBannerDebug.now()
                     self.context.account.postbox.writeSync { tx in
                         tx.updateClans([updatedClan])
                     }
-                    ClanBannerDebug.log("avatar postbox writeSync updateClans done \(ClanBannerDebug.ms(since: writeStart))")
                 }
 
                 await MainActor.run {
                     self.settingsNode.updateClanDetails(name: clan.name, avatarURL: avatarUrlToSave)
                     Toast.success(L(L10n.ClanSetting.Overview.saveSuccess))
-                    ClanBannerDebug.log("avatar save success total=\(ClanBannerDebug.ms(since: avatarStart))")
                 }
             } catch {
-                ClanBannerDebug.log("avatar save FAILED after \(ClanBannerDebug.ms(since: avatarStart)) error=\(error)")
                 await MainActor.run { Toast.error(error.localizedDescription) }
             }
         }

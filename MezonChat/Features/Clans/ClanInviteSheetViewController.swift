@@ -426,10 +426,10 @@ private final class ClanInviteQRCodeViewController: UIViewController {
     }
 
     private func loadClanLogo() {
-        let source = ImgproxyURL.absoluteResourceURL(from: clanLogoURL)
+        let source = ImgproxyURL.iconURL(from: ImgproxyURL.absoluteResourceURL(from: clanLogoURL))
         guard !source.isEmpty else { return }
 
-        let proxied = ImgproxyURL.create(from: source, width: 160, height: 160)
+        let proxied = ImgproxyURL.iconURL(from: source, width: 100, height: 100)
         let candidates = [proxied, source].reduce(into: [String]()) { result, candidate in
             guard !candidate.isEmpty,
                   let url = URL(string: candidate),
@@ -760,8 +760,8 @@ private final class ClanInviteFriendCellNode: ASCellNode, ASNetworkImageNodeDele
 
         switch avatarMode {
         case .image:
-            let px = Int(avatarSize * UIScreen.main.scale)
-            let proxied = ImgproxyURL.create(from: avatarURL!, width: px, height: px)
+            let px = 100
+            let proxied = ImgproxyURL.iconURL(from: avatarURL!, width: px, height: px)
             avatarNode.url = URL(string: proxied)
             avatarBgNode.backgroundColor = UIColor.theme.border
         case .group:
