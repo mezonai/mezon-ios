@@ -1,5 +1,124 @@
 import UIKit
 
+private enum DiscoverClanHashtags {
+    static func parse(_ raw: String) -> [String] {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return [] }
+        let tags: [String]
+        if value.hasPrefix("["), let data = value.data(using: .utf8),
+           let array = try? JSONDecoder().decode([String].self, from: data) {
+            tags = array
+        } else if value.contains(",") {
+            tags = value.components(separatedBy: ",")
+        } else if value.hasPrefix("#") {
+            tags = value.components(separatedBy: .whitespacesAndNewlines)
+        } else {
+            tags = [value]
+        }
+        var seen = Set<String>()
+        return tags.compactMap { rawTag in
+            var tag = rawTag.trimmingCharacters(in: .whitespacesAndNewlines)
+            if tag.hasPrefix("#") { tag.removeFirst() }
+            tag = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+            return !tag.isEmpty && seen.insert(tag).inserted ? tag : nil
+        }
+    }
+
+    static func label(_ tag: String) -> String {
+        switch tag {
+        case "Gaming": return L(L10n.DiscoverDetail.hashtagGaming)
+        case "Technology": return L(L10n.DiscoverDetail.hashtagTechnology)
+        case "Education": return L(L10n.DiscoverDetail.hashtagEducation)
+        case "Entertainment": return L(L10n.DiscoverDetail.hashtagEntertainment)
+        case "Music": return L(L10n.DiscoverDetail.hashtagMusic)
+        case "Art": return L(L10n.DiscoverDetail.hashtagArt)
+        case "Crypto": return L(L10n.DiscoverDetail.hashtagCrypto)
+        case "Anime": return L(L10n.DiscoverDetail.hashtagAnime)
+        case "Sports": return L(L10n.DiscoverDetail.hashtagSports)
+        case "Community": return L(L10n.DiscoverDetail.hashtagCommunity)
+        default: return tag
+        }
+    }
+}
+
+private final class DiscoverClanHashtagsView: UIView {
+    private let tags: [String]
+    private var labels: [UILabel] = []
+    private var chips: [UIView] = []
+    private var layoutWidth: CGFloat = 0
+
+    init(tags: [String]) {
+        self.tags = tags
+        super.init(frame: .zero)
+        for _ in tags {
+            let label = UILabel()
+            label.font = .systemFont(ofSize: 12.sf)
+            label.numberOfLines = 0
+            let chip = UIView()
+            chip.layer.cornerRadius = 16.swh
+            chip.layer.borderWidth = 1
+            chip.addSubview(label)
+            addSubview(chip)
+            labels.append(label)
+            chips.append(chip)
+        }
+        applyTheme()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: UIView.noIntrinsicMetric, height: layoutTags(width: bounds.width, updateFrames: false))
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if layoutWidth != bounds.width {
+            layoutWidth = bounds.width
+            invalidateIntrinsicContentSize()
+        }
+        _ = layoutTags(width: bounds.width, updateFrames: true)
+    }
+
+    private func layoutTags(width: CGFloat, updateFrames: Bool) -> CGFloat {
+        guard width > 0 else { return 0 }
+        let paddingX = 12.sw
+        let paddingY = 6.sh
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        for (label, chip) in zip(labels, chips) {
+            let textSize = label.sizeThatFits(CGSize(width: max(1, width - 2 * paddingX), height: .greatestFiniteMagnitude))
+            let chipWidth = min(width, ceil(textSize.width) + 2 * paddingX)
+            let chipHeight = ceil(textSize.height) + 2 * paddingY
+            if x > 0 && x + chipWidth > width {
+                x = 0
+                y += rowHeight + 8.sh
+                rowHeight = 0
+            }
+            if updateFrames {
+                chip.frame = CGRect(x: x, y: y, width: chipWidth, height: chipHeight)
+                label.frame = chip.bounds.insetBy(dx: paddingX, dy: paddingY)
+            }
+            x += chipWidth + 8.sw
+            rowHeight = max(rowHeight, chipHeight)
+        }
+        return y + rowHeight
+    }
+
+    func applyTheme() {
+        for (index, label) in labels.enumerated() {
+            let chip = chips[index]
+            label.text = DiscoverClanHashtags.label(tags[index])
+            label.textColor = UIColor.theme.textStrong
+            chip.backgroundColor = UIColor.theme.secondaryWeight
+            chip.layer.borderColor = UIColor.theme.borderDim.cgColor
+        }
+        invalidateIntrinsicContentSize()
+        setNeedsLayout()
+    }
+}
+
 private enum DiscoverClanLayout {
     static let pageSize: Int32 = 6
     static let bannerDisplayHeightList: CGFloat = 120
@@ -61,6 +180,46 @@ private enum DiscoverClanImageProxy {
     }
 }
 
+private final class DiscoverClanVerifiedBadge: UILabel {
+    private let contentInsets = UIEdgeInsets(top: 2.sh, left: 6.sw, bottom: 2.sh, right: 6.sw)
+
+    init(fontSize: CGFloat) {
+        super.init(frame: .zero)
+        font = .systemFont(ofSize: fontSize, weight: .semibold)
+        textColor = .white
+        backgroundColor = UIColor(rgb: 0x3BA55C)
+        layer.cornerRadius = 4.swh
+        clipsToBounds = true
+        setContentHuggingPriority(.required, for: .horizontal)
+        refreshText()
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func refreshText() {
+        let title = L(L10n.Discover.verified)
+        let badgeFont = font ?? UIFont.systemFont(ofSize: 10.sf, weight: .semibold)
+        let iconSize = 12.swh
+        let icon = NSTextAttachment()
+        icon.image = UIImage(systemName: "checkmark.seal.fill")?.withTintColor(.white, renderingMode: .alwaysOriginal)
+        icon.bounds = CGRect(x: 0, y: (badgeFont.capHeight - iconSize) / 2, width: iconSize, height: iconSize)
+        let text = NSMutableAttributedString(attachment: icon)
+        text.append(NSAttributedString(string: " \(title)", attributes: [.font: badgeFont, .foregroundColor: UIColor.white]))
+        attributedText = text
+        accessibilityLabel = title
+    }
+
+    override var intrinsicContentSize: CGSize {
+        let size = super.intrinsicContentSize
+        return CGSize(width: size.width + contentInsets.left + contentInsets.right,
+                      height: size.height + contentInsets.top + contentInsets.bottom)
+    }
+
+    override func drawText(in rect: CGRect) {
+        super.drawText(in: rect.inset(by: contentInsets))
+    }
+}
+
 private final class DiscoverClanListCell: UITableViewCell {
     private let cardContainer = UIView()
     private let bannerView = UIImageView()
@@ -68,8 +227,7 @@ private final class DiscoverClanListCell: UITableViewCell {
     private let nameLabel = UILabel()
     private let descLabel = UILabel()
     private let membersLabel = UILabel()
-    private let verifiedContainer = UIView()
-    private let verifiedLabel = UILabel()
+    private let verifiedBadge = DiscoverClanVerifiedBadge(fontSize: 10.sf)
     private var bannerTask: URLSessionDataTask?
     private var avatarTask: URLSessionDataTask?
 
@@ -101,15 +259,7 @@ private final class DiscoverClanListCell: UITableViewCell {
         descLabel.translatesAutoresizingMaskIntoConstraints = false
         membersLabel.font = .systemFont(ofSize: 10.sf, weight: .medium)
         membersLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        verifiedContainer.backgroundColor = UIColor(rgb: 0x3BA55C)
-        verifiedContainer.layer.cornerRadius = 4.swh
-        verifiedContainer.translatesAutoresizingMaskIntoConstraints = false
-        verifiedLabel.font = .systemFont(ofSize: 10.sf, weight: .semibold)
-        verifiedLabel.textColor = .white
-        verifiedLabel.text = L(L10n.Discover.verified)
-        verifiedLabel.translatesAutoresizingMaskIntoConstraints = false
-        verifiedContainer.addSubview(verifiedLabel)
+        membersLabel.setContentHuggingPriority(.required, for: .horizontal)
 
         let dot = UIView()
         dot.backgroundColor = UIColor(rgb: 0x3BA55C)
@@ -120,7 +270,7 @@ private final class DiscoverClanListCell: UITableViewCell {
         bottomRow.alignment = .center
         bottomRow.translatesAutoresizingMaskIntoConstraints = false
 
-        let verifiedStack = UIStackView(arrangedSubviews: [bottomRow, verifiedContainer])
+        let verifiedStack = UIStackView(arrangedSubviews: [bottomRow, UIView(), verifiedBadge])
         verifiedStack.spacing = 8.sw
         verifiedStack.alignment = .center
         verifiedStack.translatesAutoresizingMaskIntoConstraints = false
@@ -152,11 +302,6 @@ private final class DiscoverClanListCell: UITableViewCell {
 
             avatarView.widthAnchor.constraint(equalToConstant: DiscoverClanLayout.avatarSide),
             avatarView.heightAnchor.constraint(equalToConstant: DiscoverClanLayout.avatarSide),
-
-            verifiedLabel.leadingAnchor.constraint(equalTo: verifiedContainer.leadingAnchor, constant: 4.sw),
-            verifiedLabel.trailingAnchor.constraint(equalTo: verifiedContainer.trailingAnchor, constant: -4.sw),
-            verifiedLabel.topAnchor.constraint(equalTo: verifiedContainer.topAnchor, constant: 2.sh),
-            verifiedLabel.bottomAnchor.constraint(equalTo: verifiedContainer.bottomAnchor, constant: -2.sh),
 
             dot.widthAnchor.constraint(equalToConstant: 8.swh),
             dot.heightAnchor.constraint(equalToConstant: 8.swh),
@@ -193,7 +338,8 @@ private final class DiscoverClanListCell: UITableViewCell {
         nameLabel.text = item.clanName
         descLabel.text = item.description_p
         membersLabel.text = String(format: L(L10n.Discover.membersLabel), Int(item.totalMembers))
-        verifiedContainer.isHidden = !item.verified
+        verifiedBadge.refreshText()
+        verifiedBadge.isHidden = !item.verified
 
         bannerTask?.cancel()
         avatarTask?.cancel()
@@ -412,14 +558,15 @@ final class DiscoverClanEmptyStateViewController: UIViewController {
         updateStatusBackgroundVisibility()
         Task { await reloadFirstPage() }
 
-        NotificationCenter.default.addObserver(self, selector: #selector(themeChanged), name: ThemeManager.didChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(appearanceChanged), name: ThemeManager.didChangeNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(appearanceChanged), name: LanguageManager.didChangeNotification, object: nil)
     }
 
     deinit {
         NotificationCenter.default.removeObserver(self)
     }
 
-    @objc private func themeChanged() {
+    @objc private func appearanceChanged() {
         applyThemeFully()
         tableView.reloadData()
         updateStatusBackgroundVisibility()
@@ -428,6 +575,7 @@ final class DiscoverClanEmptyStateViewController: UIViewController {
     private func applyThemeFully() {
         let t = UIColor.theme
         gradientLayer.colors = [t.primary.cgColor, t.primaryGradient.cgColor]
+        titleLabel.text = L(L10n.Discover.communityOnMezon)
         titleLabel.textColor = t.textStrong
         searchField.backgroundColor = t.tertiary
         searchField.layer.borderWidth = 0
@@ -651,7 +799,6 @@ final class DiscoverClanDetailViewController: BaseViewController {
     private let logoView = UIImageView()
     private let cardView = UIView()
     private let nameLabel = UILabel()
-    private let verifiedBadge = UILabel()
     private let descLabel = UILabel()
     private let memberDot = UIView()
     private let membersLabel = UILabel()
@@ -660,6 +807,7 @@ final class DiscoverClanDetailViewController: BaseViewController {
     private let infoStack = UIStackView()
     private let aboutTitleLabel = UILabel()
     private let aboutBodyLabel = UILabel()
+    private var hashtagsView: DiscoverClanHashtagsView?
     private var infoRowIconBgs: [UIView] = []
     private var infoRowTitleLabels: [UILabel] = []
     private var infoRowSubtitleLabels: [UILabel] = []
@@ -697,15 +845,9 @@ final class DiscoverClanDetailViewController: BaseViewController {
         cardView.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         cardView.clipsToBounds = true
         nameLabel.font = .systemFont(ofSize: 24.sf, weight: .bold)
-        nameLabel.textAlignment = .natural
+        nameLabel.textAlignment = .center
         nameLabel.numberOfLines = 0
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
-        verifiedBadge.font = .systemFont(ofSize: 11.sf, weight: .semibold)
-        verifiedBadge.text = "  \(L(L10n.Discover.verified))  "
-        verifiedBadge.textAlignment = .center
-        verifiedBadge.clipsToBounds = true
-        verifiedBadge.layer.cornerRadius = 4.swh
-        verifiedBadge.translatesAutoresizingMaskIntoConstraints = false
         descLabel.font = .systemFont(ofSize: 14.sf)
         descLabel.textAlignment = .center
         descLabel.numberOfLines = 0
@@ -722,22 +864,6 @@ final class DiscoverClanDetailViewController: BaseViewController {
         joinButton.layer.cornerRadius = 12.swh
         joinButton.translatesAutoresizingMaskIntoConstraints = false
         joinButton.addTarget(self, action: #selector(joinTapped), for: .touchUpInside)
-        let titleRow = UIStackView(arrangedSubviews: [nameLabel, verifiedBadge])
-        titleRow.axis = .horizontal
-        titleRow.spacing = 8.sw
-        titleRow.alignment = .center
-        nameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        let titleWrap = UIView()
-        titleWrap.translatesAutoresizingMaskIntoConstraints = false
-        titleRow.translatesAutoresizingMaskIntoConstraints = false
-        titleWrap.addSubview(titleRow)
-        NSLayoutConstraint.activate([
-            titleRow.centerXAnchor.constraint(equalTo: titleWrap.centerXAnchor),
-            titleRow.topAnchor.constraint(equalTo: titleWrap.topAnchor),
-            titleRow.bottomAnchor.constraint(equalTo: titleWrap.bottomAnchor),
-            titleRow.leadingAnchor.constraint(greaterThanOrEqualTo: titleWrap.leadingAnchor),
-            titleRow.trailingAnchor.constraint(lessThanOrEqualTo: titleWrap.trailingAnchor),
-        ])
         let membersRow = UIStackView(arrangedSubviews: [memberDot, membersLabel])
         membersRow.axis = .horizontal
         membersRow.spacing = 8.sw
@@ -777,13 +903,19 @@ final class DiscoverClanDetailViewController: BaseViewController {
             discoverDetailInfoRow(iconName: "sparkles", title: L(L10n.DiscoverDetail.feature), subtitle: featureSubtitle))
         infoStack.addArrangedSubview(
             discoverDetailInfoRow(iconName: "person.3.fill", title: L(L10n.DiscoverDetail.communityRow), subtitle: communitySubtitle))
-        innerStack.addArrangedSubview(titleWrap)
+        innerStack.addArrangedSubview(nameLabel)
         innerStack.addArrangedSubview(descLabel)
         innerStack.addArrangedSubview(membersWrap)
         innerStack.addArrangedSubview(joinButton)
         innerStack.addArrangedSubview(infoStack)
         innerStack.addArrangedSubview(aboutTitleLabel)
         innerStack.addArrangedSubview(aboutBodyLabel)
+        let hashtags = DiscoverClanHashtags.parse(item.hashtags)
+        if !hashtags.isEmpty {
+            let tagsView = DiscoverClanHashtagsView(tags: hashtags)
+            hashtagsView = tagsView
+            innerStack.addArrangedSubview(tagsView)
+        }
         innerStack.setCustomSpacing(24.sh, after: joinButton)
         innerStack.setCustomSpacing(20.sh, after: infoStack)
         joinButton.heightAnchor.constraint(equalToConstant: 48.sh).isActive = true
@@ -791,7 +923,6 @@ final class DiscoverClanDetailViewController: BaseViewController {
             memberDot.widthAnchor.constraint(equalToConstant: 8.swh),
             memberDot.heightAnchor.constraint(equalToConstant: 8.swh),
         ])
-        verifiedBadge.isHidden = !item.verified
         nameLabel.text = item.clanName
         descLabel.text = item.description_p
         membersLabel.text = L(L10n.ClanAction.memberCount, Int(item.totalMembers))
@@ -914,10 +1045,9 @@ final class DiscoverClanDetailViewController: BaseViewController {
         descLabel.textColor = UIColor.theme.textDisabled
         membersLabel.textColor = UIColor.theme.textStrong
         memberDot.backgroundColor = UIColor(rgb: 0x3BA55C)
-        verifiedBadge.textColor = .white
-        verifiedBadge.backgroundColor = UIColor(rgb: 0x3BA55C)
         aboutTitleLabel.textColor = UIColor.theme.textStrong
         aboutBodyLabel.textColor = UIColor.theme.textDisabled
+        hashtagsView?.applyTheme()
         backButton.tintColor = UIColor.theme.textStrong
         backButton.backgroundColor = UIColor.theme.primary.withAlphaComponent(0.45)
         for bg in infoRowIconBgs {
