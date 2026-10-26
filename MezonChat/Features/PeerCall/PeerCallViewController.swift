@@ -1088,7 +1088,7 @@ final class PeerCallViewController: ViewController {
     private func loadRemoteAvatar() {
         textAvatarView.showPlaceholder()
         avatarImageView.image = nil
-        let urlString = remoteAvatarURLString() ?? ""
+        let urlString = ImgproxyURL.iconURL(from: remoteAvatarURLString() ?? "")
         guard !urlString.isEmpty else {
             return
         }

@@ -613,7 +613,7 @@ extension ClanStickersViewController: UIImagePickerControllerDelegate, UINavigat
             )
             let cdnURL = try MezonConfig.attachmentViewURL(typeCdn: upload.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: upload.filename)
             ImageCache.shared.setImage(image, data: picked.data, forKey: cdnURL)
-            let listIconSide = Int(40 * UIScreen.main.scale)
+            let listIconSide = 100
             let listProxyURL = ImgproxyURL.create(from: cdnURL, width: listIconSide, height: listIconSide)
             if !listProxyURL.isEmpty {
                 ImageCache.shared.setImage(image, data: picked.data, forKey: listProxyURL)

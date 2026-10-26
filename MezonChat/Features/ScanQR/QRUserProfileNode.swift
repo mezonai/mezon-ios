@@ -47,7 +47,7 @@ final class QRUserProfileNode: ASDisplayNode {
         avatarNode.cornerRadius = 40
         avatarNode.clipsToBounds = true
         avatarNode.backgroundColor = theme.bgInfor
-        if let avatar = profile.avatar, let url = URL(string: avatar) {
+        if let avatar = profile.avatar, let url = URL(string: ImgproxyURL.iconURL(from: avatar)) {
             avatarNode.url = url
         }
         containerNode.addSubnode(avatarNode)

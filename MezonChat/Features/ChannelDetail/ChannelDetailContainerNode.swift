@@ -232,7 +232,7 @@ final class ChannelDetailContainerNode: ASDisplayNode, ASNetworkImageNodeDelegat
             absolute = raw.hasPrefix("/") ? "\(base)\(raw)" : "\(base)/\(raw)"
         }
 
-        let proxied = ImgproxyURL.avatarProxyURL(from: absolute, width: 180, height: 180)
+        let proxied = ImgproxyURL.avatarProxyURL(from: absolute, width: 100, height: 100)
         return URL(string: proxied)
     }
 

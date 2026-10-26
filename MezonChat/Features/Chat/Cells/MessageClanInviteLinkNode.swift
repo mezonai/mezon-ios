@@ -30,7 +30,7 @@ final class MessageClanInviteLinkNode: ASDisplayNode {
     static let preferredHeight: CGFloat = 186
 
     private static func clanLogoURL(_ raw: String) -> URL? {
-        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let t = ImgproxyURL.iconURL(from: raw.trimmingCharacters(in: .whitespacesAndNewlines))
         guard !t.isEmpty else { return nil }
         if t.hasPrefix("//"), let u = URL(string: "https:\(t)") { return u }
         if let u = URL(string: t), u.scheme != nil { return u }

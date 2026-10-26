@@ -20,7 +20,7 @@ private struct ComposerHashtag {
     var range: NSRange
 }
 
-private struct ComposerMentionSnapshot: Codable {
+private struct ComposerMentionSnapshot: Codable, Equatable {
     var userId: Int64
     var roleId: Int64
     var rolename: String
@@ -29,7 +29,7 @@ private struct ComposerMentionSnapshot: Codable {
     var length: Int
 }
 
-private struct ComposerHashtagSnapshot: Codable {
+private struct ComposerHashtagSnapshot: Codable, Equatable {
     var channelId: Int64
     var clanId: Int64
     var parentId: Int64
@@ -41,19 +41,160 @@ private struct ComposerHashtagSnapshot: Codable {
     var length: Int
 }
 
-private struct FileDraftSnapshot: Codable {
+private struct FileDraftSnapshot: Codable, Equatable {
     var path: String
     var filename: String
     var filetype: String
     var filesize: Int
 }
 
-private struct ComposerDraftSnapshot: Codable {
-    var attributedArchive: Data?
+private struct ComposerDraftSnapshot: Codable, Equatable {
+    var text: String
     var mentions: [ComposerMentionSnapshot]
     var hashtags: [ComposerHashtagSnapshot]
     var emojiIdByColon: [String: String]
     var fileDrafts: [FileDraftSnapshot]
+}
+
+private final class ComposerDraftStore: NSObject {
+
+    static let shared = ComposerDraftStore()
+
+    private struct StoredDraft: Codable {
+        var snapshot: ComposerDraftSnapshot
+        var updatedAt: TimeInterval
+        var persistsAcrossLaunch: Bool
+    }
+
+    private enum LoadState {
+        case notLoaded
+        case loaded
+    }
+
+    private static let maxDrafts = 200
+    private static let maxPersistedTextLength = 20_000
+    private static let writeDelay: TimeInterval = 0.4
+
+    private let ioQueue = DispatchQueue(label: "mezon.composer-drafts", qos: .utility)
+    private var owner: String?
+    private var drafts: [String: StoredDraft] = [:]
+    private var loadState: LoadState = .notLoaded
+    private var isDirty = false
+    private var pendingWrite: DispatchWorkItem?
+
+    private override init() {
+        super.init()
+        let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(handleAppWillResignActive),
+                           name: UIApplication.willResignActiveNotification, object: nil)
+        center.addObserver(self, selector: #selector(handleAppDidEnterBackground),
+                           name: UIApplication.didEnterBackgroundNotification, object: nil)
+        center.addObserver(self, selector: #selector(handleAppDidEnterBackground),
+                           name: UIApplication.willTerminateNotification, object: nil)
+    }
+
+    func snapshot(forKey key: String, owner: String?) -> ComposerDraftSnapshot? {
+        prepare(owner: owner)
+        return drafts[key]?.snapshot
+    }
+
+    func setSnapshot(_ snapshot: ComposerDraftSnapshot?, forKey key: String, owner: String?, persistsAcrossLaunch: Bool = true) {
+        prepare(owner: owner)
+        if let snapshot {
+            let persists = persistsAcrossLaunch && (snapshot.text as NSString).length <= Self.maxPersistedTextLength
+            if let existing = drafts[key], existing.snapshot == snapshot, existing.persistsAcrossLaunch == persists {
+                return
+            }
+            drafts[key] = StoredDraft(snapshot: snapshot, updatedAt: Date().timeIntervalSince1970, persistsAcrossLaunch: persists)
+            trimIfNeeded()
+        } else {
+            guard drafts.removeValue(forKey: key) != nil else { return }
+        }
+        isDirty = true
+        scheduleWrite()
+    }
+
+    func flush(waitUntilFinished: Bool) {
+        writeNow(waitUntilFinished: waitUntilFinished)
+    }
+
+    private func prepare(owner newOwner: String?) {
+        if newOwner != owner {
+            if isDirty { writeNow(waitUntilFinished: false) }
+            owner = newOwner
+            drafts = [:]
+            loadState = .notLoaded
+            isDirty = false
+        }
+        guard loadState == .notLoaded, let url = fileURL(for: owner) else { return }
+        guard UIApplication.shared.isProtectedDataAvailable else { return }
+        guard let stored = ioQueue.sync(execute: { Self.readDrafts(at: url) }) else { return }
+        drafts = stored.merging(drafts) { _, inMemory in inMemory }
+        loadState = .loaded
+        trimIfNeeded()
+    }
+
+    private static func readDrafts(at url: URL) -> [String: StoredDraft]? {
+        guard FileManager.default.fileExists(atPath: url.path) else { return [:] }
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return (try? JSONDecoder().decode([String: StoredDraft].self, from: data)) ?? [:]
+    }
+
+    private func fileURL(for owner: String?) -> URL? {
+        guard let owner else { return nil }
+        let safeOwner = owner.filter { $0.isLetter || $0.isNumber }
+        guard !safeOwner.isEmpty,
+              let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        else { return nil }
+        return base
+            .appendingPathComponent("ComposerDrafts", isDirectory: true)
+            .appendingPathComponent("\(safeOwner).json")
+    }
+
+    private func trimIfNeeded() {
+        guard drafts.count > Self.maxDrafts else { return }
+        let overflow = drafts.count - Self.maxDrafts
+        let oldestKeys = drafts.sorted { $0.value.updatedAt < $1.value.updatedAt }.prefix(overflow).map { $0.key }
+        for key in oldestKeys {
+            drafts.removeValue(forKey: key)
+        }
+    }
+
+    private func scheduleWrite() {
+        guard pendingWrite == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            self?.writeNow(waitUntilFinished: false)
+        }
+        pendingWrite = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.writeDelay, execute: work)
+    }
+
+    private func writeNow(waitUntilFinished: Bool) {
+        pendingWrite?.cancel()
+        pendingWrite = nil
+        guard isDirty, loadState == .loaded, let url = fileURL(for: owner) else { return }
+        isDirty = false
+        let payload = drafts.filter { $0.value.persistsAcrossLaunch }
+        let write = {
+            guard let data = try? JSONEncoder().encode(payload) else { return }
+            try? FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        }
+        if waitUntilFinished {
+            ioQueue.sync(execute: write)
+        } else {
+            ioQueue.async(execute: write)
+        }
+    }
+
+    @objc private func handleAppWillResignActive() {
+        writeNow(waitUntilFinished: false)
+    }
+
+    @objc private func handleAppDidEnterBackground() {
+        writeNow(waitUntilFinished: true)
+    }
 }
 
 private struct ComposerEditingStateSnapshot {
@@ -514,13 +655,24 @@ final class SendMessageInputViewController: UIViewController {
     private static let replyBannerHeight: CGFloat = 40
 
     private static var channelAttachmentCache: [String: ([UIImage], [Int: URL])] = [:]
-    private static var channelTextDraftCache: [String: ComposerDraftSnapshot] = [:]
     private static var channelEditingStateCache: [String: ComposerEditingStateSnapshot] = [:]
+    private static let composerDraftPersistDelay: TimeInterval = 0.6
 
-    private var cacheKey: String { "\(clanId)-\(channel.channelID)-\(topicId)" }
+    private var cacheKey: String { "\(channel.channelID)-\(topicId)" }
 
     private func draftStorageKey(for ch: Mezon_Api_ChannelDescription, topicId tid: Int64) -> String {
-        "\(clanId)-\(ch.channelID)-\(tid)"
+        "\(ch.channelID)-\(tid)"
+    }
+
+    private var resolvedDraftOwnerId: String?
+    private var composerDraftPersistWorkItem: DispatchWorkItem?
+
+    private var draftOwnerId: String? {
+        if let resolvedDraftOwnerId { return resolvedDraftOwnerId }
+        let candidate = context.currentUser?.id ?? SessionStore.load()?.userId
+        guard let candidate, !candidate.isEmpty else { return nil }
+        resolvedDraftOwnerId = candidate
+        return candidate
     }
 
     private(set) var pickedImages: [UIImage] = []
@@ -1069,6 +1221,21 @@ final class SendMessageInputViewController: UIViewController {
         reloadEmojiSuggestionList()
         reloadHashtagChannelCandidates()
 
+        if clanId != 0 {
+            let clanId = self.clanId
+            disposables.add((context.account.postbox.clanListView()
+                |> map { view in
+                    AnonymousMessageStore.clanPreventsAnonymous(clanId: clanId) {
+                        view.clans.first(where: { $0.id == clanId })
+                    }
+                }
+                |> distinctUntilChanged
+                |> deliverOnMainQueue
+            ).start(next: { [weak self] prevent in
+                self?.setClanAnonymousPolicy(preventAnonymous: prevent)
+            }))
+        }
+
         NotificationCenter.default.addObserver(self, selector: #selector(keyboardWillShow(_:)),
                                                name: UIResponder.keyboardWillShowNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleEmojiListDidUpdate),
@@ -1077,6 +1244,10 @@ final class SendMessageInputViewController: UIViewController {
                                                name: .mezonChannelOverriddenPermissionsDidChange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleSendPermissionContextChanged),
                                                name: .mezonRolesDidChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(persistComposerDraftForAppLifecycle(_:)),
+                                               name: UIApplication.willResignActiveNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(persistComposerDraftForAppLifecycle(_:)),
+                                               name: UIApplication.didEnterBackgroundNotification, object: nil)
         disposables.add(
             (context.engine.friendsData.friendsUpdated.signal() |> deliverOnMainQueue)
                 .start(next: { [weak self] _ in
@@ -1346,16 +1517,22 @@ final class SendMessageInputViewController: UIViewController {
         let backupPickedImages = (migrateDraftToNewChannelIdentity && !preserveComposerContentsDuringMigration) ? pickedImages : []
         let oldKey = draftStorageKey(for: channel, topicId: topicId)
         let oldAttachmentCacheKey = cacheKey
-        if viewIfLoaded?.window != nil {
+        if !skipsPersistingComposerDraftOnLifecycleEnd, viewIfLoaded?.window != nil {
             stashCurrentComposerDraftIfNeeded()
         }
-        let preservedDraft = migrateDraftToNewChannelIdentity ? Self.channelTextDraftCache[oldKey] : nil
+        let preservedDraft: ComposerDraftSnapshot? = {
+            guard migrateDraftToNewChannelIdentity else { return nil }
+            if preserveComposerContentsDuringMigration && isViewLoaded {
+                return buildComposerDraftSnapshot()
+            }
+            return ComposerDraftStore.shared.snapshot(forKey: oldKey, owner: draftOwnerId)
+        }()
         let preservedAttachmentEntry = migrateDraftToNewChannelIdentity ? Self.channelAttachmentCache[oldAttachmentCacheKey] : nil
         channel = newChannel
         topicId = newTopicId
         if migrateDraftToNewChannelIdentity, let preservedDraft {
             let newKey = draftStorageKey(for: channel, topicId: topicId)
-            Self.channelTextDraftCache[newKey] = preservedDraft
+            ComposerDraftStore.shared.setSnapshot(preservedDraft, forKey: newKey, owner: draftOwnerId)
         }
         if migrateDraftToNewChannelIdentity, let entry = preservedAttachmentEntry, !entry.0.isEmpty {
             Self.channelAttachmentCache[cacheKey] = entry
@@ -1377,17 +1554,15 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func stashCurrentComposerDraftIfNeeded() {
+        composerDraftPersistWorkItem?.cancel()
+        composerDraftPersistWorkItem = nil
         let key = draftStorageKey(for: channel, topicId: topicId)
-        if let snap = buildComposerDraftSnapshot() {
-            Self.channelTextDraftCache[key] = snap
-            while Self.channelTextDraftCache.count > 45 {
-                if let k = Self.channelTextDraftCache.keys.first {
-                    Self.channelTextDraftCache.removeValue(forKey: k)
-                } else { break }
-            }
-        } else {
-            Self.channelTextDraftCache.removeValue(forKey: key)
-        }
+        let snap = buildComposerDraftSnapshot()
+        let persistsAcrossLaunch = editingDisplay == nil && snap.map {
+            !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !$0.fileDrafts.isEmpty
+        } == true
+        ComposerDraftStore.shared.setSnapshot(
+            snap, forKey: key, owner: draftOwnerId, persistsAcrossLaunch: persistsAcrossLaunch)
         if let editing = editingDisplay {
             Self.channelEditingStateCache[key] = ComposerEditingStateSnapshot(
                 display: editing,
@@ -1403,17 +1578,27 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
 
-    private func hasMeaningfulDraftContent() -> Bool {
-        let trimmed = buildPlainTextFromAttributed().trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty { return true }
-        if !pickedImages.isEmpty || !pickedFiles.isEmpty { return true }
-        return false
+    private func scheduleComposerDraftPersist() {
+        guard !skipsPersistingComposerDraftOnLifecycleEnd else { return }
+        composerDraftPersistWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.stashCurrentComposerDraftIfNeeded()
+        }
+        composerDraftPersistWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.composerDraftPersistDelay, execute: work)
+    }
+
+    @objc private func persistComposerDraftForAppLifecycle(_ notification: Notification) {
+        guard isViewLoaded, !skipsPersistingComposerDraftOnLifecycleEnd else { return }
+        stashCurrentComposerDraftIfNeeded()
+        ComposerDraftStore.shared.flush(
+            waitUntilFinished: notification.name == UIApplication.didEnterBackgroundNotification)
     }
 
     private func buildComposerDraftSnapshot() -> ComposerDraftSnapshot? {
-        guard hasMeaningfulDraftContent() else { return nil }
-        let attr = textView.attributedText ?? NSAttributedString()
-        let data = try? NSKeyedArchiver.archivedData(withRootObject: attr, requiringSecureCoding: false)
+        let plainText = buildPlainTextFromAttributed()
+        let hasText = !plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard hasText || !pickedImages.isEmpty || !pickedFiles.isEmpty else { return nil }
         let mentions = activeMentions.map {
             ComposerMentionSnapshot(
                 userId: $0.userId, roleId: $0.roleId, rolename: $0.rolename, displayName: $0.displayName,
@@ -1429,7 +1614,7 @@ final class SendMessageInputViewController: UIViewController {
             FileDraftSnapshot(path: $0.url.path, filename: $0.filename, filetype: $0.filetype, filesize: $0.filesize)
         }
         return ComposerDraftSnapshot(
-            attributedArchive: data, mentions: mentions, hashtags: hashtags, emojiIdByColon: emojiIdByColonToken, fileDrafts: files)
+            text: plainText, mentions: mentions, hashtags: hashtags, emojiIdByColon: emojiIdByColonToken, fileDrafts: files)
     }
 
     private func applyCurrentThemeToRestoredComposer(_ archived: NSAttributedString) -> NSAttributedString {
@@ -1504,17 +1689,10 @@ final class SendMessageInputViewController: UIViewController {
         }
         emojiIdByColonToken = snap.emojiIdByColon
 
-        if let data = snap.attributedArchive {
-            let unarchived: NSAttributedString? =
-                (try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSAttributedString.self, from: data))
-                ?? ((try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSMutableAttributedString.self, from: data)) as NSAttributedString?)
-            if let u = unarchived {
-                textView.attributedText = applyCurrentThemeToRestoredComposer(u)
-            } else {
-                textView.attributedText = nil
-            }
-        } else {
+        if snap.text.isEmpty {
             textView.attributedText = nil
+        } else {
+            textView.attributedText = applyCurrentThemeToRestoredComposer(NSAttributedString(string: snap.text))
         }
         refreshHashtagIconAttachments()
         text = textView.text ?? ""
@@ -1573,7 +1751,7 @@ final class SendMessageInputViewController: UIViewController {
 
     private func restoreComposerDraftAndAttachmentsForCurrentKey() {
         let key = draftStorageKey(for: channel, topicId: topicId)
-        if let snap = Self.channelTextDraftCache[key] {
+        if let snap = ComposerDraftStore.shared.snapshot(forKey: key, owner: draftOwnerId) {
             applyComposerDraftSnapshot(snap)
         } else {
             resetComposerVisualDraftState()
@@ -1755,10 +1933,25 @@ final class SendMessageInputViewController: UIViewController {
         }
     }
     @objc private func anonymousIndicatorTapped() {
-        guard clanId != 0, !clanPreventAnonymous else { return }
+        toggleAnonymousMode()
+    }
+
+    @discardableResult
+    func toggleAnonymousMode() -> Bool {
+        guard clanId != 0 else { return false }
+        let prevent = AnonymousMessageStore.clanPreventsAnonymous(clanId: clanId) {
+            context.account.postbox.read { tx in tx.getClan(id: clanId) }
+        }
+        guard !prevent else {
+            setClanAnonymousPolicy(preventAnonymous: true, notifyOnDisable: false)
+            Toast.info(L(L10n.ChannelMessages.anonymousNotAllowed))
+            return false
+        }
+        clanPreventAnonymous = false
         _ = AnonymousMessageStore.toggle(clanId: clanId)
         refreshAnonymousUI()
         onAnonymousModeChanged?()
+        return true
     }
 
 
@@ -5198,7 +5391,7 @@ final class SendMessageInputViewController: UIViewController {
             isEdit: false
         )
         guard contentData.count <= Self.maxMessageContentBytes else {
-            Toast.error(L(L10n.Error.somethingWentWrong))
+            Toast.error(L(L10n.Error.messageTooLong))
             return
         }
         let content = String(data: contentData, encoding: .utf8) ?? "{}"
@@ -5272,7 +5465,7 @@ final class SendMessageInputViewController: UIViewController {
             isEdit: false
         )
         guard contentData.count <= Self.maxMessageContentBytes else {
-            Toast.error(L(L10n.Error.somethingWentWrong))
+            Toast.error(L(L10n.Error.messageTooLong))
             return
         }
         let content = String(data: contentData, encoding: .utf8) ?? "{}"
@@ -5873,12 +6066,38 @@ final class SendMessageInputViewController: UIViewController {
         anonymousIndicatorButton.tintColor = t.textStrong
     }
 
-    func setClanAnonymousPolicy(preventAnonymous: Bool) {
+    func setClanAnonymousPolicy(preventAnonymous: Bool, notifyOnDisable: Bool = true) {
+        let policyChanged = clanPreventAnonymous != preventAnonymous
+        // Postbox may clear the stored mode before this composer receives the policy update.
+        let wasEnabled = AnonymousMessageStore.isEnabled(clanId: clanId) || !anonymousIndicatorButton.isHidden
         clanPreventAnonymous = preventAnonymous
-        if clanPreventAnonymous {
-            AnonymousMessageStore.setEnabled(false, clanId: clanId)
-        }
+        AnonymousMessageStore.applyClanPolicy(preventAnonymous: preventAnonymous, clanId: clanId)
         refreshAnonymousUI()
+        if policyChanged || (preventAnonymous && wasEnabled) {
+            onAnonymousModeChanged?()
+        }
+        if notifyOnDisable && preventAnonymous && wasEnabled && canShowAnonymousPolicyNotice {
+            Toast.info(L(L10n.ChannelMessages.anonymousDisabledByClan))
+        }
+    }
+
+    private var canShowAnonymousPolicyNotice: Bool {
+        guard UIApplication.shared.applicationState == .active,
+              let view = viewIfLoaded, isViewVisibleInHierarchy(view) else { return false }
+        // ViewController presents native sheets through the window root.
+        if let presented = view.window?.rootViewController?.presentedViewController {
+            guard let presentedView = presented.viewIfLoaded,
+                  view.isDescendant(of: presentedView) else { return false }
+        }
+        var owner: UIViewController = self
+        while let parent = owner.parent, !(parent is UINavigationController) {
+            owner = parent
+        }
+        guard owner.presentedViewController == nil else { return false }
+        if let navigation = owner.navigationController {
+            return navigation.topViewController === owner && navigation.presentedViewController == nil
+        }
+        return true
     }
 
     func refreshAnonymousUI() {
@@ -5909,7 +6128,7 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     deinit {
-        if !skipsPersistingComposerDraftOnLifecycleEnd {
+        if !skipsPersistingComposerDraftOnLifecycleEnd && isViewLoaded {
             stashCurrentComposerDraftIfNeeded()
         }
         voiceAudioRecorder?.stop()
@@ -6428,7 +6647,9 @@ final class SendMessageInputViewController: UIViewController {
 
     private func applyOptimisticSendComposerReset(preserveAttachments: Bool = false) {
         let key = draftStorageKey(for: channel, topicId: topicId)
-        Self.channelTextDraftCache.removeValue(forKey: key)
+        composerDraftPersistWorkItem?.cancel()
+        composerDraftPersistWorkItem = nil
+        ComposerDraftStore.shared.setSnapshot(nil, forKey: key, owner: draftOwnerId)
         Self.channelEditingStateCache.removeValue(forKey: key)
         editingDisplay = nil
         text = ""
@@ -7308,6 +7529,7 @@ extension SendMessageInputViewController: UITextViewDelegate {
         refreshComposerTypingAttributesForSelection()
         scheduleOgpPreviewUpdate(for: text)
         sendTypingIfNeeded()
+        scheduleComposerDraftPersist()
     }
 
     func textViewDidEndEditing(_ textView: UITextView) {

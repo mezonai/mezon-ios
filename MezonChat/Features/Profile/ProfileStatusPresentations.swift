@@ -169,7 +169,7 @@ final class ProfileSheetServerCell: UITableViewCell {
     private let subtitleLbl: UILabel = {
         let l = UILabel()
         l.font = .systemFont(ofSize: 13.sf, weight: .regular)
-        l.textColor = .mezonTextSecondary
+        l.textColor = .mezonTextMuted
         l.numberOfLines = 1
         l.translatesAutoresizingMaskIntoConstraints = false
         return l
@@ -328,7 +328,7 @@ extension ProfileServerSheetController: UITableViewDataSource, UITableViewDelega
         label.translatesAutoresizingMaskIntoConstraints = false
         label.text = L(L10n.Profile.serverFooter)
         label.font = .systemFont(ofSize: 13.sf, weight: .regular)
-        label.textColor = .mezonTextSecondary
+        label.textColor = .mezonTextMuted
         label.numberOfLines = 0
         container.addSubview(label)
         NSLayoutConstraint.activate([

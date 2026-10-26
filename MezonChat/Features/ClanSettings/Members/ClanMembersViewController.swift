@@ -416,7 +416,7 @@ private final class MemberCell: UITableViewCell {
         
         if !avatarURL.isEmpty {
             avatarView.isHidden = false
-            ImageCache.shared.loadImage(urlString: ImgproxyURL.create(from: avatarURL, width: 100, height: 100)) { [weak self] image in
+            ImageCache.shared.loadImage(urlString: ImgproxyURL.iconURL(from: avatarURL, width: 100, height: 100)) { [weak self] image in
                 if let image {
                     self?.avatarView.image = image
                     self?.textAvatar.showImageMode()

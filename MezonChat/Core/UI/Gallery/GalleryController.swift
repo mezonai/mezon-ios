@@ -909,11 +909,10 @@ final class GalleryController: UIViewController {
         } else if let avatarURLStr = item.senderAvatarURL, !avatarURLStr.isEmpty {
             avatarImageView.contentMode = .scaleAspectFill
             avatarImageView.backgroundColor = UIColor.white.withAlphaComponent(0.2)
-            let proxyURL = ImgproxyURL.attachmentURL(
+            let proxyURL = ImgproxyURL.avatarProxyURL(
                 from: avatarURLStr,
                 width: 100,
-                height: 100,
-                resizeType: "fill"
+                height: 100
             )
             if let cached = ImageCache.shared.memoryImage(forKey: proxyURL) {
                 avatarImageView.image = cached

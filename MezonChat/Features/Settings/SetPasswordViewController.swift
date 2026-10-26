@@ -347,7 +347,7 @@ final class SetPasswordViewController: BaseViewController {
             do {
                 guard let token = await context.getToken() else {
                     setLoading(false)
-                    Toast.error(L(L10n.SetPassword.toastError))
+                    Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
                     return
                 }
 
@@ -384,7 +384,7 @@ final class SetPasswordViewController: BaseViewController {
                         Toast.error(errorMsg)
                     }
                 default:
-                    Toast.error(L(L10n.SetPassword.toastError))
+                    Toast.error(error.localizedDescription)
                 }
             } catch {
                 setLoading(false)

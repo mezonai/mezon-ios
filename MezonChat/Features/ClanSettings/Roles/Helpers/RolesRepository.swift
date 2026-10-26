@@ -336,6 +336,10 @@ final class RolesRepository {
     }
 }
 
-enum RolesRepositoryError: Error {
+enum RolesRepositoryError: LocalizedError {
     case notAuthenticated
+
+    var errorDescription: String? {
+        L(L10n.ClanInviteSheet.sessionNotFound)
+    }
 }

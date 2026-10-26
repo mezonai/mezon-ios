@@ -122,7 +122,7 @@ final class AuditLogItemCell: UITableViewCell {
 
         let avatar = memberInfo?.userAvatarURL ?? ""
         imageTask?.cancel()
-        if !avatar.isEmpty, let url = URL(string: avatar) {
+        if !avatar.isEmpty, let url = URL(string: ImgproxyURL.iconURL(from: avatar)) {
             avatarView.showSkeleton()
             imageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
                 guard error == nil, let data = data, let image = UIImage(data: data) else {

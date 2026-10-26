@@ -107,7 +107,8 @@ final class MessageReplyNode: ASDisplayNode, ASNetworkImageNodeDelegate {
             avatarImageNode.image = logo
             avatarImageNode.contentMode = .scaleAspectFit
             avatarImageNode.backgroundColor = .clear
-        } else if !ref.messageSenderAvatar.isEmpty, let url = URL(string: ref.messageSenderAvatar) {
+        } else if !ref.messageSenderAvatar.isEmpty,
+                  let url = URL(string: ImgproxyURL.iconURL(from: ref.messageSenderAvatar)) {
             avatarImageNode.defaultImage = nil
             avatarImageNode.image = nil
             avatarImageNode.url = url

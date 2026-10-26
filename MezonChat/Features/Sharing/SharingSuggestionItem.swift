@@ -125,7 +125,7 @@ enum SharingSearchRanking {
 }
 
 enum SharingImageProxy {
-    static let avatarPixels = 50
+    static let avatarPixels = 100
 
     static func resolvedAssetURLString(_ raw: String) -> String {
         let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -140,6 +140,6 @@ enum SharingImageProxy {
     static func proxiedAvatarURLString(_ raw: String) -> String {
         let abs = resolvedAssetURLString(raw)
         guard !abs.isEmpty else { return "" }
-        return ImgproxyURL.create(from: abs, width: avatarPixels, height: avatarPixels)
+        return ImgproxyURL.iconURL(from: abs, width: avatarPixels, height: avatarPixels)
     }
 }

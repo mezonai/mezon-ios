@@ -634,7 +634,7 @@ final class RoleDetailViewController: BaseViewController {
                 self.refreshUI()
                 self.navigationController?.popViewController(animated: true)
             } catch {
-                Toast.error(L(L10n.ClanRoles.failed))
+                Toast.error(error.localizedDescription)
             }
         }
     }
@@ -691,7 +691,7 @@ final class RoleDetailViewController: BaseViewController {
                 try await self.repository.deleteRole(roleId: self.roleId, clanId: self.clanId)
                 self.navigationController?.popViewController(animated: true)
             } catch {
-                Toast.error(L(L10n.ClanRoles.failed))
+                Toast.error(error.localizedDescription)
             }
         }
     }

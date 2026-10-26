@@ -367,8 +367,8 @@ final class DmListItemCell: UITableViewCell {
             height: 100
         )
         let raw = url.absoluteString
-        let proxiedKey = proxied as NSString
-        let rawKey = raw as NSString
+        let proxiedKey = ImgproxyURL.cacheKey(from: proxied) as NSString
+        let rawKey = ImgproxyURL.cacheKey(from: raw) as NSString
         if !isGroup {
             ImageCache.shared.shareAvatarForNotifications(avatarURL: raw, cacheKeys: [proxied, raw])
         }
@@ -376,11 +376,6 @@ final class DmListItemCell: UITableViewCell {
         if let cached = Self.avatarMemoryCache.object(forKey: proxiedKey)
             ?? ImageCache.shared.memoryOptimizedAvatar(
                 forURL: proxied,
-                targetPixelSize: Self.avatarTargetPixelSize
-            )
-            ?? Self.avatarMemoryCache.object(forKey: rawKey)
-            ?? ImageCache.shared.memoryOptimizedAvatar(
-                forURL: raw,
                 targetPixelSize: Self.avatarTargetPixelSize
             ) {
             Self.avatarMemoryCache.setObject(cached, forKey: proxiedKey)
@@ -402,7 +397,7 @@ final class DmListItemCell: UITableViewCell {
                   self.isAvatarLoadInFlight else { return }
             self.showAvatarImage(image)
         }
-        let hasRawDiskCache = proxied != raw
+        let hasRawDiskCache = proxied == raw
             && ImageCache.shared.hasOptimizedAvatarDiskCache(
                 forURL: raw,
                 targetPixelSize: Self.avatarTargetPixelSize

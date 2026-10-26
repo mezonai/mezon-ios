@@ -188,7 +188,7 @@ final class InstallClanViewController: UIViewController {
     }
 
     private func loadAvatar(from urlString: String) {
-        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = ImgproxyURL.iconURL(from: urlString.trimmingCharacters(in: .whitespacesAndNewlines))
         guard !trimmed.isEmpty else {
             avatarPlaceholder.isHidden = false
             return

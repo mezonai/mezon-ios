@@ -10,6 +10,7 @@ final class CreateThreadFormViewController: UIViewController {
     private let parentChannelLabel: String
     private let composerParentChannel: Mezon_Api_ChannelDescription
     private let seedMessageDisplay: ChatMessageDisplay?
+    private let onAnonymousModeChanged: (() -> Void)?
     private let onComplete: ((Result<Mezon_Api_ChannelDescription, Error>) -> Void)?
 
     private let seedMessageCaptionLabel = UILabel()
@@ -96,7 +97,6 @@ final class CreateThreadFormViewController: UIViewController {
     )
 
     private let locationManager = CLLocationManager()
-    private var locationCompletion: ((CLLocationCoordinate2D?) -> Void)?
 
     private lazy var sendInputVC: SendMessageInputViewController = {
         let vc = SendMessageInputViewController(
@@ -120,6 +120,10 @@ final class CreateThreadFormViewController: UIViewController {
             self?.updateInlineSuggestionHostLayout(height: h)
         }
         vc.inlineSuggestionHost = inlineSuggestionHost
+        vc.onAnonymousModeChanged = { [weak self] in
+            self?.rebuildAdvancePanelActions()
+            self?.onAnonymousModeChanged?()
+        }
         return vc
     }()
 
@@ -133,6 +137,7 @@ final class CreateThreadFormViewController: UIViewController {
         parentChannelLabel: String,
         composerParentChannel: Mezon_Api_ChannelDescription,
         seedMessageDisplay: ChatMessageDisplay? = nil,
+        onAnonymousModeChanged: (() -> Void)? = nil,
         onComplete: ((Result<Mezon_Api_ChannelDescription, Error>) -> Void)? = nil
     ) {
         self.context = context
@@ -142,6 +147,7 @@ final class CreateThreadFormViewController: UIViewController {
         self.parentChannelLabel = parentChannelLabel
         self.composerParentChannel = composerParentChannel
         self.seedMessageDisplay = seedMessageDisplay
+        self.onAnonymousModeChanged = onAnonymousModeChanged
         self.onComplete = onComplete
         super.init(nibName: nil, bundle: nil)
     }
@@ -759,17 +765,16 @@ final class CreateThreadFormViewController: UIViewController {
     }
 
     private func clanPreventsAnonymous() -> Bool {
-        guard clanId != 0 else { return true }
-        let rec = context.account.postbox.read { tx in tx.getClan(id: clanId) }
-        return rec?.preventsAnonymousMessages ?? false
+        AnonymousMessageStore.clanPreventsAnonymous(clanId: clanId) {
+            context.account.postbox.read { tx in tx.getClan(id: clanId) }
+        }
     }
 
     private func rebuildAdvancePanelActions() {
-        let prevent = clanPreventsAnonymous()
         let on = AnonymousMessageStore.isEnabled(clanId: clanId)
         let items = AdvancedFunctionPanelView.defaultActionItems(
             anonymousOn: on,
-            includeAnonymous: clanId != 0 && !prevent,
+            includeAnonymous: clanId != 0,
             includeCreateThread: false
         )
         advancePanelView.setActions(items)
@@ -856,10 +861,7 @@ final class CreateThreadFormViewController: UIViewController {
             }
             presentFromTopMost(buzzVC)
         case "anonymous":
-            guard clanId != 0, !clanPreventsAnonymous() else { return }
-            _ = AnonymousMessageStore.toggle(clanId: clanId)
-            sendInputVC.refreshAnonymousUI()
-            rebuildAdvancePanelActions()
+            guard sendInputVC.toggleAnonymousMode() else { return }
             DispatchQueue.main.async { [weak self] in self?.sendInputVC.focusTextInput() }
         case "transfer_funds":
             navigateToTransferFundsForThreadForm()
@@ -897,13 +899,9 @@ final class CreateThreadFormViewController: UIViewController {
         switch status {
         case .notDetermined:
             locationManager.delegate = self
-            locationCompletion = { [weak self] coord in
-                guard let self, let coord else { return }
-                self.showLocationConfirmForThreadForm(coordinate: coord)
-            }
             locationManager.requestWhenInUseAuthorization()
         case .authorizedWhenInUse, .authorizedAlways:
-            fetchLocationAndShowConfirmForThreadForm()
+            showLocationConfirmForThreadForm()
         case .denied, .restricted:
             showLocationPermissionDeniedAlertForThreadForm()
         @unknown default:
@@ -911,18 +909,9 @@ final class CreateThreadFormViewController: UIViewController {
         }
     }
 
-    private func fetchLocationAndShowConfirmForThreadForm() {
-        locationManager.delegate = self
-        locationCompletion = { [weak self] coord in
-            guard let self, let coord else { return }
-            self.showLocationConfirmForThreadForm(coordinate: coord)
-        }
-        locationManager.requestLocation()
-    }
-
-    private func showLocationConfirmForThreadForm(coordinate: CLLocationCoordinate2D) {
+    private func showLocationConfirmForThreadForm() {
         let label = parentChannelLabel.isEmpty ? "this channel" : parentChannelLabel
-        let confirmVC = ShareLocationConfirmViewController(coordinate: coordinate, channelLabel: label)
+        let confirmVC = ShareLocationConfirmViewController(channelLabel: label)
         confirmVC.onSend = { [weak self] lat, lng in
             guard let self else { return }
             self.sendInputVC.sendLocation(latitude: lat, longitude: lng)
@@ -948,20 +937,6 @@ final class CreateThreadFormViewController: UIViewController {
 }
 
 extension CreateThreadFormViewController: CLLocationManagerDelegate {
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        manager.delegate = nil
-        let completion = locationCompletion
-        locationCompletion = nil
-        completion?(locations.last?.coordinate)
-    }
-
-    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        manager.delegate = nil
-        let completion = locationCompletion
-        locationCompletion = nil
-        completion?(nil)
-    }
-
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         let status: CLAuthorizationStatus
         if #available(iOS 14.0, *) {
@@ -970,13 +945,10 @@ extension CreateThreadFormViewController: CLLocationManagerDelegate {
             status = CLLocationManager.authorizationStatus()
         }
         guard status != .notDetermined else { return }
+        manager.delegate = nil
         if status == .authorizedWhenInUse || status == .authorizedAlways {
-            manager.requestLocation()
+            showLocationConfirmForThreadForm()
         } else {
-            manager.delegate = nil
-            let completion = locationCompletion
-            locationCompletion = nil
-            completion?(nil)
             showLocationPermissionDeniedAlertForThreadForm()
         }
     }

@@ -459,7 +459,7 @@ final class StickerItemCell: UITableViewCell {
         guard let avatar, !avatar.isEmpty else { return }
 
         let avatarUrl = ImgproxyURL.absoluteResourceURL(from: avatar)
-        let side = Int(Self.creatorAvatarSize * UIScreen.main.scale)
+        let side = 100
         let loadKey = ImgproxyURL.avatarProxyURL(from: avatarUrl, width: side, height: side)
         let resolvedKey = loadKey.isEmpty ? avatarUrl : loadKey
 
@@ -479,7 +479,7 @@ final class StickerItemCell: UITableViewCell {
     private func loadStickerIcon(_ sticker: CachedClanStickerRecord) {
         iconTask?.cancel()
         iconTask = nil
-        let side = Int(Self.iconSize * UIScreen.main.scale)
+        let side = 100
         let proxyURL = ImgproxyURL.create(
             from: sticker.displayImageURLString,
             width: side,

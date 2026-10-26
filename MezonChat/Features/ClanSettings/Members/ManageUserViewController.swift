@@ -172,7 +172,7 @@ final class ManageUserViewController: BaseViewController {
         let avatarURL = member.clanAvatar.isEmpty ? member.userAvatarURL : member.clanAvatar
         if !avatarURL.isEmpty {
             avatarImageView.isHidden = false
-            ImageCache.shared.loadImage(urlString: ImgproxyURL.create(from: avatarURL, width: 100, height: 100)) { image in
+            ImageCache.shared.loadImage(urlString: ImgproxyURL.iconURL(from: avatarURL, width: 100, height: 100)) { image in
                 if let image {
                     avatarImageView.image = image
                     textAvatar.showImageMode()
@@ -579,7 +579,7 @@ final class ManageUserViewController: BaseViewController {
                     } else {
                         self.selectedRoleIds.remove(roleId)
                     }
-                    Toast.error(L(L10n.ClanRoles.failed))
+                    Toast.error(error.localizedDescription)
                     self.buildContent()
                 }
             }

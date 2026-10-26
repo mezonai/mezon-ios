@@ -188,7 +188,7 @@ final class EmbedItemNode: ASDisplayNode {
 
             if let iconURL = embed.authorIconURL, !iconURL.isEmpty {
                 let icon = TransformImageNode()
-                icon.setSignal(remoteImageSignal(url: iconURL, resizeMode: .fill), attemptSynchronously: false)
+                icon.setSignal(remoteImageSignal(url: ImgproxyURL.iconURL(from: iconURL), resizeMode: .fill), attemptSynchronously: false)
                 let layout = icon.asyncLayout()
                 let apply = layout(TransformImageArguments(
                     corners: ImageCorners(radius: 14),
@@ -287,7 +287,7 @@ final class EmbedItemNode: ASDisplayNode {
 
         if let thumbURL = embed.thumbnailURL, !thumbURL.isEmpty {
             let node = TransformImageNode()
-            let thumbProxy = ImgproxyURL.attachmentURL(from: thumbURL, width: Int(Self.thumbnailSize) * Int(UIScreen.main.scale), height: Int(Self.thumbnailSize) * Int(UIScreen.main.scale), resizeType: "fill")
+            let thumbProxy = ImgproxyURL.attachmentURL(from: thumbURL, width: 100, height: 100, resizeType: "fill")
             let hasThumbMem = ImageCache.shared.memoryImage(forKey: thumbProxy) != nil
             node.setSignal(remoteImageSignal(url: thumbProxy, resizeMode: .fill), attemptSynchronously: hasThumbMem)
             let layout = node.asyncLayout()
@@ -317,7 +317,7 @@ final class EmbedItemNode: ASDisplayNode {
 
             if let iconURL = embed.footerIconURL, !iconURL.isEmpty {
                 let icon = TransformImageNode()
-                icon.setSignal(remoteImageSignal(url: iconURL, resizeMode: .fill), attemptSynchronously: false)
+                icon.setSignal(remoteImageSignal(url: ImgproxyURL.iconURL(from: iconURL), resizeMode: .fill), attemptSynchronously: false)
                 let layout = icon.asyncLayout()
                 let apply = layout(TransformImageArguments(
                     corners: ImageCorners(radius: 12),

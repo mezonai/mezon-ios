@@ -23,6 +23,11 @@ final class SlashCommandCatalog {
     private var lastAttemptAt: [Key: Date] = [:]
     private var inflight: [Key: Task<[Mezon_Api_QuickMenuAccess]?, Never>] = [:]
     private var revisions: [Key: Int] = [:]
+    private var lastFailures: [Key: Error] = [:]
+
+    func lastFailure(channelId: Int64, menuType: MenuType = .flashMessage) -> Error? {
+        lastFailures[Key(channelId: channelId, menuType: menuType.rawValue)]
+    }
 
     func cached(channelId: Int64, menuType: MenuType = .flashMessage) -> [Mezon_Api_QuickMenuAccess]? {
         entries[Key(channelId: channelId, menuType: menuType.rawValue)]?.items
@@ -54,7 +59,7 @@ final class SlashCommandCatalog {
         lastAttemptAt[key] = Date()
         let startRevision = revisions[key, default: 0]
         let task = Task<[Mezon_Api_QuickMenuAccess]?, Never> {
-            await Self.fetch(channelId: channelId, menuType: menuType, context: context)
+            await self.fetch(channelId: channelId, menuType: menuType, context: context)
         }
         inflight[key] = task
         let fetched = await task.value
@@ -69,7 +74,8 @@ final class SlashCommandCatalog {
         return fetched
     }
 
-    private static func fetch(channelId: Int64, menuType: MenuType, context: AccountContext) async -> [Mezon_Api_QuickMenuAccess]? {
+    private func fetch(channelId: Int64, menuType: MenuType, context: AccountContext) async -> [Mezon_Api_QuickMenuAccess]? {
+        let key = Key(channelId: channelId, menuType: menuType.rawValue)
         guard let token = await context.getTokenPreferringCachedSkipSessionReadyWait() else { return nil }
         do {
             let items = try await MezonHTTPClient.shared.listQuickMenuAccess(
@@ -77,8 +83,10 @@ final class SlashCommandCatalog {
                 menuType: menuType.rawValue,
                 token: token
             )
+            lastFailures[key] = nil
             return items.filter { !$0.menuName.isEmpty }
         } catch {
+            lastFailures[key] = error
             return nil
         }
     }

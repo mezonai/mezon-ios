@@ -962,7 +962,7 @@ final class VoiceChannelPiPOverlay: NSObject {
             lastParticipantIdentity = identity
             avatarView.image = nil
             if let raw = url, !raw.isEmpty {
-                let proxy = ImgproxyURL.create(from: raw, width: 150, height: 150)
+                let proxy = ImgproxyURL.iconURL(from: raw, width: 100, height: 100)
                 textAvatar.showSkeleton()
                 ImageCache.shared.loadAvatar(urlString: proxy) { [weak self] img in
                     guard let self else { return }
@@ -1418,7 +1418,7 @@ private enum VoiceCallSystemPiPFactory {
         let localId = context.currentUser?.id ?? ""
         let avatarURLStr = voiceChannelResolveAvatarURL(context: context, clanId: clanId, identityKey: localId)
         if let avatarURLStr, !avatarURLStr.isEmpty {
-            let proxy = ImgproxyURL.create(from: avatarURLStr, width: 150, height: 150)
+            let proxy = ImgproxyURL.iconURL(from: avatarURLStr, width: 100, height: 100)
             ImageCache.shared.loadAvatar(urlString: proxy) { img in
                 pipAvatarView.image = img ?? DefaultUserAvatar.image(side: 60)
             }
@@ -3037,7 +3037,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
         let key = "\(userId)"
         if let raw = voiceChannelResolveAvatarURL(context: context, clanId: channel.clanID, identityKey: key), !raw.isEmpty {
-            let proxy = ImgproxyURL.create(from: raw, width: 150, height: 150)
+            let proxy = ImgproxyURL.iconURL(from: raw, width: 100, height: 100)
             ImageCache.shared.loadAvatar(urlString: proxy) { img in
                 avatar.image = img
             }
@@ -6226,7 +6226,7 @@ private final class VoiceParticipantRowView: UIView {
                 avatarView.image = nil
             }
             if let raw = avatarURL, !raw.isEmpty {
-                let proxy = ImgproxyURL.create(from: raw, width: 150, height: 150)
+                let proxy = ImgproxyURL.iconURL(from: raw, width: 100, height: 100)
                 textAvatar.showSkeleton()
                 ImageCache.shared.loadAvatar(urlString: proxy) { [weak self] img in
                     guard let self else { return }

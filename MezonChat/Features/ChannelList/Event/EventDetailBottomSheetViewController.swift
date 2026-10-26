@@ -520,7 +520,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
             let imageView = UIImageView(frame: avatar.bounds)
             imageView.contentMode = .scaleAspectFill
             avatar.addSubview(imageView)
-            let proxied = ImgproxyURL.avatarProxyURL(from: clanLogoURL, width: 36, height: 36)
+            let proxied = ImgproxyURL.avatarProxyURL(from: clanLogoURL, width: 100, height: 100)
             ImageCache.shared.loadImage(urlString: proxied) { [weak avatar, weak imageView] image in
                 if let image {
                     imageView?.image = image
@@ -810,7 +810,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
             imageView.tintColor = UIColor.theme.textDisabled
             return
         }
-        let proxied = ImgproxyURL.avatarProxyURL(from: raw, width: 80, height: 80)
+        let proxied = ImgproxyURL.avatarProxyURL(from: raw, width: 100, height: 100)
         ImageCache.shared.loadImage(urlString: proxied) { image in
             imageView.image = image ?? UIImage(systemName: "person.circle.fill")
         }
