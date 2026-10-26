@@ -1235,16 +1235,17 @@ final class MezonRootController: NavigationController {
                     guard let self else { return }
                     node?.setJoining(true)
                     Task { @MainActor in
-                        let clanId: Int64?
+                        let clanId: Int64
                         if inviteInfo.user_joined == true, let joinedClanId = inviteInfo.clan_id.flatMap(Int64.init) {
                             clanId = joinedClanId
                         } else {
-                            clanId = await ClanInviteJoiner.join(context: self.context, code: code, clanId: inviteInfo.clan_id.flatMap(Int64.init))
-                        }
-                        guard let clanId else {
-                            overlay?.dismissOverlay()
-                            Toast.error(L(L10n.Error.somethingWentWrong))
-                            return
+                            do {
+                                clanId = try await ClanInviteJoiner.join(context: self.context, code: code, clanId: inviteInfo.clan_id.flatMap(Int64.init))
+                            } catch {
+                                overlay?.dismissOverlay()
+                                Toast.error(error.localizedDescription)
+                                return
+                            }
                         }
                         overlay?.dismissOverlay {
                             self.rootTabController?.selectedIndex = 0

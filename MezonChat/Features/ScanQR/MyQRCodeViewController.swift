@@ -325,7 +325,7 @@ final class MyQRCodeViewController: ViewController {
     private func finishCenterImageRequest(_ image: UIImage?, generation: Int) {
         guard centerImageRequestGeneration == generation else { return }
         guard let image else {
-            Toast.error(L(L10n.Error.somethingWentWrong))
+            Toast.error(L(L10n.Gallery.imageLoadFailed))
             return
         }
         myQRCodeNode.useCustomCenterImage(image)

@@ -274,7 +274,7 @@ final class WelcomeCellNode: ASDisplayNode {
         )
         if let urlString, !urlString.isEmpty {
             containerNode?.backgroundColor = .clear
-            let proxyURL = ImgproxyURL.create(from: urlString, width: 200, height: 200)
+            let proxyURL = ImgproxyURL.iconURL(from: urlString, width: 100, height: 100)
             let hasMem = ImageCache.shared.memoryImage(forKey: proxyURL) != nil
                 || ImageCache.shared.memoryImage(forKey: urlString) != nil
             imageNode.reset()

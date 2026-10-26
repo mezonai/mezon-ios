@@ -453,6 +453,8 @@ final class ChatViewController: ViewController {
     func configureAsPendingTopicCreation(sourceMessageId: Int64) {
         pendingTopicCreationMessageId = sourceMessageId
         skipRemoteFetchWhileTopicIsEmpty = true
+        sendInputViewController.suppressStoredComposerDraftRestoreOnLoad = true
+        sendInputViewController.skipsPersistingComposerDraftOnLifecycleEnd = true
     }
 
     private let needsReloadPipe = ValuePipe<Void>()
@@ -491,11 +493,7 @@ final class ChatViewController: ViewController {
     private var didStartParentChannelMetaView = false
 
     private let locationManager = CLLocationManager()
-    private var locationCompletion: ((CLLocationCoordinate2D?) -> Void)?
     private var isWaitingForLocationAuthorization = false
-    private var locationFetchTimeoutWorkItem: DispatchWorkItem?
-    private static let cachedLocationMaxAge: TimeInterval = 120
-    private static let locationFetchTimeout: TimeInterval = 8
 
     private lazy var sendInputViewController: SendMessageInputViewController = {
         let vc = SendMessageInputViewController(
@@ -817,12 +815,14 @@ final class ChatViewController: ViewController {
                 }
                 if ClanCreationLimit.showLimitToastIfNeeded(context: self.context) { return }
                 Task {
-                    let clanId = await ClanInviteJoiner.join(context: self.context, code: code, clanId: info.clan_id.flatMap(Int64.init))
+                    let clanId: Int64
+                    do {
+                        clanId = try await ClanInviteJoiner.join(context: self.context, code: code, clanId: info.clan_id.flatMap(Int64.init))
+                    } catch {
+                        await MainActor.run { Toast.error(error.localizedDescription) }
+                        return
+                    }
                     await MainActor.run {
-                        guard let clanId else {
-                            Toast.error(L(L10n.Error.somethingWentWrong))
-                            return
-                        }
                         NotificationCenter.default.post(
                             name: .mezonQRSelectClan,
                             object: nil,
@@ -4636,64 +4636,14 @@ final class ChatViewController: ViewController {
         case .notDetermined:
             locationManager.delegate = self
             isWaitingForLocationAuthorization = true
-            locationCompletion = { [weak self] coord in
-                guard let self, let coord else { return }
-                self.showLocationConfirm(coordinate: coord)
-            }
             locationManager.requestWhenInUseAuthorization()
         case .authorizedWhenInUse, .authorizedAlways:
-            fetchLocationAndShowConfirm()
+            showLocationConfirm()
         case .denied, .restricted:
             showLocationPermissionDeniedAlert()
         @unknown default:
             break
         }
-    }
-
-    private func recentCachedCoordinate(from manager: CLLocationManager) -> CLLocationCoordinate2D? {
-        guard let location = manager.location else { return nil }
-        guard location.horizontalAccuracy >= 0 else { return nil }
-        guard abs(location.timestamp.timeIntervalSinceNow) <= Self.cachedLocationMaxAge else { return nil }
-        return location.coordinate
-    }
-
-    private func cancelLocationFetchTimeout() {
-        locationFetchTimeoutWorkItem?.cancel()
-        locationFetchTimeoutWorkItem = nil
-    }
-
-    private func scheduleLocationFetchTimeout(for manager: CLLocationManager) {
-        cancelLocationFetchTimeout()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self, self.locationCompletion != nil else { return }
-            manager.delegate = nil
-            self.isWaitingForLocationAuthorization = false
-            let completion = self.locationCompletion
-            self.locationCompletion = nil
-            if let cached = self.recentCachedCoordinate(from: manager) {
-                completion?(cached)
-            } else {
-                completion?(nil)
-            }
-        }
-        locationFetchTimeoutWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.locationFetchTimeout, execute: work)
-    }
-
-    private func fetchLocationAndShowConfirm() {
-        if let cached = recentCachedCoordinate(from: locationManager) {
-            showLocationConfirm(coordinate: cached)
-            return
-        }
-
-        locationManager.delegate = self
-        isWaitingForLocationAuthorization = false
-        locationCompletion = { [weak self] coord in
-            guard let self, let coord else { return }
-            self.showLocationConfirm(coordinate: coord)
-        }
-        scheduleLocationFetchTimeout(for: locationManager)
-        locationManager.requestLocation()
     }
 
     private func handleLocationAuthorizationStatus(_ status: CLAuthorizationStatus, manager: CLLocationManager) {
@@ -4701,28 +4651,20 @@ final class ChatViewController: ViewController {
         guard status != .notDetermined else { return }
 
         isWaitingForLocationAuthorization = false
+        manager.delegate = nil
         switch status {
         case .authorizedWhenInUse, .authorizedAlways:
-            fetchLocationAndShowConfirm()
+            showLocationConfirm()
         case .denied, .restricted:
-            cancelLocationFetchTimeout()
-            manager.delegate = nil
-            let completion = locationCompletion
-            locationCompletion = nil
-            completion?(nil)
             showLocationPermissionDeniedAlert()
-        case .notDetermined:
+        default:
             break
-        @unknown default:
-            cancelLocationFetchTimeout()
-            manager.delegate = nil
-            locationCompletion = nil
         }
     }
 
-    private func showLocationConfirm(coordinate: CLLocationCoordinate2D) {
+    private func showLocationConfirm() {
         let label = channelLabel.isEmpty ? "this channel" : channelLabel
-        let confirmVC = ShareLocationConfirmViewController(coordinate: coordinate, channelLabel: label)
+        let confirmVC = ShareLocationConfirmViewController(channelLabel: label)
         confirmVC.onSend = { [weak self] lat, lng in
             guard let self else { return }
             self.sendInputViewController.sendLocation(latitude: lat, longitude: lng)
@@ -4974,6 +4916,7 @@ final class ChatViewController: ViewController {
                     migrateDraftToNewChannelIdentity: true,
                     preserveComposerContentsDuringMigration: true
                 )
+                self.sendInputViewController.skipsPersistingComposerDraftOnLifecycleEnd = false
                 self.topicId = topic.id
                 self.bindMessageHistoryView()
                 self.sendInputViewController.send()
@@ -6768,7 +6711,7 @@ final class ChatViewController: ViewController {
             if !items.isEmpty {
                 self.showQuickMenuSheet(items: items, display: display)
             } else if catalog.cached(channelId: channelId, menuType: .quickMenu) == nil {
-                Toast.error(L(L10n.Error.somethingWentWrong))
+                Toast.error(catalog.lastFailure(channelId: channelId, menuType: .quickMenu)?.localizedDescription ?? L(L10n.ClanInviteSheet.sessionNotFound))
             } else {
                 Toast.info(L(L10n.QuickAction.emptyQuickMenu))
             }
@@ -7302,28 +7245,6 @@ final class ChatViewController: ViewController {
 }
 
 extension ChatViewController: CLLocationManagerDelegate {
-
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        cancelLocationFetchTimeout()
-        manager.delegate = nil
-        isWaitingForLocationAuthorization = false
-        let completion = locationCompletion
-        locationCompletion = nil
-        completion?(locations.last?.coordinate)
-    }
-
-    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        cancelLocationFetchTimeout()
-        manager.delegate = nil
-        isWaitingForLocationAuthorization = false
-        let completion = locationCompletion
-        locationCompletion = nil
-        if let cached = recentCachedCoordinate(from: manager) {
-            completion?(cached)
-        } else {
-            completion?(nil)
-        }
-    }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         let status: CLAuthorizationStatus

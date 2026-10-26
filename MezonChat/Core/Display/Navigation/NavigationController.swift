@@ -1627,7 +1627,6 @@ open class NavigationController: UINavigationController, ContainableController, 
     }
 
     public func setViewControllers(_ viewControllers: [UIViewController], animated: Bool, completion: @escaping () -> Void) {
-        ClanBannerDebug.log("NavigationController.setViewControllers \(ClanBannerDebug.names(self.viewControllers)) -> \(ClanBannerDebug.names(viewControllers)) animated=\(animated) hasLayout=\(self.validLayout != nil)\n    \(ClanBannerDebug.shortStack())")
         let requestedViewControllers = viewControllers
         var viewControllers: [UIViewController] = []
         for controller in requestedViewControllers {

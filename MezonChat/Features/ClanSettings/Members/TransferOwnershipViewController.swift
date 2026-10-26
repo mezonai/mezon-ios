@@ -188,7 +188,7 @@ final class TransferOwnershipViewController: BaseViewController {
 
         if !url.isEmpty {
             imageView.isHidden = false
-            ImageCache.shared.loadImage(urlString: ImgproxyURL.create(from: url, width: 200, height: 200)) { image in
+            ImageCache.shared.loadImage(urlString: ImgproxyURL.iconURL(from: url, width: 100, height: 100)) { image in
                 if let image {
                     imageView.image = image
                     textAvatar.showImageMode()

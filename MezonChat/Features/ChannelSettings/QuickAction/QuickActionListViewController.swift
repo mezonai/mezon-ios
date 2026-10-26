@@ -285,7 +285,7 @@ final class QuickActionListViewController: BaseViewController {
                 self.loadedKinds.insert(kind)
                 self.setItems(fetched, for: kind)
             } else if kind == self.activeKind {
-                Toast.error(token == nil ? L(L10n.ClanInviteSheet.sessionNotFound) : (failure?.localizedDescription ?? L(L10n.Error.somethingWentWrong)))
+                Toast.error(failure?.localizedDescription ?? L(L10n.ClanInviteSheet.sessionNotFound))
             }
             self.updateContent()
         }

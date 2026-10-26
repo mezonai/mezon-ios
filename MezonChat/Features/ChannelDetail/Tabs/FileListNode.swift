@@ -20,7 +20,7 @@ private struct ChannelFilesState {
     var isFetching = false
     var refreshPending = false
     var showsLoading = false
-    var loadFailed = false
+    var loadErrorMessage: String?
 }
 
 @MainActor
@@ -252,7 +252,7 @@ final class FileListNode: ASDisplayNode {
         guard !state.isFetching else { return }
         state.isFetching = true
         state.showsLoading = showLoading
-        state.loadFailed = false
+        state.loadErrorMessage = nil
         filesStateByType[filesType] = state
         if selectedFilesType == filesType, showLoading {
             setNeedsLayout()
@@ -277,7 +277,7 @@ final class FileListNode: ASDisplayNode {
                     Self.isAttachment($0, matching: filesType)
                 }
                 state.didLoad = true
-                state.loadFailed = false
+                state.loadErrorMessage = nil
                 state.isFetching = false
                 state.showsLoading = false
                 self.filesStateByType[filesType] = state
@@ -285,7 +285,7 @@ final class FileListNode: ASDisplayNode {
                 var state = self.filesState(for: filesType)
                 state.attachments = []
                 state.didLoad = true
-                state.loadFailed = true
+                state.loadErrorMessage = error.localizedDescription
                 state.isFetching = false
                 state.showsLoading = false
                 self.filesStateByType[filesType] = state
@@ -330,10 +330,7 @@ final class FileListNode: ASDisplayNode {
             footer.font = .systemFont(ofSize: 15.sf, weight: .medium)
             footer.textColor = t.textDisabled
             footer.numberOfLines = 0
-            footer.text =
-                state.loadFailed
-                ? L(L10n.Error.somethingWentWrong)
-                : L(L10n.ChannelDetail.noFilesYet)
+            footer.text = state.loadErrorMessage ?? L(L10n.ChannelDetail.noFilesYet)
             footer.frame = CGRect(x: 0, y: 0, width: w, height: 72)
             tableNode.view.tableFooterView = footer
         } else {

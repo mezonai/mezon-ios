@@ -475,7 +475,7 @@ final class MemberProfileSheetController: ViewController {
                 Toast.success("Role removed")
             } catch {
                 sheetNode.setRoleRemoving(roleId: role.id, removing: false)
-                Toast.error(L(L10n.ClanRoles.failed))
+                Toast.error(error.localizedDescription)
             }
         }
     }
@@ -1423,8 +1423,8 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
         let abs = SharingImageProxy.resolvedAssetURLString(raw)
         guard !abs.isEmpty else { return nil }
         return (
-            ImgproxyURL.create(from: abs, width: 200, height: 200),
-            ImgproxyURL.create(from: abs, width: 100, height: 100),
+            ImgproxyURL.iconURL(from: abs, width: 100, height: 100),
+            ImgproxyURL.iconURL(from: abs, width: 100, height: 100),
             abs
         )
     }
@@ -1512,14 +1512,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
                     self.applyLoadedAvatarImage(i)
                     return
                 }
-                ImageCache.shared.loadImage(urlString: k.absolute) { [weak self] im in
-                    guard let self else { return }
-                    if let v = im {
-                        self.applyLoadedAvatarImage(v)
-                    } else {
-                        self.showAvatarPlaceholder()
-                    }
-                }
+                self.showAvatarPlaceholder()
             }
         }
     }

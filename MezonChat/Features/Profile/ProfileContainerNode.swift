@@ -764,7 +764,7 @@ final class ProfileContainerNode: ASDisplayNode {
         let user = context.currentUser
 
         if let url = user?.avatarURL, !url.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let proxiedURLString = ImgproxyURL.create(from: url.absoluteString, width: 150, height: 150)
+            let proxiedURLString = ImgproxyURL.iconURL(from: url.absoluteString, width: 100, height: 100)
             let rawURLString = url.absoluteString
             currentAvatarLoadKey = proxiedURLString
             if let cached = ImageCache.shared.memoryImage(forKey: proxiedURLString) ?? ImageCache.shared.memoryImage(forKey: rawURLString) {
@@ -1007,8 +1007,8 @@ final class ProfileContainerNode: ASDisplayNode {
         ])
 
         if let urlStr = avatarURL, !urlStr.isEmpty {
-            let px = Int(size * UIScreen.main.scale)
-            let proxied = ImgproxyURL.create(from: urlStr, width: px, height: px)
+            let px = 100
+            let proxied = ImgproxyURL.iconURL(from: urlStr, width: px, height: px)
             if let cached = ImageCache.shared.cachedImage(forURL: proxied) {
                 imageView.image = cached
                 container.showImageMode()

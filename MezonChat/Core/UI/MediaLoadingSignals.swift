@@ -89,10 +89,12 @@ final class ImageCache {
     }
 
     func memoryImage(forKey key: String) -> UIImage? {
+        let key = ImgproxyURL.cacheKey(from: key)
         return memoryCache.object(forKey: key as NSString)
     }
 
     func image(forKey key: String) -> UIImage? {
+        let key = ImgproxyURL.cacheKey(from: key)
         let nsKey = key as NSString
 
         if let cached = memoryCache.object(forKey: nsKey) {
@@ -109,6 +111,7 @@ final class ImageCache {
     }
 
     func markDiskEntryUsed(forKey key: String) {
+        let key = ImgproxyURL.cacheKey(from: key)
         markDiskEntryUsed(diskCacheURL.appendingPathComponent(key.sha256Hash))
     }
 
@@ -125,6 +128,7 @@ final class ImageCache {
     }
 
     func imageFromDisk(forKey key: String, completion: @escaping (UIImage?) -> Void) {
+        let key = ImgproxyURL.cacheKey(from: key)
         ioQueue.async { [weak self] in
             guard let self else { DispatchQueue.main.async { completion(nil) }; return }
             let fileURL = self.diskCacheURL.appendingPathComponent(key.sha256Hash)
@@ -140,11 +144,13 @@ final class ImageCache {
     }
 
     func hasDiskCache(forKey key: String) -> Bool {
+        let key = ImgproxyURL.cacheKey(from: key)
         let fileURL = diskCacheURL.appendingPathComponent(key.sha256Hash)
         return FileManager.default.fileExists(atPath: fileURL.path)
     }
 
     func setImage(_ image: UIImage, data: Data?, forKey key: String) {
+        let key = ImgproxyURL.cacheKey(from: key)
         let nsKey = key as NSString
         memoryCache.setObject(image, forKey: nsKey, cost: memoryCost(of: image))
 
@@ -158,6 +164,7 @@ final class ImageCache {
     }
 
     func cachedData(forKey key: String) -> Data? {
+        let key = ImgproxyURL.cacheKey(from: key)
         let fileURL = diskCacheURL.appendingPathComponent(key.sha256Hash)
         guard let data = try? Data(contentsOf: fileURL) else { return nil }
         markDiskEntryUsed(fileURL)
@@ -165,6 +172,7 @@ final class ImageCache {
     }
 
     func persistData(_ data: Data, forKey key: String) {
+        let key = ImgproxyURL.cacheKey(from: key)
         let fileURL = diskCacheURL.appendingPathComponent(key.sha256Hash)
         ioQueue.async {
             try? data.write(to: fileURL, options: .atomic)
@@ -201,7 +209,9 @@ final class ImageCache {
         let isNew = notificationAvatarURLs.insert(avatarURL).inserted
         inflightLock.unlock()
         guard isNew else { return }
-        let sources = cacheKeys.filter { !$0.isEmpty }.map { diskCacheURL.appendingPathComponent($0.sha256Hash) }
+        let sources = cacheKeys.map { ImgproxyURL.iconURL(from: $0) }
+            .filter { !$0.isEmpty }
+            .map { diskCacheURL.appendingPathComponent(ImgproxyURL.cacheKey(from: $0).sha256Hash) }
         notificationAvatarQueue.asyncAfter(deadline: .now() + Self.notificationAvatarShareDelay) {
             guard !NotificationAvatarStore.contains(avatarURL) else { return }
             for source in sources {
@@ -241,7 +251,7 @@ final class ImageCache {
             return nil
         }
 
-        if let cached = memoryCache.object(forKey: urlString as NSString) {
+        if let cached = memoryImage(forKey: urlString) {
             completion(cached)
             return nil
         }
@@ -460,12 +470,13 @@ final class ImageCache {
     }
 
     func loadAvatar(urlString: String, completion: @escaping (UIImage?) -> Void) {
+        let urlString = ImgproxyURL.normalizedIconURL(from: urlString)
         guard let url = URL(string: urlString), !urlString.isEmpty else {
             completion(nil)
             return
         }
 
-        if let cached = memoryCache.object(forKey: urlString as NSString) {
+        if let cached = memoryImage(forKey: urlString) {
             completion(cached)
             return
         }
@@ -503,15 +514,17 @@ final class ImageCache {
     }
 
     func memoryOptimizedAvatar(forURL urlString: String, targetPixelSize: Int) -> UIImage? {
+        let urlString = ImgproxyURL.normalizedIconURL(from: urlString)
         let variantKey = optimizedAvatarKey(
             urlString: urlString,
             targetPixelSize: targetPixelSize
         )
-        return memoryCache.object(forKey: variantKey as NSString)
-            ?? memoryCache.object(forKey: urlString as NSString)
+        return memoryImage(forKey: variantKey)
+            ?? memoryImage(forKey: urlString)
     }
 
     func hasOptimizedAvatarDiskCache(forURL urlString: String, targetPixelSize: Int) -> Bool {
+        let urlString = ImgproxyURL.normalizedIconURL(from: urlString)
         let variantKey = optimizedAvatarKey(
             urlString: urlString,
             targetPixelSize: targetPixelSize
@@ -525,6 +538,7 @@ final class ImageCache {
         preview: ((UIImage) -> Void)? = nil,
         completion: @escaping (UIImage?) -> Void
     ) {
+        let urlString = ImgproxyURL.normalizedIconURL(from: urlString)
         guard let url = URL(string: urlString), !urlString.isEmpty else {
             completion(nil)
             return
@@ -535,8 +549,8 @@ final class ImageCache {
             urlString: urlString,
             targetPixelSize: pixelSize
         )
-        if let cached = memoryCache.object(forKey: variantKey as NSString)
-            ?? memoryCache.object(forKey: urlString as NSString) {
+        if let cached = memoryImage(forKey: variantKey)
+            ?? memoryImage(forKey: urlString) {
             completion(cached)
             return
         }
@@ -580,7 +594,7 @@ final class ImageCache {
     }
 
     private func optimizedAvatarKey(urlString: String, targetPixelSize: Int) -> String {
-        "optimized-avatar:\(max(targetPixelSize, 1)):\(urlString)"
+        "optimized-avatar:\(max(targetPixelSize, 1)):\(ImgproxyURL.normalizedIconURL(from: urlString))"
     }
 
     private func decodeOptimizedAvatar(
@@ -810,7 +824,7 @@ private func makeTransform(for image: UIImage, resizeMode: ImageResizeMode = .fi
 func remoteAvatarSignal(proxiedURL: String, originalURL: String, sharesForNotifications: Bool = false, fallbackImage: UIImage? = nil) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
     return Signal { subscriber in
         let orig = originalURL
-        let proxy = proxiedURL
+        let proxy = ImgproxyURL.normalizedIconURL(from: proxiedURL)
 
         guard !proxy.isEmpty || !orig.isEmpty else {
             subscriber.putCompletion()
@@ -825,7 +839,8 @@ func remoteAvatarSignal(proxiedURL: String, originalURL: String, sharesForNotifi
         if sharesForNotifications {
             cache.shareAvatarForNotifications(avatarURL: orig, cacheKeys: [proxy, orig])
         }
-        for key in [proxy, orig] where !key.isEmpty {
+        for rawKey in (proxy.isEmpty ? [orig] : [proxy]) where !rawKey.isEmpty {
+            let key = ImgproxyURL.normalizedIconURL(from: rawKey)
             if let cached = cache.memoryImage(forKey: key) {
                 subscriber.putNext(buildTransform(for: cached))
                 subscriber.putCompletion()
@@ -1018,14 +1033,15 @@ func remoteImageUISignal(url: String) -> Signal<UIImage?, NoError> {
     }
 }
 
-func videoThumbnailSignal(url: String, resizeMode: ImageResizeMode = .fill) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
+func videoThumbnailSignal(url: String, resizeMode: ImageResizeMode = .fill, maxPixelSize: Int = 600) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
     return Signal { subscriber in
         guard let videoURL = URL(string: url), !url.isEmpty else {
             subscriber.putCompletion()
             return EmptyDisposable
         }
 
-        let cacheKey = "video_thumb_\(url)"
+        let pixelSize = max(1, maxPixelSize)
+        let cacheKey = pixelSize == 600 ? "video_thumb_\(url)" : "video_thumb_\(pixelSize)_\(url)"
         let cache = ImageCache.shared
         if let cached = cache.image(forKey: cacheKey) {
             subscriber.putNext(makeTransform(for: cached, resizeMode: resizeMode))
@@ -1054,7 +1070,7 @@ func videoThumbnailSignal(url: String, resizeMode: ImageResizeMode = .fill) -> S
             ])
             let generator = AVAssetImageGenerator(asset: asset)
             generator.appliesPreferredTrackTransform = true
-            generator.maximumSize = CGSize(width: 600, height: 600)
+            generator.maximumSize = CGSize(width: CGFloat(pixelSize), height: CGFloat(pixelSize))
             let _ = activeGenerator.swap(generator)
 
             let time = CMTime(seconds: 0.5, preferredTimescale: 600)

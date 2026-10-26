@@ -339,8 +339,8 @@ final class UpdateUsernameViewController: BaseViewController, AuthScreenStatusBa
         return out
     }
 
-    private static func toastMessage(for _: Error) -> String {
-        return L(L10n.UpdateUsername.errorGeneric)
+    private static func toastMessage(for error: Error) -> String {
+        return error.localizedDescription
     }
 }
 

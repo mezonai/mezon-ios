@@ -106,7 +106,6 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         ).height
         stackView.frame = CGRect(x: 0, y: 0, width: stackW, height: stackH)
         scrollView.contentSize = stackView.frame.size
-        ClanBannerDebug.log("ClanSettingsNode updateLayout scrollFrame=\(scrollView.frame) stackFrame=\(stackView.frame) arranged=\(stackView.arrangedSubviews.count) nodeFrame=\(frame) inWindow=\(isNodeLoaded && view.window != nil)")
     }
 
     private func buildContent() {
@@ -178,7 +177,6 @@ final class ClanSettingsContainerNode: ASDisplayNode {
     }
 
     private func rebuildContent() {
-        ClanBannerDebug.log("ClanSettingsNode rebuildContent roles=\(canShowRoles) integrations=\(canShowIntegrations) overview=\(canShowOverview) auditLog=\(canShowAuditLog) hasValidLayout=\(validLayout != nil)")
         for view in stackView.arrangedSubviews {
             stackView.removeArrangedSubview(view)
             view.removeFromSuperview()
@@ -247,7 +245,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         avatarLoadingView.addSubview(avatarSpinner)
 
         if !avatarURL.isEmpty {
-            ImageCache.shared.loadImage(urlString: ImgproxyURL.create(from: avatarURL, width: 150, height: 150)) {
+            ImageCache.shared.loadImage(urlString: ImgproxyURL.iconURL(from: avatarURL, width: 100, height: 100)) {
                 [weak avatarImageView, weak textAvatar] image in
                 if let image = image {
                     avatarImageView?.image = image
@@ -343,7 +341,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         nameLabel.text = name
         
         if !avatarURL.isEmpty {
-            ImageCache.shared.loadImage(urlString: ImgproxyURL.create(from: avatarURL, width: 150, height: 150)) {
+            ImageCache.shared.loadImage(urlString: ImgproxyURL.iconURL(from: avatarURL, width: 100, height: 100)) {
                 [weak self] image in
                 if let image = image {
                     self?.avatarImageView.image = image

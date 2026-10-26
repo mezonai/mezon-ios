@@ -829,7 +829,7 @@ private final class TransferRecipientPickerCell: UITableViewCell {
         avatarImageView.image = nil
 
         if !row.avatarURL.isEmpty {
-            let proxied = ImgproxyURL.create(from: row.avatarURL, width: 68, height: 68)
+            let proxied = ImgproxyURL.iconURL(from: row.avatarURL, width: 100, height: 100)
             if let url = URL(string: proxied) {
                 loadAvatar(from: url, key: proxied)
                 return

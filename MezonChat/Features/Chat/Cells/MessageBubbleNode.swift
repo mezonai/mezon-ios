@@ -1164,7 +1164,7 @@ final class MessageBubbleNode: ASDisplayNode {
         }
         if let urlString = display.avatarURL, !urlString.isEmpty {
             avatarContainerNode.backgroundColor = .clear
-            let proxyURL = ImgproxyURL.create(from: urlString, width: 100, height: 100)
+            let proxyURL = ImgproxyURL.iconURL(from: urlString, width: 100, height: 100)
             let hasMem = ImageCache.shared.memoryImage(forKey: proxyURL) != nil
                 || ImageCache.shared.memoryImage(forKey: urlString) != nil
             avatarImageNode.reset()
@@ -2118,7 +2118,7 @@ private final class MessageShareContactNode: ASDisplayNode {
         avatarLoadGeneration += 1
         let generation = avatarLoadGeneration
         let avatar = rawAvatar.trimmingCharacters(in: .whitespacesAndNewlines)
-        let proxied = ImgproxyURL.avatarProxyURL(from: avatar, width: 120, height: 120)
+        let proxied = ImgproxyURL.avatarProxyURL(from: avatar, width: 100, height: 100)
         guard !proxied.isEmpty, URL(string: proxied) != nil else {
             avatarNode.image = DefaultUserAvatar.image(side: 40)
             avatarNode.backgroundColor = .clear

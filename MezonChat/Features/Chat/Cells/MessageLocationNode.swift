@@ -118,7 +118,7 @@ final class MessageLocationNode: ASDisplayNode {
         let defaultAvatar = DefaultUserAvatar.image(side: size)
         if let urlString, !urlString.isEmpty {
             avatarContainerNode.backgroundColor = .clear
-            let proxyURL = ImgproxyURL.create(from: urlString, width: 150, height: 150)
+            let proxyURL = ImgproxyURL.iconURL(from: urlString, width: 100, height: 100)
             let hasMem = ImageCache.shared.memoryImage(forKey: proxyURL) != nil
                 || ImageCache.shared.memoryImage(forKey: urlString) != nil
             avatarImageNode.setSignal(

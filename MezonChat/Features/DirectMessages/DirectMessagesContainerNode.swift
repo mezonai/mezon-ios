@@ -429,7 +429,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
             height: 100
         )
         let targetPixelSize = 120
-        let hasRawDiskCache = ImageCache.shared.hasOptimizedAvatarDiskCache(
+        let hasRawDiskCache = proxied == avatarURL && ImageCache.shared.hasOptimizedAvatarDiskCache(
             forURL: avatarURL,
             targetPixelSize: targetPixelSize
         )
@@ -441,22 +441,13 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         let cached = ImageCache.shared.memoryOptimizedAvatar(
             forURL: proxied,
             targetPixelSize: targetPixelSize
-        ) ?? ImageCache.shared.memoryOptimizedAvatar(
-            forURL: avatarURL,
-            targetPixelSize: targetPixelSize
         )
         guard cached == nil else { return }
         let loadURL = hasRawDiskCache ? avatarURL : proxied
         ImageCache.shared.loadOptimizedAvatar(
             urlString: loadURL,
             targetPixelSize: targetPixelSize
-        ) { image in
-            guard image == nil, loadURL != avatarURL else { return }
-            ImageCache.shared.loadOptimizedAvatar(
-                urlString: avatarURL,
-                targetPixelSize: targetPixelSize
-            ) { _ in }
-        }
+        ) { _ in }
     }
 
     private func applyDirectMessageUpdates(

@@ -6,11 +6,17 @@ final class ShareLocationConfirmViewController: UIViewController {
 
     var onSend: ((Double, Double) -> Void)?
 
-    private let coordinate: CLLocationCoordinate2D
     private let channelLabel: String
+    private let locationManager = CLLocationManager()
+    private let pin = MKPointAnnotation()
+    private var currentLocation: CLLocation?
 
-    init(coordinate: CLLocationCoordinate2D, channelLabel: String) {
-        self.coordinate = coordinate
+    private static let recentLocationMaxAge: TimeInterval = 30
+    private static let accuracyDecayPerSecond: CLLocationAccuracy = 2
+    private static let minimumMapSpanMeters: CLLocationDistance = 500
+    private static let fullAccuracyPurposeKey = "ShareLocation"
+
+    init(channelLabel: String) {
         self.channelLabel = channelLabel
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .overFullScreen
@@ -40,15 +46,6 @@ final class ShareLocationConfirmViewController: UIViewController {
         let mv = MKMapView()
         mv.translatesAutoresizingMaskIntoConstraints = false
         mv.isUserInteractionEnabled = false
-        let region = MKCoordinateRegion(
-            center: coordinate,
-            latitudinalMeters: 500,
-            longitudinalMeters: 500
-        )
-        mv.setRegion(region, animated: false)
-        let pin = MKPointAnnotation()
-        pin.coordinate = coordinate
-        mv.addAnnotation(pin)
         return mv
     }()
 
@@ -82,16 +79,30 @@ final class ShareLocationConfirmViewController: UIViewController {
 
     private lazy var coordinateLabel: UILabel = {
         let lbl = UILabel()
-        lbl.translatesAutoresizingMaskIntoConstraints = false
         lbl.font = .systemFont(ofSize: 13)
         lbl.numberOfLines = 1
         return lbl
     }()
 
+    private lazy var accuracyLabel: UILabel = {
+        let lbl = UILabel()
+        lbl.font = .systemFont(ofSize: 12)
+        lbl.numberOfLines = 1
+        return lbl
+    }()
+
+    private lazy var locationTextStack: UIStackView = {
+        let stack = UIStackView(arrangedSubviews: [coordinateLabel, accuracyLabel])
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .vertical
+        stack.spacing = 2
+        return stack
+    }()
+
     private lazy var cancelButton: UIButton = {
         let btn = UIButton(type: .system)
         btn.translatesAutoresizingMaskIntoConstraints = false
-        btn.setTitle("Cancel", for: .normal)
+        btn.setTitle(L(L10n.Common.cancel), for: .normal)
         btn.titleLabel?.font = .systemFont(ofSize: 15, weight: .medium)
         btn.addTarget(self, action: #selector(handleCancel), for: .touchUpInside)
         return btn
@@ -100,7 +111,7 @@ final class ShareLocationConfirmViewController: UIViewController {
     private lazy var sendButton: UIButton = {
         let btn = UIButton(type: .system)
         btn.translatesAutoresizingMaskIntoConstraints = false
-        btn.setTitle("Send", for: .normal)
+        btn.setTitle(L(L10n.ChannelMessages.shareLocationSend), for: .normal)
         btn.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
         btn.addTarget(self, action: #selector(handleSendTapped), for: .touchUpInside)
         return btn
@@ -116,6 +127,12 @@ final class ShareLocationConfirmViewController: UIViewController {
         super.viewDidLoad()
         setupLayout()
         applyTheme()
+        startLocationUpdates()
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        locationManager.stopUpdatingLocation()
     }
 
     private func setupLayout() {
@@ -129,7 +146,7 @@ final class ShareLocationConfirmViewController: UIViewController {
         infoRow.translatesAutoresizingMaskIntoConstraints = false
         containerView.addSubview(infoRow)
         infoRow.addSubview(locationIconContainer)
-        infoRow.addSubview(coordinateLabel)
+        infoRow.addSubview(locationTextStack)
 
         let buttonRow = UIView()
         buttonRow.translatesAutoresizingMaskIntoConstraints = false
@@ -137,8 +154,7 @@ final class ShareLocationConfirmViewController: UIViewController {
         buttonRow.addSubview(cancelButton)
         buttonRow.addSubview(sendButton)
 
-        headerLabel.text = "Send this location to \(channelLabel)"
-        coordinateLabel.text = "Coordinate (\(String(format: "%.6f", coordinate.latitude)), \(String(format: "%.6f", coordinate.longitude)))"
+        headerLabel.text = L(L10n.ChannelMessages.shareLocationTitle, channelLabel)
 
         NSLayoutConstraint.activate([
             backdropView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -176,9 +192,9 @@ final class ShareLocationConfirmViewController: UIViewController {
             locationIconContainer.topAnchor.constraint(equalTo: infoRow.topAnchor),
             locationIconContainer.bottomAnchor.constraint(equalTo: infoRow.bottomAnchor),
 
-            coordinateLabel.leadingAnchor.constraint(equalTo: locationIconContainer.trailingAnchor, constant: 10),
-            coordinateLabel.trailingAnchor.constraint(equalTo: infoRow.trailingAnchor),
-            coordinateLabel.centerYAnchor.constraint(equalTo: infoRow.centerYAnchor),
+            locationTextStack.leadingAnchor.constraint(equalTo: locationIconContainer.trailingAnchor, constant: 10),
+            locationTextStack.trailingAnchor.constraint(equalTo: infoRow.trailingAnchor),
+            locationTextStack.centerYAnchor.constraint(equalTo: infoRow.centerYAnchor),
 
             buttonRow.topAnchor.constraint(equalTo: infoRow.bottomAnchor, constant: 16),
             buttonRow.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 16),
@@ -203,9 +219,75 @@ final class ShareLocationConfirmViewController: UIViewController {
         containerView.backgroundColor = t.secondary
         headerLabel.textColor = t.textStrong
         coordinateLabel.textColor = t.textDisabled
+        accuracyLabel.textColor = t.textDisabled
         separatorView.backgroundColor = t.border
         cancelButton.setTitleColor(t.text, for: .normal)
         sendButton.setTitleColor(.systemBlue, for: .normal)
+        sendButton.setTitleColor(t.textDisabled, for: .disabled)
+    }
+
+    private func startLocationUpdates() {
+        locationManager.delegate = self
+        locationManager.desiredAccuracy = kCLLocationAccuracyBest
+        if let cached = locationManager.location, isUsableLocation(cached) {
+            currentLocation = cached
+        }
+        renderLocation()
+        if #available(iOS 14.0, *), locationManager.accuracyAuthorization == .reducedAccuracy {
+            locationManager.requestTemporaryFullAccuracyAuthorization(withPurposeKey: Self.fullAccuracyPurposeKey)
+        }
+        locationManager.startUpdatingLocation()
+    }
+
+    private func isUsableLocation(_ location: CLLocation) -> Bool {
+        location.horizontalAccuracy >= 0
+            && abs(location.timestamp.timeIntervalSinceNow) <= Self.recentLocationMaxAge
+    }
+
+    private func isPreferredLocation(_ candidate: CLLocation, over current: CLLocation) -> Bool {
+        let elapsed = max(0, candidate.timestamp.timeIntervalSince(current.timestamp))
+        return candidate.horizontalAccuracy <= current.horizontalAccuracy + elapsed * Self.accuracyDecayPerSecond
+    }
+
+    private func applyLocation(_ location: CLLocation) {
+        guard isUsableLocation(location) else { return }
+        if let current = currentLocation, !isPreferredLocation(location, over: current) { return }
+        currentLocation = location
+        renderLocation()
+    }
+
+    private func renderLocation() {
+        guard let location = currentLocation else {
+            coordinateLabel.text = L(L10n.ChannelMessages.shareLocationLocating)
+            accuracyLabel.isHidden = true
+            sendButton.isEnabled = false
+            return
+        }
+        let coordinate = location.coordinate
+        pin.coordinate = coordinate
+        if mapView.annotations.isEmpty {
+            mapView.addAnnotation(pin)
+        }
+        let span = max(Self.minimumMapSpanMeters, location.horizontalAccuracy * 3)
+        mapView.setRegion(
+            MKCoordinateRegion(center: coordinate, latitudinalMeters: span, longitudinalMeters: span),
+            animated: true
+        )
+        coordinateLabel.text = L(
+            L10n.ChannelMessages.shareLocationCoordinate,
+            String(format: "%.6f", coordinate.latitude),
+            String(format: "%.6f", coordinate.longitude)
+        )
+        accuracyLabel.text = L(L10n.ChannelMessages.shareLocationAccuracy, Self.distanceText(location.horizontalAccuracy))
+        accuracyLabel.isHidden = false
+        sendButton.isEnabled = true
+    }
+
+    private static func distanceText(_ meters: CLLocationAccuracy) -> String {
+        if meters < 1000 {
+            return "\(Int(meters.rounded())) m"
+        }
+        return String(format: "%.1f km", meters / 1000)
     }
 
     @objc private func handleCancel() {
@@ -215,7 +297,23 @@ final class ShareLocationConfirmViewController: UIViewController {
     @objc private func handleSendTapped() { handleSend() }
 
     private func handleSend() {
+        guard let coordinate = currentLocation?.coordinate else { return }
         onSend?(coordinate.latitude, coordinate.longitude)
         dismiss(animated: true)
+    }
+}
+
+extension ShareLocationConfirmViewController: CLLocationManagerDelegate {
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        for location in locations {
+            applyLocation(location)
+        }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        if (error as? CLError)?.code == .denied {
+            manager.stopUpdatingLocation()
+        }
     }
 }

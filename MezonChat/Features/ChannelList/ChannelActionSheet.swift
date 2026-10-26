@@ -401,7 +401,7 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
 
         if !clanAvatarURL.isEmpty {
             avatar.showImageMode()
-            ImageCache.shared.loadImage(urlString: ImgproxyURL.create(from: clanAvatarURL, width: 150, height: 150)) { [weak avatarImageView, weak avatar] image in
+            ImageCache.shared.loadImage(urlString: ImgproxyURL.iconURL(from: clanAvatarURL, width: 100, height: 100)) { [weak avatarImageView, weak avatar] image in
                 if let image = image {
                     avatarImageView?.image = image
                 } else {

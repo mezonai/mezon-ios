@@ -36,16 +36,12 @@ final class ChannelBannerView: UIView {
         imageTask?.cancel()
 
         if let cached = ImageCache.shared.cachedImage(forURL: urlString) {
-            ClanBannerDebug.log("ChannelBannerView cache hit \(ClanBannerDebug.imageInfo(cached)) url=\(urlString)")
             imageView.image = cached
             return
         }
 
         imageView.image = nil
-        let loadStart = ClanBannerDebug.now()
-        ClanBannerDebug.log("ChannelBannerView load start url=\(urlString)")
         imageTask = ImageCache.shared.loadImage(urlString: urlString) { [weak self] image in
-            ClanBannerDebug.log("ChannelBannerView load done \(ClanBannerDebug.ms(since: loadStart)) image=\(ClanBannerDebug.imageInfo(image)) stillCurrent=\(self?.currentURL == urlString)")
             guard let self, self.currentURL == urlString else { return }
             self.imageView.image = image
         }
