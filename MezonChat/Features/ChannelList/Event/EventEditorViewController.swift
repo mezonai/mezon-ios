@@ -672,7 +672,7 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
     func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
         picker.dismiss(animated: true)
         guard let image = info[.originalImage] as? UIImage else { showError(L(L10n.EventEditor.coverFailed)); return }
-        let originalFilename = (info[.imageURL] as? URL)?.lastPathComponent
+        let originalFilename = ImagePickerFilename.originalFilename(from: info)
         let data: Data
         if let url = info[.imageURL] as? URL {
             if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > EventEditorDraft.maximumCoverBytes {

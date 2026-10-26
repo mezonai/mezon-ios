@@ -959,23 +959,11 @@ final class ClanOverviewViewController: BaseViewController {
 
                 var bannerUrlToSave: String? = nil
                 if let data = self.selectedAvatarData {
-                    do {
-                        let uploadInfo = try await self.context.account.network.uploadOauthFile(
-                            filename: "banner.jpg",
-                            filetype: "image/jpeg",
-                            size: data.count,
-                            token: token,
-                            originalFilename: self.selectedAvatarFilename
-                        )
-                        try await self.context.account.network.uploadToMinIO(
-                            url: uploadInfo.url,
-                            data: data,
-                            contentType: "image/jpeg"
-                        )
-                        bannerUrlToSave = "\(MezonConfig.profileImgURL)/\(uploadInfo.filename)"
-                    } catch {
-                        throw error
-                    }
+                    bannerUrlToSave = try await AttachmentUploader.shared.uploadPublicImage(
+                        data: data, filename: "banner.jpg", filetype: "image/jpeg",
+                        token: token, network: self.context.account.network,
+                        originalFilename: self.selectedAvatarFilename
+                    )
                 }
                 if let b = bannerUrlToSave {
                     req.banner = SwiftProtobuf.Google_Protobuf_StringValue(b)
@@ -1114,7 +1102,7 @@ extension ClanOverviewViewController: UIImagePickerControllerDelegate, UINavigat
         let image = (info[.editedImage] as? UIImage) ?? (info[.originalImage] as? UIImage)
         picker.dismiss(animated: true)
         guard let image else { return }
-        let originalFilename = (info[.imageURL] as? URL)?.lastPathComponent
+        let originalFilename = ImagePickerFilename.originalFilename(from: info)
         setBannerProcessing(true)
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in

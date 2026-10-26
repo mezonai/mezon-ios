@@ -506,7 +506,7 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
     ) {
         picker.dismiss(animated: true)
         guard let raw = info[.originalImage] as? UIImage else { return }
-        let originalFilename = (info[.imageURL] as? URL)?.lastPathComponent
+        let originalFilename = ImagePickerFilename.originalFilename(from: info)
         let image = Self.resizedImage(raw, maxSide: 512)
         guard let data = Self.jpegDataUnderLimit(image, maxBytes: kCreateClanMaxImageBytes) else {
             Toast.error(L(L10n.ProfileSetting.updateError))

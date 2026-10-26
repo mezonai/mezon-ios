@@ -1589,7 +1589,7 @@ extension ProfileSettingViewController: UIImagePickerControllerDelegate, UINavig
         
         guard let image = info[.originalImage] as? UIImage else { return }
         let jpegData = image.jpegData(compressionQuality: 1.0) ?? Data()
-        handlePickedImage(image, data: jpegData, originalFilename: (info[.imageURL] as? URL)?.lastPathComponent)
+        handlePickedImage(image, data: jpegData, originalFilename: ImagePickerFilename.originalFilename(from: info))
     }
 
     func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {

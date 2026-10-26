@@ -770,7 +770,7 @@ extension RoleDetailViewController: UIImagePickerControllerDelegate, UINavigatio
         guard let image else { return }
         let resized = Self.resizedImage(image, maxSide: 512)
         guard let data = resized.jpegData(compressionQuality: 0.85) else { return }
-        uploadIcon(image: resized, data: data, originalFilename: (info[.imageURL] as? URL)?.lastPathComponent)
+        uploadIcon(image: resized, data: data, originalFilename: ImagePickerFilename.originalFilename(from: info))
     }
 
     func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {

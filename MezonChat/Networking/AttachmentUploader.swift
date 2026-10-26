@@ -1,6 +1,9 @@
 import Foundation
 
 enum PublicImageFilename {
+    private static let allowedStemCharacters = CharacterSet(
+        charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.")
+
     static func make(
         originalFilename: String?,
         fallbackFilename: String,
@@ -12,16 +15,13 @@ enum PublicImageFilename {
         }
         let stem = originalFilename.lastIndex(of: ".").map { String(originalFilename[..<$0]) } ?? originalFilename
         guard !stem.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return fallbackFilename }
-       
-        let sanitized = stem.utf16.map { unit -> UInt16 in
-            switch unit {
-            case 65...90, 97...122, 48...57, 46: return unit
-            default: return 95
-            }
-        }
+
+        let sanitized = stem.unicodeScalars.map { scalar in
+            allowedStemCharacters.contains(scalar) ? String(scalar) : "_"
+        }.joined()
         let ext = (fallbackFilename as NSString).pathExtension
         let suffix = ext.isEmpty ? "" : ".\(ext)"
-        return "\(timestampMillis)_\(String(decoding: sanitized, as: UTF16.self))\(suffix)"
+        return "\(timestampMillis)_\(sanitized)\(suffix)"
     }
 }
 
@@ -137,9 +137,10 @@ final class AttachmentUploader {
         network: MezonHTTPClient,
         originalFilename: String? = nil
     ) async throws -> String {
+        let uploadFilename = PublicImageFilename.make(
+            originalFilename: originalFilename, fallbackFilename: filename)
         let upload = try await network.uploadOauthFile(
-            filename: filename, filetype: filetype, size: data.count, token: token,
-            originalFilename: originalFilename)
+            filename: uploadFilename, filetype: filetype, size: data.count, token: token)
         try Task.checkCancellation()
         try await network.uploadToMinIO(url: upload.url, data: data, contentType: filetype)
         return "\(MezonConfig.profileImgURL)/\(upload.filename)"

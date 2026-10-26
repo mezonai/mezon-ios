@@ -720,7 +720,7 @@ extension WebhookEditViewController: UIImagePickerControllerDelegate, UINavigati
         didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
     ) {
         let image = (info[.editedImage] as? UIImage) ?? (info[.originalImage] as? UIImage)
-        let originalFilename = (info[.imageURL] as? URL)?.lastPathComponent
+        let originalFilename = ImagePickerFilename.originalFilename(from: info)
         picker.dismiss(animated: true) { [weak self] in
             guard let self, let image else { return }
             guard let data = image.jpegData(compressionQuality: 0.85) else { return }
