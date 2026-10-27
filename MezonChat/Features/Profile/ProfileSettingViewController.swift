@@ -1303,6 +1303,7 @@ final class ProfileSettingViewController: BaseViewController {
             var config = PHPickerConfiguration()
             config.selectionLimit = 1
             config.filter = .images
+            config.preferredAssetRepresentationMode = .current
             let picker = PHPickerViewController(configuration: config)
             picker.delegate = self
             present(picker, animated: true)
@@ -1315,9 +1316,9 @@ final class ProfileSettingViewController: BaseViewController {
         }
     }
 
-    private func handlePickedImage(_ image: UIImage, data: Data, originalFilename: String?) {
+    private func handlePickedImage(_ image: UIImage, data: Data, mimeType: String = "image/jpeg", target: AvatarTarget, originalFilename: String?) {
         let maxBytes: Int
-        switch pendingAvatarTarget {
+        switch target {
         case .userAvatar, .clanAvatar:
             maxBytes = kMaxAvatarBytes
         case .dmIcon:
@@ -1333,10 +1334,10 @@ final class ProfileSettingViewController: BaseViewController {
             return
         }
 
-        uploadImage(image: image, data: data, target: pendingAvatarTarget, originalFilename: originalFilename)
+        uploadImage(image: image, data: data, mimeType: mimeType, target: target, originalFilename: originalFilename)
     }
 
-    private func uploadImage(image: UIImage, data: Data, target: AvatarTarget, originalFilename: String?) {
+    private func uploadImage(image: UIImage, data: Data, mimeType: String, target: AvatarTarget, originalFilename: String?) {
         isUploading = true
 
         let targetSpinner: UIActivityIndicatorView
@@ -1359,13 +1360,18 @@ final class ProfileSettingViewController: BaseViewController {
             guard let token = await context.getToken() else { return }
             do {
                 let filename = "avatar_\(Int(Date().timeIntervalSince1970)).jpg"
-                let filetype = "image/jpeg"
+                let filetype = mimeType
 
                 let cdnURL = try await AttachmentUploader.shared.uploadPublicImage(
                     data: data, filename: filename, filetype: filetype,
                     token: token, network: context.account.network, originalFilename: originalFilename
                 )
-                ImageCache.shared.setImage(image, data: data, forKey: cdnURL)
+                if mimeType == "image/gif" || mimeType == "image/webp" {
+                    // Cache original bytes so other views do not reuse the resized preview.
+                    ImageCache.shared.persistData(data, forKey: cdnURL)
+                } else {
+                    ImageCache.shared.setImage(image, data: data, forKey: cdnURL)
+                }
 
                 switch target {
                 case .userAvatar:
@@ -1528,15 +1534,22 @@ extension ProfileSettingViewController: PHPickerViewControllerDelegate {
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         picker.dismiss(animated: true)
         guard let provider = results.first?.itemProvider else { return }
+        let target = pendingAvatarTarget
+        let previewPixelSize = Int(ceil(avatarSize * UIScreen.main.scale))
         let originalFilename = provider.suggestedName
 
-        let typeId = provider.registeredTypeIdentifiers.first { $0.hasPrefix("public.") || $0.hasPrefix("com.apple.") } ?? "public.image"
+        let typeId = publicImageTypeIdentifier(provider.registeredTypeIdentifiers)
         
-        provider.loadDataRepresentation(forTypeIdentifier: typeId) { [weak self] data, error in
+        provider.loadDataRepresentation(forTypeIdentifier: typeId) { [weak self] data, _ in
             guard let self = self else { return }
             
+            if publicImageRequiresOriginalData(typeId), data.flatMap(publicImagePassthroughMimeType) == nil {
+                DispatchQueue.main.async { Toast.error(L(L10n.ProfileSetting.updateError)) }
+                return
+            }
+
             if let data = data {
-                let maxBytes = self.pendingAvatarTarget == .dmIcon ? kMaxDMIconBytes : kMaxAvatarBytes
+                let maxBytes = target == .dmIcon ? kMaxDMIconBytes : kMaxAvatarBytes
                 if data.count > maxBytes {
                     DispatchQueue.main.async {
                         if maxBytes == kMaxAvatarBytes {
@@ -1548,10 +1561,22 @@ extension ProfileSettingViewController: PHPickerViewControllerDelegate {
                     return
                 }
                 
+                if let mimeType = publicImagePassthroughMimeType(for: data) {
+                    guard let image = UIImage.optimizedAvatarImage(from: data, maxPixelSize: previewPixelSize)
+                        ?? UIImage.decodeImage(from: data) else {
+                        DispatchQueue.main.async { Toast.error(L(L10n.ProfileSetting.updateError)) }
+                        return
+                    }
+                    DispatchQueue.main.async {
+                        self.handlePickedImage(image, data: data, mimeType: mimeType, target: target, originalFilename: originalFilename)
+                    }
+                    return
+                }
+
                 if let image = UIImage(data: data) {
                     let jpegData = image.jpegData(compressionQuality: 1.0) ?? data
                     DispatchQueue.main.async {
-                        self.handlePickedImage(image, data: jpegData, originalFilename: originalFilename)
+                        self.handlePickedImage(image, data: jpegData, target: target, originalFilename: originalFilename)
                     }
                     return
                 }
@@ -1561,7 +1586,7 @@ extension ProfileSettingViewController: PHPickerViewControllerDelegate {
                 guard let image = object as? UIImage else { return }
                 let jpegData = image.jpegData(compressionQuality: 1.0) ?? Data()
                 DispatchQueue.main.async {
-                    self.handlePickedImage(image, data: jpegData, originalFilename: originalFilename)
+                    self.handlePickedImage(image, data: jpegData, target: target, originalFilename: originalFilename)
                 }
             }
         }
@@ -1571,8 +1596,8 @@ extension ProfileSettingViewController: PHPickerViewControllerDelegate {
 extension ProfileSettingViewController: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
     func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
         picker.dismiss(animated: true)
-        
-        let maxBytes = self.pendingAvatarTarget == .dmIcon ? kMaxDMIconBytes : kMaxAvatarBytes
+        let target = pendingAvatarTarget
+        let maxBytes = target == .dmIcon ? kMaxDMIconBytes : kMaxAvatarBytes
         
         if let url = info[.imageURL] as? URL,
            let attr = try? FileManager.default.attributesOfItem(atPath: url.path),
@@ -1588,8 +1613,24 @@ extension ProfileSettingViewController: UIImagePickerControllerDelegate, UINavig
         }
         
         guard let image = info[.originalImage] as? UIImage else { return }
+        let pickedData = (info[.imageURL] as? URL).flatMap { try? Data(contentsOf: $0, options: .mappedIfSafe) }
+        let originalFilename = ImagePickerFilename.originalFilename(from: info)
+        if ImagePickerFilename.requiresOriginalData(from: info), pickedData.flatMap(publicImagePassthroughMimeType) == nil {
+            Toast.error(L(L10n.ProfileSetting.updateError))
+            return
+        }
+        if let pickedData, let mimeType = publicImagePassthroughMimeType(for: pickedData) {
+            let previewPixelSize = Int(ceil(avatarSize * UIScreen.main.scale))
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let animatedImage = UIImage.optimizedAvatarImage(from: pickedData, maxPixelSize: previewPixelSize) ?? image
+                DispatchQueue.main.async { [weak self] in
+                    self?.handlePickedImage(animatedImage, data: pickedData, mimeType: mimeType, target: target, originalFilename: originalFilename)
+                }
+            }
+            return
+        }
         let jpegData = image.jpegData(compressionQuality: 1.0) ?? Data()
-        handlePickedImage(image, data: jpegData, originalFilename: ImagePickerFilename.originalFilename(from: info))
+        handlePickedImage(image, data: jpegData, target: target, originalFilename: originalFilename)
     }
 
     func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {

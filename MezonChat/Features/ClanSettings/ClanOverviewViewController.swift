@@ -60,6 +60,8 @@ final class ClanOverviewViewController: BaseViewController {
 
     private var isSaving = false
     private var isProcessingBanner = false
+    private var imagePicker: PublicImagePicker?
+    private var selectedAvatarMimeType = "image/jpeg"
     private var selectedAvatarImage: UIImage?
     private var selectedAvatarFilename: String?
     private var selectedAvatarData: Data? = nil {
@@ -818,18 +820,19 @@ final class ClanOverviewViewController: BaseViewController {
     }
 
     @objc private func pickAvatarTapped() {
-        guard pickAvatarButton.isUserInteractionEnabled else { return }
-        pickAvatarButton.isUserInteractionEnabled = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.pickAvatarButton.isUserInteractionEnabled = true
+        guard pickAvatarButton.isUserInteractionEnabled, !isSaving, !isProcessingBanner else { return }
+        guard imagePicker == nil else { return }
+        let picker = PublicImagePicker(
+            allowsEditing: true, maxBytes: 10 * 1024 * 1024,
+            tooLargeMessage: L(L10n.ClanSetting.Overview.uploadFileTooLarge10MB)
+        ) { [weak self] selection in
+            guard let self else { return }
+            self.imagePicker = nil
+            guard let selection else { return }
+            self.handlePickedImage(selection)
         }
-        
-        guard UIImagePickerController.isSourceTypeAvailable(.photoLibrary) else { return }
-        let picker = UIImagePickerController()
-        picker.sourceType = .photoLibrary
-        picker.allowsEditing = true
-        picker.delegate = self
-        present(picker, animated: true)
+        imagePicker = picker
+        picker.present(from: self)
     }
 
     private func updateSysMsgChannelUI() {
@@ -960,7 +963,7 @@ final class ClanOverviewViewController: BaseViewController {
                 var bannerUrlToSave: String? = nil
                 if let data = self.selectedAvatarData {
                     bannerUrlToSave = try await AttachmentUploader.shared.uploadPublicImage(
-                        data: data, filename: "banner.jpg", filetype: "image/jpeg",
+                        data: data, filename: "banner.jpg", filetype: self.selectedAvatarMimeType,
                         token: token, network: self.context.account.network,
                         originalFilename: self.selectedAvatarFilename
                     )
@@ -1090,36 +1093,24 @@ final class ClanOverviewViewController: BaseViewController {
     }
 }
 
-extension ClanOverviewViewController: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-    func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-        picker.dismiss(animated: true)
-    }
+extension ClanOverviewViewController {
 
-    func imagePickerController(
-        _ picker: UIImagePickerController,
-        didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
-    ) {
-        let image = (info[.editedImage] as? UIImage) ?? (info[.originalImage] as? UIImage)
-        picker.dismiss(animated: true)
-        guard let image else { return }
-        let originalFilename = ImagePickerFilename.originalFilename(from: info)
+    private func handlePickedImage(_ selection: PublicImageSelection) {
+        let image = selection.image
         setBannerProcessing(true)
-
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let encoded = image.jpegData(compressionQuality: 0.85)
+            let encoded = selection.preservedData ?? image.jpegData(compressionQuality: 0.85)
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.setBannerProcessing(false)
                 guard let data = encoded else { return }
-
-                let maxSize = 10 * 1024 * 1024
-                if data.count > maxSize {
+                if data.count > 10 * 1024 * 1024 {
                     Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge10MB))
                     return
                 }
-
                 self.selectedAvatarImage = image
-                self.selectedAvatarFilename = originalFilename
+                self.selectedAvatarFilename = selection.originalFilename
+                self.selectedAvatarMimeType = selection.mimeType
                 self.selectedAvatarData = data
                 self.avatarImageView.image = image
                 self.updateAvatarOverlay()
