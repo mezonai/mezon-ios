@@ -1082,11 +1082,12 @@ final class MessageMediaContentNode: ASDisplayNode {
             sourceURL = media.url
         }
         guard !sourceURL.isEmpty else { return nil }
+        // Preserve the source aspect ratio; the renderer crops to each mosaic slot.
         let proxyURL = ImgproxyURL.attachmentURL(
             from: sourceURL,
             width: 400,
             height: 400,
-            resizeType: isMultiple ? "fill" : "fit"
+            resizeType: "fit"
         )
         return (sourceURL, proxyURL)
     }

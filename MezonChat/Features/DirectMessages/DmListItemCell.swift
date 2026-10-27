@@ -96,6 +96,8 @@ final class DmListItemCell: UITableViewCell {
     private var lastMessageTopConstraint: NSLayoutConstraint?
     private var lastMessageZeroHeightConstraint: NSLayoutConstraint?
     private var previewTrailingToBadgeConstraint: NSLayoutConstraint?
+    private var metadataCenterYConstraint: NSLayoutConstraint?
+    private var timeNameCenterYConstraint: NSLayoutConstraint?
     private var configuredAvatarURLString: String?
     private var isAvatarLoadInFlight = false
     private var hasPreviewLayout: Bool?
@@ -168,9 +170,19 @@ final class DmListItemCell: UITableViewCell {
         containerView.addSubview(onlineIndicator)
         containerView.addSubview(nameLabel)
         containerView.addSubview(lastMessageLabel)
-        containerView.addSubview(timeLabel)
-        containerView.addSubview(unreadBadgeLabel)
         containerView.addSubview(buzzLabel)
+
+        // Keep the time and badge separated even when the message preview is empty.
+        let metadataStack = UIStackView(arrangedSubviews: [timeLabel, unreadBadgeLabel])
+        metadataStack.translatesAutoresizingMaskIntoConstraints = false
+        metadataStack.axis = .vertical
+        metadataStack.alignment = .trailing
+        metadataStack.spacing = 3.sh
+        containerView.addSubview(metadataStack)
+        let metadataCenterYConstraint = metadataStack.centerYAnchor.constraint(equalTo: containerView.centerYAnchor)
+        self.metadataCenterYConstraint = metadataCenterYConstraint
+        let timeNameCenterYConstraint = timeLabel.centerYAnchor.constraint(equalTo: nameLabel.centerYAnchor)
+        self.timeNameCenterYConstraint = timeNameCenterYConstraint
 
         let avatarSize: CGFloat = 40.swh
 
@@ -222,22 +234,18 @@ final class DmListItemCell: UITableViewCell {
             onlineIndicator.heightAnchor.constraint(equalToConstant: 14.swh),
 
             nameLabel.leadingAnchor.constraint(equalTo: textAvatar.trailingAnchor, constant: 10.sw),
-            nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: timeLabel.leadingAnchor, constant: -6.sw),
+            nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: metadataStack.leadingAnchor, constant: -6.sw),
 
             textBlockGuide.topAnchor.constraint(equalTo: nameLabel.topAnchor),
             textBlockGuide.bottomAnchor.constraint(equalTo: lastMessageLabel.bottomAnchor),
             textBlockGuide.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
 
-            timeLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8.sw),
-            timeLabel.centerYAnchor.constraint(equalTo: nameLabel.centerYAnchor),
+            metadataStack.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8.sw),
+            timeNameCenterYConstraint,
 
             lastMessageLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
             lastMessageTopConstraint,
             lastMessageLabel.trailingAnchor.constraint(lessThanOrEqualTo: containerView.trailingAnchor, constant: -8.sw),
-
-            unreadBadgeLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8.sw),
-            unreadBadgeLabel.centerYAnchor.constraint(equalTo: lastMessageLabel.centerYAnchor),
-            unreadBadgeLabel.heightAnchor.constraint(equalToConstant: 20.swh),
 
             buzzTrailing,
             buzzLabel.heightAnchor.constraint(equalToConstant: 20.swh),
@@ -288,6 +296,14 @@ final class DmListItemCell: UITableViewCell {
         let (preview, time) = lastMessagePreview(channel: channel)
         let hasMessagePreview = !preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let hasPreview = voiceActivity != nil || hasMessagePreview
+        let centersMetadata = !hasPreview && isUnread
+        if centersMetadata {
+            timeNameCenterYConstraint?.isActive = false
+            metadataCenterYConstraint?.isActive = true
+        } else {
+            metadataCenterYConstraint?.isActive = false
+            timeNameCenterYConstraint?.isActive = true
+        }
         buzzLabel.isHidden = !hasBuzz
         previewBuzzTrailingConstraint?.isActive = hasBuzz
         buzzCenterConstraint?.constant = hasPreview ? 10.sh : 0

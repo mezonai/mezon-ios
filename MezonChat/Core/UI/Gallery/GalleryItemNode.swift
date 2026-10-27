@@ -174,6 +174,97 @@ public struct GalleryItemInfo {
     }
 }
 
+struct GallerySenderInfo {
+    let name: String
+    let avatarURL: String?
+
+    static func anonymous(name: String, avatarURL: String?) -> GallerySenderInfo {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let avatar = avatarURL?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return GallerySenderInfo(
+            name: name.isEmpty || name == String(MezonConstants.anonymousUserId) ? "Anonymous" : name,
+            avatarURL: avatar.isEmpty ? nil : avatar
+        )
+    }
+}
+
+@MainActor
+final class ChannelGallerySenderResolver {
+    private let context: AccountContext
+    private let clanId: Int64
+    private let channelId: Int64
+    private let topicId: Int64
+    private var fetchedMessages: [Int64: MessageRecord] = [:]
+
+    init(context: AccountContext, clanId: Int64, channelId: Int64, topicId: Int64 = 0) {
+        self.context = context
+        self.clanId = clanId
+        self.channelId = channelId
+        self.topicId = topicId
+    }
+
+    private func anonymousMessage(for attachment: Mezon_Api_ChannelAttachment) -> MessageRecord? {
+        guard attachment.messageID != 0 else { return nil }
+        let storageChannelId = topicId == 0 ? String(channelId) : "topic-\(topicId)"
+        let message = fetchedMessages[attachment.messageID] ?? context.account.postbox.read {
+            $0.getMessageById(String(attachment.messageID), channelId: storageChannelId)
+        }
+        guard message?.senderId == String(MezonConstants.anonymousUserId) else { return nil }
+        return message
+    }
+
+    func senderInfo(
+        for attachment: Mezon_Api_ChannelAttachment,
+        fallback: GallerySenderInfo? = nil
+    ) -> GallerySenderInfo {
+        if attachment.uploader == MezonConstants.anonymousUserId {
+            guard let message = anonymousMessage(for: attachment) else {
+                return .anonymous(name: fallback?.name ?? "", avatarURL: fallback?.avatarURL)
+            }
+            return .anonymous(
+                name: message.senderDisplayName,
+                avatarURL: message.senderAvatarURL
+            )
+        }
+        guard attachment.uploader != 0 else { return GallerySenderInfo(name: "", avatarURL: nil) }
+        let id = String(attachment.uploader)
+        return context.account.postbox.read { tx in
+            let profile = tx.getProfile(userId: id)
+            let name = [profile?.displayName, profile?.username]
+                .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .first { !$0.isEmpty } ?? id
+            return GallerySenderInfo(name: name, avatarURL: profile?.avatarUrl)
+        }
+    }
+
+    func loadSenderInfo(for attachment: Mezon_Api_ChannelAttachment) async -> GallerySenderInfo? {
+        guard attachment.uploader == MezonConstants.anonymousUserId, attachment.messageID != 0 else {
+            return nil
+        }
+        if anonymousMessage(for: attachment) != nil { return senderInfo(for: attachment) }
+        guard let token = await context.getToken() else { return nil }
+        do {
+            let response = try await context.account.network.listChannelMessages(
+                clanId: clanId,
+                channelId: channelId,
+                messageId: attachment.messageID,
+                direction: 2,
+                limit: 25,
+                topicId: topicId,
+                token: token
+            )
+            // Cache by message, since multiple anonymous personas share one sender ID.
+            for message in response.messages where message.channelID == channelId && message.topicID == topicId {
+                fetchedMessages[message.messageID] = MessageRecord(from: message)
+            }
+            guard anonymousMessage(for: attachment) != nil else { return nil }
+            return senderInfo(for: attachment)
+        } catch {
+            return nil
+        }
+    }
+}
+
 open class GalleryItemNode: ASDisplayNode {
 
     private var _index: Int = 0
