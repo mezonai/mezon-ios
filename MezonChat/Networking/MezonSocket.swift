@@ -476,6 +476,30 @@ final class MezonSocket: NSObject {
         return true
     }
 
+    func writeStreamingWatch(channelId: Int64, watching: Bool) async throws {
+        var watch = Mezon_Realtime_StreamingWatch()
+        watch.channelID = channelId
+        watch.watching = watching
+        var envelope = Mezon_Realtime_Envelope()
+        envelope.streamingWatch = watch
+        let reply = try await sendAwaitingReply(envelope, timeoutNanoseconds: 5_000_000_000)
+        if case .error(let error) = reply.message {
+            throw MezonError.socketError(error.message)
+        }
+    }
+
+    /// Best effort unwatch before a synchronous logout closes the transport.
+    /// Never queue it: a delayed unwatch could remove a newer viewing session.
+    func sendStreamingUnwatch(channelId: Int64) {
+        guard isConnected else { return }
+        var watch = Mezon_Realtime_StreamingWatch()
+        watch.channelID = channelId
+        watch.watching = false
+        var envelope = Mezon_Realtime_Envelope()
+        envelope.streamingWatch = watch
+        send(envelope)
+    }
+
     func sendApiRequest(
         apiName: String,
         body: Data,

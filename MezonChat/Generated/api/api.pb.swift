@@ -264,6 +264,44 @@ enum Mezon_Api_PollType: SwiftProtobuf.Enum, Swift.CaseIterable {
 
 }
 
+enum Mezon_Api_EveryoneChannelExcludeType: SwiftProtobuf.Enum, Swift.CaseIterable {
+  typealias RawValue = Int
+  case unspecified // = 0
+  case user // = 1
+  case role // = 2
+  case UNRECOGNIZED(Int)
+
+  init() {
+    self = .unspecified
+  }
+
+  init?(rawValue: Int) {
+    switch rawValue {
+    case 0: self = .unspecified
+    case 1: self = .user
+    case 2: self = .role
+    default: self = .UNRECOGNIZED(rawValue)
+    }
+  }
+
+  var rawValue: Int {
+    switch self {
+    case .unspecified: return 0
+    case .user: return 1
+    case .role: return 2
+    case .UNRECOGNIZED(let i): return i
+    }
+  }
+
+  // The compiler won't synthesize support with the UNRECOGNIZED case.
+  static let allCases: [Mezon_Api_EveryoneChannelExcludeType] = [
+    .unspecified,
+    .user,
+    .role,
+  ]
+
+}
+
 /// A user with additional account details. Always the current user.
 struct Mezon_Api_Account: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
@@ -6043,6 +6081,9 @@ struct Mezon_Api_StreamingChannelUser: Sendable {
   /// participant
   var participant: String = String()
 
+  /// true for the stream's publisher; listed viewers (at most 100 per channel) are false
+  var isPublisher: Bool = false
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
@@ -7607,6 +7648,8 @@ struct Mezon_Api_SdTopic: Sendable {
   var hasLastSentMessage: Bool {self._lastSentMessage != nil}
   /// Clears the value of `lastSentMessage`. Subsequent reads from it will return its default value.
   mutating func clearLastSentMessage() {self._lastSentMessage = nil}
+
+  var unreadCount: Int32 = 0
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -9562,6 +9605,123 @@ struct Mezon_Api_NoParams: Sendable {
   init() {}
 }
 
+struct Mezon_Api_SetOverrideEveryoneChannelRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var clanID: Int64 = 0
+
+  var channelID: Int64 = 0
+
+  var override: Bool = false
+
+  var excludeType: Mezon_Api_EveryoneChannelExcludeType = .unspecified
+
+  var excludeIds: [Int64] = []
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Mezon_Api_GetOverrideEveryoneChannelRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var clanID: Int64 = 0
+
+  var channelID: Int64 = 0
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Mezon_Api_GetOverrideEveryoneChannelResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var clanID: Int64 = 0
+
+  var channelID: Int64 = 0
+
+  var override: Bool = false
+
+  var userIds: [Int64] = []
+
+  var roleIds: [Int64] = []
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Mezon_Api_SfuBreakoutParticipant: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var channelID: Int64 = 0
+
+  var userIds: [Int64] = []
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Mezon_Api_SfuBreakoutRoomRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var parentChannelID: Int64 = 0
+
+  var roomCount: Int32 = 0
+
+  var breakRuleType: Int32 = 0
+
+  /// only assign for manually rule
+  var listParticipants: [Mezon_Api_SfuBreakoutParticipant] = []
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Mezon_Api_SfuBreakoutRoomResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var breakoutID: Int64 = 0
+
+  var roomCount: Int32 = 0
+
+  var breakRuleType: Int32 = 0
+
+  var listChildRooms: [Int64] = []
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Mezon_Api_SfuBreakoutMergeRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var targetID: Int64 = 0
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
 fileprivate let _protobuf_package = "mezon.api"
@@ -9584,6 +9744,10 @@ extension Mezon_Api_TrackType: SwiftProtobuf._ProtoNameProviding {
 
 extension Mezon_Api_PollType: SwiftProtobuf._ProtoNameProviding {
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0SINGLE\0\u{1}MULTIPLE\0")
+}
+
+extension Mezon_Api_EveryoneChannelExcludeType: SwiftProtobuf._ProtoNameProviding {
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0EVERYONE_CHANNEL_EXCLUDE_TYPE_UNSPECIFIED\0\u{1}EVERYONE_CHANNEL_EXCLUDE_TYPE_USER\0\u{1}EVERYONE_CHANNEL_EXCLUDE_TYPE_ROLE\0")
 }
 
 extension Mezon_Api_Account: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
@@ -20319,7 +20483,7 @@ extension Mezon_Api_StreamHttpCallbackResponse: SwiftProtobuf.Message, SwiftProt
 
 extension Mezon_Api_StreamingChannelUser: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".StreamingChannelUser"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{3}user_id\0\u{3}channel_id\0\u{1}participant\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{3}user_id\0\u{3}channel_id\0\u{1}participant\0\u{3}is_publisher\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -20331,6 +20495,7 @@ extension Mezon_Api_StreamingChannelUser: SwiftProtobuf.Message, SwiftProtobuf._
       case 2: try { try decoder.decodeSingularInt64Field(value: &self.userID) }()
       case 3: try { try decoder.decodeSingularInt64Field(value: &self.channelID) }()
       case 4: try { try decoder.decodeSingularStringField(value: &self.participant) }()
+      case 5: try { try decoder.decodeSingularBoolField(value: &self.isPublisher) }()
       default: break
       }
     }
@@ -20349,6 +20514,9 @@ extension Mezon_Api_StreamingChannelUser: SwiftProtobuf.Message, SwiftProtobuf._
     if !self.participant.isEmpty {
       try visitor.visitSingularStringField(value: self.participant, fieldNumber: 4)
     }
+    if self.isPublisher != false {
+      try visitor.visitSingularBoolField(value: self.isPublisher, fieldNumber: 5)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -20357,6 +20525,7 @@ extension Mezon_Api_StreamingChannelUser: SwiftProtobuf.Message, SwiftProtobuf._
     if lhs.userID != rhs.userID {return false}
     if lhs.channelID != rhs.channelID {return false}
     if lhs.participant != rhs.participant {return false}
+    if lhs.isPublisher != rhs.isPublisher {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -23558,7 +23727,7 @@ extension Mezon_Api_UpdateOnboardingStepRequest: SwiftProtobuf.Message, SwiftPro
 
 extension Mezon_Api_SdTopic: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".SdTopic"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{3}creator_id\0\u{3}message_id\0\u{3}clan_id\0\u{3}channel_id\0\u{1}status\0\u{3}create_time_seconds\0\u{3}update_time_seconds\0\u{1}content\0\u{3}last_sent_message\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{3}creator_id\0\u{3}message_id\0\u{3}clan_id\0\u{3}channel_id\0\u{1}status\0\u{3}create_time_seconds\0\u{3}update_time_seconds\0\u{1}content\0\u{3}last_sent_message\0\u{3}unread_count\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -23576,6 +23745,7 @@ extension Mezon_Api_SdTopic: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
       case 8: try { try decoder.decodeSingularUInt32Field(value: &self.updateTimeSeconds) }()
       case 9: try { try decoder.decodeSingularStringField(value: &self.content) }()
       case 10: try { try decoder.decodeSingularMessageField(value: &self._lastSentMessage) }()
+      case 11: try { try decoder.decodeSingularInt32Field(value: &self.unreadCount) }()
       default: break
       }
     }
@@ -23616,6 +23786,9 @@ extension Mezon_Api_SdTopic: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
     try { if let v = self._lastSentMessage {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 10)
     } }()
+    if self.unreadCount != 0 {
+      try visitor.visitSingularInt32Field(value: self.unreadCount, fieldNumber: 11)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -23630,6 +23803,7 @@ extension Mezon_Api_SdTopic: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
     if lhs.updateTimeSeconds != rhs.updateTimeSeconds {return false}
     if lhs.content != rhs.content {return false}
     if lhs._lastSentMessage != rhs._lastSentMessage {return false}
+    if lhs.unreadCount != rhs.unreadCount {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -27660,6 +27834,296 @@ extension Mezon_Api_NoParams: SwiftProtobuf.Message, SwiftProtobuf._MessageImple
   }
 
   static func ==(lhs: Mezon_Api_NoParams, rhs: Mezon_Api_NoParams) -> Bool {
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Api_SetOverrideEveryoneChannelRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".SetOverrideEveryoneChannelRequest"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}clan_id\0\u{3}channel_id\0\u{1}override\0\u{3}exclude_type\0\u{3}exclude_ids\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.clanID) }()
+      case 2: try { try decoder.decodeSingularInt64Field(value: &self.channelID) }()
+      case 3: try { try decoder.decodeSingularBoolField(value: &self.override) }()
+      case 4: try { try decoder.decodeSingularEnumField(value: &self.excludeType) }()
+      case 5: try { try decoder.decodeRepeatedInt64Field(value: &self.excludeIds) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.clanID != 0 {
+      try visitor.visitSingularInt64Field(value: self.clanID, fieldNumber: 1)
+    }
+    if self.channelID != 0 {
+      try visitor.visitSingularInt64Field(value: self.channelID, fieldNumber: 2)
+    }
+    if self.override != false {
+      try visitor.visitSingularBoolField(value: self.override, fieldNumber: 3)
+    }
+    if self.excludeType != .unspecified {
+      try visitor.visitSingularEnumField(value: self.excludeType, fieldNumber: 4)
+    }
+    if !self.excludeIds.isEmpty {
+      try visitor.visitPackedInt64Field(value: self.excludeIds, fieldNumber: 5)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Api_SetOverrideEveryoneChannelRequest, rhs: Mezon_Api_SetOverrideEveryoneChannelRequest) -> Bool {
+    if lhs.clanID != rhs.clanID {return false}
+    if lhs.channelID != rhs.channelID {return false}
+    if lhs.override != rhs.override {return false}
+    if lhs.excludeType != rhs.excludeType {return false}
+    if lhs.excludeIds != rhs.excludeIds {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Api_GetOverrideEveryoneChannelRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".GetOverrideEveryoneChannelRequest"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}clan_id\0\u{3}channel_id\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.clanID) }()
+      case 2: try { try decoder.decodeSingularInt64Field(value: &self.channelID) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.clanID != 0 {
+      try visitor.visitSingularInt64Field(value: self.clanID, fieldNumber: 1)
+    }
+    if self.channelID != 0 {
+      try visitor.visitSingularInt64Field(value: self.channelID, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Api_GetOverrideEveryoneChannelRequest, rhs: Mezon_Api_GetOverrideEveryoneChannelRequest) -> Bool {
+    if lhs.clanID != rhs.clanID {return false}
+    if lhs.channelID != rhs.channelID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Api_GetOverrideEveryoneChannelResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".GetOverrideEveryoneChannelResponse"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}clan_id\0\u{3}channel_id\0\u{1}override\0\u{3}user_ids\0\u{3}role_ids\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.clanID) }()
+      case 2: try { try decoder.decodeSingularInt64Field(value: &self.channelID) }()
+      case 3: try { try decoder.decodeSingularBoolField(value: &self.override) }()
+      case 4: try { try decoder.decodeRepeatedInt64Field(value: &self.userIds) }()
+      case 5: try { try decoder.decodeRepeatedInt64Field(value: &self.roleIds) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.clanID != 0 {
+      try visitor.visitSingularInt64Field(value: self.clanID, fieldNumber: 1)
+    }
+    if self.channelID != 0 {
+      try visitor.visitSingularInt64Field(value: self.channelID, fieldNumber: 2)
+    }
+    if self.override != false {
+      try visitor.visitSingularBoolField(value: self.override, fieldNumber: 3)
+    }
+    if !self.userIds.isEmpty {
+      try visitor.visitPackedInt64Field(value: self.userIds, fieldNumber: 4)
+    }
+    if !self.roleIds.isEmpty {
+      try visitor.visitPackedInt64Field(value: self.roleIds, fieldNumber: 5)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Api_GetOverrideEveryoneChannelResponse, rhs: Mezon_Api_GetOverrideEveryoneChannelResponse) -> Bool {
+    if lhs.clanID != rhs.clanID {return false}
+    if lhs.channelID != rhs.channelID {return false}
+    if lhs.override != rhs.override {return false}
+    if lhs.userIds != rhs.userIds {return false}
+    if lhs.roleIds != rhs.roleIds {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Api_SfuBreakoutParticipant: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".SfuBreakoutParticipant"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}channel_id\0\u{3}user_ids\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.channelID) }()
+      case 2: try { try decoder.decodeRepeatedInt64Field(value: &self.userIds) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.channelID != 0 {
+      try visitor.visitSingularInt64Field(value: self.channelID, fieldNumber: 1)
+    }
+    if !self.userIds.isEmpty {
+      try visitor.visitPackedInt64Field(value: self.userIds, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Api_SfuBreakoutParticipant, rhs: Mezon_Api_SfuBreakoutParticipant) -> Bool {
+    if lhs.channelID != rhs.channelID {return false}
+    if lhs.userIds != rhs.userIds {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Api_SfuBreakoutRoomRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".SfuBreakoutRoomRequest"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}parent_channel_id\0\u{3}room_count\0\u{3}break_rule_type\0\u{3}list_participants\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.parentChannelID) }()
+      case 2: try { try decoder.decodeSingularInt32Field(value: &self.roomCount) }()
+      case 3: try { try decoder.decodeSingularInt32Field(value: &self.breakRuleType) }()
+      case 4: try { try decoder.decodeRepeatedMessageField(value: &self.listParticipants) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.parentChannelID != 0 {
+      try visitor.visitSingularInt64Field(value: self.parentChannelID, fieldNumber: 1)
+    }
+    if self.roomCount != 0 {
+      try visitor.visitSingularInt32Field(value: self.roomCount, fieldNumber: 2)
+    }
+    if self.breakRuleType != 0 {
+      try visitor.visitSingularInt32Field(value: self.breakRuleType, fieldNumber: 3)
+    }
+    if !self.listParticipants.isEmpty {
+      try visitor.visitRepeatedMessageField(value: self.listParticipants, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Api_SfuBreakoutRoomRequest, rhs: Mezon_Api_SfuBreakoutRoomRequest) -> Bool {
+    if lhs.parentChannelID != rhs.parentChannelID {return false}
+    if lhs.roomCount != rhs.roomCount {return false}
+    if lhs.breakRuleType != rhs.breakRuleType {return false}
+    if lhs.listParticipants != rhs.listParticipants {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Api_SfuBreakoutRoomResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".SfuBreakoutRoomResponse"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}breakout_id\0\u{3}room_count\0\u{3}break_rule_type\0\u{3}list_child_rooms\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.breakoutID) }()
+      case 2: try { try decoder.decodeSingularInt32Field(value: &self.roomCount) }()
+      case 3: try { try decoder.decodeSingularInt32Field(value: &self.breakRuleType) }()
+      case 4: try { try decoder.decodeRepeatedInt64Field(value: &self.listChildRooms) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.breakoutID != 0 {
+      try visitor.visitSingularInt64Field(value: self.breakoutID, fieldNumber: 1)
+    }
+    if self.roomCount != 0 {
+      try visitor.visitSingularInt32Field(value: self.roomCount, fieldNumber: 2)
+    }
+    if self.breakRuleType != 0 {
+      try visitor.visitSingularInt32Field(value: self.breakRuleType, fieldNumber: 3)
+    }
+    if !self.listChildRooms.isEmpty {
+      try visitor.visitPackedInt64Field(value: self.listChildRooms, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Api_SfuBreakoutRoomResponse, rhs: Mezon_Api_SfuBreakoutRoomResponse) -> Bool {
+    if lhs.breakoutID != rhs.breakoutID {return false}
+    if lhs.roomCount != rhs.roomCount {return false}
+    if lhs.breakRuleType != rhs.breakRuleType {return false}
+    if lhs.listChildRooms != rhs.listChildRooms {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Api_SfuBreakoutMergeRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".SfuBreakoutMergeRequest"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}target_id\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.targetID) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.targetID != 0 {
+      try visitor.visitSingularInt64Field(value: self.targetID, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Api_SfuBreakoutMergeRequest, rhs: Mezon_Api_SfuBreakoutMergeRequest) -> Bool {
+    if lhs.targetID != rhs.targetID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

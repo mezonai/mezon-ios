@@ -944,6 +944,33 @@ struct Mezon_Realtime_Envelope: @unchecked Sendable {
     set {_uniqueStorage()._message = .voiceInteractiveEvent(newValue)}
   }
 
+  /// Metric Message Event
+  var metricMessageEvent: Mezon_Realtime_MetricMessageEvent {
+    get {
+      if case .metricMessageEvent(let v)? = _storage._message {return v}
+      return Mezon_Realtime_MetricMessageEvent()
+    }
+    set {_uniqueStorage()._message = .metricMessageEvent(newValue)}
+  }
+
+  /// Start or stop watching a streaming channel as audience
+  var streamingWatch: Mezon_Realtime_StreamingWatch {
+    get {
+      if case .streamingWatch(let v)? = _storage._message {return v}
+      return Mezon_Realtime_StreamingWatch()
+    }
+    set {_uniqueStorage()._message = .streamingWatch(newValue)}
+  }
+
+  /// SFU breakout room
+  var sfuBreakoutRoomEvent: Mezon_Realtime_SfuBreakoutRoomEvent {
+    get {
+      if case .sfuBreakoutRoomEvent(let v)? = _storage._message {return v}
+      return Mezon_Realtime_SfuBreakoutRoomEvent()
+    }
+    set {_uniqueStorage()._message = .sfuBreakoutRoomEvent(newValue)}
+  }
+
   /// Aggregated audience count of a streaming channel
   var streamingViewerCountEvent: Mezon_Realtime_StreamingViewerCountEvent {
     get {
@@ -1153,6 +1180,12 @@ struct Mezon_Realtime_Envelope: @unchecked Sendable {
     case screenShareEvent(Mezon_Realtime_ScreenShareEvent)
     /// VoiceInteractiveEvent
     case voiceInteractiveEvent(Mezon_Realtime_VoiceInteractiveEvent)
+    /// Metric Message Event
+    case metricMessageEvent(Mezon_Realtime_MetricMessageEvent)
+    /// Start or stop watching a streaming channel as audience
+    case streamingWatch(Mezon_Realtime_StreamingWatch)
+    /// SFU breakout room
+    case sfuBreakoutRoomEvent(Mezon_Realtime_SfuBreakoutRoomEvent)
     /// Aggregated audience count of a streaming channel
     case streamingViewerCountEvent(Mezon_Realtime_StreamingViewerCountEvent)
 
@@ -1161,6 +1194,22 @@ struct Mezon_Realtime_Envelope: @unchecked Sendable {
   init() {}
 
   fileprivate var _storage = _StorageClass.defaultInstance
+}
+
+struct Mezon_Realtime_SfuBreakoutRoomEvent: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var channelID: Int64 = 0
+
+  var token: String = String()
+
+  var selfSelectIds: [Int64] = []
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
 }
 
 struct Mezon_Realtime_VoiceInteractiveEvent: Sendable {
@@ -1231,6 +1280,8 @@ struct Mezon_Realtime_ApiRequestEvent: Sendable {
   var apiName: String = String()
 
   var body: Data = Data()
+
+  var region: Int32 = 0
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -2487,6 +2538,9 @@ struct Mezon_Realtime_StreamingJoinedEvent: Sendable {
   /// streaming channel id
   var streamingChannelID: Int64 = 0
 
+  /// true for the stream's publisher; listed viewers (at most 100 per channel) are false
+  var isPublisher: Bool = false
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
@@ -2546,6 +2600,23 @@ struct Mezon_Realtime_StreamingViewerCountEvent: Sendable {
 
   /// number of distinct users watching as audience
   var viewerCount: Int32 = 0
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+/// Sent by a client when it starts or stops watching a streaming channel as audience.
+struct Mezon_Realtime_StreamingWatch: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// streaming channel id
+  var channelID: Int64 = 0
+
+  /// true when the client starts watching, false when it stops
+  var watching: Bool = false
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -3541,6 +3612,50 @@ struct Mezon_Realtime_FCMTokens: Sendable {
   init() {}
 }
 
+struct Mezon_Realtime_StreamingNode: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var id: String = String()
+
+  var role: String = String()
+
+  var url: String = String()
+
+  var hls: Bool = false
+
+  var sessions: Int64 = 0
+
+  var maxSessions: Int64 = 0
+
+  var ts: Int64 = 0
+
+  var boot: Int64 = 0
+
+  var seenMs: Int64 = 0
+
+  var down: Bool = false
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Mezon_Realtime_StreamingLive: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var node: String = String()
+
+  var ts: Int64 = 0
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
 struct Mezon_Realtime_CheckNameExistedEvent: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -4111,13 +4226,57 @@ struct Mezon_Realtime_GotifyMessage: Sendable {
   init() {}
 }
 
+struct Mezon_Realtime_BreakoutSession: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var breakoutID: Int64 = 0
+
+  var parentChannelID: Int64 = 0
+
+  var clanID: Int64 = 0
+
+  var roomCount: Int32 = 0
+
+  var breakRuleType: Int32 = 0
+
+  var listChildRooms: [Int64] = []
+
+  var creatorID: Int64 = 0
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Mezon_Realtime_MetricMessageEvent: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var requestID: String = String()
+
+  var sessionsActive: Int32 = 0
+
+  var sessionsPeak: Int32 = 0
+
+  var sessionsCreatedTotal: Int64 = 0
+
+  var sessionsClosedTotal: Int64 = 0
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
 fileprivate let _protobuf_package = "mezon.realtime"
 
 extension Mezon_Realtime_Envelope: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".Envelope"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}cid\0\u{1}channel\0\u{3}clan_join\0\u{3}channel_join\0\u{3}channel_leave\0\u{3}channel_message\0\u{3}channel_message_ack\0\u{3}channel_message_send\0\u{3}channel_message_update\0\u{3}channel_message_remove\0\u{3}channel_presence_event\0\u{1}error\0\u{1}notifications\0\u{1}rpc\0\u{1}status\0\u{3}status_follow\0\u{3}status_presence_event\0\u{3}status_unfollow\0\u{3}status_update\0\u{3}stream_data\0\u{3}stream_presence_event\0\u{1}ping\0\u{1}pong\0\u{3}message_typing_event\0\u{3}last_seen_message_event\0\u{3}message_reaction_event\0\u{3}voice_joined_event\0\u{3}voice_leaved_event\0\u{3}voice_started_event\0\u{3}voice_ended_event\0\u{3}channel_created_event\0\u{3}channel_deleted_event\0\u{3}channel_updated_event\0\u{3}last_pin_message_event\0\u{3}custom_status_event\0\u{3}user_channel_added_event\0\u{3}user_channel_removed_event\0\u{3}user_clan_removed_event\0\u{3}clan_updated_event\0\u{3}clan_profile_updated_event\0\u{3}check_name_existed_event\0\u{3}user_profile_updated_event\0\u{3}add_clan_user_event\0\u{3}clan_event_created\0\u{3}role_assign_event\0\u{3}clan_deleted_event\0\u{3}give_coffee_event\0\u{3}sticker_create_event\0\u{3}sticker_update_event\0\u{3}sticker_delete_event\0\u{3}role_event\0\u{3}event_emoji\0\u{3}streaming_joined_event\0\u{3}streaming_leaved_event\0\u{3}streaming_started_event\0\u{3}streaming_ended_event\0\u{3}permission_set_event\0\u{3}permission_changed_event\0\u{3}token_sent_event\0\u{3}message_button_clicked\0\u{3}unmute_event\0\u{3}webrtc_signaling_fwd\0\u{3}list_activity\0\u{3}dropdown_box_selected\0\u{3}incoming_call_push\0\u{3}sd_topic_event\0\u{3}follow_event\0\u{3}channel_app_event\0\u{3}user_status_event\0\u{3}remove_friend\0\u{3}webhook_event\0\u{3}noti_user_channel\0\u{3}join_channel_app_data\0\u{3}canvas_event\0\u{3}unpin_message_event\0\u{3}category_event\0\u{3}handle_participant_meet_state_event\0\u{3}delete_account_event\0\u{3}ephemeral_message_send\0\u{3}block_friend\0\u{3}voice_reaction_send\0\u{3}mark_as_read\0\u{3}list_data_socket\0\u{3}quick_menu_event\0\u{3}un_block_friend\0\u{3}meet_participant_event\0\u{3}transfer_ownership_event\0\u{3}add_friend\0\u{3}ban_user_event\0\u{3}active_archived_thread\0\u{3}allow_anonymous_event\0\u{3}api_request_event\0\u{3}clan_created_event\0\u{3}aiagent_enabled_event\0\u{3}list_channel_users_banned_event\0\u{3}refresh_session_event\0\u{3}channel_archive_event\0\u{3}topic_in_message_event\0\u{3}screen_share_event\0\u{3}voice_interactive_event\0\u{3}streaming_viewer_count_event\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}cid\0\u{1}channel\0\u{3}clan_join\0\u{3}channel_join\0\u{3}channel_leave\0\u{3}channel_message\0\u{3}channel_message_ack\0\u{3}channel_message_send\0\u{3}channel_message_update\0\u{3}channel_message_remove\0\u{3}channel_presence_event\0\u{1}error\0\u{1}notifications\0\u{1}rpc\0\u{1}status\0\u{3}status_follow\0\u{3}status_presence_event\0\u{3}status_unfollow\0\u{3}status_update\0\u{3}stream_data\0\u{3}stream_presence_event\0\u{1}ping\0\u{1}pong\0\u{3}message_typing_event\0\u{3}last_seen_message_event\0\u{3}message_reaction_event\0\u{3}voice_joined_event\0\u{3}voice_leaved_event\0\u{3}voice_started_event\0\u{3}voice_ended_event\0\u{3}channel_created_event\0\u{3}channel_deleted_event\0\u{3}channel_updated_event\0\u{3}last_pin_message_event\0\u{3}custom_status_event\0\u{3}user_channel_added_event\0\u{3}user_channel_removed_event\0\u{3}user_clan_removed_event\0\u{3}clan_updated_event\0\u{3}clan_profile_updated_event\0\u{3}check_name_existed_event\0\u{3}user_profile_updated_event\0\u{3}add_clan_user_event\0\u{3}clan_event_created\0\u{3}role_assign_event\0\u{3}clan_deleted_event\0\u{3}give_coffee_event\0\u{3}sticker_create_event\0\u{3}sticker_update_event\0\u{3}sticker_delete_event\0\u{3}role_event\0\u{3}event_emoji\0\u{3}streaming_joined_event\0\u{3}streaming_leaved_event\0\u{3}streaming_started_event\0\u{3}streaming_ended_event\0\u{3}permission_set_event\0\u{3}permission_changed_event\0\u{3}token_sent_event\0\u{3}message_button_clicked\0\u{3}unmute_event\0\u{3}webrtc_signaling_fwd\0\u{3}list_activity\0\u{3}dropdown_box_selected\0\u{3}incoming_call_push\0\u{3}sd_topic_event\0\u{3}follow_event\0\u{3}channel_app_event\0\u{3}user_status_event\0\u{3}remove_friend\0\u{3}webhook_event\0\u{3}noti_user_channel\0\u{3}join_channel_app_data\0\u{3}canvas_event\0\u{3}unpin_message_event\0\u{3}category_event\0\u{3}handle_participant_meet_state_event\0\u{3}delete_account_event\0\u{3}ephemeral_message_send\0\u{3}block_friend\0\u{3}voice_reaction_send\0\u{3}mark_as_read\0\u{3}list_data_socket\0\u{3}quick_menu_event\0\u{3}un_block_friend\0\u{3}meet_participant_event\0\u{3}transfer_ownership_event\0\u{3}add_friend\0\u{3}ban_user_event\0\u{3}active_archived_thread\0\u{3}allow_anonymous_event\0\u{3}api_request_event\0\u{3}clan_created_event\0\u{3}aiagent_enabled_event\0\u{3}list_channel_users_banned_event\0\u{3}refresh_session_event\0\u{3}channel_archive_event\0\u{3}topic_in_message_event\0\u{3}screen_share_event\0\u{3}voice_interactive_event\0\u{3}metric_message_event\0\u{4}\u{3}streaming_watch\0\u{3}sfu_breakout_room_event\0\u{3}streaming_viewer_count_event\0")
 
   fileprivate class _StorageClass {
     var _cid: Int32 = 0
@@ -5441,6 +5600,45 @@ extension Mezon_Realtime_Envelope: SwiftProtobuf.Message, SwiftProtobuf._Message
           }
         }()
         case 101: try {
+          var v: Mezon_Realtime_MetricMessageEvent?
+          var hadOneofValue = false
+          if let current = _storage._message {
+            hadOneofValue = true
+            if case .metricMessageEvent(let m) = current {v = m}
+          }
+          try decoder.decodeSingularMessageField(value: &v)
+          if let v = v {
+            if hadOneofValue {try decoder.handleConflictingOneOf()}
+            _storage._message = .metricMessageEvent(v)
+          }
+        }()
+        case 104: try {
+          var v: Mezon_Realtime_StreamingWatch?
+          var hadOneofValue = false
+          if let current = _storage._message {
+            hadOneofValue = true
+            if case .streamingWatch(let m) = current {v = m}
+          }
+          try decoder.decodeSingularMessageField(value: &v)
+          if let v = v {
+            if hadOneofValue {try decoder.handleConflictingOneOf()}
+            _storage._message = .streamingWatch(v)
+          }
+        }()
+        case 105: try {
+          var v: Mezon_Realtime_SfuBreakoutRoomEvent?
+          var hadOneofValue = false
+          if let current = _storage._message {
+            hadOneofValue = true
+            if case .sfuBreakoutRoomEvent(let m) = current {v = m}
+          }
+          try decoder.decodeSingularMessageField(value: &v)
+          if let v = v {
+            if hadOneofValue {try decoder.handleConflictingOneOf()}
+            _storage._message = .sfuBreakoutRoomEvent(v)
+          }
+        }()
+        case 106: try {
           var v: Mezon_Realtime_StreamingViewerCountEvent?
           var hadOneofValue = false
           if let current = _storage._message {
@@ -5865,9 +6063,21 @@ extension Mezon_Realtime_Envelope: SwiftProtobuf.Message, SwiftProtobuf._Message
         guard case .voiceInteractiveEvent(let v)? = _storage._message else { preconditionFailure() }
         try visitor.visitSingularMessageField(value: v, fieldNumber: 100)
       }()
+      case .metricMessageEvent?: try {
+        guard case .metricMessageEvent(let v)? = _storage._message else { preconditionFailure() }
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 101)
+      }()
+      case .streamingWatch?: try {
+        guard case .streamingWatch(let v)? = _storage._message else { preconditionFailure() }
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 104)
+      }()
+      case .sfuBreakoutRoomEvent?: try {
+        guard case .sfuBreakoutRoomEvent(let v)? = _storage._message else { preconditionFailure() }
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 105)
+      }()
       case .streamingViewerCountEvent?: try {
         guard case .streamingViewerCountEvent(let v)? = _storage._message else { preconditionFailure() }
-        try visitor.visitSingularMessageField(value: v, fieldNumber: 101)
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 106)
       }()
       case nil: break
       }
@@ -5886,6 +6096,46 @@ extension Mezon_Realtime_Envelope: SwiftProtobuf.Message, SwiftProtobuf._Message
       }
       if !storagesAreEqual {return false}
     }
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Realtime_SfuBreakoutRoomEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".SfuBreakoutRoomEvent"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}channel_id\0\u{1}token\0\u{3}self_select_ids\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.channelID) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.token) }()
+      case 3: try { try decoder.decodeRepeatedInt64Field(value: &self.selfSelectIds) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.channelID != 0 {
+      try visitor.visitSingularInt64Field(value: self.channelID, fieldNumber: 1)
+    }
+    if !self.token.isEmpty {
+      try visitor.visitSingularStringField(value: self.token, fieldNumber: 2)
+    }
+    if !self.selfSelectIds.isEmpty {
+      try visitor.visitPackedInt64Field(value: self.selfSelectIds, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Realtime_SfuBreakoutRoomEvent, rhs: Mezon_Realtime_SfuBreakoutRoomEvent) -> Bool {
+    if lhs.channelID != rhs.channelID {return false}
+    if lhs.token != rhs.token {return false}
+    if lhs.selfSelectIds != rhs.selfSelectIds {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -6038,7 +6288,7 @@ extension Mezon_Realtime_TopicInMessageEvent: SwiftProtobuf.Message, SwiftProtob
 
 extension Mezon_Realtime_ApiRequestEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".ApiRequestEvent"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}api_index\0\u{3}api_name\0\u{1}body\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}api_index\0\u{3}api_name\0\u{1}body\0\u{1}region\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -6049,6 +6299,7 @@ extension Mezon_Realtime_ApiRequestEvent: SwiftProtobuf.Message, SwiftProtobuf._
       case 1: try { try decoder.decodeSingularInt32Field(value: &self.apiIndex) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self.apiName) }()
       case 3: try { try decoder.decodeSingularBytesField(value: &self.body) }()
+      case 4: try { try decoder.decodeSingularInt32Field(value: &self.region) }()
       default: break
       }
     }
@@ -6064,6 +6315,9 @@ extension Mezon_Realtime_ApiRequestEvent: SwiftProtobuf.Message, SwiftProtobuf._
     if !self.body.isEmpty {
       try visitor.visitSingularBytesField(value: self.body, fieldNumber: 3)
     }
+    if self.region != 0 {
+      try visitor.visitSingularInt32Field(value: self.region, fieldNumber: 4)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -6071,6 +6325,7 @@ extension Mezon_Realtime_ApiRequestEvent: SwiftProtobuf.Message, SwiftProtobuf._
     if lhs.apiIndex != rhs.apiIndex {return false}
     if lhs.apiName != rhs.apiName {return false}
     if lhs.body != rhs.body {return false}
+    if lhs.region != rhs.region {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -8330,7 +8585,7 @@ extension Mezon_Realtime_StreamingLeavedEvent: SwiftProtobuf.Message, SwiftProto
 
 extension Mezon_Realtime_StreamingJoinedEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".StreamingJoinedEvent"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}clan_id\0\u{3}clan_name\0\u{1}id\0\u{1}participant\0\u{3}user_id\0\u{3}streaming_channel_label\0\u{3}streaming_channel_id\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}clan_id\0\u{3}clan_name\0\u{1}id\0\u{1}participant\0\u{3}user_id\0\u{3}streaming_channel_label\0\u{3}streaming_channel_id\0\u{3}is_publisher\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -8345,6 +8600,7 @@ extension Mezon_Realtime_StreamingJoinedEvent: SwiftProtobuf.Message, SwiftProto
       case 5: try { try decoder.decodeSingularInt64Field(value: &self.userID) }()
       case 6: try { try decoder.decodeSingularStringField(value: &self.streamingChannelLabel) }()
       case 7: try { try decoder.decodeSingularInt64Field(value: &self.streamingChannelID) }()
+      case 8: try { try decoder.decodeSingularBoolField(value: &self.isPublisher) }()
       default: break
       }
     }
@@ -8372,6 +8628,9 @@ extension Mezon_Realtime_StreamingJoinedEvent: SwiftProtobuf.Message, SwiftProto
     if self.streamingChannelID != 0 {
       try visitor.visitSingularInt64Field(value: self.streamingChannelID, fieldNumber: 7)
     }
+    if self.isPublisher != false {
+      try visitor.visitSingularBoolField(value: self.isPublisher, fieldNumber: 8)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -8383,6 +8642,7 @@ extension Mezon_Realtime_StreamingJoinedEvent: SwiftProtobuf.Message, SwiftProto
     if lhs.userID != rhs.userID {return false}
     if lhs.streamingChannelLabel != rhs.streamingChannelLabel {return false}
     if lhs.streamingChannelID != rhs.streamingChannelID {return false}
+    if lhs.isPublisher != rhs.isPublisher {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -8503,6 +8763,41 @@ extension Mezon_Realtime_StreamingViewerCountEvent: SwiftProtobuf.Message, Swift
     if lhs.clanID != rhs.clanID {return false}
     if lhs.channelID != rhs.channelID {return false}
     if lhs.viewerCount != rhs.viewerCount {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Realtime_StreamingWatch: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".StreamingWatch"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}channel_id\0\u{1}watching\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.channelID) }()
+      case 2: try { try decoder.decodeSingularBoolField(value: &self.watching) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.channelID != 0 {
+      try visitor.visitSingularInt64Field(value: self.channelID, fieldNumber: 1)
+    }
+    if self.watching != false {
+      try visitor.visitSingularBoolField(value: self.watching, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Realtime_StreamingWatch, rhs: Mezon_Realtime_StreamingWatch) -> Bool {
+    if lhs.channelID != rhs.channelID {return false}
+    if lhs.watching != rhs.watching {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -10268,6 +10563,116 @@ extension Mezon_Realtime_FCMTokens: SwiftProtobuf.Message, SwiftProtobuf._Messag
   }
 }
 
+extension Mezon_Realtime_StreamingNode: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".StreamingNode"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}role\0\u{1}url\0\u{1}hls\0\u{1}sessions\0\u{3}max_sessions\0\u{1}ts\0\u{1}boot\0\u{3}seen_ms\0\u{1}down\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.id) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.role) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.url) }()
+      case 4: try { try decoder.decodeSingularBoolField(value: &self.hls) }()
+      case 5: try { try decoder.decodeSingularInt64Field(value: &self.sessions) }()
+      case 6: try { try decoder.decodeSingularInt64Field(value: &self.maxSessions) }()
+      case 7: try { try decoder.decodeSingularInt64Field(value: &self.ts) }()
+      case 8: try { try decoder.decodeSingularInt64Field(value: &self.boot) }()
+      case 9: try { try decoder.decodeSingularInt64Field(value: &self.seenMs) }()
+      case 10: try { try decoder.decodeSingularBoolField(value: &self.down) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.id.isEmpty {
+      try visitor.visitSingularStringField(value: self.id, fieldNumber: 1)
+    }
+    if !self.role.isEmpty {
+      try visitor.visitSingularStringField(value: self.role, fieldNumber: 2)
+    }
+    if !self.url.isEmpty {
+      try visitor.visitSingularStringField(value: self.url, fieldNumber: 3)
+    }
+    if self.hls != false {
+      try visitor.visitSingularBoolField(value: self.hls, fieldNumber: 4)
+    }
+    if self.sessions != 0 {
+      try visitor.visitSingularInt64Field(value: self.sessions, fieldNumber: 5)
+    }
+    if self.maxSessions != 0 {
+      try visitor.visitSingularInt64Field(value: self.maxSessions, fieldNumber: 6)
+    }
+    if self.ts != 0 {
+      try visitor.visitSingularInt64Field(value: self.ts, fieldNumber: 7)
+    }
+    if self.boot != 0 {
+      try visitor.visitSingularInt64Field(value: self.boot, fieldNumber: 8)
+    }
+    if self.seenMs != 0 {
+      try visitor.visitSingularInt64Field(value: self.seenMs, fieldNumber: 9)
+    }
+    if self.down != false {
+      try visitor.visitSingularBoolField(value: self.down, fieldNumber: 10)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Realtime_StreamingNode, rhs: Mezon_Realtime_StreamingNode) -> Bool {
+    if lhs.id != rhs.id {return false}
+    if lhs.role != rhs.role {return false}
+    if lhs.url != rhs.url {return false}
+    if lhs.hls != rhs.hls {return false}
+    if lhs.sessions != rhs.sessions {return false}
+    if lhs.maxSessions != rhs.maxSessions {return false}
+    if lhs.ts != rhs.ts {return false}
+    if lhs.boot != rhs.boot {return false}
+    if lhs.seenMs != rhs.seenMs {return false}
+    if lhs.down != rhs.down {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Realtime_StreamingLive: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".StreamingLive"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}node\0\u{1}ts\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.node) }()
+      case 2: try { try decoder.decodeSingularInt64Field(value: &self.ts) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.node.isEmpty {
+      try visitor.visitSingularStringField(value: self.node, fieldNumber: 1)
+    }
+    if self.ts != 0 {
+      try visitor.visitSingularInt64Field(value: self.ts, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Realtime_StreamingLive, rhs: Mezon_Realtime_StreamingLive) -> Bool {
+    if lhs.node != rhs.node {return false}
+    if lhs.ts != rhs.ts {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
 extension Mezon_Realtime_CheckNameExistedEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".CheckNameExistedEvent"
   static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{3}condition_id\0\u{1}exist\0\u{1}type\0\u{3}clan_id\0")
@@ -11470,6 +11875,116 @@ extension Mezon_Realtime_GotifyMessage: SwiftProtobuf.Message, SwiftProtobuf._Me
     if lhs.extras != rhs.extras {return false}
     if lhs.appID != rhs.appID {return false}
     if lhs.senderID != rhs.senderID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Realtime_BreakoutSession: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".BreakoutSession"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}breakout_id\0\u{3}parent_channel_id\0\u{3}clan_id\0\u{3}room_count\0\u{3}break_rule_type\0\u{3}list_child_rooms\0\u{3}creator_id\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.breakoutID) }()
+      case 2: try { try decoder.decodeSingularInt64Field(value: &self.parentChannelID) }()
+      case 3: try { try decoder.decodeSingularInt64Field(value: &self.clanID) }()
+      case 4: try { try decoder.decodeSingularInt32Field(value: &self.roomCount) }()
+      case 5: try { try decoder.decodeSingularInt32Field(value: &self.breakRuleType) }()
+      case 6: try { try decoder.decodeRepeatedInt64Field(value: &self.listChildRooms) }()
+      case 7: try { try decoder.decodeSingularInt64Field(value: &self.creatorID) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.breakoutID != 0 {
+      try visitor.visitSingularInt64Field(value: self.breakoutID, fieldNumber: 1)
+    }
+    if self.parentChannelID != 0 {
+      try visitor.visitSingularInt64Field(value: self.parentChannelID, fieldNumber: 2)
+    }
+    if self.clanID != 0 {
+      try visitor.visitSingularInt64Field(value: self.clanID, fieldNumber: 3)
+    }
+    if self.roomCount != 0 {
+      try visitor.visitSingularInt32Field(value: self.roomCount, fieldNumber: 4)
+    }
+    if self.breakRuleType != 0 {
+      try visitor.visitSingularInt32Field(value: self.breakRuleType, fieldNumber: 5)
+    }
+    if !self.listChildRooms.isEmpty {
+      try visitor.visitPackedInt64Field(value: self.listChildRooms, fieldNumber: 6)
+    }
+    if self.creatorID != 0 {
+      try visitor.visitSingularInt64Field(value: self.creatorID, fieldNumber: 7)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Realtime_BreakoutSession, rhs: Mezon_Realtime_BreakoutSession) -> Bool {
+    if lhs.breakoutID != rhs.breakoutID {return false}
+    if lhs.parentChannelID != rhs.parentChannelID {return false}
+    if lhs.clanID != rhs.clanID {return false}
+    if lhs.roomCount != rhs.roomCount {return false}
+    if lhs.breakRuleType != rhs.breakRuleType {return false}
+    if lhs.listChildRooms != rhs.listChildRooms {return false}
+    if lhs.creatorID != rhs.creatorID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Realtime_MetricMessageEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".MetricMessageEvent"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{3}sessions_active\0\u{3}sessions_peak\0\u{3}sessions_created_total\0\u{3}sessions_closed_total\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.requestID) }()
+      case 2: try { try decoder.decodeSingularInt32Field(value: &self.sessionsActive) }()
+      case 3: try { try decoder.decodeSingularInt32Field(value: &self.sessionsPeak) }()
+      case 4: try { try decoder.decodeSingularInt64Field(value: &self.sessionsCreatedTotal) }()
+      case 5: try { try decoder.decodeSingularInt64Field(value: &self.sessionsClosedTotal) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.requestID.isEmpty {
+      try visitor.visitSingularStringField(value: self.requestID, fieldNumber: 1)
+    }
+    if self.sessionsActive != 0 {
+      try visitor.visitSingularInt32Field(value: self.sessionsActive, fieldNumber: 2)
+    }
+    if self.sessionsPeak != 0 {
+      try visitor.visitSingularInt32Field(value: self.sessionsPeak, fieldNumber: 3)
+    }
+    if self.sessionsCreatedTotal != 0 {
+      try visitor.visitSingularInt64Field(value: self.sessionsCreatedTotal, fieldNumber: 4)
+    }
+    if self.sessionsClosedTotal != 0 {
+      try visitor.visitSingularInt64Field(value: self.sessionsClosedTotal, fieldNumber: 5)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Realtime_MetricMessageEvent, rhs: Mezon_Realtime_MetricMessageEvent) -> Bool {
+    if lhs.requestID != rhs.requestID {return false}
+    if lhs.sessionsActive != rhs.sessionsActive {return false}
+    if lhs.sessionsPeak != rhs.sessionsPeak {return false}
+    if lhs.sessionsCreatedTotal != rhs.sessionsCreatedTotal {return false}
+    if lhs.sessionsClosedTotal != rhs.sessionsClosedTotal {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

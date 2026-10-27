@@ -706,6 +706,7 @@ final class SendMessageInputViewController: UIViewController {
     private var lastHandledComposerSelection = NSRange(location: -1, length: -1)
     private var lastHandledComposerSelectionTextLength = -1
     private var isHandlingComposerSelectionChange = false
+    private var isComposerSelectionScrollScheduled = false
     private var didAttemptEmojiSuggestionCacheLoad = false
     private var mentionSuggestionView: MentionSuggestionView?
     private var mentionRemoteSearch: MentionRemoteSearch?
@@ -7522,10 +7523,10 @@ extension SendMessageInputViewController: UITextViewDelegate {
         lastHandledComposerSelection = NSRange(location: -1, length: -1)
         text = textView.text ?? ""
         placeholderLabel.isHidden = !text.isEmpty
+        syncAttachControlsWithTypedText()
         updateTextViewHeight()
         updateInlineSuggestions()
         updateSendVoiceToggle()
-        syncAttachControlsWithTypedText()
         refreshComposerTypingAttributesForSelection()
         scheduleOgpPreviewUpdate(for: text)
         sendTypingIfNeeded()
@@ -7537,6 +7538,7 @@ extension SendMessageInputViewController: UITextViewDelegate {
     }
 
     func textViewDidChangeSelection(_ textView: UITextView) {
+        scheduleComposerSelectionScroll()
         guard !isHandlingComposerSelectionChange else { return }
         guard textView.markedTextRange == nil else { return }
         let sel = textView.selectedRange
@@ -7666,7 +7668,7 @@ extension SendMessageInputViewController: UITextViewDelegate {
         layoutSuperviewForComposerChange(shouldAnimateSuperview: false, duration: 0)
     }
 
-    private func resolvedComposerFittingContentWidth() -> CGFloat {
+    private func resolvedComposerFittingWidth() -> CGFloat {
         view.layoutIfNeeded()
         inputBarView.layoutIfNeeded()
         let insetL = textView.textContainerInset.left
@@ -7684,14 +7686,14 @@ extension SendMessageInputViewController: UITextViewDelegate {
                 outer = w
             }
         }
-        var inner = max(0, outer - insetL - insetR)
-        if inner < 40 {
+        if outer - insetL - insetR < 40 {
             let host = max(view.window?.bounds.width ?? 0, view.bounds.width)
             if host > 2 {
-                inner = max(inner, max(0, host - 140) - insetL - insetR)
+                outer = max(outer, max(0, host - 140))
             }
         }
-        return max(1, inner)
+        // sizeThatFits subtracts the text container insets itself.
+        return max(1, outer)
     }
 
     private func flushComposerHeightAfterContentMutation() {
@@ -7707,9 +7709,9 @@ extension SendMessageInputViewController: UITextViewDelegate {
         let lineHeight = font.lineHeight
         let maxLines: CGFloat = 6
         let verticalInsets = textView.textContainerInset.top + textView.textContainerInset.bottom
-        let maxHeight = lineHeight * maxLines + verticalInsets
+        let maxHeight = ceil(lineHeight * maxLines + verticalInsets)
         let minHeight = Self.textViewMinHeight
-        let availableWidth = resolvedComposerFittingContentWidth()
+        let availableWidth = resolvedComposerFittingWidth()
         let fittingSize = CGSize(width: availableWidth, height: .greatestFiniteMagnitude)
         let measuredTotal = textView.sizeThatFits(fittingSize).height
         let empty = (textView.text ?? "").isEmpty
@@ -7724,12 +7726,35 @@ extension SendMessageInputViewController: UITextViewDelegate {
             }
         }
 
-        guard abs(newHeight - currentTextViewHeight) > 0.5 else { return }
-        currentTextViewHeight = newHeight
-        textViewHeightConstraint?.constant = newHeight
-        inputBarHeightConstraint?.constant = newHeight + Self.inputBarPadding
-        onHeightChanged?(totalHeight)
-        layoutSuperviewForComposerChange(shouldAnimateSuperview: false, duration: 0)
+        if abs(newHeight - currentTextViewHeight) > 0.5 {
+            currentTextViewHeight = newHeight
+            textViewHeightConstraint?.constant = newHeight
+            inputBarHeightConstraint?.constant = newHeight + Self.inputBarPadding
+            onHeightChanged?(totalHeight)
+            layoutSuperviewForComposerChange(shouldAnimateSuperview: false, duration: 0)
+        }
+
+        // Content and the caret still move after the composer reaches its height limit.
+        scheduleComposerSelectionScroll()
+    }
+
+    private func scheduleComposerSelectionScroll() {
+        guard !isComposerSelectionScrollScheduled else { return }
+        isComposerSelectionScrollScheduled = true
+        // Let text edits and composer constraints settle before revealing the selection.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.isComposerSelectionScrollScheduled = false
+            guard self.textView.isScrollEnabled,
+                  let selection = self.textView.selectedTextRange else { return }
+            self.view.layoutIfNeeded()
+            self.textView.layoutManager.ensureLayout(for: self.textView.textContainer)
+            var caretRect = self.textView.caretRect(for: selection.end)
+            let insets = self.textView.textContainerInset
+            caretRect.origin.y -= insets.top
+            caretRect.size.height += insets.top + insets.bottom
+            self.textView.scrollRectToVisible(caretRect, animated: false)
+        }
     }
 }
 

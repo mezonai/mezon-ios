@@ -6,6 +6,9 @@ final class ChannelItemCellNode: ASCellNode {
     private let iconNode = ASTextNode2()
     private let iconImgNode = ASImageNode()
     private let nameNode = ASTextNode2()
+    private let viewerCountNode = ASTextNode2()
+    private let viewerEyeNode = ASImageNode()
+    private let viewerCount: Int?
     private let badgeNode = ASTextNode2()
     private let badgeBackground = ASDisplayNode()
     private let buzzBadge = BuzzBadgeNode()
@@ -17,10 +20,11 @@ final class ChannelItemCellNode: ASCellNode {
     private let cellSelected: Bool
     private let isVoiceActive: Bool
 
-    init(channel: Mezon_Api_ChannelDescription, isSelected: Bool, isVoiceActive: Bool = false, hasBuzz: Bool = false) {
+    init(channel: Mezon_Api_ChannelDescription, isSelected: Bool, isVoiceActive: Bool = false, hasBuzz: Bool = false, viewerCount: Int? = nil) {
         self.channel = channel
         self.cellSelected = isSelected
         self.isVoiceActive = isVoiceActive
+        self.viewerCount = channel.type == MezonConstants.ChannelType.streaming.rawValue ? viewerCount : nil
         super.init()
         automaticallyManagesSubnodes = true
         neverShowPlaceholders = true
@@ -96,6 +100,14 @@ final class ChannelItemCellNode: ASCellNode {
                 .font: UIFont.systemFont(ofSize: 14.sf, weight: nameWeight),
                 .foregroundColor: nameColor,
             ])
+
+        if let viewerCount {
+            viewerCountNode.maximumNumberOfLines = 1
+            viewerCountNode.attributedText = streamViewerCountText(viewerCount)
+            viewerEyeNode.image = UIImage(systemName: "eye")?.withTintColor(t.channelNormal, renderingMode: .alwaysOriginal)
+            viewerEyeNode.contentMode = .scaleAspectFit
+            viewerEyeNode.style.preferredSize = CGSize(width: 13, height: 13)
+        }
 
         if unread > 0 {
             let text = unread > 99 ? "99+" : "\(unread)"
@@ -199,9 +211,16 @@ final class ChannelItemCellNode: ASCellNode {
         nameNode.style.flexGrow = 0
 
         var children: [ASLayoutElement] = [iconChild, nameNode]
-        if !badgeNode.isHidden || !buzzBadge.isHidden { children.append(spacer) }
+        if !badgeNode.isHidden || !buzzBadge.isHidden || viewerCount != nil { children.append(spacer) }
         if !buzzBadge.isHidden { children.append(buzzBadge) }
         if !badgeNode.isHidden { children.append(badge) }
+        if viewerCount != nil {
+            let viewers = ASStackLayoutSpec(
+                direction: .horizontal, spacing: 4, justifyContent: .start, alignItems: .center,
+                children: [viewerEyeNode, viewerCountNode])
+            viewers.style.flexShrink = 0
+            children.append(viewers)
+        }
 
         let row = ASStackLayoutSpec(
             direction: .horizontal, spacing: 10.sw, justifyContent: .start, alignItems: .center,
@@ -360,6 +379,13 @@ final class VoiceAvatarNode: ASDisplayNode, ASNetworkImageNodeDelegate {
             self?.reloadAvatar()
         }
     }
+}
+
+private func streamViewerCountText(_ count: Int) -> NSAttributedString {
+    NSAttributedString(string: NumberFormatter.localizedString(from: NSNumber(value: count), number: .decimal), attributes: [
+        .font: UIFont.systemFont(ofSize: 11, weight: .medium),
+        .foregroundColor: UIColor.theme.channelNormal,
+    ])
 }
 
 final class VoiceMemberExpandedCellNode: ASCellNode {

@@ -3,9 +3,13 @@ import UIKit
 @MainActor
 enum StreamingChannelBackground {
 
+    static var defaultPosterImage: UIImage? {
+        UIImage(named: "Channel/streamDefaultPoster")
+    }
+
     static func normalizedAvatar(_ raw: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !trimmed.contains("avatar-group.png") else { return "" }
+        guard !trimmed.isEmpty, trimmed != "0", !trimmed.contains("avatar-group.png") else { return "" }
         return trimmed
     }
 
@@ -15,6 +19,8 @@ enum StreamingChannelBackground {
     ) -> String {
         let clanId = channel.clanID != 0 ? channel.clanID : context.currentClanId
         let channelId = channel.channelID
+        // "0" explicitly clears the banner; do not revive an older cached image.
+        if channel.channelAvatar.trimmingCharacters(in: .whitespacesAndNewlines) == "0" { return "" }
 
         let direct = normalizedAvatar(channel.channelAvatar)
         if !direct.isEmpty { return direct }
