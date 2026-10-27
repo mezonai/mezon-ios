@@ -542,7 +542,7 @@ private final class GroupDMOptionsSheetViewController: UIViewController {
     }
 }
 
-private final class GroupDMCustomizeViewController: UIViewController, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UITextFieldDelegate {
+private final class GroupDMCustomizeViewController: UIViewController, UITextFieldDelegate {
 
     private static let maxAvatarBytes = 10 * 1024 * 1024
     private static let maxGroupNameLength = 64
@@ -554,6 +554,8 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
     private var avatarURL: String
     private var selectedImage: UIImage?
     private var selectedImageData: Data?
+    private var imagePicker: PublicImagePicker?
+    private var selectedImageMimeType = "image/jpeg"
     private var selectedImageFilename: String?
     private var avatarLoadTask: URLSessionDataTask?
     private var isSaving = false
@@ -808,12 +810,19 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
     }
 
     @objc private func pickAvatarTapped() {
-        guard UIImagePickerController.isSourceTypeAvailable(.photoLibrary) else { return }
-        let picker = UIImagePickerController()
-        picker.sourceType = .photoLibrary
-        picker.allowsEditing = true
-        picker.delegate = self
-        present(picker, animated: true)
+        guard !isSaving else { return }
+        guard imagePicker == nil else { return }
+        let picker = PublicImagePicker(
+            allowsEditing: true, maxBytes: Self.maxAvatarBytes,
+            tooLargeMessage: "File size exceeds 10MB limit"
+        ) { [weak self] selection in
+            guard let self else { return }
+            self.imagePicker = nil
+            guard let selection else { return }
+            self.handlePickedImage(selection)
+        }
+        imagePicker = picker
+        picker.present(from: self)
     }
 
     @objc private func removeAvatarTapped() {
@@ -821,6 +830,7 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
         selectedImage = nil
         selectedImageData = nil
         selectedImageFilename = nil
+        selectedImageMimeType = "image/jpeg"
         updateAvatarPreview()
     }
 
@@ -959,37 +969,26 @@ private final class GroupDMCustomizeViewController: UIViewController, UIImagePic
         }
 
         let filename = "group_dm_\(originalChannel.channelID)_\(Int(Date().timeIntervalSince1970)).jpg"
-        let filetype = "image/jpeg"
+        let filetype = selectedImageMimeType
         let cdnURL = try await AttachmentUploader.shared.uploadPublicImage(
             data: selectedImageData, filename: filename, filetype: filetype,
             token: token, network: context.account.network, originalFilename: selectedImageFilename
         )
-        ImageCache.shared.setImage(selectedImage, data: selectedImageData, forKey: cdnURL)
+        ImageCache.shared.cachePublicImage(selectedImage, data: selectedImageData, mimeType: filetype, forKey: cdnURL)
         return cdnURL
     }
 
-    func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-        picker.dismiss(animated: true)
-    }
-
-    func imagePickerController(
-        _ picker: UIImagePickerController,
-        didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
-    ) {
-        let image = (info[.editedImage] as? UIImage) ?? (info[.originalImage] as? UIImage)
-        let originalFilename = ImagePickerFilename.originalFilename(from: info)
-        picker.dismiss(animated: true) { [weak self] in
-            guard let self, let image else { return }
-            guard let data = image.jpegData(compressionQuality: 0.85) else { return }
-            if data.count > Self.maxAvatarBytes {
-                Toast.error("File size exceeds 10MB limit")
-                return
-            }
-            self.selectedImage = image
-            self.selectedImageData = data
-            self.selectedImageFilename = originalFilename
-            self.updateAvatarPreview()
+    private func handlePickedImage(_ selection: PublicImageSelection) {
+        guard let data = selection.preservedData ?? selection.image.jpegData(compressionQuality: 0.85) else { return }
+        if data.count > Self.maxAvatarBytes {
+            Toast.error("File size exceeds 10MB limit")
+            return
         }
+        selectedImage = selection.image
+        selectedImageData = data
+        selectedImageFilename = selection.originalFilename
+        selectedImageMimeType = selection.mimeType
+        updateAvatarPreview()
     }
 }
 

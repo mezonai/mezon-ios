@@ -8,6 +8,7 @@ final class ClanSettingsViewController: BaseViewController {
     private let clanId: Int64
     private let clanName: String
     private let avatarURL: String
+    private var imagePicker: PublicImagePicker?
     private var isUploadingAvatar = false
 
     private var settingsNode: ClanSettingsContainerNode {
@@ -172,16 +173,19 @@ final class ClanSettingsViewController: BaseViewController {
     }
 
     @objc private func pickAvatarTapped() {
-        guard canShowOverviewSection() else {
-            return
+        guard canShowOverviewSection(), !isUploadingAvatar else { return }
+        guard imagePicker == nil else { return }
+        let picker = PublicImagePicker(
+            allowsEditing: true, maxBytes: 1024 * 1024,
+            tooLargeMessage: L(L10n.ClanSetting.Overview.uploadFileTooLarge1MB)
+        ) { [weak self] selection in
+            guard let self else { return }
+            self.imagePicker = nil
+            guard let selection else { return }
+            self.handlePickedImage(selection)
         }
-        guard !isUploadingAvatar else { return }
-        guard UIImagePickerController.isSourceTypeAvailable(.photoLibrary) else { return }
-        let picker = UIImagePickerController()
-        picker.sourceType = .photoLibrary
-        picker.allowsEditing = true
-        picker.delegate = self
-        present(picker, animated: true)
+        imagePicker = picker
+        picker.present(from: self)
     }
 
     @objc private func removeAvatarTapped() {
@@ -245,45 +249,27 @@ final class ClanSettingsViewController: BaseViewController {
     }
 }
 
-extension ClanSettingsViewController: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-    func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
-        picker.dismiss(animated: true)
-        guard let image = info[.editedImage] as? UIImage ?? info[.originalImage] as? UIImage else { return }
-        let originalFilename = ImagePickerFilename.originalFilename(from: info)
-        let pickedFileBytes = pickedFileSize(info)
-
+extension ClanSettingsViewController {
+    private func handlePickedImage(_ selection: PublicImageSelection) {
+        let image = selection.image
+        let originalFilename = selection.originalFilename
+        let pickedFileBytes = selection.sourceByteCount
         setAvatarUploading(true)
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let checkedBytes: Int?
-            if let pickedFileBytes {
-                checkedBytes = pickedFileBytes
-            } else {
-                checkedBytes = image.jpegData(compressionQuality: 1.0)?.count
-            }
+            let checkedBytes = pickedFileBytes ?? image.jpegData(compressionQuality: 1.0)?.count
             let isTooLarge = Double(checkedBytes ?? 0) / (1024 * 1024) > 1.0
-
-            let encoded = isTooLarge ? nil : image.jpegData(compressionQuality: 0.8)
-
+            let encoded = isTooLarge ? nil : (selection.preservedData ?? image.jpegData(compressionQuality: 0.8))
             DispatchQueue.main.async {
                 guard let self else { return }
-                if isTooLarge {
-                    Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge1MB))
-                }
+                if isTooLarge { Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge1MB)) }
                 guard let data = encoded else {
                     self.setAvatarUploading(false)
                     return
                 }
-                self.uploadAvatar(image: image, data: data, originalFilename: originalFilename)
+                self.uploadAvatar(image: image, data: data, mimeType: selection.mimeType, originalFilename: originalFilename)
             }
         }
-    }
-
-    private func pickedFileSize(_ info: [UIImagePickerController.InfoKey: Any]) -> Int? {
-        guard let url = info[.imageURL] as? URL,
-              let attr = try? FileManager.default.attributesOfItem(atPath: url.path),
-              let fileSize = attr[.size] as? NSNumber else { return nil }
-        return fileSize.intValue
     }
 
     private func setAvatarUploading(_ uploading: Bool) {
@@ -291,7 +277,7 @@ extension ClanSettingsViewController: UIImagePickerControllerDelegate, UINavigat
         settingsNode.setAvatarUploading(uploading)
     }
 
-    private func uploadAvatar(image: UIImage, data: Data, originalFilename: String?) {
+    private func uploadAvatar(image: UIImage, data: Data, mimeType: String, originalFilename: String?) {
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer {
@@ -302,7 +288,7 @@ extension ClanSettingsViewController: UIImagePickerControllerDelegate, UINavigat
             }
             do {
                 let avatarUrlToSave = try await AttachmentUploader.shared.uploadPublicImage(
-                    data: data, filename: "avatar.jpg", filetype: "image/jpeg",
+                    data: data, filename: "avatar.jpg", filetype: mimeType,
                     token: token, network: self.context.account.network,
                     originalFilename: originalFilename
                 )

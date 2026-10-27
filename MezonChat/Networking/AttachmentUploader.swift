@@ -7,20 +7,38 @@ enum PublicImageFilename {
     static func make(
         originalFilename: String?,
         fallbackFilename: String,
+        mimeType: String,
         timestampMillis: Int64 = Int64(Date().timeIntervalSince1970 * 1000)
     ) -> String {
+        let normalizedMimeType = mimeType.components(separatedBy: ";")[0]
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let fallbackExtension = (fallbackFilename as NSString).pathExtension
+        let ext: String
+        switch normalizedMimeType {
+        case "image/jpeg", "image/jpg": ext = "jpg"
+        case "image/png": ext = "png"
+        case "image/gif": ext = "gif"
+        case "image/webp": ext = "webp"
+        case "image/heic": ext = "heic"
+        case "image/heif": ext = "heif"
+        case "image/avif": ext = "avif"
+        case "image/tiff": ext = "tiff"
+        case "image/bmp", "image/x-ms-bmp": ext = "bmp"
+        default: ext = fallbackExtension
+        }
+        let suffix = ext.isEmpty ? "" : ".\(ext)"
+        let fallback = ext == fallbackExtension ? fallbackFilename
+            : (fallbackFilename as NSString).deletingPathExtension + suffix
         guard let originalFilename,
               !originalFilename.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return fallbackFilename
+            return fallback
         }
         let stem = originalFilename.lastIndex(of: ".").map { String(originalFilename[..<$0]) } ?? originalFilename
-        guard !stem.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return fallbackFilename }
+        guard !stem.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return fallback }
 
         let sanitized = stem.unicodeScalars.map { scalar in
             allowedStemCharacters.contains(scalar) ? String(scalar) : "_"
         }.joined()
-        let ext = (fallbackFilename as NSString).pathExtension
-        let suffix = ext.isEmpty ? "" : ".\(ext)"
         return "\(timestampMillis)_\(sanitized)\(suffix)"
     }
 }
@@ -138,7 +156,7 @@ final class AttachmentUploader {
         originalFilename: String? = nil
     ) async throws -> String {
         let uploadFilename = PublicImageFilename.make(
-            originalFilename: originalFilename, fallbackFilename: filename)
+            originalFilename: originalFilename, fallbackFilename: filename, mimeType: filetype)
         let upload = try await network.uploadOauthFile(
             filename: uploadFilename, filetype: filetype, size: data.count, token: token)
         try Task.checkCancellation()
