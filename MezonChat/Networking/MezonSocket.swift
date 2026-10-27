@@ -66,6 +66,8 @@ enum SocketEvent {
     case aiAgentEnabled(Mezon_Realtime_AIAgentEnabledEvent)
     case streamingJoined(Mezon_Realtime_StreamingJoinedEvent)
     case streamingLeaved(Mezon_Realtime_StreamingLeavedEvent)
+    case streamingEnded(Mezon_Realtime_StreamingEndedEvent)
+    case streamingViewerCount(Mezon_Realtime_StreamingViewerCountEvent)
     case webRTC(Mezon_Realtime_WebrtcSignalingFwd)
     case incomingCallPush(Mezon_Realtime_IncomingCallPush)
 
@@ -474,6 +476,30 @@ final class MezonSocket: NSObject {
             }
         }
         return true
+    }
+
+    func writeStreamingWatch(channelId: Int64, watching: Bool) async throws {
+        var watch = Mezon_Realtime_StreamingWatch()
+        watch.channelID = channelId
+        watch.watching = watching
+        var envelope = Mezon_Realtime_Envelope()
+        envelope.streamingWatch = watch
+        let reply = try await sendAwaitingReply(envelope, timeoutNanoseconds: 5_000_000_000)
+        if case .error(let error) = reply.message {
+            throw MezonError.socketError(error.message)
+        }
+    }
+
+    /// Best effort unwatch before a synchronous logout closes the transport.
+    /// Never queue it: a delayed unwatch could remove a newer viewing session.
+    func sendStreamingUnwatch(channelId: Int64) {
+        guard isConnected else { return }
+        var watch = Mezon_Realtime_StreamingWatch()
+        watch.channelID = channelId
+        watch.watching = false
+        var envelope = Mezon_Realtime_Envelope()
+        envelope.streamingWatch = watch
+        send(envelope)
     }
 
     func sendApiRequest(
@@ -1098,6 +1124,10 @@ final class MezonSocket: NSObject {
             eventPipe.putNext(.streamingJoined(m))
         case .streamingLeavedEvent(let m):
             eventPipe.putNext(.streamingLeaved(m))
+        case .streamingEndedEvent(let m):
+            eventPipe.putNext(.streamingEnded(m))
+        case .streamingViewerCountEvent(let m):
+            eventPipe.putNext(.streamingViewerCount(m))
         case .webrtcSignalingFwd(let m):
             eventPipe.putNext(.webRTC(m))
         case .incomingCallPush(let m):

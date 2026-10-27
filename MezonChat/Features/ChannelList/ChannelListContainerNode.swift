@@ -196,7 +196,6 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     private func applyChannelListStateTransition(to newState: ChannelListState) {
         let prevState = state
-
         if let msg = newState.errorMessage, msg != prevState.errorMessage {
 
         }
@@ -751,6 +750,8 @@ final class ChannelListContainerNode: ASDisplayNode {
                         newSelected: new.selectedChannelId,
                         prevVoice: prev.voiceUsersByChannel,
                         newVoice: new.voiceUsersByChannel,
+                        prevStreamCounts: prev.streamViewerCounts,
+                        newStreamCounts: new.streamViewerCounts,
                         prevBuzz: prev.buzzChannelIds,
                         newBuzz: new.buzzChannelIds
                     ) {
@@ -788,6 +789,8 @@ final class ChannelListContainerNode: ASDisplayNode {
                     newSelected: new.selectedChannelId,
                     prevVoice: prev.voiceUsersByChannel,
                     newVoice: new.voiceUsersByChannel,
+                    prevStreamCounts: prev.streamViewerCounts,
+                    newStreamCounts: new.streamViewerCounts,
                     prevBuzz: prev.buzzChannelIds,
                     newBuzz: new.buzzChannelIds
                 ) {
@@ -1021,6 +1024,8 @@ final class ChannelListContainerNode: ASDisplayNode {
         newSelected: Int64?,
         prevVoice: [Int64: [String]],
         newVoice: [Int64: [String]],
+        prevStreamCounts: [Int64: Int],
+        newStreamCounts: [Int64: Int],
         prevBuzz: Set<Int64>,
         newBuzz: Set<Int64>
     ) -> Bool {
@@ -1028,6 +1033,7 @@ final class ChannelListContainerNode: ASDisplayNode {
             old: old, new: new,
             prevSelected: prevSelected, newSelected: newSelected,
             prevVoice: prevVoice, newVoice: newVoice,
+            prevStreamCounts: prevStreamCounts, newStreamCounts: newStreamCounts,
             prevBuzz: prevBuzz, newBuzz: newBuzz
         )
     }
@@ -1072,6 +1078,8 @@ final class ChannelListContainerNode: ASDisplayNode {
         newSelected: Int64?,
         prevVoice: [Int64: [String]],
         newVoice: [Int64: [String]],
+        prevStreamCounts: [Int64: Int],
+        newStreamCounts: [Int64: Int],
         prevBuzz: Set<Int64>,
         newBuzz: Set<Int64>
     ) -> Bool {
@@ -1079,6 +1087,8 @@ final class ChannelListContainerNode: ASDisplayNode {
         switch (old, new) {
         case let (.channel(o, _), .channel(n, _)):
             guard o.channelID == n.channelID else { return false }
+            if o.type == MezonConstants.ChannelType.streaming.rawValue,
+               prevStreamCounts[o.channelID] != newStreamCounts[n.channelID] { return false }
             if Self.voiceChannelTypes.contains(o.type) {
                 let oActive = !(prevVoice[o.channelID] ?? []).isEmpty
                 let nActive = !(newVoice[n.channelID] ?? []).isEmpty
@@ -1143,6 +1153,8 @@ final class ChannelListContainerNode: ASDisplayNode {
                 newSelected: new.selectedChannelId,
                 prevVoice: prev.voiceUsersByChannel,
                 newVoice: new.voiceUsersByChannel,
+                prevStreamCounts: prev.streamViewerCounts,
+                newStreamCounts: new.streamViewerCounts,
                 prevBuzz: prev.buzzChannelIds,
                 newBuzz: new.buzzChannelIds
             ) {
@@ -1201,6 +1213,8 @@ final class ChannelListContainerNode: ASDisplayNode {
         newSelected: Int64?,
         prevVoice: [Int64: [String]],
         newVoice: [Int64: [String]],
+        prevStreamCounts: [Int64: Int],
+        newStreamCounts: [Int64: Int],
         prevBuzz: Set<Int64>,
         newBuzz: Set<Int64>
     ) -> Bool {
@@ -1208,6 +1222,8 @@ final class ChannelListContainerNode: ASDisplayNode {
         switch (old, new) {
         case let (.channel(o, _), .channel(n, _)):
             guard o.channelID == n.channelID else { return true }
+            if o.type == MezonConstants.ChannelType.streaming.rawValue,
+               prevStreamCounts[o.channelID] != newStreamCounts[n.channelID] { return true }
             if Self.voiceChannelTypes.contains(o.type) {
                 let oActive = !(prevVoice[o.channelID] ?? []).isEmpty
                 let nActive = !(newVoice[n.channelID] ?? []).isEmpty
@@ -1219,10 +1235,11 @@ final class ChannelListContainerNode: ASDisplayNode {
             return threadItemVisuallyChanged(o, n, prevSelected: prevSelected, newSelected: newSelected)
         case let (.voiceMembersCollapsed(c1, u1), .voiceMembersCollapsed(c2, u2)):
             guard c1.channelID == c2.channelID else { return true }
+            if c1.type == MezonConstants.ChannelType.streaming.rawValue,
+               prevStreamCounts[c1.channelID] != newStreamCounts[c2.channelID] { return true }
             return u1 != u2
         case let (.voiceMemberExpanded(c1, id1), .voiceMemberExpanded(c2, id2)):
-            guard c1.channelID == c2.channelID else { return true }
-            return id1 != id2
+            return c1.channelID != c2.channelID || id1 != id2
         default:
             return true
         }
@@ -1320,6 +1337,8 @@ final class ChannelListContainerNode: ASDisplayNode {
                     newSelected: new.selectedChannelId,
                     prevVoice: prev.voiceUsersByChannel,
                     newVoice: new.voiceUsersByChannel,
+                    prevStreamCounts: prev.streamViewerCounts,
+                    newStreamCounts: new.streamViewerCounts,
                     prevBuzz: prev.buzzChannelIds,
                     newBuzz: new.buzzChannelIds
                 ) {
@@ -1331,6 +1350,8 @@ final class ChannelListContainerNode: ASDisplayNode {
                         newSelected: new.selectedChannelId,
                         prevVoice: prev.voiceUsersByChannel,
                         newVoice: new.voiceUsersByChannel,
+                        prevStreamCounts: prev.streamViewerCounts,
+                        newStreamCounts: new.streamViewerCounts,
                         prevBuzz: prev.buzzChannelIds,
                         newBuzz: new.buzzChannelIds
                     ) {
@@ -2454,6 +2475,12 @@ final class ChannelListContainerNode: ASDisplayNode {
         }
     }
 
+    private func streamViewerCount(for channel: Mezon_Api_ChannelDescription) -> Int? {
+        guard channel.type == MezonConstants.ChannelType.streaming.rawValue else { return nil }
+        let members = state.voiceUsersByChannel[channel.channelID] ?? []
+        return members.isEmpty ? nil : state.streamViewerCounts[channel.channelID] ?? max(0, members.count - 1)
+    }
+
     private func performVoiceMemberRowsReload() {
         guard tableIsInWindow, !pendingVisibleReconcile else { return }
         guard leadingSectionSurgeryIsSafe(committedLeadingSections: leadingTableSectionsCount) else {
@@ -2578,8 +2605,9 @@ extension ChannelListContainerNode: ASTableDataSource {
         case .channel(let ch, let inFav):
             let hasVoiceMembers = Self.voiceChannelTypes.contains(ch.type)
                 && !(state.voiceUsersByChannel[ch.channelID] ?? []).isEmpty
+            let viewerCount = streamViewerCount(for: ch)
             return {
-                let node = ChannelItemCellNode(channel: ch, isSelected: isSelected, isVoiceActive: hasVoiceMembers, hasBuzz: hasBuzz)
+                let node = ChannelItemCellNode(channel: ch, isSelected: isSelected, isVoiceActive: hasVoiceMembers, hasBuzz: hasBuzz, viewerCount: viewerCount)
                 node.onLongPress = { [weak self] in
                     self?.interaction.onLongPressChannel(ch)
                 }
@@ -2593,8 +2621,10 @@ extension ChannelListContainerNode: ASTableDataSource {
                 }
                 return node
             }
-        case .voiceMembersCollapsed(_, let userIds):
-            let totalCount = userIds.count
+        case .voiceMembersCollapsed(let ch, let userIds):
+            let totalCount = ch.type == MezonConstants.ChannelType.streaming.rawValue && !userIds.isEmpty
+                ? (state.streamViewerCounts[ch.channelID] ?? max(0, userIds.count - 1)) + 1
+                : userIds.count
             let visible = Array(userIds.prefix(5))
             let resolver = voiceMemberResolver
             let members: [VoiceMemberDisplay] = visible.compactMap { resolver?($0) }

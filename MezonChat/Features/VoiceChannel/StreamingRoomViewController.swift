@@ -1,4 +1,5 @@
 import UIKit
+import AVKit
 
 final class StreamingRoomViewController: ViewController {
 
@@ -13,30 +14,41 @@ final class StreamingRoomViewController: ViewController {
     private var channelDescriptionObserver: NSObjectProtocol?
     private var cachedAvatarURL: String?
     private var backgroundLoadToken = 0
-    private var isLoadingBackground = false
+    private var requestedBackgroundURL: String?
     private var didFetchRemoteChannel = false
-    private var hadStreamMembers = false
 
+    private let playbackView = StreamingPlaybackView(frame: .zero)
     private let backgroundImageView = UIImageView()
     private let streamBannerView = UIImageView()
     private let placeholderView = UIImageView()
     private let statusLabel = UILabel()
     private let membersContainer = UIView()
     private let membersOverflowLabel = UILabel()
+    private var visibleViewerIDs: [Int64] = []
+    private var viewerAvatarViews: [Int64: StreamingViewerAvatarView] = [:]
+    private var membersWidthConstraint: NSLayoutConstraint?
+    private var membersRefreshWorkItem: DispatchWorkItem?
+    private var displayedViewerCount: Int?
     private let headerBar = UIView()
     private let bottomChrome = UIView()
     private let headerRow = UIStackView()
     private let footerRow = UIStackView()
     private let minimizeButton = UIButton(type: .custom)
     private let titleLabel = UILabel()
+    private let viewerCountLabel = UILabel()
+    private let liveBadgeLabel = UILabel()
+    private let speakerButton = UIButton(type: .custom)
+    private let speakerRouteIcon = UIImageView()
+    private let qualityButton = UIButton(type: .custom)
+    private let outputPicker = AVRoutePickerView()
+    private let bufferingIndicator = UIActivityIndicatorView(style: .large)
+    private var showsViewers = true
     private let chatButton = UIButton(type: .custom)
     private let leaveButton = UIButton(type: .custom)
     private var bottomChromeBottomConstraint: NSLayoutConstraint?
-    private var membersBottomConstraint: NSLayoutConstraint?
 
     private static let streamBannerSize: CGFloat = 240
     private static let bottomChromeHeight: CGFloat = 50
-    private static let membersBottomOffset: CGFloat = 88
 
     private static let memberAvatarSize: CGFloat = 40
     private static let memberOverlap: CGFloat = 10
@@ -61,12 +73,13 @@ final class StreamingRoomViewController: ViewController {
 
     override func loadDisplayNode() {
         let node = ASDisplayNode()
-        node.backgroundColor = UIColor.theme.primary
+        node.backgroundColor = .black
         self.displayNode = node
         self.displayNodeDidLoad()
     }
 
     deinit {
+        membersRefreshWorkItem?.cancel()
         if let presenceObserver {
             NotificationCenter.default.removeObserver(presenceObserver)
         }
@@ -77,12 +90,13 @@ final class StreamingRoomViewController: ViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = UIColor.theme.primary
+        view.backgroundColor = .black
 
         backgroundImageView.translatesAutoresizingMaskIntoConstraints = false
         backgroundImageView.contentMode = .scaleAspectFit
         backgroundImageView.clipsToBounds = true
-        backgroundImageView.isHidden = true
+        backgroundImageView.image = StreamingChannelBackground.defaultPosterImage
+        backgroundImageView.isHidden = false
 
         streamBannerView.translatesAutoresizingMaskIntoConstraints = false
         streamBannerView.contentMode = .scaleAspectFit
@@ -98,7 +112,7 @@ final class StreamingRoomViewController: ViewController {
 
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
         statusLabel.font = .systemFont(ofSize: 16, weight: .medium)
-        statusLabel.textColor = UIColor.theme.textDisabled
+        statusLabel.textColor = .white
         statusLabel.textAlignment = .center
         statusLabel.numberOfLines = 2
         statusLabel.text = NSLocalizedString(
@@ -109,21 +123,34 @@ final class StreamingRoomViewController: ViewController {
             comment: "")
 
         membersContainer.translatesAutoresizingMaskIntoConstraints = false
+        membersWidthConstraint = membersContainer.widthAnchor.constraint(equalToConstant: 0)
+        membersWidthConstraint?.isActive = true
 
-        membersOverflowLabel.translatesAutoresizingMaskIntoConstraints = false
-        membersOverflowLabel.font = .systemFont(ofSize: 14, weight: .semibold)
-        membersOverflowLabel.textColor = UIColor.theme.textStrong
+        membersOverflowLabel.font = .monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+        membersOverflowLabel.textAlignment = .center
+        membersOverflowLabel.adjustsFontSizeToFitWidth = true
+        membersOverflowLabel.minimumScaleFactor = 0.6
+        membersOverflowLabel.backgroundColor = UIColor(white: 0.12, alpha: 1)
+        membersOverflowLabel.layer.cornerRadius = Self.memberAvatarSize / 2
+        membersOverflowLabel.clipsToBounds = true
+        membersOverflowLabel.layer.borderWidth = 2
+        membersOverflowLabel.layer.borderColor = UIColor.black.cgColor
+        membersOverflowLabel.isAccessibilityElement = true
+        membersContainer.addSubview(membersOverflowLabel)
+        membersOverflowLabel.textColor = .white
         membersOverflowLabel.isHidden = true
 
         styleCircleButton(minimizeButton, systemImage: "chevron.down", pointSize: 18)
         minimizeButton.addTarget(self, action: #selector(minimizeTapped), for: .touchUpInside)
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.font = .systemFont(ofSize: 18, weight: .semibold)
-        titleLabel.textColor = UIColor.theme.textStrong
+        titleLabel.font = .systemFont(ofSize: 16, weight: .semibold)
+        titleLabel.textColor = .white
         titleLabel.text = channel.channelLabel
         titleLabel.numberOfLines = 2
 
+        headerBar.backgroundColor = UIColor.black.withAlphaComponent(0.55)
+        bottomChrome.backgroundColor = UIColor.black.withAlphaComponent(0.55)
         headerBar.translatesAutoresizingMaskIntoConstraints = false
         bottomChrome.translatesAutoresizingMaskIntoConstraints = false
 
@@ -133,6 +160,25 @@ final class StreamingRoomViewController: ViewController {
         headerRow.translatesAutoresizingMaskIntoConstraints = false
         headerRow.addArrangedSubview(minimizeButton)
         headerRow.addArrangedSubview(titleLabel)
+        liveBadgeLabel.text = "LIVE"
+        liveBadgeLabel.textColor = .white
+        liveBadgeLabel.font = .systemFont(ofSize: 10, weight: .bold)
+        liveBadgeLabel.textAlignment = .center
+        liveBadgeLabel.backgroundColor = .systemRed
+        liveBadgeLabel.layer.cornerRadius = 3
+        liveBadgeLabel.clipsToBounds = true
+        liveBadgeLabel.widthAnchor.constraint(equalToConstant: 34).isActive = true
+        liveBadgeLabel.heightAnchor.constraint(equalToConstant: 18).isActive = true
+        headerRow.addArrangedSubview(liveBadgeLabel)
+        viewerCountLabel.font = .systemFont(ofSize: 14, weight: .medium)
+        viewerCountLabel.textColor = .white
+        viewerCountLabel.setContentHuggingPriority(.required, for: .horizontal)
+        headerRow.addArrangedSubview(viewerCountLabel)
+        viewerCountLabel.isUserInteractionEnabled = true
+        viewerCountLabel.accessibilityTraits.insert(.button)
+        viewerCountLabel.accessibilityHint = NSLocalizedString(
+            "streamingRoom.toggleViewers", tableName: nil, bundle: .main, value: "Show or hide viewers", comment: "")
+        viewerCountLabel.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(toggleViewers)))
         headerBar.addSubview(headerRow)
 
         styleCircleButton(chatButton, systemImage: "bubble.left.and.bubble.right.fill", pointSize: 18)
@@ -150,20 +196,63 @@ final class StreamingRoomViewController: ViewController {
         footerRow.alignment = .center
         footerRow.distribution = .equalSpacing
         footerRow.translatesAutoresizingMaskIntoConstraints = false
+        styleCircleButton(speakerButton, systemImage: "speaker.wave.2.fill", pointSize: 18)
+        speakerButton.setImage(nil, for: .normal)
+        speakerRouteIcon.translatesAutoresizingMaskIntoConstraints = false
+        speakerRouteIcon.contentMode = .scaleAspectFit
+        speakerRouteIcon.tintColor = .white
+        speakerRouteIcon.isUserInteractionEnabled = false
+        speakerButton.addSubview(speakerRouteIcon)
+        speakerButton.addTarget(self, action: #selector(speakerTapped), for: .touchUpInside)
+        styleCircleButton(qualityButton, systemImage: "slider.horizontal.3", pointSize: 18)
+        qualityButton.addTarget(self, action: #selector(qualityTapped), for: .touchUpInside)
+        outputPicker.translatesAutoresizingMaskIntoConstraints = false
+        outputPicker.tintColor = .white
+        outputPicker.activeTintColor = .systemGreen
+        outputPicker.prioritizesVideoDevices = false
+        outputPicker.accessibilityLabel = NSLocalizedString(
+            "voiceChannel.audioRouteTitle", tableName: nil, bundle: .main, value: "Audio output", comment: "")
+        bufferingIndicator.translatesAutoresizingMaskIntoConstraints = false
+        bufferingIndicator.color = .white
+        bufferingIndicator.hidesWhenStopped = true
+        footerRow.addArrangedSubview(speakerButton)
+        footerRow.addArrangedSubview(outputPicker)
+        footerRow.addArrangedSubview(qualityButton)
         footerRow.addArrangedSubview(chatButton)
         footerRow.addArrangedSubview(leaveButton)
         bottomChrome.addSubview(footerRow)
 
+        playbackView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(playbackView)
+        NSLayoutConstraint.activate([
+            playbackView.topAnchor.constraint(equalTo: view.topAnchor),
+            playbackView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            playbackView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            playbackView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+        ])
         view.addSubview(backgroundImageView)
         view.addSubview(streamBannerView)
         view.addSubview(placeholderView)
         view.addSubview(statusLabel)
         view.addSubview(membersContainer)
-        view.addSubview(membersOverflowLabel)
         view.addSubview(headerBar)
         view.addSubview(bottomChrome)
+        view.addSubview(bufferingIndicator)
 
         NSLayoutConstraint.activate([
+            speakerButton.widthAnchor.constraint(equalToConstant: 44),
+            speakerButton.heightAnchor.constraint(equalToConstant: 44),
+            speakerRouteIcon.centerXAnchor.constraint(equalTo: speakerButton.centerXAnchor),
+            speakerRouteIcon.centerYAnchor.constraint(equalTo: speakerButton.centerYAnchor),
+            speakerRouteIcon.widthAnchor.constraint(equalToConstant: 18),
+            speakerRouteIcon.heightAnchor.constraint(equalToConstant: 15),
+            outputPicker.widthAnchor.constraint(equalToConstant: 40),
+            outputPicker.heightAnchor.constraint(equalToConstant: 44),
+            qualityButton.widthAnchor.constraint(equalToConstant: 40),
+            qualityButton.heightAnchor.constraint(equalToConstant: 44),
+            membersContainer.bottomAnchor.constraint(equalTo: bottomChrome.topAnchor, constant: -20),
+            bufferingIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            bufferingIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor),
             minimizeButton.widthAnchor.constraint(equalToConstant: 44),
             minimizeButton.heightAnchor.constraint(equalToConstant: 44),
             chatButton.widthAnchor.constraint(equalToConstant: 50),
@@ -212,21 +301,16 @@ final class StreamingRoomViewController: ViewController {
             membersContainer.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             membersContainer.heightAnchor.constraint(equalToConstant: Self.memberAvatarSize + 4),
 
-            membersOverflowLabel.leadingAnchor.constraint(equalTo: membersContainer.trailingAnchor, constant: 8),
-            membersOverflowLabel.centerYAnchor.constraint(equalTo: membersContainer.centerYAnchor),
         ])
 
         bottomChromeBottomConstraint = bottomChrome.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -24)
         bottomChromeBottomConstraint?.isActive = true
 
-        membersBottomConstraint = membersContainer.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -Self.membersBottomOffset)
-        membersBottomConstraint?.isActive = true
-
         view.bringSubviewToFront(headerBar)
         view.bringSubviewToFront(membersContainer)
-        view.bringSubviewToFront(membersOverflowLabel)
         view.bringSubviewToFront(bottomChrome)
 
+        existingPiPOverlay?.prepareForFullScreenRestore()
         bindSession()
         loadStreamBackgroundIfNeeded()
         refreshPlaybackUI()
@@ -240,7 +324,7 @@ final class StreamingRoomViewController: ViewController {
             guard let self else { return }
             let updatedClanId = (notification.userInfo?["clanId"] as? NSNumber)?.int64Value ?? 0
             guard updatedClanId == self.resolvedClanId else { return }
-            self.refreshMembersRow()
+            self.scheduleMembersRefresh()
         }
 
         channelDescriptionObserver = NotificationCenter.default.addObserver(
@@ -264,23 +348,36 @@ final class StreamingRoomViewController: ViewController {
             self.refreshPlaybackUI()
         }
 
-        if let pip = existingPiPOverlay {
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        let pip = StreamingPiPOverlay.shared
+        if pip.isActive, pip.channel?.channelID == streamChannelId {
             pip.prepareForFullScreenRestore()
         }
+        isMinimizingToPiP = false
+        bindSession()
+        refreshPlaybackUI()
+        refreshMembersRow()
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         let bottomInset = view.window?.safeAreaInsets.bottom ?? view.safeAreaInsets.bottom
         bottomChromeBottomConstraint?.constant = -(bottomInset + 24)
-        membersBottomConstraint?.constant = -(bottomInset + Self.membersBottomOffset)
     }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         if isMinimizingToPiP { return }
         if isMovingFromParent || isBeingDismissed {
-            StreamingWebRTCSession.shared.onStreamingStateChanged = nil
+            if StreamingWebRTCSession.shared.activeStreamChannelId == streamChannelId {
+                showPiP()
+            } else {
+                StreamingWebRTCSession.shared.onStreamingStateChanged = nil
+                playbackView.update(session: nil)
+            }
         }
     }
 
@@ -290,33 +387,37 @@ final class StreamingRoomViewController: ViewController {
 
     private func bindSession() {
         StreamingWebRTCSession.shared.onStreamingStateChanged = { [weak self] in
-            self?.refreshPlaybackUI()
+            guard let self else { return }
+            self.refreshPlaybackUI()
+            guard StreamingWebRTCSession.shared.activeStreamChannelId == nil else { return }
+            // Let an in-progress channel switch finish removing its old controller first.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let nav = self.navigationController,
+                      StreamingWebRTCSession.shared.activeStreamChannelId == nil else { return }
+                Self.endStream(context: self.context, clanId: self.resolvedClanId,
+                               channelId: self.streamChannelId, navigationController: nav)
+            }
         }
     }
 
     private func refreshPlaybackUI() {
         let session = StreamingWebRTCSession.shared
+        playbackView.update(session: session)
         let isActive = session.isStreaming
-        let avatarURL = resolvedStreamChannelAvatarURL()
-        let showBackground = isActive && (backgroundImageView.image != nil || !avatarURL.isEmpty)
-
-        backgroundImageView.isHidden = !showBackground
+        backgroundImageView.isHidden = session.hasVideoFrames
         streamBannerView.isHidden = true
         placeholderView.isHidden = true
-        statusLabel.isHidden = isActive
+        statusLabel.isHidden = isActive || session.isBuffering
+        if session.isBuffering { bufferingIndicator.startAnimating() }
+        else { bufferingIndicator.stopAnimating() }
+        refreshAudioOutputButton()
+        qualityButton.accessibilityLabel = NSLocalizedString(
+            "streamingRoom.quality", tableName: nil, bundle: .main, value: "Quality", comment: "") + ": " + session.quality.title
+        statusLabel.text = session.activeStreamChannelId == streamChannelId
+            ? NSLocalizedString("streamingRoom.connecting", tableName: nil, bundle: .main, value: "Connecting…", comment: "")
+            : NSLocalizedString("streamingRoom.noDisplay", tableName: nil, bundle: .main, value: "Stream is not available", comment: "")
 
-        if backgroundImageView.image == nil && !isLoadingBackground {
-            loadStreamBackgroundIfNeeded()
-        }
-
-        if !isActive {
-            statusLabel.text = NSLocalizedString(
-                "streamingRoom.noDisplay",
-                tableName: nil,
-                bundle: .main,
-                value: "Stream is not available",
-                comment: "")
-        }
+        loadStreamBackgroundIfNeeded()
     }
 
     private func resolvedStreamChannelAvatarURL() -> String {
@@ -347,43 +448,31 @@ final class StreamingRoomViewController: ViewController {
 
     private func loadStreamBackgroundIfNeeded() {
         let raw = resolvedStreamChannelAvatarURL()
+        guard requestedBackgroundURL != raw else { return }
+        requestedBackgroundURL = raw
+        backgroundLoadToken &+= 1
+        let token = backgroundLoadToken
+        backgroundImageView.image = StreamingChannelBackground.defaultPosterImage
         guard !raw.isEmpty else {
             fetchRemoteChannelAvatarIfNeeded()
             return
         }
-        guard !isLoadingBackground else { return }
-        isLoadingBackground = true
-        backgroundLoadToken += 1
-        let token = backgroundLoadToken
         let scale = UIScreen.main.scale
         let width = max(Int(view.bounds.width * scale), 720)
         let height = max(Int(view.bounds.height * scale), 720)
         StreamingChannelBackground.loadImage(raw: raw, width: width, height: height) { [weak self] image in
             guard let self, token == self.backgroundLoadToken else { return }
-            self.isLoadingBackground = false
-            self.backgroundImageView.image = image
+            self.backgroundImageView.image = image ?? StreamingChannelBackground.defaultPosterImage
             self.refreshPlaybackUI()
         }
     }
 
-    private func streamMemberUserIds() -> [String] {
-        guard let list = context.engine.clanData.getStreamUsers(clanId: resolvedClanId) else { return [] }
-        var userIds: [String] = []
-        for entry in list.voiceChannelUsers where entry.channelID == channel.channelID {
-            for uid in entry.userIds where !uid.isEmpty && Int64(uid) != nil && !userIds.contains(uid) {
-                userIds.append(uid)
-            }
-        }
-        return userIds
-    }
-
-    private func resolveStreamMember(_ uid: String) -> VoiceMemberDisplay? {
-        guard let uidInt = Int64(uid) else { return nil }
+    private func resolveStreamMember(
+        _ entry: Mezon_Api_StreamingChannelUser, clanMember member: ClanMemberRecord?
+    ) -> VoiceMemberDisplay {
+        let uid = String(entry.userID)
         let profile = context.account.postbox.read { $0.getProfile(userId: uid) }
-        let member = context.account.postbox.read {
-            $0.getClanMembers(clanId: self.resolvedClanId)
-        }.first(where: { $0.userId == uidInt })
-
+        let fallbackName = entry.participant.isEmpty ? uid : entry.participant
         let name: String
         if let m = member {
             if !m.clanNick.isEmpty {
@@ -393,12 +482,12 @@ final class StreamingRoomViewController: ViewController {
             } else if !m.username.isEmpty {
                 name = m.username
             } else {
-                return nil
+                name = fallbackName
             }
         } else if let profile {
             name = (profile.displayName?.isEmpty == false ? profile.displayName : nil) ?? profile.username
         } else {
-            return nil
+            name = fallbackName
         }
 
         let avatar: String?
@@ -419,115 +508,187 @@ final class StreamingRoomViewController: ViewController {
         return VoiceMemberDisplay(name: name, avatarURL: avatar)
     }
 
+    private func scheduleMembersRefresh() {
+        // Coalesce bursts without postponing updates indefinitely during a busy stream.
+        guard membersRefreshWorkItem == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            self?.membersRefreshWorkItem = nil
+            self?.refreshMembersRow()
+        }
+        membersRefreshWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
+    }
+
     private func refreshMembersRow() {
-        membersContainer.subviews.forEach { $0.removeFromSuperview() }
-
-        let memberIds = streamMemberUserIds()
-        if !memberIds.isEmpty {
-            hadStreamMembers = true
-        } else if hadStreamMembers {
-            hadStreamMembers = false
-            Self.endStream(
-                context: context,
-                clanId: resolvedClanId,
-                channelId: channel.channelID,
-                navigationController: navigationController
-            )
-            return
+        membersRefreshWorkItem?.cancel()
+        membersRefreshWorkItem = nil
+        let entries = context.engine.clanData.streamMembers(clanId: resolvedClanId, channelId: streamChannelId)
+        let viewerCount = context.engine.clanData.streamViewerCount(clanId: resolvedClanId, channelId: streamChannelId)
+        let viewers = entries.dropFirst()
+        let joinedIDs = Set(viewers.map(\.userID))
+        // Preserve the visible order when snapshots arrive in a different server order.
+        var nextIDs = visibleViewerIDs.filter { joinedIDs.contains($0) }
+        for viewer in viewers where nextIDs.count < Self.maxVisibleMembers {
+            if !nextIDs.contains(viewer.userID) { nextIDs.append(viewer.userID) }
+        }
+        let visibleIDs = Set(nextIDs)
+        var requestedIDs = visibleIDs
+        if let publisher = entries.first { requestedIDs.insert(publisher.userID) }
+        // Read clan members once and resolve profiles only for the publisher and visible avatars.
+        let clanMembers = context.account.postbox.read { $0.getClanMembers(clanId: self.resolvedClanId) }
+        var membersByID: [Int64: ClanMemberRecord] = [:]
+        for member in clanMembers where requestedIDs.contains(member.userId) {
+            membersByID[member.userId] = member
+        }
+        if let publisher = entries.first {
+            let display = resolveStreamMember(publisher, clanMember: membersByID[publisher.userID])
+            let title = display.name + "\n" + channel.channelLabel
+            if titleLabel.text != title { titleLabel.text = title }
+        } else if titleLabel.text != channel.channelLabel { titleLabel.text = channel.channelLabel }
+        liveBadgeLabel.isHidden = entries.isEmpty
+        if displayedViewerCount != viewerCount {
+            displayedViewerCount = viewerCount
+            let count = NSMutableAttributedString(attachment: {
+                let attachment = NSTextAttachment()
+                attachment.image = UIImage(systemName: "eye")?.withTintColor(.white)
+                attachment.bounds = CGRect(x: 0, y: -2, width: 16, height: 12)
+                return attachment
+            }())
+            count.append(NSAttributedString(string: " \(viewerCount)"))
+            viewerCountLabel.attributedText = count
+            viewerCountLabel.accessibilityLabel = String(format: NSLocalizedString(
+                "streamingRoom.viewerCount", tableName: nil, bundle: .main, value: "%d viewers", comment: ""), viewerCount)
         }
 
-        let members = memberIds.compactMap { resolveStreamMember($0) }
-        membersOverflowLabel.isHidden = true
-
-        guard !members.isEmpty else {
-            membersContainer.isHidden = true
-            return
+        for id in visibleViewerIDs where !visibleIDs.contains(id) {
+            viewerAvatarViews.removeValue(forKey: id)?.removeFromSuperview()
         }
-
-        membersContainer.isHidden = false
-        let avatarSize = Self.memberAvatarSize
-        let overlap = Self.memberOverlap
-        let visible = Array(members.prefix(Self.maxVisibleMembers))
-        let overflowCount = members.count - visible.count
-
-        for (index, member) in visible.enumerated() {
-            let container = TextAvatarView(size: avatarSize)
-            container.translatesAutoresizingMaskIntoConstraints = false
-            container.layer.borderWidth = 2
-            container.layer.borderColor = UIColor.theme.secondary.cgColor
-
-            let imageView = UIImageView()
-            imageView.translatesAutoresizingMaskIntoConstraints = false
-            imageView.contentMode = .scaleAspectFill
-            imageView.clipsToBounds = true
-            imageView.layer.cornerRadius = avatarSize / 2
-
-            if let av = member.avatarURL, !av.isEmpty {
-                let px = 100
-                let proxy = ImgproxyURL.iconURL(from: av, width: px, height: px)
-                container.showSkeleton()
-                ImageCache.shared.loadAvatar(urlString: proxy) { [weak container] img in
-                    imageView.image = img
-                    if img != nil {
-                        container?.showImageMode()
-                    } else {
-                        container?.showPlaceholder()
-                    }
-                }
-            } else {
-                container.showPlaceholder()
+        let size = Self.memberAvatarSize
+        let step = size - Self.memberOverlap
+        for entry in viewers where visibleIDs.contains(entry.userID) {
+            let avatar: StreamingViewerAvatarView
+            if let existing = viewerAvatarViews[entry.userID] { avatar = existing }
+            else {
+                avatar = StreamingViewerAvatarView(size: size)
+                viewerAvatarViews[entry.userID] = avatar
+                membersContainer.addSubview(avatar)
             }
-
-            container.addSubview(imageView)
-            membersContainer.addSubview(container)
-
-            let xOffset = CGFloat(index) * (avatarSize - overlap)
-            NSLayoutConstraint.activate([
-                container.leadingAnchor.constraint(equalTo: membersContainer.leadingAnchor, constant: xOffset),
-                container.centerYAnchor.constraint(equalTo: membersContainer.centerYAnchor),
-                container.widthAnchor.constraint(equalToConstant: avatarSize),
-                container.heightAnchor.constraint(equalToConstant: avatarSize),
-                imageView.topAnchor.constraint(equalTo: container.topAnchor),
-                imageView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-                imageView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-                imageView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            ])
+            avatar.update(member: resolveStreamMember(entry, clanMember: membersByID[entry.userID]))
         }
-
-        let totalItems = visible.count + (overflowCount > 0 ? 1 : 0)
-        let totalWidth = avatarSize + CGFloat(max(totalItems - 1, 0)) * (avatarSize - overlap)
-        membersContainer.constraints.filter { $0.firstAttribute == .width }.forEach { membersContainer.removeConstraint($0) }
-        membersContainer.widthAnchor.constraint(equalToConstant: totalWidth).isActive = true
-
-        if overflowCount > 0 {
-            membersOverflowLabel.isHidden = false
-            membersOverflowLabel.text = "+\(overflowCount)"
+        for (index, id) in nextIDs.enumerated() {
+            guard let avatar = viewerAvatarViews[id] else { continue }
+            avatar.frame = CGRect(x: CGFloat(index) * step, y: 2, width: size, height: size)
+            membersContainer.bringSubviewToFront(avatar)
         }
+        visibleViewerIDs = nextIDs
+        let overflow = max(0, viewerCount - nextIDs.count)
+        var width = nextIDs.isEmpty ? 0 : size + CGFloat(nextIDs.count - 1) * step
+        membersOverflowLabel.isHidden = overflow == 0
+        if overflow > 0 {
+            let text = "+" + NumberFormatter.localizedString(from: NSNumber(value: overflow), number: .decimal)
+            if membersOverflowLabel.text != text { membersOverflowLabel.text = text }
+            membersOverflowLabel.accessibilityLabel = String(format: NSLocalizedString(
+                "streamingRoom.moreViewers", tableName: nil, bundle: .main,
+                value: "%d more viewers", comment: ""), overflow)
+            let badgeWidth = max(size, min(88, membersOverflowLabel.intrinsicContentSize.width + 16))
+            membersOverflowLabel.frame = CGRect(x: CGFloat(nextIDs.count) * step, y: 2, width: badgeWidth, height: size)
+            membersContainer.bringSubviewToFront(membersOverflowLabel)
+            width = membersOverflowLabel.frame.maxX
+        }
+        if membersWidthConstraint?.constant != width { membersWidthConstraint?.constant = width }
+        membersContainer.isHidden = !showsViewers || nextIDs.isEmpty
+    }
+
+    private func refreshAudioOutputButton() {
+        let audio = AVAudioSession.sharedInstance()
+        let port = audio.currentRoute.outputs.first
+        let speaker = StreamingWebRTCSession.shared.isSpeakerOutput
+        let image: UIImage?
+        let name: String
+        switch port?.portType {
+        case .builtInSpeaker:
+            image = UIImage(named: "externalSpeaker")?.withRenderingMode(.alwaysTemplate)
+            name = NSLocalizedString("streamingRoom.speaker", tableName: nil, bundle: .main,
+                                     value: "Speaker", comment: "")
+        case .builtInReceiver:
+            image = UIImage(named: "internalSpeaker")?.withRenderingMode(.alwaysTemplate)
+            name = NSLocalizedString("streamingRoom.receiver", tableName: nil, bundle: .main,
+                                     value: "Receiver", comment: "")
+        case .headphones, .headsetMic, .bluetoothA2DP, .bluetoothHFP, .bluetoothLE:
+            image = UIImage(systemName: "headphones", withConfiguration:
+                UIImage.SymbolConfiguration(pointSize: 12, weight: .medium))?.withRenderingMode(.alwaysTemplate)
+            name = port?.portName ?? ""
+        default:
+            image = port == nil
+                ? UIImage(named: "internalSpeaker")?.withRenderingMode(.alwaysTemplate)
+                : UIImage(systemName: "airplayaudio", withConfiguration:
+                    UIImage.SymbolConfiguration(pointSize: 12, weight: .medium))?.withRenderingMode(.alwaysTemplate)
+            name = port?.portName ?? NSLocalizedString(
+                "voiceChannel.audioRouteTitle", tableName: nil, bundle: .main, value: "Audio output", comment: "")
+        }
+        speakerRouteIcon.image = image
+        speakerButton.backgroundColor = speaker ? UIColor.white.withAlphaComponent(0.18) : UIColor.black.withAlphaComponent(0.45)
+        speakerButton.isSelected = speaker
+        speakerButton.accessibilityLabel = NSLocalizedString(
+            "voiceChannel.audioRouteTitle", tableName: nil, bundle: .main, value: "Audio output", comment: "")
+        speakerButton.accessibilityValue = name
+        speakerButton.accessibilityHint = NSLocalizedString(
+            speaker ? "streamingRoom.switchToReceiver" : "streamingRoom.switchToSpeaker",
+            tableName: nil, bundle: .main, value: speaker ? "Switch to receiver" : "Switch to speaker", comment: "")
+    }
+
+    @objc private func speakerTapped() {
+        StreamingWebRTCSession.shared.toggleSpeakerOutput()
+    }
+
+    @objc private func qualityTapped() {
+        guard presentedViewController == nil else { return }
+        let session = StreamingWebRTCSession.shared
+        let sheet = StreamingQualitySheetController(
+            selectedQuality: session.quality,
+            defaultQuality: session.defaultQuality,
+            onSelect: { quality in
+                if session.quality != quality { session.setQuality(quality) }
+            },
+            onSaveDefault: { session.setDefaultQuality(session.quality) }
+        )
+        present(sheet, animated: false)
+    }
+
+    @objc private func toggleViewers() {
+        showsViewers.toggle()
+        refreshMembersRow()
     }
 
     private func styleCircleButton(_ button: UIButton, systemImage: String, pointSize: CGFloat) {
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.backgroundColor = UIColor.theme.tertiary
+        button.backgroundColor = UIColor.black.withAlphaComponent(0.45)
         button.layer.cornerRadius = 22
         button.clipsToBounds = true
-        button.tintColor = UIColor.theme.textStrong
+        button.tintColor = .white
         let config = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .semibold)
         button.setImage(UIImage(systemName: systemImage, withConfiguration: config), for: .normal)
     }
 
-    @objc private func minimizeTapped() {
+    private func showPiP() {
         StreamingWebRTCSession.shared.onStreamingStateChanged = nil
+        playbackView.update(session: nil)
         isMinimizingToPiP = true
         StreamingPiPOverlay.shared.show(
             context: context,
             channel: channel,
             parentChannelName: parentChannelName
         )
+    }
+
+    @objc private func minimizeTapped() {
+        showPiP()
         navigationController?.popViewController(animated: true)
     }
 
     @objc private func chatTapped() {
         guard let nav = navigationController else { return }
+        showPiP()
         if let chatVC = nav.viewControllers.last(where: { ($0 as? ChatViewController)?.channel.channelID == channel.channelID }) {
             nav.popToViewController(chatVC, animated: true)
             return
@@ -538,7 +699,7 @@ final class StreamingRoomViewController: ViewController {
             context: context,
             parentName: parentChannelName
         )
-        nav.pushViewController(chatVC, animated: true)
+        nav.setViewControllers(nav.viewControllers.filter { $0 !== self } + [chatVC], animated: true)
     }
 
     @objc private func leaveTapped() {
@@ -557,12 +718,14 @@ final class StreamingRoomViewController: ViewController {
         channelId: Int64,
         navigationController: UINavigationController?
     ) {
-        if let userIdStr = context.currentUser?.id, let userId = Int64(userIdStr) {
-            context.engine.clanData.applyStreamLeaved(clanId: clanId, channelId: channelId, userId: userId)
+        let session = StreamingWebRTCSession.shared
+        if session.activeStreamChannelId == channelId {
+            session.onStreamingStateChanged = nil
+            session.leave()
+        } else if session.activeStreamChannelId == nil {
+            session.onStreamingStateChanged = nil
         }
-        StreamingWebRTCSession.shared.onStreamingStateChanged = nil
-        StreamingWebRTCSession.shared.leave()
-        if StreamingPiPOverlay.shared.isActive {
+        if StreamingPiPOverlay.shared.isActive, StreamingPiPOverlay.shared.channel?.channelID == channelId {
             StreamingPiPOverlay.shared.dismiss(disconnectSession: false)
         }
         guard let nav = navigationController ?? findNavigationControllerForStreamExit() else { return }
@@ -610,26 +773,9 @@ final class StreamingRoomViewController: ViewController {
         context: AccountContext,
         navigationController: UINavigationController
     ) {
-        guard let userIdStr = context.currentUser?.id, let userId = Int64(userIdStr) else { return }
-
-        var channelsToLeave = Set<Int64>()
-        if let activeId = StreamingWebRTCSession.shared.activeStreamChannelId, activeId != targetChannelId {
-            channelsToLeave.insert(activeId)
-        }
         let pip = StreamingPiPOverlay.shared
-        if let pipChannelId = pip.channel?.channelID, pipChannelId != targetChannelId {
-            channelsToLeave.insert(pipChannelId)
-        }
-        for vc in navigationController.viewControllers {
-            guard let streamVC = vc as? StreamingRoomViewController, streamVC.streamChannelId != targetChannelId else { continue }
-            channelsToLeave.insert(streamVC.streamChannelId)
-        }
-        for channelId in channelsToLeave {
-            context.engine.clanData.applyStreamLeaved(clanId: clanId, channelId: channelId, userId: userId)
-        }
-
         if pip.isActive, pip.channel?.channelID != targetChannelId {
-            pip.dismiss(disconnectSession: true)
+            pip.dismiss(disconnectSession: false)
         } else if StreamingWebRTCSession.shared.activeStreamChannelId != nil,
                   StreamingWebRTCSession.shared.activeStreamChannelId != targetChannelId {
             StreamingWebRTCSession.shared.disconnect()
@@ -642,5 +788,425 @@ final class StreamingRoomViewController: ViewController {
         if filtered.count != navigationController.viewControllers.count {
             navigationController.setViewControllers(filtered, animated: false)
         }
+    }
+}
+
+private final class StreamingViewerAvatarView: UIView {
+    private let placeholder: TextAvatarView
+    private let imageView = UIImageView()
+    private var displayedName: String?
+    private var requestedURL: String?
+
+    init(size: CGFloat) {
+        placeholder = TextAvatarView(size: size)
+        super.init(frame: CGRect(x: 0, y: 0, width: size, height: size))
+        layer.cornerRadius = size / 2
+        clipsToBounds = true
+        placeholder.frame = bounds
+        placeholder.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        addSubview(placeholder)
+        imageView.frame = bounds
+        imageView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        imageView.contentMode = .scaleAspectFill
+        addSubview(imageView)
+        layer.borderWidth = 2
+        layer.borderColor = UIColor.black.cgColor
+        isAccessibilityElement = true
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func update(member: VoiceMemberDisplay) {
+        if displayedName != member.name {
+            displayedName = member.name
+            placeholder.configure(username: member.name)
+            accessibilityLabel = member.name
+        }
+        let url = member.avatarURL.flatMap { $0.isEmpty ? nil : ImgproxyURL.iconURL(from: $0, width: 100, height: 100) }
+        guard requestedURL != url else { return }
+        requestedURL = url
+        imageView.image = nil
+        guard let url else { return }
+        // Keep initials visible while loading; unchanged users keep their existing image.
+        ImageCache.shared.loadAvatar(urlString: url) { [weak self] image in
+            guard let self, self.requestedURL == url else { return }
+            self.imageView.image = image
+        }
+    }
+}
+
+private final class StreamingQualitySheetController: UIViewController, UIGestureRecognizerDelegate {
+    private static let accent = UIColor(red: 0.62, green: 0.54, blue: 1, alpha: 1)
+
+    private let selectedQuality: StreamingQuality
+    private let defaultQuality: StreamingQuality
+    private let onSelect: (StreamingQuality) -> Void
+    private let onSaveDefault: () -> Void
+    private let dimControl = UIControl()
+    private let panel = UIView()
+    private let header = UIView()
+    private let titleLabel = UILabel()
+    private let scrollView = UIScrollView()
+    private let contentStack = UIStackView()
+    private var panelHeight: NSLayoutConstraint?
+    private var didAnimateIn = false
+    private var isClosing = false
+
+    init(
+        selectedQuality: StreamingQuality,
+        defaultQuality: StreamingQuality,
+        onSelect: @escaping (StreamingQuality) -> Void,
+        onSaveDefault: @escaping () -> Void
+    ) {
+        self.selectedQuality = selectedQuality
+        self.defaultQuality = defaultQuality
+        self.onSelect = onSelect
+        self.onSaveDefault = onSaveDefault
+        super.init(nibName: nil, bundle: nil)
+        modalPresentationStyle = .overFullScreen
+        modalPresentationCapturesStatusBarAppearance = true
+        overrideUserInterfaceStyle = .dark
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .clear
+        view.accessibilityViewIsModal = true
+        dimControl.backgroundColor = UIColor.black.withAlphaComponent(0.6)
+        dimControl.alpha = 0
+        dimControl.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
+        panel.backgroundColor = UIColor(white: 0.105, alpha: 1)
+        panel.layer.cornerRadius = 24
+        panel.layer.cornerCurve = .continuous
+        panel.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        panel.layer.borderColor = UIColor.white.withAlphaComponent(0.08).cgColor
+        panel.layer.borderWidth = 1
+        panel.clipsToBounds = true
+        panel.alpha = 0
+        for child in [dimControl, panel] {
+            child.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(child)
+        }
+
+        let handle = UIView()
+        handle.backgroundColor = UIColor.white.withAlphaComponent(0.25)
+        handle.layer.cornerRadius = 2
+        handle.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(handle)
+        header.translatesAutoresizingMaskIntoConstraints = false
+        panel.addSubview(header)
+        titleLabel.text = NSLocalizedString(
+            "streamingRoom.quality", tableName: nil, bundle: .main, value: "Quality", comment: "")
+        titleLabel.font = .systemFont(ofSize: 20, weight: .bold)
+        titleLabel.textColor = .white
+        titleLabel.accessibilityTraits.insert(.header)
+        let subtitle = UILabel()
+        subtitle.text = NSLocalizedString(
+            "streamingRoom.qualityDescription", tableName: nil, bundle: .main,
+            value: "Choose your playback quality", comment: "")
+        subtitle.font = .systemFont(ofSize: 13)
+        subtitle.textColor = UIColor.white.withAlphaComponent(0.5)
+        subtitle.numberOfLines = 0
+        let heading = UIStackView(arrangedSubviews: [titleLabel, subtitle])
+        heading.axis = .vertical
+        heading.spacing = 4
+        heading.translatesAutoresizingMaskIntoConstraints = false
+        header.addSubview(heading)
+        let close = UIButton(type: .system)
+        close.setImage(UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)), for: .normal)
+        close.tintColor = UIColor.white.withAlphaComponent(0.7)
+        close.backgroundColor = UIColor.white.withAlphaComponent(0.06)
+        close.layer.cornerRadius = 18
+        close.accessibilityLabel = NSLocalizedString(
+            "common.close", tableName: nil, bundle: .main, value: "Close", comment: "")
+        close.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
+        close.translatesAutoresizingMaskIntoConstraints = false
+        header.addSubview(close)
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        pan.delegate = self
+        header.addGestureRecognizer(pan)
+        let handlePan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        handlePan.delegate = self
+        handle.isUserInteractionEnabled = true
+        handle.addGestureRecognizer(handlePan)
+
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.showsVerticalScrollIndicator = false
+        scrollView.contentInsetAdjustmentBehavior = .never
+        panel.addSubview(scrollView)
+        contentStack.axis = .vertical
+        contentStack.spacing = 16
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.addSubview(contentStack)
+        let options = UIStackView()
+        options.axis = .vertical
+        options.spacing = 4
+        for (index, quality) in StreamingQuality.allCases.enumerated() {
+            let row = StreamingQualityOptionRow(
+                quality: quality, selected: quality == selectedQuality, accent: Self.accent)
+            row.tag = index
+            row.addTarget(self, action: #selector(qualitySelected(_:)), for: .touchUpInside)
+            options.addArrangedSubview(row)
+        }
+        contentStack.addArrangedSubview(options)
+        contentStack.addArrangedSubview(makeDefaultRow())
+
+        let preferredWidth = panel.widthAnchor.constraint(equalTo: view.widthAnchor)
+        preferredWidth.priority = .defaultHigh
+        let height = panel.heightAnchor.constraint(equalToConstant: 420)
+        height.priority = .defaultHigh
+        panelHeight = height
+        NSLayoutConstraint.activate([
+            dimControl.topAnchor.constraint(equalTo: view.topAnchor),
+            dimControl.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            dimControl.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            dimControl.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            panel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            preferredWidth,
+            panel.widthAnchor.constraint(lessThanOrEqualToConstant: 480),
+            panel.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor),
+            panel.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            panel.topAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
+            height,
+            handle.topAnchor.constraint(equalTo: panel.topAnchor, constant: 10),
+            handle.centerXAnchor.constraint(equalTo: panel.centerXAnchor),
+            handle.widthAnchor.constraint(equalToConstant: 36),
+            handle.heightAnchor.constraint(equalToConstant: 4),
+            header.topAnchor.constraint(equalTo: panel.topAnchor, constant: 28),
+            header.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 20),
+            header.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -20),
+            header.heightAnchor.constraint(greaterThanOrEqualToConstant: 52),
+            heading.leadingAnchor.constraint(equalTo: header.leadingAnchor),
+            heading.topAnchor.constraint(equalTo: header.topAnchor),
+            heading.bottomAnchor.constraint(equalTo: header.bottomAnchor),
+            heading.trailingAnchor.constraint(lessThanOrEqualTo: close.leadingAnchor, constant: -12),
+            close.trailingAnchor.constraint(equalTo: header.trailingAnchor),
+            close.topAnchor.constraint(equalTo: header.topAnchor),
+            close.widthAnchor.constraint(equalToConstant: 36),
+            close.heightAnchor.constraint(equalToConstant: 36),
+            scrollView.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 12),
+            scrollView.leadingAnchor.constraint(equalTo: panel.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: panel.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: panel.safeAreaLayoutGuide.bottomAnchor),
+            contentStack.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+            contentStack.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor, constant: 20),
+            contentStack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor, constant: -20),
+            contentStack.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -18),
+            contentStack.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor, constant: -40),
+        ])
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        let width = max(0, panel.bounds.width - 40)
+        guard width > 0 else { return }
+        let contentHeight = contentStack.systemLayoutSizeFitting(
+            CGSize(width: width, height: UIView.layoutFittingCompressedSize.height),
+            withHorizontalFittingPriority: .required, verticalFittingPriority: .fittingSizeLevel).height
+        let headingHeight = header.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).height
+        let preferredHeight = 28 + max(52, headingHeight) + 12 + contentHeight + 18 + view.safeAreaInsets.bottom
+        if abs((panelHeight?.constant ?? 0) - preferredHeight) > 0.5 {
+            panelHeight?.constant = preferredHeight
+            view.layoutIfNeeded()
+        }
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        guard !didAnimateIn else { return }
+        didAnimateIn = true
+        view.layoutIfNeeded()
+        panel.transform = CGAffineTransform(translationX: 0, y: panel.bounds.height)
+        panel.alpha = 1
+        UIView.animate(withDuration: 0.28, delay: 0, options: [.curveEaseOut]) {
+            self.panel.transform = .identity
+            self.dimControl.alpha = 1
+        } completion: { _ in
+            UIAccessibility.post(notification: .screenChanged, argument: self.titleLabel)
+        }
+    }
+
+    private func makeDefaultRow() -> UIControl {
+        let isDefault = selectedQuality == defaultQuality
+        let row = UIControl()
+        row.backgroundColor = UIColor.white.withAlphaComponent(0.04)
+        row.layer.cornerRadius = 14
+        row.isEnabled = !isDefault
+        row.addTarget(self, action: #selector(saveDefaultTapped), for: .touchUpInside)
+        let title = UILabel()
+        title.text = NSLocalizedString(
+            isDefault ? "streamingRoom.defaultQuality" : "streamingRoom.useAsDefault", tableName: nil, bundle: .main,
+            value: isDefault ? "Default quality" : "Use as default", comment: "")
+        title.font = .systemFont(ofSize: 14, weight: .semibold)
+        title.textColor = .white
+        let detail = UILabel()
+        detail.text = String(format: NSLocalizedString(
+            "streamingRoom.defaultQualityDetail", tableName: nil, bundle: .main,
+            value: "%@ for new streams", comment: ""), selectedQuality.title)
+        detail.font = .systemFont(ofSize: 12)
+        detail.textColor = UIColor.white.withAlphaComponent(0.45)
+        detail.numberOfLines = 0
+        let labels = UIStackView(arrangedSubviews: [title, detail])
+        labels.axis = .vertical
+        labels.spacing = 3
+        labels.isUserInteractionEnabled = false
+        labels.translatesAutoresizingMaskIntoConstraints = false
+        let icon = UIImageView(image: UIImage(systemName: isDefault ? "checkmark.circle.fill" : "arrow.down.to.line"))
+        icon.tintColor = isDefault ? Self.accent : UIColor.white.withAlphaComponent(0.6)
+        icon.contentMode = .scaleAspectFit
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        row.addSubview(labels)
+        row.addSubview(icon)
+        row.isAccessibilityElement = true
+        row.accessibilityLabel = [title.text, detail.text].compactMap { $0 }.joined(separator: ", ")
+        row.accessibilityTraits = isDefault ? [.staticText] : [.button]
+        NSLayoutConstraint.activate([
+            row.heightAnchor.constraint(greaterThanOrEqualToConstant: 58),
+            labels.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 16),
+            labels.topAnchor.constraint(equalTo: row.topAnchor, constant: 12),
+            labels.bottomAnchor.constraint(equalTo: row.bottomAnchor, constant: -12),
+            labels.trailingAnchor.constraint(lessThanOrEqualTo: icon.leadingAnchor, constant: -12),
+            icon.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -16),
+            icon.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 20),
+            icon.heightAnchor.constraint(equalToConstant: 20),
+        ])
+        return row
+    }
+
+    @objc private func qualitySelected(_ sender: UIControl) {
+        guard StreamingQuality.allCases.indices.contains(sender.tag) else { return }
+        let quality = StreamingQuality.allCases[sender.tag]
+        dismissSheet { self.onSelect(quality) }
+    }
+
+    @objc private func saveDefaultTapped() { dismissSheet(after: onSaveDefault) }
+    @objc private func closeTapped() { dismissSheet() }
+
+    private func dismissSheet(after completion: (() -> Void)? = nil) {
+        guard !isClosing else { return }
+        isClosing = true
+        UIView.animate(withDuration: 0.22, delay: 0, options: [.curveEaseIn, .beginFromCurrentState]) {
+            self.panel.transform = CGAffineTransform(translationX: 0, y: self.panel.bounds.height)
+            self.dimControl.alpha = 0
+        } completion: { _ in
+            self.dismiss(animated: false, completion: completion)
+        }
+    }
+
+    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        guard !isClosing else { return }
+        let offset = max(0, gesture.translation(in: view).y)
+        switch gesture.state {
+        case .changed:
+            panel.transform = CGAffineTransform(translationX: 0, y: offset)
+            dimControl.alpha = 1 - min(1, offset / max(panel.bounds.height, 1)) * 0.6
+        case .ended:
+            if offset > 100 || gesture.velocity(in: view).y > 800 { dismissSheet() }
+            else { restorePosition() }
+        case .cancelled, .failed:
+            restorePosition()
+        default: break
+        }
+    }
+
+    private func restorePosition() {
+        UIView.animate(withDuration: 0.2) {
+            self.panel.transform = .identity
+            self.dimControl.alpha = 1
+        }
+    }
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
+        let velocity = pan.velocity(in: view)
+        return !isClosing && velocity.y > abs(velocity.x)
+    }
+
+    override func accessibilityPerformEscape() -> Bool {
+        dismissSheet()
+        return true
+    }
+}
+
+private final class StreamingQualityOptionRow: UIControl {
+    init(quality: StreamingQuality, selected: Bool, accent: UIColor) {
+        super.init(frame: .zero)
+        layer.cornerRadius = 12
+        layer.borderWidth = selected ? 1 : 0
+        layer.borderColor = accent.withAlphaComponent(0.45).cgColor
+        backgroundColor = selected ? accent.withAlphaComponent(0.12) : UIColor.white.withAlphaComponent(0.025)
+        let badge = UILabel()
+        switch quality {
+        case .auto: badge.text = "A"
+        case .high: badge.text = "HQ"
+        case .mid: badge.text = "MQ"
+        case .low: badge.text = "LQ"
+        }
+        badge.font = .systemFont(ofSize: 12, weight: .bold)
+        badge.textAlignment = .center
+        badge.textColor = selected ? accent : UIColor.white.withAlphaComponent(0.65)
+        badge.backgroundColor = selected ? accent.withAlphaComponent(0.12) : UIColor.white.withAlphaComponent(0.05)
+        badge.layer.cornerRadius = 9
+        badge.clipsToBounds = true
+        badge.translatesAutoresizingMaskIntoConstraints = false
+        let title = UILabel()
+        title.text = quality.title
+        title.font = .systemFont(ofSize: 16, weight: selected ? .semibold : .medium)
+        title.textColor = .white
+        let detail = UILabel()
+        let key: String
+        let fallback: String
+        switch quality {
+        case .auto: key = "qualityAutoDetail"; fallback = "Adapts to your connection"
+        case .high: key = "qualityHighDetail"; fallback = "Best picture quality"
+        case .mid: key = "qualityMidDetail"; fallback = "Balanced quality and data"
+        case .low: key = "qualityLowDetail"; fallback = "Uses less data"
+        }
+        detail.text = NSLocalizedString("streamingRoom." + key, tableName: nil, bundle: .main, value: fallback, comment: "")
+        detail.font = .systemFont(ofSize: 12)
+        detail.textColor = UIColor.white.withAlphaComponent(0.45)
+        detail.numberOfLines = 0
+        let labels = UIStackView(arrangedSubviews: [title, detail])
+        labels.axis = .vertical
+        labels.spacing = 3
+        labels.isUserInteractionEnabled = false
+        labels.translatesAutoresizingMaskIntoConstraints = false
+        let check = UIImageView(image: UIImage(systemName: selected ? "checkmark.circle.fill" : "circle"))
+        check.tintColor = selected ? accent : UIColor.white.withAlphaComponent(0.18)
+        check.contentMode = .scaleAspectFit
+        check.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(badge)
+        addSubview(labels)
+        addSubview(check)
+        isAccessibilityElement = true
+        accessibilityLabel = quality.title
+        accessibilityHint = detail.text
+        accessibilityTraits = selected ? [.button, .selected] : [.button]
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 56),
+            badge.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            badge.centerYAnchor.constraint(equalTo: centerYAnchor),
+            badge.widthAnchor.constraint(equalToConstant: 34),
+            badge.heightAnchor.constraint(equalToConstant: 34),
+            labels.leadingAnchor.constraint(equalTo: badge.trailingAnchor, constant: 12),
+            labels.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            labels.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
+            labels.trailingAnchor.constraint(lessThanOrEqualTo: check.leadingAnchor, constant: -12),
+            check.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            check.centerYAnchor.constraint(equalTo: centerYAnchor),
+            check.widthAnchor.constraint(equalToConstant: 22),
+            check.heightAnchor.constraint(equalToConstant: 22),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var isHighlighted: Bool {
+        didSet { alpha = isHighlighted ? 0.65 : 1 }
     }
 }

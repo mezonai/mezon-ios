@@ -13,7 +13,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
     @available(iOS 15.0, *)
     static let contentSizedDetentIdentifier = UISheetPresentationController.Detent.Identifier("mezon.joinVoice.content")
 
-    static func preferredSheetHeight(safeAreaBottomInset: CGFloat, hasMembers: Bool) -> CGFloat {
+    static func preferredSheetHeight(safeAreaBottomInset: CGFloat, hasMembers: Bool, isStreaming: Bool = false) -> CGFloat {
         let grabberBlock: CGFloat = 8 + 5 + 12
         let header: CGFloat = 60
         let headerToCenter: CGFloat = 20
@@ -24,7 +24,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         let centerCore = iconOuter + stackSpacing + voiceTitleLine + statusLines
         let middleTail: CGFloat = hasMembers ? (16 + 44 + 4) : 20
         let footerBlock: CGFloat = 50 + 22
-        return grabberBlock + header + headerToCenter + centerCore + middleTail + footerBlock + safeAreaBottomInset
+        return grabberBlock + header + headerToCenter + centerCore + middleTail + footerBlock + safeAreaBottomInset + (isStreaming ? 40 : 0)
     }
 
     private let channelTitle: String
@@ -32,6 +32,8 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
     private let members: [VoiceMemberDisplay]
     private let kind: JoinChannelSheetKind
     private let canJoin: Bool
+    private let streamViewerCount: Int?
+    private let streamPublisher: VoiceMemberDisplay?
     private let onChat: () -> Void
     private let onJoinVoice: (SfuRole) -> Void
     private let onInvite: () -> Void
@@ -69,6 +71,8 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         members: [VoiceMemberDisplay] = [],
         kind: JoinChannelSheetKind = .voice,
         canJoin: Bool = true,
+        streamViewerCount: Int? = nil,
+        streamPublisher: VoiceMemberDisplay? = nil,
         onChat: @escaping () -> Void,
         onJoinVoice: @escaping (SfuRole) -> Void,
         onInvite: @escaping () -> Void = {}
@@ -78,6 +82,8 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         self.members = members
         self.kind = kind
         self.canJoin = canJoin
+        self.streamViewerCount = streamViewerCount
+        self.streamPublisher = streamPublisher
         self.onChat = onChat
         self.onJoinVoice = onJoinVoice
         self.onInvite = onInvite
@@ -142,6 +148,17 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         iconView.tintColor = UIColor.theme.textStrong
 
         iconOuter.addSubview(iconView)
+        if let publisher = streamPublisher {
+            iconView.contentMode = .scaleAspectFill
+            iconView.clipsToBounds = true
+            iconView.layer.cornerRadius = 38
+            iconView.image = UIImage(systemName: "person.crop.circle.fill")
+            if let avatar = publisher.avatarURL, !avatar.isEmpty {
+                ImageCache.shared.loadAvatar(urlString: ImgproxyURL.iconURL(from: avatar, width: 160, height: 160)) { [weak self] image in
+                    if let image { self?.iconView.image = image }
+                }
+            }
+        }
 
         voiceTitleLabel.font = .systemFont(ofSize: 20, weight: .semibold)
         voiceTitleLabel.textColor = UIColor.theme.textStrong
@@ -152,6 +169,16 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
                 "streamingRoom.joinSheet.stream", tableName: nil, bundle: .main, value: "Stream", comment: "")
             : NSLocalizedString(
                 "voiceChannel.joinSheet.voiceRoom", tableName: nil, bundle: .main, value: "Voice Room", comment: "")
+
+        if let publisher = streamPublisher {
+            let title = NSMutableAttributedString(string: publisher.name + "  ", attributes: [
+                .font: UIFont.systemFont(ofSize: 20, weight: .semibold),
+            ])
+            title.append(NSAttributedString(string: "LIVE", attributes: [
+                .font: UIFont.systemFont(ofSize: 12, weight: .bold), .foregroundColor: UIColor.systemRed,
+            ]))
+            voiceTitleLabel.attributedText = title
+        }
 
         statusLabel.font = .systemFont(ofSize: 16, weight: .regular)
         statusLabel.textColor = UIColor.theme.textDisabled
@@ -173,6 +200,15 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
                 "voiceChannel.joinSheet.waiting", tableName: nil, bundle: .main,
                 value: "Everyone is waiting for you inside", comment: "")
         }
+        if let publisher = streamPublisher {
+            statusLabel.text = String(format: NSLocalizedString(
+                "streamingRoom.isLive", tableName: nil, bundle: .main, value: "%@ is live", comment: ""), publisher.name)
+        }
+        if kind == .streaming, canJoin, let streamViewerCount {
+            let count = String(format: NSLocalizedString(
+                "streamingRoom.viewerCount", tableName: nil, bundle: .main, value: "%d viewers", comment: ""), streamViewerCount)
+            statusLabel.text = [statusLabel.text, count].compactMap { $0 }.joined(separator: "\n")
+        }
 
         buildMembersRow()
 
@@ -192,8 +228,8 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
             iconView.bottomAnchor.constraint(equalTo: iconOuter.bottomAnchor, constant: -20),
             iconView.leadingAnchor.constraint(equalTo: iconOuter.leadingAnchor, constant: 20),
             iconView.trailingAnchor.constraint(equalTo: iconOuter.trailingAnchor, constant: -20),
-            iconView.widthAnchor.constraint(equalToConstant: 36),
-            iconView.heightAnchor.constraint(equalToConstant: 36),
+            iconView.widthAnchor.constraint(equalToConstant: streamPublisher == nil ? 36 : 76),
+            iconView.heightAnchor.constraint(equalToConstant: streamPublisher == nil ? 36 : 76),
         ])
 
         leftFooterSpacer.translatesAutoresizingMaskIntoConstraints = false

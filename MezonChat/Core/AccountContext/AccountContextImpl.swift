@@ -346,6 +346,8 @@ final class AccountContextImpl: AccountContext {
     }
 
     func logout() {
+        StreamingPiPOverlay.shared.dismiss(disconnectSession: false)
+        StreamingWebRTCSession.shared.leave()
         sessionEpoch &+= 1
         heavyAccountBootstrapTask?.cancel()
         heavyAccountBootstrapTask = nil
@@ -1123,6 +1125,10 @@ final class AccountContextImpl: AccountContext {
                 } else {
                     self.joinDirectMessageClanOnSocketConnected()
                     self.rejoinCurrentChannel()
+                    let streamClanId = self.currentClanId
+                    if streamClanId != 0, let token = await self.getToken() {
+                        await self.engine.clanData.refetchStreamChannelUsers(clanId: streamClanId, token: token)
+                    }
                 }
             }
 
@@ -1395,7 +1401,8 @@ final class AccountContextImpl: AccountContext {
                 channelId: ev.streamingChannelID,
                 userId: ev.userID,
                 entryId: ev.id,
-                participant: ev.participant
+                participant: ev.participant,
+                isPublisher: ev.isPublisher
             )
 
         case .streamingLeaved(let ev):
@@ -1406,6 +1413,12 @@ final class AccountContextImpl: AccountContext {
                 channelId: channelId,
                 userId: userId
             )
+
+        case .streamingEnded(let ev):
+            engine.clanData.applyStreamEnded(clanId: ev.clanID, channelId: ev.channelID)
+
+        case .streamingViewerCount(let ev):
+            engine.clanData.applyStreamViewerCount(clanId: ev.clanID, channelId: ev.channelID, count: Int(ev.viewerCount))
 
         case .voiceEnded(let ev):
             let cid = Int64(ev.voiceChannelID) ?? 0

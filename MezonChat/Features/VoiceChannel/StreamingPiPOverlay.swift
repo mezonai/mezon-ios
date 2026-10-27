@@ -1,7 +1,7 @@
 import UIKit
 
 @MainActor
-final class StreamingPiPOverlay: NSObject {
+final class StreamingPiPOverlay: NSObject, UIGestureRecognizerDelegate {
 
     static let shared = StreamingPiPOverlay()
 
@@ -15,9 +15,12 @@ final class StreamingPiPOverlay: NSObject {
     private var pipWindow: UIWindow?
     private let pipView = UIView()
     private let pipChromeBackdrop = UIView()
+    private let playbackView = StreamingPlaybackView(frame: .zero)
     private let backgroundImageView = UIImageView()
     private let streamBannerView = UIImageView()
     private let placeholderView = UIImageView()
+    private let closeButton = UIButton(type: .custom)
+    private let bufferingIndicator = UIActivityIndicatorView(style: .medium)
     private let badgeContainer = UIView()
     private let badgeIcon = UIImageView()
     private let badgeLabel = UILabel()
@@ -25,9 +28,8 @@ final class StreamingPiPOverlay: NSObject {
     private var themeChangeObserver: NSObjectProtocol?
     private var cachedAvatarURL: String?
     private var backgroundLoadToken = 0
-    private var isLoadingBackground = false
+    private var requestedBackgroundURL: String?
     private var didFetchRemoteChannel = false
-    private var hadStreamMembers = false
     private var presenceObserver: NSObjectProtocol?
 
     private override init() {
@@ -43,7 +45,8 @@ final class StreamingPiPOverlay: NSObject {
         backgroundImageView.contentMode = .scaleAspectFill
         backgroundImageView.clipsToBounds = true
         backgroundImageView.isUserInteractionEnabled = false
-        backgroundImageView.isHidden = true
+        backgroundImageView.image = StreamingChannelBackground.defaultPosterImage
+        backgroundImageView.isHidden = false
 
         streamBannerView.translatesAutoresizingMaskIntoConstraints = false
         streamBannerView.contentMode = .scaleAspectFit
@@ -75,14 +78,39 @@ final class StreamingPiPOverlay: NSObject {
         badgeLabel.lineBreakMode = .byTruncatingTail
 
         pipView.addSubview(pipChromeBackdrop)
+        playbackView.translatesAutoresizingMaskIntoConstraints = false
+        pipView.addSubview(playbackView)
+        NSLayoutConstraint.activate([
+            playbackView.topAnchor.constraint(equalTo: pipView.topAnchor),
+            playbackView.bottomAnchor.constraint(equalTo: pipView.bottomAnchor),
+            playbackView.leadingAnchor.constraint(equalTo: pipView.leadingAnchor),
+            playbackView.trailingAnchor.constraint(equalTo: pipView.trailingAnchor),
+        ])
         pipView.addSubview(backgroundImageView)
         pipView.addSubview(streamBannerView)
         pipView.addSubview(placeholderView)
+        bufferingIndicator.translatesAutoresizingMaskIntoConstraints = false
+        bufferingIndicator.color = .white
+        bufferingIndicator.hidesWhenStopped = true
+        pipView.addSubview(bufferingIndicator)
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
+        closeButton.tintColor = .white
+        closeButton.accessibilityLabel = NSLocalizedString(
+            "streamingRoom.leave", tableName: nil, bundle: .main, value: "Leave stream", comment: "")
+        closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
+        pipView.addSubview(closeButton)
         pipView.addSubview(badgeContainer)
         badgeContainer.addSubview(badgeIcon)
         badgeContainer.addSubview(badgeLabel)
 
         NSLayoutConstraint.activate([
+            closeButton.topAnchor.constraint(equalTo: pipView.topAnchor, constant: 2),
+            closeButton.trailingAnchor.constraint(equalTo: pipView.trailingAnchor, constant: -2),
+            closeButton.widthAnchor.constraint(equalToConstant: 30),
+            closeButton.heightAnchor.constraint(equalToConstant: 30),
+            bufferingIndicator.centerXAnchor.constraint(equalTo: pipView.centerXAnchor),
+            bufferingIndicator.centerYAnchor.constraint(equalTo: pipView.centerYAnchor),
             pipChromeBackdrop.topAnchor.constraint(equalTo: pipView.topAnchor),
             pipChromeBackdrop.leadingAnchor.constraint(equalTo: pipView.leadingAnchor),
             pipChromeBackdrop.trailingAnchor.constraint(equalTo: pipView.trailingAnchor),
@@ -122,6 +150,7 @@ final class StreamingPiPOverlay: NSObject {
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         pipView.addGestureRecognizer(pan)
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
+        tap.delegate = self
         pipView.addGestureRecognizer(tap)
         pipView.isUserInteractionEnabled = true
 
@@ -148,11 +177,10 @@ final class StreamingPiPOverlay: NSObject {
         self.channel = channel
         self.parentChannelName = parentChannelName
         cachedAvatarURL = nil
-        backgroundLoadToken = 0
-        isLoadingBackground = false
+        backgroundLoadToken &+= 1
+        requestedBackgroundURL = nil
         didFetchRemoteChannel = false
-        hadStreamMembers = false
-        backgroundImageView.image = nil
+        backgroundImageView.image = StreamingChannelBackground.defaultPosterImage
 
         badgeLabel.text = channel.channelLabel
 
@@ -200,8 +228,6 @@ final class StreamingPiPOverlay: NSObject {
 
     func dismiss(disconnectSession: Bool = true) {
         UIApplication.shared.isIdleTimerDisabled = false
-        let ctx = context
-        let ch = channel
         unbindSession()
         if let presenceObserver {
             NotificationCenter.default.removeObserver(presenceObserver)
@@ -214,17 +240,11 @@ final class StreamingPiPOverlay: NSObject {
         channel = nil
         parentChannelName = nil
         cachedAvatarURL = nil
-        backgroundLoadToken = 0
-        isLoadingBackground = false
+        backgroundLoadToken &+= 1
+        requestedBackgroundURL = nil
         didFetchRemoteChannel = false
-        hadStreamMembers = false
-        backgroundImageView.image = nil
+        backgroundImageView.image = StreamingChannelBackground.defaultPosterImage
         if disconnectSession {
-            if let ctx, let ch,
-               let userIdStr = ctx.currentUser?.id, let userId = Int64(userIdStr) {
-                let clanId = ch.clanID != 0 ? ch.clanID : ctx.currentClanId
-                ctx.engine.clanData.applyStreamLeaved(clanId: clanId, channelId: ch.channelID, userId: userId)
-            }
             StreamingWebRTCSession.shared.leave()
         }
     }
@@ -244,11 +264,16 @@ final class StreamingPiPOverlay: NSObject {
 
     private func bindSession() {
         StreamingWebRTCSession.shared.onStreamingStateChanged = { [weak self] in
+            guard StreamingWebRTCSession.shared.activeStreamChannelId != nil else {
+                self?.dismiss(disconnectSession: false)
+                return
+            }
             self?.refreshContent()
         }
     }
 
     private func unbindSession() {
+        playbackView.update(session: nil)
         if StreamingWebRTCSession.shared.onStreamingStateChanged != nil {
             StreamingWebRTCSession.shared.onStreamingStateChanged = nil
         }
@@ -256,24 +281,20 @@ final class StreamingPiPOverlay: NSObject {
 
     private func refreshContent() {
         let session = StreamingWebRTCSession.shared
-        let isActive = session.isStreaming
-        let avatarURL = resolvedStreamChannelAvatarURL()
-        let showBackground = isActive && (backgroundImageView.image != nil || !avatarURL.isEmpty)
-
-        backgroundImageView.isHidden = !showBackground
+        playbackView.update(session: session)
+        if session.isBuffering { bufferingIndicator.startAnimating() }
+        else { bufferingIndicator.stopAnimating() }
+        if let context, let channel {
+            let clanId = channel.clanID != 0 ? channel.clanID : context.currentClanId
+            let count = context.engine.clanData.streamViewerCount(clanId: clanId, channelId: channel.channelID)
+            badgeLabel.text = channel.channelLabel + " · " + String(count)
+            badgeIcon.image = UIImage(systemName: "eye")
+        }
+        backgroundImageView.isHidden = session.hasVideoFrames
         streamBannerView.isHidden = true
         placeholderView.isHidden = true
 
-        if backgroundImageView.image == nil && !isLoadingBackground {
-            loadStreamBackgroundIfNeeded()
-        }
-
-        let memberIds = streamMemberUserIds()
-        if !memberIds.isEmpty {
-            hadStreamMembers = true
-        } else if hadStreamMembers {
-            dismiss(disconnectSession: true)
-        }
+        loadStreamBackgroundIfNeeded()
     }
 
     private func installPresenceObserver() {
@@ -294,19 +315,6 @@ final class StreamingPiPOverlay: NSObject {
                 self.refreshContent()
             }
         }
-    }
-
-    private func streamMemberUserIds() -> [String] {
-        guard let channel, let context else { return [] }
-        let clanId = channel.clanID != 0 ? channel.clanID : context.currentClanId
-        guard let list = context.engine.clanData.getStreamUsers(clanId: clanId) else { return [] }
-        var userIds: [String] = []
-        for entry in list.voiceChannelUsers where entry.channelID == channel.channelID {
-            for userId in entry.userIds where !userId.isEmpty && !userIds.contains(userId) {
-                userIds.append(userId)
-            }
-        }
-        return userIds
     }
 
     private func resolvedStreamChannelAvatarURL() -> String {
@@ -339,19 +347,19 @@ final class StreamingPiPOverlay: NSObject {
 
     private func loadStreamBackgroundIfNeeded() {
         let raw = resolvedStreamChannelAvatarURL()
+        guard requestedBackgroundURL != raw else { return }
+        requestedBackgroundURL = raw
+        backgroundLoadToken &+= 1
+        let token = backgroundLoadToken
+        backgroundImageView.image = StreamingChannelBackground.defaultPosterImage
         guard !raw.isEmpty else {
             fetchRemoteChannelAvatarIfNeeded()
             return
         }
-        guard !isLoadingBackground else { return }
-        isLoadingBackground = true
-        backgroundLoadToken += 1
-        let token = backgroundLoadToken
         let px = max(Int(Self.pipWidth * UIScreen.main.scale), 300)
         StreamingChannelBackground.loadImage(raw: raw, width: px, height: px) { [weak self] image in
             guard let self, token == self.backgroundLoadToken else { return }
-            self.isLoadingBackground = false
-            self.backgroundImageView.image = image
+            self.backgroundImageView.image = image ?? StreamingChannelBackground.defaultPosterImage
             self.refreshContent()
         }
     }
@@ -393,6 +401,13 @@ final class StreamingPiPOverlay: NSObject {
         default:
             break
         }
+    }
+
+    @objc private func closeTapped() { dismiss(disconnectSession: true) }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard let touchedView = touch.view else { return true }
+        return !touchedView.isDescendant(of: closeButton)
     }
 
     @objc private func handleTap() {

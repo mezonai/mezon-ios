@@ -9,6 +9,7 @@ struct ChannelListState: Equatable {
     var isLoading: Bool
     var errorMessage: String?
     var voiceUsersByChannel: [Int64: [String]] = [:]
+    var streamViewerCounts: [Int64: Int] = [:]
     var buzzChannelIds: Set<Int64> = []
 
     static let empty = ChannelListState(
@@ -22,6 +23,7 @@ struct ChannelListState: Equatable {
             && lhs.categories.count == rhs.categories.count
             && lhs.allChannels.count == rhs.allChannels.count
             && lhs.voiceUsersByChannel == rhs.voiceUsersByChannel
+            && lhs.streamViewerCounts == rhs.streamViewerCounts
             && lhs.buzzChannelIds == rhs.buzzChannelIds
             && categoriesChannelStructureEqual(lhs.categories, rhs.categories)
         else { return false }
@@ -1003,6 +1005,7 @@ final class ChannelListViewController: ViewController {
     private let needsReloadPipe = ValuePipe<Void>()
 
     private var voicePresenceReloadScheduled = false
+    private var voiceMemberRowsNeedReload = false
     private let voicePresenceCoalesceInterval: TimeInterval = 0.4
     private var clanUsersReloadScheduled = false
     private var voiceMemberCacheClanId: Int64?
@@ -1352,19 +1355,23 @@ final class ChannelListViewController: ViewController {
     @objc private func handleVoicePresenceChanged(_ notification: Notification) {
         guard let n = notification.userInfo?["clanId"] as? NSNumber else { return }
         guard n.int64Value == clanId, clanId != 0 else { return }
-        invalidateVoiceMemberCache()
-        scheduleCoalescedVoicePresenceReload()
+        let countsOnly = notification.userInfo?["streamViewerCountOnly"] as? Bool == true
+        if !countsOnly { invalidateVoiceMemberCache() }
+        scheduleCoalescedVoicePresenceReload(reloadMembers: !countsOnly)
     }
 
-    private func scheduleCoalescedVoicePresenceReload() {
+    private func scheduleCoalescedVoicePresenceReload(reloadMembers: Bool) {
+        voiceMemberRowsNeedReload = voiceMemberRowsNeedReload || reloadMembers
         guard !voicePresenceReloadScheduled else { return }
         voicePresenceReloadScheduled = true
         DispatchQueue.main.asyncAfter(deadline: .now() + voicePresenceCoalesceInterval) { [weak self] in
             guard let self else { return }
             self.voicePresenceReloadScheduled = false
+            let reloadMembers = self.voiceMemberRowsNeedReload
+            self.voiceMemberRowsNeedReload = false
             guard self.clanId != 0 else { return }
             self.needsReloadPipe.putNext(())
-            self.channelListNode.reloadVoiceMemberRows()
+            if reloadMembers { self.channelListNode.reloadVoiceMemberRows() }
         }
     }
 
@@ -3631,7 +3638,9 @@ final class ChannelListViewController: ViewController {
                 }
             }
         }
-        let resolvedMembers = voiceUserIds.compactMap { resolveVoiceMember($0) }
+        let displayedUserIds = kind == .streaming ? Array(voiceUserIds.dropFirst()) : voiceUserIds
+        let resolvedMembers = displayedUserIds.compactMap { resolveVoiceMember($0) }
+        let streamPublisher = kind == .streaming ? voiceUserIds.first.flatMap { resolveVoiceMember($0) } : nil
         let chatAction = onChat ?? { [weak self] in self?.pushChatViewController(for: channel) }
         let joinAction = onJoin ?? { [weak self] role in
             guard let self else { return }
@@ -3648,6 +3657,8 @@ final class ChannelListViewController: ViewController {
             members: resolvedMembers,
             kind: kind,
             canJoin: kind == .voice || !voiceUserIds.isEmpty,
+            streamViewerCount: kind == .streaming ? context.engine.clanData.streamViewerCount(clanId: clanId, channelId: channel.channelID) : nil,
+            streamPublisher: streamPublisher,
             onChat: chatAction,
             onJoinVoice: joinAction,
             onInvite: {}
@@ -3658,7 +3669,7 @@ final class ChannelListViewController: ViewController {
             if #available(iOS 16.0, *) {
                 let bottomInset = (presenter ?? self).view.window?.safeAreaInsets.bottom ?? 34
                 let targetHeight = JoinVoiceChannelSheetViewController.preferredSheetHeight(
-                    safeAreaBottomInset: bottomInset, hasMembers: !resolvedMembers.isEmpty)
+                    safeAreaBottomInset: bottomInset, hasMembers: !resolvedMembers.isEmpty, isStreaming: kind == .streaming)
                 let detentId = JoinVoiceChannelSheetViewController.contentSizedDetentIdentifier
                 let contentDetent = UISheetPresentationController.Detent.custom(identifier: detentId) { context in
                     min(targetHeight, context.maximumDetentValue)
@@ -3776,49 +3787,27 @@ final class ChannelListViewController: ViewController {
             return
         }
 
-        StreamingRoomViewController.prepareJoiningStream(
-            targetChannelId: streamChannel.channelID,
-            clanId: clanId,
-            context: context,
-            navigationController: nav
-        )
+        let sourceController = nav.topViewController
 
         Task { @MainActor [weak self] in
             guard let self else { return }
-            guard let sessionToken = await self.context.getToken() else {
-                return
-            }
-            let meetToken: Mezon_Api_GenerateMeetTokenResponse
-            do {
-                meetToken = try await self.context.account.network.generateMeetTokenResponse(
-                    channelId: streamChannel.channelID,
-                    roomName: String(streamChannel.channelID),
-                    metadata: self.context.meetTokenMetadata(clanId: clanId),
-                    token: sessionToken
-                )
-            } catch {
-                return
-            }
-            guard !meetToken.token.isEmpty else {
-                return
-            }
-            let tokenContext = self.context
-
-            await StreamingWebRTCSession.shared.join(
+            guard await StreamingWebRTCSession.shared.join(
                 channelId: streamChannel.channelID,
-                token: meetToken.token,
-                sfuURL: meetToken.url,
-                tokenProvider: {
-                    guard let token = await tokenContext.getToken() else { return nil }
-                    return try? await tokenContext.account.network.generateMeetToken(
-                        channelId: streamChannel.channelID,
-                        roomName: String(streamChannel.channelID),
-                        metadata: tokenContext.meetTokenMetadata(clanId: clanId),
-                        token: token
-                    )
+                clanId: clanId,
+                context: self.context,
+                canJoin: { [weak self, weak nav] in
+                    self?.viewIfLoaded?.window != nil && nav?.topViewController === sourceController
+                        && sourceController?.presentedViewController == nil
+                        && self?.context.currentClanId == clanId
                 }
-            )
+            ) else { return }
 
+            StreamingRoomViewController.prepareJoiningStream(
+                targetChannelId: streamChannel.channelID,
+                clanId: clanId,
+                context: self.context,
+                navigationController: nav
+            )
             let vc = StreamingRoomViewController(
                 context: self.context,
                 channel: streamChannel,
@@ -3939,6 +3928,11 @@ final class ChannelListViewController: ViewController {
             isLoading: isLoading,
             errorMessage: errorMessage,
             voiceUsersByChannel: voiceMap,
+            streamViewerCounts: Dictionary(uniqueKeysWithValues: allChannels.filter {
+                $0.type == MezonConstants.ChannelType.streaming.rawValue
+            }.map {
+                ($0.channelID, context.engine.clanData.streamViewerCount(clanId: clanId, channelId: $0.channelID))
+            }),
             buzzChannelIds: context.buzz.state.channelIdsSnapshot().intersection(allChannels.map(\.channelID))
         )
     }

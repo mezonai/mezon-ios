@@ -138,6 +138,8 @@ extension MezonEngine {
         private var voicePresenceGeneration: UInt64 = 0
         private let voiceUsersFreshLock = NSLock()
         let clanStreamUsersUpdated = ValuePipe<Int64>()
+        private var streamPresenceRevision: [Int64: UInt64] = [:]
+        private var streamViewerCountsByClan: [Int64: [Int64: Int]] = [:]
         let clanBadgeCountUpdated = ValuePipe<(clanId: Int64, count: Int32)>()
         let clanNotificationUpdated = ValuePipe<Int64>()
 
@@ -760,10 +762,16 @@ extension MezonEngine {
         }
 
         private func fetchStreamChannelUsers(clanId: Int64, token: String) async {
-            do {
-                let response = try await network.listStreamingChannelUsers(clanId: clanId, token: token)
-                persistStreamUsersList(response, clanId: clanId)
-            } catch {
+            // Do not overwrite joins/leaves received while the snapshot was in flight.
+            for _ in 0..<3 {
+                let revision = streamPresenceRevision[clanId, default: 0]
+                do {
+                    let response = try await network.listStreamingChannelUsers(clanId: clanId, token: token)
+                    guard !Task.isCancelled else { return }
+                    guard revision == streamPresenceRevision[clanId, default: 0] else { continue }
+                    persistStreamUsersList(response, clanId: clanId)
+                    return
+                } catch { return }
             }
         }
 
@@ -771,11 +779,15 @@ extension MezonEngine {
             if let data = try? list.serializedData() {
                 postbox.setPreferenceData(key: PreferencesKeys.clanStreamUsers(clanId: clanId), value: data)
             }
+            notifyStreamPresenceChanged(clanId: clanId)
+        }
+
+        private func notifyStreamPresenceChanged(clanId: Int64, viewerCountOnly: Bool = false) {
             clanStreamUsersUpdated.putNext(clanId)
             NotificationCenter.default.post(
                 name: .mezonVoicePresenceChanged,
                 object: nil,
-                userInfo: ["clanId": NSNumber(value: clanId)]
+                userInfo: ["clanId": NSNumber(value: clanId), "streamViewerCountOnly": viewerCountOnly]
             )
         }
 
@@ -787,7 +799,10 @@ extension MezonEngine {
 
         private func voiceChannelUserList(from streamList: Mezon_Api_StreamingChannelUserList) -> Mezon_Api_VoiceChannelUserList {
             var grouped: [Int64: [String]] = [:]
-            for user in streamList.streamingChannelUsers {
+            // Keep publishers first for existing channel-list and join-sheet consumers.
+            let users = streamList.streamingChannelUsers.filter(\.isPublisher)
+                + streamList.streamingChannelUsers.filter { !$0.isPublisher }
+            for user in users {
                 guard user.channelID != 0, user.userID != 0 else { continue }
                 let uid = "\(user.userID)"
                 var ids = grouped[user.channelID] ?? []
@@ -1011,6 +1026,47 @@ extension MezonEngine {
             return voiceChannelUserList(from: streamList)
         }
 
+        func refetchStreamChannelUsers(clanId: Int64, token: String) async {
+            await fetchStreamChannelUsers(clanId: clanId, token: token)
+        }
+
+        func streamMembers(clanId: Int64, channelId: Int64) -> [Mezon_Api_StreamingChannelUser] {
+            let users = resolvedStreamUsersList(clanId: clanId)?.streamingChannelUsers ?? []
+            var seen = Set<Int64>()
+            let ordered = users.filter(\.isPublisher) + users.filter { !$0.isPublisher }
+            let members = ordered.filter { $0.channelID == channelId && $0.userID != 0 && seen.insert($0.userID).inserted }
+            guard let publisher = members.first(where: \.isPublisher) ?? members.first else { return [] }
+            return [publisher] + members.filter { $0.userID != publisher.userID }
+        }
+
+        func streamPublisher(clanId: Int64, channelId: Int64) -> Mezon_Api_StreamingChannelUser? {
+            streamMembers(clanId: clanId, channelId: channelId).first
+        }
+
+        func streamViewerCount(clanId: Int64, channelId: Int64) -> Int {
+            streamViewerCountsByClan[clanId]?[channelId]
+                ?? max(0, streamMembers(clanId: clanId, channelId: channelId).count - 1)
+        }
+
+        func applyStreamViewerCount(clanId: Int64, channelId: Int64, count: Int) {
+            guard clanId != 0, channelId != 0 else { return }
+            let count = max(0, count)
+            guard streamViewerCountsByClan[clanId]?[channelId] != count else { return }
+            streamViewerCountsByClan[clanId, default: [:]][channelId] = count
+            // Aggregate updates must not invalidate membership snapshots under heavy traffic.
+            notifyStreamPresenceChanged(clanId: clanId, viewerCountOnly: true)
+        }
+
+        func applyStreamEnded(clanId: Int64, channelId: Int64) {
+            guard clanId != 0, channelId != 0 else { return }
+            streamPresenceRevision[clanId, default: 0] &+= 1
+            streamViewerCountsByClan[clanId]?[channelId] = nil
+            var list = resolvedStreamUsersList(clanId: clanId) ?? Mezon_Api_StreamingChannelUserList()
+            list.streamingChannelUsers.removeAll { $0.channelID == channelId }
+            // Publish even without cached members so the fullscreen/PiP session stops immediately.
+            persistStreamUsersList(list, clanId: clanId)
+        }
+
         func voiceChannelUserIds(clanId: Int64) -> Set<Int64> {
             guard isVoiceUsersFresh(clanId), let list = getVoiceUsers(clanId: clanId) else {
                 return Set((sessionVoiceUserIdsByClanId[clanId] ?? []).compactMap { Int64($0) })
@@ -1149,24 +1205,34 @@ extension MezonEngine {
             channelId: Int64,
             userId: Int64,
             entryId: Int64 = 0,
-            participant: String = ""
+            participant: String = "",
+            isPublisher: Bool = false
         ) {
             guard clanId != 0, channelId != 0, userId != 0 else { return }
             var list = resolvedStreamUsersList(clanId: clanId) ?? Mezon_Api_StreamingChannelUserList()
-            list.streamingChannelUsers.removeAll { $0.userID == userId && $0.channelID != channelId }
+            streamPresenceRevision[clanId, default: 0] &+= 1
+            // A publisher can also watch streams in other channels.
+            if let known = list.streamingChannelUsers.first(where: { $0.channelID == channelId && $0.userID == userId }),
+               known.isPublisher && !isPublisher { return }
             list.streamingChannelUsers.removeAll { $0.channelID == channelId && $0.userID == userId }
             var user = Mezon_Api_StreamingChannelUser()
             user.id = entryId
             user.userID = userId
             user.channelID = channelId
             user.participant = participant
+            user.isPublisher = isPublisher
             list.streamingChannelUsers.append(user)
             persistStreamUsersList(list, clanId: clanId)
         }
 
         func applyStreamLeaved(clanId: Int64, channelId: Int64, userId: Int64) {
             guard clanId != 0, channelId != 0, userId != 0 else { return }
+            if streamPublisher(clanId: clanId, channelId: channelId)?.userID == userId {
+                applyStreamEnded(clanId: clanId, channelId: channelId)
+                return
+            }
             var list = resolvedStreamUsersList(clanId: clanId) ?? Mezon_Api_StreamingChannelUserList()
+            streamPresenceRevision[clanId, default: 0] &+= 1
             list.streamingChannelUsers.removeAll { $0.channelID == channelId && $0.userID == userId }
             persistStreamUsersList(list, clanId: clanId)
         }

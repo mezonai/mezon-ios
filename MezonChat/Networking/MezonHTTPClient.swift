@@ -2052,6 +2052,17 @@ final class MezonHTTPClient {
         )
     }
 
+    func getStreamPlayback(channelId: Int64, token: String) async throws -> Mezon_Api_GetStreamPlaybackResponse {
+        var req = Mezon_Api_GetStreamPlaybackRequest()
+        req.channelID = channelId
+        req.publish = false
+        return try await postProto(
+            path: "/mezon.api.Mezon/GetStreamPlayback",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     func listStreamingChannelUsers(clanId: Int64, token: String) async throws -> Mezon_Api_StreamingChannelUserList {
         var req = Mezon_Api_ListChannelUsersRequest()
         req.clanID = clanId

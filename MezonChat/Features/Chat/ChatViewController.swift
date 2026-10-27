@@ -5597,7 +5597,8 @@ final class ChatViewController: ViewController {
                 }
             }
         }
-        let resolvedMembers = streamUserIds.compactMap {
+        let streamPublisher = streamUserIds.first.flatMap { resolveVoiceMemberForJoinVoice(userId: $0, clanIdForMembers: clanForMembers) }
+        let resolvedMembers = streamUserIds.dropFirst().compactMap {
             resolveVoiceMemberForJoinVoice(userId: $0, clanIdForMembers: clanForMembers)
         }
         let targetClan = channel.clanID != 0 ? channel.clanID : clanId
@@ -5607,6 +5608,8 @@ final class ChatViewController: ViewController {
             members: resolvedMembers,
             kind: .streaming,
             canJoin: !streamUserIds.isEmpty,
+            streamViewerCount: context.engine.clanData.streamViewerCount(clanId: clanForMembers, channelId: channel.channelID),
+            streamPublisher: streamPublisher,
             onChat: { [weak self] in
                 guard let self, let nav = self.navigationController else { return }
                 self.alignContextWithVoiceChannelClan(for: channel)
@@ -5631,7 +5634,7 @@ final class ChatViewController: ViewController {
             if #available(iOS 16.0, *) {
                 let bottomInset = view.window?.safeAreaInsets.bottom ?? 34
                 let targetHeight = JoinVoiceChannelSheetViewController.preferredSheetHeight(
-                    safeAreaBottomInset: bottomInset, hasMembers: !resolvedMembers.isEmpty)
+                    safeAreaBottomInset: bottomInset, hasMembers: !resolvedMembers.isEmpty, isStreaming: true)
                 let detentId = JoinVoiceChannelSheetViewController.contentSizedDetentIdentifier
                 let contentDetent = UISheetPresentationController.Detent.custom(identifier: detentId) { ctx in
                     min(targetHeight, ctx.maximumDetentValue)
@@ -5675,49 +5678,27 @@ final class ChatViewController: ViewController {
             return
         }
 
-        StreamingRoomViewController.prepareJoiningStream(
-            targetChannelId: channel.channelID,
-            clanId: clanId,
-            context: context,
-            navigationController: nav
-        )
+        let sourceController = nav.topViewController
 
         Task { @MainActor [weak self] in
             guard let self else { return }
-            guard let sessionToken = await self.context.getToken() else {
-                return
-            }
-            let meetToken: Mezon_Api_GenerateMeetTokenResponse
-            do {
-                meetToken = try await self.context.account.network.generateMeetTokenResponse(
-                    channelId: channel.channelID,
-                    roomName: String(channel.channelID),
-                    metadata: self.context.meetTokenMetadata(clanId: clanId),
-                    token: sessionToken
-                )
-            } catch {
-                return
-            }
-            guard !meetToken.token.isEmpty else {
-                return
-            }
-            let tokenContext = self.context
-
-            await StreamingWebRTCSession.shared.join(
+            guard await StreamingWebRTCSession.shared.join(
                 channelId: channel.channelID,
-                token: meetToken.token,
-                sfuURL: meetToken.url,
-                tokenProvider: {
-                    guard let token = await tokenContext.getToken() else { return nil }
-                    return try? await tokenContext.account.network.generateMeetToken(
-                        channelId: channel.channelID,
-                        roomName: String(channel.channelID),
-                        metadata: tokenContext.meetTokenMetadata(clanId: clanId),
-                        token: token
-                    )
+                clanId: clanId,
+                context: self.context,
+                canJoin: { [weak self, weak nav] in
+                    self?.viewIfLoaded?.window != nil && nav?.topViewController === sourceController
+                        && sourceController?.presentedViewController == nil
+                        && self?.context.currentClanId == clanId
                 }
-            )
+            ) else { return }
 
+            StreamingRoomViewController.prepareJoiningStream(
+                targetChannelId: channel.channelID,
+                clanId: clanId,
+                context: self.context,
+                navigationController: nav
+            )
             let vc = StreamingRoomViewController(
                 context: self.context,
                 channel: channel,
