@@ -496,6 +496,16 @@ enum L10n {
         static let communityFallback = "discover.detail.communityFallback"
         static let communityVerified = "discover.detail.communityVerified"
         static let dateUnavailable = "discover.detail.dateUnavailable"
+        static let hashtagGaming = "discover.detail.hashtag.Gaming"
+        static let hashtagTechnology = "discover.detail.hashtag.Technology"
+        static let hashtagEducation = "discover.detail.hashtag.Education"
+        static let hashtagEntertainment = "discover.detail.hashtag.Entertainment"
+        static let hashtagMusic = "discover.detail.hashtag.Music"
+        static let hashtagArt = "discover.detail.hashtag.Art"
+        static let hashtagCrypto = "discover.detail.hashtag.Crypto"
+        static let hashtagAnime = "discover.detail.hashtag.Anime"
+        static let hashtagSports = "discover.detail.hashtag.Sports"
+        static let hashtagCommunity = "discover.detail.hashtag.Community"
     }
 
     enum CategoryCreator {
@@ -1914,6 +1924,16 @@ extension L10n {
         "discover.detail.communityFallback": "Connect with members and explore channels.",
         "discover.detail.communityVerified": "Weekly events and updates.",
         "discover.detail.dateUnavailable": "—",
+        "discover.detail.hashtag.Gaming": "Gaming",
+        "discover.detail.hashtag.Technology": "Technology",
+        "discover.detail.hashtag.Education": "Education",
+        "discover.detail.hashtag.Entertainment": "Entertainment",
+        "discover.detail.hashtag.Music": "Music",
+        "discover.detail.hashtag.Art": "Art",
+        "discover.detail.hashtag.Crypto": "Crypto",
+        "discover.detail.hashtag.Anime": "Anime & Manga",
+        "discover.detail.hashtag.Sports": "Sports",
+        "discover.detail.hashtag.Community": "Community",
 
         "eventEditor.create": "Create Event",
         "eventEditor.edit": "Edit Event",
@@ -3372,6 +3392,16 @@ extension L10n {
         "discover.detail.communityFallback": "Kết nối với thành viên và khám phá kênh.",
         "discover.detail.communityVerified": "Sự kiện và cập nhật hàng tuần.",
         "discover.detail.dateUnavailable": "—",
+        "discover.detail.hashtag.Gaming": "Gaming",
+        "discover.detail.hashtag.Technology": "Công nghệ",
+        "discover.detail.hashtag.Education": "Học tập",
+        "discover.detail.hashtag.Entertainment": "Giải trí",
+        "discover.detail.hashtag.Music": "Âm nhạc",
+        "discover.detail.hashtag.Art": "Nghệ thuật",
+        "discover.detail.hashtag.Crypto": "Tiền mã hóa",
+        "discover.detail.hashtag.Anime": "Anime & Manga",
+        "discover.detail.hashtag.Sports": "Thể thao",
+        "discover.detail.hashtag.Community": "Cộng đồng",
 
         "eventEditor.create": "Tạo sự kiện",
         "eventEditor.edit": "Chỉnh sửa sự kiện",

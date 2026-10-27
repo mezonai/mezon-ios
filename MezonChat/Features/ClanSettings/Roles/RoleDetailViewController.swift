@@ -770,14 +770,14 @@ extension RoleDetailViewController: UIImagePickerControllerDelegate, UINavigatio
         guard let image else { return }
         let resized = Self.resizedImage(image, maxSide: 512)
         guard let data = resized.jpegData(compressionQuality: 0.85) else { return }
-        uploadIcon(image: resized, data: data)
+        uploadIcon(image: resized, data: data, originalFilename: ImagePickerFilename.originalFilename(from: info))
     }
 
     func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
         picker.dismiss(animated: true)
     }
 
-    private func uploadIcon(image: UIImage, data: Data) {
+    private func uploadIcon(image: UIImage, data: Data, originalFilename: String?) {
         isUploadingIcon = true
         refreshUI()
         let filename = "role_icon_\(roleId)_\(Int(Date().timeIntervalSince1970)).jpg"
@@ -792,14 +792,10 @@ extension RoleDetailViewController: UIImagePickerControllerDelegate, UINavigatio
                     Toast.error(L(L10n.ClanRoles.iconFailed))
                     return
                 }
-                let upload = try await self.context.account.network.uploadAttachmentFile(
-                    filename: filename, filetype: "image/jpeg", size: data.count,
-                    width: Int(image.size.width), height: Int(image.size.height), token: token
+                let cdnURL = try await AttachmentUploader.shared.uploadPublicImage(
+                    data: data, filename: filename, filetype: "image/jpeg",
+                    token: token, network: self.context.account.network, originalFilename: originalFilename
                 )
-                try await self.context.account.network.uploadToMinIO(
-                    url: upload.url, data: data, contentType: "image/jpeg"
-                )
-                let cdnURL = try MezonConfig.attachmentViewURL(typeCdn: upload.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: upload.filename)
                 ImageCache.shared.setImage(image, data: data, forKey: cdnURL)
 
                 try await self.repository.updateRole(

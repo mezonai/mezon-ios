@@ -13,7 +13,7 @@ enum MezonConfig {
     static var basicAuthHeader: String { env.basicAuthHeader }
     static var cloudflareCdnURL: String    { normalizedCDNBaseURL(env.cloudflareCdnURL) }
     static var mezonCdnURL: String { normalizedCDNBaseURL(env.mezonCdnURL) }
-    static var profileImgURL: String { env.profileImgURL }
+    static var profileImgURL: String { normalizedCDNBaseURL(env.profileImgURL) }
     static var mmnAPIURL: URL         { env.mmnAPIURL }
     static var zkAPIURL: URL          { env.zkAPIURL }
     static var dongServiceAPIURL: URL { env.dongServiceAPIURL }

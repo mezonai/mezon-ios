@@ -2,17 +2,8 @@ import Foundation
 import SwiftProtobuf
 
 enum MezonEnvelopeEncoding {
-    static func encodeDMClanJoin(_ envelope: Mezon_Realtime_Envelope) throws -> Data {
-        guard envelope.cid > 0,
-              case .some(.clanJoin(let join)) = envelope.message,
-              join.clanID == 0 else { return try envelope.serializedData() }
-        return try encodeClanJoin(envelope)
-    }
-
-    static func encodeClanJoin(_ envelope: Mezon_Realtime_Envelope) throws -> Data {
-        guard envelope.cid > 0, case .some(.clanJoin) = envelope.message else {
-            return try envelope.serializedData()
-        }
+    static func encodeCidLast(_ envelope: Mezon_Realtime_Envelope) throws -> Data {
+        guard envelope.cid > 0 else { return try envelope.serializedData() }
         var body = envelope
         body.cid = 0
         var data = try body.serializedData()
@@ -469,7 +460,7 @@ final class MezonSocket: NSObject {
             enqueuePendingSend(envelope)
             return false
         }
-        guard let data = try? MezonEnvelopeEncoding.encodeDMClanJoin(envelope) else { return false }
+        guard let data = try? MezonEnvelopeEncoding.encodeCidLast(envelope) else { return false }
         t.send(envelopePayload: data) { [weak self] error in
             guard let error else { return }
             Task { @MainActor in
@@ -523,7 +514,7 @@ final class MezonSocket: NSObject {
 
         let payload: Data
         do {
-            payload = try envelope.serializedData()
+            payload = try MezonEnvelopeEncoding.encodeCidLast(envelope)
         } catch {
             throw MezonError.socketError("Encode api_request_event failed: \(error.localizedDescription)")
         }
@@ -582,7 +573,7 @@ final class MezonSocket: NSObject {
 
         let payload: Data
         do {
-            payload = try envelope.serializedData()
+            payload = try MezonEnvelopeEncoding.encodeCidLast(envelope)
         } catch {
             throw SocketReplyError.undelivered("Encode envelope failed: \(error.localizedDescription)")
         }
@@ -697,7 +688,7 @@ final class MezonSocket: NSObject {
         let batch = pendingSendQueue.filter { now.timeIntervalSince($0.queuedAt) <= pendingSendStaleAge }
         pendingSendQueue.removeAll()
         for entry in batch {
-            guard let data = try? MezonEnvelopeEncoding.encodeDMClanJoin(entry.envelope) else { continue }
+            guard let data = try? MezonEnvelopeEncoding.encodeCidLast(entry.envelope) else { continue }
             t.send(envelopePayload: data) { _ in }
             if case .some(.channelJoin(let join)) = entry.envelope.message {
                 noteChannelJoinSent(clanId: join.clanID, channelId: join.channelID)
@@ -729,7 +720,7 @@ final class MezonSocket: NSObject {
         var envelope = Mezon_Realtime_Envelope()
         envelope.cid = Int32(bitPattern: cid)
         envelope.clanJoin = join
-        let payload = try MezonEnvelopeEncoding.encodeClanJoin(envelope)
+        let payload = try MezonEnvelopeEncoding.encodeCidLast(envelope)
 
         let response = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in

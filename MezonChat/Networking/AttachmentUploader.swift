@@ -1,5 +1,30 @@
 import Foundation
 
+enum PublicImageFilename {
+    private static let allowedStemCharacters = CharacterSet(
+        charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.")
+
+    static func make(
+        originalFilename: String?,
+        fallbackFilename: String,
+        timestampMillis: Int64 = Int64(Date().timeIntervalSince1970 * 1000)
+    ) -> String {
+        guard let originalFilename,
+              !originalFilename.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return fallbackFilename
+        }
+        let stem = originalFilename.lastIndex(of: ".").map { String(originalFilename[..<$0]) } ?? originalFilename
+        guard !stem.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return fallbackFilename }
+
+        let sanitized = stem.unicodeScalars.map { scalar in
+            allowedStemCharacters.contains(scalar) ? String(scalar) : "_"
+        }.joined()
+        let ext = (fallbackFilename as NSString).pathExtension
+        let suffix = ext.isEmpty ? "" : ".\(ext)"
+        return "\(timestampMillis)_\(sanitized)\(suffix)"
+    }
+}
+
 enum AttachmentTypeClassifier {
     static func uploadType(for filetype: String) -> String {
         let type = normalized(filetype)
@@ -102,6 +127,23 @@ final class AttachmentUploader {
 
     private func markMultipartUnavailable() {
         stateLock.lock(); skipMultipartForSession = true; stateLock.unlock()
+    }
+
+    func uploadPublicImage(
+        data: Data,
+        filename: String,
+        filetype: String,
+        token: String,
+        network: MezonHTTPClient,
+        originalFilename: String? = nil
+    ) async throws -> String {
+        let uploadFilename = PublicImageFilename.make(
+            originalFilename: originalFilename, fallbackFilename: filename)
+        let upload = try await network.uploadOauthFile(
+            filename: uploadFilename, filetype: filetype, size: data.count, token: token)
+        try Task.checkCancellation()
+        try await network.uploadToMinIO(url: upload.url, data: data, contentType: filetype)
+        return "\(MezonConfig.profileImgURL)/\(upload.filename)"
     }
 
     func uploadFile(
