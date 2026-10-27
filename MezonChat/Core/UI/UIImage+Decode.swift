@@ -52,7 +52,28 @@ extension UIImage {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         let count = CGImageSourceGetCount(source)
         guard count > 0 else { return nil }
+        return optimizedAvatarImage(from: source, count: count, maxPixelSize: maxPixelSize)
+    }
 
+    static func publicImageUploadPreview(from data: Data, maxPixelSize: Int) -> UIImage? {
+        let options = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(data as CFData, options) else { return nil }
+        let count = CGImageSourceGetCount(source)
+        guard count > 0 else { return nil }
+
+        let previewSize = min(max(maxPixelSize, 1), 512)
+        let maximumAnimatedFrames = 120
+        let maximumDecodedPixels = 4 * 1024 * 1024 
+        if count > maximumAnimatedFrames {
+            guard let firstFrame = avatarThumbnail(from: source, at: 0, maxPixelSize: previewSize) else { return nil }
+            return UIImage(cgImage: firstFrame)
+        }
+
+        let budgetedSize = Int(sqrt(Double(maximumDecodedPixels / count)))
+        return optimizedAvatarImage(from: source, count: count, maxPixelSize: min(previewSize, budgetedSize))
+    }
+
+    private static func optimizedAvatarImage(from source: CGImageSource, count: Int, maxPixelSize: Int) -> UIImage? {
         if count == 1 {
             guard let cgImage = avatarThumbnail(
                 from: source,

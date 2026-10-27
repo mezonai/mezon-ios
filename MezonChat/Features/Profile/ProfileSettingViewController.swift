@@ -1562,8 +1562,7 @@ extension ProfileSettingViewController: PHPickerViewControllerDelegate {
                 }
                 
                 if let mimeType = publicImagePassthroughMimeType(for: data) {
-                    guard let image = UIImage.optimizedAvatarImage(from: data, maxPixelSize: previewPixelSize)
-                        ?? UIImage.decodeImage(from: data) else {
+                    guard let image = UIImage.publicImageUploadPreview(from: data, maxPixelSize: previewPixelSize) else {
                         DispatchQueue.main.async { Toast.error(L(L10n.ProfileSetting.updateError)) }
                         return
                     }
@@ -1622,9 +1621,12 @@ extension ProfileSettingViewController: UIImagePickerControllerDelegate, UINavig
         if let pickedData, let mimeType = publicImagePassthroughMimeType(for: pickedData) {
             let previewPixelSize = Int(ceil(avatarSize * UIScreen.main.scale))
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                let animatedImage = UIImage.optimizedAvatarImage(from: pickedData, maxPixelSize: previewPixelSize) ?? image
+                guard let preview = UIImage.publicImageUploadPreview(from: pickedData, maxPixelSize: previewPixelSize) else {
+                    DispatchQueue.main.async { Toast.error(L(L10n.ProfileSetting.updateError)) }
+                    return
+                }
                 DispatchQueue.main.async { [weak self] in
-                    self?.handlePickedImage(animatedImage, data: pickedData, mimeType: mimeType, target: target, originalFilename: originalFilename)
+                    self?.handlePickedImage(preview, data: pickedData, mimeType: mimeType, target: target, originalFilename: originalFilename)
                 }
             }
             return

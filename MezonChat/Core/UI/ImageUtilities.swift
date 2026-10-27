@@ -109,8 +109,7 @@ final class PublicImagePicker: NSObject, UIImagePickerControllerDelegate, UINavi
             }
             let image: UIImage?
             if mimeType != nil, let data {
-                image = UIImage.optimizedAvatarImage(from: data, maxPixelSize: previewPixelSize)
-                    ?? fallbackImage ?? UIImage.decodeImage(from: data)
+                image = UIImage.publicImageUploadPreview(from: data, maxPixelSize: previewPixelSize)
             } else {
                 image = fallbackImage ?? data.flatMap { UIImage.decodeImage(from: $0) }
             }

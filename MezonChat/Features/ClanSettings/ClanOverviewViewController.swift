@@ -128,7 +128,7 @@ final class ClanOverviewViewController: BaseViewController {
                 if !d.banner.isEmpty, let url = URL(string: d.banner) {
                     if self.selectedAvatarData == nil {
                         URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-                            guard let data = data, let image = UIImage(data: data) else { return }
+                            guard let data = data, let image = Self.decodeBannerImage(from: data) else { return }
                             DispatchQueue.main.async {
                                 self?.avatarImageView.image = image
                                 self?.updateAvatarOverlay()
@@ -709,7 +709,7 @@ final class ClanOverviewViewController: BaseViewController {
         if let d = try? Mezon_Api_ClanDesc(serializedBytes: clan.data) {
             if !d.banner.isEmpty, let url = URL(string: d.banner) {
                 URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-                    guard let data = data, let image = UIImage(data: data) else { return }
+                    guard let data = data, let image = Self.decodeBannerImage(from: data) else { return }
                     DispatchQueue.main.async {
                         self?.avatarImageView.image = image
                         self?.updateAvatarOverlay()
@@ -747,6 +747,13 @@ final class ClanOverviewViewController: BaseViewController {
             } catch {
             }
         }
+    }
+
+    private static func decodeBannerImage(from data: Data) -> UIImage? {
+        if publicImagePassthroughMimeType(for: data) != nil {
+            return UIImage.publicImageUploadPreview(from: data, maxPixelSize: 512)
+        }
+        return UIImage(data: data)
     }
 
     private func updateSaveButtonState() {
