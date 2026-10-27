@@ -1,5 +1,17 @@
 import CoreImage
+import Photos
 import UIKit
+
+enum ImagePickerFilename {
+    static func originalFilename(from info: [UIImagePickerController.InfoKey: Any]) -> String? {
+        guard let asset = info[.phAsset] as? PHAsset,
+              let resource = PHAssetResource.assetResources(for: asset).first(where: { $0.type == .photo }) else {
+            return nil
+        }
+        let name = resource.originalFilename
+        return name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : name
+    }
+}
 
 extension UIImage {
 

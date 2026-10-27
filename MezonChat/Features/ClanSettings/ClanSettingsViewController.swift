@@ -249,6 +249,7 @@ extension ClanSettingsViewController: UIImagePickerControllerDelegate, UINavigat
     func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
         picker.dismiss(animated: true)
         guard let image = info[.editedImage] as? UIImage ?? info[.originalImage] as? UIImage else { return }
+        let originalFilename = ImagePickerFilename.originalFilename(from: info)
         let pickedFileBytes = pickedFileSize(info)
 
         setAvatarUploading(true)
@@ -273,7 +274,7 @@ extension ClanSettingsViewController: UIImagePickerControllerDelegate, UINavigat
                     self.setAvatarUploading(false)
                     return
                 }
-                self.uploadAvatar(image: image, data: data)
+                self.uploadAvatar(image: image, data: data, originalFilename: originalFilename)
             }
         }
     }
@@ -290,7 +291,7 @@ extension ClanSettingsViewController: UIImagePickerControllerDelegate, UINavigat
         settingsNode.setAvatarUploading(uploading)
     }
 
-    private func uploadAvatar(image: UIImage, data: Data) {
+    private func uploadAvatar(image: UIImage, data: Data, originalFilename: String?) {
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer {
@@ -300,20 +301,11 @@ extension ClanSettingsViewController: UIImagePickerControllerDelegate, UINavigat
                 return
             }
             do {
-                let uploadInfo = try await self.context.account.network.uploadAttachmentFile(
-                    filename: "avatar.jpg",
-                    filetype: "image/jpeg",
-                    size: data.count,
-                    width: Int(image.size.width),
-                    height: Int(image.size.height),
-                    token: token
+                let avatarUrlToSave = try await AttachmentUploader.shared.uploadPublicImage(
+                    data: data, filename: "avatar.jpg", filetype: "image/jpeg",
+                    token: token, network: self.context.account.network,
+                    originalFilename: originalFilename
                 )
-                try await self.context.account.network.uploadToMinIO(
-                    url: uploadInfo.url,
-                    data: data,
-                    contentType: "image/jpeg"
-                )
-                let avatarUrlToSave = try MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: uploadInfo.filename)
 
                 guard let clan = self.context.account.postbox.read({ tx in tx.getClan(id: self.clanId) }) else {
                     return

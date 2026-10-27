@@ -61,6 +61,7 @@ final class ClanOverviewViewController: BaseViewController {
     private var isSaving = false
     private var isProcessingBanner = false
     private var selectedAvatarImage: UIImage?
+    private var selectedAvatarFilename: String?
     private var selectedAvatarData: Data? = nil {
         didSet { updateSaveButtonState() }
     }
@@ -958,24 +959,11 @@ final class ClanOverviewViewController: BaseViewController {
 
                 var bannerUrlToSave: String? = nil
                 if let data = self.selectedAvatarData {
-                    do {
-                        let uploadInfo = try await self.context.account.network.uploadAttachmentFile(
-                            filename: "banner.jpg",
-                            filetype: "image/jpeg",
-                            size: data.count,
-                            width: Int(self.selectedAvatarImage?.size.width ?? 0),
-                            height: Int(self.selectedAvatarImage?.size.height ?? 0),
-                            token: token
-                        )
-                        try await self.context.account.network.uploadToMinIO(
-                            url: uploadInfo.url,
-                            data: data,
-                            contentType: "image/jpeg"
-                        )
-                        bannerUrlToSave = try MezonConfig.attachmentViewURL(typeCdn: uploadInfo.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: uploadInfo.filename)
-                    } catch {
-                        throw error
-                    }
+                    bannerUrlToSave = try await AttachmentUploader.shared.uploadPublicImage(
+                        data: data, filename: "banner.jpg", filetype: "image/jpeg",
+                        token: token, network: self.context.account.network,
+                        originalFilename: self.selectedAvatarFilename
+                    )
                 }
                 if let b = bannerUrlToSave {
                     req.banner = SwiftProtobuf.Google_Protobuf_StringValue(b)
@@ -1114,6 +1102,7 @@ extension ClanOverviewViewController: UIImagePickerControllerDelegate, UINavigat
         let image = (info[.editedImage] as? UIImage) ?? (info[.originalImage] as? UIImage)
         picker.dismiss(animated: true)
         guard let image else { return }
+        let originalFilename = ImagePickerFilename.originalFilename(from: info)
         setBannerProcessing(true)
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -1130,6 +1119,7 @@ extension ClanOverviewViewController: UIImagePickerControllerDelegate, UINavigat
                 }
 
                 self.selectedAvatarImage = image
+                self.selectedAvatarFilename = originalFilename
                 self.selectedAvatarData = data
                 self.avatarImageView.image = image
                 self.updateAvatarOverlay()
