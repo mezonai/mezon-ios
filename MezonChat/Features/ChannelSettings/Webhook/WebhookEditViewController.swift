@@ -17,6 +17,8 @@ final class WebhookEditViewController: BaseViewController {
     private var avatarURL: String
     private var selectedImage: UIImage?
     private var selectedImageData: Data?
+    private var imagePicker: PublicImagePicker?
+    private var selectedImageMimeType = "image/jpeg"
     private var selectedImageFilename: String?
     private var selectedChannelId: Int64
     private var isSaving: Bool = false
@@ -505,12 +507,19 @@ final class WebhookEditViewController: BaseViewController {
     }
 
     @objc private func pickAvatarTapped() {
-        guard UIImagePickerController.isSourceTypeAvailable(.photoLibrary) else { return }
-        let picker = UIImagePickerController()
-        picker.sourceType = .photoLibrary
-        picker.allowsEditing = true
-        picker.delegate = self
-        present(picker, animated: true)
+        guard !isSaving else { return }
+        guard imagePicker == nil else { return }
+        let picker = PublicImagePicker(
+            allowsEditing: true, maxBytes: 10 * 1024 * 1024,
+            tooLargeMessage: "File size exceeds 10MB limit"
+        ) { [weak self] selection in
+            guard let self else { return }
+            self.imagePicker = nil
+            guard let selection else { return }
+            self.handlePickedImage(selection)
+        }
+        imagePicker = picker
+        picker.present(from: self)
     }
 
     @objc private func saveTapped() {
@@ -585,7 +594,7 @@ final class WebhookEditViewController: BaseViewController {
                     self.avatarURL = try await AttachmentUploader.shared.uploadPublicImage(
                         data: imgData,
                         filename: "webhook_\(self.webhook.id)_\(Int(Date().timeIntervalSince1970)).jpg",
-                        filetype: "image/jpeg", token: token,
+                        filetype: self.selectedImageMimeType, token: token,
                         network: self.context.account.network, originalFilename: self.selectedImageFilename
                     )
                 } catch {
@@ -649,6 +658,7 @@ final class WebhookEditViewController: BaseViewController {
                 self.selectedImage = nil
                 self.selectedImageData = nil
                 self.selectedImageFilename = nil
+                self.selectedImageMimeType = "image/jpeg"
                 self.populateData()
             } catch {
                 
@@ -710,31 +720,21 @@ final class WebhookEditViewController: BaseViewController {
     }
 }
 
-extension WebhookEditViewController: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-    func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-        picker.dismiss(animated: true)
-    }
+extension WebhookEditViewController {
 
-    func imagePickerController(
-        _ picker: UIImagePickerController,
-        didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
-    ) {
-        let image = (info[.editedImage] as? UIImage) ?? (info[.originalImage] as? UIImage)
-        let originalFilename = ImagePickerFilename.originalFilename(from: info)
-        picker.dismiss(animated: true) { [weak self] in
-            guard let self, let image else { return }
-            guard let data = image.jpegData(compressionQuality: 0.85) else { return }
-            if data.count > 10 * 1024 * 1024 {
-                Toast.error("File size exceeds 10MB limit")
-                return
-            }
-            self.selectedImage = image
-            self.selectedImageData = data
-            self.selectedImageFilename = originalFilename
-            self.avatarImageView.image = image
-            self.avatarImageView.isHidden = false
-            self.avatarView.showImageMode()
-            self.updateSaveButtonVisibility()
+    private func handlePickedImage(_ selection: PublicImageSelection) {
+        guard let data = selection.preservedData ?? selection.image.jpegData(compressionQuality: 0.85) else { return }
+        if data.count > 10 * 1024 * 1024 {
+            Toast.error("File size exceeds 10MB limit")
+            return
         }
+        selectedImage = selection.image
+        selectedImageData = data
+        selectedImageFilename = selection.originalFilename
+        selectedImageMimeType = selection.mimeType
+        avatarImageView.image = selection.image
+        avatarImageView.isHidden = false
+        avatarView.showImageMode()
+        updateSaveButtonVisibility()
     }
 }

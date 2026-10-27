@@ -2,11 +2,12 @@ import UIKit
 
 private let kCreateClanMaxImageBytes = 10 * 1024 * 1024
 
-final class CreateClanViewController: BaseViewController, UIImagePickerControllerDelegate, UINavigationControllerDelegate, UITextViewDelegate, UITextFieldDelegate {
+final class CreateClanViewController: BaseViewController, UITextViewDelegate, UITextFieldDelegate {
 
     private let context: AccountContext
     private let creationTemplate: ClanCreationTemplate?
 
+    private var imagePicker: PublicImagePicker?
     private var logoURL: String = ""
     private var uploadCount = 0
     private var isSubmitting = false
@@ -410,11 +411,18 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
 
     @objc private func logoTapped() {
         guard uploadCount == 0, !isSubmitting else { return }
-        let picker = UIImagePickerController()
-        picker.sourceType = .photoLibrary
-        picker.mediaTypes = ["public.image"]
-        picker.delegate = self
-        present(picker, animated: true)
+        guard imagePicker == nil else { return }
+        let picker = PublicImagePicker(
+            allowsEditing: false, maxBytes: kCreateClanMaxImageBytes,
+            tooLargeMessage: L(L10n.ClanSetting.Overview.uploadFileTooLarge10MB)
+        ) { [weak self] selection in
+            guard let self else { return }
+            self.imagePicker = nil
+            guard let selection else { return }
+            self.handlePickedImage(selection)
+        }
+        imagePicker = picker
+        picker.present(from: self)
     }
 
     @objc private func createTapped() {
@@ -500,15 +508,10 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
         return false
     }
 
-    func imagePickerController(
-        _ picker: UIImagePickerController,
-        didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
-    ) {
-        picker.dismiss(animated: true)
-        guard let raw = info[.originalImage] as? UIImage else { return }
-        let originalFilename = ImagePickerFilename.originalFilename(from: info)
-        let image = Self.resizedImage(raw, maxSide: 512)
-        guard let data = Self.jpegDataUnderLimit(image, maxBytes: kCreateClanMaxImageBytes) else {
+    private func handlePickedImage(_ selection: PublicImageSelection) {
+        let originalFilename = selection.originalFilename
+        let image = selection.preservedData == nil ? Self.resizedImage(selection.image, maxSide: 512) : selection.image
+        guard let data = selection.preservedData ?? Self.jpegDataUnderLimit(image, maxBytes: kCreateClanMaxImageBytes) else {
             Toast.error(L(L10n.ProfileSetting.updateError))
             return
         }
@@ -524,10 +527,10 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
             do {
                 let filename = "clan_create_logo_\(Int(Date().timeIntervalSince1970)).jpg"
                 let cdnURL = try await AttachmentUploader.shared.uploadPublicImage(
-                    data: data, filename: filename, filetype: "image/jpeg",
+                    data: data, filename: filename, filetype: selection.mimeType,
                     token: token, network: context.account.network, originalFilename: originalFilename
                 )
-                ImageCache.shared.setImage(image, data: data, forKey: cdnURL)
+                ImageCache.shared.cachePublicImage(image, data: data, mimeType: selection.mimeType, forKey: cdnURL)
                 logoURL = cdnURL
                 logoImageView.image = image
                 refreshLogoOverlay()
@@ -540,10 +543,6 @@ final class CreateClanViewController: BaseViewController, UIImagePickerControlle
                 logoCenterStack.isHidden = false
             }
         }
-    }
-
-    func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-        picker.dismiss(animated: true)
     }
 
     private func refreshLogoOverlay() {

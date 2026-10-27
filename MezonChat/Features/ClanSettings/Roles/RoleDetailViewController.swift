@@ -6,6 +6,7 @@ final class RoleDetailViewController: BaseViewController {
 
     private let context: AccountContext
     private let clanId: Int64
+    private var imagePicker: PublicImagePicker?
     private let roleId: Int64
     private let repository: RolesRepository
 
@@ -706,7 +707,7 @@ extension RoleDetailViewController: UITextFieldDelegate {
 
 // MARK: - Role icon
 
-extension RoleDetailViewController: UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+extension RoleDetailViewController {
 
     fileprivate func applyIconURL(_ url: String) {
         iconURL = url
@@ -730,11 +731,15 @@ extension RoleDetailViewController: UIImagePickerControllerDelegate, UINavigatio
 
     @objc fileprivate func iconRowTapped() {
         guard canEdit, !isUploadingIcon else { return }
-        let picker = UIImagePickerController()
-        picker.delegate = self
-        picker.sourceType = .photoLibrary
-        picker.allowsEditing = true
-        present(picker, animated: true)
+        guard imagePicker == nil else { return }
+        let picker = PublicImagePicker(allowsEditing: true) { [weak self] selection in
+            guard let self else { return }
+            self.imagePicker = nil
+            guard let selection else { return }
+            self.handlePickedImage(selection)
+        }
+        imagePicker = picker
+        picker.present(from: self)
     }
 
     @objc fileprivate func removeIconTapped() {
@@ -761,23 +766,13 @@ extension RoleDetailViewController: UIImagePickerControllerDelegate, UINavigatio
         }
     }
 
-    func imagePickerController(
-        _ picker: UIImagePickerController,
-        didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]
-    ) {
-        picker.dismiss(animated: true)
-        let image = (info[.editedImage] as? UIImage) ?? (info[.originalImage] as? UIImage)
-        guard let image else { return }
-        let resized = Self.resizedImage(image, maxSide: 512)
-        guard let data = resized.jpegData(compressionQuality: 0.85) else { return }
-        uploadIcon(image: resized, data: data, originalFilename: ImagePickerFilename.originalFilename(from: info))
+    private func handlePickedImage(_ selection: PublicImageSelection) {
+        let image = selection.preservedData == nil ? Self.resizedImage(selection.image, maxSide: 512) : selection.image
+        guard let data = selection.preservedData ?? image.jpegData(compressionQuality: 0.85) else { return }
+        uploadIcon(image: image, data: data, mimeType: selection.mimeType, originalFilename: selection.originalFilename)
     }
 
-    func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-        picker.dismiss(animated: true)
-    }
-
-    private func uploadIcon(image: UIImage, data: Data, originalFilename: String?) {
+    private func uploadIcon(image: UIImage, data: Data, mimeType: String, originalFilename: String?) {
         isUploadingIcon = true
         refreshUI()
         let filename = "role_icon_\(roleId)_\(Int(Date().timeIntervalSince1970)).jpg"
@@ -793,10 +788,10 @@ extension RoleDetailViewController: UIImagePickerControllerDelegate, UINavigatio
                     return
                 }
                 let cdnURL = try await AttachmentUploader.shared.uploadPublicImage(
-                    data: data, filename: filename, filetype: "image/jpeg",
+                    data: data, filename: filename, filetype: mimeType,
                     token: token, network: self.context.account.network, originalFilename: originalFilename
                 )
-                ImageCache.shared.setImage(image, data: data, forKey: cdnURL)
+                ImageCache.shared.cachePublicImage(image, data: data, mimeType: mimeType, forKey: cdnURL)
 
                 try await self.repository.updateRole(
                     roleId: self.roleId,
