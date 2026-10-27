@@ -63,14 +63,26 @@ extension UIImage {
 
         let previewSize = min(max(maxPixelSize, 1), 512)
         let maximumAnimatedFrames = 120
-        let maximumDecodedPixels = 4 * 1024 * 1024 
-        if count > maximumAnimatedFrames {
-            guard let firstFrame = avatarThumbnail(from: source, at: 0, maxPixelSize: previewSize) else { return nil }
-            return UIImage(cgImage: firstFrame)
+        let maximumDecodedPixels = 4 * 1024 * 1024
+        let frameCount = min(count, maximumAnimatedFrames)
+        let budgetedSize = Int(sqrt(Double(maximumDecodedPixels / frameCount)))
+        let thumbnailSize = min(previewSize, budgetedSize)
+        if count <= maximumAnimatedFrames {
+            return optimizedAvatarImage(from: source, count: count, maxPixelSize: thumbnailSize)
         }
 
-        let budgetedSize = Int(sqrt(Double(maximumDecodedPixels / count)))
-        return optimizedAvatarImage(from: source, count: count, maxPixelSize: min(previewSize, budgetedSize))
+        var frames: [UIImage] = []
+        frames.reserveCapacity(frameCount)
+        for sample in 0..<frameCount {
+            let index = sample * (count - 1) / (frameCount - 1)
+            guard let cgImage = avatarThumbnail(from: source, at: index, maxPixelSize: thumbnailSize) else { continue }
+            frames.append(UIImage(cgImage: cgImage))
+        }
+        guard frames.count > 1 else { return frames.first }
+        let duration = (0..<count).reduce(0.0) {
+            $0 + optimizedAvatarFrameDuration(source: source, index: $1)
+        }
+        return UIImage.animatedImage(with: frames, duration: duration)
     }
 
     private static func optimizedAvatarImage(from source: CGImageSource, count: Int, maxPixelSize: Int) -> UIImage? {
