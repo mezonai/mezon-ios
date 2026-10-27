@@ -9,6 +9,7 @@ struct ChannelListState: Equatable {
     var isLoading: Bool
     var errorMessage: String?
     var voiceUsersByChannel: [Int64: [String]] = [:]
+    var streamViewerCounts: [Int64: Int] = [:]
     var buzzChannelIds: Set<Int64> = []
 
     static let empty = ChannelListState(
@@ -22,6 +23,7 @@ struct ChannelListState: Equatable {
             && lhs.categories.count == rhs.categories.count
             && lhs.allChannels.count == rhs.allChannels.count
             && lhs.voiceUsersByChannel == rhs.voiceUsersByChannel
+            && lhs.streamViewerCounts == rhs.streamViewerCounts
             && lhs.buzzChannelIds == rhs.buzzChannelIds
             && categoriesChannelStructureEqual(lhs.categories, rhs.categories)
         else { return false }
@@ -1003,6 +1005,7 @@ final class ChannelListViewController: ViewController {
     private let needsReloadPipe = ValuePipe<Void>()
 
     private var voicePresenceReloadScheduled = false
+    private var voiceMemberRowsNeedReload = false
     private let voicePresenceCoalesceInterval: TimeInterval = 0.4
     private var clanUsersReloadScheduled = false
     private var voiceMemberCacheClanId: Int64?
@@ -1352,19 +1355,23 @@ final class ChannelListViewController: ViewController {
     @objc private func handleVoicePresenceChanged(_ notification: Notification) {
         guard let n = notification.userInfo?["clanId"] as? NSNumber else { return }
         guard n.int64Value == clanId, clanId != 0 else { return }
-        invalidateVoiceMemberCache()
-        scheduleCoalescedVoicePresenceReload()
+        let countsOnly = notification.userInfo?["streamViewerCountOnly"] as? Bool == true
+        if !countsOnly { invalidateVoiceMemberCache() }
+        scheduleCoalescedVoicePresenceReload(reloadMembers: !countsOnly)
     }
 
-    private func scheduleCoalescedVoicePresenceReload() {
+    private func scheduleCoalescedVoicePresenceReload(reloadMembers: Bool) {
+        voiceMemberRowsNeedReload = voiceMemberRowsNeedReload || reloadMembers
         guard !voicePresenceReloadScheduled else { return }
         voicePresenceReloadScheduled = true
         DispatchQueue.main.asyncAfter(deadline: .now() + voicePresenceCoalesceInterval) { [weak self] in
             guard let self else { return }
             self.voicePresenceReloadScheduled = false
+            let reloadMembers = self.voiceMemberRowsNeedReload
+            self.voiceMemberRowsNeedReload = false
             guard self.clanId != 0 else { return }
             self.needsReloadPipe.putNext(())
-            self.channelListNode.reloadVoiceMemberRows()
+            if reloadMembers { self.channelListNode.reloadVoiceMemberRows() }
         }
     }
 
@@ -3921,6 +3928,11 @@ final class ChannelListViewController: ViewController {
             isLoading: isLoading,
             errorMessage: errorMessage,
             voiceUsersByChannel: voiceMap,
+            streamViewerCounts: Dictionary(uniqueKeysWithValues: allChannels.filter {
+                $0.type == MezonConstants.ChannelType.streaming.rawValue
+            }.map {
+                ($0.channelID, context.engine.clanData.streamViewerCount(clanId: clanId, channelId: $0.channelID))
+            }),
             buzzChannelIds: context.buzz.state.channelIdsSnapshot().intersection(allChannels.map(\.channelID))
         )
     }

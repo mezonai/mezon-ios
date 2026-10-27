@@ -26,7 +26,7 @@ enum StreamingQuality: String, CaseIterable {
     }
 }
 
-/// Stream channels use WHEP/LL-HLS from GetStreamPlayback, independently of voice SFU rooms.
+/// Stream channels prefer LL-HLS from GetStreamPlayback, using WHEP when HLS is unavailable.
 @MainActor
 final class StreamingWebRTCSession: NSObject {
     static let shared = StreamingWebRTCSession()
@@ -56,8 +56,10 @@ final class StreamingWebRTCSession: NSObject {
     var isSpeakerOutput: Bool {
         AVAudioSession.sharedInstance().currentRoute.outputs.contains { $0.portType == .builtInSpeaker }
     }
-    private var vlcProgressTask: Task<Void, Never>?
-    private var lastVlcProgressUptime: TimeInterval = 0
+    private var mediaProgressTask: Task<Void, Never>?
+    private var lastMediaProgressUptime: TimeInterval = 0
+    private var lastMediaPosition: Double?
+    private var lastInboundBytes: Double = 0
     private var lastVlcTime: Int32 = -1
     var onStreamingStateChanged: (() -> Void)?
 
@@ -263,9 +265,10 @@ final class StreamingWebRTCSession: NSObject {
 
     private func fetchPlayback(channelId: Int64, context: AccountContext) async throws -> Mezon_Api_GetStreamPlaybackResponse {
         guard let token = await context.getToken() else { throw MezonError.invalidResponse }
-        let playback = try await context.account.network.getStreamPlayback(channelId: channelId, token: token)
-        guard !playback.token.isEmpty,
-              Self.httpURL(playback.whepURL) != nil || Self.httpURL(playback.hlsURL) != nil else {
+        let response = try await context.account.network.getStreamPlayback(channelId: channelId, token: token)
+        let playback = Self.resolvedPlayback(response, channelId: channelId)
+        guard Self.httpURL(playback.hlsURL) != nil ||
+              (Self.httpURL(playback.whepURL) != nil && !playback.token.isEmpty) else {
             throw MezonError.invalidResponse
         }
         log("playback-response", "channel=\(channelId) whep=\(!playback.whepURL.isEmpty) hls=\(!playback.hlsURL.isEmpty)")
@@ -353,7 +356,11 @@ final class StreamingWebRTCSession: NSObject {
         isBuffering = true
         fallbackURL = Self.httpURL(playback.hlsURL)
         let transport = transportGeneration
-        if let url = Self.httpURL(playback.whepURL) {
+        if fallbackURL != nil {
+            startHls(transport: transport)
+            return
+        }
+        if let url = Self.httpURL(playback.whepURL), !playback.token.isEmpty {
             isConnectingWhep = true
             // Bound signaling too, including async SDK offer/description callbacks.
             armWatchdog(transport: transport, delay: 15_000_000_000)
@@ -384,6 +391,7 @@ final class StreamingWebRTCSession: NSObject {
                 throw MezonError.invalidResponse
             }
             peerConnection = pc
+            startMediaProgressMonitoring(transport: transport)
             let receiveOnly = RTCRtpTransceiverInit()
             receiveOnly.direction = .recvOnly
             pc.addTransceiver(of: .audio, init: receiveOnly)
@@ -430,7 +438,7 @@ final class StreamingWebRTCSession: NSObject {
             // A connected callback can arrive before setRemoteDescription completes.
             if pc.connectionState == .connected {
                 connected()
-            } else {
+            } else if !isStreaming {
                 armWatchdog(transport: transport, delay: 5_000_000_000)
             }
         } catch {
@@ -493,6 +501,7 @@ final class StreamingWebRTCSession: NSObject {
             }
         }
         armWatchdog(transport: currentTransport, delay: 15_000_000_000)
+        startMediaProgressMonitoring(transport: currentTransport)
         onStreamingStateChanged?()
         player.play()
     }
@@ -537,19 +546,65 @@ final class StreamingWebRTCSession: NSObject {
         player.drawable = drawable
         player.media = VLCMedia(url: url)
         vlcPlayer = player
-        lastVlcProgressUptime = ProcessInfo.processInfo.systemUptime
         lastVlcTime = -1
         applyAudioSettings()
         let currentTransport = transportGeneration
         armWatchdog(transport: currentTransport, delay: 15_000_000_000)
-        vlcProgressTask = Task { @MainActor [weak self] in
+        startMediaProgressMonitoring(transport: currentTransport)
+        onStreamingStateChanged?()
+        player.play()
+    }
+
+    private func noteMediaProgress() {
+        lastMediaProgressUptime = ProcessInfo.processInfo.systemUptime
+        reconnectAttempt = 0
+        watchdogTask?.cancel()
+        watchdogTask = nil
+        watchdogDeadline = nil
+        if !isStreaming || isBuffering { connected() }
+    }
+
+    private func startMediaProgressMonitoring(transport: Int) {
+        mediaProgressTask?.cancel()
+        lastMediaProgressUptime = ProcessInfo.processInfo.systemUptime
+        lastMediaPosition = nil
+        lastInboundBytes = 0
+        mediaProgressTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
-                do { try await Task.sleep(nanoseconds: 2_000_000_000) } catch { return }
-                guard let self, currentTransport == self.transportGeneration else { return }
-                let stalledFor = ProcessInfo.processInfo.systemUptime - self.lastVlcProgressUptime
+                do { try await Task.sleep(nanoseconds: 1_000_000_000) } catch { return }
+                guard let self, transport == self.transportGeneration else { return }
+                if let player = self.player {
+                    let position = player.currentTime().seconds
+                    if position.isFinite, position >= 0 {
+                        if let previous = self.lastMediaPosition,
+                           player.timeControlStatus == .playing, position > previous + 0.01 {
+                            self.noteMediaProgress()
+                        }
+                        self.lastMediaPosition = position
+                    }
+                } else if let pc = self.peerConnection {
+                    pc.statistics { [weak self, weak pc] report in
+                        let bytes = report.statistics.values.reduce(0.0) { total, stat in
+                            guard stat.type == "inbound-rtp" else { return total }
+                            return total + ((stat.values["bytesReceived"] as? NSNumber)?.doubleValue ?? 0)
+                        }
+                        Task { @MainActor [weak self, weak pc] in
+                            guard let self, let pc, self.peerConnection === pc,
+                                  transport == self.transportGeneration else { return }
+                            if bytes > self.lastInboundBytes {
+                                self.lastInboundBytes = bytes
+                                self.noteMediaProgress()
+                            }
+                        }
+                    }
+                }
+                // VLC reports actual clock advances through mediaPlayerTimeChanged.
+                let stalledFor = ProcessInfo.processInfo.systemUptime - self.lastMediaProgressUptime
                 if stalledFor >= 15 {
-                    self.log("hls-vlc-stalled")
-                    self.scheduleReconnect()
+                    self.log("media-stalled")
+                    if self.player != nil { self.fallbackFromNativeHls(transport: transport) }
+                    else if self.peerConnection != nil { self.startHls(transport: transport) }
+                    else { self.scheduleReconnect() }
                     return
                 }
                 if stalledFor >= 3, !self.isBuffering {
@@ -558,8 +613,6 @@ final class StreamingWebRTCSession: NSObject {
                 }
             }
         }
-        onStreamingStateChanged?()
-        player.play()
     }
 
     private func connected() {
@@ -568,7 +621,6 @@ final class StreamingWebRTCSession: NSObject {
         watchdogDeadline = nil
         if !isStreaming || isBuffering { log("media-playing", "engine=\(vlcPlayer != nil ? "vlc" : (player != nil ? "avplayer" : "whep"))") }
         isConnectingWhep = false
-        reconnectAttempt = 0
         isStreaming = true
         isBuffering = false
         onStreamingStateChanged?()
@@ -632,8 +684,8 @@ final class StreamingWebRTCSession: NSObject {
         watchdogTask?.cancel()
         watchdogTask = nil
         watchdogDeadline = nil
-        vlcProgressTask?.cancel()
-        vlcProgressTask = nil
+        mediaProgressTask?.cancel()
+        mediaProgressTask = nil
         if let resourceURL { deleteResource(resourceURL) }
         resourceURL = nil
         let oldPeer = peerConnection
@@ -718,16 +770,22 @@ final class StreamingWebRTCSession: NSObject {
     private static func httpURL(_ raw: String) -> URL? {
         guard let url = URL(string: raw), let scheme = url.scheme?.lowercased(),
               ["https", "http"].contains(scheme), url.host != nil else { return nil }
-        #if !DEBUG
-        // Release playback and WHEP resources share the production streaming gateway.
-        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: true) else { return nil }
-        components.scheme = "https"
-        components.host = "streaming.mezon.vn"
-        components.port = nil
-        return components.url
-        #else
         return url
-        #endif
+    }
+
+    private static func resolvedPlayback(_ playback: Mezon_Api_GetStreamPlaybackResponse, channelId: Int64) -> Mezon_Api_GetStreamPlaybackResponse {
+        // An omitted WHEP URL can mean no edge has capacity: honor an API-provided HLS URL.
+        guard channelId != 0, !playback.token.isEmpty,
+              httpURL(playback.whepURL) == nil, httpURL(playback.hlsURL) == nil else { return playback }
+        let baseURL = URL(string: "https://streaming.mezon.vn")!
+        var resolved = playback
+        resolved.whepURL = baseURL.appendingPathComponent("whep/\(channelId)").absoluteString
+        // The streaming server uses the channel's 16-digit hexadecimal ID for HLS.
+        let channelPath = String(format: "%016llx", UInt64(bitPattern: channelId))
+        var hls = URLComponents(url: baseURL.appendingPathComponent("\(channelPath)/live/index.m3u8"), resolvingAgainstBaseURL: true)!
+        hls.queryItems = [URLQueryItem(name: "token", value: playback.token)]
+        resolved.hlsURL = hls.url!.absoluteString
+        return resolved
     }
 
     private func scanRemoteTracks(_ pc: RTCPeerConnection) {
@@ -958,14 +1016,14 @@ extension StreamingWebRTCSession: VLCMediaPlayerDelegate {
         Task { @MainActor [weak self] in
             guard let self, player === self.vlcPlayer else { return }
             let time = player.time.intValue
-            guard time > 0, time != self.lastVlcTime else { return }
+            guard time > 0 else { return }
+            let progressed = self.lastVlcTime > 0 && time > self.lastVlcTime
             self.lastVlcTime = time
-            self.lastVlcProgressUptime = ProcessInfo.processInfo.systemUptime
+            if progressed { self.noteMediaProgress() }
             self.restoreVlcAudioOutputIfNeeded()
             if player.hasVideoOut, let media = player.media, media.statistics.displayedPictures > 0 {
                 self.noteVideoFrame()
             }
-            if !self.isStreaming || self.isBuffering { self.connected() }
         }
     }
 }

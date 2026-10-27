@@ -523,7 +523,7 @@ final class StreamingRoomViewController: ViewController {
         membersRefreshWorkItem?.cancel()
         membersRefreshWorkItem = nil
         let entries = context.engine.clanData.streamMembers(clanId: resolvedClanId, channelId: streamChannelId)
-        let viewerCount = max(0, entries.count - 1)
+        let viewerCount = context.engine.clanData.streamViewerCount(clanId: resolvedClanId, channelId: streamChannelId)
         let viewers = entries.dropFirst()
         let joinedIDs = Set(viewers.map(\.userID))
         // Preserve the visible order when snapshots arrive in a different server order.

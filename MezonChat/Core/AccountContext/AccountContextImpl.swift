@@ -1414,6 +1414,12 @@ final class AccountContextImpl: AccountContext {
                 userId: userId
             )
 
+        case .streamingEnded(let ev):
+            engine.clanData.applyStreamEnded(clanId: ev.clanID, channelId: ev.channelID)
+
+        case .streamingViewerCount(let ev):
+            engine.clanData.applyStreamViewerCount(clanId: ev.clanID, channelId: ev.channelID, count: Int(ev.viewerCount))
+
         case .voiceEnded(let ev):
             let cid = Int64(ev.voiceChannelID) ?? 0
             guard cid != 0 else { return }
