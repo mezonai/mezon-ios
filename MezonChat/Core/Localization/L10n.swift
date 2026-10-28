@@ -1638,6 +1638,12 @@ extension L10n {
     }
 
     private static let en: [String: String] = [
+        "streamingRoom.enterFullscreen": "Enter fullscreen",
+        "streamingRoom.exitFullscreen": "Exit fullscreen",
+        "streamingRoom.hideControls": "Hide stream controls",
+        "streamingRoom.showControls": "Show stream controls",
+        "streamingRoom.resetZoom": "Reset zoom",
+        "streamingRoom.video": "Stream video",
         "tab.clans":            "Clans",
         "tab.messages":         "Messages",
         "tab.notifications":    "Notifications",
@@ -3106,6 +3112,12 @@ extension L10n {
     ]
 
     private static let vi: [String: String] = [
+        "streamingRoom.enterFullscreen": "Xem toàn màn hình",
+        "streamingRoom.exitFullscreen": "Thoát toàn màn hình",
+        "streamingRoom.hideControls": "Ẩn điều khiển stream",
+        "streamingRoom.showControls": "Hiện điều khiển stream",
+        "streamingRoom.resetZoom": "Đặt lại mức thu phóng",
+        "streamingRoom.video": "Video của kênh stream",
         "tab.clans":            "Kênh",
         "tab.messages":         "Tin nhắn",
         "tab.notifications":    "Thông báo",
