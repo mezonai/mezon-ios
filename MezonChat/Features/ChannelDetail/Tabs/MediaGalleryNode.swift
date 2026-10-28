@@ -21,6 +21,13 @@ final class MediaGalleryNode: ASDisplayNode {
     private let clanId: Int64
     private let channelId: Int64
     private let channelType: Int32
+    private var requestClanId: Int64 {
+        (channelType == MezonConstants.ChannelType.dm.rawValue
+            || channelType == MezonConstants.ChannelType.group.rawValue) ? 0 : clanId
+    }
+    private lazy var senderResolver = ChannelGallerySenderResolver(
+        context: context, clanId: requestClanId, channelId: channelId
+    )
     private var mediaStateByType: [ChannelMediaType: ChannelMediaState] = [:]
     private var selectedMediaType: ChannelMediaType = .image
     private let mediaPageLimit: Int32 = 50
@@ -149,11 +156,8 @@ final class MediaGalleryNode: ASDisplayNode {
     ) async throws
         -> Mezon_Api_ChannelAttachmentList
     {
-        let targetClanId =
-            (channelType == MezonConstants.ChannelType.dm.rawValue
-                || channelType == MezonConstants.ChannelType.group.rawValue) ? 0 : clanId
         return try await context.account.network.listChannelAttachments(
-            clanId: targetClanId,
+            clanId: requestClanId,
             channelId: channelId,
             fileType: mediaType.rawValue,
             limit: mediaPageLimit,
@@ -263,7 +267,7 @@ final class MediaGalleryNode: ASDisplayNode {
     private func presentGallery(startingAt index: Int, previewImage: UIImage? = nil) {
         guard index >= 0, index < attachments.count else { return }
         let items: [GalleryItemInfo] = attachments.enumerated().map { (itemIndex, att) in
-            let uploader = resolvedUploaderInfo(uploaderId: att.uploader)
+            let uploader = senderResolver.senderInfo(for: att)
             let isVideo = Self.isVideo(att)
             let imageThumbURL = ImgproxyURL.channelMediaThumbnailURL(from: att.url)
             let preview = itemIndex == index
@@ -310,28 +314,16 @@ final class MediaGalleryNode: ASDisplayNode {
                 timestamp: ts
             )
         }
-        let gallery = GalleryController(items: items, initialIndex: index)
+        let attachmentsByURL = attachments.reduce(into: [String: Mezon_Api_ChannelAttachment]()) {
+            $0[$1.url] = $1
+        }
+        let resolver = senderResolver
+        let gallery = GalleryController(items: items, initialIndex: index, senderInfoLoader: { item in
+            guard let attachment = attachmentsByURL[item.stableIdentity] else { return nil }
+            return await resolver.loadSenderInfo(for: attachment)
+        })
         guard let vc = view.findViewController() else { return }
         vc.present(gallery, animated: true)
-    }
-
-    private func resolvedUploaderInfo(uploaderId: Int64) -> (name: String, avatarURL: String?) {
-        guard uploaderId != 0 else { return ("", nil) }
-        let idString = String(uploaderId)
-        var name = ""
-        var avatarURL: String?
-        context.account.postbox.read { tx in
-            guard let profile = tx.getProfile(userId: idString) else { return }
-            if let displayName = profile.displayName, !displayName.isEmpty {
-                name = displayName
-            } else if !profile.username.isEmpty {
-                name = profile.username
-            }
-            if let avatar = profile.avatarUrl, !avatar.isEmpty {
-                avatarURL = avatar
-            }
-        }
-        return (name.isEmpty ? idString : name, avatarURL)
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {

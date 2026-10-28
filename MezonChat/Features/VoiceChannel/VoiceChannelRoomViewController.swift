@@ -631,6 +631,17 @@ final class VoiceChannelPiPOverlay: NSObject {
         self.didAnnounceMeetLeave = didAnnounceMeetLeave
         self.preservedAudioRoute = preservedAudioRoute
 
+        session.breakoutCoordinator?.attach(
+            channel: channel, session: session,
+            presenter: { [weak self] in self?.findVisibleNavigationController()?.topViewController },
+            move: { [weak self] target, token in
+                guard let self, let sourceId = self.channel?.channelID,
+                      self.restoreFullScreen(animated: false),
+                      let room = self.findVisibleNavigationController()?.topViewController as? VoiceChannelRoomViewController,
+                      room.voiceChannelId == sourceId else { return false }
+                return room.moveToBreakoutChannel(target, token: token)
+            })
+
         session.onParticipants = { [weak self] _ in
             self?.refreshContent()
         }
@@ -811,6 +822,7 @@ final class VoiceChannelPiPOverlay: NSObject {
     }
 
     func dismiss() {
+        session?.breakoutCoordinator?.endCall()
         if let channel { context?.engine.channels.stopTrackingVoiceChannel(channelId: channel.channelID) }
         let savedAlign = crossClanVoiceExitAlignClanId
         let savedChannelId = channel?.channelID ?? 0
@@ -1479,6 +1491,9 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private let joinRole: SfuRole
     private var currentRole: SfuRole
     private var sfuSession: MezonSfuSession?
+    private var breakoutCoordinator: VoiceBreakoutCoordinator?
+    private var pendingBreakoutMicEnabled: Bool?
+    private var pendingBreakoutAudioRoute: VoiceChannelPiPPreservedAudioRoute?
     private var sfuParticipants: [SfuParticipant] = [] {
         didSet {
             remoteMutedByDevice = Dictionary(sfuParticipants.map { ($0.peerId ?? $0.id, $0.muted) }, uniquingKeysWith: { _, last in last })
@@ -1621,7 +1636,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private var pttReadyShown = false
     private var pttHintView: UIView?
 
-    init(context: AccountContext, channel: Mezon_Api_ChannelDescription, parentChannelName: String? = nil, joinRole: SfuRole = .speaker, voiceChannelCrossClanExitAlignClanId alignId: Int64? = nil, existingPiPOverlay: VoiceChannelPiPOverlay? = nil, externalMeeting: ExternalMeetingRoom? = nil) {
+    init(context: AccountContext, channel: Mezon_Api_ChannelDescription, parentChannelName: String? = nil, joinRole: SfuRole = .speaker, voiceChannelCrossClanExitAlignClanId alignId: Int64? = nil, existingPiPOverlay: VoiceChannelPiPOverlay? = nil, externalMeeting: ExternalMeetingRoom? = nil, breakoutCoordinator: VoiceBreakoutCoordinator? = nil) {
         self.context = context
         self.channel = channel
         self.parentChannelName = parentChannelName
@@ -1630,7 +1645,11 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         self.voiceChannelCrossClanExitAlignClanId = alignId ?? existingPiPOverlay?.crossClanVoiceExitAlignClanId
         self.existingPiPOverlay = existingPiPOverlay
         self.externalMeeting = externalMeeting
+        self.breakoutCoordinator = externalMeeting == nil
+            ? (breakoutCoordinator ?? existingPiPOverlay?.session?.breakoutCoordinator ?? VoiceBreakoutCoordinator(context: context))
+            : nil
         super.init(navigationBarPresentationData: nil)
+        self.breakoutCoordinator?.begin(channel: channel)
         hidesBottomBarWhenPushed = true
         self.attemptNavigation = { _ in return false }
         lockOrientation = true
@@ -2593,6 +2612,13 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             stack.addArrangedSubview(toolsRow)
         }
 
+        if breakoutCoordinator?.isInBreakout == true {
+            let returnButton = makeVoiceMoreToolButton(
+                title: L("voiceChannel.breakout.returnToMain"), image: nil, fallbackSystemName: "arrow.uturn.backward")
+            returnButton.addTarget(self, action: #selector(returnToMainRoomTapped), for: .touchUpInside)
+            stack.addArrangedSubview(returnButton)
+        }
+
         let noiseButton = UIButton(type: .custom)
         noiseButton.translatesAutoresizingMaskIntoConstraints = false
         noiseButton.backgroundColor = UIColor.white.withAlphaComponent(0.10)
@@ -3089,6 +3115,13 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     private func wireSessionCallbacks(_ session: MezonSfuSession) {
+        // A PiP session can be adopted by an independently created room controller.
+        breakoutCoordinator = session.breakoutCoordinator ?? breakoutCoordinator
+        session.breakoutCoordinator = breakoutCoordinator
+        breakoutCoordinator?.attach(
+            channel: channel, session: session,
+            presenter: { [weak self] in self?.navigationController?.topViewController },
+            move: { [weak self] target, token in self?.moveToBreakoutChannel(target, token: token) == true })
         session.onNoiseStateChanged = { [weak self] state in
             self?.updateNoisePopoverState(state)
         }
@@ -3786,6 +3819,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     @objc private func popTapped() {
         guard !isEndingVoiceRoom else { return }
         isEndingVoiceRoom = true
+        breakoutCoordinator?.endCall()
         context.engine.channels.stopTrackingVoiceChannel(channelId: channel.channelID)
         clearParticipantSpeakerPriority()
         lowerRaiseHandIfActive()
@@ -3866,6 +3900,47 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         navigationController?.pushViewController(chatVC, animated: true)
     }
 
+    @objc private func returnToMainRoomTapped() {
+        dismissVoiceMoreToolsPopover()
+        breakoutCoordinator?.returnToMain()
+    }
+
+    /// Replace the room only after the coordinator has resolved access and a token.
+    fileprivate func moveToBreakoutChannel(_ target: Mezon_Api_ChannelDescription,
+                                           token: Mezon_Api_GenerateMeetTokenResponse) -> Bool {
+        guard !isEndingVoiceRoom, let session = sfuSession, session.isActiveForBreakout,
+              let nav = navigationController, nav.topViewController === self,
+              presentedViewController == nil, !isExternalMeeting else { return false }
+        let next = VoiceChannelRoomViewController(
+            context: context, channel: target, joinRole: currentRole,
+            voiceChannelCrossClanExitAlignClanId: voiceChannelCrossClanExitAlignClanId,
+            breakoutCoordinator: breakoutCoordinator)
+        next.pendingBreakoutMicEnabled = session.micEnabled
+        next.pendingBreakoutAudioRoute = pipPreservedRouteFromCurrentOutput()
+
+        isEndingVoiceRoom = true
+        context.engine.channels.stopTrackingVoiceChannel(channelId: channel.channelID)
+        lowerRaiseHandIfActive()
+        dismissVoiceMoreToolsPopover()
+        unbindVoiceReactionSocketForPiP()
+        tearDownCallPiP()
+        tearDownScreenSharePresentationAndPiP()
+        connectTask?.cancel()
+        connectTask = nil
+        applyLocalMeetLeaveIfNeeded()
+        sfuSession = nil
+        session.clearCallbacks()
+        session.leave()
+        // Start synchronously with the prepared token. The coordinator is then
+        // attached to the new active session before any queued recall can arrive.
+        next.loadViewIfNeeded()
+        next.didStartVoiceConnection = true
+        _ = context.engine.channels.trackVoiceChannel(target)
+        next.startVoiceSession(meetToken: token)
+        nav.setViewControllers(nav.viewControllers.filter { $0 !== self } + [next], animated: false)
+        return true
+    }
+
     private func runVoiceConnectionPipeline() async {
         if let externalMeeting {
             await runExternalMeetingConnectionPipeline(externalMeeting)
@@ -3933,35 +4008,17 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                 return
             }
 
-            let microphoneGranted = await VoiceChannelMicPermission.requestIfNeeded()
+            _ = await VoiceChannelMicPermission.requestIfNeeded()
             guard !Task.isCancelled, !isEndingVoiceRoom,
                   !context.engine.channels.isAccessRevoked(channelId: channel.channelID) else {
                 setConnectingOverlayVisible(false)
                 return
             }
 
-            let session = MezonSfuSession(
-                channelId: channel.channelID,
-                clanId: channel.clanID,
-                userId: context.currentUser?.id ?? ""
-            )
-            wireSessionCallbacks(session)
-            sfuSession = session
-
-            ensureVoiceChannelAudioSessionCategory()
-            session.join(
-                token: jwt,
-                role: joinRole,
-                sfuURL: meetToken.url
-            )
+            let session = startVoiceSession(meetToken: meetToken)
             guard !Task.isCancelled, !isEndingVoiceRoom, sfuSession === session,
                   !context.engine.channels.isAccessRevoked(channelId: channel.channelID) else { return }
             didJoin = true
-
-            refreshMicButtonIcon()
-            detectInitialAudioRoute()
-            refreshCamButtonIcon()
-            refreshParticipantRowsFromSession()
         } catch {
             guard !Task.isCancelled else { return }
             setConnectingOverlayVisible(false)
@@ -3970,6 +4027,34 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                 message: error.localizedDescription)
             sfuSession = nil
         }
+    }
+
+    @discardableResult
+    private func startVoiceSession(meetToken: Mezon_Api_GenerateMeetTokenResponse) -> MezonSfuSession {
+        let session = MezonSfuSession(
+            channelId: channel.channelID, clanId: channel.clanID, userId: context.currentUser?.id ?? "")
+        wireSessionCallbacks(session)
+        sfuSession = session
+        ensureVoiceChannelAudioSessionCategory()
+        // SFU owns restoration so it also runs if the room was minimized before
+        // its first connection completed and this controller no longer owns it.
+        session.join(token: meetToken.token, role: joinRole, sfuURL: meetToken.url,
+                     initialMicEnabled: pendingBreakoutMicEnabled == true)
+        pendingBreakoutMicEnabled = nil
+        refreshMicButtonIcon()
+        detectInitialAudioRoute()
+        if let route = pendingBreakoutAudioRoute {
+            pendingBreakoutAudioRoute = nil
+            switch route {
+            case .speaker: currentAudioOutput = .speaker
+            case .earpiece: currentAudioOutput = .earpiece
+            case .bluetooth: currentAudioOutput = .bluetooth
+            }
+            applyAudioRoute()
+        }
+        refreshCamButtonIcon()
+        refreshParticipantRowsFromSession()
+        return session
     }
 
     private static func requestExternalMeetingToken(
@@ -4937,6 +5022,11 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
     private func performSfuFinalTeardown(message: String?, offerRejoin: Bool = false) {
         isEndingVoiceRoom = true
+        if offerRejoin {
+            breakoutCoordinator?.pauseForReconnect()
+        } else {
+            breakoutCoordinator?.endCall()
+        }
         context.engine.channels.stopTrackingVoiceChannel(channelId: channel.channelID)
         tearDownCallPiP()
         tearDownScreenSharePresentationAndPiP()
@@ -5038,6 +5128,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                 guard let self, self.pendingRejoinPrompt else { return }
                 self.pendingRejoinPrompt = false
                 self.rejoinPromptController = nil
+                self.breakoutCoordinator?.endCall()
                 self.popVoiceRoomOrAlignHomeAfterCrossClanVoice()
             }
         )

@@ -1,7 +1,7 @@
 import UIKit
 import AVKit
 
-final class StreamingRoomViewController: ViewController {
+final class StreamingRoomViewController: ViewController, UIScrollViewDelegate, UIGestureRecognizerDelegate {
 
     let streamChannelId: Int64
 
@@ -18,6 +18,14 @@ final class StreamingRoomViewController: ViewController {
     private var didFetchRemoteChannel = false
 
     private let playbackView = StreamingPlaybackView(frame: .zero)
+    private let videoScrollView = UIScrollView()
+    private let videoContainer = UIView()
+    private var lastVideoViewportSize: CGSize = .zero
+    private var controlsVisible = true
+    private var isFullscreen = false
+    private var orientationBeforeFullscreen: UIInterfaceOrientation = .portrait
+    private var orientationsBeforeFullscreen: ViewControllerSupportedOrientations?
+    private let fullscreenButton = UIButton(type: .custom)
     private let backgroundImageView = UIImageView()
     private let streamBannerView = UIImageView()
     private let placeholderView = UIImageView()
@@ -46,9 +54,18 @@ final class StreamingRoomViewController: ViewController {
     private let chatButton = UIButton(type: .custom)
     private let leaveButton = UIButton(type: .custom)
     private var bottomChromeBottomConstraint: NSLayoutConstraint?
+    private var footerPortraitConstraints: [NSLayoutConstraint] = []
+    private var footerLandscapeConstraints: [NSLayoutConstraint] = []
+    private var footerSizeConstraints: [(width: NSLayoutConstraint, height: NSLayoutConstraint)] = []
+    private var compactFooter: Bool?
+    private var footerControls: [UIView] { [speakerButton, outputPicker, qualityButton, chatButton, leaveButton] }
 
     private static let streamBannerSize: CGFloat = 240
     private static let bottomChromeHeight: CGFloat = 50
+    private static let footerPortraitSizes = [
+        CGSize(width: 44, height: 44), CGSize(width: 40, height: 44),
+        CGSize(width: 40, height: 44), CGSize(width: 50, height: 50), CGSize(width: 50, height: 50)
+    ]
 
     private static let memberAvatarSize: CGFloat = 40
     private static let memberOverlap: CGFloat = 10
@@ -67,6 +84,18 @@ final class StreamingRoomViewController: ViewController {
         self.streamChannelId = channel.channelID
         super.init(navigationBarPresentationData: nil)
         hidesBottomBarWhenPushed = true
+        attemptNavigation = { [weak self] _ in
+            guard let self else { return true }
+            if self.isFullscreen {
+                self.setFullscreen(false)
+                return false
+            }
+            if self.videoScrollView.zoomScale > 1.05 {
+                self.videoScrollView.setZoomScale(1, animated: true)
+                return false
+            }
+            return true
+        }
     }
 
     required init(coder aDecoder: NSCoder) { fatalError() }
@@ -174,6 +203,10 @@ final class StreamingRoomViewController: ViewController {
         viewerCountLabel.textColor = .white
         viewerCountLabel.setContentHuggingPriority(.required, for: .horizontal)
         headerRow.addArrangedSubview(viewerCountLabel)
+        styleCircleButton(fullscreenButton, systemImage: "arrow.up.left.and.arrow.down.right", pointSize: 16)
+        fullscreenButton.accessibilityLabel = L("streamingRoom.enterFullscreen")
+        fullscreenButton.addTarget(self, action: #selector(fullscreenTapped), for: .touchUpInside)
+        headerRow.addArrangedSubview(fullscreenButton)
         viewerCountLabel.isUserInteractionEnabled = true
         viewerCountLabel.accessibilityTraits.insert(.button)
         viewerCountLabel.accessibilityHint = NSLocalizedString(
@@ -221,16 +254,58 @@ final class StreamingRoomViewController: ViewController {
         footerRow.addArrangedSubview(chatButton)
         footerRow.addArrangedSubview(leaveButton)
         bottomChrome.addSubview(footerRow)
+        for (index, control) in footerControls.enumerated() {
+            let size = Self.footerPortraitSizes[index]
+            let width = control.widthAnchor.constraint(equalToConstant: size.width)
+            let height = control.heightAnchor.constraint(equalToConstant: size.height)
+            footerSizeConstraints.append((width, height))
+            NSLayoutConstraint.activate([width, height])
+        }
+        footerPortraitConstraints = [
+            footerRow.leadingAnchor.constraint(equalTo: bottomChrome.leadingAnchor, constant: 24),
+            footerRow.trailingAnchor.constraint(equalTo: bottomChrome.trailingAnchor, constant: -24)
+        ]
+        footerLandscapeConstraints = [
+            footerRow.centerXAnchor.constraint(equalTo: bottomChrome.centerXAnchor),
+            footerRow.widthAnchor.constraint(equalToConstant: CGFloat(footerControls.count) * 48 + CGFloat(footerControls.count - 2) * 14 + 24),
+            footerRow.leadingAnchor.constraint(greaterThanOrEqualTo: bottomChrome.leadingAnchor, constant: 12),
+            footerRow.trailingAnchor.constraint(lessThanOrEqualTo: bottomChrome.trailingAnchor, constant: -12)
+        ]
+        NSLayoutConstraint.activate(footerPortraitConstraints)
 
+        videoScrollView.translatesAutoresizingMaskIntoConstraints = false
+        videoScrollView.delegate = self
+        videoScrollView.minimumZoomScale = 1
+        videoScrollView.maximumZoomScale = 4
+        videoScrollView.bouncesZoom = false
+        videoScrollView.showsHorizontalScrollIndicator = false
+        videoScrollView.showsVerticalScrollIndicator = false
+        videoScrollView.contentInsetAdjustmentBehavior = .never
+        videoScrollView.isAccessibilityElement = true
+        videoScrollView.accessibilityLabel = L("streamingRoom.video")
+        videoContainer.translatesAutoresizingMaskIntoConstraints = false
+        videoContainer.clipsToBounds = true
+        view.addSubview(videoScrollView)
+        videoScrollView.addSubview(videoContainer)
         playbackView.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(playbackView)
+        videoContainer.addSubview(playbackView)
         NSLayoutConstraint.activate([
-            playbackView.topAnchor.constraint(equalTo: view.topAnchor),
-            playbackView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            playbackView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            playbackView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            videoScrollView.topAnchor.constraint(equalTo: view.topAnchor),
+            videoScrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            videoScrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            videoScrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            videoContainer.topAnchor.constraint(equalTo: videoScrollView.contentLayoutGuide.topAnchor),
+            videoContainer.bottomAnchor.constraint(equalTo: videoScrollView.contentLayoutGuide.bottomAnchor),
+            videoContainer.leadingAnchor.constraint(equalTo: videoScrollView.contentLayoutGuide.leadingAnchor),
+            videoContainer.trailingAnchor.constraint(equalTo: videoScrollView.contentLayoutGuide.trailingAnchor),
+            videoContainer.widthAnchor.constraint(equalTo: videoScrollView.frameLayoutGuide.widthAnchor),
+            videoContainer.heightAnchor.constraint(equalTo: videoScrollView.frameLayoutGuide.heightAnchor),
+            playbackView.topAnchor.constraint(equalTo: videoContainer.topAnchor),
+            playbackView.bottomAnchor.constraint(equalTo: videoContainer.bottomAnchor),
+            playbackView.leadingAnchor.constraint(equalTo: videoContainer.leadingAnchor),
+            playbackView.trailingAnchor.constraint(equalTo: videoContainer.trailingAnchor),
         ])
-        view.addSubview(backgroundImageView)
+        videoContainer.addSubview(backgroundImageView)
         view.addSubview(streamBannerView)
         view.addSubview(placeholderView)
         view.addSubview(statusLabel)
@@ -240,30 +315,22 @@ final class StreamingRoomViewController: ViewController {
         view.addSubview(bufferingIndicator)
 
         NSLayoutConstraint.activate([
-            speakerButton.widthAnchor.constraint(equalToConstant: 44),
-            speakerButton.heightAnchor.constraint(equalToConstant: 44),
             speakerRouteIcon.centerXAnchor.constraint(equalTo: speakerButton.centerXAnchor),
             speakerRouteIcon.centerYAnchor.constraint(equalTo: speakerButton.centerYAnchor),
             speakerRouteIcon.widthAnchor.constraint(equalToConstant: 18),
             speakerRouteIcon.heightAnchor.constraint(equalToConstant: 15),
-            outputPicker.widthAnchor.constraint(equalToConstant: 40),
-            outputPicker.heightAnchor.constraint(equalToConstant: 44),
-            qualityButton.widthAnchor.constraint(equalToConstant: 40),
-            qualityButton.heightAnchor.constraint(equalToConstant: 44),
             membersContainer.bottomAnchor.constraint(equalTo: bottomChrome.topAnchor, constant: -20),
             bufferingIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             bufferingIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor),
             minimizeButton.widthAnchor.constraint(equalToConstant: 44),
             minimizeButton.heightAnchor.constraint(equalToConstant: 44),
-            chatButton.widthAnchor.constraint(equalToConstant: 50),
-            chatButton.heightAnchor.constraint(equalToConstant: 50),
-            leaveButton.widthAnchor.constraint(equalToConstant: 50),
-            leaveButton.heightAnchor.constraint(equalToConstant: 50),
+            fullscreenButton.widthAnchor.constraint(equalToConstant: 44),
+            fullscreenButton.heightAnchor.constraint(equalToConstant: 44),
 
-            backgroundImageView.topAnchor.constraint(equalTo: view.topAnchor),
-            backgroundImageView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            backgroundImageView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            backgroundImageView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            backgroundImageView.topAnchor.constraint(equalTo: videoContainer.topAnchor),
+            backgroundImageView.leadingAnchor.constraint(equalTo: videoContainer.leadingAnchor),
+            backgroundImageView.trailingAnchor.constraint(equalTo: videoContainer.trailingAnchor),
+            backgroundImageView.bottomAnchor.constraint(equalTo: videoContainer.bottomAnchor),
 
             streamBannerView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             streamBannerView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
@@ -280,8 +347,8 @@ final class StreamingRoomViewController: ViewController {
             statusLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
 
             headerBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            headerBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            headerBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            headerBar.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
+            headerBar.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
             headerBar.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
 
             headerRow.topAnchor.constraint(equalTo: headerBar.topAnchor),
@@ -289,13 +356,11 @@ final class StreamingRoomViewController: ViewController {
             headerRow.trailingAnchor.constraint(equalTo: headerBar.trailingAnchor, constant: -12),
             headerRow.bottomAnchor.constraint(equalTo: headerBar.bottomAnchor),
 
-            bottomChrome.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            bottomChrome.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bottomChrome.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
+            bottomChrome.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
             bottomChrome.heightAnchor.constraint(equalToConstant: Self.bottomChromeHeight),
 
             footerRow.topAnchor.constraint(equalTo: bottomChrome.topAnchor),
-            footerRow.leadingAnchor.constraint(equalTo: bottomChrome.leadingAnchor, constant: 24),
-            footerRow.trailingAnchor.constraint(equalTo: bottomChrome.trailingAnchor, constant: -24),
             footerRow.bottomAnchor.constraint(equalTo: bottomChrome.bottomAnchor),
 
             membersContainer.centerXAnchor.constraint(equalTo: view.centerXAnchor),
@@ -309,6 +374,15 @@ final class StreamingRoomViewController: ViewController {
         view.bringSubviewToFront(headerBar)
         view.bringSubviewToFront(membersContainer)
         view.bringSubviewToFront(bottomChrome)
+
+        let doubleTap = UITapGestureRecognizer(target: self, action: #selector(zoomVideo(_:)))
+        doubleTap.numberOfTapsRequired = 2
+        videoScrollView.addGestureRecognizer(doubleTap)
+        let singleTap = UITapGestureRecognizer(target: self, action: #selector(toggleControls))
+        singleTap.delegate = self
+        singleTap.require(toFail: doubleTap)
+        view.addGestureRecognizer(singleTap)
+        setControlsVisible(true, animated: false)
 
         existingPiPOverlay?.prepareForFullScreenRestore()
         bindSession()
@@ -360,16 +434,25 @@ final class StreamingRoomViewController: ViewController {
         bindSession()
         refreshPlaybackUI()
         refreshMembersRow()
+        setControlsVisible(true, animated: false)
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         let bottomInset = view.window?.safeAreaInsets.bottom ?? view.safeAreaInsets.bottom
-        bottomChromeBottomConstraint?.constant = -(bottomInset + 24)
+        let landscape = view.bounds.width > view.bounds.height
+        updateBottomChromeBackground()
+        updateFooterLayout(compact: landscape)
+        bottomChromeBottomConstraint?.constant = -(bottomInset + (landscape ? 12 : 24))
+        if lastVideoViewportSize != videoScrollView.bounds.size {
+            lastVideoViewportSize = videoScrollView.bounds.size
+            videoScrollView.setZoomScale(1, animated: false)
+        }
     }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        if isMovingFromParent || isBeingDismissed { resetViewingMode() }
         if isMinimizingToPiP { return }
         if isMovingFromParent || isBeingDismissed {
             if StreamingWebRTCSession.shared.activeStreamChannelId == streamChannelId {
@@ -383,6 +466,145 @@ final class StreamingRoomViewController: ViewController {
 
     private var resolvedClanId: Int64 {
         channel.clanID != 0 ? channel.clanID : context.currentClanId
+    }
+
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .allButUpsideDown }
+    override var shouldAutorotate: Bool { true }
+
+    func viewForZooming(in scrollView: UIScrollView) -> UIView? { videoContainer }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard let touchedView = touch.view else { return false }
+        return ![headerBar, footerRow, membersContainer].contains {
+            touchedView === $0 || touchedView.isDescendant(of: $0)
+        }
+    }
+
+    @objc private func zoomVideo(_ gesture: UITapGestureRecognizer) {
+        let animated = !UIAccessibility.isReduceMotionEnabled
+        if videoScrollView.zoomScale > 1.05 {
+            videoScrollView.setZoomScale(1, animated: animated)
+        } else {
+            let point = gesture.location(in: videoContainer)
+            let size = CGSize(width: videoScrollView.bounds.width / 2.5, height: videoScrollView.bounds.height / 2.5)
+            videoScrollView.zoom(to: CGRect(x: point.x - size.width / 2, y: point.y - size.height / 2,
+                                           width: size.width, height: size.height), animated: animated)
+        }
+    }
+
+    @objc private func toggleControls() { setControlsVisible(!controlsVisible) }
+
+    private func setControlsVisible(_ visible: Bool, animated: Bool = true) {
+        controlsVisible = visible
+        let chrome = [headerBar, bottomChrome, membersContainer]
+        chrome.forEach {
+            $0.isUserInteractionEnabled = visible
+            $0.accessibilityElementsHidden = !visible
+        }
+        UIView.animate(withDuration: animated && !UIAccessibility.isReduceMotionEnabled ? 0.2 : 0,
+                       delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+            chrome.forEach { $0.alpha = visible ? 1 : 0 }
+        }
+        prefersOnScreenNavigationHidden = isFullscreen && !visible
+        setStatusBarStyle(isFullscreen && !visible ? .Hide : .White, animated: animated)
+        updateViewingAccessibilityActions()
+    }
+
+    private func updateViewingAccessibilityActions() {
+        videoScrollView.accessibilityCustomActions = [
+            UIAccessibilityCustomAction(name: L(controlsVisible ? "streamingRoom.hideControls" : "streamingRoom.showControls")) { [weak self] _ in
+                self?.toggleControls()
+                return true
+            },
+            UIAccessibilityCustomAction(name: L(isFullscreen ? "streamingRoom.exitFullscreen" : "streamingRoom.enterFullscreen")) { [weak self] _ in
+                guard let self else { return false }
+                self.setFullscreen(!self.isFullscreen)
+                return true
+            },
+            UIAccessibilityCustomAction(name: L("streamingRoom.resetZoom")) { [weak self] _ in
+                self?.videoScrollView.setZoomScale(1, animated: false)
+                return true
+            }
+        ]
+    }
+
+    @objc private func fullscreenTapped() { setFullscreen(!isFullscreen) }
+
+    private func updateFooterLayout(compact: Bool) {
+        guard compactFooter != compact else { return }
+        compactFooter = compact
+        NSLayoutConstraint.deactivate(compact ? footerPortraitConstraints : footerLandscapeConstraints)
+        footerRow.distribution = compact ? .fill : .equalSpacing
+        footerRow.spacing = compact ? 14 : 0
+        footerRow.setCustomSpacing(compact ? 24 : UIStackView.spacingUseDefault, after: chatButton)
+        for (index, control) in footerControls.enumerated() {
+            let size = compact ? CGSize(width: 48, height: 48) : Self.footerPortraitSizes[index]
+            footerSizeConstraints[index].width.constant = size.width
+            footerSizeConstraints[index].height.constant = size.height
+            control.layer.cornerRadius = compact ? 24 : (control === leaveButton ? 25 : (control === outputPicker ? 0 : 22))
+        }
+        outputPicker.backgroundColor = compact ? UIColor.black.withAlphaComponent(0.45) : nil
+        outputPicker.clipsToBounds = compact
+        NSLayoutConstraint.activate(compact ? footerLandscapeConstraints : footerPortraitConstraints)
+    }
+
+    private func updateBottomChromeBackground() {
+        let landscape = view.bounds.width > view.bounds.height
+        bottomChrome.backgroundColor = isFullscreen || landscape ? .clear : UIColor.black.withAlphaComponent(0.55)
+    }
+
+    private func setFullscreen(_ enabled: Bool) {
+        guard isFullscreen != enabled else { return }
+        if enabled {
+            orientationBeforeFullscreen = view.window?.windowScene?.interfaceOrientation ?? .portrait
+            orientationsBeforeFullscreen = supportedOrientations
+            supportedOrientations = ViewControllerSupportedOrientations(regularSize: .landscape, compactSize: .landscape)
+        } else if let previous = orientationsBeforeFullscreen {
+            supportedOrientations = previous
+            orientationsBeforeFullscreen = nil
+        }
+        isFullscreen = enabled
+        updateBottomChromeBackground()
+        videoScrollView.setZoomScale(1, animated: false)
+        fullscreenButton.setImage(UIImage(systemName: enabled ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                                          withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)), for: .normal)
+        fullscreenButton.accessibilityLabel = L(enabled ? "streamingRoom.exitFullscreen" : "streamingRoom.enterFullscreen")
+        setControlsVisible(!enabled)
+        requestVideoOrientation(enabled: enabled)
+    }
+
+    private func requestVideoOrientation(enabled: Bool) {
+        let orientation: UIInterfaceOrientationMask
+        switch orientationBeforeFullscreen {
+        case .landscapeLeft: orientation = .landscapeLeft
+        case .landscapeRight: orientation = .landscapeRight
+        case .portraitUpsideDown: orientation = .portraitUpsideDown
+        default: orientation = .portrait
+        }
+        view.window?.layoutIfNeeded()
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isFullscreen == enabled, let window = self.view.window else { return }
+            if #available(iOS 16.0, *) {
+                window.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+                window.windowScene?.requestGeometryUpdate(.iOS(interfaceOrientations: enabled ? .landscape : orientation))
+            } else {
+                UIDevice.current.setValue(enabled ? UIInterfaceOrientation.landscapeRight.rawValue : self.orientationBeforeFullscreen.rawValue,
+                                          forKey: "orientation")
+                UIViewController.attemptRotationToDeviceOrientation()
+            }
+        }
+    }
+
+    private func resetViewingMode() {
+        setFullscreen(false)
+        videoScrollView.setZoomScale(1, animated: false)
+        setControlsVisible(true, animated: false)
+    }
+
+    override func accessibilityPerformEscape() -> Bool {
+        if isFullscreen { setFullscreen(false) }
+        else { minimizeTapped() }
+        return true
     }
 
     private func bindSession() {
@@ -671,6 +893,7 @@ final class StreamingRoomViewController: ViewController {
     }
 
     private func showPiP() {
+        resetViewingMode()
         StreamingWebRTCSession.shared.onStreamingStateChanged = nil
         playbackView.update(session: nil)
         isMinimizingToPiP = true
@@ -703,6 +926,7 @@ final class StreamingRoomViewController: ViewController {
     }
 
     @objc private func leaveTapped() {
+        resetViewingMode()
         Self.endStream(
             context: context,
             clanId: resolvedClanId,

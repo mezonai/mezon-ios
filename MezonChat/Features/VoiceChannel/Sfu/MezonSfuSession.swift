@@ -407,6 +407,10 @@ final class MezonSfuSession: NSObject {
         guard !isConnected else { return }
         isConnected = true
         hasReachedConnected = true
+        if pendingJoinMicEnabled {
+            pendingJoinMicEnabled = false
+            applyMicEnabled(true)
+        }
         clearJoinWatchdog()
         clearTransportWatchdog()
         restoreAudioSession(restartAudio: false)
@@ -459,6 +463,7 @@ final class MezonSfuSession: NSObject {
     private(set) var isNetworkWeak = false
     private var networkQuality = SfuNetworkQuality()
     private(set) var micEnabled = false
+    private var pendingJoinMicEnabled = false
     private(set) var isAudioSending = false
     private(set) var pttFeedbackState: SfuPttFeedbackState = .idle
     private var firstPttPreparationComplete = false
@@ -514,6 +519,8 @@ final class MezonSfuSession: NSObject {
     private var moderatorMuteTask: Task<Void, Never>?
 
     private var active = false
+    var isActiveForBreakout: Bool { active }
+    var breakoutCoordinator: VoiceBreakoutCoordinator?
     private var socketOpen = false
     private var connecting = false
     private var connectionGen = 0
@@ -691,7 +698,7 @@ final class MezonSfuSession: NSObject {
         }
     }
 
-    func join(token: String, role: SfuRole, sfuURL: String = "") {
+    func join(token: String, role: SfuRole, sfuURL: String = "", initialMicEnabled: Bool = false) {
         leave()
         hasReachedConnected = false
         selfJoinSoundPending = true
@@ -699,6 +706,7 @@ final class MezonSfuSession: NSObject {
         self.sfuURL = sfuURL.trimmingCharacters(in: .whitespacesAndNewlines)
         self.role = role
         micEnabled = false
+        pendingJoinMicEnabled = initialMicEnabled && role == .speaker
         cameraEnabled = false
         pttActive = false
         pttRequested = false
@@ -1070,6 +1078,8 @@ final class MezonSfuSession: NSObject {
     }
 
     func leave() {
+        breakoutCoordinator?.sessionDidLeave(self)
+        pendingJoinMicEnabled = false
         stopAudioSendProbe()
         connectionStartupTask?.cancel()
         connectionStartupTask = nil
@@ -2597,6 +2607,7 @@ final class MezonSfuSession: NSObject {
 
     private func handleRoleChanged(_ newRole: SfuRole) {
         guard role != newRole else { return }
+        pendingJoinMicEnabled = false
         role = newRole
         createLocalAudioTrack()
         let audio = localAudioTrack

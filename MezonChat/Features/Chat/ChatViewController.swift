@@ -3432,6 +3432,7 @@ final class ChatViewController: ViewController {
             let trimmedStoredAvatar = record.senderAvatarURL?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let mergedAvatar: String? = {
                 if !trimmedStoredAvatar.isEmpty { return trimmedStoredAvatar }
+                if record.senderId == String(MezonConstants.anonymousUserId) { return nil }
                 if isMe {
                     let cur = context.currentUser?.avatarURL?.absoluteString
                         .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -6351,6 +6352,14 @@ final class ChatViewController: ViewController {
         sheet.animateIn()
     }
 
+    private var channelGalleryAttachmentsByURL: [String: Mezon_Api_ChannelAttachment] = [:]
+    private lazy var channelGallerySenderResolver = ChannelGallerySenderResolver(
+        context: context,
+        clanId: clanId,
+        channelId: channel.channelID,
+        topicId: topicId
+    )
+
     private func presentMessageMediaGallery(
         index: Int,
         media: [ParsedAttachment],
@@ -6366,6 +6375,8 @@ final class ChatViewController: ViewController {
             )
         }
         guard !galleryItems.isEmpty else { return }
+        channelGalleryAttachmentsByURL.removeAll()
+        let messageItemIdentities = Set(galleryItems.map(\.stableIdentity))
         let initialIndex = max(0, min(index, galleryItems.count - 1))
         let gallery = GalleryController(
             items: galleryItems,
@@ -6373,6 +6384,11 @@ final class ChatViewController: ViewController {
             channelItemsLoader: { [weak self] in
                 guard let self else { return [] }
                 return await self.loadChannelGalleryItems(around: display)
+            },
+            senderInfoLoader: { [weak self] item in
+                guard let self, !messageItemIdentities.contains(item.stableIdentity),
+                      let attachment = self.channelGalleryAttachmentsByURL[item.stableIdentity] else { return nil }
+                return await self.channelGallerySenderResolver.loadSenderInfo(for: attachment)
             }
         )
         present(gallery, animated: true)
@@ -6480,7 +6496,8 @@ final class ChatViewController: ViewController {
 
     private func makeChannelGalleryItem(attachment: Mezon_Api_ChannelAttachment) -> GalleryItemInfo {
         let isVideo = Self.isVideoChannelAttachment(attachment)
-        let uploader = resolvedUploaderInfo(uploaderId: attachment.uploader)
+        channelGalleryAttachmentsByURL[attachment.url] = attachment
+        let uploader = channelGallerySenderResolver.senderInfo(for: attachment)
         let timestamp = attachment.createTimeSeconds > 0
             ? Date(timeIntervalSince1970: TimeInterval(attachment.createTimeSeconds))
             : nil
@@ -6534,25 +6551,6 @@ final class ChatViewController: ViewController {
         let urlExtension = URL(string: attachment.url)?.pathExtension.lowercased() ?? ""
         return ["mp4", "mov", "m4v", "webm"].contains(filenameExtension)
             || ["mp4", "mov", "m4v", "webm"].contains(urlExtension)
-    }
-
-    private func resolvedUploaderInfo(uploaderId: Int64) -> (name: String, avatarURL: String?) {
-        guard uploaderId != 0 else { return ("", nil) }
-        let idString = String(uploaderId)
-        var name = ""
-        var avatarURL: String?
-        context.account.postbox.read { tx in
-            guard let profile = tx.getProfile(userId: idString) else { return }
-            if let displayName = profile.displayName, !displayName.isEmpty {
-                name = displayName
-            } else if !profile.username.isEmpty {
-                name = profile.username
-            }
-            if let avatar = profile.avatarUrl, !avatar.isEmpty {
-                avatarURL = avatar
-            }
-        }
-        return (name.isEmpty ? idString : name, avatarURL)
     }
 
     private lazy var mediaActionHandler = MediaActionHandler(presenter: self)

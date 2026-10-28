@@ -24,6 +24,10 @@ final class PinnedMessagesNode: ASDisplayNode {
             || channelType == MezonConstants.ChannelType.group.rawValue) ? 0 : clanId
     }
 
+    private lazy var gallerySenderResolver = ChannelGallerySenderResolver(
+        context: context, clanId: pinListApiClanId, channelId: channelId
+    )
+
     init(context: AccountContext, clanId: Int64, channelId: Int64, channelType: Int32) {
         self.context = context
         self.clanId = clanId
@@ -227,6 +231,9 @@ final class PinnedMessagesNode: ASDisplayNode {
     }
 
     private func resolvedSenderDisplayName(for pin: Mezon_Api_PinMessage) -> String {
+        if pin.senderID == MezonConstants.anonymousUserId {
+            return resolvedAnonymousSender(for: pin).name
+        }
         let idStr = String(pin.senderID)
         var resolved = ""
         context.account.postbox.read { tx in
@@ -244,6 +251,9 @@ final class PinnedMessagesNode: ASDisplayNode {
     }
 
     private func resolvedAvatarURLString(for pin: Mezon_Api_PinMessage) -> String {
+        if pin.senderID == MezonConstants.anonymousUserId {
+            return resolvedAnonymousSender(for: pin).avatarURL ?? ""
+        }
         let idStr = String(pin.senderID)
         var fromProfile = ""
         context.account.postbox.read { tx in
@@ -253,6 +263,20 @@ final class PinnedMessagesNode: ASDisplayNode {
         }
         if !fromProfile.isEmpty { return fromProfile }
         return pin.avatar.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func galleryAttachment(for pin: Mezon_Api_PinMessage) -> Mezon_Api_ChannelAttachment {
+        var attachment = Mezon_Api_ChannelAttachment()
+        attachment.messageID = pin.messageID
+        attachment.uploader = pin.senderID
+        return attachment
+    }
+
+    private func resolvedAnonymousSender(for pin: Mezon_Api_PinMessage) -> GallerySenderInfo {
+        gallerySenderResolver.senderInfo(
+            for: galleryAttachment(for: pin),
+            fallback: GallerySenderInfo(name: pin.username, avatarURL: pin.avatar)
+        )
     }
 
     private func rebuildPinRowDisplayItems() {
@@ -300,12 +324,17 @@ extension PinnedMessagesNode: ASTableDataSource {
             return { EmptyPinsCellNode() }
         }
         let item = pinRowDisplayItems[indexPath.row]
+        let senderResolver = gallerySenderResolver
+        let attachment = galleryAttachment(for: item.pin)
         return { [weak self] in
             PinnedMessageCellNode(
                 displayName: item.displayName,
                 pin: item.pin,
                 row: item.row,
                 avatarURLString: item.avatarURL,
+                senderInfoLoader: { _ in
+                    await senderResolver.loadSenderInfo(for: attachment)
+                },
                 onUnpin: { self?.requestUnpin(item.pin) }
             )
         }
@@ -747,6 +776,7 @@ private final class PinnedMessageCellNode: ASCellNode, ASNetworkImageNodeDelegat
     private let displayNameForGallery: String
     private let pinForGallery: Mezon_Api_PinMessage
     private let avatarURLForGallery: String
+    private let senderInfoLoader: (GalleryItemInfo) async -> GallerySenderInfo?
     private let onUnpin: () -> Void
     private let includeCaption: Bool
     private let displayName: String
@@ -768,12 +798,14 @@ private final class PinnedMessageCellNode: ASCellNode, ASNetworkImageNodeDelegat
         pin: Mezon_Api_PinMessage,
         row: PinRowContent,
         avatarURLString: String,
+        senderInfoLoader: @escaping (GalleryItemInfo) async -> GallerySenderInfo?,
         onUnpin: @escaping () -> Void
     ) {
         self.row = row
         self.displayNameForGallery = displayName
         self.pinForGallery = pin
         self.avatarURLForGallery = avatarURLString
+        self.senderInfoLoader = senderInfoLoader
         self.onUnpin = onUnpin
         self.displayName = displayName
         let cap = row.caption?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -923,7 +955,7 @@ private final class PinnedMessageCellNode: ASCellNode, ASNetworkImageNodeDelegat
                 timestamp: Self.galleryTimestamp(for: pinForGallery)
             )
         }
-        let gallery = GalleryController(items: items, initialIndex: index)
+        let gallery = GalleryController(items: items, initialIndex: index, senderInfoLoader: senderInfoLoader)
         if let vc = findViewControllerForPresent() {
             vc.present(gallery, animated: true)
         }

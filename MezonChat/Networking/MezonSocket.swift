@@ -52,6 +52,7 @@ enum SocketEvent {
     case voiceJoined(Mezon_Realtime_VoiceJoinedEvent)
     case voiceLeaved(Mezon_Realtime_VoiceLeavedEvent)
     case voiceEnded(Mezon_Realtime_VoiceEndedEvent)
+    case sfuBreakoutRoom(Mezon_Realtime_SfuBreakoutRoomEvent)
     case screenShare(Mezon_Realtime_ScreenShareEvent)
     case voiceReaction(Mezon_Realtime_VoiceReactionSend)
     case aiAgentEnabled(Mezon_Realtime_AIAgentEnabledEvent)
@@ -1105,6 +1106,8 @@ final class MezonSocket: NSObject {
             eventPipe.putNext(.voiceLeaved(m))
         case .voiceEndedEvent(let m):
             eventPipe.putNext(.voiceEnded(m))
+        case .sfuBreakoutRoomEvent(let m):
+            eventPipe.putNext(.sfuBreakoutRoom(m))
         case .screenShareEvent(let m):
             eventPipe.putNext(.screenShare(m))
         case .voiceReactionSend(let m):

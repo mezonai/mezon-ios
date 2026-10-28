@@ -457,6 +457,9 @@ final class GalleryController: UIViewController {
     private var items: [GalleryItemInfo]
     private let initialIndex: Int
     private let channelItemsLoader: (() async -> [GalleryItemInfo])?
+    private let senderInfoLoader: ((GalleryItemInfo) async -> GallerySenderInfo?)?
+    private var resolvedSenderInfo: [String: GallerySenderInfo] = [:]
+    private var loadingSenderIdentities = Set<String>()
 
     private let containerNode: ASDisplayNode
     private let backgroundNode: ASDisplayNode
@@ -469,6 +472,7 @@ final class GalleryController: UIViewController {
     private let dateLabel = UILabel()
     private let moreButton = UIButton(type: .system)
     private let counterLabel = UILabel()
+    private var avatarLoadId: UUID?
     private let footerView = UIView()
     private let thumbnailCollectionView: UICollectionView
     private let footerHeight: CGFloat = 96
@@ -483,10 +487,16 @@ final class GalleryController: UIViewController {
     private var videoSharePreparationOverlay: GalleryVideoSharePreparationOverlay?
     private var shouldResumeVideoPlaybackWhenActive = false
 
-    init(items: [GalleryItemInfo], initialIndex: Int, channelItemsLoader: (() async -> [GalleryItemInfo])? = nil) {
+    init(
+        items: [GalleryItemInfo],
+        initialIndex: Int,
+        channelItemsLoader: (() async -> [GalleryItemInfo])? = nil,
+        senderInfoLoader: ((GalleryItemInfo) async -> GallerySenderInfo?)? = nil
+    ) {
         self.items = items
         self.initialIndex = max(0, min(initialIndex, items.count - 1))
         self.channelItemsLoader = channelItemsLoader
+        self.senderInfoLoader = senderInfoLoader
 
         self.containerNode = ASDisplayNode()
         self.backgroundNode = ASDisplayNode()
@@ -877,19 +887,25 @@ final class GalleryController: UIViewController {
     private func updateHeader(for index: Int) {
         guard index >= 0, index < items.count else { return }
         let item = items[index]
-        
+        let avatarLoadId = UUID()
+        self.avatarLoadId = avatarLoadId
+        let senderInfo = resolvedSenderInfo[item.stableIdentity]
+            ?? GallerySenderInfo(name: item.senderName, avatarURL: item.senderAvatarURL)
         let isAnonymous = item.senderId == "\(MezonConstants.anonymousUserId)"
+        let sender = isAnonymous
+            ? GallerySenderInfo.anonymous(name: senderInfo.name, avatarURL: senderInfo.avatarURL)
+            : senderInfo
 
         if isAnonymous {
-            nameLabel.text = item.senderName.isEmpty ? "Anonymous" : item.senderName
+            nameLabel.text = sender.name.isEmpty ? "Anonymous" : sender.name
             avatarImageView.isHidden = false
             nameLabel.isHidden = false
             dateLabel.isHidden = false
         } else {
-            nameLabel.text = item.senderName.isEmpty ? nil : item.senderName
-            avatarImageView.isHidden = item.senderName.isEmpty
-            nameLabel.isHidden = item.senderName.isEmpty
-            dateLabel.isHidden = item.senderName.isEmpty
+            nameLabel.text = sender.name.isEmpty ? nil : sender.name
+            avatarImageView.isHidden = sender.name.isEmpty
+            nameLabel.isHidden = sender.name.isEmpty
+            dateLabel.isHidden = sender.name.isEmpty
         }
 
         if let ts = item.timestamp {
@@ -898,7 +914,7 @@ final class GalleryController: UIViewController {
             dateLabel.text = nil
         }
 
-        if isAnonymous, (item.senderAvatarURL ?? "").isEmpty {
+        if isAnonymous, (sender.avatarURL ?? "").isEmpty {
             avatarImageView.contentMode = .center
             if let raw = UIImage(named: "Chat/AnonymousIcon") {
                 avatarImageView.image = Self.anonymousAvatarCompositeImage(raw: raw, tint: .white)
@@ -906,7 +922,7 @@ final class GalleryController: UIViewController {
                 avatarImageView.image = nil
             }
             avatarImageView.backgroundColor = UIColor(white: 0.2, alpha: 1.0)
-        } else if let avatarURLStr = item.senderAvatarURL, !avatarURLStr.isEmpty {
+        } else if let avatarURLStr = sender.avatarURL, !avatarURLStr.isEmpty {
             avatarImageView.contentMode = .scaleAspectFill
             avatarImageView.backgroundColor = UIColor.white.withAlphaComponent(0.2)
             let proxyURL = ImgproxyURL.avatarProxyURL(
@@ -919,7 +935,7 @@ final class GalleryController: UIViewController {
             } else {
                 avatarImageView.image = nil
                 ImageCache.shared.loadImage(urlString: proxyURL) { [weak self] image in
-                    guard let self, let image else { return }
+                    guard let self, self.avatarLoadId == avatarLoadId, let image else { return }
                     self.avatarImageView.image = image
                 }
             }
@@ -934,6 +950,27 @@ final class GalleryController: UIViewController {
             counterLabel.isHidden = false
         } else {
             counterLabel.isHidden = true
+        }
+        loadSenderInfoIfNeeded(for: item)
+    }
+
+    private func loadSenderInfoIfNeeded(for item: GalleryItemInfo) {
+        let identity = item.stableIdentity
+        guard item.senderId == String(MezonConstants.anonymousUserId),
+              !identity.isEmpty,
+              let senderInfoLoader,
+              resolvedSenderInfo[identity] == nil,
+              loadingSenderIdentities.insert(identity).inserted else { return }
+        Task { @MainActor [weak self] in
+            let sender = await senderInfoLoader(item)
+            guard let self else { return }
+            self.loadingSenderIdentities.remove(identity)
+            guard let sender else { return }
+            self.resolvedSenderInfo[identity] = sender
+            let index = self.pagingNode.centralItemIndex
+            guard self.isHeaderVisible, self.items.indices.contains(index),
+                  self.items[index].stableIdentity == identity else { return }
+            self.updateHeader(for: index)
         }
     }
 
@@ -972,7 +1009,7 @@ final class GalleryController: UIViewController {
         let currentIdentity = items.indices.contains(pagingNode.centralItemIndex)
             ? items[pagingNode.centralItemIndex].stableIdentity
             : nil
-        let mergedItems = mergedItems(primary: loadedItems, fallback: items)
+        let mergedItems = mergedItems(loaded: loadedItems, existing: items)
         guard !mergedItems.isEmpty else { return }
         let focusIndex: Int
         if let currentIdentity,
@@ -994,13 +1031,19 @@ final class GalleryController: UIViewController {
         videoNode.controlsBottomInset = (isHeaderVisible && items.count > 1) ? footerHeight : 0
     }
 
-    private func mergedItems(primary: [GalleryItemInfo], fallback: [GalleryItemInfo]) -> [GalleryItemInfo] {
+    private func mergedItems(loaded: [GalleryItemInfo], existing: [GalleryItemInfo]) -> [GalleryItemInfo] {
+        // Keep message details and previews when channel attachments overlap;
+        // their anonymous sender information may still be loading.
+        let existingByIdentity = existing.reduce(into: [String: GalleryItemInfo]()) { result, item in
+            guard !item.stableIdentity.isEmpty, result[item.stableIdentity] == nil else { return }
+            result[item.stableIdentity] = item
+        }
         var seen = Set<String>()
         var result: [GalleryItemInfo] = []
-        for item in primary + fallback {
+        for item in loaded + existing {
             let key = item.stableIdentity.isEmpty ? "local:\(result.count)" : item.stableIdentity
             guard seen.insert(key).inserted else { continue }
-            result.append(item)
+            result.append(existingByIdentity[item.stableIdentity] ?? item)
         }
         return result
     }
