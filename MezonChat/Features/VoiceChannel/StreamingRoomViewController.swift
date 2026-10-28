@@ -54,9 +54,18 @@ final class StreamingRoomViewController: ViewController, UIScrollViewDelegate, U
     private let chatButton = UIButton(type: .custom)
     private let leaveButton = UIButton(type: .custom)
     private var bottomChromeBottomConstraint: NSLayoutConstraint?
+    private var footerPortraitConstraints: [NSLayoutConstraint] = []
+    private var footerLandscapeConstraints: [NSLayoutConstraint] = []
+    private var footerSizeConstraints: [(width: NSLayoutConstraint, height: NSLayoutConstraint)] = []
+    private var compactFooter: Bool?
+    private var footerControls: [UIView] { [speakerButton, outputPicker, qualityButton, chatButton, leaveButton] }
 
     private static let streamBannerSize: CGFloat = 240
     private static let bottomChromeHeight: CGFloat = 50
+    private static let footerPortraitSizes = [
+        CGSize(width: 44, height: 44), CGSize(width: 40, height: 44),
+        CGSize(width: 40, height: 44), CGSize(width: 50, height: 50), CGSize(width: 50, height: 50)
+    ]
 
     private static let memberAvatarSize: CGFloat = 40
     private static let memberOverlap: CGFloat = 10
@@ -245,6 +254,24 @@ final class StreamingRoomViewController: ViewController, UIScrollViewDelegate, U
         footerRow.addArrangedSubview(chatButton)
         footerRow.addArrangedSubview(leaveButton)
         bottomChrome.addSubview(footerRow)
+        for (index, control) in footerControls.enumerated() {
+            let size = Self.footerPortraitSizes[index]
+            let width = control.widthAnchor.constraint(equalToConstant: size.width)
+            let height = control.heightAnchor.constraint(equalToConstant: size.height)
+            footerSizeConstraints.append((width, height))
+            NSLayoutConstraint.activate([width, height])
+        }
+        footerPortraitConstraints = [
+            footerRow.leadingAnchor.constraint(equalTo: bottomChrome.leadingAnchor, constant: 24),
+            footerRow.trailingAnchor.constraint(equalTo: bottomChrome.trailingAnchor, constant: -24)
+        ]
+        footerLandscapeConstraints = [
+            footerRow.centerXAnchor.constraint(equalTo: bottomChrome.centerXAnchor),
+            footerRow.widthAnchor.constraint(equalToConstant: CGFloat(footerControls.count) * 48 + CGFloat(footerControls.count - 2) * 14 + 24),
+            footerRow.leadingAnchor.constraint(greaterThanOrEqualTo: bottomChrome.leadingAnchor, constant: 12),
+            footerRow.trailingAnchor.constraint(lessThanOrEqualTo: bottomChrome.trailingAnchor, constant: -12)
+        ]
+        NSLayoutConstraint.activate(footerPortraitConstraints)
 
         videoScrollView.translatesAutoresizingMaskIntoConstraints = false
         videoScrollView.delegate = self
@@ -288,16 +315,10 @@ final class StreamingRoomViewController: ViewController, UIScrollViewDelegate, U
         view.addSubview(bufferingIndicator)
 
         NSLayoutConstraint.activate([
-            speakerButton.widthAnchor.constraint(equalToConstant: 44),
-            speakerButton.heightAnchor.constraint(equalToConstant: 44),
             speakerRouteIcon.centerXAnchor.constraint(equalTo: speakerButton.centerXAnchor),
             speakerRouteIcon.centerYAnchor.constraint(equalTo: speakerButton.centerYAnchor),
             speakerRouteIcon.widthAnchor.constraint(equalToConstant: 18),
             speakerRouteIcon.heightAnchor.constraint(equalToConstant: 15),
-            outputPicker.widthAnchor.constraint(equalToConstant: 40),
-            outputPicker.heightAnchor.constraint(equalToConstant: 44),
-            qualityButton.widthAnchor.constraint(equalToConstant: 40),
-            qualityButton.heightAnchor.constraint(equalToConstant: 44),
             membersContainer.bottomAnchor.constraint(equalTo: bottomChrome.topAnchor, constant: -20),
             bufferingIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             bufferingIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor),
@@ -305,10 +326,6 @@ final class StreamingRoomViewController: ViewController, UIScrollViewDelegate, U
             minimizeButton.heightAnchor.constraint(equalToConstant: 44),
             fullscreenButton.widthAnchor.constraint(equalToConstant: 44),
             fullscreenButton.heightAnchor.constraint(equalToConstant: 44),
-            chatButton.widthAnchor.constraint(equalToConstant: 50),
-            chatButton.heightAnchor.constraint(equalToConstant: 50),
-            leaveButton.widthAnchor.constraint(equalToConstant: 50),
-            leaveButton.heightAnchor.constraint(equalToConstant: 50),
 
             backgroundImageView.topAnchor.constraint(equalTo: videoContainer.topAnchor),
             backgroundImageView.leadingAnchor.constraint(equalTo: videoContainer.leadingAnchor),
@@ -344,8 +361,6 @@ final class StreamingRoomViewController: ViewController, UIScrollViewDelegate, U
             bottomChrome.heightAnchor.constraint(equalToConstant: Self.bottomChromeHeight),
 
             footerRow.topAnchor.constraint(equalTo: bottomChrome.topAnchor),
-            footerRow.leadingAnchor.constraint(equalTo: bottomChrome.leadingAnchor, constant: 24),
-            footerRow.trailingAnchor.constraint(equalTo: bottomChrome.trailingAnchor, constant: -24),
             footerRow.bottomAnchor.constraint(equalTo: bottomChrome.bottomAnchor),
 
             membersContainer.centerXAnchor.constraint(equalTo: view.centerXAnchor),
@@ -427,6 +442,7 @@ final class StreamingRoomViewController: ViewController, UIScrollViewDelegate, U
         let bottomInset = view.window?.safeAreaInsets.bottom ?? view.safeAreaInsets.bottom
         let landscape = view.bounds.width > view.bounds.height
         updateBottomChromeBackground()
+        updateFooterLayout(compact: landscape)
         bottomChromeBottomConstraint?.constant = -(bottomInset + (landscape ? 12 : 24))
         if lastVideoViewportSize != videoScrollView.bounds.size {
             lastVideoViewportSize = videoScrollView.bounds.size
@@ -459,7 +475,7 @@ final class StreamingRoomViewController: ViewController, UIScrollViewDelegate, U
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         guard let touchedView = touch.view else { return false }
-        return ![headerBar, bottomChrome, membersContainer].contains {
+        return ![headerBar, footerRow, membersContainer].contains {
             touchedView === $0 || touchedView.isDescendant(of: $0)
         }
     }
@@ -513,6 +529,24 @@ final class StreamingRoomViewController: ViewController, UIScrollViewDelegate, U
     }
 
     @objc private func fullscreenTapped() { setFullscreen(!isFullscreen) }
+
+    private func updateFooterLayout(compact: Bool) {
+        guard compactFooter != compact else { return }
+        compactFooter = compact
+        NSLayoutConstraint.deactivate(compact ? footerPortraitConstraints : footerLandscapeConstraints)
+        footerRow.distribution = compact ? .fill : .equalSpacing
+        footerRow.spacing = compact ? 14 : 0
+        footerRow.setCustomSpacing(compact ? 24 : UIStackView.spacingUseDefault, after: chatButton)
+        for (index, control) in footerControls.enumerated() {
+            let size = compact ? CGSize(width: 48, height: 48) : Self.footerPortraitSizes[index]
+            footerSizeConstraints[index].width.constant = size.width
+            footerSizeConstraints[index].height.constant = size.height
+            control.layer.cornerRadius = compact ? 24 : (control === leaveButton ? 25 : (control === outputPicker ? 0 : 22))
+        }
+        outputPicker.backgroundColor = compact ? UIColor.black.withAlphaComponent(0.45) : nil
+        outputPicker.clipsToBounds = compact
+        NSLayoutConstraint.activate(compact ? footerLandscapeConstraints : footerPortraitConstraints)
+    }
 
     private func updateBottomChromeBackground() {
         let landscape = view.bounds.width > view.bounds.height
