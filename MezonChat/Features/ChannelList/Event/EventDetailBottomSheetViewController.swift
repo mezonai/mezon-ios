@@ -213,15 +213,11 @@ final class EventDetailBottomSheetViewController: UIViewController {
     }
 
     private var eventURL: URL? {
-        if event.isPrivate {
-            return MezonConfig.externalEventURL(event.meetRoom.externalLink)
-        }
-        let channelId = event.channelVoiceID != 0 ? event.channelVoiceID : event.channelID
-        return MezonConfig.eventShareURL(clanId: clanId, channelId: channelId)
+        EventSharing.url(for: event, clanId: clanId)
     }
 
     private func showEventActions(from source: UIView) {
-        let menu = UIAlertController(title: event.title, message: nil, preferredStyle: .actionSheet)
+        let menu = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
         if EventEditorAccess.canEdit(event, context: context) {
             menu.addAction(UIAlertAction(title: L(L10n.EventEditor.edit), style: .default) { [weak self] _ in
                 self?.editEvent()
@@ -230,8 +226,12 @@ final class EventDetailBottomSheetViewController: UIViewController {
                 self?.confirmDeleteEvent()
             })
         }
+        menu.addAction(UIAlertAction(title: L(L10n.EventMenu.copyContent), style: .default) { [weak self] _ in
+            guard let self else { return }
+            EventSharing.copyContent(self.event)
+        })
         if eventURL != nil {
-            menu.addAction(UIAlertAction(title: L(L10n.ClanInviteSheet.copy), style: .default) { [weak self] _ in
+            menu.addAction(UIAlertAction(title: L(L10n.EventMenu.copyEventLink), style: .default) { [weak self] _ in
                 self?.copyEventLink()
             })
         }
@@ -254,8 +254,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
 
     private func copyEventLink() {
         guard let url = eventURL else { return }
-        UIPasteboard.general.string = url.absoluteString
-        Toast.success(L(L10n.ClanInviteSheet.linkCopied))
+        EventSharing.copyLink(url)
     }
 
     private func shareEvent(from source: UIView) {

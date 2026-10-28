@@ -3,15 +3,13 @@ import UIKit
 enum EventListFilter {
     static func visibleEvents(
         from events: [Mezon_Api_EventManagement],
-        currentUserId: Int64,
         channels: [Mezon_Api_ChannelDescription]
     ) -> [Mezon_Api_EventManagement] {
         let privateTextChannelIds = privateTextChannelIds(from: channels)
         return events.filter { event in
-            let passesPrivacy = !event.isPrivate || event.creatorID == currentUserId
             let passesChannel = event.channelID == 0
                 || privateTextChannelIds.contains(event.channelID)
-            return passesPrivacy && passesChannel
+            return passesChannel
         }
     }
 
@@ -180,6 +178,33 @@ enum EventDisplayHelper {
         formatter.timeStyle = .short
         return formatter
     }()
+}
+
+enum EventSharing {
+    static func content(for event: Mezon_Api_EventManagement) -> String {
+        event.description_p.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? event.title
+            : "\(event.title)\n\(event.description_p)"
+    }
+
+    static func url(for event: Mezon_Api_EventManagement, clanId: Int64) -> URL? {
+        if event.isPrivate {
+            return MezonConfig.externalEventURL(event.meetRoom.externalLink)
+        }
+        let channelId = event.channelVoiceID != 0 ? event.channelVoiceID : event.channelID
+        guard channelId != 0 else { return nil }
+        return MezonConfig.eventShareURL(clanId: clanId, channelId: channelId)
+    }
+
+    @MainActor static func copyContent(_ event: Mezon_Api_EventManagement) {
+        UIPasteboard.general.string = content(for: event)
+        Toast.success(L(L10n.MessageAction.copied))
+    }
+
+    @MainActor static func copyLink(_ url: URL) {
+        UIPasteboard.general.string = url.absoluteString
+        Toast.success(L(L10n.ClanInviteSheet.linkCopied))
+    }
 }
 
 final class EventViewerBottomSheetViewController: UIViewController {
@@ -453,7 +478,6 @@ final class EventViewerBottomSheetViewController: UIViewController {
     private func filteredEvents() -> [Mezon_Api_EventManagement] {
         EventListFilter.visibleEvents(
             from: allEventsSource(),
-            currentUserId: currentUserId(),
             channels: channels
         )
     }
@@ -524,6 +548,11 @@ final class EventViewerBottomSheetViewController: UIViewController {
             let latest = self.loadedEvents.first(where: { $0.id == event.id }) ?? event
             self.presentEventDetail(latest)
         }
+        row.onShowCopyMenu = { [weak self] source in
+            guard let self else { return }
+            let latest = self.loadedEvents.first(where: { $0.id == event.id }) ?? event
+            self.showEventCopyMenu(latest, from: source)
+        }
         row.onToggleInterest = { [weak self] in
             self?.toggleEventInterest(event)
         }
@@ -546,8 +575,7 @@ final class EventViewerBottomSheetViewController: UIViewController {
             self?.onJoinExternalMeeting?(meeting)
         }
         row.onCopyExternalLink = { url in
-            UIPasteboard.general.string = url.absoluteString
-            Toast.success(L(L10n.ClanInviteSheet.linkCopied))
+            EventSharing.copyLink(url)
         }
         row.onInviteToExternalEvent = { [weak self] url in
             guard let self else { return }
@@ -560,6 +588,22 @@ final class EventViewerBottomSheetViewController: UIViewController {
             self.present(invite, animated: true)
         }
         return row
+    }
+
+    private func showEventCopyMenu(_ event: Mezon_Api_EventManagement, from source: UIView) {
+        let menu = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        menu.addAction(UIAlertAction(title: L(L10n.EventMenu.copyContent), style: .default) { _ in
+            EventSharing.copyContent(event)
+        })
+        if let url = EventSharing.url(for: event, clanId: clanId) {
+            menu.addAction(UIAlertAction(title: L(L10n.EventMenu.copyEventLink), style: .default) { _ in
+                EventSharing.copyLink(url)
+            })
+        }
+        menu.addAction(UIAlertAction(title: L(L10n.Common.cancel), style: .cancel))
+        menu.popoverPresentationController?.sourceView = source
+        menu.popoverPresentationController?.sourceRect = source.bounds
+        present(menu, animated: true)
     }
 
     private func toggleEventInterest(_ event: Mezon_Api_EventManagement) {
@@ -626,6 +670,7 @@ final class EventViewerBottomSheetViewController: UIViewController {
 private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
 
     var onTap: (() -> Void)?
+    var onShowCopyMenu: ((UIView) -> Void)?
     var onToggleInterest: (() -> Void)?
     var onEditEvent: (() -> Void)?
     var onEndEvent: (() -> Void)?
@@ -715,7 +760,7 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
         let contentStack = UIStackView()
         contentStack.axis = .vertical
         contentStack.spacing = 8
-        contentStack.isUserInteractionEnabled = false
+        contentStack.isUserInteractionEnabled = true
         contentStack.addArrangedSubview(makeInfoRow())
         contentStack.addArrangedSubview(makeMainArea())
         if event.channelID != 0, let textChannelLabel, !textChannelLabel.isEmpty {
@@ -872,6 +917,17 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
 
         rightStack.addArrangedSubview(avatar)
         rightStack.addArrangedSubview(countStack)
+        let more = EventEditorButton()
+        more.setImage(UIImage(systemName: "ellipsis"), for: .normal)
+        more.tintColor = UIColor.theme.textStrong
+        more.accessibilityLabel = L(L10n.EventMenu.actions)
+        more.widthAnchor.constraint(equalToConstant: 44).isActive = true
+        more.heightAnchor.constraint(equalToConstant: 44).isActive = true
+        more.action = { [weak self, weak more] in
+            guard let more else { return }
+            self?.onShowCopyMenu?(more)
+        }
+        rightStack.addArrangedSubview(more)
 
         row.addArrangedSubview(statusStack)
         row.addArrangedSubview(spacer)

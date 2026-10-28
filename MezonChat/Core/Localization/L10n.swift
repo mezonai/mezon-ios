@@ -960,6 +960,8 @@ enum L10n {
         static let itemInterested     = "eventMenu.item.interested"
         static let itemUninterested   = "eventMenu.item.uninterested"
         static let actions           = "eventMenu.actions"
+        static let copyContent       = "eventMenu.copyContent"
+        static let copyEventLink     = "eventMenu.copyEventLink"
         static let endEvent          = "eventMenu.endEvent"
         static let deleteEvent       = "eventMenu.deleteEvent"
         static let deleteTitle       = "eventMenu.deleteTitle"
@@ -2020,6 +2022,8 @@ extension L10n {
         "eventMenu.item.interested":              "Interested",
         "eventMenu.item.uninterested":            "Uninterested",
         "eventMenu.actions":                      "Event actions",
+        "eventMenu.copyContent":                  "Copy Content",
+        "eventMenu.copyEventLink":                "Copy Event Link",
         "eventMenu.endEvent":                     "End Event",
         "eventMenu.deleteEvent":                  "Delete Event",
         "eventMenu.deleteTitle":                  "Delete event?",
@@ -3479,6 +3483,8 @@ extension L10n {
         "eventMenu.item.interested":              "Quan tâm",
         "eventMenu.item.uninterested":            "Bỏ quan tâm",
         "eventMenu.actions":                      "Thao tác sự kiện",
+        "eventMenu.copyContent":                  "Sao chép nội dung",
+        "eventMenu.copyEventLink":                "Sao chép liên kết sự kiện",
         "eventMenu.endEvent":                     "Kết thúc sự kiện",
         "eventMenu.deleteEvent":                  "Xóa sự kiện",
         "eventMenu.deleteTitle":                  "Xóa sự kiện?",
