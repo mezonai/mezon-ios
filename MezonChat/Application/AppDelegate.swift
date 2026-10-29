@@ -63,6 +63,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         )
 
         SessionStore.prepareInstallationScopedKeychainIfNeeded()
+        if let userId = SessionStore.load()?.userId, !userId.isEmpty {
+            MessageNotificationCategory.setActiveUser(userId)
+        }
 
         return true
     }
@@ -606,7 +609,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         Task { @MainActor in
             Self.applyDmBadgeFromPush(userInfo)
             let suppressPeerCallToast = WebRTCCallManager.shared.isPeerCallDetailScreenActive
-            let notificationsMuted = MessageNotificationCategory.areNotificationsMuted
+            let notificationsMuted = MessageNotificationCategory.isMuted(channelId: channelId.flatMap(Int64.init))
             if !isViewingChannel, !suppressPeerCallToast, !notificationsMuted {
                 Toast.notification(title: title, message: body) {
                     DispatchQueue.main.async { [weak self] in
@@ -668,9 +671,13 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             return
         }
 
-        if MessageNotificationCategory.isMuteOneHourAction(response) {
-            MessageNotificationCategory.muteNotificationsForOneHour()
-            completionHandler()
+        if MessageNotificationCategory.isMuteAction(response) {
+            let notification = response.notification
+            let duration = MessageNotificationCategory.muteDuration(for: response)
+            Task { @MainActor [weak self] in
+                await NotificationReplySender.mute(notification: notification, accountContext: self?.accountContext, durationSeconds: duration)
+                completionHandler()
+            }
             return
         }
 

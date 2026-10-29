@@ -111,7 +111,7 @@ targets:
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         PRODUCT_BUNDLE_IDENTIFIER: mezon.mobile
         PRODUCT_NAME: Mezon
-        MARKETING_VERSION: "1.2.127"
+        MARKETING_VERSION: "1.2.128"
         CURRENT_PROJECT_VERSION: "1"
         INFOPLIST_FILE: MezonChat/Resources/Info.plist
         DEVELOPMENT_TEAM: ""
@@ -171,6 +171,8 @@ targets:
         NSBluetoothPeripheralUsageDescription: "We need needs to use Bluetooth to detect connected headsets for mezon meeting"
         NSCameraUsageDescription: "Mezon app needs access to the camera to call video or take add pricture send to chat"
         NSLocationAlwaysAndWhenInUseUsageDescription: "We use your location to enhance your experience by showing nearby content and providing location-specific features when you're using the app. Your privacy is important to us, and we only access your location while you're actively using the app."
+        NSLocationTemporaryUsageDescriptionDictionary:
+          ShareLocation: "Mezon needs your precise location to share exactly where you are in this conversation."
         NSLocationWhenInUseUsageDescription: "We use your location to enhance your experience by showing nearby content and providing location-specific features when you're using the app. Your privacy is important to us, and we only access your location while you're actively using the app."
         NSLocalNetworkUsageDescription: "Mezon needs access to your local network to establish peer-to-peer voice and video calls."
         NSBonjourServices:
@@ -222,7 +224,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: mezon.mobile.MezonSharing
         PRODUCT_NAME: MezonSharing
-        MARKETING_VERSION: "1.2.127"
+        MARKETING_VERSION: "1.2.128"
         CURRENT_PROJECT_VERSION: "1"
         DEVELOPMENT_TEAM: ""
         CODE_SIGN_STYLE: Automatic
@@ -257,7 +259,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: mezon.mobile.MezonScreenShare
         PRODUCT_NAME: MezonScreenShare
-        MARKETING_VERSION: "1.2.127"
+        MARKETING_VERSION: "1.2.128"
         CURRENT_PROJECT_VERSION: "1"
         DEVELOPMENT_TEAM: ""
         CODE_SIGN_STYLE: Automatic

@@ -434,6 +434,7 @@ enum SessionStore {
             kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]
         SecItemAdd(addQuery as CFDictionary, nil)
+        MessageNotificationCategory.setActiveUser(sessionToStore.userId)
 
         if let apiURL = sessionToStore.apiURL, let wsURL = sessionToStore.wsURL {
             let config: [String: String] = ["api_url": apiURL, "ws_url": wsURL]
@@ -468,6 +469,7 @@ enum SessionStore {
     }
 
     static func clear() {
+        MessageNotificationCategory.setActiveUser(nil)
         let query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,

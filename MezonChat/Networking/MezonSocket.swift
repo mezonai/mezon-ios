@@ -499,6 +499,7 @@ final class MezonSocket: NSObject {
         body: Data,
         timeoutNanoseconds: UInt64? = nil
     ) async throws -> Data {
+        if apiName == "SearchCtrlK" { try Task.checkCancellation() }
         guard isConnected, let t = transport else {
             throw MezonError.socketError("Socket is not connected")
         }

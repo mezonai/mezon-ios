@@ -21,7 +21,7 @@ class NotificationService: UNNotificationServiceExtension {
             let newCount = shared.integer(forKey: "badgeCount") + 1
             shared.set(newCount, forKey: "badgeCount")
             bestAttemptContent.badge = NSNumber(value: newCount)
-            if Date().timeIntervalSince1970 < shared.double(forKey: Self.notificationsMutedUntilKey) {
+            if isMutedConversation(bestAttemptContent.userInfo, shared: shared) {
                 silence(bestAttemptContent)
             }
         }
@@ -66,7 +66,8 @@ class NotificationService: UNNotificationServiceExtension {
     }
 
     private static let messageCategoryIdentifier = "MEZON_MESSAGE"
-    private static let notificationsMutedUntilKey = "notificationsMutedUntil"
+    private static let activeUserKey = "notificationMuteActiveUser"
+    private static let muteKeyPrefix = "notificationMuteUntil"
     private static let avatarDownloadAttempts = 2
     private static let avatarRetryDelay: TimeInterval = 1
     private static let avatarProxyRetryDelay: TimeInterval = 0.5
@@ -85,6 +86,24 @@ class NotificationService: UNNotificationServiceExtension {
         if #available(iOS 15.0, *) {
             content.interruptionLevel = .passive
         }
+    }
+
+    private func isMutedConversation(_ userInfo: [AnyHashable: Any], shared: UserDefaults) -> Bool {
+        guard let userId = shared.string(forKey: Self.activeUserKey), !userId.isEmpty,
+              let link = userInfo["link"] as? String else { return false }
+        let lowerLink = link.lowercased()
+        guard lowerLink.contains("/chat/direct/message/") || lowerLink.contains("/channels/") else { return false }
+        let rawChannel = (userInfo["channel"] as? String)
+            ?? (userInfo["channel"] as? NSNumber)?.stringValue
+        let pathParts = URL(string: link)?.pathComponents ?? []
+        let pathChannel = pathParts.firstIndex(of: "channels").flatMap { index in
+            index + 1 < pathParts.count ? pathParts[index + 1] : nil
+        } ?? pathParts.firstIndex(of: "message").flatMap { index in
+            index + 1 < pathParts.count ? pathParts[index + 1] : nil
+        }
+        guard let rawId = rawChannel ?? pathChannel, let channelId = Int64(rawId), channelId != 0 else { return false }
+        let key = "\(Self.muteKeyPrefix).\(userId).\(channelId)"
+        return Date().timeIntervalSince1970 < shared.double(forKey: key)
     }
 
     private func isReplyableMessage(_ userInfo: [AnyHashable: Any]) -> Bool {

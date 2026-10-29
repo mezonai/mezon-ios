@@ -888,6 +888,7 @@ private final class TransferRecipientPickerViewController: UIViewController, UIT
     private var searchResults: [TransferRecipientRow] = []
     private var awaitingSearchResults = false
     private var ctrlKGeneration: UInt64 = 0
+    private var ctrlKSearchTask: Task<Void, Never>?
     private var searchDebounceWork: DispatchWorkItem?
 
     private let searchContainer = UIView()
@@ -1159,10 +1160,11 @@ private final class TransferRecipientPickerViewController: UIViewController, UIT
         ctrlKGeneration &+= 1
         guard !text.isEmpty, text.utf8.count <= 255 else { return false }
         let generation = ctrlKGeneration
-        Task { @MainActor [weak self] in
+        ctrlKSearchTask = Task { @MainActor [weak self] in
             guard let self else { return }
             var response: Mezon_Api_SearchCtrlKResponse?
             if let token = await self.context.getToken() {
+                guard self.ctrlKGeneration == generation else { return }
                 response = try? await self.context.account.network.searchCtrlK(
                     text: text, type: Self.ctrlKUserSearchType, token: token)
             }
@@ -1200,6 +1202,8 @@ private final class TransferRecipientPickerViewController: UIViewController, UIT
     }
 
     @objc private func searchFieldChanged() {
+        ctrlKGeneration &+= 1
+        ctrlKSearchTask?.cancel()
         searchDebounceWork?.cancel()
         if trimmedSearchQuery.isEmpty {
             applySearchQuery()
@@ -1209,7 +1213,7 @@ private final class TransferRecipientPickerViewController: UIViewController, UIT
             self?.applySearchQuery()
         }
         searchDebounceWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
     }
 
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {

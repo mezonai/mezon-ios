@@ -16,6 +16,45 @@ enum NotificationReplySender {
         case missingChannel
         case missingMessage
         case emptyAck
+        case missingAccount
+    }
+
+    @MainActor
+    static func mute(notification: UNNotification, accountContext: AccountContext?, durationSeconds: Int32) async {
+        let userInfo = notification.request.content.userInfo
+        let lease = BackgroundTaskLease(name: "mezon.notification.mute")
+        defer { lease.end() }
+        do {
+            guard let token = await resolveToken(accountContext: accountContext) else { throw ReplyError.notLoggedIn }
+            guard let userId = SessionStore.load()?.userId, !userId.isEmpty else { throw ReplyError.missingAccount }
+            let routed = AppDelegate.parseFCMPayload(userInfo)
+            guard let channelId = routed.channelId.flatMap(Int64.init), channelId != 0 else { throw ReplyError.missingChannel }
+            guard routed.isDM || (routed.clanId.flatMap(Int64.init) ?? 0) != 0 else { throw ReplyError.missingChannel }
+            let clanId = routed.isDM ? 0 : (routed.clanId.flatMap(Int64.init) ?? 0)
+            try await MezonHTTPClient.shared.setMuteChannel(id: channelId, clanId: clanId, muteTime: durationSeconds, active: 0, token: token)
+            MessageNotificationCategory.setMute(channelId: channelId, userId: userId, durationSeconds: durationSeconds)
+            if let accountContext {
+                let existing = accountContext.account.postbox.read { $0.getNotificationSetting(entityId: channelId) }
+                let record = NotificationSettingRecord(
+                    id: 0,
+                    entityId: channelId,
+                    scope: .channel,
+                    notificationSettingType: existing?.notificationSettingType ?? 1,
+                    timeMuteSeconds: UInt32(bitPattern: durationSeconds),
+                    active: existing?.active ?? 1
+                )
+                accountContext.account.postbox.write { $0.updateNotificationSetting(record) }
+                NotificationCenter.default.post(
+                    name: .mezonNotificationSettingDidUpdate,
+                    object: nil,
+                    userInfo: ["channelId": channelId, "record": record]
+                )
+            }
+            UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [notification.request.identifier])
+        } catch {
+            SentryLogger.capture(error, extras: ["where": "NotificationReplySender.mute"])
+            await postFailureNotification(for: notification, bodyKey: L10n.NotificationActions.muteFailed)
+        }
     }
 
     private final class BackgroundTaskLease {

@@ -1012,6 +1012,7 @@ enum ChannelMuteHelper {
                     active: 0,
                     token: token
                 )
+                MessageNotificationCategory.setMute(channelId: channelId, userId: SessionStore.load()?.userId, durationSeconds: muteTimeSeconds)
                 
                 let existingRecord = context.account.postbox.read { tx in
                     tx.getNotificationSetting(entityId: channelId)
