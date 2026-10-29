@@ -1366,6 +1366,11 @@ final class AccountContextImpl: AccountContext {
             )
 
         case .markAsRead(let e):
+            if e.channelID != 0 {
+                MessageNotificationCategory.updateMuteFromServer(
+                    channelId: e.channelID, userId: SessionStore.load()?.userId, muteTimeSeconds: 0
+                )
+            }
             buzz.markAsRead(clanId: e.clanID, channelId: e.channelID, categoryId: e.categoryID)
 
         case .markAsReadEvent(let e):
@@ -1640,6 +1645,9 @@ final class AccountContextImpl: AccountContext {
             )
 
         case .notiUserChannel(let m):
+            MessageNotificationCategory.updateMuteFromServer(
+                channelId: m.channelID, userId: SessionStore.load()?.userId, muteTimeSeconds: m.timeMuteSeconds
+            )
             let record = NotificationSettingRecord(from: m)
             account.postbox.write { tx in
                 tx.updateNotificationSetting(record)

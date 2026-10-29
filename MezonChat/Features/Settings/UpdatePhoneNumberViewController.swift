@@ -50,14 +50,6 @@ final class UpdatePhoneNumberViewController: BaseViewController {
         l.translatesAutoresizingMaskIntoConstraints = false
         return l
     }()
-    private let dropdownIcon: UIImageView = {
-        let iv = UIImageView()
-        iv.image = UIImage(systemName: "chevron.down",
-                           withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold))
-        iv.contentMode = .scaleAspectFit
-        iv.translatesAutoresizingMaskIntoConstraints = false
-        return iv
-    }()
 
     private let phoneContainer: UIView = {
         let v = UIView()
@@ -111,8 +103,6 @@ final class UpdatePhoneNumberViewController: BaseViewController {
 
     private let countries: [Country] = [
         Country(flag: "🇻🇳", name: "Vietnam", prefix: "+84"),
-        Country(flag: "🇯🇵", name: "Japan",   prefix: "+81"),
-        Country(flag: "🇺🇸", name: "USA",     prefix: "+1"),
     ]
     private var selectedCountry: Country!
 
@@ -170,29 +160,23 @@ final class UpdatePhoneNumberViewController: BaseViewController {
 
         prefixContainer.addSubview(flagLabel)
         prefixContainer.addSubview(prefixLabel)
-        prefixContainer.addSubview(dropdownIcon)
-
-        let prefixTap = UITapGestureRecognizer(target: self, action: #selector(showCountryPicker))
-        prefixContainer.addGestureRecognizer(prefixTap)
-        prefixContainer.isUserInteractionEnabled = true
 
         NSLayoutConstraint.activate([
             flagLabel.leadingAnchor.constraint(equalTo: prefixContainer.leadingAnchor, constant: 10.sw),
             flagLabel.centerYAnchor.constraint(equalTo: prefixContainer.centerYAnchor),
 
             prefixLabel.leadingAnchor.constraint(equalTo: flagLabel.trailingAnchor, constant: 6.sw),
+            prefixLabel.trailingAnchor.constraint(equalTo: prefixContainer.trailingAnchor, constant: -10.sw),
             prefixLabel.centerYAnchor.constraint(equalTo: prefixContainer.centerYAnchor),
-
-            dropdownIcon.leadingAnchor.constraint(equalTo: prefixLabel.trailingAnchor, constant: 4.sw),
-            dropdownIcon.trailingAnchor.constraint(equalTo: prefixContainer.trailingAnchor, constant: -10.sw),
-            dropdownIcon.centerYAnchor.constraint(equalTo: prefixContainer.centerYAnchor),
-            dropdownIcon.widthAnchor.constraint(equalToConstant: 14),
         ])
+        flagLabel.setContentHuggingPriority(.required, for: .horizontal)
+        prefixLabel.setContentHuggingPriority(.required, for: .horizontal)
+        flagLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        prefixLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         inputRow.addArrangedSubview(prefixContainer)
         prefixContainer.setContentHuggingPriority(.required, for: .horizontal)
         prefixContainer.setContentCompressionResistancePriority(.required, for: .horizontal)
-        prefixContainer.widthAnchor.constraint(equalToConstant: 110.sw).isActive = true
 
         phoneContainer.addSubview(phoneTextField)
         NSLayoutConstraint.activate([
@@ -270,7 +254,6 @@ final class UpdatePhoneNumberViewController: BaseViewController {
         prefixContainer.backgroundColor = .mezonSecondaryBackground
         prefixContainer.layer.borderColor = UIColor.mezonSeparator.cgColor
         prefixLabel.textColor = .mezonTextStrong
-        dropdownIcon.tintColor = .mezonTextPrimary
 
         phoneContainer.backgroundColor = .mezonSecondaryBackground
         phoneContainer.layer.borderColor = UIColor.mezonSeparator.cgColor
@@ -290,24 +273,6 @@ final class UpdatePhoneNumberViewController: BaseViewController {
     private func updateCountryUI() {
         flagLabel.text = selectedCountry.flag
         prefixLabel.text = selectedCountry.prefix
-    }
-
-    @objc private func showCountryPicker() {
-        let sheet = UIAlertController(title: L(L10n.Login.selectCountry), message: nil, preferredStyle: .actionSheet)
-        for country in countries {
-            let title = "\(country.flag) \(country.name) (\(country.prefix))"
-            sheet.addAction(UIAlertAction(title: title, style: .default) { [weak self] _ in
-                guard let self else { return }
-                self.selectedCountry = country
-                self.updateCountryUI()
-                self.validateAndUpdateUI()
-            })
-        }
-        sheet.addAction(UIAlertAction(title: L(L10n.Common.cancel), style: .cancel))
-        if let pop = sheet.popoverPresentationController {
-            pop.sourceView = prefixContainer
-        }
-        present(sheet, animated: true)
     }
 
     private func isValidPhone(_ phone: String, prefix: String) -> Bool {

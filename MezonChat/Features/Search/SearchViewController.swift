@@ -127,6 +127,9 @@ final class SearchViewController: ViewController {
     private var ctrlKUsers: [Mezon_Api_User] = []
     private var ctrlKChannels: [Mezon_Api_ChannelDescription] = []
     private var ctrlKGeneration: UInt64 = 0
+    private var ctrlKSearchTask: Task<Void, Never>?
+    private var ctrlKDebounceWork: DispatchWorkItem?
+    private var scheduledCtrlKQuery = ""
     private lazy var clanNamesById: [Int64: String] = {
         var map: [Int64: String] = [:]
         for clan in context.account.postbox.read({ tx in tx.getClans() }) {
@@ -395,6 +398,8 @@ final class SearchViewController: ViewController {
     deinit {
         NotificationCenter.default.removeObserver(self, name: .mezonVoiceChannelAccessLost, object: nil)
         memberAvatarPrefetchWorkItem?.cancel()
+        ctrlKDebounceWork?.cancel()
+        ctrlKSearchTask?.cancel()
     }
 
     @objc private func handleVoiceAccessLost() {
@@ -480,6 +485,20 @@ final class SearchViewController: ViewController {
         }
     }
 
+    private func scheduleCtrlKSearch(_ rawQuery: String, force: Bool = false) {
+        guard !isChannelScoped, clanId != 0, force || rawQuery != scheduledCtrlKQuery else { return }
+        scheduledCtrlKQuery = rawQuery
+        ctrlKGeneration &+= 1
+        ctrlKDebounceWork?.cancel()
+        ctrlKSearchTask?.cancel()
+        guard !rawQuery.isEmpty else { return }
+        let work = DispatchWorkItem { [weak self] in
+            self?.fetchCtrlKResults(rawQuery)
+        }
+        ctrlKDebounceWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+    }
+
     private func fetchCtrlKResults(_ rawQuery: String) {
         guard !isChannelScoped, clanId != 0 else { return }
         let type: Int32 = rawQuery.hasPrefix("@") ? 1 : rawQuery.hasPrefix("#") ? 2 : 0
@@ -489,9 +508,10 @@ final class SearchViewController: ViewController {
         guard !text.isEmpty, text.utf8.count <= 255 else { return }
         ctrlKGeneration &+= 1
         let generation = ctrlKGeneration
-        Task { @MainActor [weak self] in
+        ctrlKSearchTask = Task { @MainActor [weak self] in
             guard let self else { return }
             guard let token = await self.context.getToken() else { return }
+            guard self.ctrlKGeneration == generation else { return }
             do {
                 let response = try await self.context.account.network.searchCtrlK(
                     text: text, type: type, token: token)
@@ -758,13 +778,15 @@ final class SearchViewController: ViewController {
                 }
             }
         } else {
+            if searchNode.searchBar.textField.markedTextRange == nil {
+                scheduleCtrlKSearch(rawQuery)
+            }
             if query.isEmpty {
                 ctrlKGeneration &+= 1
                 filteredMembers = recentMembers
                 filteredDMGroups = recentGroups
                 filteredChannels = []
             } else {
-                fetchCtrlKResults(rawQuery)
                 applyCtrlKFiltered()
             }
         }
@@ -1062,6 +1084,7 @@ final class SearchViewController: ViewController {
         searchNode.searchBar.textField.text = " "
         searchNode.searchBar.updateClearButtonVisibility()
         searchQuery = ""
+        scheduleCtrlKSearch("")
         messageCurrentPage = 1
         searchMessages = []
         fetchMessages()
@@ -1575,8 +1598,13 @@ extension SearchViewController: UITextFieldDelegate {
     }
 
     @objc private func searchTextChanged(_ textField: UITextField) {
-        if textField.markedTextRange != nil { return }
+        if textField.markedTextRange != nil {
+            scheduleCtrlKSearch("", force: true)
+            NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(debouncedSearch), object: nil)
+            return
+        }
         searchQuery = textField.text ?? ""
+        scheduleCtrlKSearch(searchQuery.trimmingCharacters(in: .whitespacesAndNewlines), force: true)
 
         NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(debouncedSearch), object: nil)
         perform(#selector(debouncedSearch), with: nil, afterDelay: 0.3)

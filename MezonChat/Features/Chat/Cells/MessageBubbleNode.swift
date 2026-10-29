@@ -1110,7 +1110,7 @@ final class MessageBubbleNode: ASDisplayNode {
     }
 
     private func handleLongPressOnReactionStripBackground() {
-        guard !hasCallLog, !hasLocation else { return }
+        guard !hasCallLog else { return }
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
         interaction.onMessageLongPressed(display)
@@ -1424,7 +1424,7 @@ final class MessageBubbleNode: ASDisplayNode {
     @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
         switch gesture.state {
         case .began:
-            guard !hasCallLog, !hasLocation else { return }
+            guard !hasCallLog else { return }
             if touchIsInsideReactions(gesture) { return }
             let generator = UIImpactFeedbackGenerator(style: .medium)
             generator.impactOccurred()

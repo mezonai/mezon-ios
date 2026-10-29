@@ -49,7 +49,7 @@ final class LoginViewController: ViewController, AuthScreenStatusBarStyle {
     private var cooldownTimer: Timer?
     private let mainQueue = Queue.mainQueue()
 
-    private(set) var mode: LoginMode = .sms
+    private(set) var mode: LoginMode = LoginViewController.initialMode()
     private(set) var email: String = ""
     private(set) var phone: String = ""
     private(set) var countryPrefix: String = "+84"
@@ -88,7 +88,6 @@ final class LoginViewController: ViewController, AuthScreenStatusBarStyle {
             onEmailChanged: { [weak self] text in self?.setEmail(text) },
             onPasswordChanged: { [weak self] text in self?.setPassword(text) },
             onSubmitTapped: { [weak self] in self?.triggerSubmit() },
-            onCountryPrefixTapped: { [weak self] anchor in self?.showCountryPicker(anchor: anchor) },
             onShowPasswordToggled: { [weak self] in
                 guard let self else { return }
                 self.setPasswordVisible(!self.isPasswordVisible)
@@ -122,7 +121,6 @@ final class LoginViewController: ViewController, AuthScreenStatusBarStyle {
     func setMode(_ v: LoginMode) { mode = v; modePipe.putNext(v); needsReloadPipe.putNext(()) }
     func setEmail(_ v: String) { email = v; emailPipe.putNext(v) }
     func setPhone(_ v: String) { phone = v; phonePipe.putNext(v) }
-    func setCountryPrefix(_ v: String) { countryPrefix = v; countryPrefixPipe.putNext(v); needsReloadPipe.putNext(()) }
     func setPassword(_ v: String) { password = v; passwordPipe.putNext(v) }
 
     private func setSubmitEnabled(_ v: Bool) { isSubmitEnabled = v; isSubmitEnabledPipe.putNext(v); needsReloadPipe.putNext(()) }
@@ -151,6 +149,20 @@ final class LoginViewController: ViewController, AuthScreenStatusBarStyle {
 
     private func isValidEmail(_ email: String) -> Bool {
         email.range(of: "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$", options: .regularExpression) != nil
+    }
+
+    private static func initialMode() -> LoginMode {
+        isDeviceInVietnam() ? .sms : .emailOTP
+    }
+
+    private static func isDeviceInVietnam() -> Bool {
+        let regionCode: String?
+        if #available(iOS 16, *) {
+            regionCode = Locale.current.region?.identifier
+        } else {
+            regionCode = Locale.current.regionCode
+        }
+        return regionCode?.uppercased() == "VN"
     }
 
     private func isValidPhone(_ phone: String, prefix: String) -> Bool {
@@ -267,70 +279,6 @@ final class LoginViewController: ViewController, AuthScreenStatusBarStyle {
                 |> deliverOnMainQueue
             ).start(next: { subscriber.putNext($0) })
         }
-    }
-
-    private var customDropdown: UIView?
-
-    private class CountryButton: UIButton {
-        var prefix: String = ""
-    }
-
-    private func showCountryPicker(anchor: UIView) {
-        if customDropdown != nil {
-            hideCountryPicker()
-            return
-        }
-
-        let overlay = UIButton(type: .custom)
-        overlay.frame = view.bounds
-        overlay.addTarget(self, action: #selector(hideCountryPicker), for: .touchUpInside)
-        view.addSubview(overlay)
-
-        let dropdown = UIView()
-        dropdown.backgroundColor = AppTheme.light.attributes.loginInputBg
-        dropdown.layer.cornerRadius = 8
-        dropdown.layer.borderWidth = 1
-        dropdown.layer.borderColor = AppTheme.light.attributes.loginInputBorder.cgColor
-        dropdown.layer.shadowColor = UIColor.black.cgColor
-        dropdown.layer.shadowOpacity = 0.1
-        dropdown.layer.shadowRadius = 8
-        dropdown.layer.shadowOffset = CGSize(width: 0, height: 4)
-
-        overlay.addSubview(dropdown)
-
-        let stack = UIStackView()
-        stack.axis = .vertical
-        stack.distribution = .fillEqually
-        dropdown.addSubview(stack)
-
-        let countries = [("+84", "🇻🇳 Việt Nam"), ("+81", "🇯🇵 Japan"), ("+1", "🇺🇸 USA")]
-        for (prefix, name) in countries {
-            let btn = CountryButton(type: .system)
-            btn.prefix = prefix
-            btn.setTitle("\(name) (\(prefix))", for: .normal)
-            btn.setTitleColor(AppTheme.light.attributes.loginInputTextColor, for: .normal)
-            btn.contentHorizontalAlignment = .left
-            btn.titleEdgeInsets = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
-            btn.addTarget(self, action: #selector(countryButtonTapped(_:)), for: .touchUpInside)
-            stack.addArrangedSubview(btn)
-        }
-
-        let anchorRect = anchor.convert(anchor.bounds, to: view)
-        
-        dropdown.frame = CGRect(x: anchorRect.minX, y: anchorRect.maxY + 4, width: 220, height: CGFloat(countries.count * 44))
-        stack.frame = dropdown.bounds
-
-        customDropdown = overlay
-    }
-
-    @objc private func countryButtonTapped(_ sender: CountryButton) {
-        setCountryPrefix(sender.prefix)
-        hideCountryPicker()
-    }
-
-    @objc private func hideCountryPicker() {
-        customDropdown?.removeFromSuperview()
-        customDropdown = nil
     }
 
     @objc private func handleLanguageChange() { loginNode.refreshLocalizedStrings() }

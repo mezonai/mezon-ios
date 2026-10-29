@@ -1088,7 +1088,8 @@ enum L10n {
         static let placeholder = "notificationActions.placeholder"
         static let replyFailed = "notificationActions.replyFailed"
         static let likeFailed = "notificationActions.likeFailed"
-        static let muteOneHour = "notificationActions.muteOneHour"
+        static let mute15Minutes = "notificationActions.mute15Minutes"
+        static let muteFailed = "notificationActions.muteFailed"
     }
 
     enum NotificationSettings {
@@ -1832,7 +1833,8 @@ extension L10n {
         "notificationActions.placeholder": "Message",
         "notificationActions.replyFailed": "Your reply could not be sent. Tap to open the conversation.",
         "notificationActions.likeFailed": "Your like could not be sent. Tap to open the conversation.",
-        "notificationActions.muteOneHour": "Mute notifications for 1 hour",
+        "notificationActions.mute15Minutes": "Mute 15 min",
+        "notificationActions.muteFailed": "Could not mute notifications. Try again.",
 
         "notifications.title": "Notifications",
         "notifications.mentions": "Mentions",
@@ -3306,7 +3308,8 @@ extension L10n {
         "notificationActions.placeholder": "Tin nhắn",
         "notificationActions.replyFailed": "Không gửi được trả lời. Chạm để mở cuộc trò chuyện.",
         "notificationActions.likeFailed": "Không gửi được biểu cảm. Chạm để mở cuộc trò chuyện.",
-        "notificationActions.muteOneHour": "Tắt thông báo trong 1 giờ",
+        "notificationActions.mute15Minutes": "Tắt 15 phút",
+        "notificationActions.muteFailed": "Không thể tắt thông báo. Vui lòng thử lại.",
 
         "notifications.title": "Thông báo",
         "notifications.mentions": "Nhắc đến",

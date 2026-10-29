@@ -287,10 +287,10 @@ final class MessageActionSheetController: ViewController {
             actions.append(.createThread)
         }
 
-        if !display.copyableText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if !display.isLocation, !display.copyableText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             actions.append(.copyText)
         }
-        if hasText {
+        if !display.isLocation, hasText {
             actions.append(.shareText)
         }
         if let attachment = display.primaryMediaAttachment {

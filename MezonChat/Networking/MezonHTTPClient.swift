@@ -3005,7 +3005,9 @@ final class MezonHTTPClient {
         }
 
         if singleTransportOnly {
-            if await isSocketUsableForSingleTransport(apiName: apiName) {
+            let socketUsable = await isSocketUsableForSingleTransport(apiName: apiName)
+            if apiName == "SearchCtrlK" { try Task.checkCancellation() }
+            if socketUsable {
                 return try await sendOverSocketRequired(
                     path: path,
                     message: message,
@@ -3144,6 +3146,7 @@ final class MezonHTTPClient {
         allowBearerRetry: Bool = true
     ) async throws -> Response {
         let resolvedAuth = await resolveAuth(auth)
+        if protoApiName(from: path) == "SearchCtrlK" { try Task.checkCancellation() }
         let url = protoBaseURL.appendingPathComponent(path)
         var request = URLRequest(url: url)
         request.httpMethod = "POST"

@@ -6,7 +6,6 @@ struct LoginInteraction {
     let onEmailChanged: (String) -> Void
     let onPasswordChanged: (String) -> Void
     let onSubmitTapped: () -> Void
-    let onCountryPrefixTapped: (UIView) -> Void
     let onShowPasswordToggled: () -> Void
     let onModeSelected: (LoginMode) -> Void
 }
@@ -158,7 +157,6 @@ final class LoginFormComponent: CombinedComponent {
                 let phoneChild = phoneField.update(
                     component: PhoneInputComponent(
                         prefix: st.countryPrefix, phone: st.phone,
-                        onPrefixTapped: interaction.onCountryPrefixTapped,
                         onPhoneChanged: interaction.onPhoneChanged),
                     availableSize: CGSize(width: contentWidth, height: 100),
                     transition: context.transition
@@ -320,13 +318,11 @@ private func buildAlternativeItems(mode: LoginMode, interaction: LoginInteractio
 final class PhoneInputComponent: Component {
     let prefix: String
     let phone: String
-    let onPrefixTapped: (UIView) -> Void
     let onPhoneChanged: (String) -> Void
 
-    init(prefix: String, phone: String, onPrefixTapped: @escaping (UIView) -> Void, onPhoneChanged: @escaping (String) -> Void) {
+    init(prefix: String, phone: String, onPhoneChanged: @escaping (String) -> Void) {
         self.prefix = prefix
         self.phone = phone
-        self.onPrefixTapped = onPrefixTapped
         self.onPhoneChanged = onPhoneChanged
     }
 
@@ -341,7 +337,6 @@ final class PhoneInputComponent: Component {
         private let prefixButton = UIButton(type: .system)
         private let separator = UIView()
         private let textField = UITextField()
-        private var onPrefixTapped: ((UIView) -> Void)?
         private var onPhoneChanged: ((String) -> Void)?
 
         override init(frame: CGRect) {
@@ -359,7 +354,7 @@ final class PhoneInputComponent: Component {
                 prefixButton.setTitleColor(Self.prefixTextColor, for: .normal)
                 prefixButton.contentEdgeInsets = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: 4)
             }
-            prefixButton.addTarget(self, action: #selector(prefixTap), for: .touchUpInside)
+            prefixButton.isUserInteractionEnabled = false
             container.addSubview(prefixButton)
 
             separator.backgroundColor = UIColor.loginAlternativeText.withAlphaComponent(0.4)
@@ -386,11 +381,7 @@ final class PhoneInputComponent: Component {
             textField.attributedPlaceholder = NSAttributedString(
                 string: L(L10n.Login.phone), attributes: [.foregroundColor: attrs.loginPlaceholder])
 
-            let prefixTitle =
-                component.prefix == "+84"
-                ? "🇻🇳 +84"
-                : (component.prefix == "+81"
-                    ? "🇯🇵 +81" : (component.prefix == "+1" ? "🇺🇸 +1" : component.prefix))
+            let prefixTitle = component.prefix == "+84" ? "🇻🇳 +84" : component.prefix
             if #available(iOS 15.0, *) {
                 prefixButton.configuration?.title = "\(prefixTitle)   "
                 prefixButton.configuration?.baseForegroundColor = Self.prefixTextColor
@@ -403,12 +394,10 @@ final class PhoneInputComponent: Component {
             if textField.text != component.phone { textField.text = component.phone }
             textField.frame = CGRect(x: 102, y: 0, width: size.width - 108, height: size.height)
 
-            onPrefixTapped = component.onPrefixTapped
             onPhoneChanged = component.onPhoneChanged
             return size
         }
 
-        @objc private func prefixTap() { onPrefixTapped?(prefixButton) }
         @objc private func textChanged() { onPhoneChanged?(textField.text ?? "") }
     }
 

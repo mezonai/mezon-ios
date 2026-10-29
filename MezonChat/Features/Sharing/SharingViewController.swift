@@ -19,6 +19,7 @@ final class SharingViewController: UIViewController {
     private var selectedItemIdentity: String?
     private var searchText: String = ""
     private var ctrlKGeneration: UInt64 = 0
+    private var ctrlKSearchTask: Task<Void, Never>?
     private var awaitingSearchResults = false
     private var isUploading = false
     private var sendTask: Task<Void, Never>?
@@ -585,8 +586,9 @@ final class SharingViewController: UIViewController {
     private func scheduleSearch() {
         // Invalidate in-flight responses immediately, including during the debounce window.
         ctrlKGeneration &+= 1
+        ctrlKSearchTask?.cancel()
         searchDebounceTimer?.invalidate()
-        searchDebounceTimer = Foundation.Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] (_: Foundation.Timer) in
+        searchDebounceTimer = Foundation.Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] (_: Foundation.Timer) in
             self?.applySearchQuery()
         }
     }
@@ -596,6 +598,7 @@ final class SharingViewController: UIViewController {
         let query = trimmedSearchQuery
         if query.isEmpty {
             ctrlKGeneration &+= 1
+            ctrlKSearchTask?.cancel()
             searchResults = []
             awaitingSearchResults = false
         } else {
@@ -615,10 +618,11 @@ final class SharingViewController: UIViewController {
         ctrlKGeneration &+= 1
         guard !text.isEmpty, text.utf8.count <= 255 else { return false }
         let generation = ctrlKGeneration
-        Task { @MainActor [weak self] in
+        ctrlKSearchTask = Task { @MainActor [weak self] in
             guard let self else { return }
             var response: Mezon_Api_SearchCtrlKResponse?
             if let token = await self.context.getToken() {
+                guard self.ctrlKGeneration == generation else { return }
                 response = try? await self.context.account.network.searchCtrlK(
                     text: text, type: type, token: token)
             }
@@ -1612,6 +1616,7 @@ final class SharingViewController: UIViewController {
 
     deinit {
         sendTask?.cancel()
+        ctrlKSearchTask?.cancel()
         searchDebounceTimer?.invalidate()
         NotificationCenter.default.removeObserver(self)
     }
