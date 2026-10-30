@@ -1780,7 +1780,12 @@ final class ClanInviteSheetViewController: ViewController {
                     "index": 0,
                     "title": title,
                     "description": description,
-                    "image": image
+                    "image": image,
+                    "url": url,
+                    "clanId": inviteInfo.clan_id ?? "",
+                    "member_count": memberCount,
+                    "banner": inviteInfo.banner ?? "",
+                    "is_community": inviteInfo.is_community ?? false
                 ])
             } catch {
             }
