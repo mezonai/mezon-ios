@@ -47,7 +47,7 @@ final class ThemeManager {
         for scene in scenes {
             for window in scene.windows {
                 if let rootVC = window.rootViewController {
-                    let finalStyle = isAuthFlow(rootVC) ? .darkContent : style
+                    let finalStyle = isAuthFlow(rootVC) ? .lightContent : style
                     (rootVC as? StatusBarStyleUpdatable)?.updatePreferredStatusBarStyle(finalStyle)
                     rootVC.setNeedsStatusBarAppearanceUpdate()
                 }

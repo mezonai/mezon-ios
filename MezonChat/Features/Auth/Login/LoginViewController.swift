@@ -65,7 +65,7 @@ final class LoginViewController: ViewController, AuthScreenStatusBarStyle {
     init(context: AccountContext) {
         self.context = context
         super.init(navigationBarPresentationData: nil)
-        self.setStatusBarStyle(.Black, animated: false)
+        self.setStatusBarStyle(.White, animated: false)
         bindValidation()
         bindSubmit()
         modePipe.putNext(mode)
@@ -99,7 +99,7 @@ final class LoginViewController: ViewController, AuthScreenStatusBarStyle {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        self.setStatusBarStyle(.Black, animated: false)
+        self.setStatusBarStyle(.White, animated: false)
     }
 
     override func viewDidLoad() {
