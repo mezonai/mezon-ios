@@ -6,11 +6,9 @@ final class UpdateUsernameViewController: BaseViewController, AuthScreenStatusBa
     private let context: AccountContext
     private let otpContext: OTPContext
 
-    private lazy var gradientLayer: CAGradientLayer = {
-        let layer = CAGradientLayer()
-        layer.locations = [0, 0.5, 1]
-        return layer
-    }()
+    private let gradientLayer = AuthBackgroundLayer()
+    private weak var contentStackView: UIStackView?
+    private weak var contentScrollView: UIScrollView?
 
     private lazy var titleLabel: UILabel = {
         let l = UILabel()
@@ -37,7 +35,7 @@ final class UpdateUsernameViewController: BaseViewController, AuthScreenStatusBa
         tf.font = .systemFont(ofSize: 16.sf)
         tf.textColor = AppTheme.light.attributes.loginInputTextColor
         tf.backgroundColor = AppTheme.light.attributes.loginInputBg
-        tf.layer.cornerRadius = 8.sw
+        tf.layer.cornerRadius = 24.sh
         tf.layer.borderWidth = 1
         tf.layer.borderColor = AppTheme.light.attributes.loginInputBorder.cgColor
         tf.autocapitalizationType = .none
@@ -66,9 +64,9 @@ final class UpdateUsernameViewController: BaseViewController, AuthScreenStatusBa
     private lazy var actionButton: GradientButton = {
         let btn = GradientButton(type: .custom)
         btn.titleLabel?.font = .systemFont(ofSize: 16.sf, weight: .semibold)
-        btn.setTitleColor(.white, for: .normal)
-        btn.setTitleColor(UIColor.white.withAlphaComponent(0.8), for: .disabled)
-        btn.layer.cornerRadius = 8.sw
+        btn.setTitleColor(LoginPalette.buttonText, for: .normal)
+        btn.setTitleColor(LoginPalette.disabledButtonText, for: .disabled)
+        btn.layer.cornerRadius = 25.sh
         btn.layer.masksToBounds = true
         btn.translatesAutoresizingMaskIntoConstraints = false
         return btn
@@ -85,7 +83,7 @@ final class UpdateUsernameViewController: BaseViewController, AuthScreenStatusBa
     private lazy var skipQuestionLabel: UILabel = {
         let l = UILabel()
         l.font = .systemFont(ofSize: 14.sf)
-        l.textColor = AppTheme.light.attributes.loginAlternativeText
+        l.textColor = UIColor.white.withAlphaComponent(0.80)
         l.textAlignment = .center
         l.numberOfLines = 0
         l.translatesAutoresizingMaskIntoConstraints = false
@@ -94,8 +92,8 @@ final class UpdateUsernameViewController: BaseViewController, AuthScreenStatusBa
 
     private lazy var skipLink: UIButton = {
         let b = UIButton(type: .system)
-        b.titleLabel?.font = .systemFont(ofSize: 14.sf)
-        b.setTitleColor(UIColor(hex: 0x2e22ff), for: .normal)
+        b.titleLabel?.font = .systemFont(ofSize: 14.sf, weight: .semibold)
+        b.setTitleColor(UIColor.white.withAlphaComponent(0.84), for: .normal)
         b.translatesAutoresizingMaskIntoConstraints = false
         return b
     }()
@@ -110,14 +108,14 @@ final class UpdateUsernameViewController: BaseViewController, AuthScreenStatusBa
         self.context = context
         self.otpContext = otpContext
         super.init(navigationBarPresentationData: nil)
-        self.setStatusBarStyle(.Black, animated: false)
+        self.setStatusBarStyle(.White, animated: false)
     }
 
     required init(coder aDecoder: NSCoder) { fatalError() }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        self.setStatusBarStyle(.Black, animated: false)
+        self.setStatusBarStyle(.White, animated: false)
         navigationItem.hidesBackButton = true
     }
 
@@ -149,10 +147,13 @@ final class UpdateUsernameViewController: BaseViewController, AuthScreenStatusBa
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        gradientLayer.frame = view.bounds
+        guard let contentStackView, let contentScrollView else { return }
+        let contentBottom = view.convert(contentStackView.bounds, from: contentStackView).maxY + contentScrollView.contentOffset.y
+        gradientLayer.update(width: view.bounds.width, viewportHeight: view.bounds.height, contentBottom: contentBottom)
     }
 
     override func setupUI() {
+        displayNode.backgroundColor = LoginPalette.background
         view.layer.insertSublayer(gradientLayer, at: 0)
         navigationController?.setNavigationBarHidden(true, animated: false)
 
@@ -175,6 +176,8 @@ final class UpdateUsernameViewController: BaseViewController, AuthScreenStatusBa
         scroll.keyboardDismissMode = .interactive
         view.addSubview(scroll)
         scroll.addSubview(contentStack)
+        contentStackView = contentStack
+        contentScrollView = scroll
         view.addSubview(loadingIndicator)
 
         NSLayoutConstraint.activate([
@@ -214,14 +217,14 @@ final class UpdateUsernameViewController: BaseViewController, AuthScreenStatusBa
 
     override func applyTheme() {
         let attrs = AppTheme.light.attributes
-        gradientLayer.colors = attrs.loginGradientColors.map { $0.cgColor }
-        titleLabel.textColor = attrs.loginTitleColor
-        subtitleLabel.textColor = attrs.loginSubtitleColor
+        titleLabel.textColor = .white
+        subtitleLabel.textColor = UIColor.white.withAlphaComponent(0.80)
         nameField.backgroundColor = attrs.loginInputBg
         nameField.layer.borderColor = attrs.loginInputBorder.cgColor
         nameField.textColor = attrs.loginInputTextColor
-        previewLabel.textColor = attrs.loginTitleColor
-        skipQuestionLabel.textColor = attrs.loginAlternativeText
+        previewLabel.textColor = .white
+        skipQuestionLabel.textColor = UIColor.white.withAlphaComponent(0.80)
+        skipLink.setTitleColor(UIColor.white.withAlphaComponent(0.84), for: .normal)
     }
 
     @objc private func handleLanguageChange() {
@@ -260,7 +263,7 @@ final class UpdateUsernameViewController: BaseViewController, AuthScreenStatusBa
                 actionButton.backgroundColor = .clear
                 actionButton.setGradientHidden(false)
             } else {
-                actionButton.backgroundColor = AppTheme.light.attributes.loginButtonBgDisabled
+                actionButton.backgroundColor = LoginPalette.disabledButton
                 actionButton.setGradientHidden(true)
             }
             actionButton.layoutIfNeeded()
@@ -356,7 +359,7 @@ extension UpdateUsernameViewController: UITextFieldDelegate {
 private final class GradientButton: UIButton {
     private let gradientLayer: CAGradientLayer = {
         let layer = CAGradientLayer()
-        layer.colors = [UIColor(hex: 0x501794).cgColor, UIColor(hex: 0x3E70A1).cgColor]
+        layer.colors = [LoginPalette.buttonStart.cgColor, LoginPalette.buttonEnd.cgColor]
         layer.startPoint = CGPoint(x: 0, y: 0)
         layer.endPoint = CGPoint(x: 1, y: 0)
         return layer

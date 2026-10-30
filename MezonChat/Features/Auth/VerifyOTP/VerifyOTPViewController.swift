@@ -22,11 +22,9 @@ final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyl
     private(set) var isLoading: Bool = false
     private(set) var errorMessage: String?
 
-    private lazy var gradientLayer: CAGradientLayer = {
-        let layer = CAGradientLayer()
-        layer.locations = [0, 0.5, 1]
-        return layer
-    }()
+    private let gradientLayer = AuthBackgroundLayer()
+    private weak var contentStackView: UIStackView?
+    private weak var contentScrollView: UIScrollView?
 
     private lazy var titleLabel: UILabel = {
         let l = UILabel()
@@ -84,9 +82,9 @@ final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyl
     private lazy var actionButton: GradientButton = {
         let btn = GradientButton(type: .custom)
         btn.titleLabel?.font = .systemFont(ofSize: 16.sf, weight: .semibold)
-        btn.setTitleColor(.white, for: .normal)
-        btn.setTitleColor(UIColor.white.withAlphaComponent(0.8), for: .disabled)
-        btn.layer.cornerRadius = 8.sw
+        btn.setTitleColor(LoginPalette.buttonText, for: .normal)
+        btn.setTitleColor(LoginPalette.disabledButtonText, for: .disabled)
+        btn.layer.cornerRadius = 25.sh
         btn.layer.masksToBounds = true
         btn.translatesAutoresizingMaskIntoConstraints = false
         return btn
@@ -114,7 +112,7 @@ final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyl
         self.context = context
         self.currentReqId = otpContext.reqId
         super.init(navigationBarPresentationData: nil)
-        self.setStatusBarStyle(.Black, animated: false)
+        self.setStatusBarStyle(.White, animated: false)
         bindValidation()
         bindSubmit()
         bindResend()
@@ -125,7 +123,7 @@ final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyl
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        self.setStatusBarStyle(.Black, animated: false)
+        self.setStatusBarStyle(.White, animated: false)
     }
 
     override func viewDidLoad() {
@@ -135,10 +133,13 @@ final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyl
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        gradientLayer.frame = view.bounds
+        guard let contentStackView, let contentScrollView else { return }
+        let contentBottom = view.convert(contentStackView.bounds, from: contentStackView).maxY + contentScrollView.contentOffset.y
+        gradientLayer.update(width: view.bounds.width, viewportHeight: view.bounds.height, contentBottom: contentBottom)
     }
 
     override func setupUI() {
+        displayNode.backgroundColor = LoginPalette.background
         view.layer.insertSublayer(gradientLayer, at: 0)
         navigationController?.setNavigationBarHidden(true, animated: false)
 
@@ -171,6 +172,8 @@ final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyl
         scroll.keyboardDismissMode = .onDrag
         view.addSubview(scroll)
         scroll.addSubview(contentStack)
+        contentStackView = contentStack
+        contentScrollView = scroll
         view.addSubview(loadingIndicator)
 
         NSLayoutConstraint.activate([
@@ -179,11 +182,11 @@ final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyl
             scroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
             contentStack.topAnchor.constraint(equalTo: scroll.topAnchor, constant: 40.sh),
-            contentStack.leadingAnchor.constraint(equalTo: scroll.leadingAnchor, constant: 40.sw),
+            contentStack.leadingAnchor.constraint(equalTo: scroll.leadingAnchor, constant: 32.sw),
             contentStack.trailingAnchor.constraint(
-                equalTo: scroll.trailingAnchor, constant: 40.sw),
+                equalTo: scroll.trailingAnchor, constant: -32.sw),
             contentStack.bottomAnchor.constraint(equalTo: scroll.bottomAnchor, constant: -40.sh),
-            contentStack.widthAnchor.constraint(equalTo: scroll.widthAnchor, constant: -80.sw),
+            contentStack.widthAnchor.constraint(equalTo: scroll.widthAnchor, constant: -64.sw),
 
             otpRowContainer.heightAnchor.constraint(equalToConstant: 48.sh),
 
@@ -220,17 +223,16 @@ final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyl
 
     override func applyTheme() {
         let attrs = AppTheme.light.attributes
-        gradientLayer.colors = attrs.loginGradientColors.map { $0.cgColor }
-        titleLabel.textColor = attrs.loginTitleColor
-        instructionLabel.textColor = attrs.loginSubtitleColor
-        targetLabel.textColor = attrs.loginTitleColor
+        titleLabel.textColor = .white
+        instructionLabel.textColor = UIColor.white.withAlphaComponent(0.80)
+        targetLabel.textColor = .white
 
         let isEnabled = (resendCooldown == 0 || isSubmitEnabled)
         if isEnabled {
             actionButton.backgroundColor = .clear
             actionButton.setGradientHidden(false)
         } else {
-            actionButton.backgroundColor = attrs.loginButtonBgDisabled
+            actionButton.backgroundColor = LoginPalette.disabledButton
             actionButton.setGradientHidden(true)
         }
 
@@ -239,8 +241,8 @@ final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyl
             tf.layer.borderColor = attrs.loginInputBorder.cgColor
             tf.textColor = attrs.loginInputTextColor
         }
-        if let hintLabel = alternativeSection.arrangedSubviews.first as? UILabel { hintLabel.textColor = attrs.loginAlternativeText }
-        if let changeBtn = alternativeSection.arrangedSubviews.last as? UIButton { changeBtn.setTitleColor(UIColor(hex: 0x2e22ff), for: .normal) }
+        if let hintLabel = alternativeSection.arrangedSubviews.first as? UILabel { hintLabel.textColor = UIColor.white.withAlphaComponent(0.80) }
+        if let changeBtn = alternativeSection.arrangedSubviews.last as? UIButton { changeBtn.setTitleColor(UIColor.white.withAlphaComponent(0.84), for: .normal) }
     }
 
     func setOtpCode(_ v: String) { otpCode = v; otpCodePipe.putNext(v) }
@@ -350,15 +352,15 @@ final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyl
         let hintLabel = UILabel()
         hintLabel.text = L(L10n.OTPVerify.didNotReceive)
         hintLabel.font = .systemFont(ofSize: 14.sf)
-        hintLabel.textColor = UIColor(hex: 0x2e22ff)
+        hintLabel.textColor = UIColor.white.withAlphaComponent(0.80)
         hintLabel.translatesAutoresizingMaskIntoConstraints = false
         alternativeSection.addArrangedSubview(hintLabel)
 
         let changeLink = UIButton(type: .system)
         let changeTitle = otpContext.type == .email ? L(L10n.OTPVerify.changeEmail) : L(L10n.OTPVerify.changePhone)
         changeLink.setTitle(changeTitle, for: .normal)
-        changeLink.titleLabel?.font = .systemFont(ofSize: 14.sf)
-        changeLink.setTitleColor(UIColor(hex: 0x2e22ff), for: .normal)
+        changeLink.titleLabel?.font = .systemFont(ofSize: 14.sf, weight: .semibold)
+        changeLink.setTitleColor(UIColor.white.withAlphaComponent(0.84), for: .normal)
         changeLink.addTarget(self, action: #selector(changeLinkTapped), for: .touchUpInside)
         alternativeSection.addArrangedSubview(changeLink)
     }
@@ -377,7 +379,7 @@ final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyl
                 actionButton.backgroundColor = .clear
                 actionButton.setGradientHidden(false)
             } else {
-                actionButton.backgroundColor = AppTheme.light.attributes.loginButtonBgDisabled
+                actionButton.backgroundColor = LoginPalette.disabledButton
                 actionButton.setGradientHidden(true)
             }
             actionButton.layoutIfNeeded()
@@ -464,7 +466,7 @@ private final class OTPDigitTextField: UITextField {
 private final class GradientButton: UIButton {
     private let gradientLayer: CAGradientLayer = {
         let layer = CAGradientLayer()
-        layer.colors = [UIColor(hex: 0x501794).cgColor, UIColor(hex: 0x3E70A1).cgColor]
+        layer.colors = [LoginPalette.buttonStart.cgColor, LoginPalette.buttonEnd.cgColor]
         layer.startPoint = CGPoint(x: 0, y: 0)
         layer.endPoint = CGPoint(x: 1, y: 0)
         return layer

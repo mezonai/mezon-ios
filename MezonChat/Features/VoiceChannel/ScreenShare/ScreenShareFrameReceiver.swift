@@ -8,6 +8,8 @@ final class ScreenShareFrameReceiver {
     var onConnectionChanged: ((Bool) -> Void)?
 
     private static let readChunkSize = 64 * 1024
+    private static let maxReadsPerEvent = 16
+    private static let maxPixelBuffers = 6
     private static let repeatInterval: TimeInterval = 0.5
 
     private let queue = DispatchQueue(label: "mezon.screenshare.receiver")
@@ -108,10 +110,12 @@ final class ScreenShareFrameReceiver {
     }
 
     private func readClient(_ fd: Int32) {
-        while true {
+        for _ in 0..<Self.maxReadsPerEvent {
             let count = Darwin.read(fd, readChunk, Self.readChunkSize)
             if count > 0 {
                 pending.append(readChunk.assumingMemoryBound(to: UInt8.self), count: count)
+                drainFrames()
+                guard clientSource != nil else { return }
                 continue
             }
             if count < 0 && errno == EINTR { continue }
@@ -119,7 +123,6 @@ final class ScreenShareFrameReceiver {
             dropClient()
             return
         }
-        drainFrames()
     }
 
     private func drainFrames() {
@@ -173,7 +176,10 @@ final class ScreenShareFrameReceiver {
         }
         guard let pool = pixelBufferPool else { return nil }
         var buffer: CVPixelBuffer?
-        CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &buffer)
+        let auxiliaryAttributes = [
+            kCVPixelBufferPoolAllocationThresholdKey as String: Self.maxPixelBuffers,
+        ] as CFDictionary
+        CVPixelBufferPoolCreatePixelBufferWithAuxAttributes(kCFAllocatorDefault, pool, auxiliaryAttributes, &buffer)
         return buffer
     }
 

@@ -5,6 +5,9 @@ import AsyncDisplayKit
 final class ChatVideoGalleryItemNode: GalleryItemNode {
 
     private var playerNode: UniversalVideoPlayerNode?
+    private let previewNode = ASImageNode()
+    private var videoURL: URL?
+    private var posterURL: String?
     var isPlaying: Bool { playerNode?.isPlaying == true }
     var controlsBottomInset: CGFloat = 0 {
         didSet { playerNode?.controlsBottomInset = controlsBottomInset }
@@ -12,13 +15,23 @@ final class ChatVideoGalleryItemNode: GalleryItemNode {
 
     override init() {
         super.init()
+        previewNode.contentMode = .scaleAspectFit
+        addSubnode(previewNode)
     }
 
     func configure(info: GalleryItemInfo) {
-        guard let url = URL(string: info.url) else { return }
+        playerNode?.pause()
         playerNode?.removeFromSupernode()
         playerNode = nil
-        let node = UniversalVideoPlayerNode(url: url, posterURL: info.url)
+        videoURL = URL(string: info.url)
+        posterURL = info.url
+        previewNode.image = ImageCache.shared.memoryImage(forKey: "video_thumb_\(info.url)")
+        previewNode.isHidden = false
+    }
+
+    private func makePlayerIfNeeded() {
+        guard playerNode == nil, let url = videoURL, let posterURL else { return }
+        let node = UniversalVideoPlayerNode(url: url, posterURL: posterURL)
         node.setOverlayVisible = { [weak self] visible in
             self?.setControlsVisible(visible)
         }
@@ -28,11 +41,13 @@ final class ChatVideoGalleryItemNode: GalleryItemNode {
         node.controlsBottomInset = controlsBottomInset
         self.playerNode = node
         self.addSubnode(node)
+        node.frame = bounds
+        previewNode.isHidden = true
     }
 
     override func centralityUpdated(isCentral: Bool) {
         if isCentral {
-            playerNode?.play()
+            play()
         } else {
             playerNode?.pause()
         }
@@ -40,6 +55,7 @@ final class ChatVideoGalleryItemNode: GalleryItemNode {
 
     override func containerLayoutUpdated(_ size: CGSize, navigationBarHeight: CGFloat, transition: ContainedViewLayoutTransition) {
         super.containerLayoutUpdated(size, navigationBarHeight: navigationBarHeight, transition: transition)
+        transition.updateFrame(node: previewNode, frame: CGRect(origin: .zero, size: size))
         if let playerNode = playerNode {
             playerNode.controlsBottomInset = controlsBottomInset
             transition.updateFrame(node: playerNode, frame: CGRect(origin: .zero, size: size))
@@ -53,6 +69,7 @@ final class ChatVideoGalleryItemNode: GalleryItemNode {
     }
 
     func play() {
+        makePlayerIfNeeded()
         playerNode?.play()
     }
 

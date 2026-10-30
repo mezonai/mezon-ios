@@ -109,6 +109,7 @@ final class ChatContainerNode: ASDisplayNode {
     private var isLoadMoreGuardActive = false
     private var lastKnownDistanceFromBottom: CGFloat = 0
     private(set) var userScrollGeneration: UInt64 = 0
+    var initialCacheRefreshScrollGeneration: UInt64?
     private static let nearBottomDistanceThreshold: CGFloat = 100
 
     var isAtBottom: Bool {
@@ -574,7 +575,10 @@ final class ChatContainerNode: ASDisplayNode {
         let newIds = buildIds(from: new)
 
         if oldIds == newIds {
-            applyInPlaceUpdates(old: old, new: new)
+            if old.messagesRevision != new.messagesRevision
+                || Self.welcomeFingerprint(old) != Self.welcomeFingerprint(new) {
+                applyInPlaceUpdates(old: old, new: new)
+            }
             return
         }
 
@@ -685,7 +689,19 @@ final class ChatContainerNode: ASDisplayNode {
         }()
 
         var scrollToItem: ListViewScrollToItem?
-        if hasNewAtBottom && !isLoadMoreResult && !new.hasMoreNewer && (isAtBottom || newestMessageIsMe) {
+        // Keep the cached viewport at the latest message only if the user has not moved it.
+        let keepBottomDuringInitialCacheRefresh = initialCacheRefreshScrollGeneration == userScrollGeneration
+            && pendingJumpMessageId == nil
+            && !oldIds.contains(Self.unreadLineId)
+            && !old.isLoadingMore && !new.isLoadingMore
+            && !old.isLoadingNewer && !new.isLoadingNewer
+            && !new.hasMoreNewer && isAtBottom
+        if hasNewAtBottom && keepBottomDuringInitialCacheRefresh {
+            didAutoScrollForNewMessages = true
+            scrollToItem = ListViewScrollToItem(index: 0, position: .top(0), animated: false, curve: .Default(duration: nil), directionHint: .Up)
+        } else if initialCacheRefreshScrollGeneration == nil
+                    && hasNewAtBottom && !isLoadMoreResult && !new.hasMoreNewer
+                    && (isAtBottom || newestMessageIsMe) {
             didAutoScrollForNewMessages = true
             scrollToItem = ListViewScrollToItem(index: 0, position: .top(0), animated: true, curve: .Spring(duration: 0.3), directionHint: .Up)
         }

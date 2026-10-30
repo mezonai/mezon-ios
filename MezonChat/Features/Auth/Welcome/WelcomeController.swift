@@ -8,7 +8,7 @@ final class WelcomeController: ViewController, AuthScreenStatusBarStyle {
     init(context: AccountContext) {
         self.context = context
         super.init(navigationBarPresentationData: nil)
-        self.setStatusBarStyle(.Black, animated: false)
+        self.setStatusBarStyle(.White, animated: false)
     }
 
     required init(coder aDecoder: NSCoder) { fatalError() }
@@ -25,7 +25,7 @@ final class WelcomeController: ViewController, AuthScreenStatusBarStyle {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        self.setStatusBarStyle(.Black, animated: false)
+        self.setStatusBarStyle(.White, animated: false)
     }
 
     override func viewDidLoad() {
@@ -57,7 +57,7 @@ final class WelcomeContainerNode: ASDisplayNode {
     private let subtitleNode = ASTextNode()
     private let imageNode = ASImageNode()
     private let startButton = ASButtonNode()
-    private let gradientLayer = CAGradientLayer()
+    private let gradientLayer = AuthBackgroundLayer()
 
     private let buttonBgNode = ASDisplayNode { CAGradientLayer() }
 
@@ -66,12 +66,13 @@ final class WelcomeContainerNode: ASDisplayNode {
     init(onStartTapped: @escaping () -> Void) {
         self.onStartTapped = onStartTapped
         super.init()
+        backgroundColor = LoginPalette.background
 
         imageNode.image = UIImage(named: "Auth/welcomeMezon")?.withRenderingMode(.alwaysOriginal)
         imageNode.contentMode = .scaleAspectFit
 
         startButton.backgroundColor = .clear
-        startButton.cornerRadius = 12
+        startButton.cornerRadius = 25
         startButton.clipsToBounds = true
         startButton.addTarget(
             self, action: #selector(startTapped), forControlEvents: .touchUpInside)
@@ -83,10 +84,6 @@ final class WelcomeContainerNode: ASDisplayNode {
         super.didLoad()
 
 
-        gradientLayer.locations = [0, 0.5, 1]
-        let attrs = AppTheme.light.attributes
-        gradientLayer.colors = attrs.loginGradientColors.map { $0.cgColor }
-        gradientLayer.frame = bounds
         view.layer.insertSublayer(gradientLayer, at: 0)
 
 
@@ -94,10 +91,10 @@ final class WelcomeContainerNode: ASDisplayNode {
             gl.startPoint = CGPoint(x: 0, y: 0.5)
             gl.endPoint = CGPoint(x: 1, y: 0.5)
             gl.colors = [
-                UIColor(hex: 0x501794).cgColor,
-                UIColor(hex: 0x3E70A1).cgColor,
+                LoginPalette.welcomeButton.cgColor,
+                LoginPalette.welcomeButton.cgColor,
             ]
-            gl.cornerRadius = 12
+            gl.cornerRadius = 25
         }
 
 
@@ -117,8 +114,6 @@ final class WelcomeContainerNode: ASDisplayNode {
         let width = size.width
         let height = size.height
         let hPad: CGFloat = 24
-        gradientLayer.frame = CGRect(origin: .zero, size: size)
-
 
         let titleSize = titleNode.measure(
             CGSize(width: width - hPad * 2, height: .greatestFiniteMagnitude))
@@ -136,25 +131,25 @@ final class WelcomeContainerNode: ASDisplayNode {
 
         let buttonH: CGFloat = 50
         let buttonY = height - 90 - buttonH
-        let buttonWidth = width - hPad * 2
-        let buttonFrame = CGRect(x: hPad, y: buttonY, width: buttonWidth, height: buttonH)
+        let buttonWidth = min(width - hPad * 2, 288)
+        let buttonFrame = CGRect(x: (width - buttonWidth) / 2, y: buttonY, width: buttonWidth, height: buttonH)
         buttonBgNode.frame = buttonFrame
         startButton.frame = buttonFrame
 
 
         let availableTop = subtitleY + subtitleSize.height - 80
         let availableBottom = buttonY - 20
-        let imageSize: CGFloat = min(width - 40, availableBottom - availableTop)
+        let imageSize: CGFloat = min(width - 40, availableBottom - availableTop) * 0.78
         let imageMidY = availableTop + (availableBottom - availableTop) / 2
         imageNode.frame = CGRect(
             x: (width - imageSize) / 2, y: imageMidY - imageSize / 2,
             width: imageSize, height: imageSize
         )
+        gradientLayer.update(width: width, viewportHeight: height, contentBottom: subtitleNode.frame.maxY)
     }
 
     func refreshLocalizedStrings() {
         let paragraphStyle = NSMutableParagraphStyle()
-        let attrs = AppTheme.light.attributes
         paragraphStyle.alignment = .center
         paragraphStyle.lineSpacing = 4
 
@@ -162,7 +157,7 @@ final class WelcomeContainerNode: ASDisplayNode {
             string: L(L10n.Welcome.title),
             attributes: [
             .font: UIFont.systemFont(ofSize: 24, weight: .bold),
-            .foregroundColor: attrs.loginTitleColor,
+            .foregroundColor: UIColor.white,
                 .paragraphStyle: paragraphStyle,
             ]
         )
@@ -171,7 +166,7 @@ final class WelcomeContainerNode: ASDisplayNode {
             string: L(L10n.Welcome.subtitle),
             attributes: [
                 .font: UIFont.systemFont(ofSize: 14, weight: .regular),
-                .foregroundColor: attrs.loginSubtitleColor,
+                .foregroundColor: UIColor.white.withAlphaComponent(0.84),
                 .paragraphStyle: paragraphStyle,
             ]
         )
@@ -181,7 +176,7 @@ final class WelcomeContainerNode: ASDisplayNode {
                 string: L(L10n.Welcome.startNow),
                 attributes: [
                     .font: UIFont.systemFont(ofSize: 16, weight: .semibold),
-                    .foregroundColor: attrs.black,
+                    .foregroundColor: UIColor.white,
                 ]
             ),
             for: .normal

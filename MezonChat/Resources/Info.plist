@@ -57,6 +57,11 @@
 	<string>Mezon needs access to your local network to establish peer-to-peer voice and video calls.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>We use your location to enhance your experience by showing nearby content and providing location-specific features when you're using the app. Your privacy is important to us, and we only access your location while you're actively using the app.</string>
+	<key>NSLocationTemporaryUsageDescriptionDictionary</key>
+	<dict>
+		<key>ShareLocation</key>
+		<string>Mezon needs your precise location to share exactly where you are in this conversation.</string>
+	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>We use your location to enhance your experience by showing nearby content and providing location-specific features when you're using the app. Your privacy is important to us, and we only access your location while you're actively using the app.</string>
 	<key>NSMicrophoneUsageDescription</key>

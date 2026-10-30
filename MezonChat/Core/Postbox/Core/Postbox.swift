@@ -72,6 +72,15 @@ final class Postbox {
         }
     }
 
+    // The completion follows view replay, so main-queue subscribers see the committed state first.
+    func write(_ block: @escaping (PostboxTransaction) -> Void, completion: @escaping () -> Void) {
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.runWriteTransaction(block)
+            DispatchQueue.main.async(execute: completion)
+        }
+    }
+
     func writeSync(_ block: (PostboxTransaction) -> Void) {
         queue.sync { [weak self] in
             guard let self else { return }
