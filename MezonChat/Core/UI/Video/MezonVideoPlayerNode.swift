@@ -3,6 +3,87 @@ import UIKit
 import AsyncDisplayKit
 import AVFoundation
 
+private final class ChunkedVideoResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
+    private static let session = URLSession(configuration: .ephemeral)
+    private static let firstChunkSize = 64 * 1024
+    private static let maxChunkSize = 1024 * 1024
+
+    let queue = DispatchQueue(label: "mezon.video.chunked-loader")
+    let assetURL: URL?
+    private let remoteURL: URL
+    private var tasks: [ObjectIdentifier: URLSessionTask] = [:]
+
+    init(remoteURL: URL) {
+        self.remoteURL = remoteURL
+        var components = URLComponents(url: remoteURL, resolvingAgainstBaseURL: false)
+        components?.scheme = "mezon-stream"
+        self.assetURL = components?.url
+        super.init()
+    }
+
+    deinit {
+        tasks.values.forEach { $0.cancel() }
+    }
+
+    func resourceLoader(_ resourceLoader: AVAssetResourceLoader, shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest) -> Bool {
+        let offset = loadingRequest.dataRequest.map { Int($0.requestedOffset) } ?? 0
+        load(loadingRequest, offset: offset, chunkSize: Self.firstChunkSize)
+        return true
+    }
+
+    func resourceLoader(_ resourceLoader: AVAssetResourceLoader, didCancel loadingRequest: AVAssetResourceLoadingRequest) {
+        tasks.removeValue(forKey: ObjectIdentifier(loadingRequest))?.cancel()
+    }
+
+    private func load(_ loadingRequest: AVAssetResourceLoadingRequest, offset: Int, chunkSize: Int, retriesLeft: Int = 2) {
+        var end = offset + chunkSize - 1
+        if let dataRequest = loadingRequest.dataRequest, !dataRequest.requestsAllDataToEndOfResource {
+            end = min(end, Int(dataRequest.requestedOffset) + dataRequest.requestedLength - 1)
+        }
+        var request = URLRequest(url: remoteURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+        request.setValue("bytes=\(offset)-\(end)", forHTTPHeaderField: "Range")
+        let key = ObjectIdentifier(loadingRequest)
+        let task = Self.session.dataTask(with: request) { [weak self] data, response, error in
+            self?.queue.async {
+                guard let self, !loadingRequest.isCancelled else { return }
+                self.tasks[key] = nil
+                if (error as? URLError)?.code == .networkConnectionLost, retriesLeft > 0 {
+                    self.load(loadingRequest, offset: offset, chunkSize: chunkSize, retriesLeft: retriesLeft - 1)
+                    return
+                }
+                let http = response as? HTTPURLResponse
+                guard let data, error == nil, http?.statusCode == 206,
+                      let contentRange = http?.value(forHTTPHeaderField: "Content-Range"),
+                      let totalBytes = contentRange.split(separator: "/").last.flatMap({ Int64($0) }) else {
+                    loadingRequest.finishLoading(with: error ?? NSError(domain: "ChunkedVideoResourceLoader", code: http?.statusCode ?? -1))
+                    return
+                }
+                if let info = loadingRequest.contentInformationRequest {
+                    info.contentType = self.remoteURL.pathExtension.lowercased() == "mov" ? "com.apple.quicktime-movie" : "public.mpeg-4"
+                    info.contentLength = totalBytes
+                    info.isByteRangeAccessSupported = true
+                }
+                guard let dataRequest = loadingRequest.dataRequest else {
+                    loadingRequest.finishLoading()
+                    return
+                }
+                dataRequest.respond(with: data)
+                let nextOffset = offset + data.count
+                let requestedEnd = dataRequest.requestsAllDataToEndOfResource
+                    ? totalBytes
+                    : min(totalBytes, dataRequest.requestedOffset + Int64(dataRequest.requestedLength))
+                if Int64(nextOffset) >= requestedEnd || data.isEmpty {
+                    loadingRequest.finishLoading()
+                } else {
+                    self.load(loadingRequest, offset: nextOffset, chunkSize: min(chunkSize * 2, Self.maxChunkSize))
+                }
+            }
+        }
+        tasks[key] = task
+        task.resume()
+    }
+}
+
 final class MezonVideoPlayerNode: ASDisplayNode {
 
     private let playerNode: ASDisplayNode
@@ -24,6 +105,8 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     private var timeObserver: Any?
     private var isScrubbing = false
     private var scrubGeneration = 0
+    private let bufferingSpinner = UIActivityIndicatorView(style: .large)
+    private var isBuffering = false
 
     private var controlsHideTimer: Foundation.Timer?
     private var areControlsVisible = true
@@ -31,6 +114,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     private let seekDelta: Double = 15.0
     
     private var sourceURL: URL?
+    private var chunkedLoader: ChunkedVideoResourceLoader?
     private var errorOverlayNode: ASDisplayNode?
 
     var setOverlayVisible: ((Bool) -> Void)?
@@ -47,12 +131,17 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         }
     }
 
-    convenience init(url: URL, posterURL: String) {
-        let asset = AVURLAsset(url: url, options: [
+    convenience init(url: URL, posterURL: String, usesChunkedLoading: Bool = false) {
+        let loader = usesChunkedLoading ? ChunkedVideoResourceLoader(remoteURL: url) : nil
+        let asset = AVURLAsset(url: loader?.assetURL ?? url, options: [
             AVURLAssetPreferPreciseDurationAndTimingKey: false
         ])
+        if let loader {
+            asset.resourceLoader.setDelegate(loader, queue: loader.queue)
+        }
         let item = AVPlayerItem(asset: asset, automaticallyLoadedAssetKeys: ["playable", "tracks"])
         self.init(playerItem: item, posterURL: posterURL)
+        self.chunkedLoader = loader
         self.sourceURL = url
     }
 
@@ -150,6 +239,10 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         self.view.addGestureRecognizer(tap)
 
         scrubberBarNode.view.addSubview(timeSlider)
+        bufferingSpinner.color = .white
+        bufferingSpinner.hidesWhenStopped = true
+        view.addSubview(bufferingSpinner)
+        updateBufferingIndicator()
         resetControlsTimer()
     }
 
@@ -165,6 +258,10 @@ final class MezonVideoPlayerNode: ASDisplayNode {
 
 
     private var statusObserver: NSKeyValueObservation?
+    private var timeControlObserver: NSKeyValueObservation?
+    private var readyForDisplayObserver: NSKeyValueObservation?
+    private var loadedRangesObserver: NSKeyValueObservation?
+    private let minimumBufferToStart: Double = 3.0
 
     private func setupPlayer(playerItem: AVPlayerItem) {
         if #available(iOS 14.5, *) {
@@ -176,8 +273,28 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         if let layer = playerNode.layer as? AVPlayerLayer {
             layer.player = avPlayer
             self.playerLayer = layer
+            readyForDisplayObserver = layer.observe(\.isReadyForDisplay, options: [.initial, .new]) { [weak self] layer, _ in
+                guard layer.isReadyForDisplay else { return }
+                DispatchQueue.main.async { self?.posterNode.isHidden = true }
+            }
         }
 
+
+        timeControlObserver = avPlayer.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] player, _ in
+            let isBuffering = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.isBuffering = isBuffering
+                if self.isNodeLoaded { self.updateBufferingIndicator() }
+                self.startPlaybackIfBuffered()
+            }
+        }
+
+        loadedRangesObserver = playerItem.observe(\.loadedTimeRanges, options: [.new]) { [weak self] _, _ in
+            DispatchQueue.main.async {
+                self?.startPlaybackIfBuffered()
+            }
+        }
 
         let interval = CMTime(seconds: 0.1, preferredTimescale: 600)
         timeObserver = avPlayer.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
@@ -215,6 +332,9 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         player?.pause()
         controlsHideTimer?.invalidate()
         statusObserver?.invalidate()
+        timeControlObserver?.invalidate()
+        readyForDisplayObserver?.invalidate()
+        loadedRangesObserver?.invalidate()
         NotificationCenter.default.removeObserver(self)
     }
     
@@ -222,6 +342,8 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         guard errorOverlayNode == nil else { return }
 
         isScrubbing = false
+        isBuffering = false
+        if isNodeLoaded { updateBufferingIndicator() }
         onPlaybackFailed?()
         
         centerOverlayNode.isHidden = true
@@ -318,7 +440,6 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     public func play() {
         AppAudioSession.activateForMediaPlayback(options: [])
         player?.play()
-        posterNode.isHidden = true
         updatePlayPauseIcons(isPlaying: true)
         resetControlsTimer()
     }
@@ -333,7 +454,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
 
     @objc private func playPauseTapped() {
         guard let p = player else { return }
-        if p.rate == 0 {
+        if p.timeControlStatus == .paused {
             if p.currentTime() == p.currentItem?.duration {
                 p.seek(to: .zero)
             }
@@ -444,6 +565,28 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         setNeedsLayout()
     }
 
+    private func startPlaybackIfBuffered() {
+        guard !isScrubbing,
+              let player,
+              player.timeControlStatus == .waitingToPlayAtSpecifiedRate,
+              let reason = player.reasonForWaitingToPlay,
+              reason == .toMinimizeStalls || reason == .evaluatingBufferingRate,
+              let item = player.currentItem,
+              item.status == .readyToPlay else { return }
+        let now = item.currentTime()
+        guard let range = item.loadedTimeRanges.map(\.timeRangeValue).first(where: { $0.containsTime(now) }),
+              range.end.seconds - now.seconds >= minimumBufferToStart else { return }
+        player.playImmediately(atRate: 1)
+    }
+
+    private func updateBufferingIndicator() {
+        if isBuffering {
+            bufferingSpinner.startAnimating()
+        } else {
+            bufferingSpinner.stopAnimating()
+        }
+    }
+
     private func updatePlayPauseIcons(isPlaying: Bool) {
 
         let centerConfig = UIImage.SymbolConfiguration(pointSize: 44, weight: .bold)
@@ -504,6 +647,8 @@ final class MezonVideoPlayerNode: ASDisplayNode {
 
         playerNode.frame = b
         posterNode.frame = b
+        bufferingSpinner.sizeToFit()
+        bufferingSpinner.center = CGPoint(x: b.midX, y: b.midY + 60)
         
         if let errorNode = errorOverlayNode {
             errorNode.frame = b

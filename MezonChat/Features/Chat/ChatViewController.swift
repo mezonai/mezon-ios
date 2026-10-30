@@ -388,6 +388,7 @@ struct ChatMessageDisplay: Identifiable {
 
 struct ChatState {
     var messages: [ChatMessageDisplay]
+    var messagesRevision: UInt64
     var channelLabel: String
     var channelType: Int32
     var isPrivate: Bool
@@ -412,7 +413,7 @@ struct ChatState {
     var dmPeerInVoice: Bool = false
 
     static let empty = ChatState(
-        messages: [], channelLabel: "", channelType: 0, isPrivate: false, isAgeRestricted: false,
+        messages: [], messagesRevision: 0, channelLabel: "", channelType: 0, isPrivate: false, isAgeRestricted: false,
         isDM: false, isPeerBlocked: false, dmPeerUsername: "", dmPeerDisplayName: "", dmAvatarURL: "", dmGroupAvatarURL: "",
         threadCreatorName: "",
         hasMoreOlder: false, hasMoreNewer: false, isLoadingMore: false, isLoadingNewer: false,
@@ -462,7 +463,10 @@ final class ChatViewController: ViewController {
     var needsReloadSignal: Signal<Void, NoError> { needsReloadPipe.signal() }
     private let stateDisposables = DisposableSet()
 
-    private(set) var messages: [ChatMessageDisplay] = []
+    private var messagesRevision: UInt64 = 0
+    private(set) var messages: [ChatMessageDisplay] = [] {
+        didSet { messagesRevision &+= 1 }
+    }
     private var persistentMessages: [ChatMessageDisplay] = []  
     private var ephemeralMessages: [ChatMessageDisplay] = []
     private var timelineOrder = ChatMessageTimelineOrder()
@@ -1829,7 +1833,7 @@ final class ChatViewController: ViewController {
     private func setMessages(_ v: [ChatMessageDisplay]) {
         let oldFirstId = messages.first(where: { !$0.isWelcome })?.id
         let oldLastId = messages.last?.id
-        persistentMessages = Self.applyCombine(to: Self.sortMessagesLikeChannelStore(v))
+        persistentMessages = v
         messages = normalizedDisplayOrder(persistentMessages + ephemeralMessages + botCommandRows())
         if let sheet = reactionDetailSheet {
             if let display = messages.first(where: { $0.id == sheet.messageId }), !display.message.isDeleted {
@@ -1954,7 +1958,7 @@ final class ChatViewController: ViewController {
             startupJumpTargetForInitialFetch = nil
             return
         }
-        fetchMessages(token: token)
+        fetchMessages(token: token, isInitialFetch: true)
     }
 
     func start() {
@@ -2596,7 +2600,7 @@ final class ChatViewController: ViewController {
         }
     }
 
-    func fetchMessages(token: String? = nil) {
+    func fetchMessages(token: String? = nil, isInitialFetch: Bool = false) {
         if initialMessageJumpTargetId != nil || pendingJumpToMessageId != nil { return }
         let hadCachedMessages = !messages.isEmpty
         let hadCachedInPostbox = hasCachedMessagesInPostbox()
@@ -2616,6 +2620,8 @@ final class ChatViewController: ViewController {
             return
         }
         let showsCacheRefreshLoader = hadCachedMessages || hadCachedInPostbox
+        let initialScrollGeneration = isInitialFetch && showsCacheRefreshLoader
+            ? messagesNode.userScrollGeneration : nil
         if !showsCacheRefreshLoader {
             setIsLoading(true)
         } else {
@@ -2663,13 +2669,20 @@ final class ChatViewController: ViewController {
                 if records.isEmpty && (hadCachedMessages || hadCachedInPostbox) {
                     return
                 }
-                self.context.account.postbox.write { tx in
+                if let initialScrollGeneration {
+                    self.messagesNode.initialCacheRefreshScrollGeneration = initialScrollGeneration
+                }
+                self.context.account.postbox.write({ tx in
                     tx.replaceAllMessages(
                         records,
                         channelId: self.storageChannelId,
                         preservingContiguousHistory: true
                     )
-                }
+                }, completion: { [weak self] in
+                    if initialScrollGeneration != nil {
+                        self?.messagesNode.initialCacheRefreshScrollGeneration = nil
+                    }
+                })
             } catch {
                 if error is CancellationError || Task.isCancelled {
                     return
@@ -3029,6 +3042,7 @@ final class ChatViewController: ViewController {
 
         return ChatState(
             messages: messages,
+            messagesRevision: messagesRevision,
             channelLabel: channelLabel,
             channelType: channel.type,
             isPrivate: channel.channelPrivate != 0,
@@ -3104,6 +3118,7 @@ final class ChatViewController: ViewController {
             var lastSendingStates = self.messages.map { $0.sendingState }
             var lastReactions = self.messages.map { $0.reactions }
             var lastMessageTokens = self.messages.map { Self.messageUpdateToken($0) }
+            var lastMessagesRevision = self.messagesRevision
             var lastLoading = self.isLoading
             var lastLoadingMore = self.isLoadingMore
             var lastLoadingNewer = self.isLoadingNewer
@@ -3134,14 +3149,25 @@ final class ChatViewController: ViewController {
                 |> map { [weak self] _ in self?.currentState ?? .empty }
                 |> deliverOnMainQueue
             ).start(next: { newState in
+                let messagesChanged: Bool
+                if newState.messagesRevision != lastMessagesRevision {
                     let newIds = newState.messages.map { $0.id }
                     let newSendingStates = newState.messages.map { $0.sendingState }
                     let newReactions = newState.messages.map { $0.reactions }
                     let newMessageTokens = newState.messages.map { Self.messageUpdateToken($0) }
-                let changed = newIds != lastIds
+                    messagesChanged = newIds != lastIds
                         || newSendingStates != lastSendingStates
                         || newReactions != lastReactions
                         || newMessageTokens != lastMessageTokens
+                    lastIds = newIds
+                    lastSendingStates = newSendingStates
+                    lastReactions = newReactions
+                    lastMessageTokens = newMessageTokens
+                    lastMessagesRevision = newState.messagesRevision
+                } else {
+                    messagesChanged = false
+                }
+                let changed = messagesChanged
                         || newState.isLoading != lastLoading
                         || newState.isLoadingMore != lastLoadingMore
                         || newState.isLoadingNewer != lastLoadingNewer
@@ -3162,10 +3188,6 @@ final class ChatViewController: ViewController {
                         || newState.dmGroupAvatarURL != lastDmGroupAvatarURL
                         || newState.dmPeerInVoice != lastDmPeerInVoice
                     guard changed else { return }
-                    lastIds = newIds
-                    lastSendingStates = newSendingStates
-                    lastReactions = newReactions
-                    lastMessageTokens = newMessageTokens
                     lastLoading = newState.isLoading
                     lastLoadingMore = newState.isLoadingMore
                     lastLoadingNewer = newState.isLoadingNewer
@@ -3233,6 +3255,10 @@ final class ChatViewController: ViewController {
             }
         }
         guard clanId != 0 else { return out }
+        var clanUsers: Mezon_Api_ClanUserList?
+        var allUsers: Mezon_Api_AllUserClans?
+        var didLoadClanUsers = false
+        var didLoadAllUsers = false
         for sid in senderIds {
             if let existing = out[sid], !existing.username.isEmpty, existing.avatar != nil { continue }
             guard let uidInt = Int64(sid), uidInt != 0 else { continue }
@@ -3240,17 +3266,26 @@ final class ChatViewController: ViewController {
             var foundAvatar: String?
             var foundUsername: String = ""
             
-            if let clanUsers = context.engine.clanData.getClanUsers(clanId: clanId),
+            if !didLoadClanUsers {
+                clanUsers = context.engine.clanData.getClanUsers(clanId: clanId)
+                didLoadClanUsers = true
+            }
+            if let clanUsers,
                let found = clanUsers.clanUsers.first(where: { $0.user.id == uidInt }) {
                 let u = Self.apiUserForMemberProfile(from: found)
                 let av = u.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
                 foundAvatar = av.isEmpty ? nil : av
                 foundUsername = u.username
-            } else if let allUsers = context.engine.clanData.getAllUserClans(),
-                      let found = allUsers.users.first(where: { $0.id == uidInt }) {
-                let av = found.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
-                foundAvatar = av.isEmpty ? nil : av
-                foundUsername = found.username
+            } else {
+                if !didLoadAllUsers {
+                    allUsers = context.engine.clanData.getAllUserClans()
+                    didLoadAllUsers = true
+                }
+                if let found = allUsers?.users.first(where: { $0.id == uidInt }) {
+                    let av = found.avatarURL.trimmingCharacters(in: .whitespacesAndNewlines)
+                    foundAvatar = av.isEmpty ? nil : av
+                    foundUsername = found.username
+                }
             }
             
             let current = out[sid]

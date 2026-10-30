@@ -54,6 +54,9 @@ final class VLCVideoPlayerNode: ASDisplayNode {
     private var isPreparingDownload = false
     private var pendingRemoteURL: URL?
     private var pendingLocalURL: URL?
+    private var isRequestingStreamURL = false
+    private var isStreamingRemote = false
+    private var resumeAfterDownload: Double?
     private let downloadSpinner = UIActivityIndicatorView(style: .large)
     private let downloadProgressLabel = UILabel()
 
@@ -164,6 +167,8 @@ final class VLCVideoPlayerNode: ASDisplayNode {
 
         if isPreparingDownload {
             showDownloadIndicator()
+        } else if isRequestingStreamURL || isStreamingRemote {
+            showStreamIndicator()
         }
 
         resetControlsTimer()
@@ -195,8 +200,9 @@ final class VLCVideoPlayerNode: ASDisplayNode {
 
     private func attachVLCPlayer(fileURL: URL) {
         retainStreamCacheFile(fileURL)
+        isStreamingRemote = !fileURL.isFileURL
         vlcMedia = VLCMedia(url: fileURL)
-        vlcPlayer = VLCMediaPlayer()
+        vlcPlayer = VLCMediaPlayer(options: ["--network-caching=1000", "--no-video-title-show"])
         vlcPlayer?.media = vlcMedia
         vlcPlayer?.delegate = self
         vlcPlayer?.drawable = playerContainerNode.view
@@ -204,6 +210,34 @@ final class VLCVideoPlayerNode: ASDisplayNode {
         if wantsPlay {
             play()
         }
+    }
+
+    private func startRemoteStream(_ remoteURL: URL) {
+        guard !isRequestingStreamURL else { return }
+        isRequestingStreamURL = true
+        showStreamIndicator()
+        CDNSigner.shared.requestURL(for: remoteURL) { [weak self] request in
+            DispatchQueue.main.async {
+                guard let self, self.isRequestingStreamURL else { return }
+                self.isRequestingStreamURL = false
+                self.attachVLCPlayer(fileURL: request.url)
+                if !self.wantsPlay {
+                    self.hideDownloadIndicator()
+                }
+            }
+        }
+    }
+
+    private func fallbackToDownload(player: VLCMediaPlayer) {
+        guard isStreamingRemote, let remote = pendingRemoteURL, let local = pendingLocalURL else { return }
+        resumeAfterDownload = max(lastKnownTime, Double(player.time.intValue) / 1000.0)
+        isStreamingRemote = false
+        loadingTimeoutTimer?.invalidate()
+        player.delegate = nil
+        player.stop()
+        vlcPlayer = nil
+        vlcMedia = nil
+        startDownload(remote: remote, to: local)
     }
 
     private static let downloadSession: URLSession = {
@@ -328,9 +362,16 @@ final class VLCVideoPlayerNode: ASDisplayNode {
         downloadProgressLabel.text = "0%"
     }
 
+    private func showStreamIndicator() {
+        downloadSpinner.startAnimating()
+        downloadProgressLabel.isHidden = true
+        centerOverlayNode.isHidden = true
+    }
+
     private func hideDownloadIndicator() {
         downloadSpinner.stopAnimating()
         downloadProgressLabel.isHidden = true
+        centerOverlayNode.isHidden = false
     }
     
     private func startUpdateTimer() {
@@ -404,8 +445,8 @@ final class VLCVideoPlayerNode: ASDisplayNode {
     public func play() {
         wantsPlay = true
         guard vlcPlayer != nil else {
-            if let remote = pendingRemoteURL, let local = pendingLocalURL {
-                startDownload(remote: remote, to: local)
+            if let remote = pendingRemoteURL, pendingLocalURL != nil, !isPreparingDownload {
+                startRemoteStream(remote)
             }
             return
         }
@@ -427,14 +468,14 @@ final class VLCVideoPlayerNode: ASDisplayNode {
     public func pause() {
         wantsPlay = false
         vlcPlayer?.pause()
+        if !isPreparingDownload { hideDownloadIndicator() }
         updatePlayPauseIcons(isPlaying: false)
         controlsHideTimer?.invalidate()
         showControls()
     }
     
     @objc private func playPauseTapped() {
-        guard let player = vlcPlayer else { return }
-        if player.isPlaying {
+        if wantsPlay {
             pause()
         } else {
             play()
@@ -680,7 +721,7 @@ extension VLCVideoPlayerNode: VLCMediaPlayerDelegate {
         guard let player = vlcPlayer else { return }
         
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
+            guard let self = self, self.vlcPlayer === player else { return }
 
             switch player.state {
             case .ended:
@@ -688,26 +729,44 @@ extension VLCVideoPlayerNode: VLCMediaPlayerDelegate {
                 self.pendingSeekTarget = nil
                 self.pendingSeekWaitTicks = 0
                 if self.playbackEndedPrematurely(player: player) {
+                    if self.isStreamingRemote {
+                        self.fallbackToDownload(player: player)
+                        return
+                    }
                     self.showErrorOverlay(message: "This video appears to be incomplete or corrupted, so it can't be played in full.")
                     return
                 }
+                self.wantsPlay = false
+                self.hideDownloadIndicator()
                 self.updatePlayPauseIcons(isPlaying: false)
                 self.showControls()
             case .playing:
                 self.loadingTimeoutTimer?.invalidate()
+                self.hideDownloadIndicator()
+                if let resumeTime = self.resumeAfterDownload {
+                    self.resumeAfterDownload = nil
+                    if resumeTime > 0, resumeTime < Double(Int32.max) / 1000.0 {
+                        player.time = VLCTime(int: Int32(resumeTime * 1000))
+                    }
+                }
                 self.updatePlayPauseIcons(isPlaying: true)
             case .paused:
                 self.loadingTimeoutTimer?.invalidate()
                 self.updatePlayPauseIcons(isPlaying: false)
             case .error:
                 self.loadingTimeoutTimer?.invalidate()
+                if self.isStreamingRemote {
+                    self.fallbackToDownload(player: player)
+                    return
+                }
+                self.hideDownloadIndicator()
                 self.showErrorOverlay(message: "An error occurred while playing this video.")
             case .stopped:
                 self.loadingTimeoutTimer?.invalidate()
                 self.pendingSeekTarget = nil
                 self.pendingSeekWaitTicks = 0
             case .opening, .buffering:
-                break
+                if self.isStreamingRemote && self.wantsPlay { self.showStreamIndicator() }
             default:
                 break
             }
