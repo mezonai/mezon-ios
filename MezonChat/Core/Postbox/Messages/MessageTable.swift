@@ -350,6 +350,7 @@ final class MessageTable: Table {
 
     private static let volatileMatchingContentKeys: [String] = [
         PresignFinishContent.fieldKey,
+        PresignFinishContent.ingestFieldKey,
         PresignFinishContent.createTimeKey
     ]
 

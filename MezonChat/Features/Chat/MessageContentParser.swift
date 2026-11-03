@@ -888,6 +888,31 @@ enum MessageContentParser {
 
 enum PresignFinishContent {
     static let fieldKey = "presign_finish"
+    static let ingestFieldKey = "presign_ingest"
+
+    static func parseIngestKeys(from contentData: Data) -> [String] {
+        guard !contentData.isEmpty,
+              let json = try? JSONSerialization.jsonObject(with: contentData) as? [String: Any],
+              let array = json[ingestFieldKey] as? [Any] else { return [] }
+        return array.compactMap { item -> String? in
+            guard let key = item as? String, !key.isEmpty else { return nil }
+            return key
+        }
+    }
+
+    static func isIngestAttachment(url: String, ingestKeys: [String]) -> Bool {
+        guard !ingestKeys.isEmpty else { return false }
+        let key = presignKey(from: url)
+        guard !key.isEmpty else { return false }
+        return ingestKeys.contains { presignKeysMatch($0, key) }
+    }
+
+    static func injectIngestKeys(into contentData: Data, keys: [String]) -> Data {
+        guard !keys.isEmpty,
+              var json = try? JSONSerialization.jsonObject(with: contentData) as? [String: Any] else { return contentData }
+        json[ingestFieldKey] = keys
+        return serializeJSONObject(json) ?? contentData
+    }
 
     static func parseKeys(from contentData: Data) -> [String]? {
         guard let raw = presignFinishRawValue(from: contentData) else { return nil }
@@ -978,8 +1003,8 @@ enum PresignFinishContent {
         injectPresignFinish(into: contentData, keys: [])
     }
 
-    static func contentStringForSend(base contentData: Data, presignKeys: [String]) -> String {
-        let data = injectPresignFinish(into: contentData, keys: presignKeys)
+    static func contentStringForSend(base contentData: Data, presignKeys: [String], ingestKeys: [String] = []) -> String {
+        let data = injectIngestKeys(into: injectPresignFinish(into: contentData, keys: presignKeys), keys: ingestKeys)
         return String(data: data, encoding: .utf8) ?? "{\"presign_finish\":[]}"
     }
 
@@ -1035,6 +1060,16 @@ enum PresignFinishContent {
     }
 
     static func mergePresignFinishContent(local: Data, server: Data) -> Data {
+        let merged = mergePresignFinishKeys(local: local, server: server)
+        let localIngestKeys = parseIngestKeys(from: local)
+        guard !localIngestKeys.isEmpty else { return merged }
+        let mergedIngestKeys = parseIngestKeys(from: merged)
+        let missing = localIngestKeys.filter { !mergedIngestKeys.contains($0) }
+        guard !missing.isEmpty else { return merged }
+        return injectIngestKeys(into: merged, keys: mergedIngestKeys + missing)
+    }
+
+    private static func mergePresignFinishKeys(local: Data, server: Data) -> Data {
         let localKeys = parseKeys(from: local) ?? []
         let serverKeys = parseKeys(from: server) ?? []
         if localKeys.isEmpty && serverKeys.isEmpty {

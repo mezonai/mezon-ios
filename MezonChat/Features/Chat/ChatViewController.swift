@@ -28,6 +28,7 @@ struct ParsedAttachment: Equatable {
     var uploadProgress: Double = 0
     var uploadProgressKey: String = ""
     var uploadShowsPercent: Bool = false
+    var isIngestLive: Bool = false
 
     var isImage: Bool {
         AttachmentTypeClassifier.isImage(filetype) || AttachmentTypeClassifier.isSticker(filetype)
@@ -66,6 +67,7 @@ struct ParsedAttachment: Equatable {
             && lhs.thumbnail == rhs.thumbnail
             && lhs.isUploading == rhs.isUploading && lhs.uploadFailed == rhs.uploadFailed
             && lhs.isPresignPending == rhs.isPresignPending
+            && lhs.isIngestLive == rhs.isIngestLive
             && lhs.uploadProgress == rhs.uploadProgress
     }
 
@@ -97,7 +99,8 @@ struct ParsedAttachment: Equatable {
         guard lhs.count == rhs.count else { return false }
         for (l, r) in zip(lhs, rhs) {
             if l.isUploading != r.isUploading || l.uploadFailed != r.uploadFailed
-                || l.isPresignPending != r.isPresignPending {
+                || l.isPresignPending != r.isPresignPending
+                || l.isIngestLive != r.isIngestLive {
                 return false
             }
         }
@@ -129,6 +132,7 @@ struct ParsedAttachment: Equatable {
             && lhs.height == rhs.height
             && lhs.durationSeconds == rhs.durationSeconds
             && lhs.isPresignPending == rhs.isPresignPending
+            && lhs.isIngestLive == rhs.isIngestLive
             && lhs.isUploading == rhs.isUploading
             && lhs.uploadFailed == rhs.uploadFailed
             && (lhs.localImage == nil) == (rhs.localImage == nil)
@@ -3588,7 +3592,8 @@ final class ChatViewController: ViewController {
 
             var attachments = Self.applyPresignFinishState(
                 to: Self.parseAttachments(record.attachmentsJSON),
-                contentData: record.content
+                contentData: record.content,
+                createdAt: record.createdAt
             )
             let overlayMedia = AttachmentUploadCoordinator.shared.imageOverlay(for: record.id)
             let overlayFiles = AttachmentUploadCoordinator.shared.fileOverlay(for: record.id)
@@ -3916,13 +3921,20 @@ final class ChatViewController: ViewController {
 
     private static func applyPresignFinishState(
         to attachments: [ParsedAttachment],
-        contentData: Data
+        contentData: Data,
+        createdAt: Date
     ) -> [ParsedAttachment] {
         guard let keys = PresignFinishContent.parseKeys(from: contentData) else { return attachments }
+        let ingestKeys = PresignFinishContent.parseIngestKeys(from: contentData)
+        let ingestWindowOpen = Date().timeIntervalSince(createdAt) < FileIngestPlaylist.pendingWindow
         return attachments.map { att in
             guard !att.url.isEmpty, !att.isUploading, att.localImage == nil, !att.uploadFailed else { return att }
             var copy = att
             copy.isPresignPending = !PresignFinishContent.isAttachmentReady(url: att.url, presignFinish: keys)
+            if att.isVideo, PresignFinishContent.isIngestAttachment(url: att.url, ingestKeys: ingestKeys) {
+                copy.isIngestLive = copy.isPresignPending && ingestWindowOpen
+                FileIngestPlaylist.noteMarked(att.url)
+            }
             return copy
         }
     }

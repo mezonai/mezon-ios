@@ -51,8 +51,6 @@ private final class ChunkedVideoResourceLoader: NSObject, AVAssetResourceLoaderD
         var task: URLSessionDataTask?
         var responseEnd: Int64?
         var retriesLeft = 2
-        var startedAt = CFAbsoluteTimeGetCurrent()
-        var loggedFirstBytes = false
         var isPrefetch = false
         var priority = URLSessionTask.highPriority
 
@@ -102,12 +100,6 @@ private final class ChunkedVideoResourceLoader: NSObject, AVAssetResourceLoaderD
     // contain received bytes and are safe to return to AVPlayer.
     private var diskChunkLengths: [Int64: Int] = [:]
     private var diskCachedBytes = 0
-    private var receivedNetworkBytes: Int64 = 0
-    private var lastThroughputBytes: Int64 = 0
-    private var lastThroughputTime = ProcessInfo.processInfo.systemUptime
-    private var startedRequestCount = 0
-    private var cancelledRequestCount = 0
-    private var completedRequestCount = 0
     private var failedPrefetchOffsets = Set<Int64>()
 
     init(remoteURL: URL, configuration: URLSessionConfiguration = .ephemeral, initialData: Data? = nil, initialResponse: HTTPURLResponse? = nil, cacheDirectory: URL = FileManager.default.temporaryDirectory) {
@@ -244,7 +236,6 @@ private final class ChunkedVideoResourceLoader: NSObject, AVAssetResourceLoaderD
                 }
                 guard let candidate else { break }
                 storeInCache(candidate.data, at: candidate.offset)
-                VideoLoadDebug.log("range preempt offset=\(candidate.offset) forRequiredOffset=\(offset)") // FOR TEST ONLY: remove before release
                 removeTransfer(candidate)
             }
             guard transfers.count < Self.maxConcurrentTransfers else { break }
@@ -279,13 +270,10 @@ private final class ChunkedVideoResourceLoader: NSObject, AVAssetResourceLoaderD
         request.setValue("bytes=\(transfer.nextOffset)-\(transfer.end)", forHTTPHeaderField: "Range")
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         transfer.responseEnd = nil
-        transfer.startedAt = CFAbsoluteTimeGetCurrent()
-        transfer.loggedFirstBytes = false
         let task = session.dataTask(with: request)
         task.priority = transfer.priority
         transfer.task = task
         tasks[task.taskIdentifier] = transfer
-        startedRequestCount += 1
         task.resume()
     }
 
@@ -315,27 +303,13 @@ private final class ChunkedVideoResourceLoader: NSObject, AVAssetResourceLoaderD
             fail(transfer, error: URLError(.badServerResponse))
             return
         }
-        if !data.isEmpty, !transfer.loggedFirstBytes {
-            transfer.loggedFirstBytes = true
-            let elapsed = CFAbsoluteTimeGetCurrent() - transfer.startedAt
-            VideoLoadDebug.log("chunk first bytes offset=\(transfer.nextOffset) took=\(String(format: "%.2f", elapsed))s prefetch=\(transfer.isPrefetch)") // FOR TEST ONLY: remove before release
-        }
         transfer.data.append(data)
-        receivedNetworkBytes += Int64(data.count)
-        let clock = ProcessInfo.processInfo.systemUptime
-        if clock - lastThroughputTime >= 5 {
-            let mbps = Double(receivedNetworkBytes - lastThroughputBytes) * 8 / (clock - lastThroughputTime) / 1_000_000
-            VideoLoadDebug.log("range downloadMbps=\(mbps) receivedBytes=\(receivedNetworkBytes) fileBytes=\(contentLength ?? -1) active=\(transfers.count) started=\(startedRequestCount) completed=\(completedRequestCount) cancelled=\(cancelledRequestCount)") // FOR TEST ONLY: remove before release
-            lastThroughputBytes = receivedNetworkBytes
-            lastThroughputTime = clock
-        }
         processRequests()
     }
 
     private func complete(_ task: URLSessionTask, error: Error?) {
         guard let transfer = tasks.removeValue(forKey: task.taskIdentifier) else { return }
         transfer.task = nil
-        if error == nil { completedRequestCount += 1 }
         if transfer.nextOffset > transfer.end {
             storeInCache(transfer.data, at: transfer.offset)
             transfers[transfer.offset] = nil
@@ -351,7 +325,6 @@ private final class ChunkedVideoResourceLoader: NSObject, AVAssetResourceLoaderD
                 return
             }
             transfer.retriesLeft -= 1
-            VideoLoadDebug.log("range retry offset=\(transfer.nextOffset) remainingAttempts=\(transfer.retriesLeft) code=\(code?.rawValue ?? 0)") // FOR TEST ONLY: remove before release
         }
         // Resume after bytes already delivered, including on a transient failure.
         start(transfer)
@@ -374,7 +347,6 @@ private final class ChunkedVideoResourceLoader: NSObject, AVAssetResourceLoaderD
     private func removeTransfer(_ transfer: Transfer) {
         if let task = transfer.task {
             tasks[task.taskIdentifier] = nil
-            cancelledRequestCount += 1
             task.cancel()
         }
         transfers[transfer.offset] = nil
@@ -491,6 +463,14 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     private var sourceURL: URL?
     private var chunkedLoader: ChunkedVideoResourceLoader?
     private var errorOverlayNode: ASDisplayNode?
+    private var growingPlaylistURL: URL?
+    private var playlistMonitor: Foundation.Timer?
+    private var lastPlaylistReloadAt: TimeInterval?
+    private var didReloadEndedPlaylist = false
+    private var didApplyGrowingPlaylistStart = false
+    private var growingListedDuration: Double = 0
+    private var playlistEndedSeenAt: TimeInterval?
+    private var starvingSince: TimeInterval?
 
     var setOverlayVisible: ((Bool) -> Void)?
     var onPlaybackFailed: (() -> Void)?
@@ -518,6 +498,13 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         self.init(playerItem: item, posterURL: posterURL)
         self.chunkedLoader = loader
         self.sourceURL = url
+    }
+
+    convenience init(growingPlaylistURL: URL, posterURL: String) {
+        let item = AVPlayerItem(asset: AVURLAsset(url: growingPlaylistURL), automaticallyLoadedAssetKeys: ["playable"])
+        self.init(playerItem: item, posterURL: posterURL)
+        self.sourceURL = growingPlaylistURL
+        self.growingPlaylistURL = growingPlaylistURL
     }
 
     init(playerItem: AVPlayerItem, posterURL: String) {
@@ -636,8 +623,6 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     private var timeControlObserver: NSKeyValueObservation?
     private var readyForDisplayObserver: NSKeyValueObservation?
     private var loadedRangesObserver: NSKeyValueObservation?
-    private var debugLastBufferLogAt: TimeInterval = 0 // FOR TEST ONLY: remove before release
-    private var debugLastState = "" // FOR TEST ONLY: remove before release
 
     private func setupPlayer(playerItem: AVPlayerItem) {
         if #available(iOS 14.5, *) {
@@ -651,7 +636,6 @@ final class MezonVideoPlayerNode: ASDisplayNode {
             self.playerLayer = layer
             readyForDisplayObserver = layer.observe(\.isReadyForDisplay, options: [.initial, .new]) { [weak self] layer, _ in
                 guard layer.isReadyForDisplay else { return }
-                VideoLoadDebug.log("first frame ready") // FOR TEST ONLY: remove before release
                 DispatchQueue.main.async {
                     self?.posterNode.isHidden = true
                     self?.startPlaybackIfBuffered()
@@ -662,20 +646,12 @@ final class MezonVideoPlayerNode: ASDisplayNode {
 
         timeControlObserver = avPlayer.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] player, _ in
             let didStartPlaying = player.timeControlStatus == .playing
-            let debugState = "timeControl=\(player.timeControlStatus.rawValue) reason=\(player.reasonForWaitingToPlay?.rawValue ?? "nil")" // FOR TEST ONLY: remove before release
             DispatchQueue.main.async {
                 guard let self else { return }
-                if debugState != self.debugLastState { self.debugLastState = debugState; VideoLoadDebug.log(debugState) } // FOR TEST ONLY: remove before release
                 self.isBuffering = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
                 if didStartPlaying { self.hasStartedPlayback = true }
                 if self.isNodeLoaded { self.updateBufferingIndicator() }
                 self.startPlaybackIfBuffered()
-            }
-        }
-
-        loadedRangesObserver = playerItem.observe(\.loadedTimeRanges, options: [.new]) { [weak self] _, _ in
-            DispatchQueue.main.async {
-                self?.startPlaybackIfBuffered()
             }
         }
 
@@ -684,17 +660,25 @@ final class MezonVideoPlayerNode: ASDisplayNode {
             self?.updateTime(time)
         }
 
+        observe(playerItem)
+    }
+
+    private func observe(_ playerItem: AVPlayerItem) {
+        loadedRangesObserver = playerItem.observe(\.loadedTimeRanges, options: [.new]) { [weak self] _, _ in
+            DispatchQueue.main.async {
+                self?.startPlaybackIfBuffered()
+            }
+        }
+
         NotificationCenter.default.addObserver(self, selector: #selector(playerDidFinishPlaying), name: .AVPlayerItemDidPlayToEndTime, object: playerItem)
 
 
         statusObserver = playerItem.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
-            VideoLoadDebug.log("item.status=\(item.status.rawValue) duration=\(item.duration.seconds) error=\(String(describing: item.error))") // FOR TEST ONLY: remove before release
             if item.status == .readyToPlay {
                 let duration = item.duration.seconds
                 let tracks = item.tracks.compactMap(\.assetTrack)
                 let bitrate = tracks.reduce(0.0) { $0 + max(0, Double($1.estimatedDataRate)) }
                 let videoSize = tracks.first(where: { $0.mediaType == .video })?.naturalSize ?? .zero
-                VideoLoadDebug.log("media bitrateMbps=\(bitrate / 1_000_000) size=\(videoSize.width)x\(videoSize.height)") // FOR TEST ONLY: remove before release
                 if duration.isFinite {
                     DispatchQueue.main.async {
                         self?.timeSlider.maximumValue = Float(duration)
@@ -705,7 +689,10 @@ final class MezonVideoPlayerNode: ASDisplayNode {
                         self?.setNeedsLayout()
                     }
                 }
-                DispatchQueue.main.async { self?.startPlaybackIfBuffered() }
+                DispatchQueue.main.async {
+                    self?.growingPlaylistBecameReady()
+                    self?.startPlaybackIfBuffered()
+                }
             } else if item.status == .failed {
                 DispatchQueue.main.async {
                     self?.showErrorOverlay(error: item.error)
@@ -874,7 +861,8 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     @objc private func seekForwardTapped() {
         guard let p = player else { return }
         let currentTime = p.currentTime().seconds
-        let duration = p.currentItem?.duration.seconds ?? currentTime
+        let itemDuration = p.currentItem?.duration.seconds ?? currentTime
+        let duration = itemDuration.isFinite ? itemDuration : Double(timeSlider.maximumValue)
         let newTime = min(duration, currentTime + seekDelta)
         p.seek(to: CMTime(seconds: newTime, preferredTimescale: 600))
         resetControlsTimer()
@@ -957,6 +945,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         guard !isScrubbing else { return }
         let seconds = time.seconds
         guard seconds.isFinite else { return }
+        updateGrowingDuration()
         timeSlider.value = Float(seconds)
 
         currentTimeLabel.attributedText = NSAttributedString(
@@ -995,18 +984,118 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         let duration = item.duration.seconds
         let remaining = duration.isFinite && position.isFinite ? duration - position : nil
         let waitingDuration = clock - (readyWaitingSince ?? clock)
-        let hasFirstFrame = playerLayer?.isReadyForDisplay == true
-        if clock - debugLastBufferLogAt >= 5 { // FOR TEST ONLY: remove before release
-            debugLastBufferLogAt = clock
-            let loaded = ranges.map { "\($0.start.seconds)...\($0.end.seconds)" }.joined(separator: ",")
-            let event = item.accessLog()?.events.last
-            VideoLoadDebug.log("buffer check position=\(position) ahead=\(bufferedAhead) ranges=[\(loaded)] waited=\(waitingDuration) frame=\(hasFirstFrame) growth=\(growthRate ?? -1) empty=\(item.isPlaybackBufferEmpty) likely=\(item.isPlaybackLikelyToKeepUp) reason=\(player.reasonForWaitingToPlay?.rawValue ?? "nil") accessBytes=\(event?.numberOfBytesTransferred ?? -1) observedMbps=\((event?.observedBitrate ?? -1) / 1_000_000) indicatedMbps=\((event?.indicatedBitrate ?? -1) / 1_000_000)")
-        }
         guard VideoPlaybackBufferPolicy.shouldStart(bufferedAhead: bufferedAhead, remaining: remaining, hasStarted: hasStartedPlayback, waitingDuration: waitingDuration, bufferGrowthRate: growthRate),
               lastImmediatePlaybackAttempt.map({ clock - $0 >= 1 }) ?? true else { return }
         lastImmediatePlaybackAttempt = clock
-        VideoLoadDebug.log("playImmediately bufferedAhead=\(bufferedAhead) waited=\(waitingDuration) recovering=\(hasStartedPlayback)") // FOR TEST ONLY: remove before release
         player.playImmediately(atRate: 1)
+    }
+
+    private func growingPlaylistBecameReady() {
+        guard growingPlaylistURL != nil, let player else { return }
+        if !didApplyGrowingPlaylistStart {
+            didApplyGrowingPlaylistStart = true
+            if player.currentTime().seconds > 0.5 {
+                player.seek(to: .zero)
+            }
+        }
+        updateGrowingDuration()
+        guard playlistMonitor == nil else { return }
+        playlistMonitor = Foundation.Timer.scheduledTimer(
+            withTimeInterval: FileIngestPlaylist.probeInterval,
+            repeats: true
+        ) { [weak self] timer in
+            guard let self else {
+                timer.invalidate()
+                return
+            }
+            self.checkGrowingPlaylist()
+        }
+        checkGrowingPlaylist()
+    }
+
+    private func checkGrowingPlaylist() {
+        guard let playlist = growingPlaylistURL, let item = player?.currentItem else { return }
+        if item.duration.seconds.isFinite {
+            playlistMonitor?.invalidate()
+            playlistMonitor = nil
+            return
+        }
+        FileIngestPlaylist.fetchSnapshot(playlist: playlist) { [weak self] snapshot in
+            guard let snapshot else { return }
+            DispatchQueue.main.async {
+                self?.applyPlaylistSnapshot(snapshot)
+            }
+        }
+    }
+
+    private func applyPlaylistSnapshot(_ snapshot: FileIngestPlaylist.Snapshot) {
+        guard let player, let item = player.currentItem else { return }
+        growingListedDuration = max(growingListedDuration, snapshot.listedDuration)
+        updateGrowingDuration()
+        guard item.status == .readyToPlay,
+              !isScrubbing,
+              !item.duration.seconds.isFinite else { return }
+        let clock = ProcessInfo.processInfo.systemUptime
+        let position = item.currentTime().seconds
+        let bufferedEnd = item.loadedTimeRanges.map { $0.timeRangeValue.end.seconds }.max() ?? 0
+        let targetDuration = max(snapshot.targetDuration, 4)
+        if snapshot.ended, playlistEndedSeenAt == nil {
+            playlistEndedSeenAt = clock
+        }
+        let endedUnseen = snapshot.ended
+            && !didReloadEndedPlaylist
+            && clock - (playlistEndedSeenAt ?? clock) >= targetDuration * 1.5
+        let starving = wantsPlayback
+            && player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+            && bufferedEnd - position < 1
+            && snapshot.listedDuration - bufferedEnd > targetDuration
+        if starving {
+            if starvingSince == nil { starvingSince = clock }
+        } else {
+            starvingSince = nil
+        }
+        let stuck = starvingSince.map { clock - $0 >= targetDuration * 2 } ?? false
+        guard endedUnseen || stuck,
+              lastPlaylistReloadAt.map({ clock - $0 >= 10 }) ?? true else { return }
+        lastPlaylistReloadAt = clock
+        starvingSince = nil
+        if snapshot.ended {
+            didReloadEndedPlaylist = true
+        }
+        reloadPlayerItem(snapshot.url)
+    }
+
+    private func reloadPlayerItem(_ url: URL) {
+        guard let player, let oldItem = player.currentItem else { return }
+        let position = oldItem.currentTime()
+        let item = AVPlayerItem(asset: AVURLAsset(url: url), automaticallyLoadedAssetKeys: ["playable"])
+        if #available(iOS 14.5, *) {
+            item.startsOnFirstEligibleVariant = true
+        }
+        NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: oldItem)
+        observe(item)
+        player.replaceCurrentItem(with: item)
+        if position.isNumeric {
+            player.seek(to: position)
+        }
+        if wantsPlayback {
+            player.play()
+        }
+    }
+
+    private func updateGrowingDuration() {
+        guard growingPlaylistURL != nil, let item = player?.currentItem else { return }
+        let seekableEnd = item.seekableTimeRanges.last.map { $0.timeRangeValue.end.seconds } ?? 0
+        let duration = item.duration.seconds.isFinite
+            ? item.duration.seconds
+            : max(growingListedDuration, seekableEnd)
+        guard duration.isFinite, duration > 0, Float(duration) != timeSlider.maximumValue else { return }
+        timeSlider.maximumValue = Float(duration)
+        durationLabel.attributedText = NSAttributedString(
+            string: formatTime(duration),
+            attributes: [.font: UIFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular), .foregroundColor: UIColor.white]
+        )
+        setNeedsLayout()
     }
 
     private func stopBufferingMonitor() {

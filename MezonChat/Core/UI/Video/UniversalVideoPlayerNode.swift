@@ -15,33 +15,6 @@ extension ASImageNode {
     }
 }
 
-// FOR TEST ONLY: remove before release
-enum VideoLoadDebug {
-    private static var startedAt = CFAbsoluteTimeGetCurrent()
-
-    static func begin(_ message: String) {
-        startedAt = CFAbsoluteTimeGetCurrent()
-        log("=== \(message)")
-    }
-
-    static func log(_ message: String) {
-        print("[VideoLoad] +\(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - startedAt))s \(message)")
-    }
-
-    static func boxes(_ data: Data) -> String {
-        var result: [String] = []
-        var offset = 0
-        while offset + 8 <= data.count, result.count < 6 {
-            let size = data[offset..<offset + 4].reduce(0) { $0 << 8 | Int($1) }
-            let type = String(decoding: data[offset + 4..<offset + 8], as: UTF8.self)
-            result.append("\(type)@\(offset)+\(size)")
-            guard size >= 8 else { break }
-            offset += size
-        }
-        return result.joined(separator: " ")
-    }
-}
-
 private enum VideoRangeLoadingPolicy {
     static func shouldProbe(_ url: URL) -> Bool {
         !url.isFileURL && ["mp4", "mov", "m4v"].contains(url.pathExtension.lowercased())
@@ -90,11 +63,55 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
         self.url = url
         self.posterURL = posterURL
         super.init()
-        VideoLoadDebug.begin("open \(url.lastPathComponent)") // FOR TEST ONLY: remove before release
-        
+
+        if FileIngestPlaylist.isMarked(url.absoluteString) {
+            resolveIngestPlaylist()
+        } else {
+            setupAppropriatePlayer()
+        }
+    }
+
+    private func resolveIngestPlaylist() {
+        FileIngestPlaylist.resolve(attachmentURL: url.absoluteString) { [weak self] state in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if case let .playable(playlist) = state {
+                    self.attachIngestPlayer(playlist)
+                } else {
+                    self.setupAppropriatePlayer()
+                }
+            }
+        }
+    }
+
+    private func attachIngestPlayer(_ playlist: URL) {
+        guard avPlayerNode == nil, vlcPlayerNode == nil else { return }
+        let avNode = MezonVideoPlayerNode(growingPlaylistURL: playlist, posterURL: posterURL)
+        avNode.setOverlayVisible = { [weak self] visible in
+            self?.setOverlayVisible?(visible)
+        }
+        avNode.setPagingEnabled = { [weak self] enabled in
+            self?.setPagingEnabled?(enabled)
+        }
+        avNode.onPlaybackFailed = { [weak self] in
+            self?.fallbackFromIngestPlaylist()
+        }
+        avNode.controlsBottomInset = controlsBottomInset
+        avPlayerNode = avNode
+        addSubnode(avNode)
+        avNode.frame = bounds
+        if wantsPlay {
+            avNode.play()
+        }
+    }
+
+    private func fallbackFromIngestPlaylist() {
+        avPlayerNode?.pause()
+        avPlayerNode?.removeFromSupernode()
+        avPlayerNode = nil
         setupAppropriatePlayer()
     }
-    
+
     private func setupAppropriatePlayer() {
         let fileExtension = url.pathExtension.lowercased()
         let useVLC = shouldUseVLCPlayer(for: fileExtension)
@@ -111,13 +128,11 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
         didTryAVPlayer = true
 
         if let request = CDNSigner.shared.readyRequestURL(for: url) {
-            VideoLoadDebug.log("signature ready signed=\(request.isSigned)") // FOR TEST ONLY: remove before release
             attachPlayerMatchingContainer(request)
             return
         }
         CDNSigner.shared.requestURL(for: url) { [weak self] request in
             DispatchQueue.main.async {
-                VideoLoadDebug.log("signature fetched signed=\(request.isSigned)") // FOR TEST ONLY: remove before release
                 self?.attachPlayerMatchingContainer(request)
             }
         }
@@ -133,8 +148,6 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
         isContainerProbePending = true
         containerProbeTask = URLSession.shared.dataTask(with: probe) { [weak self] data, response, error in
             let supportsChunks = error == nil && VideoRangeLoadingPolicy.supportsChunkedLoading(data: data, response: response)
-            let debugHTTP = response as? HTTPURLResponse // FOR TEST ONLY: remove before release
-            VideoLoadDebug.log("probe status=\(debugHTTP?.statusCode ?? -1) cache=\(debugHTTP?.value(forHTTPHeaderField: "X-Cache-Status") ?? "nil") range=\(debugHTTP?.value(forHTTPHeaderField: "Content-Range") ?? "nil") chunked=\(supportsChunks) boxes=[\(data.map(VideoLoadDebug.boxes) ?? "nil")] error=\(String(describing: error))") // FOR TEST ONLY: remove before release
             DispatchQueue.main.async {
                 guard let self else { return }
                 let prefix = data.flatMap { data in (response as? HTTPURLResponse).map { (data, $0) } }
@@ -160,7 +173,6 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
     private func attachAVPlayer(_ request: CDNRequestURL) {
         guard avPlayerNode == nil, vlcPlayerNode == nil else { return }
         avRequest = request
-        VideoLoadDebug.log("attach AVPlayer chunked=\(usesChunkedLoading) host=\(request.url.host ?? "unknown")") // FOR TEST ONLY: remove before release
         let avNode = MezonVideoPlayerNode(url: request.url, posterURL: posterURL, usesChunkedLoading: usesChunkedLoading, initialData: containerProbePrefix?.data, initialResponse: containerProbePrefix?.response)
         containerProbePrefix = nil
         avNode.setOverlayVisible = { [weak self] visible in
@@ -182,7 +194,6 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
     }
 
     private func retryAVPlayerWithFreshSignatureOrFallback() {
-        VideoLoadDebug.log("AVPlayer failed, retry or fallback") // FOR TEST ONLY: remove before release
         guard !didResignAVPlayer,
               let request = avRequest,
               CDNSigner.shared.invalidate(request) else {
@@ -209,7 +220,6 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
             fallbackToVLC()
             return
         }
-        VideoLoadDebug.log("range loading failed, retrying native AVPlayer") // FOR TEST ONLY: remove before release
         usesChunkedLoading = false
         avPlayerNode?.pause()
         avPlayerNode?.removeFromSupernode()
@@ -235,7 +245,6 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
     
     private func fallbackToVLC() {
         guard !didTryVLCPlayer else { return }
-        VideoLoadDebug.log("fallback to VLC") // FOR TEST ONLY: remove before release
 
         avPlayerNode?.removeFromSupernode()
         avPlayerNode = nil

@@ -61,11 +61,20 @@ fileprivate struct MultipartPlan {
     let contentType: String
 }
 
+fileprivate struct FileIngestPlan {
+    let fileURL: URL
+    let size: Int
+    let presignedURL: String
+    let ingestURL: String
+    let contentType: String
+}
+
 fileprivate struct PendingMinIOUpload {
     enum Body {
         case data(Data)
         case file(URL)
         case multipart(MultipartPlan)
+        case ingest(FileIngestPlan)
     }
 
     let minioURL: String
@@ -73,6 +82,11 @@ fileprivate struct PendingMinIOUpload {
     let body: Body
     let progressKey: String
     let cacheImage: (image: UIImage, data: Data, cdnURL: String)?
+
+    var ingestPlan: FileIngestPlan? {
+        if case let .ingest(plan) = body { return plan }
+        return nil
+    }
 }
 
 fileprivate final class FileUploadTrack {
@@ -123,6 +137,7 @@ final class ImageUploadSession {
         guard SendMessageInputViewController.mimeType(for: ext).hasPrefix("video/") else { return false }
         let size = ((try? FileManager.default.attributesOfItem(atPath: fileURL.path))?[.size] as? NSNumber)?.intValue ?? 0
         return size >= AttachmentUploader.minMultipartFileSize
+            || FileIngest.isCandidate(filetype: "video", filename: fileURL.lastPathComponent, size: size)
     }
 }
 
@@ -211,6 +226,7 @@ final class AttachmentUploadCoordinator {
                     uploadProgress: AttachmentUploadProgressStore.shared.progress(forKey: progressKey),
                     uploadProgressKey: progressKey,
                     uploadShowsPercent: Int(track.attachment.size) >= AttachmentUploader.minMultipartFileSize
+                        || track.pending.ingestPlan != nil
                 )
             case .failed:
                 return ParsedAttachment(
@@ -416,6 +432,7 @@ final class AttachmentUploadCoordinator {
             guard !session.aborted else {
                 return
             }
+            await persistIngestJobs(session, context: context)
 
             guard let uploadToken = await context.getToken() else { return }
             await executeFileUploads(session, context: context, token: uploadToken)
@@ -568,7 +585,8 @@ final class AttachmentUploadCoordinator {
         let contentStr: String
         let contentData: Data
         if includePresignFinish {
-            contentStr = PresignFinishContent.contentStringForSend(base: session.outgoingBase, presignKeys: [])
+            contentStr = PresignFinishContent.contentStringForSend(
+                base: session.outgoingBase, presignKeys: [], ingestKeys: Self.ingestKeys(of: session))
             contentData = contentStr.data(using: .utf8) ?? PresignFinishContent.injectEmptyPresignFinish(into: session.outgoingBase)
         } else {
             contentData = session.outgoingBase
@@ -768,6 +786,67 @@ final class AttachmentUploadCoordinator {
         }
     }
 
+    private static func ingestUploads(of session: ImageUploadSession) -> [(key: String, plan: FileIngestPlan)] {
+        var result: [(key: String, plan: FileIngestPlan)] = []
+        for item in session.items {
+            if let plan = item.pendingUploads.lazy.compactMap(\.ingestPlan).first, !item.presignKey.isEmpty {
+                result.append((item.presignKey, plan))
+            }
+        }
+        for track in session.fileTracks {
+            if let plan = track.pending.ingestPlan, !track.presignKey.isEmpty {
+                result.append((track.presignKey, plan))
+            }
+        }
+        return result
+    }
+
+    private static func ingestKeys(of session: ImageUploadSession) -> [String] {
+        ingestUploads(of: session).map(\.key)
+    }
+
+    @MainActor
+    private func persistIngestJobs(_ session: ImageUploadSession, context: AccountContext) async {
+        let uploads = Self.ingestUploads(of: session)
+        guard session.serverMessageId != 0, !uploads.isEmpty else { return }
+        let p = session.params
+        var mentionList = Mezon_Api_MessageMentionList()
+        mentionList.mentions = p.mentionList
+        let mentions = (try? mentionList.serializedData()) ?? Data()
+        let userId = context.currentUser?.id ?? ""
+        let ingestKeys = uploads.map(\.key)
+        let jobs = uploads.map { upload -> (job: FileIngestJob, source: URL) in
+            let id = UUID().uuidString
+            let ext = upload.plan.fileURL.pathExtension
+            let job = FileIngestJob(
+                id: id,
+                key: upload.key,
+                userId: userId,
+                fileName: ext.isEmpty ? id : "\(id).\(ext)",
+                size: Int64(upload.plan.size),
+                presignedURL: upload.plan.presignedURL,
+                ingestURL: upload.plan.ingestURL,
+                contentType: upload.plan.contentType,
+                clanId: p.clanId,
+                channelId: p.channelId,
+                mode: p.mode,
+                isPublic: p.isPublic,
+                topicId: p.topicId,
+                messageId: session.serverMessageId,
+                createTimeSeconds: session.serverCreateTimeSeconds,
+                outgoingBase: session.outgoingBase,
+                mentions: mentions,
+                ingestKeys: ingestKeys,
+                createdAt: Date())
+            return (job, upload.plan.fileURL)
+        }
+        await Task.detached(priority: .utility) {
+            for entry in jobs {
+                FileIngestJobStore.shared.save(entry.job, sourceFile: entry.source)
+            }
+        }.value
+    }
+
     @MainActor
     private func markPresignFinished(_ session: ImageUploadSession, key: String) {
         guard !key.isEmpty, !session.presignFinishedKeys.contains(key) else { return }
@@ -874,9 +953,11 @@ final class AttachmentUploadCoordinator {
     ) async {
         let p = session.params
         let keysSnapshot = session.presignFinishedKeys
+        let ingestKeys = Self.ingestKeys(of: session)
         let localContentStr = PresignFinishContent.contentStringForSend(
             base: session.outgoingBase,
-            presignKeys: keysSnapshot
+            presignKeys: keysSnapshot,
+            ingestKeys: ingestKeys
         )
         guard !localContentStr.isEmpty else { return }
         let createTimeSeconds = resolveCreateTimeSeconds(session, context: context)
@@ -914,6 +995,11 @@ final class AttachmentUploadCoordinator {
                 )
                 writeMessageContent(session, context: context, contentData: localContentData)
                 session.lastSyncedPresignCount = keysSnapshot.count
+                if !ingestKeys.isEmpty {
+                    Task.detached(priority: .utility) {
+                        FileIngestJobStore.shared.remove(keys: keysSnapshot)
+                    }
+                }
                 nudge(session, context: context)
                 return
             } catch {
@@ -1114,6 +1200,25 @@ final class AttachmentUploadCoordinator {
         token: String
     ) async throws -> (cdnURL: String, pending: PendingMinIOUpload) {
         let progressKey = fileURL.path
+        if FileIngest.isCandidate(filetype: filetype, filename: filename, size: size) {
+            let info = try await context.account.network.uploadAttachmentFile(
+                filename: filename, filetype: filetype, size: size,
+                width: width, height: height, channelId: channelId, token: token)
+            let cdnURL = try MezonConfig.attachmentViewURL(typeCdn: info.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: info.filename)
+            if let ingestURL = FileIngest.ingestURL(forPresignedURL: info.url) {
+                let plan = FileIngestPlan(
+                    fileURL: fileURL, size: size, presignedURL: info.url,
+                    ingestURL: ingestURL, contentType: filetype)
+                return (cdnURL, PendingMinIOUpload(
+                    minioURL: info.url, contentType: filetype, body: .ingest(plan),
+                    progressKey: progressKey, cacheImage: nil))
+            }
+            if size < AttachmentUploader.minMultipartFileSize {
+                return (cdnURL, PendingMinIOUpload(
+                    minioURL: info.url, contentType: filetype, body: .file(fileURL),
+                    progressKey: progressKey, cacheImage: nil))
+            }
+        }
         if size >= AttachmentUploader.minMultipartFileSize {
             do {
                 let partCount = AttachmentUploader.multipartPartCount(fileSize: size)
@@ -1314,6 +1419,37 @@ final class AttachmentUploadCoordinator {
                 }
             case let .multipart(plan):
                 try await performMultipartUpload(plan, context: context, progressKey: progressKey)
+                if !progressKey.isEmpty {
+                    AttachmentUploadProgressStore.shared.setProgress(1, forKey: progressKey)
+                }
+            case let .ingest(plan):
+                try await FileIngestUploader.shared.upload(
+                    fileURL: plan.fileURL,
+                    size: Int64(plan.size),
+                    presignedURL: plan.presignedURL,
+                    ingestURL: plan.ingestURL,
+                    contentType: plan.contentType,
+                    onProgress: { fraction in
+                        guard !progressKey.isEmpty else { return }
+                        let clamped = min(max(fraction, 0), 0.99)
+                        let previous = AttachmentUploadProgressStore.shared.progress(forKey: progressKey)
+                        if fraction < 1 {
+                            AttachmentUploadProgressStore.shared.setFinishing(false, forKey: progressKey)
+                        }
+                        AttachmentUploadProgressStore.shared.setProgress(clamped, forKey: progressKey)
+                        Self.postUploadProgress(
+                            key: progressKey,
+                            progress: clamped,
+                            previousBucket: Self.progressBucket(for: previous))
+                    },
+                    onSent: {
+                        guard !progressKey.isEmpty else { return }
+                        AttachmentUploadProgressStore.shared.setFinishing(true, forKey: progressKey)
+                        Self.postUploadProgress(
+                            key: progressKey,
+                            progress: AttachmentUploadProgressStore.shared.progress(forKey: progressKey),
+                            previousBucket: -1)
+                    })
                 if !progressKey.isEmpty {
                     AttachmentUploadProgressStore.shared.setProgress(1, forKey: progressKey)
                 }

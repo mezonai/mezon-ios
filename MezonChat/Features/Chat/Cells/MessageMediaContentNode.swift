@@ -52,14 +52,17 @@ private final class MediaUploadingOverlayNode: ASDisplayNode {
     private let percentLabel: ASTextNode2?
     private let barNode: UploadProgressBarNode?
     private let gridCompactMode: Bool
+    private let progressKey: String
+    private var showsFinishing = false
 
     private static let primeTarget: Double = 0.10
     private static let primeDuration: TimeInterval = 1.5
     private var rampValue: Double = 0
     private var realValue: Double = 0
 
-    init(progress: Double, showsPercent: Bool, gridCompact: Bool = false) {
+    init(progress: Double, showsPercent: Bool, gridCompact: Bool = false, progressKey: String = "") {
         gridCompactMode = gridCompact
+        self.progressKey = progressKey
         if gridCompact {
             spinnerHost = nil
             percentLabel = nil
@@ -128,10 +131,15 @@ private final class MediaUploadingOverlayNode: ASDisplayNode {
     }
 
     private func updatePercentText(_ progress: Double) {
+        let finishing = AttachmentUploadProgressStore.shared.isFinishing(forKey: progressKey)
+        if finishing != showsFinishing {
+            showsFinishing = finishing
+            setNeedsLayout()
+        }
         let para = NSMutableParagraphStyle()
         para.alignment = .center
         percentLabel?.attributedText = NSAttributedString(
-            string: "\(Int(min(max(progress, 0), 1) * 100))%",
+            string: finishing ? L(L10n.Sharing.finishing) : "\(Int(min(max(progress, 0), 1) * 100))%",
             attributes: [
                 .font: UIFont.systemFont(ofSize: 11, weight: .semibold),
                 .foregroundColor: UIColor.white,
@@ -179,7 +187,7 @@ private final class MediaUploadingOverlayNode: ASDisplayNode {
 
         if hasLabel {
             y += spacing
-            let labelWidth = max(0, min(w - horizontalPad * 2, 56))
+            let labelWidth = max(0, min(w - horizontalPad * 2, showsFinishing ? 120 : 56))
             percentLabel?.frame = CGRect(
                 x: (w - labelWidth) * 0.5,
                 y: y,
@@ -256,6 +264,8 @@ final class MessageMediaContentNode: ASDisplayNode {
     private var uploadingOverlayByProgressKey: [String: MediaUploadingOverlayNode] = [:]
     private var slotOverlayKindByIndex: [Int: MediaSlotOverlayKind] = [:]
     private var pendingRevealAnimationIndices: Set<Int> = []
+    private var isOnScreen = false
+    private var ingestProbeTimer: Foundation.Timer?
 
     private enum MediaSlotOverlayKind: Equatable {
         case none
@@ -427,6 +437,7 @@ final class MessageMediaContentNode: ASDisplayNode {
         stickerNode?.removeFromSupernode()
         stickerNode = nil
         attachments = media
+        updateIngestProbing()
         lastRemoteProxyURLByIndex.removeAll()
         remoteLoadInFlightByIndex.removeAll()
         remoteLoadRetryCountByIndex.removeAll()
@@ -755,7 +766,7 @@ final class MessageMediaContentNode: ASDisplayNode {
 
     private func ensureRemoteImageLoaded(at index: Int, media: ParsedAttachment, isMultiple: Bool) {
         guard media.localImage == nil else { return }
-        guard !media.isPresignPending else { return }
+        guard !media.isPresignPending || Self.showsIngestPoster(media) else { return }
         guard let urls = remoteImageURLs(for: media) else { return }
         guard index < imageNodes.count else { return }
         let node = imageNodes[index]
@@ -785,7 +796,7 @@ final class MessageMediaContentNode: ASDisplayNode {
     }
 
     private func loadImage(at index: Int, into node: TransformImageNode, media: ParsedAttachment, isMultiple: Bool) {
-        if media.isPresignPending {
+        if media.isPresignPending && !Self.showsIngestPoster(media) {
             return
         }
         if media.uploadFailed {
@@ -835,6 +846,12 @@ final class MessageMediaContentNode: ASDisplayNode {
             index = cachedImageFrames.enumerated().first(where: { $1.contains(point) })?.offset
         }
         guard let index else { return }
+        if index < attachments.count {
+            let att = attachments[index]
+            if att.isVideo, att.isPresignPending, !Self.isIngestPlayable(att) {
+                return
+            }
+        }
         onImageTapped?(index)
     }
 
@@ -966,6 +983,7 @@ final class MessageMediaContentNode: ASDisplayNode {
         }
 
         attachments = newMedia
+        updateIngestProbing()
         let newUploading = newMedia.contains { $0.isUploading }
         if isUploading != newUploading {
             isUploading = newUploading
@@ -1095,8 +1113,83 @@ final class MessageMediaContentNode: ASDisplayNode {
     private func slotOverlayKind(for att: ParsedAttachment) -> MediaSlotOverlayKind {
         if att.isUploading { return .uploading(att.uploadProgressKey) }
         if att.uploadFailed { return .failed }
-        if att.isVideo && !att.isPresignPending { return .play }
+        if att.isVideo && (!att.isPresignPending || Self.isIngestPlayable(att)) { return .play }
         return .none
+    }
+
+    private static func isIngestPlayable(_ att: ParsedAttachment) -> Bool {
+        att.isIngestLive && FileIngestPlaylist.isPlayable(att.url)
+    }
+
+    private static func showsIngestPoster(_ att: ParsedAttachment) -> Bool {
+        att.isVideo && !att.thumbnail.isEmpty && isIngestPlayable(att)
+    }
+
+    private static func awaitsIngestPlaylist(_ att: ParsedAttachment) -> Bool {
+        guard att.isVideo, att.isPresignPending, att.isIngestLive else { return false }
+        if case .unknown = FileIngestPlaylist.state(for: att.url) { return true }
+        return false
+    }
+
+    func setOnScreen(_ onScreen: Bool) {
+        guard isOnScreen != onScreen else { return }
+        isOnScreen = onScreen
+        updateIngestProbing()
+    }
+
+    private func updateIngestProbing() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.updateIngestProbing()
+            }
+            return
+        }
+        guard isOnScreen, attachments.contains(where: Self.awaitsIngestPlaylist) else {
+            ingestProbeTimer?.invalidate()
+            ingestProbeTimer = nil
+            return
+        }
+        guard ingestProbeTimer == nil else { return }
+        probeIngestPlaylists()
+        ingestProbeTimer = Foundation.Timer.scheduledTimer(
+            withTimeInterval: FileIngestPlaylist.probeInterval,
+            repeats: true
+        ) { [weak self] timer in
+            guard let self else {
+                timer.invalidate()
+                return
+            }
+            self.probeIngestPlaylists()
+        }
+    }
+
+    private func probeIngestPlaylists() {
+        for att in attachments where Self.awaitsIngestPlaylist(att) {
+            let url = att.url
+            FileIngestPlaylist.resolve(attachmentURL: url, coalescing: true) { [weak self] state in
+                if case .unknown = state { return }
+                DispatchQueue.main.async {
+                    self?.ingestPlaylistResolved(for: url)
+                }
+            }
+        }
+    }
+
+    private func ingestPlaylistResolved(for url: String) {
+        var changed = false
+        for (index, att) in attachments.enumerated() where att.url == url && index < videoOverlayNodes.count {
+            if slotOverlayKind(for: att) != (slotOverlayKindByIndex[index] ?? .none) {
+                setSlotOverlay(at: index, for: att)
+                changed = true
+            }
+            if Self.showsIngestPoster(att), index < imageNodes.count, imageNodes[index].image == nil {
+                loadImage(at: index, into: imageNodes[index], media: att, isMultiple: isMultiple)
+            }
+        }
+        if changed {
+            setNeedsLayout()
+        }
+        updateIngestProbing()
     }
 
     private func makeOverlayNode(for att: ParsedAttachment) -> ASDisplayNode {
@@ -1140,7 +1233,11 @@ final class MessageMediaContentNode: ASDisplayNode {
     }
 
     private func addUploadingOverlay(for attachment: ParsedAttachment, gridCompact: Bool = false) -> MediaUploadingOverlayNode {
-        let overlay = MediaUploadingOverlayNode(progress: attachment.uploadProgress, showsPercent: attachment.uploadShowsPercent, gridCompact: gridCompact)
+        let overlay = MediaUploadingOverlayNode(
+            progress: attachment.uploadProgress,
+            showsPercent: attachment.uploadShowsPercent,
+            gridCompact: gridCompact,
+            progressKey: attachment.uploadProgressKey)
         let key = attachment.uploadProgressKey
         if !key.isEmpty {
             uploadingOverlayByProgressKey[key] = overlay

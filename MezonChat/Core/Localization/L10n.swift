@@ -835,6 +835,7 @@ enum L10n {
         static let commentPlaceholder    = "sharing.commentPlaceholder"
         static let sending               = "sharing.sending"
         static let uploading             = "sharing.uploading"
+        static let finishing             = "sharing.finishing"
         static let sessionExpired        = "sharing.sessionExpired"
         static let errorTitle            = "sharing.errorTitle"
         static let alertOK             = "sharing.alertOK"
@@ -2280,6 +2281,7 @@ extension L10n {
         "sharing.commentPlaceholder":       "Add a comment (optional)",
         "sharing.sending":                  "Sending…",
         "sharing.uploading":                "Uploading",
+        "sharing.finishing":                "Finishing…",
         "sharing.sessionExpired":           "Session expired",
         "sharing.errorTitle": "Error",
         "sharing.alertOK": "OK",
@@ -3762,6 +3764,7 @@ extension L10n {
         "sharing.commentPlaceholder":       "Thêm bình luận (tùy chọn)",
         "sharing.sending":                  "Đang gửi…",
         "sharing.uploading":                "Đang tải lên",
+        "sharing.finishing":                "Đang hoàn tất…",
         "sharing.sessionExpired":           "Phiên đăng nhập hết hạn",
         "sharing.errorTitle":               "Lỗi",
         "sharing.alertOK":                  "OK",
