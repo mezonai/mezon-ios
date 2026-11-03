@@ -69,7 +69,7 @@ final class EventEditorChoiceViewController: UIViewController, UITableViewDataSo
     struct Choice {
         let id: Int64
         let title: String
-        let icon: String?
+        let icon: UIImage?
     }
     private let choices: [Choice]
     private var filtered: [Choice]
@@ -197,9 +197,8 @@ final class EventEditorChoiceViewController: UIViewController, UITableViewDataSo
         let row = UIStackView()
         row.alignment = .center
         row.spacing = 12
-        if let iconName = choice.icon {
-            let image = UIImage(named: iconName) ?? UIImage(systemName: iconName)
-            let icon = UIImageView(image: image?.withRenderingMode(.alwaysTemplate))
+        if let image = choice.icon {
+            let icon = UIImageView(image: image.withRenderingMode(.alwaysTemplate))
             icon.tintColor = UIColor.theme.textStrong
             icon.contentMode = .scaleAspectFit
             icon.widthAnchor.constraint(equalToConstant: 24).isActive = true

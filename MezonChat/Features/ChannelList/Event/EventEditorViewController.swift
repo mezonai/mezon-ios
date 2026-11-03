@@ -602,7 +602,7 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
     private func pickChannel(voice: Bool) {
         view.endEditing(true)
         let options = voice ? EventEditorAccess.voiceChannels(channels) : EventEditorAccess.announcementChannels(channels)
-        let choices = options.map { EventEditorChoiceViewController.Choice(id: $0.channelID, title: $0.channelLabel, icon: $0.channelListIconAssetName()) }
+        let choices = options.map { EventEditorChoiceViewController.Choice(id: $0.channelID, title: $0.channelLabel, icon: $0.channelListIconImage()) }
         let vc = EventEditorChoiceViewController(title: L(voice ? L10n.EventEditor.voice : L10n.EventEditor.announcement), choices: choices, selectedId: voice ? draft.voiceChannelId : draft.announcementChannelId) { [weak self] id in
             guard let self else { return }
             if voice {

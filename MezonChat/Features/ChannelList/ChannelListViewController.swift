@@ -748,6 +748,8 @@ final class ChannelListViewController: ViewController {
     private let fetchDisposable = MetaDisposable()
     private let dataDisposable = MetaDisposable()
     private let clanUsersDisposable = MetaDisposable()
+    private let clanEventsDisposable = MetaDisposable()
+    private weak var eventViewer: EventViewerBottomSheetViewController?
     private var processedBadgeKeys = Set<String>()
     private var pendingMentionUnreadFloorByClanId: [Int64: [Int64: Int32]] = [:]
     private var badgeReadMessageIds: [Int64: Int64] = [:]
@@ -994,6 +996,7 @@ final class ChannelListViewController: ViewController {
         fetchDisposable.dispose()
         dataDisposable.dispose()
         clanUsersDisposable.dispose()
+        clanEventsDisposable.dispose()
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -1142,6 +1145,7 @@ final class ChannelListViewController: ViewController {
         invalidateVoiceMemberCache()
         refreshShowEmptyCategoriesPreferenceFromCache()
         reconcileChannelListDataIfNeeded()
+        context.engine.clanData.refreshEventExpiry(clanId: clanId)
         channelListNode.reloadVoiceMemberRows()
     }
 
@@ -1195,6 +1199,13 @@ final class ChannelListViewController: ViewController {
                 self.scheduleCoalescedClanUsersReload()
             })
         )
+        clanEventsDisposable.set(
+            (context.engine.clanData.clanEventsUpdated.signal() |> deliverOnMainQueue).start(next: { [weak self] updatedClanId in
+                guard let self, updatedClanId == self.clanId else { return }
+                self.refreshEventBadge()
+            })
+        )
+        refreshEventBadge()
     }
 
     @objc private func handleAccountCurrentUserDidChangeForOnboarding(_ notification: Notification) {
@@ -1413,6 +1424,7 @@ final class ChannelListViewController: ViewController {
 
     @objc private func handleWillEnterForegroundForChannelBadges() {
         guard clanId != 0 else { return }
+        context.engine.clanData.refreshEventExpiry(clanId: clanId)
         if allChannels.isEmpty {
             if NetworkMonitor.shared.isConnected {
                 scheduleChannelListNetworkFetch(allowEmptyChannelAppsOverwrite: false)
@@ -2046,6 +2058,13 @@ final class ChannelListViewController: ViewController {
         homeViewController()?.clanListVC.removeClanAndSelectNext(removedClanId: removedClanId)
     }
 
+    private func refreshEventBadge() {
+        guard isNodeLoaded else { return }
+        let events = clanId != 0 ? context.engine.clanData.getClanEvents(clanId: clanId)?.events ?? [] : []
+        let count = EventListFilter.visibleEvents(from: events, channels: allChannels).count
+        channelListNode.updateEventCount(count)
+    }
+
     private func presentEventBottomSheet() {
         guard clanId != 0 else { return }
         let vc = EventViewerBottomSheetViewController(
@@ -2082,6 +2101,7 @@ final class ChannelListViewController: ViewController {
                 self?.pushExternalMeetingRoom(meeting)
             }
         }
+        eventViewer = vc
         present(vc, animated: true)
     }
 
@@ -3118,6 +3138,7 @@ final class ChannelListViewController: ViewController {
         }
         refreshMemberOnboardingState()
         scheduleMemberOnboardingDataFetch()
+        context.engine.clanData.refreshEventExpiry(clanId: clanId)
     }
 
     private func scheduleAuthoritativeNetworkReconcileIfNeeded(reason: String) {
@@ -3901,7 +3922,14 @@ final class ChannelListViewController: ViewController {
         }
     }
 
-    private(set) var allChannels: [Mezon_Api_ChannelDescription] = []
+    private(set) var allChannels: [Mezon_Api_ChannelDescription] = [] {
+        didSet {
+            if Set(oldValue.map(\.channelID)) != Set(allChannels.map(\.channelID)) {
+                refreshEventBadge()
+            }
+            eventViewer?.updateChannels(allChannels, clanId: clanId)
+        }
+    }
 
     var currentState: ChannelListState {
         var voiceMap: [Int64: [String]] = [:]

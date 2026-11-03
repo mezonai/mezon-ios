@@ -38,7 +38,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
     private let clanId: Int64
     private let clanName: String
     private let clanLogoURL: String
-    private let channels: [Mezon_Api_ChannelDescription]
+    private var channels: [Mezon_Api_ChannelDescription]
     private var event: Mezon_Api_EventManagement
     private let onOpenChannel: ((Mezon_Api_ChannelDescription) -> Void)?
     private let onPresentJoinVoice: ((Mezon_Api_ChannelDescription) -> Void)?
@@ -85,15 +85,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
         eventsDisposable = context.engine.clanData.clanEventsUpdated.signal().start(next: { [weak self] updatedClanId in
             guard let self, updatedClanId == self.clanId else { return }
             DispatchQueue.main.async { [weak self] in
-                guard let self,
-                      let events = self.context.engine.clanData.getClanEvents(clanId: self.clanId)?.events else { return }
-                guard let updated = events.first(where: { $0.id == self.event.id }) else {
-                    self.dismissDetail()
-                    return
-                }
-                self.event = updated
-                self.updateInterestedSegmentTitle()
-                self.rebuildContent()
+                self?.rebuildContent()
             }
         })
         NotificationCenter.default.addObserver(
@@ -107,6 +99,17 @@ final class EventDetailBottomSheetViewController: UIViewController {
     deinit {
         eventsDisposable?.dispose()
         NotificationCenter.default.removeObserver(self)
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        rebuildContent()
+    }
+
+    func updateChannels(_ channels: [Mezon_Api_ChannelDescription], clanId: Int64) {
+        guard clanId == self.clanId else { return }
+        self.channels = channels
+        if isViewLoaded { rebuildContent() }
     }
 
     @objc private func themeDidChange() {
@@ -203,11 +206,8 @@ final class EventDetailBottomSheetViewController: UIViewController {
     private func editEvent() {
         guard EventEditorAccess.canEdit(event, context: context) else { return }
         let editor = EventEditorViewController(context: context, clanId: clanId, channels: channels, event: event)
-        editor.onSaved = { [weak self] updated in
-            guard let self, let updated else { return }
-            self.event = updated
-            self.updateInterestedSegmentTitle()
-            self.rebuildContent()
+        editor.onSaved = { [weak self] _ in
+            self?.rebuildContent()
         }
         present(editor, animated: true)
     }
@@ -277,6 +277,14 @@ final class EventDetailBottomSheetViewController: UIViewController {
     }
 
     private func rebuildContent() {
+        let events = context.engine.clanData.getClanEvents(clanId: clanId)?.events ?? []
+        guard let updated = EventListFilter.visibleEvents(from: events, channels: channels)
+            .first(where: { $0.id == event.id }) else {
+            dismissDetail()
+            return
+        }
+        event = updated
+        updateInterestedSegmentTitle()
         showTab(segmentedControl.selectedSegmentIndex)
     }
 
@@ -685,10 +693,6 @@ final class EventDetailBottomSheetViewController: UIViewController {
                 interested: interested,
                 token: token
             )
-            if let updated = context.engine.clanData.getClanEvents(clanId: clanId)?.events.first(where: { $0.id == event.id }) {
-                event = updated
-            }
-            updateInterestedSegmentTitle()
             rebuildContent()
         }
     }

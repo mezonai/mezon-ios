@@ -112,6 +112,7 @@ private enum ClanEventSocketAction {
 }
 
 private enum ClanEventSocketStatus {
+    static let created: Int32 = 0
     static let upcoming: Int32 = 1
     static let ongoing: Int32 = 2
     static let completed: Int32 = 3
@@ -146,6 +147,9 @@ extension MezonEngine {
         private var inflightFetchAllByClanId: [Int64: Task<Void, Never>] = [:]
         private var inflightEventFetchByClanId: [Int64: Task<Void, Never>] = [:]
         private var pendingSocketEventsByClanId: [Int64: [Mezon_Api_CreateEventRequest]] = [:]
+        private var eventExpiryTasks: [Int64: Task<Void, Never>] = [:]
+        private var eventExpiryDeadlines: [Int64: UInt32] = [:]
+        private var eventGeneration: UInt64 = 0
         private var lastFetchAllAtByClanId: [Int64: Date] = [:]
         private let clanDataCacheTTL: TimeInterval = 300
         private var inflightForceRefreshClanUsersByClanId: [Int64: Task<Void, Never>] = [:]
@@ -245,6 +249,10 @@ extension MezonEngine {
         init(engine: MezonEngine) { self.engine = engine }
 
         func resetForLogout() {
+            eventGeneration &+= 1
+            eventExpiryTasks.values.forEach { $0.cancel() }
+            eventExpiryTasks.removeAll()
+            eventExpiryDeadlines.removeAll()
             linkedChannelGeneration &+= 1
             linkedChannelTimer?.cancel()
             linkedChannelTimer = nil
@@ -432,9 +440,7 @@ extension MezonEngine {
             try await network.updateEvent(request: draft.updateRequest(clanId: clanId, original: original), token: token)
             if var list = getClanEvents(clanId: clanId), let index = list.events.firstIndex(where: { $0.id == original.id }) {
                 list.events[index] = draft.applying(to: list.events[index])
-                if let data = try? list.serializedData() {
-                    postbox.setPreferenceDataSync(key: PreferencesKeys.clanEvents(clanId: clanId), value: data)
-                }
+                persistEvents(list, clanId: clanId)
                 clanEventsUpdated.putNext(clanId)
             }
             await fetchEvents(clanId: clanId, token: token)
@@ -466,9 +472,7 @@ extension MezonEngine {
             try await network.deleteEvent(request: request, token: token)
             if var list = getClanEvents(clanId: clanId) {
                 list.events.removeAll { $0.id == event.id }
-                if let data = try? list.serializedData() {
-                    postbox.setPreferenceDataSync(key: PreferencesKeys.clanEvents(clanId: clanId), value: data)
-                }
+                persistEvents(list, clanId: clanId)
             }
             clanEventsUpdated.putNext(clanId)
         }
@@ -520,8 +524,7 @@ extension MezonEngine {
             }
             event.userIds = userIds
             list.events[index] = event
-            guard let data = try? list.serializedData() else { return }
-            postbox.setPreferenceDataSync(key: PreferencesKeys.clanEvents(clanId: clanId), value: data)
+            persistEvents(list, clanId: clanId)
         }
 
         private func fetchEvents(clanId: Int64, token: String) async {
@@ -529,19 +532,22 @@ extension MezonEngine {
                 await existing.value
                 return
             }
+            let generation = eventGeneration
             let task = Task<Void, Never> { @MainActor [weak self] in
-                guard let self else { return }
-                await self.performFetchEvents(clanId: clanId, token: token)
+                guard let self, !Task.isCancelled, self.eventGeneration == generation else { return }
+                await self.performFetchEvents(clanId: clanId, token: token, generation: generation)
             }
             inflightEventFetchByClanId[clanId] = task
             await task.value
+            guard eventGeneration == generation else { return }
             inflightEventFetchByClanId[clanId] = nil
             pendingSocketEventsByClanId[clanId] = nil
         }
 
-        private func performFetchEvents(clanId: Int64, token: String) async {
+        private func performFetchEvents(clanId: Int64, token: String, generation: UInt64) async {
             do {
                 var response = try await network.listEvents(clanId: clanId, token: token)
+                guard !Task.isCancelled, eventGeneration == generation else { return }
                 for update in pendingSocketEventsByClanId.removeValue(forKey: clanId) ?? [] {
                     _ = applySocketEvent(update, to: &response)
                 }
@@ -554,6 +560,37 @@ extension MezonEngine {
         private func persistEvents(_ list: Mezon_Api_EventList, clanId: Int64) {
             guard let data = try? list.serializedData() else { return }
             postbox.setPreferenceDataSync(key: PreferencesKeys.clanEvents(clanId: clanId), value: data)
+            scheduleEventExpiry(clanId: clanId, events: list.events)
+        }
+
+        func refreshEventExpiry(clanId: Int64) {
+            guard clanId != 0 else { return }
+            let events = getClanEvents(clanId: clanId)?.events ?? []
+            scheduleEventExpiry(clanId: clanId, events: events)
+            clanEventsUpdated.putNext(clanId)
+        }
+
+        private func scheduleEventExpiry(clanId: Int64, events: [Mezon_Api_EventManagement]) {
+            let now = Date().timeIntervalSince1970
+            let next = events.filter { $0.eventStatus != ClanEventSocketStatus.completed }
+                .map(\.endTimeSeconds).filter { TimeInterval($0) > now }.min()
+            guard eventExpiryDeadlines[clanId] != next else { return }
+            eventExpiryTasks.removeValue(forKey: clanId)?.cancel()
+            eventExpiryDeadlines.removeValue(forKey: clanId)
+            guard let next else { return }
+            eventExpiryDeadlines[clanId] = next
+            let generation = eventGeneration
+            let delay = max(0.001, TimeInterval(next) - Date().timeIntervalSince1970)
+            eventExpiryTasks[clanId] = Task { @MainActor [weak self] in
+                do {
+                    try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                } catch { return }
+                guard let self, !Task.isCancelled, self.eventGeneration == generation,
+                      self.eventExpiryDeadlines[clanId] == next else { return }
+                self.eventExpiryTasks.removeValue(forKey: clanId)
+                self.eventExpiryDeadlines.removeValue(forKey: clanId)
+                self.refreshEventExpiry(clanId: clanId)
+            }
         }
 
         private func applySocketEvent(
@@ -563,16 +600,25 @@ extension MezonEngine {
             let index = list.events.firstIndex { $0.id == update.eventID }
             let existing = index.map { list.events[$0] }
 
+            if update.action == ClanEventSocketAction.delete {
+                guard let index else { return false }
+                list.events.remove(at: index)
+                return true
+            }
+
             if update.action == ClanEventSocketAction.created {
                 guard existing == nil else { return false }
                 list.events.append(eventFromSocket(update))
                 return true
             }
 
-            if update.eventStatus == ClanEventSocketStatus.upcoming ||
-                update.eventStatus == ClanEventSocketStatus.ongoing {
+            if update.action != ClanEventSocketAction.update &&
+                (update.eventStatus == ClanEventSocketStatus.upcoming ||
+                    update.eventStatus == ClanEventSocketStatus.ongoing) {
                 guard var event = existing, let index else { return false }
                 event.eventStatus = update.eventStatus
+                if update.startTimeSeconds != 0 { event.startTimeSeconds = update.startTimeSeconds }
+                if update.endTimeSeconds != 0 { event.endTimeSeconds = update.endTimeSeconds }
                 list.events[index] = event
                 return true
             }
@@ -580,8 +626,10 @@ extension MezonEngine {
             if update.eventStatus == ClanEventSocketStatus.completed &&
                 update.repeatType != EventRepeatType.doesNotRepeat {
                 guard var event = existing, let index else { return false }
-                event.eventStatus = update.eventStatus
+                event.eventStatus = ClanEventSocketStatus.created
                 event.startTimeSeconds = update.startTimeSeconds
+                event.endTimeSeconds = update.endTimeSeconds
+                event.repeatType = update.repeatType
                 list.events[index] = event
                 return true
             }
@@ -596,9 +644,8 @@ extension MezonEngine {
                 return true
             }
 
-            if (update.eventStatus == ClanEventSocketStatus.completed &&
-                    update.repeatType == EventRepeatType.doesNotRepeat) ||
-                update.action == ClanEventSocketAction.delete {
+            if update.eventStatus == ClanEventSocketStatus.completed &&
+                update.repeatType == EventRepeatType.doesNotRepeat {
                 guard let index else { return false }
                 list.events.remove(at: index)
                 return true
@@ -646,8 +693,8 @@ extension MezonEngine {
             if update.hasMeetRoom {
                 event.meetRoom = update.meetRoom
             }
+            event.eventStatus = update.eventStatus
             if existing == nil {
-                event.eventStatus = update.eventStatus
                 event.userIds = update.creatorID == 0 ? [] : [update.creatorID]
             }
             return event

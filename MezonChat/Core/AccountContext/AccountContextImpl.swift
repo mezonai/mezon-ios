@@ -864,13 +864,25 @@ final class AccountContextImpl: AccountContext {
         }
         if cachedClanId != 0 {
             currentClanId = cachedClanId
+            let epoch = sessionEpoch
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: self, clanId: cachedClanId, force: true)
-                self.account.socket.joinClanChat(clanId: cachedClanId)
+                guard self.isStillCurrentSession(epoch: epoch), self.currentClanId == cachedClanId else { return }
+                async let clanJoin: Void = self.account.socket.joinClanChatAwait(clanId: cachedClanId)
                 guard let token = await self.getTokenPreferringCachedSkipSessionReadyWait(),
-                      self.currentClanId == cachedClanId else { return }
-                await self.engine.clanData.refetchVoiceChannelUsersAfterClanJoin(clanId: cachedClanId, token: token)
+                      self.isStillCurrentSession(epoch: epoch), self.currentClanId == cachedClanId,
+                      self.account.socket.isConnected else { return }
+                async let voiceResult: Void = self.engine.clanData.refetchVoiceChannelUsersAfterClanJoin(clanId: cachedClanId, token: token)
+               
+                do {
+                    try await clanJoin
+                    if self.isStillCurrentSession(epoch: epoch), self.currentClanId == cachedClanId,
+                       self.account.socket.isConnected {
+                        await self.engine.clanData.refetchEvents(clanId: cachedClanId, token: token)
+                    }
+                } catch {}
+                await voiceResult
             }
         }
     }
