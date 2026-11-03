@@ -17,6 +17,8 @@ private enum ForwardOutgoing {
         
         if var dict = parsedDict {
             dict["fwd"] = true
+            dict.removeValue(forKey: PresignFinishContent.fieldKey)
+            dict.removeValue(forKey: PresignFinishContent.ingestFieldKey)
             if let data = try? JSONSerialization.data(withJSONObject: dict),
                let str = String(data: data, encoding: .utf8) {
                 return str

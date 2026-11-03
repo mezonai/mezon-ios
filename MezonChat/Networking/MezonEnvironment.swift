@@ -213,6 +213,13 @@ enum MezonEnvironment {
         }
     }
 
+    var fileIngestBases: String {
+        switch self {
+        case .dev: return "cdn-api-dev.nccsoft.vn=https://streaming.nccsoft.vn"
+        case .prod: return "cdn-api.mezon.ai=https://streaming.mezon.vn"
+        }
+    }
+
     var ogpURL: URL {
         switch self {
         case .dev:  return URL(string: Secrets.devOgpURL)!

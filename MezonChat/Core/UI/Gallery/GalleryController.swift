@@ -1462,10 +1462,7 @@ private final class GalleryThumbnailCell: UICollectionViewCell {
         thumbnailGenerator = generator
 
         let time = CMTime(seconds: 0.5, preferredTimescale: 600)
-        let debugStartedAt = CFAbsoluteTimeGetCurrent() // FOR TEST ONLY: remove before release
-        VideoLoadDebug.log("strip generator start \(assetURL.lastPathComponent)") // FOR TEST ONLY: remove before release
         generator.generateCGImagesAsynchronously(forTimes: [NSValue(time: time)]) { [weak self] _, cgImage, _, _, _ in
-            VideoLoadDebug.log("strip generator done in \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - debugStartedAt))s image=\(cgImage != nil) \(assetURL.lastPathComponent)") // FOR TEST ONLY: remove before release
             guard let cgImage else { return }
             let image = UIImage(cgImage: cgImage)
             ImageCache.shared.setImage(image, data: image.jpegData(compressionQuality: 0.7), forKey: cacheKey)

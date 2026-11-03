@@ -215,7 +215,6 @@ final class VLCVideoPlayerNode: ASDisplayNode {
     private func startRemoteStream(_ remoteURL: URL) {
         guard !isRequestingStreamURL else { return }
         isRequestingStreamURL = true
-        VideoLoadDebug.log("VLC start stream") // FOR TEST ONLY: remove before release
         showStreamIndicator()
         CDNSigner.shared.requestURL(for: remoteURL) { [weak self] request in
             DispatchQueue.main.async {
@@ -231,7 +230,6 @@ final class VLCVideoPlayerNode: ASDisplayNode {
 
     private func fallbackToDownload(player: VLCMediaPlayer) {
         guard isStreamingRemote, let remote = pendingRemoteURL, let local = pendingLocalURL else { return }
-        VideoLoadDebug.log("VLC stream failed, downloading whole file") // FOR TEST ONLY: remove before release
         resumeAfterDownload = max(lastKnownTime, Double(player.time.intValue) / 1000.0)
         isStreamingRemote = false
         loadingTimeoutTimer?.invalidate()
@@ -304,7 +302,6 @@ final class VLCVideoPlayerNode: ASDisplayNode {
     private func startDownload(remote: URL, to localURL: URL) {
         guard !isPreparingDownload else { return }
         isPreparingDownload = true
-        VideoLoadDebug.log("VLC start download") // FOR TEST ONLY: remove before release
         showDownloadIndicator()
         let task = CDNSigner.shared.downloadTask(with: remote, in: Self.downloadSession, onStart: { [weak self] started in
             let observation = started.progress.observe(\.fractionCompleted) { [weak self] progress, _ in
@@ -725,7 +722,6 @@ extension VLCVideoPlayerNode: VLCMediaPlayerDelegate {
         
         DispatchQueue.main.async { [weak self] in
             guard let self = self, self.vlcPlayer === player else { return }
-            VideoLoadDebug.log("VLC state=\(player.state.rawValue)") // FOR TEST ONLY: remove before release
 
             switch player.state {
             case .ended:

@@ -395,6 +395,7 @@ final class AccountContextImpl: AccountContext {
         account.postbox.clearAllSync()
         ImageCache.shared.purgeAccountScopedCaches()
         CDNSigner.shared.reset()
+        FileIngestJobStore.shared.removeAll()
         StorageMaintenance.shared.purgeAccountScopedCaches()
         WKWebsiteDataStore.default().removeData(
             ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(),
@@ -685,6 +686,9 @@ final class AccountContextImpl: AccountContext {
                 guard self.isStillCurrentSession(epoch: startEpoch) else { return }
                 self.markSessionReady()
                 onReady(self)
+                Task { @MainActor in
+                    FileIngestResumer.shared.resume(context: self)
+                }
             }
         )
     }

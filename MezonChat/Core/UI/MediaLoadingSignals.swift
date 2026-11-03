@@ -1081,11 +1081,8 @@ func videoThumbnailSignal(url: String, resizeMode: ImageResizeMode = .fill, maxP
 
             let time = CMTime(seconds: 0.5, preferredTimescale: 600)
             let timeValue = NSValue(time: time)
-            let debugStartedAt = CFAbsoluteTimeGetCurrent() // FOR TEST ONLY: remove before release
-            VideoLoadDebug.log("poster generator start \(videoURL.lastPathComponent)") // FOR TEST ONLY: remove before release
 
             generator.generateCGImagesAsynchronously(forTimes: [timeValue]) { _, cgImage, _, _, error in
-                VideoLoadDebug.log("poster generator done in \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - debugStartedAt))s image=\(cgImage != nil) \(videoURL.lastPathComponent)") // FOR TEST ONLY: remove before release
                 if let cgImage {
                     let image = UIImage(cgImage: cgImage)
                     let jpegData = image.jpegData(compressionQuality: 0.7)

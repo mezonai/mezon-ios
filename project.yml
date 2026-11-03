@@ -190,6 +190,7 @@ targets:
           - fetch
         NSUserActivityTypes:
           - INSendMessageIntent
+          - INStartCallIntent
         MEZON_ENDPOINT_FAILOVER: true
         MEZON_ENDPOINT_FAILOVER_SLOW: true
 

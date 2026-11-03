@@ -427,6 +427,7 @@ final class MessageBubbleNode: ASDisplayNode {
                 self.handleImageTap(index: index, media: currentMedia, interaction: self.interaction)
             }
             mediaContentNode = mcn
+            mcn.setOnScreen(roleIconAnimationVisible)
             addSubnode(mcn)
         }
 
@@ -1196,6 +1197,7 @@ final class MessageBubbleNode: ASDisplayNode {
         guard roleIconAnimationVisible != visible else { return }
         roleIconAnimationVisible = visible
         roleIconNode?.setAnimationVisible(visible)
+        mediaContentNode?.setOnScreen(visible)
     }
 
     private func applyAnonymousBadge() {
