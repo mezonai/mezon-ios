@@ -415,7 +415,8 @@ final class ImageCache {
                 return
             }
 
-            if (response as? HTTPURLResponse)?.statusCode == 403 {
+            if (response as? HTTPURLResponse)?.statusCode == 403,
+               request.isSigned || !CDNSigner.shared.canStillSign(url) {
                 self.markForbidden(key)
                 DispatchQueue.main.async { completion(nil) }
                 return
@@ -1033,7 +1034,7 @@ func remoteImageUISignal(url: String) -> Signal<UIImage?, NoError> {
     }
 }
 
-func videoThumbnailSignal(url: String, resizeMode: ImageResizeMode = .fill, maxPixelSize: Int = 600) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
+func videoThumbnailSignal(url: String, resizeMode: ImageResizeMode = .fill, maxPixelSize: Int = 600, allowRemoteGeneration: Bool = true) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
     return Signal { subscriber in
         guard let videoURL = URL(string: url), !url.isEmpty else {
             subscriber.putCompletion()
@@ -1045,6 +1046,11 @@ func videoThumbnailSignal(url: String, resizeMode: ImageResizeMode = .fill, maxP
         let cache = ImageCache.shared
         if let cached = cache.image(forKey: cacheKey) {
             subscriber.putNext(makeTransform(for: cached, resizeMode: resizeMode))
+            subscriber.putCompletion()
+            return EmptyDisposable
+        }
+
+        guard allowRemoteGeneration || videoURL.isFileURL else {
             subscriber.putCompletion()
             return EmptyDisposable
         }
@@ -1075,8 +1081,11 @@ func videoThumbnailSignal(url: String, resizeMode: ImageResizeMode = .fill, maxP
 
             let time = CMTime(seconds: 0.5, preferredTimescale: 600)
             let timeValue = NSValue(time: time)
+            let debugStartedAt = CFAbsoluteTimeGetCurrent() // FOR TEST ONLY: remove before release
+            VideoLoadDebug.log("poster generator start \(videoURL.lastPathComponent)") // FOR TEST ONLY: remove before release
 
             generator.generateCGImagesAsynchronously(forTimes: [timeValue]) { _, cgImage, _, _, error in
+                VideoLoadDebug.log("poster generator done in \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - debugStartedAt))s image=\(cgImage != nil) \(videoURL.lastPathComponent)") // FOR TEST ONLY: remove before release
                 if let cgImage {
                     let image = UIImage(cgImage: cgImage)
                     let jpegData = image.jpegData(compressionQuality: 0.7)

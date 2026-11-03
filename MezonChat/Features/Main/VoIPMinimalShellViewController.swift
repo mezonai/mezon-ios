@@ -77,7 +77,7 @@ final class VoIPMinimalShellViewController: ViewController {
             return
         case .ready(let top):
             let skipRing = (notification.userInfo?["mezonSkipIncomingRingingUI"] as? Bool) == true
-            let display = IncomingPeerCallPayloadParser.callerDisplay(for: payload, skipDecompressOffer: skipRing)
+            let display = IncomingPeerCallPayloadParser.callerDisplay(for: payload, skipDecompressOffer: skipRing, context: context)
             let vc = PeerCallViewController(
                 context: context,
                 incoming: payload,

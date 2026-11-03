@@ -2,9 +2,11 @@ import AVFoundation
 import CallKit
 import Darwin
 import Foundation
+import Intents
 import WebRTC
 import PushKit
 import UIKit
+import UserNotifications
 
 private final class VoIPPushCompletionGate {
     private var consumed = false
@@ -18,6 +20,251 @@ private final class VoIPPushCompletionGate {
         guard !consumed else { return }
         consumed = true
         body()
+    }
+}
+
+enum IncomingPeerCallDisposition: String, Codable {
+    case ringing, answered, rejected, answeredElsewhere, missed, discarded
+}
+
+struct IncomingPeerCallNotificationRecord: Codable {
+    let id: String
+    let channelId: Int64
+    let callerId: Int64
+    let receiverId: Int64
+    let startedAt: TimeInterval
+    let deadline: TimeInterval
+    var name: String
+    var body: String
+    var avatarURL: String? = nil
+    var disposition: IncomingPeerCallDisposition = .ringing
+
+    var notificationId: String { "mezon.missed-call.\(id)" }
+    var shouldNotify: Bool { disposition == .ringing || disposition == .missed }
+
+    mutating func finish(_ next: IncomingPeerCallDisposition) -> Bool {
+        guard next != .ringing,
+              disposition == .ringing || (disposition == .missed && next == .discarded) else { return false }
+        disposition = next
+        return true
+    }
+
+    var userInfo: [AnyHashable: Any] {
+        ["channel": String(channelId), "clan": "0", "is_dm": true,
+         "sender": String(callerId), "recipient": String(receiverId),
+         "callUUID": id, "notification_type": "missed_call"]
+    }
+}
+
+enum PeerCallStartNotificationMatcher {
+    static func matches(_ notification: UNNotification, record: IncomingPeerCallNotificationRecord) -> Bool {
+        notification.date.timeIntervalSince1970 >= record.startedAt - 30
+            && notification.date.timeIntervalSince1970 <= record.deadline + 120
+            && CallStartNotificationPolicy.matchesSource(notification.request.content, channelId: record.channelId,
+                                                         callerId: record.callerId, receiverId: record.receiverId)
+            && CallStartNotificationPolicy.isCallStart(notification.request)
+    }
+}
+
+final class PeerCallNotifications {
+    private struct PreparedContent {
+        let name: String
+        let avatarURL: String?
+        let content: UNNotificationContent
+    }
+
+    static let shared = PeerCallNotifications()
+    static let missedCallCategory = CallStartNotificationPolicy.missedCallCategory
+    private static let recordsKey = "mezon.call.notificationRecords"
+    private let queue = DispatchQueue(label: "mezon.call.notifications")
+    private let center = UNUserNotificationCenter.current()
+    private var records: [String: IncomingPeerCallNotificationRecord]
+    private var preparationIds: [String: UUID] = [:]
+    private var preparedContents: [String: PreparedContent] = [:]
+    private var queuedRequests: [String: UNNotificationRequest] = [:]
+    private var addingRecordIds: Set<String> = []
+    private var logoutObserver: NSObjectProtocol?
+
+    private init() {
+        records = UserDefaults.standard.data(forKey: Self.recordsKey)
+            .flatMap { try? JSONDecoder().decode([String: IncomingPeerCallNotificationRecord].self, from: $0) } ?? [:]
+        logoutObserver = NotificationCenter.default.addObserver(forName: .mezonAccountDidLogout, object: nil, queue: nil) { [weak self] _ in
+            self?.clear()
+        }
+    }
+
+    func begin(callUUID: UUID, channelId: Int64, callerId: Int64, receiverId: Int64, name: String, avatarURL: String? = nil, timeout: TimeInterval) {
+        let now = Date().timeIntervalSince1970
+        let record = IncomingPeerCallNotificationRecord(
+            id: callUUID.uuidString, channelId: channelId, callerId: callerId, receiverId: receiverId,
+            startedAt: now, deadline: now + timeout, name: name, body: L(L10n.PeerCall.missedCallNotification),
+            avatarURL: avatarURL
+        )
+        queue.async { [self] in
+            guard records[record.id] == nil else { return }
+            records[record.id] = record
+            persist()
+            schedule(record)
+            cleanupDeliveredStartNotifications()
+            // Bounded retries catch FCM arriving after VoIP while the app still has execution time.
+            for delay in [0.5, 2.0, 5.0, 10.0] {
+                queue.asyncAfter(deadline: .now() + delay) { [weak self] in self?.cleanupDeliveredStartNotifications() }
+            }
+        }
+    }
+
+    func shouldSuppressStartNotification(_ notification: UNNotification) -> Bool {
+        queue.sync { records.values.contains { PeerCallStartNotificationMatcher.matches(notification, record: $0) } }
+    }
+
+    func cleanupDeliveredStartNotifications() {
+        queue.async { [self] in
+            guard !records.isEmpty else { return }
+            center.getDeliveredNotifications { [weak self] notifications in
+                guard let self else { return }
+                self.queue.async {
+                    let ids = notifications.filter { notification in
+                        self.records.values.contains { PeerCallStartNotificationMatcher.matches(notification, record: $0) }
+                    }.map { $0.request.identifier }
+                    if !ids.isEmpty { self.center.removeDeliveredNotifications(withIdentifiers: ids) }
+                }
+            }
+        }
+    }
+
+    func updateIdentity(callUUID: UUID, name: String, avatarURL: String?) {
+        queue.async { [self] in
+            guard var record = records[callUUID.uuidString], record.disposition == .ringing,
+                  record.deadline > Date().timeIntervalSince1970 + 1,
+                  record.name != name || record.avatarURL != avatarURL else { return }
+            record.name = name
+            record.avatarURL = avatarURL
+            records[record.id] = record
+            persist()
+            schedule(record)
+        }
+    }
+
+    func finish(callUUID: UUID, channelId: Int64? = nil, callerId: Int64? = nil, disposition: IncomingPeerCallDisposition) {
+        queue.async { [self] in
+            guard var record = records[callUUID.uuidString],
+                  channelId == nil || record.channelId == channelId,
+                  callerId == nil || record.callerId == callerId,
+                  record.finish(disposition) else { return }
+            records[record.id] = record
+            persist()
+            if record.disposition == .missed {
+                // Near/after the deadline, the existing system-scheduled notification delivers it.
+                // Reposting here could alert twice when the timeout callback and delivery coincide.
+                if record.deadline > Date().timeIntervalSince1970 + 1 { schedule(record) }
+            } else {
+                preparationIds.removeValue(forKey: record.id)
+                preparedContents.removeValue(forKey: record.id)
+                queuedRequests.removeValue(forKey: record.id)
+                remove(record.notificationId)
+            }
+            cleanupDeliveredStartNotifications()
+        }
+    }
+
+    private func schedule(_ record: IncomingPeerCallNotificationRecord) {
+        if let prepared = preparedContents[record.id],
+           prepared.name == record.name, prepared.avatarURL == record.avatarURL {
+            enqueue(prepared.content, for: record)
+            return
+        }
+        preparedContents.removeValue(forKey: record.id)
+        let content = UNMutableNotificationContent()
+        content.title = record.name
+        content.body = record.body
+        content.sound = .default
+        content.categoryIdentifier = Self.missedCallCategory
+        content.threadIdentifier = "mezon.dm.\(record.channelId)"
+        content.userInfo = record.userInfo
+        // Always register the system fallback before doing image/intent work; the app may be suspended.
+        if record.disposition == .ringing { enqueue(content, for: record) }
+        let preparationId = UUID()
+        preparationIds[record.id] = preparationId
+        let submit: (UNNotificationContent, Bool) -> Void = { [weak self] prepared, enriched in
+            guard let self else { return }
+            self.queue.async {
+                guard self.preparationIds[record.id] == preparationId,
+                      let current = self.records[record.id], current.shouldNotify,
+                      current.disposition == record.disposition,
+                      current.name == record.name, current.avatarURL == record.avatarURL else { return }
+                self.preparationIds.removeValue(forKey: record.id)
+                if enriched {
+                    self.preparedContents[record.id] = PreparedContent(
+                        name: current.name, avatarURL: current.avatarURL, content: prepared
+                    )
+                }
+                // Never replace a fallback that may already be delivering at the deadline.
+                guard current.deadline > Date().timeIntervalSince1970 + 1 else { return }
+                self.enqueue(prepared, for: current)
+            }
+        }
+        PeerCallCommunicationIdentity.prepareMissedCallContent(
+            content, callerId: record.callerId, name: record.name, avatarURL: record.avatarURL,
+            callId: record.id, completion: { submit($0, true) }
+        )
+        if record.disposition == .missed {
+            // A quick remote cancel can precede image download. Bound the delay and alert only once.
+            queue.asyncAfter(deadline: .now() + 1) { submit(content, false) }
+        }
+    }
+
+    private func enqueue(_ content: UNNotificationContent, for record: IncomingPeerCallNotificationRecord) {
+        let trigger: UNNotificationTrigger? = record.disposition == .ringing
+            ? UNTimeIntervalNotificationTrigger(timeInterval: max(1, record.deadline - Date().timeIntervalSince1970), repeats: false)
+            : nil
+        let request = UNNotificationRequest(identifier: record.notificationId, content: content, trigger: trigger)
+        queuedRequests[record.id] = request
+        addNextRequest(recordId: record.id)
+    }
+
+    private func addNextRequest(recordId: String) {
+        guard !addingRecordIds.contains(recordId),
+              let request = queuedRequests.removeValue(forKey: recordId) else { return }
+        addingRecordIds.insert(recordId)
+        center.add(request) { [weak self] error in
+            guard let self else { return }
+            self.queue.async {
+                self.addingRecordIds.remove(recordId)
+                // Answer/reject can race with the notification service accepting an earlier add request.
+                guard let current = self.records[recordId], current.shouldNotify else {
+                    self.queuedRequests.removeValue(forKey: recordId)
+                    self.remove(request.identifier)
+                    return
+                }
+                if let error { NSLog("[CallKit] Missed call notification failed: %@", error.localizedDescription) }
+                self.addNextRequest(recordId: recordId)
+            }
+        }
+    }
+
+    private func remove(_ id: String) {
+        center.removePendingNotificationRequests(withIdentifiers: [id])
+        center.removeDeliveredNotifications(withIdentifiers: [id])
+    }
+
+    private func persist() {
+        if records.count > 32 {
+            let newest = records.values.sorted { $0.startedAt > $1.startedAt }.prefix(32)
+            records = Dictionary(uniqueKeysWithValues: newest.map { ($0.id, $0) })
+            preparedContents = preparedContents.filter { records[$0.key] != nil }
+        }
+        if let data = try? JSONEncoder().encode(records) { UserDefaults.standard.set(data, forKey: Self.recordsKey) }
+    }
+
+    private func clear() {
+        queue.async { [self] in
+            for record in records.values { remove(record.notificationId) }
+            records.removeAll()
+            preparationIds.removeAll()
+            preparedContents.removeAll()
+            queuedRequests.removeAll()
+            UserDefaults.standard.removeObject(forKey: Self.recordsKey)
+        }
     }
 }
 
@@ -48,6 +295,12 @@ final class CallKitManager: NSObject {
     private let callController = CXCallController()
     private let payloadValiditySeconds: TimeInterval = 120
     private let recentlyEndedRetention: TimeInterval = 45
+    private var callerIdentityTask: Task<Void, Never>?
+    private var reportedIncomingCallUUID: UUID?
+    private var reportedIncomingPayload: IncomingPeerCallPayload?
+    private var callerIdentityCallUUID: UUID?
+    private var callerIdentityPeer: (channelId: Int64, callerId: Int64)?
+    private var appliedCallerIdentity: PeerCallCallerIdentity?
 
     private static let callKitComplianceDisplayLabel = "Mezon cancel call"
 
@@ -87,6 +340,7 @@ final class CallKitManager: NSObject {
     }
 
     func configure() {
+        _ = PeerCallNotifications.shared
         let rtc = RTCAudioSession.sharedInstance()
         rtc.useManualAudio = true
         rtc.isAudioEnabled = false
@@ -172,6 +426,7 @@ final class CallKitManager: NSObject {
         else {
             return
         }
+        PeerCallNotifications.shared.finish(callUUID: uuid, disposition: .missed)
         if let provider {
             provider.reportCall(with: uuid, endedAt: Date(), reason: .remoteEnded)
         }
@@ -199,6 +454,25 @@ final class CallKitManager: NSObject {
     private func hasStoredActiveVoIPCallUUID() -> Bool {
         guard let s = UserDefaults.standard.string(forKey: DefaultsKeys.activeCallUUID) else { return false }
         return UUID(uuidString: s) != nil
+    }
+
+    func noteIncomingCallDisposition(_ disposition: IncomingPeerCallDisposition, channelId: Int64? = nil, callerId: Int64? = nil) {
+        guard let value = UserDefaults.standard.string(forKey: DefaultsKeys.activeCallUUID),
+              let uuid = UUID(uuidString: value) else { return }
+        PeerCallNotifications.shared.finish(callUUID: uuid, channelId: channelId, callerId: callerId, disposition: disposition)
+    }
+
+    @MainActor
+    func prepareToOpenMissedCallNotification(_ userInfo: [AnyHashable: Any]) {
+        guard let value = userInfo["callUUID"] as? String,
+              value == UserDefaults.standard.string(forKey: DefaultsKeys.activeCallUUID),
+              let uuid = UUID(uuidString: value), !wasAnsweredLocallyForVoIPCallKit(),
+              let payload = IncomingPeerCallPayload(userInfo: storedUserInfoIfFresh()) else { return }
+        PeerCallNotifications.shared.finish(callUUID: uuid, disposition: .missed)
+        endStoredActiveCallViaProvider(reason: .unanswered)
+        Self.clearStoredIncomingPayload()
+        WebRTCCallManager.shared.dismissUnansweredIncomingRing(channelId: payload.channelId, callerId: payload.callerId)
+        WebRTCCallManager.shared.abandonIncomingPresentation()
     }
 
     func wasAnsweredLocallyForVoIPCallKit() -> Bool {
@@ -369,6 +643,8 @@ final class CallKitManager: NSObject {
         if remoteIsConnected && wasAnsweredLocallyForVoIPCallKit() {
             return
         }
+        noteIncomingCallDisposition(remoteIsConnected ? .answeredElsewhere : .missed,
+                                    channelId: storedChannelId, callerId: storedCallerId)
         markRecentlyEnded(channelId: storedChannelId, callerId: storedCallerId)
         let reason: CXCallEndedReason = remoteIsConnected ? .answeredElsewhere : .remoteEnded
         endStoredActiveCallViaProvider(reason: reason)
@@ -547,6 +823,13 @@ final class CallKitManager: NSObject {
             let remoteIsConnected = (inner["isConnected"] as? Bool)
                 ?? ((inner["isConnected"] as? NSNumber)?.boolValue ?? false)
             let answeredLocally = wasAnsweredLocallyForVoIPCallKit()
+            let cancelMatchesCurrentRing: Bool = {
+                guard let info = UserDefaults.standard.dictionary(forKey: DefaultsKeys.notificationPayload) else { return false }
+                let storedChannelId = int64(info["channelId"]) ?? 0
+                let storedCallerId = int64(info["callerId"]) ?? 0
+                return cancelChannelId == storedChannelId
+                    && (cancelCallerId == storedCallerId || (myId != 0 && cancelCallerId == myId))
+            }()
             let cancelSentAtMs = IncomingPeerCallPayloadParser.sentAtMs(fromInnerDict: inner)
             let cancelPredatesCurrentRing: Bool = {
                 if let cancelId = inner["callSessionId"] as? String,
@@ -558,12 +841,14 @@ final class CallKitManager: NSObject {
             }()
 
             if answeredLocally {
-            } else if remoteIsConnected && hadStoredUUID && !alreadyEndedRecently && !cancelPredatesCurrentRing {
+            } else if remoteIsConnected && hadStoredUUID && cancelMatchesCurrentRing && !alreadyEndedRecently && !cancelPredatesCurrentRing {
+                noteIncomingCallDisposition(.answeredElsewhere, channelId: cancelChannelId, callerId: cancelCallerId)
                 endStoredActiveCallViaProvider(reason: .answeredElsewhere)
                 requestEndActiveVoIPCallIfNeeded()
                 markRecentlyEnded(channelId: cancelChannelId, callerId: cancelCallerId)
                 Self.clearStoredIncomingPayload()
-            } else if hadStoredUUID && !alreadyEndedRecently && !cancelPredatesCurrentRing {
+            } else if hadStoredUUID && cancelMatchesCurrentRing && !alreadyEndedRecently && !cancelPredatesCurrentRing {
+                noteIncomingCallDisposition(.missed, channelId: cancelChannelId, callerId: cancelCallerId)
                 endStoredActiveCallViaProvider(reason: .remoteEnded)
                 requestEndActiveVoIPCallIfNeeded()
                 markRecentlyEnded(channelId: cancelChannelId, callerId: cancelCallerId)
@@ -605,7 +890,9 @@ final class CallKitManager: NSObject {
             return
         }
 
-        let callerName = inner["callerName"] as? String ?? "Unknown"
+        let payloadCallerName = PeerCallCallerIdentity.nonEmpty(inner["callerName"] as? String)
+        let callerName = payloadCallerName ?? "Incoming call"
+        let callerAvatar = PeerCallCallerIdentity.nonEmpty(inner["callerAvatar"] as? String)
         let callerId = int64(inner["callerId"]) ?? 0
         let channelId = int64(inner["channelId"]) ?? 0
         let receiverId = int64(inner["receiverId"]) ?? 0
@@ -687,7 +974,8 @@ final class CallKitManager: NSObject {
             channelId: channelId,
             callerId: callerId,
             receiverId: receiverId,
-            callerName: callerName,
+            callerName: payloadCallerName,
+            callerAvatar: callerAvatar,
             offerStr: offerStr,
             pushJsonData: pushJsonData,
             completion: completion
@@ -698,18 +986,26 @@ final class CallKitManager: NSObject {
         channelId: Int64,
         callerId: Int64,
         receiverId: Int64,
-        callerName: String,
+        callerName: String?,
+        callerAvatar: String?,
         offerStr: String,
         pushJsonData: String,
         completion: (() -> Void)?
     ) {
         PeerCallKnownSessions.shared.remember(peerUserId: callerId, compressedSignal: offerStr)
+        var metadata = pushJsonData.data(using: .utf8).flatMap {
+            (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any]
+        } ?? [:]
+        metadata["callerName"] = callerName
+        metadata["callerAvatar"] = callerAvatar ?? ""
+        let displayJsonData = (try? JSONSerialization.data(withJSONObject: metadata))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? pushJsonData
         let userInfo: [AnyHashable: Any] = [
             "channelId": NSNumber(value: channelId),
             "callerId": NSNumber(value: callerId),
             "receiverId": NSNumber(value: receiverId),
             "compressedOfferFromPush": offerStr,
-            "pushJsonData": pushJsonData,
+            "pushJsonData": displayJsonData,
         ]
 
         reassertMainProviderIfNeeded()
@@ -741,10 +1037,14 @@ final class CallKitManager: NSObject {
         let callUUID = UUID()
         setLastRingedCall(channelId: channelId, callerId: callerId)
         storeIncomingUserInfo(userInfo, callUUID: callUUID)
+        PeerCallNotifications.shared.begin(
+            callUUID: callUUID, channelId: channelId, callerId: callerId, receiverId: receiverId,
+            name: callerName ?? "Incoming call", avatarURL: callerAvatar, timeout: 75
+        )
 
         let update = CXCallUpdate()
-        update.remoteHandle = CXHandle(type: .generic, value: callerId != 0 ? "\(callerId)" : callerName)
-        update.localizedCallerName = callerName
+        update.remoteHandle = CXHandle(type: .generic, value: callerId != 0 ? "\(callerId)" : (callerName ?? "Incoming call"))
+        update.localizedCallerName = callerName ?? "Incoming call"
         update.hasVideo = false
         update.supportsHolding = false
         update.supportsDTMF = false
@@ -754,9 +1054,22 @@ final class CallKitManager: NSObject {
         let gate = VoIPPushCompletionGate(completion ?? {})
         provider.reportNewIncomingCall(with: callUUID, update: update) { [weak self] error in
             if let error {
+                PeerCallNotifications.shared.finish(callUUID: callUUID, disposition: .discarded)
                 Self.clearStoredIncomingPayload()
             } else {
                 self?.scheduleUnansweredRingFailsafe(callUUID: callUUID, channelId: channelId, callerId: callerId)
+                Task { @MainActor [weak self] in
+                    guard let self, self.isCurrentIncomingCall(callUUID) else { return }
+                    self.reportedIncomingCallUUID = callUUID
+                    self.reportedIncomingPayload = IncomingPeerCallPayload(userInfo: userInfo)
+                    if let payload = self.reportedIncomingPayload {
+                        self.applyIncomingCallerIdentity(
+                            PeerCallCallerIdentity(fallbackName: callerName, avatar: callerAvatar),
+                            callUUID: callUUID, payload: payload
+                        )
+                    }
+                    self.refreshIncomingCallerIdentityIfNeeded()
+                }
             }
             gate.consume()
         }
@@ -780,19 +1093,128 @@ final class CallKitManager: NSObject {
         guard !PeerCallKnownSessions.shared.contains(peerUserId: callerId, compressedSignal: offerStr) else { return }
         guard !offerWasSeenRecently(offerStr) else { return }
         let display = IncomingPeerCallPayloadParser.callerDisplayFromCompressedOffer(offerStr)
-        let callerName: String = {
-            if let n = display.name, !n.isEmpty { return n }
-            return "Incoming call"
-        }()
         presentIncomingCallRing(
             channelId: channelId,
             callerId: callerId,
             receiverId: receiverId,
-            callerName: callerName,
+            callerName: display.name,
+            callerAvatar: display.avatar,
             offerStr: offerStr,
             pushJsonData: "",
             completion: nil
         )
+    }
+
+    @MainActor
+    func refreshIncomingCallerIdentityIfNeeded() {
+        guard let rawUUID = UserDefaults.standard.string(forKey: DefaultsKeys.activeCallUUID),
+              let callUUID = UUID(uuidString: rawUUID), callUUID == reportedIncomingCallUUID,
+              callerIdentityCallUUID != callUUID,
+              let payload = IncomingPeerCallPayload(userInfo: storedUserInfoIfFresh()) ?? reportedIncomingPayload,
+              let context = VoIPAnswerAccountBridge.context,
+              let localUserId = Self.resolveLocalUserIdForVoIP(fallbackReceiverId: payload.receiverId),
+              Int64(context.currentUser?.id ?? context.session?.userId ?? "") == localUserId,
+              payload.receiverId == 0 || payload.receiverId == localUserId else { return }
+
+        callerIdentityTask?.cancel()
+        callerIdentityCallUUID = callUUID
+        callerIdentityPeer = (payload.channelId, payload.callerId)
+        appliedCallerIdentity = nil
+        let epoch = context.sessionEpoch
+        let display = IncomingPeerCallPayloadParser.callerDisplay(for: payload, skipDecompressOffer: false, context: context)
+        let cachedIdentity = PeerCallCallerIdentity(fallbackName: display.name, avatar: display.avatar)
+        applyIncomingCallerIdentity(cachedIdentity, callUUID: callUUID, payload: payload)
+
+        // The PushKit call is already reported. Profile/image work must never delay reporting or completion.
+        callerIdentityTask = Task { @MainActor [weak self, weak context] in
+            guard let self, let context,
+                  self.isCurrentIncomingCall(callUUID), VoIPAnswerAccountBridge.context === context,
+                  context.isStillCurrentSession(epoch: epoch), !Task.isCancelled,
+                  let token = await context.getTokenPreferringCachedSkipSessionReadyWait(),
+                  self.isCurrentIncomingCall(callUUID), VoIPAnswerAccountBridge.context === context,
+                  context.isStillCurrentSession(epoch: epoch),
+                  !Task.isCancelled else { return }
+            guard let channels = try? await context.account.network.listDirectMessageChannels(token: token),
+                  self.isCurrentIncomingCall(callUUID), VoIPAnswerAccountBridge.context === context,
+                  context.isStillCurrentSession(epoch: epoch),
+                  !Task.isCancelled,
+                  channels.contains(where: { $0.channelID == payload.channelId && $0.userIds.contains(payload.callerId) })
+            else { return }
+            let fresh = PeerCallCallerIdentityResolver.resolve(
+                context: context, callerId: payload.callerId, channelId: payload.channelId,
+                fallbackName: display.name, fallbackAvatar: display.avatar, channels: channels
+            )
+            self.applyIncomingCallerIdentity(fresh, callUUID: callUUID, payload: payload)
+        }
+    }
+
+    private func isCurrentIncomingCall(_ callUUID: UUID) -> Bool {
+        UserDefaults.standard.string(forKey: DefaultsKeys.activeCallUUID) == callUUID.uuidString
+    }
+
+    @MainActor
+    func incomingCallerIdentity(callerId: Int64, channelId: Int64) -> PeerCallCallerIdentity? {
+        guard let callUUID = callerIdentityCallUUID, isCurrentIncomingCall(callUUID),
+              let peer = callerIdentityPeer, peer.callerId == callerId, peer.channelId == channelId else { return nil }
+        return appliedCallerIdentity
+    }
+
+    @MainActor
+    private func applyIncomingCallerIdentity(_ identity: PeerCallCallerIdentity, callUUID: UUID, payload: IncomingPeerCallPayload) {
+        guard isCurrentIncomingCall(callUUID), appliedCallerIdentity != identity else { return }
+        appliedCallerIdentity = identity
+        PeerCallNotifications.shared.updateIdentity(callUUID: callUUID, name: identity.name, avatarURL: identity.avatar)
+        let update = CXCallUpdate()
+        update.localizedCallerName = identity.name
+        provider?.reportCall(with: callUUID, updated: update)
+
+        // Keep the metadata used after answering consistent with the system call name.
+        if var info = UserDefaults.standard.dictionary(forKey: DefaultsKeys.notificationPayload) {
+            var metadata = (info["pushJsonData"] as? String)?.data(using: .utf8).flatMap {
+                (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any]
+            } ?? [:]
+            metadata["callerName"] = identity.name
+            metadata["callerAvatar"] = identity.avatar ?? ""
+            if let data = try? JSONSerialization.data(withJSONObject: metadata),
+               let json = String(data: data, encoding: .utf8) {
+                info["pushJsonData"] = json
+                UserDefaults.standard.set(info, forKey: DefaultsKeys.notificationPayload)
+            }
+        }
+        NotificationCenter.default.post(name: .mezonPeerCallCallerIdentityDidUpdate, object: nil, userInfo: [
+            "channelId": payload.channelId, "callerId": payload.callerId,
+            "callerName": identity.name, "callerAvatar": identity.avatar ?? "",
+        ])
+        donateIncomingCallIdentity(identity, callUUID: callUUID, callerId: payload.callerId)
+    }
+
+    @MainActor
+    private func donateIncomingCallIdentity(_ identity: PeerCallCallerIdentity, callUUID: UUID, callerId: Int64) {
+        guard #available(iOS 14.0, *) else { return }
+        let context = VoIPAnswerAccountBridge.context
+        let epoch = context?.sessionEpoch
+        let donate: @MainActor (Data?) -> Void = { [weak self, weak context] avatarData in
+            guard let self,
+                  self.isCurrentIncomingCall(callUUID), self.appliedCallerIdentity == identity else { return }
+            if let epoch {
+                guard let context, VoIPAnswerAccountBridge.context === context,
+                      context.isStillCurrentSession(epoch: epoch) else { return }
+            }
+            // Public communication-intent metadata; CXCallUpdate has no public caller-image property.
+            // Rendering this avatar in the system CallKit banner remains controlled by iOS.
+            let intent = PeerCallCommunicationIdentity.callIntent(callerId: callerId, name: identity.name, avatarData: avatarData)
+            let interaction = INInteraction(intent: intent, response: nil)
+            interaction.identifier = callUUID.uuidString
+            interaction.direction = .incoming
+            interaction.donate { error in
+                if let error {
+                    NSLog("[CallKit] Incoming caller intent donation failed: %@", error.localizedDescription)
+                }
+            }
+        }
+        PeerCallCommunicationIdentity.loadAvatarData(url: identity.avatar) { data in
+            Task { @MainActor in donate(data) }
+        }
     }
 
     private func scheduleUnansweredRingFailsafe(callUUID: UUID, channelId: Int64, callerId: Int64) {
@@ -807,6 +1229,7 @@ final class CallKitManager: NSObject {
               !wasAnsweredLocallyForVoIPCallKit()
         else { return }
         markRecentlyEnded(channelId: channelId, callerId: callerId)
+        PeerCallNotifications.shared.finish(callUUID: callUUID, disposition: .missed)
         provider?.reportCall(with: callUUID, endedAt: Date(), reason: .unanswered)
         Self.clearStoredIncomingPayload()
         Task { @MainActor in
@@ -954,6 +1377,7 @@ extension CallKitManager: CXProviderDelegate {
 
     func providerDidReset(_ resetProvider: CXProvider) {
         guard resetProvider === provider else { return }
+        noteIncomingCallDisposition(.missed)
         clearComplianceCalls()
         Task { @MainActor in
             WebRTCCallManager.shared.endActivePeerCallFromCallKitAction()
@@ -966,6 +1390,7 @@ extension CallKitManager: CXProviderDelegate {
             action.fulfill()
             return
         }
+        PeerCallNotifications.shared.finish(callUUID: action.callUUID, disposition: .answered)
         guard let info = storedUserInfoIfFresh() else {
             Task { @MainActor in
                 WebRTCCallManager.shared.abandonIncomingPresentation()
@@ -1011,6 +1436,7 @@ extension CallKitManager: CXProviderDelegate {
             action.fulfill()
             return
         }
+        PeerCallNotifications.shared.finish(callUUID: action.callUUID, disposition: .rejected)
         markRecentlyEndedFromStoredPayloadIfPossible()
         markRecentlyEndedFromQuitSnapshotIfPossible()
         forwardQuitToCallerFromStoredVoIPIfNeeded()
@@ -1038,6 +1464,7 @@ extension CallKitManager: CXProviderDelegate {
         if let callAction = action as? CXCallAction, isComplianceCall(callAction.callUUID) {
             return
         }
+        noteIncomingCallDisposition(.missed)
         markRecentlyEndedFromStoredPayloadIfPossible()
         markRecentlyEndedFromQuitSnapshotIfPossible()
         forwardQuitToCallerFromStoredVoIPIfNeeded()

@@ -11,13 +11,15 @@ struct ChannelListState: Equatable {
     var voiceUsersByChannel: [Int64: [String]] = [:]
     var streamViewerCounts: [Int64: Int] = [:]
     var buzzChannelIds: Set<Int64> = []
+    var clanId: Int64 = 0
 
     static let empty = ChannelListState(
         categories: [], allChannels: [], selectedChannelId: nil,
         isLoading: false, errorMessage: nil)
 
     static func == (lhs: ChannelListState, rhs: ChannelListState) -> Bool {
-        guard lhs.isLoading == rhs.isLoading
+        guard lhs.clanId == rhs.clanId
+            && lhs.isLoading == rhs.isLoading
             && lhs.selectedChannelId == rhs.selectedChannelId
             && lhs.errorMessage == rhs.errorMessage
             && lhs.categories.count == rhs.categories.count
@@ -29,7 +31,13 @@ struct ChannelListState: Equatable {
         else { return false }
         return zip(lhs.allChannels, rhs.allChannels).allSatisfy {
             $0.channelID == $1.channelID
+            && $0.categoryID == $1.categoryID
+            && $0.parentID == $1.parentID
+            && $0.type == $1.type
+            && $0.channelPrivate == $1.channelPrivate
+            && $0.ageRestricted == $1.ageRestricted
             && $0.countMessUnread == $1.countMessUnread
+            && $0.hasLastSentMessage == $1.hasLastSentMessage
             && $0.lastSentMessage.timestampSeconds == $1.lastSentMessage.timestampSeconds
             && $0.lastSeenMessage.timestampSeconds == $1.lastSeenMessage.timestampSeconds
             && $0.channelLabel == $1.channelLabel
@@ -3933,7 +3941,8 @@ final class ChannelListViewController: ViewController {
             }.map {
                 ($0.channelID, context.engine.clanData.streamViewerCount(clanId: clanId, channelId: $0.channelID))
             }),
-            buzzChannelIds: context.buzz.state.channelIdsSnapshot().intersection(allChannels.map(\.channelID))
+            buzzChannelIds: context.buzz.state.channelIdsSnapshot().intersection(allChannels.map(\.channelID)),
+            clanId: clanId
         )
     }
 

@@ -16,6 +16,11 @@ class NotificationService: UNNotificationServiceExtension {
             return
         }
 
+        if CallStartNotificationPolicy.silenceIfNeeded(request, content: bestAttemptContent) {
+            contentHandler(bestAttemptContent)
+            return
+        }
+
         let groupId = "group.mezon.mobile"
         if let shared = UserDefaults(suiteName: groupId) {
             let newCount = shared.integer(forKey: "badgeCount") + 1
