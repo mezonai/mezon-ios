@@ -83,6 +83,7 @@ targets:
         excludes:
           - "**/.DS_Store"
       - path: NotificationService/NotificationAvatarStore.swift
+      - path: NotificationService/CallStartNotificationPolicy.swift
     resources:
       - path: MezonChat/Resources/Assets.xcassets
       - path: MezonChat/Resources/Images.xcassets
