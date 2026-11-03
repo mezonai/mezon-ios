@@ -213,7 +213,8 @@ final class PeerWebRTCCallSession: NSObject {
         callerAvatarURLStringForPush: String,
         wantsVideo: Bool,
         incomingStartsRinging: Bool,
-        initialCompressedOffer: String?
+        initialCompressedOffer: String?,
+        preferSpeaker: Bool = false
     ) {
         self.direction = direction
         self.myUserId = myUserId
@@ -226,6 +227,7 @@ final class PeerWebRTCCallSession: NSObject {
         self.pendingOfferCompressed = initialCompressedOffer
         self.signalingDestinationUserId = peerUserId
         super.init()
+        localSpeakerEnabled = preferSpeaker && !hasExternalAudioOutputRoute
     }
 
 
@@ -415,6 +417,7 @@ final class PeerWebRTCCallSession: NSObject {
 
     func answerIncomingCall() {
         guard !incomingAnswerFlowStarted else { return }
+        CallKitManager.shared.noteIncomingCallDisposition(.answered, channelId: channelId, callerId: peerUserId)
         incomingAnswerFlowStarted = true
         cancelIncomingRingTimer()
         PeerCallSoundPlayer.shared.stopRinging()
@@ -626,6 +629,7 @@ final class PeerWebRTCCallSession: NSObject {
     }
 
     func declineIncoming() {
+        CallKitManager.shared.noteIncomingCallDisposition(.rejected, channelId: channelId, callerId: peerUserId)
         cancelIncomingRingTimer()
         PeerCallSoundPlayer.shared.stopRinging()
         finishCall(sendQuit: true)
@@ -692,20 +696,24 @@ final class PeerWebRTCCallSession: NSObject {
         case WebRTCSignalingDataType.sdpJoinedOtherCall:
             guard direction != .outgoing else { return }
             guard !didEstablishMediaConnection else { return }
+            CallKitManager.shared.noteIncomingCallDisposition(.answeredElsewhere, channelId: channelId, callerId: peerUserId)
             remoteQuitBeforeConnect = true
             onStatusLabel?(PeerCallLocalizedStrings.statusBusyOnAnotherCall)
             finishCall(sendQuit: false)
         case WebRTCSignalingDataType.sdpNotAvailable:
             guard !didEstablishMediaConnection else { return }
+            noteUnansweredIncomingCallMissed()
             remoteQuitBeforeConnect = true
             onStatusLabel?(PeerCallLocalizedStrings.statusUserOffline)
             finishCall(sendQuit: false)
         case WebRTCSignalingDataType.sdpTimeout:
             guard !didEstablishMediaConnection else { return }
+            noteUnansweredIncomingCallMissed()
             ringTimeoutFired = true
             onStatusLabel?(PeerCallLocalizedStrings.statusNoAnswer)
             finishCall(sendQuit: false)
         case WebRTCSignalingDataType.sdpQuit:
+            noteUnansweredIncomingCallMissed()
             if !didEstablishMediaConnection {
                 remoteQuitBeforeConnect = true
                 onStatusLabel?(PeerCallLocalizedStrings.statusRemoteDeclined)
@@ -722,7 +730,16 @@ final class PeerWebRTCCallSession: NSObject {
     }
 
     func hangUp() {
+        if direction == .incoming, !isAnsweredOrConnectingOnThisDevice {
+            CallKitManager.shared.noteIncomingCallDisposition(.rejected, channelId: channelId, callerId: peerUserId)
+        }
         finishCall(sendQuit: true)
+    }
+
+    private func noteUnansweredIncomingCallMissed() {
+        if direction == .incoming, !isAnsweredOrConnectingOnThisDevice {
+            CallKitManager.shared.noteIncomingCallDisposition(.missed, channelId: channelId, callerId: peerUserId)
+        }
     }
 
     func toggleMicrophoneEnabled() {

@@ -77,7 +77,17 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     private var cachedRows: [Int: [ChannelListRow]] = [:]
 
-    private var cachedHeaders: [Int: CategorySectionHeaderView] = [:]
+    // Keep category titles in Texture's row map so titles and channels commit
+    // together. UIKit section headers have a separate, floating view lifecycle.
+    private static let categoryHeaderRowCount = 1
+
+    private func channelIndexPath(row: Int, section: Int) -> IndexPath {
+        IndexPath(row: row + Self.categoryHeaderRowCount, section: section)
+    }
+
+    private func channelRowIndex(for indexPath: IndexPath) -> Int {
+        indexPath.row - Self.categoryHeaderRowCount
+    }
 
     private var committedSectionCount: Int = 0
     private let interaction: ChannelListInteraction
@@ -104,6 +114,30 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     private var clanLogoURL: String = ""
     private var headerClanId: Int64 = 0
+    private var hasConfiguredClan = false
+    private var clanSwitchGeneration: UInt64 = 0
+    private var appliedClanSwitchGeneration: UInt64 = 0
+    private var hasCurrentClanState: Bool {
+        !hasConfiguredClan || state.clanId == headerClanId
+    }
+
+    @discardableResult
+    private func updateClanIdentity(_ clanId: Int64) -> Bool {
+        let clanChanged = !hasConfiguredClan || headerClanId != clanId
+        hasConfiguredClan = true
+        guard clanChanged else { return false }
+        headerClanId = clanId
+        clanSwitchGeneration &+= 1
+        // A -> B -> A can coalesce back to the state already on screen. Rebind
+        // retained cells to this visit even if the controller emits no new state.
+        // Preserve a newer queued snapshot for this clan, including initial cache
+        // hydration arriving before the header is configured.
+        if state.clanId == clanId, latestCoalescedChannelListState?.clanId != clanId {
+            enqueueChannelListState(state)
+        }
+        return true
+    }
+
     private var isCommunity: Bool = false
     private var memberCount: Int = 0
     private var onboardingState: ClanOnboardingViewState = .hidden
@@ -169,11 +203,15 @@ final class ChannelListContainerNode: ASDisplayNode {
 
         disposables.add(
             (signal |> deliverOnMainQueue).start(next: { [weak self] newState in
-                guard let self else { return }
-                self.latestCoalescedChannelListState = newState
-                self.scheduleApplyCoalescedChannelListState()
+                self?.enqueueChannelListState(newState)
             })
         )
+    }
+
+    private func enqueueChannelListState(_ newState: ChannelListState) {
+        guard !hasConfiguredClan || newState.clanId == headerClanId else { return }
+        latestCoalescedChannelListState = newState
+        scheduleApplyCoalescedChannelListState()
     }
 
     private func scheduleApplyCoalescedChannelListState() {
@@ -195,12 +233,17 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private func applyChannelListStateTransition(to newState: ChannelListState) {
+        // A delivered state may still be queued when configure switches clans.
+        guard !hasConfiguredClan || newState.clanId == headerClanId else { return }
         let prevState = state
         if let msg = newState.errorMessage, msg != prevState.errorMessage {
 
         }
 
         let wasClanSwitching = isClanSwitching
+        let clanChanged = prevState.clanId != newState.clanId
+            || appliedClanSwitchGeneration != clanSwitchGeneration
+        appliedClanSwitchGeneration = clanSwitchGeneration
         state = newState
         threadLookup = buildThreadLookup(newState.allChannels)
         cachedRows = [:]
@@ -215,32 +258,28 @@ final class ChannelListContainerNode: ASDisplayNode {
             || !categoriesChannelTreeEqual(prevCats, newCats)
         let revealingFromLoadingPlaceholder = loadingPHWas && !loadingPHNow && !newCats.isEmpty
 
-        isClanSwitching = wasClanSwitching && newState.isLoading
+        isClanSwitching = (wasClanSwitching || clanChanged) && newState.isLoading
 
         let shouldAnimateReplace = animateNextContentReplace
         animateNextContentReplace = false
 
         if !tableIsInWindow {
-            if wasClanSwitching {
-                cachedHeaders = [:]
+            if wasClanSwitching || clanChanged {
                 interaction.onClanSwitchChannelListApplied?()
                 clanSwitchTableRefreshDone = true
                 deferOnboardingTableUpdates = false
             }
-            if treeStructureChanged || revealingFromLoadingPlaceholder || !newCats.isEmpty {
-                cachedHeaders = [:]
+            if clanChanged || treeStructureChanged || revealingFromLoadingPlaceholder || !newCats.isEmpty {
                 pendingVisibleReconcile = true
                 pendingVisibleReconcileShouldResetScroll =
-                    pendingVisibleReconcileShouldResetScroll || wasClanSwitching
+                    pendingVisibleReconcileShouldResetScroll || wasClanSwitching || clanChanged
             }
             safeReloadData()
-        } else if shouldAnimateReplace && !wasClanSwitching && nodeIsVisible && tableIsInWindow && treeStructureChanged {
-            cachedHeaders = [:]
+        } else if shouldAnimateReplace && !wasClanSwitching && !clanChanged && nodeIsVisible && tableIsInWindow && treeStructureChanged {
             crossfadeReloadAnimated()
-        } else if wasClanSwitching {
-            cachedHeaders = [:]
+        } else if wasClanSwitching || clanChanged {
             interaction.onClanSwitchChannelListApplied?()
-            if !clanSwitchTableRefreshDone {
+            if clanChanged || !clanSwitchTableRefreshDone {
                 if nodeIsVisible {
                     applyCrossfadeReload()
                 } else {
@@ -259,12 +298,10 @@ final class ChannelListContainerNode: ASDisplayNode {
             }
             reconcileChannelAppsTableIfNeeded()
         } else if !nodeIsVisible && treeStructureChanged {
-            cachedHeaders = [:]
             pendingVisibleReconcile = true
             pendingVisibleReconcileShouldResetScroll = false
             safeReloadData()
         } else if revealingFromLoadingPlaceholder && tableIsInWindow {
-            cachedHeaders = [:]
             crossfadeReloadAnimated(duration: 0.15)
         } else if treeStructureChanged {
             applyBatchStructureUpdate(prev: prevState, new: newState)
@@ -272,34 +309,11 @@ final class ChannelListContainerNode: ASDisplayNode {
             applyRowDiff(prev: prevState, new: newState)
         }
 
-        maybeRevealSelectedChannel(prevState: prevState, newState: newState, wasClanSwitching: wasClanSwitching)
-        reloadCategoryHeadersIfNamesChanged(prev: prevState, new: newState)
+        maybeRevealSelectedChannel(prevState: prevState, newState: newState, wasClanSwitching: wasClanSwitching || clanChanged)
         refreshNewUnreadButton()
         if !isClanSwitching {
             reconcileChannelAppsTableIfNeeded()
         }
-    }
-
-    private func reloadCategoryHeadersIfNamesChanged(prev: ChannelListState, new: ChannelListState) {
-        guard isNodeLoaded, tableIsInWindow, prev.categories.count == new.categories.count else { return }
-        let offset = leadingTableSectionsCount
-        var sections = IndexSet()
-        for (i, pair) in zip(prev.categories, new.categories).enumerated() {
-            guard pair.0.name != pair.1.name else { continue }
-            let section = i + offset
-            sections.insert(section)
-            cachedHeaders.removeValue(forKey: section)
-        }
-        guard !sections.isEmpty else { return }
-        guard tableNode.numberOfSections > 0 else { return }
-        guard leadingSectionSurgeryIsSafe(committedLeadingSections: leadingTableSectionsCount) else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        UIView.performWithoutAnimation {
-            self.tableNode.reloadSections(sections, with: .none)
-            self.tableNode.waitUntilAllUpdatesAreProcessed()
-        }
-        CATransaction.commit()
     }
 
     private func maybeRevealSelectedChannel(
@@ -325,7 +339,7 @@ final class ChannelListContainerNode: ASDisplayNode {
             }
         }
         guard wasClanSwitching || selectionChanged || loadingJustFinished || (selectedIsVoiceChannel && selectedVoiceBecameActive) else { return }
-        scrollToChannel(channelId: selectedId, animated: !wasClanSwitching)
+        scrollToChannel(channelId: selectedId, animated: !wasClanSwitching, onlyIfStillSelected: true)
     }
 
     func suppressNextLoadingFinishedReveal() {
@@ -413,7 +427,6 @@ final class ChannelListContainerNode: ASDisplayNode {
             )
             ghostRowHealStage = 1
             cachedRows = [:]
-            cachedHeaders = [:]
             safeReloadData()
             scheduleGhostRowChecks()
         case 1:
@@ -465,7 +478,6 @@ final class ChannelListContainerNode: ASDisplayNode {
         view.bringSubviewToFront(headerUIView)
         view.bringSubviewToFront(newUnreadButton)
         cachedRows = [:]
-        cachedHeaders = [:]
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         UIView.performWithoutAnimation {
@@ -584,6 +596,7 @@ final class ChannelListContainerNode: ASDisplayNode {
             return false
         }
         let sectionOffset = categorySectionOffset(for: prev)
+        guard sectionOffset == leadingTableSectionsCount else { return false }
         let prevIds = prev.categories.map(\.id)
         let newIds = new.categories.map(\.id)
         guard prevIds != newIds else { return false }
@@ -600,7 +613,7 @@ final class ChannelListContainerNode: ASDisplayNode {
                     let committedSection = prevIdx + sectionOffset
                     guard committedSection < tableNode.numberOfSections else { survivingRowsConsistent = false; break }
                     let mappedNewIdx = prevIdx < insertAt ? prevIdx : prevIdx + 1
-                    if tableNode.numberOfRows(inSection: committedSection) != computeRows(for: new, categoryIndex: mappedNewIdx, threadLookup: threadLookup).count {
+                    if tableNode.numberOfRows(inSection: committedSection) != computeRows(for: new, categoryIndex: mappedNewIdx, threadLookup: threadLookup).count + Self.categoryHeaderRowCount {
                         survivingRowsConsistent = false
                         break
                     }
@@ -622,7 +635,6 @@ final class ChannelListContainerNode: ASDisplayNode {
                 CATransaction.setDisableActions(true)
                 UIView.performWithoutAnimation {
                     self.tableNode.insertSections(IndexSet(integer: section), with: .none)
-                    self.tableNode.reloadSections(IndexSet(integer: section), with: .none)
                     self.tableNode.waitUntilAllUpdatesAreProcessed()
                 }
                 CATransaction.commit()
@@ -643,7 +655,7 @@ final class ChannelListContainerNode: ASDisplayNode {
                     let committedSection = prevIdx + sectionOffset
                     guard committedSection < tableNode.numberOfSections else { survivingRowsConsistent = false; break }
                     let mappedNewIdx = prevIdx < deleteAt ? prevIdx : prevIdx - 1
-                    if tableNode.numberOfRows(inSection: committedSection) != computeRows(for: new, categoryIndex: mappedNewIdx, threadLookup: threadLookup).count {
+                    if tableNode.numberOfRows(inSection: committedSection) != computeRows(for: new, categoryIndex: mappedNewIdx, threadLookup: threadLookup).count + Self.categoryHeaderRowCount {
                         survivingRowsConsistent = false
                         break
                     }
@@ -726,18 +738,17 @@ final class ChannelListContainerNode: ASDisplayNode {
 
             if isNodeLoaded,
                section < tableNode.numberOfSections,
-               tableNode.numberOfRows(inSection: section) != oldRows.count {
+               tableNode.numberOfRows(inSection: section) != oldRows.count + Self.categoryHeaderRowCount {
                 sectionsToReload.insert(section)
                 continue
             }
 
             if pc.isCollapsed != nc.isCollapsed || pc.name != nc.name {
-                sectionsToReload.insert(section)
-                continue
+                rowsToReload.append(IndexPath(row: 0, section: section))
             }
 
             let newRows = rowsForSection(i)
-            newRowCountBySection[section] = newRows.count
+            newRowCountBySection[section] = newRows.count + Self.categoryHeaderRowCount
 
             let oldKeys = oldRows.map { Self.rowDiffKey($0) }
             let newKeys = newRows.map { Self.rowDiffKey($0) }
@@ -755,7 +766,7 @@ final class ChannelListContainerNode: ASDisplayNode {
                         prevBuzz: prev.buzzChannelIds,
                         newBuzz: new.buzzChannelIds
                     ) {
-                        rowsToReload.append(IndexPath(row: r, section: section))
+                        rowsToReload.append(channelIndexPath(row: r, section: section))
                     }
                 }
                 continue
@@ -772,10 +783,10 @@ final class ChannelListContainerNode: ASDisplayNode {
             }
 
             for (r, key) in oldKeys.enumerated() where !newKeySet.contains(key) {
-                rowsToDelete.append(IndexPath(row: r, section: section))
+                rowsToDelete.append(channelIndexPath(row: r, section: section))
             }
             for (r, key) in newKeys.enumerated() where !oldKeySet.contains(key) {
-                rowsToInsert.append(IndexPath(row: r, section: section))
+                rowsToInsert.append(channelIndexPath(row: r, section: section))
             }
 
             var oldRowLookup: [String: ChannelListRow] = [:]
@@ -794,7 +805,7 @@ final class ChannelListContainerNode: ASDisplayNode {
                     prevBuzz: prev.buzzChannelIds,
                     newBuzz: new.buzzChannelIds
                 ) {
-                    rowsToReload.append(IndexPath(row: newR, section: section))
+                    rowsToReload.append(channelIndexPath(row: newR, section: section))
                 }
             }
         }
@@ -944,8 +955,9 @@ final class ChannelListContainerNode: ASDisplayNode {
                 oldRows = computeRows(for: prev, categoryIndex: catIdx, threadLookup: prevThreadLookup)
                 oldRowsByCat[catIdx] = oldRows
             }
-            guard ip.row >= 0, ip.row < oldRows.count else { continue }
-            let row = oldRows[ip.row]
+            let rowIndex = channelRowIndex(for: ip)
+            guard oldRows.indices.contains(rowIndex) else { continue }
+            let row = oldRows[rowIndex]
             guard let anchor = makeAnchor(ip, row) else { continue }
             if firstVisibleAnchor == nil { firstVisibleAnchor = anchor }
             switch row {
@@ -977,8 +989,9 @@ final class ChannelListContainerNode: ASDisplayNode {
             guard catIdx >= 0, catIdx < state.categories.count else { return nil }
             let rows = rowsForSection(catIdx)
             guard let row = rows.firstIndex(where: { Self.rowDiffKey($0) == key }) else { return nil }
-            guard row < tableNode.numberOfRows(inSection: section) else { return nil }
-            return IndexPath(row: row, section: section)
+            let indexPath = channelIndexPath(row: row, section: section)
+            guard indexPath.row < tableNode.numberOfRows(inSection: section) else { return nil }
+            return indexPath
         }
         if let preferredSection, let indexPath = lookup(in: preferredSection) {
             return indexPath
@@ -1136,12 +1149,13 @@ final class ChannelListContainerNode: ASDisplayNode {
                 oldRowsByCat[catIdx] = oldRows
             }
             let newRows = rowsForSection(catIdx)
-            guard ip.row < oldRows.count, ip.row < newRows.count else {
+            let rowIndex = channelRowIndex(for: ip)
+            guard oldRows.indices.contains(rowIndex), newRows.indices.contains(rowIndex) else {
                 fullPaths.append(ip)
                 continue
             }
-            let oldRow = oldRows[ip.row]
-            let newRow = newRows[ip.row]
+            let oldRow = oldRows[rowIndex]
+            let newRow = newRows[rowIndex]
             if Self.rowDiffKey(oldRow) != Self.rowDiffKey(newRow) {
                 fullPaths.append(ip)
                 continue
@@ -1176,9 +1190,10 @@ final class ChannelListContainerNode: ASDisplayNode {
             let catIdx = ip.section - sectionOffset
             guard catIdx >= 0, catIdx < new.categories.count else { continue }
             let newRows = rowsForSection(catIdx)
-            guard ip.row >= 0, ip.row < newRows.count else { continue }
+            let rowIndex = channelRowIndex(for: ip)
+            guard newRows.indices.contains(rowIndex) else { continue }
             guard let cellNode = tableNode.nodeForRow(at: ip) else { continue }
-            switch newRows[ip.row] {
+            switch newRows[rowIndex] {
             case .channel(let ch, _):
                 let selected = new.selectedChannelId == ch.channelID
                 (cellNode as? ChannelItemCellNode)?.applyListSelectionState(selected: selected)
@@ -1300,7 +1315,7 @@ final class ChannelListContainerNode: ASDisplayNode {
                 return
             }
             let committedRows = tableNode.numberOfRows(inSection: section)
-            let newRows = rowsForSection(s).count
+            let newRows = rowsForSection(s).count + Self.categoryHeaderRowCount
             if committedRows != newRows {
                 rowCountChanged = true
                 break
@@ -1318,16 +1333,19 @@ final class ChannelListContainerNode: ASDisplayNode {
         for s in 0..<new.categories.count {
             let oldRows = computeRows(for: prev, categoryIndex: s, threadLookup: prevThreadLookup)
             let newRows = rowsForSection(s)
+            if prev.categories[s].name != new.categories[s].name {
+                reloadPaths.append(IndexPath(row: 0, section: s + sectionOffset))
+            }
 
             for r in 0..<newRows.count {
                 guard r < oldRows.count else {
-                    reloadPaths.append(IndexPath(row: r, section: s + sectionOffset))
+                    reloadPaths.append(channelIndexPath(row: r, section: s + sectionOffset))
                     continue
                 }
                 let oldRow = oldRows[r]
                 let newRow = newRows[r]
                 if Self.rowDiffKey(oldRow) != Self.rowDiffKey(newRow) {
-                    reloadPaths.append(IndexPath(row: r, section: s + sectionOffset))
+                    reloadPaths.append(channelIndexPath(row: r, section: s + sectionOffset))
                     continue
                 }
                 if channelListRowVisuallyChanged(
@@ -1342,7 +1360,7 @@ final class ChannelListContainerNode: ASDisplayNode {
                     prevBuzz: prev.buzzChannelIds,
                     newBuzz: new.buzzChannelIds
                 ) {
-                    let ip = IndexPath(row: r, section: s + sectionOffset)
+                    let ip = channelIndexPath(row: r, section: s + sectionOffset)
                     if listRowChangeIsSelectionOnly(
                         old: oldRow,
                         new: newRow,
@@ -1416,7 +1434,7 @@ final class ChannelListContainerNode: ASDisplayNode {
             default: return row.channelDesc.channelID == channelId
             }
         }) else { return nil }
-        return IndexPath(row: r, section: s + sectionOffset)
+        return channelIndexPath(row: r, section: s + sectionOffset)
     }
 
     private func rowHasNumericUnreadBadge(_ row: ChannelListRow) -> Bool {
@@ -1458,18 +1476,24 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     @objc private func newUnreadButtonTapped() {
+        guard hasCurrentClanState else { return }
         guard let id = firstDisplayedChannelIdWithUnreadBadge() else { return }
+        let generation = clanSwitchGeneration
         skipNextLoadingFinishedReveal = true
         scrollToChannel(channelId: id, animated: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.interaction.onClearCurrentChannelSelection?()
-            self?.interaction.onRefresh?()
+            guard let self, self.clanSwitchGeneration == generation, self.hasCurrentClanState else { return }
+            self.interaction.onClearCurrentChannelSelection?()
+            self.interaction.onRefresh?()
         }
     }
 
-    private func scrollToChannel(channelId: Int64, animated: Bool = true) {
+    private func scrollToChannel(channelId: Int64, animated: Bool = true, onlyIfStillSelected: Bool = false) {
+        let generation = clanSwitchGeneration
         DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
+            guard let self, self.clanSwitchGeneration == generation, self.hasCurrentClanState else { return }
+            let latestState = self.latestCoalescedChannelListState ?? self.state
+            guard !onlyIfStillSelected || latestState.selectedChannelId == channelId else { return }
             self.tableNode.waitUntilAllUpdatesAreProcessed()
             self.tableNode.view.layoutIfNeeded()
             guard let indexPath = self.indexPathForListChannel(channelId: channelId) else { return }
@@ -1651,9 +1675,6 @@ final class ChannelListContainerNode: ASDisplayNode {
                     cell.isHidden = false
                     changed = true
                 }
-            } else if let header = sub as? CategorySectionHeaderView {
-                if normalizeListElementPresentation(header) { changed = true }
-                normalizeListElementTree(header)
             }
         }
         if tableNode.numberOfSections != totalSections {
@@ -1661,7 +1682,6 @@ final class ChannelListContainerNode: ASDisplayNode {
         }
         if changed {
             cachedRows = [:]
-            cachedHeaders = [:]
             safeReloadData()
         }
         return changed
@@ -1679,7 +1699,6 @@ final class ChannelListContainerNode: ASDisplayNode {
         pendingVisibleReconcile = false
         pendingVisibleReconcileShouldResetScroll = false
         cachedRows = [:]
-        cachedHeaders = [:]
         applyCrossfadeReload(resetScroll: shouldResetScroll)
     }
 
@@ -1691,7 +1710,6 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     private func scheduleReload() {
         cachedRows = [:]
-        cachedHeaders = [:]
         safeReloadData()
     }
 
@@ -1722,7 +1740,7 @@ final class ChannelListContainerNode: ASDisplayNode {
             return tableNode.numberOfRows(inSection: committedLeadingSections) == 1
         }
         for i in 0..<trailingCount {
-            if tableNode.numberOfRows(inSection: committedLeadingSections + i) != rowsForSection(i).count {
+            if tableNode.numberOfRows(inSection: committedLeadingSections + i) != rowsForSection(i).count + Self.categoryHeaderRowCount {
                 return false
             }
         }
@@ -1797,7 +1815,6 @@ final class ChannelListContainerNode: ASDisplayNode {
         channelAppsLoading = loading
         let afterHad = channelAppsStripeVisible
         cachedRows = [:]
-        cachedHeaders = [:]
         guard !shouldDeferLeadingSectionTableMutations else {
             if beforeHad != afterHad {
                 scheduleReload()
@@ -1913,7 +1930,6 @@ final class ChannelListContainerNode: ASDisplayNode {
         channelApps = []
         channelAppsLoading = false
         cachedRows = [:]
-        cachedHeaders = [:]
         guard hadStripe else {
             committedSectionCount = totalSections
             return
@@ -1959,7 +1975,6 @@ final class ChannelListContainerNode: ASDisplayNode {
         }
 
         cachedRows = [:]
-        cachedHeaders = [:]
 
         if !beforeVisible && afterVisible {
             guard leadingSectionSurgeryIsSafe(committedLeadingSections: leadingTableSectionsCount - 1) else {
@@ -2027,7 +2042,6 @@ final class ChannelListContainerNode: ASDisplayNode {
         }
 
         cachedRows = [:]
-        cachedHeaders = [:]
 
         if !beforeVisible && afterVisible {
             guard leadingSectionSurgeryIsSafe(committedLeadingSections: leadingTableSectionsCount - 1) else {
@@ -2076,10 +2090,7 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     func configure(clanName: String, clanId: Int64 = 0, logoURL: String? = nil, bannerURL: String? = nil, memberCount: Int = 0, isCommunity: Bool = false) {
-        let clanChanged = headerClanId != clanId
-        if clanChanged {
-        }
-        self.headerClanId = clanId
+        let clanChanged = updateClanIdentity(clanId)
         self.clanLogoURL = logoURL ?? ""
         self.isCommunity = isCommunity
         self.memberCount = memberCount
@@ -2144,7 +2155,6 @@ final class ChannelListContainerNode: ASDisplayNode {
     private func applyChannelAppsTableMutation(beforeHad: Bool) {
         let afterHad = channelAppsStripeVisible
         cachedRows = [:]
-        cachedHeaders = [:]
 
         if shouldDeferLeadingSectionTableMutations {
             if beforeHad != afterHad {
@@ -2274,8 +2284,12 @@ final class ChannelListContainerNode: ASDisplayNode {
         if isCompactView {
             return isChannelAppsExpanded ? channelApps.count : 0
         }
-        return isChannelAppsExpanded ? 1 : 0
+        // The horizontal stripe has no header to expand it again. Keep it
+        // visible if realtime app updates cross the compact-view threshold.
+        return 1
     }
+
+    private var channelAppsHeaderRowCount: Int { isCompactView ? 1 : 0 }
 
     private func toggleChannelAppsExpand() {
         guard channelAppsStripeVisible else { return }
@@ -2284,28 +2298,32 @@ final class ChannelListContainerNode: ASDisplayNode {
         let newCount = channelAppsSectionRowCount()
         guard oldCount != newCount else { return }
         guard tableNode.numberOfSections > 0,
-            tableNode.numberOfRows(inSection: channelAppsTableSection) == oldCount,
+            tableNode.numberOfRows(inSection: channelAppsTableSection) == oldCount + channelAppsHeaderRowCount,
             leadingSectionSurgeryIsSafe(committedLeadingSections: leadingTableSectionsCount)
         else {
             scheduleReload()
             return
         }
         let appsSection = channelAppsTableSection
+        let contentRowOffset = channelAppsHeaderRowCount
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         UIView.performWithoutAnimation {
             self.tableNode.performBatch(animated: false) {
+                if contentRowOffset > 0 {
+                    self.tableNode.reloadRows(at: [IndexPath(row: 0, section: appsSection)], with: .none)
+                }
                 if newCount == 0 && oldCount > 0 {
-                    let paths = (0..<oldCount).map { IndexPath(row: $0, section: appsSection) }
+                    let paths = (0..<oldCount).map { IndexPath(row: $0 + contentRowOffset, section: appsSection) }
                         .sorted { $0.row > $1.row }
                     self.tableNode.deleteRows(at: paths, with: .none)
                 } else if oldCount == 0 && newCount > 0 {
-                    let paths = (0..<newCount).map { IndexPath(row: $0, section: appsSection) }
+                    let paths = (0..<newCount).map { IndexPath(row: $0 + contentRowOffset, section: appsSection) }
                     self.tableNode.insertRows(at: paths, with: .none)
                 } else {
-                    let del = (0..<oldCount).map { IndexPath(row: $0, section: appsSection) }
+                    let del = (0..<oldCount).map { IndexPath(row: $0 + contentRowOffset, section: appsSection) }
                         .sorted { $0.row > $1.row }
-                    let ins = (0..<newCount).map { IndexPath(row: $0, section: appsSection) }
+                    let ins = (0..<newCount).map { IndexPath(row: $0 + contentRowOffset, section: appsSection) }
                     self.tableNode.deleteRows(at: del, with: .none)
                     self.tableNode.insertRows(at: ins, with: .none)
                 }
@@ -2313,9 +2331,6 @@ final class ChannelListContainerNode: ASDisplayNode {
             self.tableNode.waitUntilAllUpdatesAreProcessed()
         }
         CATransaction.commit()
-        if isCompactView, let header = cachedHeaders[appsSection] {
-            header.configureAppsHeader(isCollapsed: !isChannelAppsExpanded)
-        }
     }
 
     func applyTheme() {
@@ -2498,7 +2513,7 @@ final class ChannelListContainerNode: ASDisplayNode {
                 let displays = resolvedVoiceDisplays(for: row)
                 if resolvedVoiceMemberSnapshot[key] == displays { continue }
                 resolvedVoiceMemberSnapshot[key] = displays
-                let path = IndexPath(row: r, section: section)
+                let path = channelIndexPath(row: r, section: section)
                 if let node = tableNode.nodeForRow(at: path) as? VoiceMemberExpandedCellNode,
                    let member = displays.first {
                     // Preserve the avatar image/request when only the name or
@@ -2531,23 +2546,17 @@ extension ChannelListContainerNode: ASTableDataSource {
             return 1
         }
         if isChannelAppsTableSection(section) {
-            if channelAppsLoading && channelApps.isEmpty {
-                return isChannelAppsExpanded ? 1 : 0
-            }
-            if isCompactView {
-                return isChannelAppsExpanded ? channelApps.count : 0
-            } else {
-                return 1
-            }
+            return channelAppsHeaderRowCount + channelAppsSectionRowCount()
         }
         if isLoadingPlaceholderTableSection(section) {
             return 1
         }
         let catIdx = categoryIndex(forSection: section)
-        return rowsForSection(catIdx).count
+        return rowsForSection(catIdx).count + Self.categoryHeaderRowCount
     }
 
     func tableNode(_ tableNode: ASTableNode, nodeBlockForRowAt indexPath: IndexPath) -> ASCellNodeBlock {
+        let generation = clanSwitchGeneration
         if isOnboardingTableSection(indexPath.section) {
             let title: String
             let subtitle: String
@@ -2575,12 +2584,17 @@ extension ChannelListContainerNode: ASTableDataSource {
             }
         }
         if isChannelAppsTableSection(indexPath.section) {
+            if isCompactView, indexPath.row == 0 {
+                let isCollapsed = !isChannelAppsExpanded
+                return { CategoryHeaderCellNode(title: "CHANNEL APPS", isCollapsed: isCollapsed) }
+            }
             if channelAppsLoading && channelApps.isEmpty {
                 return { ChannelAppSkeletonCellNode() }
             }
             if isCompactView {
-                guard indexPath.row < channelApps.count else { return { ASCellNode() } }
-                let app = channelApps[indexPath.row]
+                let appIndex = indexPath.row - channelAppsHeaderRowCount
+                guard channelApps.indices.contains(appIndex) else { return { ASCellNode() } }
+                let app = channelApps[appIndex]
                 return { ChannelAppCellNode(app: app) }
             } else {
                 let apps = channelApps
@@ -2595,10 +2609,24 @@ extension ChannelListContainerNode: ASTableDataSource {
             return { ChannelListSkeletonCellNode() }
         }
         let catIdx = categoryIndex(forSection: indexPath.section)
+        guard state.categories.indices.contains(catIdx) else { return { ASCellNode() } }
+        if indexPath.row == 0 {
+            let category = state.categories[catIdx]
+            return { [weak self] in
+                let node = CategoryHeaderCellNode(title: category.name, isCollapsed: category.isCollapsed)
+                node.onLongPress = { [weak self] in
+                    guard let self, self.clanSwitchGeneration == generation, self.hasCurrentClanState,
+                          let current = self.state.categories.first(where: { $0.id == category.id }) else { return }
+                    self.interaction.onLongPressCategory?(current)
+                }
+                return node
+            }
+        }
 
         let rows = rowsForSection(catIdx)
-        guard indexPath.row < rows.count else { return { ASCellNode() } }
-        let row = rows[indexPath.row]
+        let rowIndex = channelRowIndex(for: indexPath)
+        guard rows.indices.contains(rowIndex) else { return { ASCellNode() } }
+        let row = rows[rowIndex]
         let isSelected = row.channelDesc.channelID == state.selectedChannelId
         let hasBuzz = state.buzzChannelIds.contains(row.channelDesc.channelID)
         switch row {
@@ -2609,7 +2637,9 @@ extension ChannelListContainerNode: ASTableDataSource {
             return {
                 let node = ChannelItemCellNode(channel: ch, isSelected: isSelected, isVoiceActive: hasVoiceMembers, hasBuzz: hasBuzz, viewerCount: viewerCount)
                 node.onLongPress = { [weak self] in
-                    self?.interaction.onLongPressChannel(ch)
+                    guard let self, self.clanSwitchGeneration == generation, self.hasCurrentClanState,
+                          let current = self.state.allChannels.first(where: { $0.channelID == ch.channelID }) else { return }
+                    self.interaction.onLongPressChannel(current)
                 }
                 return node
             }
@@ -2617,7 +2647,9 @@ extension ChannelListContainerNode: ASTableDataSource {
             return {
                 let node = ThreadItemCellNode(channel: ch, isSelected: isSelected, isLast: isLast, hasBuzz: hasBuzz)
                 node.onLongPress = { [weak self] in
-                    self?.interaction.onLongPressChannel(ch)
+                    guard let self, self.clanSwitchGeneration == generation, self.hasCurrentClanState,
+                          let current = self.state.allChannels.first(where: { $0.channelID == ch.channelID }) else { return }
+                    self.interaction.onLongPressChannel(current)
                 }
                 return node
             }
@@ -2644,47 +2676,11 @@ extension ChannelListContainerNode: ASTableDataSource {
     }
 
     func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
-        if isOnboardingTableSection(section) {
-            return nil
-        }
-        if isChannelAppsTableSection(section) {
-            if isCompactView {
-                let header = cachedHeaders[section] ?? CategorySectionHeaderView()
-                header.configureAppsHeader(isCollapsed: !isChannelAppsExpanded)
-                header.onTap = { [weak self] in self?.toggleChannelAppsExpand() }
-                cachedHeaders[section] = header
-                return header
-            } else {
-                return nil
-            }
-        }
-        if isLoadingPlaceholderTableSection(section) {
-            return nil
-        }
-        let catIdx = categoryIndex(forSection: section)
-        guard catIdx < state.categories.count else { return nil }
-        let cat = state.categories[catIdx]
-        cachedHeaders.removeValue(forKey: section)
-        let header = CategorySectionHeaderView()
-        header.configure(category: cat)
-        header.onTap = { [weak self] in self?.interaction.onToggleCollapse(cat.id) }
-        header.onLongPress = { [weak self] in self?.interaction.onLongPressCategory?(cat) }
-        cachedHeaders[section] = header
-        return header
+        nil
     }
 
     func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
-        if isOnboardingTableSection(section) {
-            return 0
-        }
-        if isChannelAppsTableSection(section) {
-            return isCompactView ? 32.sh : 0
-        }
-        if isLoadingPlaceholderTableSection(section) {
-            return 0
-        }
-        let catIdx = categoryIndex(forSection: section)
-        return catIdx < state.categories.count ? 32.sh : 0
+        0
     }
 
     func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
@@ -2714,14 +2710,20 @@ extension ChannelListContainerNode: ASTableDelegate {
 
     func tableNode(_ tableNode: ASTableNode, didSelectRowAt indexPath: IndexPath) {
         tableNode.deselectRow(at: indexPath, animated: false)
+        guard hasCurrentClanState else { return }
         if isOnboardingTableSection(indexPath.section) {
             interaction.onOnboardingBannerTapped?()
             return
         }
         if isChannelAppsTableSection(indexPath.section) {
+            if isCompactView, indexPath.row == 0 {
+                toggleChannelAppsExpand()
+                return
+            }
             guard !channelAppsLoading else { return }
-            if isCompactView, indexPath.row < channelApps.count {
-                interaction.onSelectChannelApp?(channelApps[indexPath.row])
+            let appIndex = indexPath.row - channelAppsHeaderRowCount
+            if isCompactView, channelApps.indices.contains(appIndex) {
+                interaction.onSelectChannelApp?(channelApps[appIndex])
             }
             return
         }
@@ -2729,9 +2731,15 @@ extension ChannelListContainerNode: ASTableDelegate {
             return
         }
         let catIdx = categoryIndex(forSection: indexPath.section)
+        guard state.categories.indices.contains(catIdx) else { return }
+        if indexPath.row == 0 {
+            interaction.onToggleCollapse(state.categories[catIdx].id)
+            return
+        }
         let rows = rowsForSection(catIdx)
-        guard indexPath.row < rows.count else { return }
-        let row = rows[indexPath.row]
+        let rowIndex = channelRowIndex(for: indexPath)
+        guard rows.indices.contains(rowIndex) else { return }
+        let row = rows[rowIndex]
         switch row {
         case .voiceMembersCollapsed, .voiceMemberExpanded: return
         default: break
@@ -2895,66 +2903,51 @@ private final class ChannelListSkeletonCellNode: ASCellNode {
 }
 
 
-private final class CategorySectionHeaderView: UIView {
+private final class CategoryHeaderCellNode: ASCellNode {
 
-    var onTap: (() -> Void)?
     var onLongPress: (() -> Void)?
 
-    private let arrowIcon: UIImageView = {
-        let iv = UIImageView()
-        iv.contentMode = .scaleAspectFit
-        iv.translatesAutoresizingMaskIntoConstraints = false
-        return iv
-    }()
+    private let arrowNode = ASImageNode()
+    private let titleNode = ASTextNode2()
 
-    private let titleLabel: UILabel = {
-        let l = UILabel()
-        l.font = .systemFont(ofSize: 13.sf, weight: .bold)
-        l.translatesAutoresizingMaskIntoConstraints = false
-        return l
-    }()
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        addSubview(arrowIcon)
-        addSubview(titleLabel)
-        NSLayoutConstraint.activate([
-            arrowIcon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8.sw),
-            arrowIcon.centerYAnchor.constraint(equalTo: centerYAnchor),
-            arrowIcon.widthAnchor.constraint(equalToConstant: 18.sw),
-            arrowIcon.heightAnchor.constraint(equalToConstant: 18.sw),
-
-            titleLabel.leadingAnchor.constraint(equalTo: arrowIcon.trailingAnchor, constant: 2.sw),
-            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16.sw),
-        ])
-        addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleTap)))
-        addGestureRecognizer(UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:))))
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    func configure(category: ChannelCategory) {
-        let t = UIColor.theme
+    init(title: String, isCollapsed: Bool) {
+        super.init()
+        automaticallyManagesSubnodes = true
+        neverShowPlaceholders = true
+        selectionStyle = .none
+        clipsToBounds = true
         backgroundColor = .clear
-        titleLabel.textColor = t.textDisabled
-        let iconName = category.isCollapsed ? "Channel/ChevronRight" : "Channel/ChevronBottom"
-        arrowIcon.image = UIImage(named: iconName)?.withRenderingMode(.alwaysTemplate)
-        arrowIcon.tintColor = t.textDisabled
-        titleLabel.text = category.name.uppercased()
-    }
-
-    func configureAppsHeader(isCollapsed: Bool) {
+        style.height = ASDimensionMake(32.sh)
         let t = UIColor.theme
-        backgroundColor = .clear
-        titleLabel.textColor = t.textDisabled
         let iconName = isCollapsed ? "Channel/ChevronRight" : "Channel/ChevronBottom"
-        arrowIcon.image = UIImage(named: iconName)?.withRenderingMode(.alwaysTemplate)
-        arrowIcon.tintColor = t.textDisabled
-        titleLabel.text = "CHANNEL APPS"
+        arrowNode.image = UIImage(named: iconName)?.withRenderingMode(.alwaysTemplate)
+        arrowNode.tintColor = t.textDisabled
+        arrowNode.contentMode = .scaleAspectFit
+        arrowNode.style.preferredSize = CGSize(width: 18.sw, height: 18.sw)
+        titleNode.maximumNumberOfLines = 1
+        titleNode.truncationMode = .byTruncatingTail
+        titleNode.style.flexShrink = 1
+        titleNode.attributedText = NSAttributedString(
+            string: title.uppercased(),
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 13.sf, weight: .bold),
+                .foregroundColor: t.textDisabled,
+            ])
     }
 
-    @objc private func handleTap() { onTap?() }
+    override func didLoad() {
+        super.didLoad()
+        view.addGestureRecognizer(UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:))))
+    }
+
+    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
+        let row = ASStackLayoutSpec(
+            direction: .horizontal, spacing: 2.sw, justifyContent: .start, alignItems: .center,
+            children: [arrowNode, titleNode])
+        let inset = ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 0, left: 8.sw, bottom: 0, right: 16.sw), child: row)
+        return ASCenterLayoutSpec(centeringOptions: .Y, sizingOptions: .minimumY, child: inset)
+    }
 
     @objc private func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
         if gesture.state == .began {

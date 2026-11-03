@@ -302,6 +302,9 @@ enum L10n {
         static let noThanks = "qrScanner.noThanks"
         static let userProfile = "qrScanner.userProfile"
         static let message = "qrScanner.message"
+        static let call = "qrScanner.call"
+        static let cannotCallYourself = "qrScanner.cannotCallYourself"
+        static let callInProgress = "qrScanner.callInProgress"
         static let myQRCode = "qrScanner.myQRCode"
         static let qrProfile = "qrScanner.qrProfile"
         static let qrTransfer = "qrScanner.qrTransfer"
@@ -1486,6 +1489,7 @@ enum L10n {
     }
 
     enum PeerCall {
+        static let missedCallNotification     = "peerCall.missedCallNotification"
         static let actionEnd                 = "peerCall.actionEnd"
         static let actionMic                 = "peerCall.actionMic"
         static let actionSpeaker             = "peerCall.actionSpeaker"
@@ -2850,6 +2854,9 @@ extension L10n {
         "qrScanner.goToClan": "Go to Clan",
         "qrScanner.noThanks": "No, Thanks",
         "qrScanner.message": "Message",
+        "qrScanner.call": "Call",
+        "qrScanner.cannotCallYourself": "You cannot call yourself.",
+        "qrScanner.callInProgress": "A call is already in progress.",
         "qrScanner.userProfile": "USER PROFILE",
         "qrScanner.myQRCode": "My QR Code",
         "qrScanner.qrProfile": "QR Profile",
@@ -2977,6 +2984,7 @@ extension L10n {
 
         "callLog.cancel":           "You canceled",
         "callLog.missed":           "You missed",
+        "peerCall.missedCallNotification": "Missed call",
         "callLog.receiverRejected": "Receiver rejected",
         "callLog.youRejected":      "You rejected",
         "callLog.audioCall":        "Audio call",
@@ -4328,6 +4336,9 @@ extension L10n {
         "qrScanner.goToClan": "Vào clan",
         "qrScanner.noThanks": "Không, cảm ơn",
         "qrScanner.message": "Nhắn tin",
+        "qrScanner.call": "Gọi",
+        "qrScanner.cannotCallYourself": "Bạn không thể gọi cho chính mình.",
+        "qrScanner.callInProgress": "Đang có một cuộc gọi khác.",
         "qrScanner.userProfile": "THÔNG TIN NGƯỜI DÙNG",
         "qrScanner.myQRCode": "Mã QR của tôi",
         "qrScanner.qrProfile": "Mã QR Hồ sơ",
@@ -4456,6 +4467,7 @@ extension L10n {
 
         "callLog.cancel":           "Bạn đã từ chối",
         "callLog.missed":           "Bạn bị nhỡ",
+        "peerCall.missedCallNotification": "Cuộc gọi nhỡ",
         "callLog.receiverRejected": "Người nhận từ chối",
         "callLog.youRejected":      "Bạn đã từ chối",
         "callLog.audioCall":        "Cuộc gọi thoại",

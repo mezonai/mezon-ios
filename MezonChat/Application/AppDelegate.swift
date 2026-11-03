@@ -123,6 +123,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         NetworkMonitor.shared.start()
         NetworkBannerView.install(on: nativeWindow)
 
+        if let response = connectionOptions.notificationResponse {
+            prepareToOpenMissedCall(response)
+        }
         VoIPMinimalCallBootstrap.reconcileAfterAppColdStartIfNoActiveVoIPCall()
 
 
@@ -347,6 +350,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
     }
 
     @objc private func handleDidBecomeActive() {
+        PeerCallNotifications.shared.cleanupDeliveredStartNotifications()
         if let shell = mainWindow?.viewController as? VoIPMinimalShellViewController {
             shell.flushPendingIncomingPeerCallIfNeeded()
         }
@@ -598,6 +602,21 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         let title = notification.request.content.title
         let body = notification.request.content.body
 
+        if notification.request.content.categoryIdentifier == PeerCallNotifications.missedCallCategory {
+            if #available(iOS 14.0, *) {
+                completionHandler([.banner, .list, .sound])
+            } else {
+                completionHandler([.alert, .sound])
+            }
+            return
+        }
+
+        if PeerCallNotifications.shared.shouldSuppressStartNotification(notification) {
+            completionHandler([])
+            PeerCallNotifications.shared.cleanupDeliveredStartNotifications()
+            return
+        }
+
         let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)
         let topicId = Self.pushPayloadTopicId(userInfo)
 
@@ -681,6 +700,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             return
         }
 
+        prepareToOpenMissedCall(response)
         let userInfo = response.notification.request.content.userInfo
         let isFriendRequestNotification = Self.isFriendRequestNotification(response: response)
         let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)
@@ -697,6 +717,17 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         }
 
         completionHandler()
+    }
+
+    private func prepareToOpenMissedCall(_ response: UNNotificationResponse) {
+        guard response.notification.request.content.categoryIdentifier == PeerCallNotifications.missedCallCategory else { return }
+        CallKitManager.shared.prepareToOpenMissedCallNotification(response.notification.request.content.userInfo)
+        if !VoIPMinimalCallBootstrap.isMinimalChromeActive,
+           mainWindow?.viewController is VoIPMinimalShellViewController,
+           let context = accountContext, context.isLoggedIn,
+           let sharedContext, let mainWindow {
+            showRoot(isLoggedIn: true, context: context, sharedContext: sharedContext, mainWindow: mainWindow)
+        }
     }
 
     private static func isFriendRequestNotification(response: UNNotificationResponse) -> Bool {

@@ -434,6 +434,8 @@ final class ChatViewController: ViewController {
         didSet {
             guard topicId != oldValue else { return }
             if isViewLoaded {
+                cancelMessageHistoryRequests()
+                hasCompletedInitialFetch = false
                 syncChannelToComposer()
                 if view.window != nil {
                     context.buzz.setViewing(owner: self, channelId: channel.channelID, topicId: topicId)
@@ -444,6 +446,16 @@ final class ChatViewController: ViewController {
     private var skipRemoteFetchWhileTopicIsEmpty = false
     private var pendingTopicCreationMessageId: Int64?
     private var messageHistoryDisposable: Disposable?
+    private var hasLeftChat = false
+    private var messageHistoryGeneration: UInt64 = 0
+    private var messageFetchTask: Task<Void, Never>?
+    private var olderMessagesTask: Task<Void, Never>?
+    private var newerMessagesTask: Task<Void, Never>?
+    private var messageJumpTask: Task<Void, Never>?
+    private var initialChatTask: Task<Void, Never>?
+    private var activeMessageHistoryRefresh: MessageHistoryRefresh?
+    private var messageRequestTimeouts: [UUID: DispatchWorkItem] = [:]
+    private var reconnectPreparationRequestId: UUID?
     private var storageChannelId: String {
         if let messageId = pendingTopicCreationMessageId {
             return "pending-topic-\(messageId)"
@@ -586,6 +598,7 @@ final class ChatViewController: ViewController {
     private var pendingMarkAsRead = false
     private var didMarkChannelAsReadForCurrentAppearance = false
     private var isCatchingUpAfterReconnect = false
+    private var activeCatchUpRequestId: UUID?
     private var reconnectCatchUpTask: Task<Void, Never>?
     private var readyToLoadMore = false
     private var hasPerformedInitialUnreadScroll = false
@@ -683,6 +696,7 @@ final class ChatViewController: ViewController {
             self.lastSeenMessageId = "\(channel.lastSeenMessage.id)"
         }
         super.init(navigationBarPresentationData: nil)
+        prefetchChannelCDNSignature()
     }
 
     required init(coder aDecoder: NSCoder) { fatalError() }
@@ -1139,14 +1153,11 @@ final class ChatViewController: ViewController {
     @objc private func handleNetworkStatusChanged(_ notification: Notification) {
         let connected = (notification.userInfo?["isConnected"] as? Bool) ?? NetworkMonitor.shared.isConnected
         guard connected else { return }
-        guard !hasCompletedInitialFetch else { return }
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            var token = await self.context.getTokenPreferringCachedSkipSessionReadyWait()
-            if token == nil {
-                await self.context.waitForSessionReady()
-                token = await self.context.getToken()
-            }
+        guard !hasLeftChat, !hasCompletedInitialFetch else { return }
+        let accountContext = context
+        Task { @MainActor [weak self, accountContext] in
+            let token = await accountContext.getTokenPreferringCachedSkipSessionReadyWait()
+            guard let self, !self.hasLeftChat, !Task.isCancelled else { return }
             guard let token else {
                 self.setIsLoading(false)
                 return
@@ -1311,7 +1322,13 @@ final class ChatViewController: ViewController {
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         if isMovingFromParent {
-            onLeave()
+            if let coordinator = transitionCoordinator {
+                coordinator.animate(alongsideTransition: nil) { [weak self] transition in
+                    if !transition.isCancelled { self?.onLeave() }
+                }
+            } else {
+                onLeave()
+            }
         } else {
             wasCoveredByPushedController = true
         }
@@ -1694,31 +1711,12 @@ final class ChatViewController: ViewController {
     }
 
     @objc private func handleSocketReconnected(_ notification: Notification) {
+        guard !hasLeftChat else { return }
         guard let isConnected = notification.userInfo?["isConnected"] as? Bool, isConnected else { return }
         if pendingMarkAsRead {
             markChannelAsRead()
         }
-        let previousCatchUp = reconnectCatchUpTask
-        previousCatchUp?.cancel()
-        reconnectCatchUpTask = Task { @MainActor [weak self] in
-            _ = await previousCatchUp?.value
-            guard let self, !Task.isCancelled else { return }
-            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
-            await self.joinChatAndWaitUntilSent()
-            self.refreshPinnedMessagesFromServer()
-            if self.newestServerMessageId() == nil {
-                self.fetchMessages(token: token)
-            } else {
-                await self.catchUpMessagesAfterReconnect(token: token)
-            }
-            if !self.hasCompletedInitialFetch {
-                self.hasCompletedInitialFetch = true
-                self.fetchNotificationSetting(token: token)
-                self.fetchChannelPermissions(token: token)
-                self.fetchChannelMembers(token: token)
-                self.checkBanStatus(token: token)
-            }
-        }
+        refreshMessagesAfterReconnect()
     }
 
     @objc private func handleMessageTypingReceived(_ notification: Notification) {
@@ -1806,6 +1804,12 @@ final class ChatViewController: ViewController {
     }
 
     deinit {
+        messageFetchTask?.cancel()
+        olderMessagesTask?.cancel()
+        newerMessagesTask?.cancel()
+        messageJumpTask?.cancel()
+        initialChatTask?.cancel()
+        messageRequestTimeouts.values.forEach { $0.cancel() }
         reconnectCatchUpTask?.cancel()
         typingPruneTimer?.invalidate()
         sendingFeedbackRefreshWorkItem?.cancel()
@@ -1822,6 +1826,7 @@ final class ChatViewController: ViewController {
             |> deliverOnMainQueue)
             .start(next: { [weak self] view in
                 guard let self else { return }
+                guard !self.hasLeftChat else { return }
                 guard view.channelId == channelIdStr else { return }
                 guard self.storageChannelId == channelIdStr else { return }
                 let rows = view.messages.filter { $0.channelId == channelIdStr }
@@ -1951,17 +1956,99 @@ final class ChatViewController: ViewController {
 
     private var hasCompletedInitialFetch = false
     private var didApplyBadgeLastSeen = false
+
+    private func isCurrentMessageHistoryRequest(_ generation: UInt64, storageId: String) -> Bool {
+        !hasLeftChat && messageHistoryGeneration == generation && storageChannelId == storageId
+    }
+
+    private func cancelMessageHistoryRequests() {
+        messageHistoryGeneration &+= 1
+        reconnectCatchUpTask?.cancel()
+        reconnectCatchUpTask = nil
+        reconnectPreparationRequestId = nil
+        isCatchingUpAfterReconnect = false
+        activeCatchUpRequestId = nil
+        messageFetchTask?.cancel()
+        olderMessagesTask?.cancel()
+        newerMessagesTask?.cancel()
+        messageJumpTask?.cancel()
+        messageFetchTask = nil
+        olderMessagesTask = nil
+        newerMessagesTask = nil
+        messageJumpTask = nil
+        messageRequestTimeouts.values.forEach { $0.cancel() }
+        messageRequestTimeouts.removeAll()
+        if let refresh = activeMessageHistoryRefresh {
+            context.account.postbox.read { $0.cancelMessageHistoryRefresh(refresh) }
+            activeMessageHistoryRefresh = nil
+        }
+        lastFetchedOlderMessageId = nil
+        lastFetchedNewerMessageId = nil
+        setIsLoading(false)
+        setIsLoadingMessageContext(false)
+        setIsLoadingMore(false)
+        setIsLoadingNewer(false)
+        if isViewLoaded { messagesNode.initialCacheRefreshScrollGeneration = nil }
+    }
+
+    private func beginMessageRequestTimeout(id: UUID, generation: UInt64) {
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.hasLeftChat,
+                  self.messageHistoryGeneration == generation,
+                  self.messageRequestTimeouts[id] != nil else { return }
+            self.cancelMessageHistoryRequests()
+            self.initialChatTask?.cancel()
+            self.initialChatTask = nil
+            if self.messages.isEmpty { self.hasCompletedInitialFetch = false }
+            self.pendingScrollToBottom = false
+            self.isJumping = false
+            self.initialMessageJumpTargetId = nil
+            self.pendingJumpToMessageId = nil
+            self.messagesNode.pendingJumpMessageId = nil
+            self.readyToLoadMore = true
+            self.setErrorMessage(URLError(.timedOut).localizedDescription)
+        }
+        messageRequestTimeouts[id] = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: work)
+    }
+
+    private func endMessageRequestTimeout(id: UUID) {
+        messageRequestTimeouts.removeValue(forKey: id)?.cancel()
+    }
+
+    private func finishMessageFetch(generation: UInt64, storageId: String, refresh: MessageHistoryRefresh, succeeded: Bool = false) {
+        guard isCurrentMessageHistoryRequest(generation, storageId: storageId),
+              activeMessageHistoryRefresh?.id == refresh.id else { return }
+        endMessageRequestTimeout(id: refresh.id)
+        context.account.postbox.read { $0.cancelMessageHistoryRefresh(refresh) }
+        activeMessageHistoryRefresh = nil
+        messageFetchTask = nil
+        messageJumpTask = nil
+        messagesNode.initialCacheRefreshScrollGeneration = nil
+        if succeeded { hasCompletedInitialFetch = true }
+        else { pendingScrollToBottom = false }
+        setIsLoading(false)
+        setIsLoadingMessageContext(false)
+    }
+
     private func performInitialMessageFetchIfNeeded(token: String) {
-        guard !hasCompletedInitialFetch else { return }
-        hasCompletedInitialFetch = true
+        guard !hasLeftChat, !hasCompletedInitialFetch, messageFetchTask == nil,
+              messageJumpTask == nil, !isJumping else { return }
         if startupJumpTargetForInitialFetch != nil {
+            hasCompletedInitialFetch = true
             startupJumpTargetForInitialFetch = nil
             return
         }
         fetchMessages(token: token, isInitialFetch: true)
     }
 
+    private func prefetchChannelCDNSignature() {
+        guard channel.channelID != 0, NetworkMonitor.shared.isConnected else { return }
+        CDNSigner.shared.prefetch(channelID: channel.channelID)
+    }
+
     func start() {
+        prefetchChannelCDNSignature()
         if let initialMessageJumpTargetId {
             startupJumpTargetForInitialFetch = initialMessageJumpTargetId
         }
@@ -1986,7 +2073,10 @@ final class ChatViewController: ViewController {
         } else {
             restorePinnedStateFromPostboxIfNeeded()
             let cachedMessages = context.account.postbox.read { tx in
-                tx.getMessages(channelId: channelIdStr).filter { $0.channelId == channelIdStr }
+                if initialMessageJumpTargetId == nil && pendingJumpToMessageId == nil {
+                    return tx.prepareMessageHistoryForChannelEntry(channelId: channelIdStr)
+                }
+                return tx.getMessages(channelId: channelIdStr).filter { $0.channelId == channelIdStr }
             }
             let hasCache = !cachedMessages.isEmpty
             skipInitialRemoteFetchForEmptyTopic = shouldSkipRemoteFetchForEmptyTopic(
@@ -2029,38 +2119,42 @@ final class ChatViewController: ViewController {
         startBadgeCountLastSeenRefresh()
 
         let shouldSkipInitialRemoteFetchForEmptyTopic = skipInitialRemoteFetchForEmptyTopic
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            if self.topicId == 0 && self.channel.channelID == 0 {
-                self.setIsLoading(false)
-                return
-            }
-            if shouldSkipInitialRemoteFetchForEmptyTopic {
-                self.setHasMoreOlder(false)
-                self.setHasMoreNewer(false)
-                self.setIsLoading(false)
-                self.setIsLoadingMessageContext(false)
-            }
-            if !NetworkMonitor.shared.isConnected {
-                self.setIsLoading(false)
-                return
-            }
-            CDNSigner.shared.prefetch(channelID: self.channel.channelID)
+        let startupContext = context
+        let sessionWaitId = UUID()
+        initialChatTask = Task { @MainActor [weak self, startupContext] in
+            defer { self?.endMessageRequestTimeout(id: sessionWaitId) }
+            do {
+                guard let self, !self.hasLeftChat, !Task.isCancelled else { return }
+                if self.topicId == 0 && self.channel.channelID == 0 {
+                    self.setIsLoading(false)
+                    return
+                }
+                if shouldSkipInitialRemoteFetchForEmptyTopic {
+                    self.setHasMoreOlder(false)
+                    self.setHasMoreNewer(false)
+                    self.setIsLoading(false)
+                    self.setIsLoadingMessageContext(false)
+                }
+                if !NetworkMonitor.shared.isConnected {
+                    self.setIsLoading(false)
+                    return
+                }
+                let immediateToken: String? = {
+                    if let t = self.context.session?.token, !t.isEmpty { return t }
+                    if let t = SessionStore.load()?.token, !t.isEmpty { return t }
+                    return nil
+                }()
+                if let immediateToken, !self.hasCompletedInitialFetch {
+                    self.performInitialMessageFetchIfNeeded(token: immediateToken)
+                }
 
-            let immediateToken: String? = {
-                if let t = self.context.session?.token, !t.isEmpty { return t }
-                if let t = SessionStore.load()?.token, !t.isEmpty { return t }
-                return nil
-            }()
-            if let immediateToken, !self.hasCompletedInitialFetch {
-                self.performInitialMessageFetchIfNeeded(token: immediateToken)
+                if self.messageFetchTask == nil {
+                    self.beginMessageRequestTimeout(id: sessionWaitId, generation: self.messageHistoryGeneration)
+                }
             }
-
-            var token = await self.context.getTokenPreferringCachedSkipSessionReadyWait()
-            if token == nil {
-                await self.context.waitForSessionReady()
-                token = await self.context.getToken()
-            }
+            let token = await startupContext.getTokenPreferringCachedSkipSessionReadyWait()
+            guard let self, !self.hasLeftChat, !Task.isCancelled else { return }
+            self.endMessageRequestTimeout(id: sessionWaitId)
             guard let token else {
                 self.setIsLoading(false)
                 return
@@ -2069,6 +2163,7 @@ final class ChatViewController: ViewController {
                 self.performInitialMessageFetchIfNeeded(token: token)
             }
             await self.waitForSocketConnected()
+            guard !self.hasLeftChat, !Task.isCancelled else { return }
             self.joinChat()
             self.refreshPinnedMessagesFromServer()
             self.fetchNotificationSetting(token: token)
@@ -2317,14 +2412,22 @@ final class ChatViewController: ViewController {
     }
 
     func onLeave() {
+        guard !hasLeftChat else { return }
+        hasLeftChat = true
+        initialChatTask?.cancel()
+        initialChatTask = nil
+        cancelMessageHistoryRequests()
         context.buzz.stopViewing(owner: self)
         reconnectCatchUpTask?.cancel()
         reconnectCatchUpTask = nil
         clearRemoteTypingState()
-        context.currentChannel = nil
-        ActiveChannelTracker.currentChannelId = 0
+        if topicId == 0, ActiveChannelTracker.currentChannelId == channel.channelID {
+            context.currentChannel = nil
+            ActiveChannelTracker.currentChannelId = 0
+        }
         messageHistoryDisposable?.dispose()
         stateDisposables.dispose()
+        NotificationCenter.default.removeObserver(self)
     }
 
     func handleBroughtForwardFromNotificationDeepLink() {
@@ -2333,19 +2436,7 @@ final class ChatViewController: ViewController {
         if !messages.isEmpty {
             markChannelAsRead()
         }
-        let previousCatchUp = reconnectCatchUpTask
-        previousCatchUp?.cancel()
-        reconnectCatchUpTask = Task { @MainActor [weak self] in
-            _ = await previousCatchUp?.value
-            guard let self, !Task.isCancelled else { return }
-            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
-            await self.joinChatAndWaitUntilSent()
-            if self.newestServerMessageId() == nil {
-                self.fetchMessages(token: token)
-            } else {
-                await self.catchUpMessagesAfterReconnect(token: token)
-            }
-        }
+        refreshMessagesAfterReconnect()
     }
 
     func prepareForNotificationNavigation() {
@@ -2484,15 +2575,70 @@ final class ChatViewController: ViewController {
         }.first
     }
 
+    private func refreshMessagesAfterReconnect() {
+        guard !hasLeftChat else { return }
+        reconnectCatchUpTask?.cancel()
+        if let previous = reconnectPreparationRequestId { endMessageRequestTimeout(id: previous) }
+        if let previous = activeCatchUpRequestId {
+            endMessageRequestTimeout(id: previous)
+            activeCatchUpRequestId = nil
+            isCatchingUpAfterReconnect = false
+            setIsLoadingNewer(false)
+        }
+
+        let generation = messageHistoryGeneration
+        let storageId = storageChannelId
+        let requestId = UUID()
+        reconnectPreparationRequestId = requestId
+        beginMessageRequestTimeout(id: requestId, generation: generation)
+        let accountContext = context
+        // Cancellation need not wait for an old socket/token/network operation to return.
+        reconnectCatchUpTask = Task { @MainActor [weak self, accountContext] in
+            defer {
+                self?.endMessageRequestTimeout(id: requestId)
+                if self?.reconnectPreparationRequestId == requestId {
+                    self?.reconnectPreparationRequestId = nil
+                }
+            }
+            let token = await accountContext.getTokenPreferringCachedSkipSessionReadyWait()
+            guard let self, !Task.isCancelled,
+                  self.isCurrentMessageHistoryRequest(generation, storageId: storageId), let token else { return }
+            await self.joinChatAndWaitUntilSent()
+            guard !Task.isCancelled, self.isCurrentMessageHistoryRequest(generation, storageId: storageId) else { return }
+            self.endMessageRequestTimeout(id: requestId)
+            self.refreshPinnedMessagesFromServer()
+            if !self.hasCompletedInitialFetch {
+                self.fetchNotificationSetting(token: token)
+                self.fetchChannelPermissions(token: token)
+                self.fetchChannelMembers(token: token)
+                self.checkBanStatus(token: token)
+            }
+            if self.newestServerMessageId() == nil {
+                self.fetchMessages(token: token)
+            } else {
+                await self.catchUpMessagesAfterReconnect(token: token)
+            }
+        }
+    }
+
     private func catchUpMessagesAfterReconnect(token: String) async {
-        guard !isCatchingUpAfterReconnect else { return }
+        guard !hasLeftChat, !isJumping, messageFetchTask == nil, !isCatchingUpAfterReconnect else { return }
         guard pendingJumpToMessageId == nil else { return }
         guard var cursor = newestServerMessageId() else {
             fetchMessages(token: token)
             return
         }
 
+        let generation = messageHistoryGeneration
+        let storageId = storageChannelId
+        let channelId = channel.channelID
+        let requestTopicId = topicId
+        let requestId = UUID()
+        if let previous = activeCatchUpRequestId { endMessageRequestTimeout(id: previous) }
+        activeCatchUpRequestId = requestId
+        beginMessageRequestTimeout(id: requestId, generation: generation)
         isCatchingUpAfterReconnect = true
+        setHasMoreNewer(true)
         let wasAtBottom = messagesNode.isAtBottom
         let visibleMessageAnchor = wasAtBottom ? nil : messagesNode.captureVisibleMessageAnchor()
         let initialUserScrollGeneration = messagesNode.userScrollGeneration
@@ -2503,32 +2649,31 @@ final class ChatViewController: ViewController {
 
         var reachedPresent = false
         defer {
-            isCatchingUpAfterReconnect = false
-            setIsLoadingNewer(false)
-
-            let canRestorePosition = !Task.isCancelled
-                && viewIfLoaded?.window != nil
-                && UIApplication.shared.applicationState != .background
-                && messagesNode.userScrollGeneration == initialUserScrollGeneration
-
-            if canRestorePosition, let visibleMessageAnchor {
-                messagesNode.listView.addAfterTransactionsCompleted { [weak self] in
-                    guard let self,
-                          self.messagesNode.userScrollGeneration == initialUserScrollGeneration else {
-                        return
+            if isCurrentMessageHistoryRequest(generation, storageId: storageId), activeCatchUpRequestId == requestId {
+                isCatchingUpAfterReconnect = false
+                let wasCancelled = Task.isCancelled
+                let didReachPresent = reachedPresent
+                // Flush all enqueued pages before ending the loading/viewport transition.
+                context.account.postbox.write({ _ in }, completion: { [weak self] in
+                    guard let self, self.isCurrentMessageHistoryRequest(generation, storageId: storageId),
+                          self.activeCatchUpRequestId == requestId else { return }
+                    self.messagesNode.listView.addAfterTransactionsCompleted { [weak self] in
+                        guard let self, self.isCurrentMessageHistoryRequest(generation, storageId: storageId),
+                              self.activeCatchUpRequestId == requestId else { return }
+                        self.endMessageRequestTimeout(id: requestId)
+                        self.activeCatchUpRequestId = nil
+                        self.setIsLoadingNewer(false)
+                        let canRestorePosition = !wasCancelled
+                            && self.viewIfLoaded?.window != nil
+                            && UIApplication.shared.applicationState != .background
+                            && self.messagesNode.userScrollGeneration == initialUserScrollGeneration
+                        if canRestorePosition, let visibleMessageAnchor {
+                            self.messagesNode.restoreVisibleMessageAnchor(visibleMessageAnchor)
+                        } else if didReachPresent, wasAtBottom, canRestorePosition {
+                            self.forceScrollToBottom { [weak self] in self?.markChannelAsRead() }
+                        }
                     }
-                    self.messagesNode.restoreVisibleMessageAnchor(visibleMessageAnchor)
-                }
-            } else if reachedPresent, wasAtBottom, canRestorePosition {
-                messagesNode.listView.addAfterTransactionsCompleted { [weak self] in
-                    guard let self,
-                          self.messagesNode.userScrollGeneration == initialUserScrollGeneration else {
-                        return
-                    }
-                    self.forceScrollToBottom {
-                        self.markChannelAsRead()
-                    }
-                }
+                })
             }
         }
 
@@ -2539,26 +2684,33 @@ final class ChatViewController: ViewController {
         var hitPageCap = false
         do {
             while !Task.isCancelled {
+                guard isCurrentMessageHistoryRequest(generation, storageId: storageId) else { return }
                 guard UIApplication.shared.applicationState != .background else { break }
                 guard pagesFetched < maxCatchUpPages else {
                     hitPageCap = true
                     break
                 }
+                let page = context.account.postbox.read { $0.beginMessageHistoryPage(channelId: storageId) }
                 let response = try await context.account.network.listChannelMessages(
                     clanId: clanId,
-                    channelId: channel.channelID,
+                    channelId: channelId,
                     messageId: cursor,
                     direction: 1,
                     limit: pageSize,
-                    topicId: topicId,
+                    topicId: requestTopicId,
                     token: token
                 )
+                guard !Task.isCancelled, isCurrentMessageHistoryRequest(generation, storageId: storageId) else { return }
                 pagesFetched += 1
 
-                let validMessages = response.messages.filter { $0.messageID != 0 }
+                let validMessages = response.messages.filter {
+                    $0.messageID != 0 && ($0.channelID == 0 || $0.channelID == channelId)
+                        && (requestTopicId == 0 || $0.topicID == 0 || $0.topicID == requestTopicId)
+                }
                 if !validMessages.isEmpty {
+                    let records = validMessages.map { self.messageRecord(from: $0, storageChannelId: storageId) }
                     context.account.postbox.write { tx in
-                        tx.addMessages(validMessages.map { self.messageRecord(from: $0) })
+                        tx.applyMessageHistoryPage(records, page: page)
                     }
                 }
 
@@ -2580,15 +2732,16 @@ final class ChatViewController: ViewController {
                 cursor = nextCursor
             }
 
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, isCurrentMessageHistoryRequest(generation, storageId: storageId) else { return }
             if reachedPresent {
+                hasCompletedInitialFetch = true
                 setHasMoreNewer(false)
             } else if hitPageCap {
                 setHasMoreNewer(true)
                 lastFetchedNewerMessageId = nil
             }
         } catch {
-            if error is CancellationError || Task.isCancelled { return }
+            if error is CancellationError || Task.isCancelled || !isCurrentMessageHistoryRequest(generation, storageId: storageId) { return }
             setHasMoreNewer(true)
             lastFetchedNewerMessageId = nil
             SentryLogger.capture(error, extras: [
@@ -2601,6 +2754,7 @@ final class ChatViewController: ViewController {
     }
 
     func fetchMessages(token: String? = nil, isInitialFetch: Bool = false) {
+        guard !hasLeftChat, !isJumping else { return }
         if initialMessageJumpTargetId != nil || pendingJumpToMessageId != nil { return }
         let hadCachedMessages = !messages.isEmpty
         let hadCachedInPostbox = hasCachedMessagesInPostbox()
@@ -2619,6 +2773,14 @@ final class ChatViewController: ViewController {
             setIsLoading(false)
             return
         }
+        cancelMessageHistoryRequests()
+        let generation = messageHistoryGeneration
+        let storageId = storageChannelId
+        let channelId = channel.channelID
+        let requestTopicId = topicId
+        let refresh = context.account.postbox.read { $0.beginMessageHistoryRefresh(channelId: storageId) }
+        activeMessageHistoryRefresh = refresh
+        beginMessageRequestTimeout(id: refresh.id, generation: generation)
         let showsCacheRefreshLoader = hadCachedMessages || hadCachedInPostbox
         let initialScrollGeneration = isInitialFetch && showsCacheRefreshLoader
             ? messagesNode.userScrollGeneration : nil
@@ -2628,35 +2790,41 @@ final class ChatViewController: ViewController {
             setIsLoadingMessageContext(true)
         }
         setErrorMessage(nil)
-        Task { @MainActor in
+        let accountContext = context
+        messageFetchTask = Task { @MainActor [weak self, accountContext] in
+            var waitingForMessageCommit = false
             defer {
-                self.setIsLoading(false)
-                if showsCacheRefreshLoader {
-                    self.setIsLoadingMessageContext(false)
+                if !waitingForMessageCommit {
+                    self?.finishMessageFetch(generation: generation, storageId: storageId, refresh: refresh)
                 }
             }
             let resolvedToken: String?
-            if let token { resolvedToken = token } else { resolvedToken = await self.context.getTokenPreferringCachedSkipSessionReadyWait() }
-            guard let token = resolvedToken else { return }
+            if let token { resolvedToken = token } else { resolvedToken = await accountContext.getTokenPreferringCachedSkipSessionReadyWait() }
+            guard let self, !Task.isCancelled,
+                  self.isCurrentMessageHistoryRequest(generation, storageId: storageId),
+                  let token = resolvedToken else { return }
             do {
                 func loadInitialMessages() async throws -> Mezon_Api_ChannelMessageList {
                     var response = try await self.context.account.network.listChannelMessages(
                         clanId: clanId,
-                        channelId: channel.channelID,
+                        channelId: channelId,
                         messageId: 0,
                         direction: 2,
                         limit: 30,
-                        topicId: self.topicId,
+                        topicId: requestTopicId,
                         token: token
                     )
                     if response.messages.isEmpty {
+                        guard !Task.isCancelled, self.isCurrentMessageHistoryRequest(generation, storageId: storageId) else {
+                            throw CancellationError()
+                        }
                         response = try await self.context.account.network.listChannelMessages(
                             clanId: clanId,
-                            channelId: channel.channelID,
+                            channelId: channelId,
                             messageId: 0,
                             direction: 3,
                             limit: 30,
-                            topicId: self.topicId,
+                            topicId: requestTopicId,
                             token: token
                         )
                     }
@@ -2664,27 +2832,35 @@ final class ChatViewController: ViewController {
                 }
 
                 let response = try await loadInitialMessages()
-                self.setHasMoreOlder(response.messages.count > 1)
-                let records = response.messages.map { self.messageRecord(from: $0) }
-                if records.isEmpty && (hadCachedMessages || hadCachedInPostbox) {
+                guard !Task.isCancelled, self.isCurrentMessageHistoryRequest(generation, storageId: storageId) else { return }
+                let records = response.messages.filter {
+                    $0.messageID != 0 && ($0.channelID == 0 || $0.channelID == channelId)
+                        && (requestTopicId == 0 || $0.topicID == 0 || $0.topicID == requestTopicId)
+                }.map { self.messageRecord(from: $0, storageChannelId: storageId) }
+                if records.isEmpty {
+                    if !hadCachedMessages && !hadCachedInPostbox {
+                        self.setHasMoreOlder(false)
+                        self.hasCompletedInitialFetch = true
+                    }
                     return
                 }
+                self.setHasMoreOlder(records.count > 1)
+                self.setHasMoreNewer(false)
                 if let initialScrollGeneration {
                     self.messagesNode.initialCacheRefreshScrollGeneration = initialScrollGeneration
                 }
+                waitingForMessageCommit = true
                 self.context.account.postbox.write({ tx in
-                    tx.replaceAllMessages(
-                        records,
-                        channelId: self.storageChannelId,
-                        preservingContiguousHistory: true
-                    )
+                    tx.applyMessageHistoryRefresh(records, refresh: refresh)
                 }, completion: { [weak self] in
-                    if initialScrollGeneration != nil {
-                        self?.messagesNode.initialCacheRefreshScrollGeneration = nil
+                    guard let self, self.isCurrentMessageHistoryRequest(generation, storageId: storageId) else { return }
+                    self.messagesNode.listView.addAfterTransactionsCompleted { [weak self] in
+                        self?.finishMessageFetch(generation: generation, storageId: storageId, refresh: refresh, succeeded: true)
                     }
                 })
             } catch {
-                if error is CancellationError || Task.isCancelled {
+                if error is CancellationError || Task.isCancelled
+                    || !self.isCurrentMessageHistoryRequest(generation, storageId: storageId) {
                     return
                 }
                 SentryLogger.capture(error, extras: [
@@ -2713,123 +2889,143 @@ final class ChatViewController: ViewController {
     }
 
     func fetchOlderMessages() {
-        guard hasMoreOlder, !isLoadingMore else { return }
-        guard messages.count >= 10 else { return }
-
+        guard !hasLeftChat, messageFetchTask == nil, !isJumping,
+              hasMoreOlder, !isLoadingMore, messages.count >= 10 else { return }
         guard let msgId = Self.oldestServerMessageId(in: messages) else {
             setHasMoreOlder(false)
             return
         }
-
         guard msgId != lastFetchedOlderMessageId else { return }
         lastFetchedOlderMessageId = msgId
-
+        let generation = messageHistoryGeneration
+        let storageId = storageChannelId
+        let channelId = channel.channelID
+        let requestTopicId = topicId
+        let page = context.account.postbox.read { $0.beginMessageHistoryPage(channelId: storageId) }
+        let requestId = UUID()
+        beginMessageRequestTimeout(id: requestId, generation: generation)
         setIsLoadingMore(true)
-        Task { @MainActor in
-            defer { self.setIsLoadingMore(false) }
-            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
-            do {
-                let response = try await self.context.account.network.listChannelMessages(
-                    clanId: clanId, channelId: channel.channelID,
-                    messageId: msgId, direction: 3, limit: 30, topicId: self.topicId, token: token
-                )
-                self.setHasMoreOlder(!response.messages.isEmpty)
-                if !response.messages.isEmpty {
-                    self.context.account.postbox.write { tx in
-                        tx.addMessages(response.messages.map { self.messageRecord(from: $0) })
-                    }
+        let accountContext = context
+        olderMessagesTask = Task { @MainActor [weak self, accountContext] in
+            var receivedPage = false
+            var waitingForCommit = false
+            defer {
+                if let self, !waitingForCommit, self.isCurrentMessageHistoryRequest(generation, storageId: storageId) {
+                    self.endMessageRequestTimeout(id: requestId)
+                    self.olderMessagesTask = nil
+                    if !receivedPage { self.lastFetchedOlderMessageId = nil }
+                    self.setIsLoadingMore(false)
                 }
+            }
+            let token = await accountContext.getTokenPreferringCachedSkipSessionReadyWait()
+            guard let self, !Task.isCancelled,
+                  self.isCurrentMessageHistoryRequest(generation, storageId: storageId), let token else { return }
+            do {
+                let response = try await accountContext.account.network.listChannelMessages(
+                    clanId: self.clanId, channelId: channelId,
+                    messageId: msgId, direction: 3, limit: 30, topicId: requestTopicId, token: token
+                )
+                guard !Task.isCancelled, self.isCurrentMessageHistoryRequest(generation, storageId: storageId) else { return }
+                let valid = response.messages.filter {
+                    $0.messageID != 0 && ($0.channelID == 0 || $0.channelID == channelId)
+                        && (requestTopicId == 0 || $0.topicID == 0 || $0.topicID == requestTopicId)
+                }
+                receivedPage = true
+                self.setHasMoreOlder(valid.contains { $0.messageID < msgId })
+                let records = valid.map { self.messageRecord(from: $0, storageChannelId: storageId) }
+                guard !records.isEmpty else { return }
+                waitingForCommit = true
+                accountContext.account.postbox.write({ tx in
+                    tx.applyMessageHistoryPage(records, page: page)
+                }, completion: { [weak self] in
+                    guard let self, self.isCurrentMessageHistoryRequest(generation, storageId: storageId) else { return }
+                    self.messagesNode.listView.addAfterTransactionsCompleted { [weak self] in
+                        guard let self, self.isCurrentMessageHistoryRequest(generation, storageId: storageId) else { return }
+                        self.endMessageRequestTimeout(id: requestId)
+                        self.olderMessagesTask = nil
+                        self.setIsLoadingMore(false)
+                    }
+                })
             } catch {
-                self.lastFetchedOlderMessageId = nil
-                if error is CancellationError || Task.isCancelled { return }
-                SentryLogger.capture(error, extras: [
-                    "where": "ChatViewController.fetchOlderMessages",
-                    "channelId": channel.channelID,
-                    "clanId": clanId,
-                    "anchorMessageId": msgId,
-                ])
+                if error is CancellationError || Task.isCancelled || !self.isCurrentMessageHistoryRequest(generation, storageId: storageId) { return }
+                SentryLogger.capture(error, extras: ["where": "ChatViewController.fetchOlderMessages", "channelId": channelId, "clanId": self.clanId, "anchorMessageId": msgId])
             }
         }
     }
 
     func fetchNewerMessages() {
-        guard hasMoreNewer, !isLoadingNewer else { return }
+        guard !hasLeftChat, messageFetchTask == nil, !isJumping, !isCatchingUpAfterReconnect,
+              hasMoreNewer, !isLoadingNewer else { return }
         guard let msgId = Self.newestServerMessageId(in: messages) else { return }
-
         guard msgId != lastFetchedNewerMessageId else { return }
         lastFetchedNewerMessageId = msgId
-
+        let generation = messageHistoryGeneration
+        let storageId = storageChannelId
+        let channelId = channel.channelID
+        let requestTopicId = topicId
+        let page = context.account.postbox.read { $0.beginMessageHistoryPage(channelId: storageId) }
+        let requestId = UUID()
+        beginMessageRequestTimeout(id: requestId, generation: generation)
         shouldScrollToBottom = false
         setIsLoadingNewer(true)
-        Task { @MainActor in
-            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else {
-                self.lastFetchedNewerMessageId = nil
-                self.setIsLoadingNewer(false)
-                return
-            }
-            do {
-                let response = try await self.context.account.network.listChannelMessages(
-                    clanId: clanId, channelId: channel.channelID,
-                    messageId: msgId, direction: 1, limit: 30, topicId: self.topicId, token: token
-                )
-                self.setHasMoreNewer(response.messages.contains(where: { $0.messageID > msgId }))
-                if !response.messages.isEmpty {
-                    self.context.account.postbox.write { tx in
-                        tx.addMessages(response.messages.map { self.messageRecord(from: $0) })
-                    }
+        let accountContext = context
+        newerMessagesTask = Task { @MainActor [weak self, accountContext] in
+            var receivedPage = false
+            var waitingForCommit = false
+            defer {
+                if let self, !waitingForCommit, self.isCurrentMessageHistoryRequest(generation, storageId: storageId) {
+                    self.endMessageRequestTimeout(id: requestId)
+                    self.newerMessagesTask = nil
+                    if !receivedPage { self.lastFetchedNewerMessageId = nil }
+                    self.setIsLoadingNewer(false)
                 }
-                self.setIsLoadingNewer(false)
+            }
+            let token = await accountContext.getTokenPreferringCachedSkipSessionReadyWait()
+            guard let self, !Task.isCancelled,
+                  self.isCurrentMessageHistoryRequest(generation, storageId: storageId), let token else { return }
+            do {
+                let response = try await accountContext.account.network.listChannelMessages(
+                    clanId: self.clanId, channelId: channelId,
+                    messageId: msgId, direction: 1, limit: 30, topicId: requestTopicId, token: token
+                )
+                guard !Task.isCancelled, self.isCurrentMessageHistoryRequest(generation, storageId: storageId) else { return }
+                let valid = response.messages.filter {
+                    $0.messageID != 0 && ($0.channelID == 0 || $0.channelID == channelId)
+                        && (requestTopicId == 0 || $0.topicID == 0 || $0.topicID == requestTopicId)
+                }
+                receivedPage = true
+                self.setHasMoreNewer(valid.contains { $0.messageID > msgId })
+                let records = valid.map { self.messageRecord(from: $0, storageChannelId: storageId) }
+                guard !records.isEmpty else { return }
+                waitingForCommit = true
+                accountContext.account.postbox.write({ tx in
+                    tx.applyMessageHistoryPage(records, page: page)
+                }, completion: { [weak self] in
+                    guard let self, self.isCurrentMessageHistoryRequest(generation, storageId: storageId) else { return }
+                    self.messagesNode.listView.addAfterTransactionsCompleted { [weak self] in
+                        guard let self, self.isCurrentMessageHistoryRequest(generation, storageId: storageId) else { return }
+                        self.endMessageRequestTimeout(id: requestId)
+                        self.newerMessagesTask = nil
+                        self.setIsLoadingNewer(false)
+                    }
+                })
             } catch {
-                SentryLogger.capture(error, extras: [
-                    "where": "ChatViewController.fetchNewerMessages",
-                    "channelId": channel.channelID,
-                    "clanId": clanId,
-                    "anchorMessageId": msgId,
-                ])
-                self.lastFetchedNewerMessageId = nil
-                self.setHasMoreNewer(true)
-                self.setIsLoadingNewer(false)
+                if error is CancellationError || Task.isCancelled || !self.isCurrentMessageHistoryRequest(generation, storageId: storageId) { return }
+                SentryLogger.capture(error, extras: ["where": "ChatViewController.fetchNewerMessages", "channelId": channelId, "clanId": self.clanId, "anchorMessageId": msgId])
             }
         }
     }
 
     private func jumpToPresent() {
+        guard !hasLeftChat else { return }
+        initialMessageJumpTargetId = nil
+        pendingJumpToMessageId = nil
+        messagesNode.pendingJumpMessageId = nil
+        isJumping = false
         shouldScrollToBottom = true
         pendingScrollToBottom = true
         setHasMoreNewer(false)
-
-        let hadCachedMessages = !messages.isEmpty
-        let hadCachedInPostbox = hasCachedMessagesInPostbox()
-        Task { @MainActor in
-            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else {
-                self.pendingScrollToBottom = false
-                return
-            }
-            do {
-                let response = try await self.context.account.network.listChannelMessages(
-                    clanId: clanId, channelId: channel.channelID,
-                    messageId: 0, direction: 2, limit: 30, topicId: self.topicId, token: token
-                )
-                self.setHasMoreOlder(response.messages.count > 1)
-                if response.messages.isEmpty && (hadCachedMessages || hadCachedInPostbox) {
-                    return
-                }
-                self.context.account.postbox.write { tx in
-                    tx.replaceAllMessages(
-                        response.messages.map { self.messageRecord(from: $0) },
-                        channelId: self.storageChannelId
-                    )
-                }
-            } catch {
-                SentryLogger.capture(error, extras: [
-                    "where": "ChatViewController.jumpToPresent",
-                    "channelId": channel.channelID,
-                    "clanId": clanId,
-                ])
-                self.pendingScrollToBottom = false
-                self.setErrorMessage(error.localizedDescription)
-            }
-        }
+        fetchMessages()
     }
 
 
@@ -3578,7 +3774,8 @@ final class ChatViewController: ViewController {
         return (nil, false)
     }
 
-    private func messageRecord(from api: Mezon_Api_ChannelMessage) -> MessageRecord {
+    private func messageRecord(from api: Mezon_Api_ChannelMessage, storageChannelId: String? = nil) -> MessageRecord {
+        let storageChannelId = storageChannelId ?? self.storageChannelId
         let mid = "\(api.messageID)"
         let existing = context.account.postbox.read { tx in tx.getMessageById(mid, channelId: storageChannelId) }
         var record = MessageRecord.fromHistory(api, merging: existing)
@@ -4076,8 +4273,10 @@ final class ChatViewController: ViewController {
     }
 
     private func waitForSocketConnected() async {
+        guard !hasLeftChat, !Task.isCancelled else { return }
         if context.account.socket.isConnected { return }
         for _ in 0..<50 {
+            guard !hasLeftChat, !Task.isCancelled else { return }
             try? await Task.sleep(nanoseconds: 200_000_000)
             if context.account.socket.isConnected {
                 return
@@ -4178,7 +4377,7 @@ final class ChatViewController: ViewController {
     }
 
     private func joinChatAndWaitUntilSent() async {
-        guard context.account.socket.isConnected else { return }
+        guard !hasLeftChat, !Task.isCancelled, context.account.socket.isConnected else { return }
         let targetClanId = clanId
         let targetChannel = channel
         if targetClanId == 0 {
@@ -4186,7 +4385,7 @@ final class ChatViewController: ViewController {
         } else {
             await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: context, clanId: targetClanId)
         }
-        guard context.account.socket.isConnected else { return }
+        guard !hasLeftChat, !Task.isCancelled, context.account.socket.isConnected else { return }
         context.account.socket.joinClanChat(clanId: targetClanId)
         let channelType: Int32 = targetClanId == 0
             ? (targetChannel.type != 0 ? targetChannel.type : MezonConstants.ChannelType.group.rawValue)
@@ -4757,67 +4956,69 @@ final class ChatViewController: ViewController {
     }
 
     private func jumpToMessage(id messageId: String) {
+        guard !hasLeftChat else { return }
+        cancelMessageHistoryRequests()
         shouldScrollToBottom = false
         isJumping = true
-
         if messages.contains(where: { $0.id == messageId }) {
             messagesNode.pendingJumpMessageId = messageId
             messagesNode.triggerPendingJump()
             return
         }
-
-        guard let msgId = Int64(messageId) else {
+        guard let msgId = Int64(messageId), msgId != 0 else {
             finishMessageJump(messageId: messageId)
             return
         }
-
+        let generation = messageHistoryGeneration
+        let storageId = storageChannelId
+        let channelId = channel.channelID
+        let requestTopicId = topicId
+        let refresh = context.account.postbox.read { $0.beginMessageHistoryRefresh(channelId: storageId) }
+        activeMessageHistoryRefresh = refresh
+        beginMessageRequestTimeout(id: refresh.id, generation: generation)
         readyToLoadMore = false
         messagesNode.pendingJumpMessageId = messageId
-        lastFetchedOlderMessageId = nil
-        lastFetchedNewerMessageId = nil
-
         setIsLoadingMessageContext(true)
-        Task { @MainActor in
+        let accountContext = context
+        messageJumpTask = Task { @MainActor [weak self, accountContext] in
+            var waitingForCommit = false
             defer {
-                self.setIsLoadingMessageContext(false)
-            }
-            guard let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else {
-                self.messagesNode.pendingJumpMessageId = nil
-                self.finishMessageJump(messageId: messageId)
-                return
-            }
-            do {
-                let response = try await self.context.account.network.listChannelMessages(
-                    clanId: self.clanId,
-                    channelId: self.channel.channelID,
-                    messageId: msgId,
-                    direction: 2,
-                    limit: 30,
-                    topicId: self.topicId,
-                    token: token
-                )
-                guard response.messages.contains(where: { $0.messageID == msgId }) else {
+                if let self, !waitingForCommit, self.isCurrentMessageHistoryRequest(generation, storageId: storageId) {
                     self.messagesNode.pendingJumpMessageId = nil
                     self.finishMessageJump(messageId: messageId)
-                    return
+                    self.finishMessageFetch(generation: generation, storageId: storageId, refresh: refresh)
                 }
-                self.setHasMoreOlder(response.messages.count > 1)
+            }
+            let token = await accountContext.getTokenPreferringCachedSkipSessionReadyWait()
+            guard let self, !Task.isCancelled,
+                  self.isCurrentMessageHistoryRequest(generation, storageId: storageId), let token else { return }
+            do {
+                let response = try await accountContext.account.network.listChannelMessages(
+                    clanId: self.clanId, channelId: channelId, messageId: msgId,
+                    direction: 2, limit: 30, topicId: requestTopicId, token: token
+                )
+                guard !Task.isCancelled, self.isCurrentMessageHistoryRequest(generation, storageId: storageId) else { return }
+                let valid = response.messages.filter {
+                    $0.messageID != 0 && ($0.channelID == 0 || $0.channelID == channelId)
+                        && (requestTopicId == 0 || $0.topicID == 0 || $0.topicID == requestTopicId)
+                }
+                guard valid.contains(where: { $0.messageID == msgId }) else { return }
+                let records = valid.map { self.messageRecord(from: $0, storageChannelId: storageId) }
+                self.setHasMoreOlder(records.count > 1)
                 self.setHasMoreNewer(true)
-                self.context.account.postbox.write { tx in
-                    tx.replaceAllMessages(
-                        response.messages.map { self.messageRecord(from: $0) },
-                        channelId: self.storageChannelId
-                    )
-                }
+                waitingForCommit = true
+                accountContext.account.postbox.write({ tx in
+                    tx.applyMessageHistoryRefresh(records, refresh: refresh, atLatest: false)
+                }, completion: { [weak self] in
+                    guard let self, self.isCurrentMessageHistoryRequest(generation, storageId: storageId) else { return }
+                    self.messagesNode.listView.addAfterTransactionsCompleted { [weak self] in
+                        self?.finishMessageFetch(generation: generation, storageId: storageId, refresh: refresh, succeeded: true)
+                    }
+                })
             } catch {
-                SentryLogger.capture(error, extras: [
-                    "where": "ChatViewController.jumpToMessage",
-                    "channelId": self.channel.channelID,
-                    "clanId": self.clanId,
-                    "anchorMessageId": msgId,
-                ])
-                self.messagesNode.pendingJumpMessageId = nil
-                self.finishMessageJump(messageId: messageId)
+                if error is CancellationError || Task.isCancelled || !self.isCurrentMessageHistoryRequest(generation, storageId: storageId) { return }
+                SentryLogger.capture(error, extras: ["where": "ChatViewController.jumpToMessage", "channelId": channelId, "clanId": self.clanId, "anchorMessageId": msgId])
+                self.setErrorMessage(error.localizedDescription)
             }
         }
     }

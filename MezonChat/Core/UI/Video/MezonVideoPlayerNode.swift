@@ -3,84 +3,453 @@ import UIKit
 import AsyncDisplayKit
 import AVFoundation
 
-private final class ChunkedVideoResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
-    private static let session = URLSession(configuration: .ephemeral)
-    private static let firstChunkSize = 64 * 1024
-    private static let maxChunkSize = 1024 * 1024
+private enum VideoPlaybackBufferPolicy {
+    // Track timestamps may begin slightly after zero or differ by a few frames.
+    // Count only contiguous ranges near the playhead, never a distant seek target.
+    static func bufferedAhead(at position: Double, ranges: [CMTimeRange]) -> Double {
+        guard position.isFinite else { return 0 }
+        let ranges = ranges.compactMap { range -> (start: Double, end: Double)? in
+            let start = range.start.seconds
+            let end = range.end.seconds
+            guard start.isFinite, end.isFinite, end > start else { return nil }
+            return (start, end)
+        }.sorted { $0.start < $1.start }
+        var end = position
+        for range in ranges {
+            if range.end <= end { continue }
+            guard range.start <= end + 0.1 else { break }
+            end = range.end
+        }
+        return max(0, end - position)
+    }
 
-    let queue = DispatchQueue(label: "mezon.video.chunked-loader")
+    static func shouldStart(bufferedAhead: Double, remaining: Double?, hasStarted: Bool, waitingDuration: Double, bufferGrowthRate: Double? = nil) -> Bool {
+        guard bufferedAhead.isFinite, bufferedAhead > 0 else { return false }
+        if let remaining, remaining.isFinite, remaining > 0,
+           bufferedAhead >= remaining - 0.05 { return true }
+        // If loading adds less than one second of playable media per second,
+        // forcing playback just drains the buffer and repeats the stall.
+        if waitingDuration >= 2, let rate = bufferGrowthRate, rate.isFinite, rate < 1 {
+            return false
+        }
+        return bufferedAhead >= (hasStarted ? 2.0 : 1.0)
+    }
+}
+
+private final class ChunkedVideoResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
+    // Larger HTTP ranges avoid repeated round trips; delegate callbacks still
+    // deliver the first bytes immediately, without waiting for a whole chunk.
+    private static let chunkSize = 512 * 1024
+    private static let cacheLimit = 4 * 1024 * 1024
+    private static let diskCacheLimit = 128 * 1024 * 1024
+    private static let maxConcurrentTransfers = 2
+
+    private final class Transfer {
+        let offset: Int64
+        var end: Int64
+        var data: Data
+        var task: URLSessionDataTask?
+        var responseEnd: Int64?
+        var retriesLeft = 2
+        var startedAt = CFAbsoluteTimeGetCurrent()
+        var loggedFirstBytes = false
+        var isPrefetch = false
+        var priority = URLSessionTask.highPriority
+
+        var nextOffset: Int64 { offset + Int64(data.count) }
+
+        init(offset: Int64, end: Int64, data: Data) {
+            self.offset = offset
+            self.end = end
+            self.data = data
+        }
+    }
+
+    // URLSession retains its delegate. A weak owner lets closing the player
+    // release this loader and cancel all transfers, even during a slow response.
+    private final class SessionDelegate: NSObject, URLSessionDataDelegate {
+        weak var owner: ChunkedVideoResourceLoader?
+
+        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+            guard let owner else { completionHandler(.cancel); return }
+            owner.receive(response, for: dataTask, completionHandler: completionHandler)
+        }
+
+        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+            owner?.receive(data, for: dataTask)
+        }
+
+        func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+            owner?.complete(task, error: error)
+        }
+    }
+
+    let queue = DispatchQueue(label: "mezon.video.chunked-loader", qos: .userInitiated)
     let assetURL: URL?
     private let remoteURL: URL
-    private var tasks: [ObjectIdentifier: URLSessionTask] = [:]
+    private let sessionDelegate = SessionDelegate()
+    private var session: URLSession!
+    private var requests: [ObjectIdentifier: AVAssetResourceLoadingRequest] = [:]
+    private var transfers: [Int64: Transfer] = [:]
+    private var tasks: [Int: Transfer] = [:]
+    private var contentLength: Int64?
+    private var cache: [Int64: Data] = [:]
+    private var cacheOrder: [Int64] = []
+    private var cachedBytes = 0
+    private var cacheFileURL: URL?
+    private var cacheFile: FileHandle?
+    // A sparse file may contain holes; only these contiguous chunk prefixes
+    // contain received bytes and are safe to return to AVPlayer.
+    private var diskChunkLengths: [Int64: Int] = [:]
+    private var diskCachedBytes = 0
+    private var receivedNetworkBytes: Int64 = 0
+    private var lastThroughputBytes: Int64 = 0
+    private var lastThroughputTime = ProcessInfo.processInfo.systemUptime
+    private var startedRequestCount = 0
+    private var cancelledRequestCount = 0
+    private var completedRequestCount = 0
+    private var failedPrefetchOffsets = Set<Int64>()
 
-    init(remoteURL: URL) {
+    init(remoteURL: URL, configuration: URLSessionConfiguration = .ephemeral, initialData: Data? = nil, initialResponse: HTTPURLResponse? = nil, cacheDirectory: URL = FileManager.default.temporaryDirectory) {
         self.remoteURL = remoteURL
         var components = URLComponents(url: remoteURL, resolvingAgainstBaseURL: false)
         components?.scheme = "mezon-stream"
         self.assetURL = components?.url
         super.init()
+        let fileURL = cacheDirectory.appendingPathComponent("mezon-video-range-\(UUID().uuidString).cache")
+        if #available(iOS 13.4, *), FileManager.default.createFile(atPath: fileURL.path, contents: nil) {
+            do {
+                cacheFile = try FileHandle(forUpdating: fileURL)
+                cacheFileURL = fileURL
+            } catch {
+                try? FileManager.default.removeItem(at: fileURL)
+            }
+        }
+        if let data = initialData, !data.isEmpty, data.count <= Self.chunkSize,
+           let response = initialResponse, response.statusCode == 206,
+           let header = response.value(forHTTPHeaderField: "Content-Range"),
+           let range = Self.parseContentRange(header),
+           range.start == 0, range.end == Int64(data.count) - 1 {
+            contentLength = range.total
+            storeInCache(data, at: 0)
+        }
+        sessionDelegate.owner = self
+        let delegateQueue = OperationQueue()
+        delegateQueue.maxConcurrentOperationCount = 1
+        delegateQueue.underlyingQueue = queue
+        configuration.httpMaximumConnectionsPerHost = Self.maxConcurrentTransfers
+        session = URLSession(configuration: configuration, delegate: sessionDelegate, delegateQueue: delegateQueue)
     }
 
     deinit {
-        tasks.values.forEach { $0.cancel() }
+        session.invalidateAndCancel()
+        discardDiskCache()
     }
 
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader, shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest) -> Bool {
-        let offset = loadingRequest.dataRequest.map { Int($0.requestedOffset) } ?? 0
-        load(loadingRequest, offset: offset, chunkSize: Self.firstChunkSize)
+        if let data = loadingRequest.dataRequest {
+            let (_, overflow) = data.requestedOffset.addingReportingOverflow(Int64(data.requestedLength))
+            guard data.requestedOffset >= 0, data.requestedLength >= 0,
+                  !overflow || data.requestsAllDataToEndOfResource else {
+                loadingRequest.finishLoading(with: URLError(.badURL))
+                return true
+            }
+        }
+        requests[ObjectIdentifier(loadingRequest)] = loadingRequest
+        processRequests()
         return true
     }
 
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader, didCancel loadingRequest: AVAssetResourceLoadingRequest) {
-        tasks.removeValue(forKey: ObjectIdentifier(loadingRequest))?.cancel()
+        requests.removeValue(forKey: ObjectIdentifier(loadingRequest))
+        processRequests()
     }
 
-    private func load(_ loadingRequest: AVAssetResourceLoadingRequest, offset: Int, chunkSize: Int, retriesLeft: Int = 2) {
-        var end = offset + chunkSize - 1
-        if let dataRequest = loadingRequest.dataRequest, !dataRequest.requestsAllDataToEndOfResource {
-            end = min(end, Int(dataRequest.requestedOffset) + dataRequest.requestedLength - 1)
-        }
-        var request = URLRequest(url: remoteURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
-        request.setValue("bytes=\(offset)-\(end)", forHTTPHeaderField: "Range")
-        let key = ObjectIdentifier(loadingRequest)
-        let task = Self.session.dataTask(with: request) { [weak self] data, response, error in
-            self?.queue.async {
-                guard let self, !loadingRequest.isCancelled else { return }
-                self.tasks[key] = nil
-                if (error as? URLError)?.code == .networkConnectionLost, retriesLeft > 0 {
-                    self.load(loadingRequest, offset: offset, chunkSize: chunkSize, retriesLeft: retriesLeft - 1)
-                    return
-                }
-                let http = response as? HTTPURLResponse
-                guard let data, error == nil, http?.statusCode == 206,
-                      let contentRange = http?.value(forHTTPHeaderField: "Content-Range"),
-                      let totalBytes = contentRange.split(separator: "/").last.flatMap({ Int64($0) }) else {
-                    loadingRequest.finishLoading(with: error ?? NSError(domain: "ChunkedVideoResourceLoader", code: http?.statusCode ?? -1))
-                    return
-                }
-                if let info = loadingRequest.contentInformationRequest {
-                    info.contentType = self.remoteURL.pathExtension.lowercased() == "mov" ? "com.apple.quicktime-movie" : "public.mpeg-4"
-                    info.contentLength = totalBytes
-                    info.isByteRangeAccessSupported = true
-                }
-                guard let dataRequest = loadingRequest.dataRequest else {
-                    loadingRequest.finishLoading()
-                    return
-                }
-                dataRequest.respond(with: data)
-                let nextOffset = offset + data.count
-                let requestedEnd = dataRequest.requestsAllDataToEndOfResource
-                    ? totalBytes
-                    : min(totalBytes, dataRequest.requestedOffset + Int64(dataRequest.requestedLength))
-                if Int64(nextOffset) >= requestedEnd || data.isEmpty {
-                    loadingRequest.finishLoading()
+    private func chunkOffset(for offset: Int64) -> Int64 {
+        offset / Int64(Self.chunkSize) * Int64(Self.chunkSize)
+    }
+
+    private func processRequests() {
+        var needed = Set<Int64>()
+        var readAhead = Set<Int64>()
+        for (key, request) in Array(requests) {
+            guard !request.isCancelled else { requests[key] = nil; continue }
+            if let length = contentLength, let info = request.contentInformationRequest {
+                info.contentType = remoteURL.pathExtension.lowercased() == "mov" ? "com.apple.quicktime-movie" : "public.mpeg-4"
+                info.contentLength = length
+                info.isByteRangeAccessSupported = true
+            }
+            guard let dataRequest = request.dataRequest else {
+                if contentLength != nil {
+                    requests[key] = nil
+                    request.finishLoading()
                 } else {
-                    self.load(loadingRequest, offset: nextOffset, chunkSize: min(chunkSize * 2, Self.maxChunkSize))
+                    needed.insert(0)
+                }
+                continue
+            }
+            let requestedEnd = dataRequest.requestsAllDataToEndOfResource
+                ? Int64.max : dataRequest.requestedOffset + Int64(dataRequest.requestedLength)
+            let end = min(requestedEnd, contentLength ?? Int64.max)
+            var offset = max(dataRequest.requestedOffset, dataRequest.currentOffset)
+            while offset < end {
+                let start = chunkOffset(for: offset)
+                guard let bytes = transfers[start]?.data ?? cachedData(at: start),
+                      offset - start < Int64(bytes.count) else { break }
+                let lower = Int(offset - start)
+                let count = Int(min(Int64(bytes.count - lower), end - offset))
+                dataRequest.respond(with: bytes.subdata(in: lower..<lower + count))
+                if cache[start] != nil { touchCache(start) }
+                offset += Int64(count)
+            }
+            if offset >= end, contentLength != nil {
+                requests[key] = nil
+                request.finishLoading()
+            } else {
+                let start = chunkOffset(for: offset)
+                needed.insert(start)
+                if let length = contentLength,
+                   start <= Int64.max - Int64(Self.chunkSize) {
+                    let next = start + Int64(Self.chunkSize)
+                    if next < min(end, length), !isChunkCached(at: next), !failedPrefetchOffsets.contains(next) {
+                        readAhead.insert(next)
+                    }
                 }
             }
         }
-        tasks[key] = task
+
+        for transfer in Array(transfers.values) {
+            // Finish the current HTTP range across gaps between small AVPlayer
+            // reads. Keep unused responses at low priority until a required
+            // read actually needs their slot; read-ahead alone cannot evict them.
+            transfer.isPrefetch = !needed.contains(transfer.offset)
+            transfer.priority = needed.contains(transfer.offset) ? URLSessionTask.highPriority
+                : (readAhead.contains(transfer.offset) ? URLSessionTask.defaultPriority : URLSessionTask.lowPriority)
+            transfer.task?.priority = transfer.priority
+        }
+
+        // Metadata and seeks take precedence over speculative read-ahead.
+        for offset in needed.sorted() where transfers[offset] == nil {
+            if transfers.count >= Self.maxConcurrentTransfers {
+                // Never interrupt an active read or a fully received response.
+                // Reclaim an unused range first, then speculative read-ahead.
+                let candidate = transfers.values.filter {
+                    !needed.contains($0.offset) && $0.nextOffset <= $0.end
+                }.min { lhs, rhs in
+                    let lhsIsReadAhead = readAhead.contains(lhs.offset)
+                    let rhsIsReadAhead = readAhead.contains(rhs.offset)
+                    if lhsIsReadAhead != rhsIsReadAhead { return !lhsIsReadAhead }
+                    if lhs.data.count != rhs.data.count { return lhs.data.count < rhs.data.count }
+                    return lhs.offset < rhs.offset
+                }
+                guard let candidate else { break }
+                storeInCache(candidate.data, at: candidate.offset)
+                VideoLoadDebug.log("range preempt offset=\(candidate.offset) forRequiredOffset=\(offset)") // FOR TEST ONLY: remove before release
+                removeTransfer(candidate)
+            }
+            guard transfers.count < Self.maxConcurrentTransfers else { break }
+            addTransfer(at: offset, isPrefetch: false)
+        }
+        for offset in readAhead.subtracting(needed).sorted() where transfers[offset] == nil {
+            guard transfers.count < Self.maxConcurrentTransfers else { break }
+            addTransfer(at: offset, isPrefetch: true)
+        }
+    }
+
+    private func isChunkCached(at offset: Int64) -> Bool {
+        guard let length = contentLength, offset < length else { return false }
+        let count = max(transfers[offset]?.data.count ?? 0, max(cache[offset]?.count ?? 0, diskChunkLengths[offset] ?? 0))
+        return Int64(count) >= min(Int64(Self.chunkSize), length - offset)
+    }
+
+    private func addTransfer(at offset: Int64, isPrefetch: Bool) {
+        let chunkEnd = offset + min(Int64(Self.chunkSize) - 1, Int64.max - offset)
+        let end = min(chunkEnd, (contentLength ?? Int64.max) - 1)
+        let data = cachedData(at: offset) ?? Data()
+        guard offset + Int64(data.count) <= end else { return }
+        let transfer = Transfer(offset: offset, end: end, data: data)
+        transfer.isPrefetch = isPrefetch
+        transfer.priority = isPrefetch ? URLSessionTask.defaultPriority : URLSessionTask.highPriority
+        transfers[offset] = transfer
+        start(transfer)
+    }
+
+    private func start(_ transfer: Transfer) {
+        var request = URLRequest(url: remoteURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+        request.setValue("bytes=\(transfer.nextOffset)-\(transfer.end)", forHTTPHeaderField: "Range")
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        transfer.responseEnd = nil
+        transfer.startedAt = CFAbsoluteTimeGetCurrent()
+        transfer.loggedFirstBytes = false
+        let task = session.dataTask(with: request)
+        task.priority = transfer.priority
+        transfer.task = task
+        tasks[task.taskIdentifier] = transfer
+        startedRequestCount += 1
         task.resume()
+    }
+
+    private func receive(_ response: URLResponse, for task: URLSessionDataTask, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        guard let transfer = tasks[task.taskIdentifier] else { completionHandler(.cancel); return }
+        guard let http = response as? HTTPURLResponse,
+              http.statusCode == 206,
+              let header = http.value(forHTTPHeaderField: "Content-Range"),
+              let range = Self.parseContentRange(header),
+              range.start == transfer.nextOffset, range.end <= transfer.end,
+              contentLength == nil || contentLength == range.total,
+              response.expectedContentLength < 0 || response.expectedContentLength == range.end - range.start + 1 else {
+            completionHandler(.cancel)
+            fail(transfer, error: URLError(.badServerResponse))
+            return
+        }
+        contentLength = range.total
+        transfer.end = min(transfer.end, range.total - 1)
+        transfer.responseEnd = range.end
+        completionHandler(.allow)
+        processRequests()
+    }
+
+    private func receive(_ data: Data, for task: URLSessionDataTask) {
+        guard let transfer = tasks[task.taskIdentifier], let responseEnd = transfer.responseEnd else { return }
+        guard Int64(data.count) <= responseEnd - transfer.nextOffset + 1 else {
+            fail(transfer, error: URLError(.badServerResponse))
+            return
+        }
+        if !data.isEmpty, !transfer.loggedFirstBytes {
+            transfer.loggedFirstBytes = true
+            let elapsed = CFAbsoluteTimeGetCurrent() - transfer.startedAt
+            VideoLoadDebug.log("chunk first bytes offset=\(transfer.nextOffset) took=\(String(format: "%.2f", elapsed))s prefetch=\(transfer.isPrefetch)") // FOR TEST ONLY: remove before release
+        }
+        transfer.data.append(data)
+        receivedNetworkBytes += Int64(data.count)
+        let clock = ProcessInfo.processInfo.systemUptime
+        if clock - lastThroughputTime >= 5 {
+            let mbps = Double(receivedNetworkBytes - lastThroughputBytes) * 8 / (clock - lastThroughputTime) / 1_000_000
+            VideoLoadDebug.log("range downloadMbps=\(mbps) receivedBytes=\(receivedNetworkBytes) fileBytes=\(contentLength ?? -1) active=\(transfers.count) started=\(startedRequestCount) completed=\(completedRequestCount) cancelled=\(cancelledRequestCount)") // FOR TEST ONLY: remove before release
+            lastThroughputBytes = receivedNetworkBytes
+            lastThroughputTime = clock
+        }
+        processRequests()
+    }
+
+    private func complete(_ task: URLSessionTask, error: Error?) {
+        guard let transfer = tasks.removeValue(forKey: task.taskIdentifier) else { return }
+        transfer.task = nil
+        if error == nil { completedRequestCount += 1 }
+        if transfer.nextOffset > transfer.end {
+            storeInCache(transfer.data, at: transfer.offset)
+            transfers[transfer.offset] = nil
+            processRequests()
+            return
+        }
+        let isTruncated = error == nil && transfer.nextOffset != transfer.responseEnd.map { $0 + 1 }
+        if error != nil || isTruncated {
+            let code = (error as? URLError)?.code
+            let canRetry = isTruncated || code == .networkConnectionLost || code == .timedOut
+            guard canRetry, transfer.retriesLeft > 0 else {
+                fail(transfer, error: error ?? URLError(.networkConnectionLost))
+                return
+            }
+            transfer.retriesLeft -= 1
+            VideoLoadDebug.log("range retry offset=\(transfer.nextOffset) remainingAttempts=\(transfer.retriesLeft) code=\(code?.rawValue ?? 0)") // FOR TEST ONLY: remove before release
+        }
+        // Resume after bytes already delivered, including on a transient failure.
+        start(transfer)
+    }
+
+    private func fail(_ transfer: Transfer, error: Error) {
+        if transfer.isPrefetch { failedPrefetchOffsets.insert(transfer.offset) }
+        storeInCache(transfer.data, at: transfer.offset)
+        removeTransfer(transfer)
+        for (key, request) in Array(requests) {
+            let offset = request.dataRequest.map { max($0.requestedOffset, $0.currentOffset) } ?? 0
+            if chunkOffset(for: offset) == transfer.offset {
+                requests[key] = nil
+                if !request.isCancelled { request.finishLoading(with: error) }
+            }
+        }
+        processRequests()
+    }
+
+    private func removeTransfer(_ transfer: Transfer) {
+        if let task = transfer.task {
+            tasks[task.taskIdentifier] = nil
+            cancelledRequestCount += 1
+            task.cancel()
+        }
+        transfers[transfer.offset] = nil
+    }
+
+    private func touchCache(_ offset: Int64) {
+        cacheOrder.removeAll { $0 == offset }
+        cacheOrder.append(offset)
+    }
+
+    private func storeInCache(_ data: Data, at offset: Int64) {
+        persistToDisk(data, at: offset)
+        guard !data.isEmpty, data.count > (cache[offset]?.count ?? 0) else { return }
+        cachedBytes -= cache[offset]?.count ?? 0
+        cache[offset] = data
+        cachedBytes += data.count
+        touchCache(offset)
+        while cachedBytes > Self.cacheLimit, let oldest = cacheOrder.first(where: { $0 != 0 }) {
+            cachedBytes -= cache.removeValue(forKey: oldest)?.count ?? 0
+            cacheOrder.removeAll { $0 == oldest }
+        }
+    }
+
+    private func cachedData(at offset: Int64) -> Data? {
+        if let data = cache[offset] { return data }
+        guard #available(iOS 13.4, *) else { return nil }
+        guard let length = diskChunkLengths[offset], let file = cacheFile else { return nil }
+        do {
+            try file.seek(toOffset: UInt64(offset))
+            guard let data = try file.read(upToCount: length), data.count == length else {
+                discardDiskCache()
+                return nil
+            }
+            storeInCache(data, at: offset)
+            return data
+        } catch {
+            // Disk caching is optional; continue using the bounded RAM cache.
+            discardDiskCache()
+            return nil
+        }
+    }
+
+    private func persistToDisk(_ data: Data, at offset: Int64) {
+        guard #available(iOS 13.4, *) else { return }
+        let savedLength = diskChunkLengths[offset] ?? 0
+        guard let file = cacheFile, data.count > savedLength,
+              diskCachedBytes + data.count - savedLength <= Self.diskCacheLimit else { return }
+        do {
+            try file.seek(toOffset: UInt64(offset) + UInt64(savedLength))
+            try file.write(contentsOf: data.subdata(in: savedLength..<data.count))
+            diskChunkLengths[offset] = data.count
+            diskCachedBytes += data.count - savedLength
+        } catch {
+            discardDiskCache()
+        }
+    }
+
+    private func discardDiskCache() {
+        try? cacheFile?.close()
+        cacheFile = nil
+        if let url = cacheFileURL { try? FileManager.default.removeItem(at: url) }
+        cacheFileURL = nil
+        diskChunkLengths.removeAll()
+        diskCachedBytes = 0
+    }
+
+    private static func parseContentRange(_ header: String) -> (start: Int64, end: Int64, total: Int64)? {
+        let parts = header.split(separator: " ")
+        guard parts.count == 2, parts[0].lowercased() == "bytes" else { return nil }
+        let lengths = parts[1].split(separator: "/")
+        guard lengths.count == 2, let total = Int64(lengths[1]), total > 0 else { return nil }
+        let bounds = lengths[0].split(separator: "-", omittingEmptySubsequences: false)
+        guard bounds.count == 2, let start = Int64(bounds[0]), let end = Int64(bounds[1]),
+              start >= 0, start <= end, end < total else { return nil }
+        return (start, end, total)
     }
 }
 
@@ -107,6 +476,12 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     private var scrubGeneration = 0
     private let bufferingSpinner = UIActivityIndicatorView(style: .large)
     private var isBuffering = false
+    private var wantsPlayback = false
+    private var hasStartedPlayback = false
+    private var readyWaitingSince: TimeInterval?
+    private var bufferBaseline: (time: TimeInterval, seconds: Double)?
+    private var lastImmediatePlaybackAttempt: TimeInterval?
+    private var bufferingMonitor: Foundation.Timer?
 
     private var controlsHideTimer: Foundation.Timer?
     private var areControlsVisible = true
@@ -131,8 +506,8 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         }
     }
 
-    convenience init(url: URL, posterURL: String, usesChunkedLoading: Bool = false) {
-        let loader = usesChunkedLoading ? ChunkedVideoResourceLoader(remoteURL: url) : nil
+    convenience init(url: URL, posterURL: String, usesChunkedLoading: Bool = false, initialData: Data? = nil, initialResponse: HTTPURLResponse? = nil) {
+        let loader = usesChunkedLoading ? ChunkedVideoResourceLoader(remoteURL: url, initialData: initialData, initialResponse: initialResponse) : nil
         let asset = AVURLAsset(url: loader?.assetURL ?? url, options: [
             AVURLAssetPreferPreciseDurationAndTimingKey: false
         ])
@@ -226,7 +601,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         setupPlayer(playerItem: playerItem)
 
 
-        posterNode.setSignal(videoThumbnailSignal(url: posterURL, resizeMode: .fit))
+        posterNode.setSignal(videoThumbnailSignal(url: posterURL, resizeMode: .fit, allowRemoteGeneration: false))
     }
 
     override func didLoad() {
@@ -261,7 +636,8 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     private var timeControlObserver: NSKeyValueObservation?
     private var readyForDisplayObserver: NSKeyValueObservation?
     private var loadedRangesObserver: NSKeyValueObservation?
-    private let minimumBufferToStart: Double = 3.0
+    private var debugLastBufferLogAt: TimeInterval = 0 // FOR TEST ONLY: remove before release
+    private var debugLastState = "" // FOR TEST ONLY: remove before release
 
     private func setupPlayer(playerItem: AVPlayerItem) {
         if #available(iOS 14.5, *) {
@@ -275,16 +651,23 @@ final class MezonVideoPlayerNode: ASDisplayNode {
             self.playerLayer = layer
             readyForDisplayObserver = layer.observe(\.isReadyForDisplay, options: [.initial, .new]) { [weak self] layer, _ in
                 guard layer.isReadyForDisplay else { return }
-                DispatchQueue.main.async { self?.posterNode.isHidden = true }
+                VideoLoadDebug.log("first frame ready") // FOR TEST ONLY: remove before release
+                DispatchQueue.main.async {
+                    self?.posterNode.isHidden = true
+                    self?.startPlaybackIfBuffered()
+                }
             }
         }
 
 
         timeControlObserver = avPlayer.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] player, _ in
-            let isBuffering = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+            let didStartPlaying = player.timeControlStatus == .playing
+            let debugState = "timeControl=\(player.timeControlStatus.rawValue) reason=\(player.reasonForWaitingToPlay?.rawValue ?? "nil")" // FOR TEST ONLY: remove before release
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.isBuffering = isBuffering
+                if debugState != self.debugLastState { self.debugLastState = debugState; VideoLoadDebug.log(debugState) } // FOR TEST ONLY: remove before release
+                self.isBuffering = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+                if didStartPlaying { self.hasStartedPlayback = true }
                 if self.isNodeLoaded { self.updateBufferingIndicator() }
                 self.startPlaybackIfBuffered()
             }
@@ -304,9 +687,14 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         NotificationCenter.default.addObserver(self, selector: #selector(playerDidFinishPlaying), name: .AVPlayerItemDidPlayToEndTime, object: playerItem)
 
 
-        statusObserver = playerItem.observe(\.status, options: [.new]) { [weak self] item, _ in
+        statusObserver = playerItem.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
+            VideoLoadDebug.log("item.status=\(item.status.rawValue) duration=\(item.duration.seconds) error=\(String(describing: item.error))") // FOR TEST ONLY: remove before release
             if item.status == .readyToPlay {
                 let duration = item.duration.seconds
+                let tracks = item.tracks.compactMap(\.assetTrack)
+                let bitrate = tracks.reduce(0.0) { $0 + max(0, Double($1.estimatedDataRate)) }
+                let videoSize = tracks.first(where: { $0.mediaType == .video })?.naturalSize ?? .zero
+                VideoLoadDebug.log("media bitrateMbps=\(bitrate / 1_000_000) size=\(videoSize.width)x\(videoSize.height)") // FOR TEST ONLY: remove before release
                 if duration.isFinite {
                     DispatchQueue.main.async {
                         self?.timeSlider.maximumValue = Float(duration)
@@ -317,6 +705,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
                         self?.setNeedsLayout()
                     }
                 }
+                DispatchQueue.main.async { self?.startPlaybackIfBuffered() }
             } else if item.status == .failed {
                 DispatchQueue.main.async {
                     self?.showErrorOverlay(error: item.error)
@@ -335,6 +724,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         timeControlObserver?.invalidate()
         readyForDisplayObserver?.invalidate()
         loadedRangesObserver?.invalidate()
+        bufferingMonitor?.invalidate()
         NotificationCenter.default.removeObserver(self)
     }
     
@@ -342,6 +732,8 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         guard errorOverlayNode == nil else { return }
 
         isScrubbing = false
+        wantsPlayback = false
+        stopBufferingMonitor()
         isBuffering = false
         if isNodeLoaded { updateBufferingIndicator() }
         onPlaybackFailed?()
@@ -438,13 +830,17 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     }
 
     public func play() {
+        wantsPlayback = true
         AppAudioSession.activateForMediaPlayback(options: [])
         player?.play()
+        startPlaybackIfBuffered()
         updatePlayPauseIcons(isPlaying: true)
         resetControlsTimer()
     }
 
     public func pause() {
+        wantsPlayback = false
+        stopBufferingMonitor()
         player?.pause()
         updatePlayPauseIcons(isPlaying: false)
         controlsHideTimer?.invalidate()
@@ -454,7 +850,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
 
     @objc private func playPauseTapped() {
         guard let p = player else { return }
-        if p.timeControlStatus == .paused {
+        if !wantsPlayback {
             if p.currentTime() == p.currentItem?.duration {
                 p.seek(to: .zero)
             }
@@ -508,6 +904,9 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     }
 
     @objc private func playerDidFinishPlaying() {
+        wantsPlayback = false
+        hasStartedPlayback = false
+        stopBufferingMonitor()
         updatePlayPauseIcons(isPlaying: false)
         showControls()
     }
@@ -515,6 +914,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     @objc private func sliderDidBeginScrubbing() {
         scrubGeneration += 1
         isScrubbing = true
+        stopBufferingMonitor()
         setPagingEnabled?(false)
         controlsHideTimer?.invalidate()
     }
@@ -544,6 +944,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
             DispatchQueue.main.async {
                 guard let self, self.scrubGeneration == generation else { return }
                 self.isScrubbing = false
+                self.startPlaybackIfBuffered()
             }
         }
         if player.timeControlStatus != .paused {
@@ -566,20 +967,58 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     }
 
     private func startPlaybackIfBuffered() {
-        guard !isScrubbing,
+        guard wantsPlayback, !isScrubbing,
               let player,
               player.timeControlStatus == .waitingToPlayAtSpecifiedRate,
               let reason = player.reasonForWaitingToPlay,
               reason == .toMinimizeStalls || reason == .evaluatingBufferingRate,
               let item = player.currentItem,
-              item.status == .readyToPlay else { return }
-        let now = item.currentTime()
-        guard let range = item.loadedTimeRanges.map(\.timeRangeValue).first(where: { $0.containsTime(now) }),
-              range.end.seconds - now.seconds >= minimumBufferToStart else { return }
+              item.status == .readyToPlay else {
+            stopBufferingMonitor()
+            return
+        }
+        let clock = ProcessInfo.processInfo.systemUptime
+        if readyWaitingSince == nil { readyWaitingSince = clock }
+        if bufferingMonitor == nil {
+            // AVPlayer's periodic time observer may stop while the media clock
+            // is waiting. A wall-clock timer also handles unchanged buffer KVO.
+            bufferingMonitor = Foundation.Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+                self?.startPlaybackIfBuffered()
+            }
+        }
+        let position = item.currentTime().seconds
+        let ranges = item.loadedTimeRanges.map(\.timeRangeValue)
+        let bufferedAhead = VideoPlaybackBufferPolicy.bufferedAhead(at: position, ranges: ranges)
+        if bufferBaseline == nil { bufferBaseline = (clock, bufferedAhead) }
+        let sampleDuration = clock - (bufferBaseline?.time ?? clock)
+        let growthRate = sampleDuration >= 2 ? max(0, bufferedAhead - (bufferBaseline?.seconds ?? bufferedAhead)) / sampleDuration : nil
+        let duration = item.duration.seconds
+        let remaining = duration.isFinite && position.isFinite ? duration - position : nil
+        let waitingDuration = clock - (readyWaitingSince ?? clock)
+        let hasFirstFrame = playerLayer?.isReadyForDisplay == true
+        if clock - debugLastBufferLogAt >= 5 { // FOR TEST ONLY: remove before release
+            debugLastBufferLogAt = clock
+            let loaded = ranges.map { "\($0.start.seconds)...\($0.end.seconds)" }.joined(separator: ",")
+            let event = item.accessLog()?.events.last
+            VideoLoadDebug.log("buffer check position=\(position) ahead=\(bufferedAhead) ranges=[\(loaded)] waited=\(waitingDuration) frame=\(hasFirstFrame) growth=\(growthRate ?? -1) empty=\(item.isPlaybackBufferEmpty) likely=\(item.isPlaybackLikelyToKeepUp) reason=\(player.reasonForWaitingToPlay?.rawValue ?? "nil") accessBytes=\(event?.numberOfBytesTransferred ?? -1) observedMbps=\((event?.observedBitrate ?? -1) / 1_000_000) indicatedMbps=\((event?.indicatedBitrate ?? -1) / 1_000_000)")
+        }
+        guard VideoPlaybackBufferPolicy.shouldStart(bufferedAhead: bufferedAhead, remaining: remaining, hasStarted: hasStartedPlayback, waitingDuration: waitingDuration, bufferGrowthRate: growthRate),
+              lastImmediatePlaybackAttempt.map({ clock - $0 >= 1 }) ?? true else { return }
+        lastImmediatePlaybackAttempt = clock
+        VideoLoadDebug.log("playImmediately bufferedAhead=\(bufferedAhead) waited=\(waitingDuration) recovering=\(hasStartedPlayback)") // FOR TEST ONLY: remove before release
         player.playImmediately(atRate: 1)
     }
 
+    private func stopBufferingMonitor() {
+        bufferingMonitor?.invalidate()
+        bufferingMonitor = nil
+        readyWaitingSince = nil
+        bufferBaseline = nil
+        lastImmediatePlaybackAttempt = nil
+    }
+
     private func updateBufferingIndicator() {
+        centerPlayPauseButton.isHidden = isBuffering
         if isBuffering {
             bufferingSpinner.startAnimating()
         } else {
@@ -648,7 +1087,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         playerNode.frame = b
         posterNode.frame = b
         bufferingSpinner.sizeToFit()
-        bufferingSpinner.center = CGPoint(x: b.midX, y: b.midY + 60)
+        bufferingSpinner.center = CGPoint(x: b.midX, y: b.midY)
         
         if let errorNode = errorOverlayNode {
             errorNode.frame = b

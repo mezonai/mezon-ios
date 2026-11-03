@@ -87,6 +87,14 @@ final class ChatContainerNode: ASDisplayNode {
     private var messageRelayoutVersions: [String: Int] = [:]
     private let skeletonNode = MessageSkeletonContainerNode(count: 8)
     private let loadingOlderNode = ASDisplayNode()
+    private let loadingLatestNode = ASDisplayNode()
+    private var latestLoadingRequested = false
+    private var latestLoadingGeneration: UInt64 = 0
+    private var latestLoadingWorkItem: DispatchWorkItem?
+    private var latestLoadingShownAt: TimeInterval?
+    private static let latestLoadingDelay: TimeInterval = 0.15
+    private static let minimumLatestLoadingDuration: TimeInterval = 0.25
+    private static let latestLoadingFooterHeight: CGFloat = 24
     private let jumpToPresentNode = ASButtonNode()
 
 
@@ -150,6 +158,16 @@ final class ChatContainerNode: ASDisplayNode {
             return indicator
         }
         loadingOlderNode.isHidden = true
+        loadingLatestNode.setViewBlock {
+            let indicator = UIActivityIndicatorView(style: .medium)
+            indicator.hidesWhenStopped = true
+            indicator.color = t.textDisabled
+            indicator.isAccessibilityElement = true
+            indicator.accessibilityLabel = L(L10n.Common.loading)
+            return indicator
+        }
+        loadingLatestNode.isHidden = true
+        loadingLatestNode.isUserInteractionEnabled = false
 
         super.init()
         listView.useMainQueueTransactions = true
@@ -163,6 +181,7 @@ final class ChatContainerNode: ASDisplayNode {
         addSubnode(listView)
         addSubnode(skeletonNode)
         addSubnode(loadingOlderNode)
+        addSubnode(loadingLatestNode)
         addSubnode(jumpToPresentNode)
 
         listView.rotated = true
@@ -233,7 +252,10 @@ final class ChatContainerNode: ASDisplayNode {
         )
     }
 
-    deinit { disposables.dispose() }
+    deinit {
+        latestLoadingWorkItem?.cancel()
+        disposables.dispose()
+    }
 
     override func didLoad() {
         super.didLoad()
@@ -287,6 +309,9 @@ final class ChatContainerNode: ASDisplayNode {
         let t = UIColor.theme
         gradientLayer.colors = [t.secondary.cgColor, t.primaryGradient.cgColor]
         headerNode.applyTheme()
+        if loadingLatestNode.isNodeLoaded {
+            (loadingLatestNode.view as? UIActivityIndicatorView)?.color = t.textDisabled
+        }
 
         reloadAllItems()
     }
@@ -313,6 +338,49 @@ final class ChatContainerNode: ASDisplayNode {
         loadingOlderNode.isHidden = !showOlderLoading
         if let indicator = loadingOlderNode.view as? UIActivityIndicatorView {
             showOlderLoading ? indicator.startAnimating() : indicator.stopAnimating()
+        }
+
+        let showLatestLoading = !state.messages.isEmpty
+            && (state.isLoadingNewer || (state.isLoadingMessageContext && pendingJumpMessageId == nil))
+        setLatestLoading(showLatestLoading)
+    }
+
+    private func setLatestLoading(_ loading: Bool) {
+        guard latestLoadingRequested != loading else { return }
+        latestLoadingRequested = loading
+        latestLoadingGeneration &+= 1
+        let generation = latestLoadingGeneration
+        latestLoadingWorkItem?.cancel()
+        latestLoadingWorkItem = nil
+
+        let delay: TimeInterval
+        if loading {
+            // Fast cache refreshes should not flash a spinner.
+            guard latestLoadingShownAt == nil else { return }
+            delay = Self.latestLoadingDelay
+        } else {
+            guard let shownAt = latestLoadingShownAt else { return }
+            delay = max(0, Self.minimumLatestLoadingDuration - (CACurrentMediaTime() - shownAt))
+        }
+
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.latestLoadingGeneration == generation else { return }
+            self.latestLoadingWorkItem = nil
+            if loading {
+                self.latestLoadingShownAt = CACurrentMediaTime()
+                self.loadingLatestNode.isHidden = false
+                (self.loadingLatestNode.view as? UIActivityIndicatorView)?.startAnimating()
+            } else {
+                (self.loadingLatestNode.view as? UIActivityIndicatorView)?.stopAnimating()
+                self.loadingLatestNode.isHidden = true
+                self.latestLoadingShownAt = nil
+            }
+        }
+        latestLoadingWorkItem = work
+        if delay == 0 {
+            work.perform()
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
         }
     }
 
@@ -695,10 +763,21 @@ final class ChatContainerNode: ASDisplayNode {
             && !oldIds.contains(Self.unreadLineId)
             && !old.isLoadingMore && !new.isLoadingMore
             && !old.isLoadingNewer && !new.isLoadingNewer
+            && !listView.isTracking && !listView.isDragging && !listView.isDeceleratingAfterTracking
             && !new.hasMoreNewer && isAtBottom
         if hasNewAtBottom && keepBottomDuringInitialCacheRefresh {
             didAutoScrollForNewMessages = true
-            scrollToItem = ListViewScrollToItem(index: 0, position: .top(0), animated: false, curve: .Default(duration: nil), directionHint: .Up)
+            // Animate only a short, continuous extension of the cached viewport.
+            // Large gaps and user gestures must not start a long automatic scroll.
+            let addedAtBottom = oldIds.first.flatMap { newIndexMap[$0] }
+            let animateRefresh = addedAtBottom.map { (1...3).contains($0) } == true
+                && deletedIds.isEmpty && !hasReorderedIds
+                && !UIAccessibility.isReduceMotionEnabled
+            scrollToItem = ListViewScrollToItem(
+                index: 0, position: .top(0), animated: animateRefresh,
+                curve: animateRefresh ? .Default(duration: 0.2) : .Default(duration: nil),
+                directionHint: .Up
+            )
         } else if initialCacheRefreshScrollGeneration == nil
                     && hasNewAtBottom && !isLoadMoreResult && !new.hasMoreNewer
                     && (isAtBottom || newestMessageIsMe) {
@@ -887,7 +966,9 @@ final class ChatContainerNode: ASDisplayNode {
         )
         transition.updateFrame(node: listView, frame: tvFrame, beginWithCurrentState: true)
 
-        let listInsets = UIEdgeInsets(top: 14, left: 0, bottom: 0, right: 0)
+        // The list is inverted: its top inset is the footer above the composer.
+        // Reserve it permanently so showing/hiding loading never shifts messages.
+        let listInsets = UIEdgeInsets(top: Self.latestLoadingFooterHeight, left: 0, bottom: 0, right: 0)
         listView.transaction(
             deleteIndices: [],
             insertIndicesAndItems: [],
@@ -907,6 +988,13 @@ final class ChatContainerNode: ASDisplayNode {
             y: headerFrame.maxY + 12,
             width: liS,
             height: liS
+        ))
+        let latestLoadingSide: CGFloat = 20
+        transition.updateFrame(node: loadingLatestNode, frame: CGRect(
+            x: (fullWidth - latestLoadingSide) / 2,
+            y: tvFrame.maxY - (Self.latestLoadingFooterHeight + latestLoadingSide) / 2,
+            width: latestLoadingSide,
+            height: latestLoadingSide
         ))
 
         let btnS: CGFloat = 40

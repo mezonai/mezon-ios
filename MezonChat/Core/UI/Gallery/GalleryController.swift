@@ -1290,7 +1290,7 @@ final class GalleryController: UIViewController {
     }
 }
 
-extension GalleryController: UICollectionViewDataSource, UICollectionViewDelegate {
+extension GalleryController: UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
 
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
         items.count
@@ -1305,9 +1305,17 @@ extension GalleryController: UICollectionViewDataSource, UICollectionViewDelegat
         }
         let index = indexPath.item
         if index < items.count {
-            cell.configure(item: items[index], isSelected: index == pagingNode.centralItemIndex)
+            let centralIndex = pagingNode.centralItemIndex
+            let isViewingVideo = items.indices.contains(centralIndex) && items[centralIndex].isVideo
+            cell.configure(item: items[index], isSelected: index == centralIndex, allowVideoThumbnailGeneration: !isViewingVideo)
         }
         return cell
+    }
+
+    func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
+        let sectionInsets = (collectionViewLayout as? UICollectionViewFlowLayout)?.sectionInset ?? .zero
+        let availableHeight = collectionView.bounds.height - collectionView.adjustedContentInset.top - collectionView.adjustedContentInset.bottom - sectionInsets.top - sectionInsets.bottom
+        return CGSize(width: 44, height: max(1, min(64, availableHeight)))
     }
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
@@ -1324,6 +1332,7 @@ private final class GalleryThumbnailCell: UICollectionViewCell {
     private let playOverlayView = UIView()
     private let playIconView = UIImageView()
     private var representedIdentity: String?
+    private var thumbnailGeneration = UUID()
     private var imageTask: URLSessionDataTask?
     private var thumbnailGenerator: AVAssetImageGenerator?
 
@@ -1374,6 +1383,7 @@ private final class GalleryThumbnailCell: UICollectionViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         representedIdentity = nil
+        thumbnailGeneration = UUID()
         imageTask?.cancel()
         imageTask = nil
         thumbnailGenerator?.cancelAllCGImageGeneration()
@@ -1382,14 +1392,28 @@ private final class GalleryThumbnailCell: UICollectionViewCell {
         playOverlayView.isHidden = true
     }
 
-    func configure(item: GalleryItemInfo, isSelected: Bool) {
+    func configure(item: GalleryItemInfo, isSelected: Bool, allowVideoThumbnailGeneration: Bool) {
+        thumbnailGeneration = UUID()
+        imageTask?.cancel()
+        imageTask = nil
+        thumbnailGenerator?.cancelAllCGImageGeneration()
+        thumbnailGenerator = nil
+        imageView.image = nil
         representedIdentity = item.stableIdentity
         contentView.layer.borderWidth = isSelected ? 2 : 0
         contentView.layer.borderColor = isSelected ? UIColor.systemBlue.cgColor : UIColor.clear.cgColor
         playOverlayView.isHidden = !item.isVideo
 
         if item.isVideo {
-            loadVideoThumbnail(urlString: item.sourceURL ?? item.url, identity: item.stableIdentity)
+            imageView.image = item.image
+            if let thumbnail = item.videoShareMetadata?.thumbnail,
+               let thumbnailURL = URL(string: thumbnail),
+               ["https", "http"].contains(thumbnailURL.scheme?.lowercased() ?? ""),
+               thumbnail != item.url, thumbnail != item.sourceURL {
+                loadImage(urlString: thumbnail, identity: item.stableIdentity)
+            } else {
+                loadVideoThumbnail(urlString: item.sourceURL ?? item.url, identity: item.stableIdentity, allowRemoteGeneration: allowVideoThumbnailGeneration && !isSelected)
+            }
         } else if let image = item.image {
             imageView.image = image
         } else {
@@ -1406,26 +1430,29 @@ private final class GalleryThumbnailCell: UICollectionViewCell {
         }
     }
 
-    private func loadVideoThumbnail(urlString: String, identity: String) {
+    private func loadVideoThumbnail(urlString: String, identity: String, allowRemoteGeneration: Bool) {
         guard let videoURL = URL(string: urlString), !urlString.isEmpty else { return }
         let cacheKey = "video_thumb_\(urlString)"
         if let cached = ImageCache.shared.image(forKey: cacheKey) {
             imageView.image = cached
             return
         }
+        guard allowRemoteGeneration || videoURL.isFileURL else { return }
         if let request = CDNSigner.shared.readyRequestURL(for: videoURL) {
             generateVideoThumbnail(from: request.url, cacheKey: cacheKey, identity: identity)
             return
         }
+        let generation = thumbnailGeneration
         CDNSigner.shared.requestURL(for: videoURL) { [weak self] request in
             DispatchQueue.main.async {
-                guard let self, self.representedIdentity == identity else { return }
+                guard let self, self.representedIdentity == identity, self.thumbnailGeneration == generation else { return }
                 self.generateVideoThumbnail(from: request.url, cacheKey: cacheKey, identity: identity)
             }
         }
     }
 
     private func generateVideoThumbnail(from assetURL: URL, cacheKey: String, identity: String) {
+        let generation = thumbnailGeneration
         let asset = AVURLAsset(url: assetURL, options: [
             AVURLAssetPreferPreciseDurationAndTimingKey: false
         ])
@@ -1435,12 +1462,15 @@ private final class GalleryThumbnailCell: UICollectionViewCell {
         thumbnailGenerator = generator
 
         let time = CMTime(seconds: 0.5, preferredTimescale: 600)
+        let debugStartedAt = CFAbsoluteTimeGetCurrent() // FOR TEST ONLY: remove before release
+        VideoLoadDebug.log("strip generator start \(assetURL.lastPathComponent)") // FOR TEST ONLY: remove before release
         generator.generateCGImagesAsynchronously(forTimes: [NSValue(time: time)]) { [weak self] _, cgImage, _, _, _ in
+            VideoLoadDebug.log("strip generator done in \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - debugStartedAt))s image=\(cgImage != nil) \(assetURL.lastPathComponent)") // FOR TEST ONLY: remove before release
             guard let cgImage else { return }
             let image = UIImage(cgImage: cgImage)
             ImageCache.shared.setImage(image, data: image.jpegData(compressionQuality: 0.7), forKey: cacheKey)
             DispatchQueue.main.async {
-                guard let self, self.representedIdentity == identity else { return }
+                guard let self, self.representedIdentity == identity, self.thumbnailGeneration == generation else { return }
                 self.imageView.image = image
             }
         }

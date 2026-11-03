@@ -1,7 +1,21 @@
 import Foundation
 import os.log
 
+struct MessageHistoryRefresh {
+    let id: UUID
+    let channelId: String
+    fileprivate let baseline: [String: MessageRecord]
+}
+
+struct MessageHistoryPage {
+    let channelId: String
+    fileprivate let windowId: UUID
+    fileprivate let baseline: [String: MessageRecord]
+}
+
 final class MessageTable: Table {
+
+    static let cachedHistoryLimit = 20
 
     private static let reactionLog = OSLog(subsystem: "mezon.postbox", category: "reaction-scope")
 
@@ -61,6 +75,10 @@ final class MessageTable: Table {
     private var optimisticReactions: [ReactionKey: OptimisticReaction] = [:]
 
     private var cache: [String: [MessageRecord]] = [:]
+    private var historyRefreshIds: [String: UUID] = [:]
+    private var historyWindowIds: [String: UUID] = [:]
+    private var pendingServerTailIds: [String: UInt64] = [:]
+    private var deletedMessageIds: Set<String> = []
     private var pendingWrites:  Set<String> = []
     private var pendingDeletes: Set<String> = []
     private var pendingResolutions: [String: UInt64] = [:]
@@ -261,7 +279,7 @@ final class MessageTable: Table {
         return rows.compactMap { $0 }.first
     }
 
-    func getMessages(channelId: String, limit: Int = 50) -> [MessageRecord] {
+    func getMessages(channelId: String, limit: Int = MessageTable.cachedHistoryLimit) -> [MessageRecord] {
         if let cached = cache[channelId] {
             let filtered = cached.filter { $0.channelId == channelId && !$0.isDeleted }
             if filtered.count != cached.count {
@@ -277,21 +295,32 @@ final class MessageTable: Table {
                    attachments_json, reactions_json, references_data, mentions_json, code
             FROM messages
             WHERE channel_id = ? AND is_deleted = 0
-            ORDER BY created_at ASC
-            LIMIT ?
+              AND (sending_state != ? OR id IN (
+                SELECT id FROM messages
+                WHERE channel_id = ? AND is_deleted = 0 AND sending_state = ?
+                ORDER BY created_at DESC, length(id) DESC, id DESC
+                LIMIT ?
+              ))
+            ORDER BY created_at DESC, length(id) DESC, id DESC
             """,
             { s in
                 sqlite3_bind_text(s, 1, channelId, -1, sqliteTransient)
-                sqlite3_bind_int(s, 2, Int32(limit))
+                sqlite3_bind_int(s, 2, SendingState.sent.rawValue)
+                sqlite3_bind_text(s, 3, channelId, -1, sqliteTransient)
+                sqlite3_bind_int(s, 4, SendingState.sent.rawValue)
+                sqlite3_bind_int(s, 5, Int32(limit))
             }
         ) { stmt in self.readMessageRow(stmt) }
 
-        let result = rows.compactMap { $0 }.filter { $0.channelId == channelId }
+        // Limit confirmed history, retain every unsent message, then restore display order.
+        let result = rows.compactMap { $0 }
+            .filter { $0.channelId == channelId }
+            .sorted { MessageRecord.isOrderedAscending($0, $1) }
         cache[channelId] = result
         return result
     }
 
-    func getRecentMessages(channelId: String, limit: Int = 50) -> [MessageRecord] {
+    func getRecentMessages(channelId: String, limit: Int = MessageTable.cachedHistoryLimit) -> [MessageRecord] {
         if let cached = cache[channelId] {
             return cached
                 .filter { $0.channelId == channelId && !$0.isDeleted }
@@ -351,6 +380,10 @@ final class MessageTable: Table {
 
     private func serverEchoMatchesPending(server: MessageRecord, pending: MessageRecord) -> Bool {
         guard pending.id.hasPrefix("pending-"), pending.senderId == server.senderId else { return false }
+        if let tail = pendingServerTailIds[pending.id],
+           let serverId = ChatMessageTimelineOrder.serverId(server.id), serverId <= tail {
+            return false
+        }
         if contentsEquivalent(pending.content, server.content) { return true }
         guard pending.attachmentsJSON.isEmpty else { return false }
         guard let pendingText = Self.plainTextForMatching(from: pending.content), !pendingText.isEmpty,
@@ -435,7 +468,11 @@ final class MessageTable: Table {
     func addMessages(_ messages: [MessageRecord]) {
         for incoming in messages {
             let msg = enrichTopicMeta(incoming)
-            var current = cache[msg.channelId] ?? []
+            // A socket event can arrive before this channel's history has been opened.
+            var current = cache[msg.channelId] ?? getMessages(channelId: msg.channelId)
+            if msg.id.hasPrefix("pending-"), pendingServerTailIds[msg.id] == nil {
+                pendingServerTailIds[msg.id] = current.compactMap { ChatMessageTimelineOrder.serverId($0.id) }.max() ?? 0
+            }
 
             if !msg.id.hasPrefix("pending-") {
                 let existingIdx = current.firstIndex(where: { $0.id == msg.id })
@@ -516,11 +553,91 @@ final class MessageTable: Table {
         )
     }
 
+    func beginMessageHistoryRefresh(channelId: String) -> MessageHistoryRefresh {
+        let id = UUID()
+        historyRefreshIds[channelId] = id
+        return MessageHistoryRefresh(
+            id: id, channelId: channelId,
+            baseline: Dictionary(getMessages(channelId: channelId).map { ($0.id, $0) }, uniquingKeysWith: { $1 })
+        )
+    }
+
+    func prepareMessageHistoryForChannelEntry(channelId: String) -> [MessageRecord] {
+        historyRefreshIds.removeValue(forKey: channelId)
+        historyWindowIds[channelId] = UUID()
+        cache.removeValue(forKey: channelId)
+        return getMessages(channelId: channelId)
+    }
+
+    func cancelMessageHistoryRefresh(_ refresh: MessageHistoryRefresh) {
+        if historyRefreshIds[refresh.channelId] == refresh.id {
+            historyRefreshIds.removeValue(forKey: refresh.channelId)
+        }
+    }
+
+    @discardableResult
+    func applyMessageHistoryRefresh(_ messages: [MessageRecord], refresh: MessageHistoryRefresh, atLatest: Bool = true) -> Bool {
+        guard historyRefreshIds[refresh.channelId] == refresh.id else { return false }
+        historyRefreshIds.removeValue(forKey: refresh.channelId)
+        let current = getMessages(channelId: refresh.channelId)
+        let currentById = Dictionary(current.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
+        var fresh = mergeFetchedMessages(messages, channelId: refresh.channelId, baseline: refresh.baseline, currentById: currentById)
+        guard let newest = fresh.max(by: { MessageRecord.isOrderedAscending($0, $1) }) else { return false }
+        if atLatest {
+            let freshIds = Set(fresh.map(\.id))
+            // This includes server acknowledgements that replaced a pending ID during the fetch.
+            fresh += current.filter {
+                !$0.id.hasPrefix("pending-") && !freshIds.contains($0.id)
+                    && MessageRecord.isOrderedAscending(newest, $0)
+            }
+        }
+        replaceAllMessages(fresh, channelId: refresh.channelId,
+            preservingContiguousHistory: atLatest, preservingOfflineHistory: !atLatest)
+        return true
+    }
+
+    func beginMessageHistoryPage(channelId: String) -> MessageHistoryPage {
+        let windowId = historyWindowIds[channelId] ?? UUID()
+        historyWindowIds[channelId] = windowId
+        return MessageHistoryPage(channelId: channelId, windowId: windowId,
+            baseline: Dictionary(getMessages(channelId: channelId).map { ($0.id, $0) }, uniquingKeysWith: { $1 }))
+    }
+
+    @discardableResult
+    func applyMessageHistoryPage(_ messages: [MessageRecord], page: MessageHistoryPage) -> Bool {
+        guard historyWindowIds[page.channelId] == page.windowId else { return false }
+        let currentById = Dictionary(getMessages(channelId: page.channelId).map { ($0.id, $0) }, uniquingKeysWith: { $1 })
+        let records = mergeFetchedMessages(messages, channelId: page.channelId, baseline: page.baseline, currentById: currentById)
+        guard !records.isEmpty else { return false }
+        addMessages(records)
+        return true
+    }
+
+    private func mergeFetchedMessages(_ messages: [MessageRecord], channelId: String, baseline: [String: MessageRecord], currentById: [String: MessageRecord]) -> [MessageRecord] {
+        var deletedIds = Set(baseline.keys).subtracting(currentById.keys)
+        deletedIds.formUnion(deletedMessageIds)
+        deletedIds.formUnion(pendingDeletes)
+        deletedIds.formUnion(db.query("SELECT id FROM messages WHERE channel_id = ? AND is_deleted = 1", {
+            sqlite3_bind_text($0, 1, channelId, -1, sqliteTransient)
+        }) { String(cString: sqlite3_column_text($0, 0)) })
+
+        // A delayed HTTP snapshot must not roll back edits/reactions or resurrect a deletion.
+        return messages.filter { $0.channelId == channelId && !deletedIds.contains($0.id) }.map { incoming in
+            if let live = currentById[incoming.id], baseline[incoming.id] != live {
+                return live
+            }
+            return incoming
+        }
+    }
+
     func replaceAllMessages(
         _ messages: [MessageRecord],
         channelId: String,
-        preservingContiguousHistory: Bool = false
+        preservingContiguousHistory: Bool = false,
+        preservingOfflineHistory: Bool = false
     ) {
+        historyRefreshIds.removeValue(forKey: channelId)
+        historyWindowIds[channelId] = UUID()
         let belonging = messages.filter { $0.channelId == channelId }
         let existing = cache[channelId] ?? getMessages(channelId: channelId)
         let existingById = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
@@ -583,18 +700,22 @@ final class MessageTable: Table {
         cache[channelId] = (mergedBelonging + preservedHistory + pendingsToKeep)
             .sorted { MessageRecord.isOrderedAscending($0, $1) }
         pendingWrites.insert(channelId)
-        if preservedHistory.isEmpty {
-            db.run("DELETE FROM messages WHERE channel_id = ? AND id NOT LIKE 'pending-%'") {
-                sqlite3_bind_text($0, 1, channelId, -1, sqliteTransient)
-            }
-        } else {
-            for droppedId in existing.filter({ !$0.id.hasPrefix("pending-") && !keptIds.contains($0.id) }).map({ $0.id }) {
-                db.run("DELETE FROM messages WHERE id = ?") {
-                    sqlite3_bind_text($0, 1, droppedId, -1, sqliteTransient)
+        // A historical jump replaces the visible window, while disk keeps the latest page.
+        if !preservingOfflineHistory {
+            if preservedHistory.isEmpty {
+                db.run("DELETE FROM messages WHERE channel_id = ? AND id NOT LIKE 'pending-%'") {
+                    sqlite3_bind_text($0, 1, channelId, -1, sqliteTransient)
+                }
+            } else {
+                for droppedId in existing.filter({ !$0.id.hasPrefix("pending-") && !keptIds.contains($0.id) }).map({ $0.id }) {
+                    db.run("DELETE FROM messages WHERE id = ?") {
+                        sqlite3_bind_text($0, 1, droppedId, -1, sqliteTransient)
+                    }
                 }
             }
         }
         for droppedId in droppedLocalIds {
+            pendingServerTailIds.removeValue(forKey: droppedId)
             db.run("DELETE FROM messages WHERE id = ?") {
                 sqlite3_bind_text($0, 1, droppedId, -1, sqliteTransient)
             }
@@ -610,6 +731,8 @@ final class MessageTable: Table {
 
     @discardableResult
     func deleteMessage(id: String) -> [String] {
+        deletedMessageIds.insert(id)
+        pendingServerTailIds.removeValue(forKey: id)
         optimisticReactions = optimisticReactions.filter { $0.key.messageId != id }
         pendingDeletes.insert(id)
         var affectedChannelIds: [String] = []
@@ -1143,6 +1266,7 @@ final class MessageTable: Table {
 
     private func recordPendingResolution(pendingId: String, serverId: String) {
         guard pendingId.hasPrefix("pending-"), let numericId = ChatMessageTimelineOrder.serverId(serverId) else { return }
+        pendingServerTailIds.removeValue(forKey: pendingId)
         if pendingResolutions[pendingId] == nil { pendingResolutionOrder.append(pendingId) }
         pendingResolutions[pendingId] = numericId
         if pendingResolutionOrder.count > 512 {
@@ -1360,12 +1484,34 @@ final class MessageTable: Table {
                     sqlite3_bind_int(s, 16, record.code)
                 }
             }
+            // Keep the active timeline intact for pagination; bound only the offline cache.
+            // Pending/failed sends are excluded so pruning cannot discard a local draft send.
+            db.run("""
+                DELETE FROM messages
+                WHERE channel_id = ? AND is_deleted = 0 AND sending_state = ?
+                  AND id NOT IN (
+                    SELECT id FROM messages
+                    WHERE channel_id = ? AND is_deleted = 0 AND sending_state = ?
+                    ORDER BY created_at DESC, length(id) DESC, id DESC
+                    LIMIT ?
+                  )
+            """) { s in
+                sqlite3_bind_text(s, 1, channelId, -1, sqliteTransient)
+                sqlite3_bind_int(s, 2, SendingState.sent.rawValue)
+                sqlite3_bind_text(s, 3, channelId, -1, sqliteTransient)
+                sqlite3_bind_int(s, 4, SendingState.sent.rawValue)
+                sqlite3_bind_int(s, 5, Int32(Self.cachedHistoryLimit))
+            }
         }
         db.commitTransaction()
         pendingWrites.removeAll()
     }
 
     override func clearMemoryCache() {
+        historyRefreshIds.removeAll()
+        historyWindowIds.removeAll()
+        deletedMessageIds.removeAll()
+        pendingServerTailIds.removeAll()
         optimisticReactions.removeAll()
         cache.removeAll()
     }

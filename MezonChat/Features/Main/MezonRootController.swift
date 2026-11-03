@@ -374,7 +374,7 @@ final class MezonRootController: NavigationController {
             return
         case .ready:
             let skipRing = (notification.userInfo?["mezonSkipIncomingRingingUI"] as? Bool) == true
-            let display = IncomingPeerCallPayloadParser.callerDisplay(for: payload, skipDecompressOffer: skipRing)
+            let display = IncomingPeerCallPayloadParser.callerDisplay(for: payload, skipDecompressOffer: skipRing, context: context)
             let vc = PeerCallViewController(
                 context: context,
                 incoming: payload,
@@ -1274,26 +1274,126 @@ final class MezonRootController: NavigationController {
             return
         }
         let theme = context.sharedContext.currentPresentationTheme.attributes
-        let node = QRUserProfileNode(profile: profile, theme: theme)
+        let userId = Int64(profile.id) ?? 0
+        let relation = context.engine.friendsData.allFriends().first { $0.hasUser && $0.user.id == userId }
+        let showAddFriend = userId > 0 && profile.id != context.currentUser?.id && relation?.state != EStateFriend.friend.rawValue
+        let node = QRUserProfileNode(
+            profile: profile,
+            username: username.removingPercentEncoding ?? username,
+            showAddFriend: showAddFriend,
+            theme: theme
+        )
         let overlay = DeepLinkNodeOverlayController(node: node)
-        node.onClose = { [weak overlay] in
+        var actionTask: Task<Void, Never>?
+        var isDismissingProfile = false
+        node.onClose = { [weak overlay, weak node] in
+            guard !isDismissingProfile else { return }
+            isDismissingProfile = true
+            actionTask?.cancel()
+            node?.setActionsEnabled(false)
             overlay?.dismissOverlay()
         }
-        node.onMessage = { [weak self, weak overlay] in
-            guard let self else { return }
-            Task { @MainActor in
+        let openConversation: (Bool) -> Void = { [weak self, weak overlay, weak node] isCall in
+            guard let self, let overlay, let node, actionTask == nil, !isDismissingProfile else { return }
+            guard userId > 0 else {
+                Toast.error(L(L10n.QRScanner.invalidQR))
+                return
+            }
+            if isCall && !QRProfileCall.canStart(context: self.context, userId: userId) { return }
+            node.setActionsEnabled(false)
+            actionTask = Task { @MainActor in
+                defer {
+                    actionTask = nil
+                    if !isDismissingProfile { node.setActionsEnabled(true) }
+                }
                 do {
-                    guard let userId = Int64(profile.id) else { return }
-                    let token = await self.context.getToken() ?? ""
-                    let channel = try await self.context.account.network.createDirectMessage(userId: userId, token: token)
-                    overlay?.dismissOverlay {
-                        NotificationCenter.default.post(
-                            name: .mezonQRNavigateToDM,
-                            object: nil,
-                            userInfo: ["channelId": "\(channel.channelID)", "title": profile.name]
-                        )
+                    let token = await self.context.getToken()
+                    try Task.checkCancellation()
+                    guard let token, !token.isEmpty else {
+                        Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                        return
                     }
+                    try Task.checkCancellation()
+                    let channels = try? await self.context.account.network.listDirectMessageChannels(token: token)
+                    try Task.checkCancellation()
+                    let myUserId = Int64(self.context.currentUser?.id ?? "") ?? 0
+                    let channel: Mezon_Api_ChannelDescription
+                    if let existing = channels?.first(where: {
+                        $0.type == MezonConstants.ChannelType.dm.rawValue
+                            && $0.userIds.filter { $0 != myUserId } == [userId]
+                    }) {
+                        channel = existing
+                    } else {
+                        channel = try await self.context.account.network.createDirectMessage(userId: userId, token: token)
+                    }
+                    try Task.checkCancellation()
+                    guard overlay.viewIfLoaded?.window != nil else { return }
+                    guard channel.channelID != 0 else {
+                        Toast.error(L(L10n.Sharing.targetUnavailable))
+                        return
+                    }
+                    if isCall && !QRProfileCall.canStart(context: self.context, userId: userId) { return }
+                    isDismissingProfile = true
+                    overlay.dismissOverlay { [weak self] in
+                        guard let self else { return }
+                        if isCall {
+                            guard QRProfileCall.canStart(context: self.context, userId: userId) else { return }
+                            PeerCallLogMessage.sendStartCallLog(context: self.context, channel: channel, isVideoCall: false)
+                            let call = PeerCallViewController(
+                                context: self.context,
+                                remoteUserName: profile.name,
+                                remoteAvatarURL: profile.avatar,
+                                remoteUserId: userId,
+                                channelId: channel.channelID,
+                                isVideo: false,
+                                preferSpeaker: true
+                            )
+                            self.pushViewController(call, animated: true)
+                        } else {
+                            NotificationCenter.default.post(
+                                name: .mezonQRNavigateToDM,
+                                object: nil,
+                                userInfo: ["channelId": "\(channel.channelID)", "title": profile.name]
+                            )
+                        }
+                    }
+                } catch is CancellationError {
+                    // Dismissing the profile cancels the pending action.
                 } catch {
+                    guard !Task.isCancelled, overlay.viewIfLoaded?.window != nil else { return }
+                    Toast.error(error.localizedDescription)
+                }
+            }
+        }
+        node.onMessage = { openConversation(false) }
+        node.onCall = { openConversation(true) }
+        node.onAddFriend = { [weak self, weak overlay, weak node] in
+            guard let self, let overlay, let node, actionTask == nil, !isDismissingProfile, showAddFriend else { return }
+            node.setActionsEnabled(false)
+            actionTask = Task { @MainActor in
+                defer {
+                    actionTask = nil
+                    if !isDismissingProfile { node.setActionsEnabled(true) }
+                }
+                do {
+                    let token = await self.context.getToken()
+                    try Task.checkCancellation()
+                    guard let token, !token.isEmpty else {
+                        Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                        return
+                    }
+                    try Task.checkCancellation()
+                    try await self.context.account.network.addFriends(ids: [userId], token: token)
+                    try Task.checkCancellation()
+                    await self.context.engine.friendsData.refreshFromNetwork(token: token, force: true)
+                    try Task.checkCancellation()
+                    guard overlay.viewIfLoaded?.window != nil else { return }
+                    node.hideAddFriend()
+                    Toast.success(L(L10n.FriendRequest.toastSendSuccess))
+                } catch is CancellationError {
+                    // Dismissing the profile cancels the pending action.
+                } catch {
+                    guard !Task.isCancelled, overlay.viewIfLoaded?.window != nil else { return }
                     Toast.error(error.localizedDescription)
                 }
             }

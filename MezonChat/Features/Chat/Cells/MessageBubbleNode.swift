@@ -8,7 +8,8 @@ final class MessageBubbleNode: ASDisplayNode {
 
     private let nameNode = ASTextNode2()
     private let timeNode = ASTextNode2()
-    private var roleIconNode: TransformImageNode?
+    private var roleIconNode: MessageRoleIconNode?
+    private var roleIconAnimationVisible = false
 
     private var replyNode: MessageReplyNode?
     private var deletedReplyNode: MessageDeletedReplyNode?
@@ -1191,6 +1192,12 @@ final class MessageBubbleNode: ASDisplayNode {
 
     private static let anonymousBadgeKey = "anonymous-badge"
 
+    func setRoleIconAnimationVisible(_ visible: Bool) {
+        guard roleIconAnimationVisible != visible else { return }
+        roleIconAnimationVisible = visible
+        roleIconNode?.setAnimationVisible(visible)
+    }
+
     private func applyAnonymousBadge() {
         guard let raw = UIImage(named: "Chat/AnonymousIcon") else {
             roleIconNode?.removeFromSupernode()
@@ -1201,24 +1208,15 @@ final class MessageBubbleNode: ASDisplayNode {
         if currentRoleIconURL == Self.anonymousBadgeKey, roleIconNode != nil { return }
         currentRoleIconURL = Self.anonymousBadgeKey
 
-        let node = roleIconNode ?? TransformImageNode()
+        let node = roleIconNode ?? MessageRoleIconNode()
         if roleIconNode == nil {
             roleIconNode = node
             addSubnode(node)
         }
-        let side = Self.roleIconSide
-        let args = TransformImageArguments(
-            corners: ImageCorners(radius: 0),
-            imageSize: CGSize(width: side, height: side),
-            boundingSize: CGSize(width: side, height: side),
-            intrinsicInsets: .zero
-        )
         let tinted = raw.withRenderingMode(.alwaysTemplate)
             .withTintColor(UIColor.theme.textStrong, renderingMode: .alwaysOriginal)
-        node.reset()
-        node.setSignal(staticImageSignal(image: tinted, resizeMode: .fit), attemptSynchronously: true)
-        let apply = node.asyncLayout()(args)
-        apply()
+        node.setAnimationVisible(roleIconAnimationVisible)
+        node.setImage(tinted, contentMode: .scaleAspectFit)
     }
 
     private func applyRoleIcon(for display: ChatMessageDisplay) {
@@ -1236,23 +1234,16 @@ final class MessageBubbleNode: ASDisplayNode {
         if currentRoleIconURL == urlString, roleIconNode != nil { return }
         currentRoleIconURL = urlString
 
-        let node = roleIconNode ?? TransformImageNode()
+        let node = roleIconNode ?? MessageRoleIconNode()
         if roleIconNode == nil {
             roleIconNode = node
             addSubnode(node)
         }
         let side = Self.roleIconSide
         let proxyURL = ImgproxyURL.create(from: urlString, width: 60, height: 60)
-        let args = TransformImageArguments(
-            corners: ImageCorners(radius: 0),
-            imageSize: CGSize(width: side, height: side),
-            boundingSize: CGSize(width: side, height: side),
-            intrinsicInsets: .zero
-        )
-        node.reset()
-        node.setSignal(remoteAvatarSignal(proxiedURL: proxyURL, originalURL: urlString), attemptSynchronously: false)
-        let apply = node.asyncLayout()(args)
-        apply()
+        let pixelSide = Int(ceil(side * UIScreen.main.scale))
+        node.setAnimationVisible(roleIconAnimationVisible)
+        node.loadImage(urlString: proxyURL, pixelSide: pixelSide)
     }
 
     deinit {
@@ -1996,6 +1987,90 @@ final class MessageBubbleNode: ASDisplayNode {
 
     private static func shouldShowReactionStrip(for display: ChatMessageDisplay) -> Bool {
         reactionStripAllowed(for: display) && !display.reactions.isEmpty
+    }
+}
+
+private final class MessageRoleIconNode: ASDisplayNode {
+    private var image: UIImage?
+
+    private var loadGeneration = 0
+    private var animationVisible = false
+
+    override init() {
+        super.init()
+        setViewBlock { MessageRoleIconImageView() }
+        contentMode = .scaleAspectFill
+        clipsToBounds = true
+        isUserInteractionEnabled = false
+    }
+
+    func setImage(_ image: UIImage?, contentMode: UIView.ContentMode = .scaleAspectFill) {
+        loadGeneration &+= 1
+        self.contentMode = contentMode
+        self.image = image
+        applyImage()
+    }
+
+    func loadImage(urlString: String, pixelSide: Int) {
+        loadGeneration &+= 1
+        let generation = loadGeneration
+        contentMode = .scaleAspectFill
+        image = nil
+        applyImage()
+
+        ImageCache.shared.loadOptimizedAvatar(urlString: urlString, targetPixelSize: pixelSide) { [weak self] image in
+            Queue.mainQueue().async { [weak self] in
+                guard let self, self.loadGeneration == generation else { return }
+                self.image = image
+                self.applyImage()
+            }
+        }
+    }
+
+    func setAnimationVisible(_ visible: Bool) {
+        guard animationVisible != visible else { return }
+        animationVisible = visible
+        updateAnimation()
+    }
+
+    override func didLoad() {
+        super.didLoad()
+        applyImage()
+    }
+
+    private func applyImage() {
+        guard isNodeLoaded, let imageView = view as? MessageRoleIconImageView else { return }
+        imageView.stopAnimating()
+        let frames = image?.images
+        imageView.animationImages = (frames?.count ?? 0) > 1 ? frames : nil
+        imageView.animationDuration = image?.duration ?? 0
+        imageView.animationRepeatCount = 0
+        imageView.image = frames?.first ?? image
+        updateAnimation()
+    }
+
+    private func updateAnimation() {
+        guard isNodeLoaded, let imageView = view as? MessageRoleIconImageView else { return }
+        imageView.animationVisible = animationVisible
+    }
+}
+
+private final class MessageRoleIconImageView: UIImageView {
+    var animationVisible = false {
+        didSet { updateAnimation() }
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        updateAnimation()
+    }
+
+    private func updateAnimation() {
+        if animationVisible, window != nil, (animationImages?.count ?? 0) > 1 {
+            if !isAnimating { startAnimating() }
+        } else {
+            stopAnimating()
+        }
     }
 }
 
