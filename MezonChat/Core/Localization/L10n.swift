@@ -889,6 +889,7 @@ enum L10n {
         static let chooseTypeSubtitle = "eventEditor.chooseTypeSubtitle"
         static let voice = "eventEditor.voice"
         static let voiceSubtitle = "eventEditor.voiceSubtitle"
+        static let privateVoiceChannelTip = "eventEditor.privateVoiceChannelTip"
         static let elsewhere = "eventEditor.elsewhere"
         static let elsewhereSubtitle = "eventEditor.elsewhereSubtitle"
         static let external = "eventEditor.external"
@@ -1961,6 +1962,7 @@ extension L10n {
         "eventEditor.chooseTypeSubtitle": "Choose how members will join your event.",
         "eventEditor.voice": "Voice Channel",
         "eventEditor.voiceSubtitle": "Host the event in a voice channel",
+        "eventEditor.privateVoiceChannelTip": "Tip: Make sure everyone can join the event by adding them to %@.",
         "eventEditor.elsewhere": "Somewhere else",
         "eventEditor.elsewhereSubtitle": "Meet at an offline location",
         "eventEditor.external": "Create External Event",
@@ -3438,6 +3440,7 @@ extension L10n {
         "eventEditor.chooseTypeSubtitle": "Chọn cách thành viên tham gia sự kiện.",
         "eventEditor.voice": "Kênh thoại",
         "eventEditor.voiceSubtitle": "Tổ chức sự kiện trong kênh thoại",
+        "eventEditor.privateVoiceChannelTip": "Tip: Đảm bảo tất cả khán giả đều có thể tham gia được sự kiện, hãy thêm họ vào %@.",
         "eventEditor.elsewhere": "Địa điểm khác",
         "eventEditor.elsewhereSubtitle": "Gặp mặt tại một địa điểm trực tiếp",
         "eventEditor.external": "Tạo sự kiện bên ngoài",
