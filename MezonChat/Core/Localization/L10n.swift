@@ -619,6 +619,28 @@ enum L10n {
         static let roles                = "clan.setting.roles"
         static let invites              = "clan.setting.invites"
 
+        enum Sounds {
+            static let preview = "clan.setting.sounds.preview"
+            static let upload = "clan.setting.sounds.upload"
+            static let requirements = "clan.setting.sounds.requirements"
+            static let loading = "clan.setting.sounds.loading"
+            static let empty = "clan.setting.sounds.empty"
+            static let name = "clan.setting.sounds.name"
+            static let nameRequirement = "clan.setting.sounds.nameRequirement"
+            static let durationRequirement = "clan.setting.sounds.durationRequirement"
+            static let invalidFile = "clan.setting.sounds.invalidFile"
+            static let fileTooLarge = "clan.setting.sounds.fileTooLarge"
+            static let rename = "clan.setting.sounds.rename"
+            static let deleteTitle = "clan.setting.sounds.deleteTitle"
+            static let deleteDescription = "clan.setting.sounds.deleteDescription"
+            static let saved = "clan.setting.sounds.saved"
+            static let start = "clan.setting.sounds.start"
+            static let end = "clan.setting.sounds.end"
+            static let volume = "clan.setting.sounds.volume"
+            static let play = "clan.setting.sounds.play"
+            static let pause = "clan.setting.sounds.pause"
+        }
+
         enum Emojis {
             static let duplicateName = "clan.setting.emojis.duplicateName"
             static let updateSuccess = "clan.setting.emojis.updateSuccess"
@@ -2077,6 +2099,25 @@ extension L10n {
         "clan.setting.emoji":               "Emoji",
         "clan.setting.sticker":             "Sticker",
         "clan.setting.soundEffect":         "Sound Effect",
+        "clan.setting.sounds.preview": "Preview",
+        "clan.setting.sounds.upload": "Upload Sound",
+        "clan.setting.sounds.requirements": "Personalize your clan with sound effects.\n• MP3 or WAV, up to 1 MB\n• Select a clip from 1 to 10 seconds\n• Tap a sound name to rename; swipe left to delete.",
+        "clan.setting.sounds.loading": "Loading sound effects…",
+        "clan.setting.sounds.empty": "This clan has no sound effects yet.",
+        "clan.setting.sounds.name": "Sound name",
+        "clan.setting.sounds.nameRequirement": "Use 3–64 letters, numbers, underscores or hyphens.",
+        "clan.setting.sounds.durationRequirement": "Select an audio clip from 1 to 10 seconds.",
+        "clan.setting.sounds.invalidFile": "Choose a valid MP3 or WAV audio file.",
+        "clan.setting.sounds.fileTooLarge": "The audio file must not exceed 1 MB.",
+        "clan.setting.sounds.rename": "Rename Sound",
+        "clan.setting.sounds.deleteTitle": "Delete Sound",
+        "clan.setting.sounds.deleteDescription": "Are you sure you want to delete “%@”?",
+        "clan.setting.sounds.saved": "Sound effects updated.",
+        "clan.setting.sounds.start": "Start",
+        "clan.setting.sounds.end": "End",
+        "clan.setting.sounds.volume": "Volume",
+        "clan.setting.sounds.play": "Play sound",
+        "clan.setting.sounds.pause": "Pause sound",
         "clan.setting.enableCommunity":     "Enable Community",
         "clan.setting.userManagement":      "User Management",
         "clan.setting.roles":               "Roles",
@@ -3559,6 +3600,25 @@ extension L10n {
         "clan.setting.emoji":               "Biểu cảm",
         "clan.setting.sticker":             "Nhãn dán",
         "clan.setting.soundEffect":         "Hiệu ứng âm thanh",
+        "clan.setting.sounds.preview": "Xem trước",
+        "clan.setting.sounds.upload": "Tải âm thanh lên",
+        "clan.setting.sounds.requirements": "Cá nhân hóa clan bằng hiệu ứng âm thanh.\n• MP3 hoặc WAV, tối đa 1 MB\n• Chọn đoạn âm thanh từ 1 đến 10 giây\n• Chạm tên để đổi tên; vuốt sang trái để xóa.",
+        "clan.setting.sounds.loading": "Đang tải hiệu ứng âm thanh…",
+        "clan.setting.sounds.empty": "Clan này chưa có hiệu ứng âm thanh.",
+        "clan.setting.sounds.name": "Tên âm thanh",
+        "clan.setting.sounds.nameRequirement": "Tên gồm 3–64 chữ cái không dấu, chữ số, dấu gạch dưới hoặc gạch nối.",
+        "clan.setting.sounds.durationRequirement": "Chọn đoạn âm thanh từ 1 đến 10 giây.",
+        "clan.setting.sounds.invalidFile": "Vui lòng chọn tệp âm thanh MP3 hoặc WAV hợp lệ.",
+        "clan.setting.sounds.fileTooLarge": "Tệp âm thanh không được vượt quá 1 MB.",
+        "clan.setting.sounds.rename": "Đổi tên âm thanh",
+        "clan.setting.sounds.deleteTitle": "Xóa âm thanh",
+        "clan.setting.sounds.deleteDescription": "Bạn có chắc chắn muốn xóa “%@” không?",
+        "clan.setting.sounds.saved": "Đã cập nhật hiệu ứng âm thanh.",
+        "clan.setting.sounds.start": "Bắt đầu",
+        "clan.setting.sounds.end": "Kết thúc",
+        "clan.setting.sounds.volume": "Âm lượng",
+        "clan.setting.sounds.play": "Phát âm thanh",
+        "clan.setting.sounds.pause": "Tạm dừng âm thanh",
         "clan.setting.enableCommunity":     "Bật cộng đồng",
         "clan.setting.userManagement":      "Quản lý người dùng",
         "clan.setting.roles":               "Vai trò",

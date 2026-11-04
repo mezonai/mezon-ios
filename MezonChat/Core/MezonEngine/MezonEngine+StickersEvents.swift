@@ -17,17 +17,29 @@ extension MezonEngine {
               !session.token.isEmpty,
               !session.isExpired else { return }
         do {
-            let res = try await account.network.getListStickersByUserId(token: session.token)
-            let rows = res.stickers.map { $0.toCachedRecord() }
-            guard !rows.isEmpty else { return }
-            let now = Date().timeIntervalSince1970
-            let cache = MediaPanelStickerListCache(fetchedAt: now, stickers: rows)
-            account.postbox.setSetting(key: MediaPanelPostboxKeys.stickerListByUser, value: cache)
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(name: .mezonStickerListDidUpdate, object: nil)
-            }
+            try await refreshStickerListFromNetwork(token: session.token)
         } catch {
         }
+    }
+
+    func refreshStickerListFromNetwork(token: String, allowEmpty: Bool = false) async throws {
+        let postbox = account.postbox
+        let previous = postbox.getSetting(key: MediaPanelPostboxKeys.stickerListByUser, type: MediaPanelStickerListCache.self)
+        let response = try await account.network.getListStickersByUserId(token: token)
+        try Task.checkCancellation()
+        let current = postbox.getSetting(key: MediaPanelPostboxKeys.stickerListByUser, type: MediaPanelStickerListCache.self)
+        guard current == previous else {
+            scheduleStickerListNetworkSync()
+            return
+        }
+       
+        guard allowEmpty || !response.stickers.isEmpty else { return }
+        let cache = MediaPanelStickerListCache(
+            fetchedAt: Date().timeIntervalSince1970,
+            stickers: response.stickers.map { $0.toCachedRecord() }
+        )
+        postbox.setSetting(key: MediaPanelPostboxKeys.stickerListByUser, value: cache)
+        NotificationCenter.default.post(name: .mezonStickerListDidUpdate, object: nil)
     }
 
     func handleStickerEvent(_ event: SocketEvent) {
@@ -41,9 +53,15 @@ extension MezonEngine {
 
         switch event {
         case .stickerCreated(let ev):
+            let source = ev.source.lowercased()
+            let isAudio = source.contains("/sounds/") || source.hasSuffix(".mp3") || source.hasSuffix(".wav")
+            let mediaType = isAudio ? StickerMediaType.audio.rawValue : StickerMediaType.sticker.rawValue
             if let idx = stickers.firstIndex(where: { $0.id == ev.stickerID }) {
                 var existing = stickers[idx]
-                if !ev.source.isEmpty { existing.source = ev.source }
+                if !ev.source.isEmpty {
+                    existing.source = ev.source
+                    existing.mediaType = mediaType
+                }
                 if !ev.shortname.isEmpty { existing.shortname = ev.shortname }
                 if !ev.category.isEmpty { existing.category = ev.category }
                 if ev.creatorID != 0 { existing.creatorID = ev.creatorID }
@@ -52,9 +70,10 @@ extension MezonEngine {
                 if !ev.clanName.isEmpty { existing.clanName = ev.clanName }
                 stickers[idx] = existing
                 hasChanges = true
-            } else if !ev.shortname.isEmpty,
+            } else if !isAudio, !ev.shortname.isEmpty,
                       let idx = stickers.firstIndex(where: {
-                          $0.shortname == ev.shortname && (ev.clanID == 0 || $0.clanID == ev.clanID)
+                          $0.shortname == ev.shortname && $0.mediaType == mediaType
+                              && (ev.clanID == 0 || $0.clanID == ev.clanID)
                       }) {
                 var existing = stickers[idx]
                 existing.id = ev.stickerID
@@ -78,7 +97,7 @@ extension MezonEngine {
                     clanID: ev.clanID,
                     logo: ev.logo,
                     clanName: ev.clanName,
-                    mediaType: StickerMediaType.sticker.rawValue,
+                    mediaType: mediaType,
                     isForSale: false
                 )
                 stickers.insert(record, at: 0)

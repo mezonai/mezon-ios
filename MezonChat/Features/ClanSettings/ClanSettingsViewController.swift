@@ -80,6 +80,11 @@ final class ClanSettingsViewController: BaseViewController {
             let vc = ClanEmojisViewController(context: self.context, clanId: self.clanId)
             self.navigationController?.pushViewController(vc, animated: true)
         }
+        node.onSelectSounds = { [weak self] in
+            guard let self else { return }
+            let vc = ClanSoundsViewController(context: self.context, clanId: self.clanId)
+            self.navigationController?.pushViewController(vc, animated: true)
+        }
         node.onSelectInvites = { [weak self] in
             guard let self else { return }
             let vc = ClanInviteSheetViewController(context: self.context, clanId: self.clanId)
