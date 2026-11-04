@@ -57,7 +57,11 @@ final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyl
     private lazy var otpContainer: UIView = {
         let container = UIView()
         container.translatesAutoresizingMaskIntoConstraints = false
-        let fields = (0..<6).map { _ in makeDigitField() }
+        let fields = (0..<6).map { index in
+            let field = makeDigitField()
+            field.accessibilityIdentifier = "auth.otp.digit.\(index)"
+            return field
+        }
         digitFields = fields
 
         var previousField: UIView?
@@ -81,6 +85,7 @@ final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyl
 
     private lazy var actionButton: GradientButton = {
         let btn = GradientButton(type: .custom)
+        btn.accessibilityIdentifier = "auth.otp.submit"
         btn.titleLabel?.font = .systemFont(ofSize: 16.sf, weight: .semibold)
         btn.setTitleColor(LoginPalette.buttonText, for: .normal)
         btn.setTitleColor(LoginPalette.disabledButtonText, for: .disabled)

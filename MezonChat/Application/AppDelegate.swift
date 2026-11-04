@@ -62,6 +62,11 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
             object: nil
         )
 
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains(UITestLaunch.resetSessionArgument) {
+            SessionStore.clear()
+        }
+        #endif
         SessionStore.prepareInstallationScopedKeychainIfNeeded()
         if let userId = SessionStore.load()?.userId, !userId.isEmpty {
             MessageNotificationCategory.setActiveUser(userId)
@@ -138,7 +143,12 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         let sharedContext = SharedAccountContextImpl(mainWindow: mainWindow)
         self.sharedContext = sharedContext
 
-        let savedSession = SessionStore.load()
+        #if DEBUG
+        let isUITestingLogin = ProcessInfo.processInfo.arguments.contains(UITestLaunch.loginArgument)
+        #else
+        let isUITestingLogin = false
+        #endif
+        let savedSession = isUITestingLogin ? nil : SessionStore.load()
 
         let onReady: @MainActor (AccountContextImpl) -> Void = { [weak self] context in
             guard let self, !self.hasStartedAuthFlow else { return }
