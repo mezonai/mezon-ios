@@ -5,6 +5,40 @@ import UIKit
 @MainActor
 final class PeerCallViewController: ViewController {
 
+    static func startAudioCall(
+        context: AccountContext,
+        channel: Mezon_Api_ChannelDescription,
+        user: Mezon_Api_User,
+        from controller: UIViewController
+    ) {
+        guard user.id != (Int64(context.currentUser?.id ?? "") ?? 0) else {
+            Toast.error("Cannot call yourself")
+            return
+        }
+
+        PeerCallLogMessage.sendStartCallLog(
+            context: context,
+            channel: channel,
+            isVideoCall: false
+        )
+
+        let displayName = user.displayName.isEmpty ? (channel.channelLabel.isEmpty ? user.username : channel.channelLabel) : user.displayName
+        let avatarURL = user.avatarURL.isEmpty ? channel.avatars.first : user.avatarURL
+        let callVC = PeerCallViewController(
+            context: context,
+            remoteUserName: displayName,
+            remoteAvatarURL: avatarURL,
+            remoteUserId: user.id,
+            channelId: channel.channelID,
+            isVideo: false
+        )
+        if let nav = controller.navigationController {
+            nav.pushViewController(callVC, animated: true)
+        } else {
+            controller.present(callVC, animated: true)
+        }
+    }
+
     private enum Entry {
         case outgoing(isVideo: Bool, remoteUserName: String, remoteAvatarURL: String?, remoteUserId: Int64, channelId: Int64)
         case incoming(payload: IncomingPeerCallPayload, remoteDisplayName: String, remoteAvatarURL: String?)
