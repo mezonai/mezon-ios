@@ -152,7 +152,16 @@ final class LoginViewController: ViewController, AuthScreenStatusBarStyle {
     }
 
     private static func initialMode() -> LoginMode {
-        isDeviceInVietnam() ? .sms : .emailOTP
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains(UITestLaunch.loginArgument) {
+            let value = ProcessInfo.processInfo.environment[UITestLaunch.loginModeEnvironmentKey]
+            guard let value, let rawValue = Int(value), let mode = LoginMode(rawValue: rawValue) else {
+                preconditionFailure("\(UITestLaunch.loginModeEnvironmentKey) must be 0, 1, or 2. Got \(value ?? "nil").")
+            }
+            return mode
+        }
+        #endif
+        return isDeviceInVietnam() ? .sms : .emailOTP
     }
 
     private static func isDeviceInVietnam() -> Bool {

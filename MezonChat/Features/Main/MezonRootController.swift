@@ -25,6 +25,11 @@ final class MezonRootController: NavigationController {
         )
     }
 
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.accessibilityIdentifier = "main.root"
+    }
+
     @objc private func handleThemeDidChange() {
         let newTheme = Self.makeNavTheme()
         self.updateTheme(newTheme)
