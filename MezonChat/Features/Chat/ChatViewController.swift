@@ -6218,28 +6218,7 @@ final class ChatViewController: ViewController {
     }
 
     private func startDirectMessageCall(channel: Mezon_Api_ChannelDescription, user: Mezon_Api_User) {
-        guard user.id != (Int64(context.currentUser?.id ?? "") ?? 0) else {
-            Toast.error("Cannot call yourself")
-            return
-        }
-
-        PeerCallLogMessage.sendStartCallLog(
-            context: context,
-            channel: channel,
-            isVideoCall: false
-        )
-
-        let displayName = user.displayName.isEmpty ? (channel.channelLabel.isEmpty ? user.username : channel.channelLabel) : user.displayName
-        let avatarURL = user.avatarURL.isEmpty ? channel.avatars.first : user.avatarURL
-        let callVC = PeerCallViewController(
-            context: context,
-            remoteUserName: displayName,
-            remoteAvatarURL: avatarURL,
-            remoteUserId: user.id,
-            channelId: channel.channelID,
-            isVideo: false
-        )
-        pushPeerCallScreen(callVC)
+        PeerCallViewController.startAudioCall(context: context, channel: channel, user: user, from: self)
     }
 
     private func startShareContactCall(_ data: ShareContactData) {

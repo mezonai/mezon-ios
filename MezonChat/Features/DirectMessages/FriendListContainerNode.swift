@@ -734,7 +734,7 @@ final class FriendListItemNode: ASCellNode, ASNetworkImageNodeDelegate {
     }
 
     @objc private func callTapped() {
-        Toast.comingSoonLine(L(L10n.Common.comingSoon))
+        interaction.onCallFriend(friend)
     }
 
     @objc private func messageTapped() {
