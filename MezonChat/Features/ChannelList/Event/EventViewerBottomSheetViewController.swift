@@ -15,7 +15,6 @@ enum EventListFilter {
         return events.filter { event in
             isActive(event, now: now)
                 && (event.channelID == 0 || channelIds.contains(event.channelID))
-                && (event.channelVoiceID == 0 || channelIds.contains(event.channelVoiceID))
         }
     }
 }
@@ -1007,8 +1006,8 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
                 text: event.address
             )
         }
-        guard event.channelVoiceID != 0 || voiceChannelLabel != nil else { return nil }
-        let label = voiceChannelLabel ?? L(L10n.EventMenu.privateRoom)
+        let fallbackKey = event.channelVoiceID != 0 ? L10n.EventMenu.privateRoom : L10n.EventMenu.externalMeetingRoom
+        let label = voiceChannelLabel ?? L(fallbackKey)
         return inlineIconRow(icon: UIImage(systemName: "speaker.wave.2.fill"), text: label)
     }
 

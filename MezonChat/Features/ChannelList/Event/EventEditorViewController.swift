@@ -561,7 +561,7 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
         switch draft.locationType {
         case .voice: location = channelLabel(draft.voiceChannelId) ?? L(L10n.EventMenu.privateRoom)
         case .location: location = draft.address
-        default: location = L(L10n.EventMenu.privateEvent)
+        default: location = L(L10n.EventMenu.externalMeetingRoom)
         }
         content.addArrangedSubview(iconRow(draft.locationType == .location ? "mappin.and.ellipse" : (draft.locationType == .external ? "lock.fill" : "speaker.wave.2.fill"), text: location))
         if draft.repeatType != EventRepeatType.doesNotRepeat { content.addArrangedSubview(iconRow("repeat", text: repeatLabel())) }

@@ -551,8 +551,12 @@ final class EventDetailBottomSheetViewController: UIViewController {
                 text: event.address
             )
         }
-        let voiceChannel = channels.first(where: { $0.channelID == event.channelVoiceID })
-        let voiceLabel = voiceChannel?.channelLabel ?? L(L10n.EventMenu.privateRoom)
+        let voiceChannel = resolveVoiceChannel()
+        let fallbackKey = event.channelVoiceID != 0 ? L10n.EventMenu.privateRoom : L10n.EventMenu.externalMeetingRoom
+        let voiceLabel = voiceChannel?.channelLabel ?? L(fallbackKey)
+        if event.channelVoiceID != 0 && voiceChannel == nil {
+            return inlineRow(icon: UIImage(systemName: "speaker.wave.2.fill"), text: voiceLabel)
+        }
         return makeTappableVoiceRow(label: voiceLabel)
     }
 
@@ -599,25 +603,17 @@ final class EventDetailBottomSheetViewController: UIViewController {
 
     private func handleVoiceJoin() {
         guard event.address.isEmpty else { return }
-        if let voiceChannel = resolveVoiceChannel() {
+        if event.channelVoiceID != 0 {
+            guard let voiceChannel = resolveVoiceChannel() else { return }
             onPresentJoinVoice?(voiceChannel)
-            return
-        }
-        if let url = MezonConfig.externalEventURL(event.meetRoom.externalLink) {
+        } else if let url = MezonConfig.externalEventURL(event.meetRoom.externalLink) {
             UIApplication.shared.open(url)
         }
     }
 
     private func resolveVoiceChannel() -> Mezon_Api_ChannelDescription? {
         guard event.channelVoiceID != 0 else { return nil }
-        if let channel = channels.first(where: { $0.channelID == event.channelVoiceID }) {
-            return channel
-        }
-        var channel = Mezon_Api_ChannelDescription()
-        channel.channelID = event.channelVoiceID
-        channel.clanID = clanId
-        channel.type = MezonConstants.ChannelType.mezonVoice.rawValue
-        return channel
+        return channels.first(where: { $0.channelID == event.channelVoiceID })
     }
 
     private func currentUserId() -> Int64 {
