@@ -118,6 +118,61 @@ enum FileIngest {
     }
 }
 
+enum FileIngestAvailability {
+    private static let availableFor: TimeInterval = 30 * 60
+    private static let unavailableFor: TimeInterval = 5 * 60
+    private static let schemes = ["https://", "http://"]
+
+    private static let lock = NSLock()
+    private static var verdicts: [String: (available: Bool, expiresAt: Date)] = [:]
+
+    private static let session: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        config.urlCache = nil
+        config.timeoutIntervalForRequest = 5
+        config.timeoutIntervalForResource = 5
+        config.httpShouldSetCookies = false
+        config.httpCookieAcceptPolicy = .never
+        return URLSession(configuration: config)
+    }()
+
+    static func isAvailable(ingestURL: String) async -> Bool {
+        let unsigned = ingestURL.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+            .first.map(String.init) ?? ingestURL
+        guard let origin = origin(of: unsigned), let url = URL(string: unsigned) else { return false }
+        lock.lock()
+        let cached = verdicts[origin]
+        lock.unlock()
+        if let cached, cached.expiresAt > Date() { return cached.available }
+
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 5)
+        request.httpShouldHandleCookies = false
+        let answer: Bool? = await withCheckedContinuation { continuation in
+            session.dataTask(with: request) { data, response, error in
+                guard error == nil, let status = (response as? HTTPURLResponse)?.statusCode else {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                let body = data.flatMap { try? JSONSerialization.jsonObject(with: $0) }
+                continuation.resume(returning: status != 404 && body is [String: Any])
+            }.resume()
+        }
+        guard let answer else { return false }
+        lock.lock()
+        verdicts[origin] = (available: answer, expiresAt: Date().addingTimeInterval(answer ? availableFor : unavailableFor))
+        lock.unlock()
+        return answer
+    }
+
+    private static func origin(of url: String) -> String? {
+        guard let scheme = schemes.first(where: { url.lowercased().hasPrefix($0) }) else { return nil }
+        let host = url.dropFirst(scheme.count).prefix(while: { !"/?#".contains($0) })
+        guard !host.isEmpty else { return nil }
+        return scheme + host.lowercased()
+    }
+}
+
 enum FileIngestError: Error {
     case busy
     case unreachable

@@ -459,6 +459,8 @@ final class ChatViewController: ViewController {
     private var initialChatTask: Task<Void, Never>?
     private var activeMessageHistoryRefresh: MessageHistoryRefresh?
     private var messageRequestTimeouts: [UUID: DispatchWorkItem] = [:]
+    private var messageHistoryRetryCount = 0
+    private static let messageHistoryRetryDelays: [TimeInterval] = [2, 5, 10]
     private var reconnectPreparationRequestId: UUID?
     private var storageChannelId: String {
         if let messageId = pendingTopicCreationMessageId {
@@ -2011,9 +2013,34 @@ final class ChatViewController: ViewController {
             self.messagesNode.pendingJumpMessageId = nil
             self.readyToLoadMore = true
             self.setErrorMessage(URLError(.timedOut).localizedDescription)
+            self.scheduleMessageHistoryRetry()
         }
         messageRequestTimeouts[id] = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: work)
+    }
+
+    private static func isRetryableMessageHistoryError(_ error: Error) -> Bool {
+        if error is SessionError { return false }
+        if let mezonError = error as? MezonError, case .httpError(401, _) = mezonError { return false }
+        return true
+    }
+
+    private func scheduleMessageHistoryRetry() {
+        guard messageHistoryRetryCount < Self.messageHistoryRetryDelays.count,
+              NetworkMonitor.shared.isConnected else { return }
+        let delay = Self.messageHistoryRetryDelays[messageHistoryRetryCount]
+        messageHistoryRetryCount += 1
+        let generation = messageHistoryGeneration
+        let attempt = messageHistoryRetryCount
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, !self.hasLeftChat,
+                  self.messageHistoryGeneration == generation,
+                  self.messageHistoryRetryCount == attempt,
+                  self.messageFetchTask == nil, self.messageJumpTask == nil,
+                  self.reconnectPreparationRequestId == nil, self.activeCatchUpRequestId == nil,
+                  NetworkMonitor.shared.isConnected else { return }
+            self.refreshMessagesAfterReconnect()
+        }
     }
 
     private func endMessageRequestTimeout(id: UUID) {
@@ -2029,8 +2056,12 @@ final class ChatViewController: ViewController {
         messageFetchTask = nil
         messageJumpTask = nil
         messagesNode.initialCacheRefreshScrollGeneration = nil
-        if succeeded { hasCompletedInitialFetch = true }
-        else { pendingScrollToBottom = false }
+        if succeeded {
+            hasCompletedInitialFetch = true
+            messageHistoryRetryCount = 0
+        } else {
+            pendingScrollToBottom = false
+        }
         setIsLoading(false)
         setIsLoadingMessageContext(false)
     }
@@ -2708,7 +2739,7 @@ final class ChatViewController: ViewController {
                 pagesFetched += 1
 
                 let validMessages = response.messages.filter {
-                    $0.messageID != 0 && ($0.channelID == 0 || $0.channelID == channelId)
+                    $0.messageID != 0 && ($0.channelID == 0 || $0.channelID == channelId || $0.channelID == requestTopicId)
                         && (requestTopicId == 0 || $0.topicID == 0 || $0.topicID == requestTopicId)
                 }
                 if !validMessages.isEmpty {
@@ -2739,6 +2770,7 @@ final class ChatViewController: ViewController {
             guard !Task.isCancelled, isCurrentMessageHistoryRequest(generation, storageId: storageId) else { return }
             if reachedPresent {
                 hasCompletedInitialFetch = true
+                messageHistoryRetryCount = 0
                 setHasMoreNewer(false)
             } else if hitPageCap {
                 setHasMoreNewer(true)
@@ -2754,6 +2786,7 @@ final class ChatViewController: ViewController {
                 "clanId": clanId,
                 "anchorMessageId": cursor,
             ])
+            if Self.isRetryableMessageHistoryError(error) { scheduleMessageHistoryRetry() }
         }
     }
 
@@ -2838,7 +2871,7 @@ final class ChatViewController: ViewController {
                 let response = try await loadInitialMessages()
                 guard !Task.isCancelled, self.isCurrentMessageHistoryRequest(generation, storageId: storageId) else { return }
                 let records = response.messages.filter {
-                    $0.messageID != 0 && ($0.channelID == 0 || $0.channelID == channelId)
+                    $0.messageID != 0 && ($0.channelID == 0 || $0.channelID == channelId || $0.channelID == requestTopicId)
                         && (requestTopicId == 0 || $0.topicID == 0 || $0.topicID == requestTopicId)
                 }.map { self.messageRecord(from: $0, storageChannelId: storageId) }
                 if records.isEmpty {
@@ -2874,6 +2907,7 @@ final class ChatViewController: ViewController {
                     "topicId": self.topicId,
                 ])
                 self.setErrorMessage(error.localizedDescription)
+                if Self.isRetryableMessageHistoryError(error) { self.scheduleMessageHistoryRetry() }
             }
         }
     }
@@ -2931,7 +2965,7 @@ final class ChatViewController: ViewController {
                 )
                 guard !Task.isCancelled, self.isCurrentMessageHistoryRequest(generation, storageId: storageId) else { return }
                 let valid = response.messages.filter {
-                    $0.messageID != 0 && ($0.channelID == 0 || $0.channelID == channelId)
+                    $0.messageID != 0 && ($0.channelID == 0 || $0.channelID == channelId || $0.channelID == requestTopicId)
                         && (requestTopicId == 0 || $0.topicID == 0 || $0.topicID == requestTopicId)
                 }
                 receivedPage = true
@@ -2994,7 +3028,7 @@ final class ChatViewController: ViewController {
                 )
                 guard !Task.isCancelled, self.isCurrentMessageHistoryRequest(generation, storageId: storageId) else { return }
                 let valid = response.messages.filter {
-                    $0.messageID != 0 && ($0.channelID == 0 || $0.channelID == channelId)
+                    $0.messageID != 0 && ($0.channelID == 0 || $0.channelID == channelId || $0.channelID == requestTopicId)
                         && (requestTopicId == 0 || $0.topicID == 0 || $0.topicID == requestTopicId)
                 }
                 receivedPage = true
@@ -5011,7 +5045,7 @@ final class ChatViewController: ViewController {
                 )
                 guard !Task.isCancelled, self.isCurrentMessageHistoryRequest(generation, storageId: storageId) else { return }
                 let valid = response.messages.filter {
-                    $0.messageID != 0 && ($0.channelID == 0 || $0.channelID == channelId)
+                    $0.messageID != 0 && ($0.channelID == 0 || $0.channelID == channelId || $0.channelID == requestTopicId)
                         && (requestTopicId == 0 || $0.topicID == 0 || $0.topicID == requestTopicId)
                 }
                 guard valid.contains(where: { $0.messageID == msgId }) else { return }

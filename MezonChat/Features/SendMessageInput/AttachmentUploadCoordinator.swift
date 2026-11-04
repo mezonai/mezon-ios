@@ -1205,7 +1205,8 @@ final class AttachmentUploadCoordinator {
                 filename: filename, filetype: filetype, size: size,
                 width: width, height: height, channelId: channelId, token: token)
             let cdnURL = try MezonConfig.attachmentViewURL(typeCdn: info.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: info.filename)
-            if let ingestURL = FileIngest.ingestURL(forPresignedURL: info.url) {
+            if let ingestURL = FileIngest.ingestURL(forPresignedURL: info.url),
+               await FileIngestAvailability.isAvailable(ingestURL: ingestURL) {
                 let plan = FileIngestPlan(
                     fileURL: fileURL, size: size, presignedURL: info.url,
                     ingestURL: ingestURL, contentType: filetype)
