@@ -1,6 +1,11 @@
 import UIKit
 
 struct ThemeAttributes {
+    let themeSettingPrimary: UIColor
+    let themeSettingNav: UIColor
+    let borderPrimary: UIColor
+    let textThemePrimary: UIColor
+
     let primary: UIColor
     let primaryGradient: UIColor
     let secondary: UIColor
@@ -113,6 +118,10 @@ enum AppTheme: String, CaseIterable {
 private extension ThemeAttributes {
 
     static let dark = ThemeAttributes(
+        themeSettingPrimary: hex("#313338"),
+        themeSettingNav: hex("#2b2d31"),
+        borderPrimary: hex("#646464", alpha: 0.4),
+        textThemePrimary: hex("#9b9ca3"),
         primary:          hex("#131318"),
         primaryGradient:  hex("#131318"),
         secondary:        hex("#1c1d23"),
@@ -169,6 +178,10 @@ private extension ThemeAttributes {
     )
 
     static let light = ThemeAttributes(
+        themeSettingPrimary: hex("#f9f9f9"),
+        themeSettingNav: hex("#f0f0f0"),
+        borderPrimary: hex("#dadce0"),
+        textThemePrimary: hex("#666771"),
         primary:          hex("#f4f4f8"),
         primaryGradient:  hex("#ffffff"),
         secondary:        hex("#ffffff"),
@@ -225,6 +238,10 @@ private extension ThemeAttributes {
     )
 
     static let sunrise = ThemeAttributes(
+        themeSettingPrimary: hex("#fcfaec"),
+        themeSettingNav: hex("#f7f4e7"),
+        borderPrimary: hex("#868581", alpha: 0.46667),
+        textThemePrimary: hex("#6a5563"),
         primary:          hex("#ead9e0"),
         primaryGradient:  hex("#fbdbe3"),
         secondary:        hex("#fae9ef"),
@@ -281,6 +298,10 @@ private extension ThemeAttributes {
     )
 
     static let redDark = ThemeAttributes(
+        themeSettingPrimary: hex("#2e2326"),
+        themeSettingNav: hex("#281d1e"),
+        borderPrimary: hex("#4c4c4c", alpha: 0.4),
+        textThemePrimary: hex("#acacac"),
         primary:          hex("#610101"),
         primaryGradient:  hex("#700303"),
         secondary:        hex("#2B1011"),
@@ -337,6 +358,10 @@ private extension ThemeAttributes {
     )
 
     static let purpleHaze = ThemeAttributes(
+        themeSettingPrimary: hex("#1b1c20"),
+        themeSettingNav: hex("#151618"),
+        borderPrimary: hex("#494950", alpha: 0.4),
+        textThemePrimary: hex("#acacac"),
         primary:          hex("#0e032c"),
         primaryGradient:  hex("#111a35"),
         secondary:        hex("#23052f"),
@@ -393,6 +418,10 @@ private extension ThemeAttributes {
     )
 
     static let abyssDark = ThemeAttributes(
+        themeSettingPrimary: hex("#141624"),
+        themeSettingNav: hex("#12131f"),
+        borderPrimary: hex("#4c4c4c", alpha: 0.4),
+        textThemePrimary: hex("#acacac"),
         primary:          hex("#110B33"),
         primaryGradient:  hex("#21165c"),
         secondary:        hex("#19153C"),
@@ -449,6 +478,10 @@ private extension ThemeAttributes {
     )
 
     static let sunset = ThemeAttributes(
+        themeSettingPrimary: hex("#262433"),
+        themeSettingNav: hex("#1e1b29"),
+        borderPrimary: hex("#868581", alpha: 0.46667),
+        textThemePrimary: hex("#acacac"),
         primary:          hex("#372013"),
         primaryGradient:  hex("#57321e"),
         secondary:        hex("#563928"),

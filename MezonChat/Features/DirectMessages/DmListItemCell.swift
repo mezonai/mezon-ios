@@ -7,6 +7,14 @@ final class DmListItemCell: UITableViewCell {
 
     private let textAvatar = TextAvatarView(size: 40.swh)
 
+    private let separatorView: UIView = {
+        let view = UIView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.isUserInteractionEnabled = false
+        view.isHidden = true
+        return view
+    }()
+
     private let avatarImageView: UIImageView = {
         let iv = UIImageView()
         iv.translatesAutoresizingMaskIntoConstraints = false
@@ -179,6 +187,7 @@ final class DmListItemCell: UITableViewCell {
         metadataStack.alignment = .trailing
         metadataStack.spacing = 3.sh
         containerView.addSubview(metadataStack)
+        contentView.addSubview(separatorView)
         let metadataCenterYConstraint = metadataStack.centerYAnchor.constraint(equalTo: containerView.centerYAnchor)
         self.metadataCenterYConstraint = metadataCenterYConstraint
         let timeNameCenterYConstraint = timeLabel.centerYAnchor.constraint(equalTo: nameLabel.centerYAnchor)
@@ -243,6 +252,11 @@ final class DmListItemCell: UITableViewCell {
             metadataStack.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8.sw),
             timeNameCenterYConstraint,
 
+            separatorView.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
+            separatorView.trailingAnchor.constraint(equalTo: metadataStack.trailingAnchor),
+            separatorView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            separatorView.heightAnchor.constraint(equalToConstant: 1.0 / UIScreenScale),
+
             lastMessageLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
             lastMessageTopConstraint,
             lastMessageLabel.trailingAnchor.constraint(lessThanOrEqualTo: containerView.trailingAnchor, constant: -8.sw),
@@ -253,7 +267,15 @@ final class DmListItemCell: UITableViewCell {
         ])
     }
 
-    func configure(channel: Mezon_Api_ChannelDescription, resolvedAvatarURL: String? = nil, voiceActivity: DmVoiceActivity? = nil, hasBuzz: Bool = false) {
+    func configure(
+        channel: Mezon_Api_ChannelDescription,
+        showsSeparator: Bool,
+        resolvedAvatarURL: String? = nil,
+        voiceActivity: DmVoiceActivity? = nil,
+        hasBuzz: Bool = false
+    ) {
+        separatorView.backgroundColor = .mezonSeparator
+        separatorView.isHidden = !showsSeparator
         groupIconView.tintColor = .mezonTextSecondary
 
         let isGroup = channel.type == MezonConstants.ChannelType.group.rawValue

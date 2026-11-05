@@ -506,13 +506,18 @@ final class DirectMessagesContainerNode: ASDisplayNode {
                   let cell = tableView.cellForRow(at: indexPath) as? DmListItemCell else {
                 continue
             }
-            cell.configure(
-                channel: channel,
-                resolvedAvatarURL: state.resolvedAvatarURLByChannelId[channel.channelID],
-                voiceActivity: peerVoiceActivity(channel),
-                hasBuzz: buzz.state.hasBuzz(channelId: channel.channelID)
-            )
+            configure(cell, for: channel, at: indexPath)
         }
+    }
+
+    private func configure(_ cell: DmListItemCell, for channel: Mezon_Api_ChannelDescription, at indexPath: IndexPath) {
+        cell.configure(
+            channel: channel,
+            showsSeparator: indexPath.row + 1 < sections[indexPath.section].channels.count,
+            resolvedAvatarURL: state.resolvedAvatarURLByChannelId[channel.channelID],
+            voiceActivity: peerVoiceActivity(channel),
+            hasBuzz: buzz.state.hasBuzz(channelId: channel.channelID)
+        )
     }
 
     private func peerVoiceActivity(_ channel: Mezon_Api_ChannelDescription) -> DmVoiceActivity? {
@@ -573,12 +578,7 @@ extension DirectMessagesContainerNode: UITableViewDataSource, UITableViewDelegat
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: DmListItemCell.reuseId, for: indexPath) as! DmListItemCell
         let channel = sections[indexPath.section].channels[indexPath.row]
-        cell.configure(
-            channel: channel,
-            resolvedAvatarURL: state.resolvedAvatarURLByChannelId[channel.channelID],
-            voiceActivity: peerVoiceActivity(channel),
-            hasBuzz: buzz.state.hasBuzz(channelId: channel.channelID)
-        )
+        configure(cell, for: channel, at: indexPath)
         return cell
     }
 
