@@ -356,6 +356,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
                 return
             }
             await ctx.engine.clanData.refetchVoiceChannelUsers(clanId: clanId, token: token)
+            await ctx.engine.clanData.refreshOnlineUsers(clanId: clanId, token: token)
         }
     }
 

@@ -228,6 +228,7 @@ final class MemberProfileSheetController: ViewController {
     private let onStartCall: ((Mezon_Api_ChannelDescription) -> Void)?
     private let onTransferFunds: ((TransferQRPayload) -> Void)?
     private let isWebhook: Bool
+    private let presenceDisposable = MetaDisposable()
 
     private var sheetNode: MemberProfileSheetNode { displayNode as! MemberProfileSheetNode }
 
@@ -260,6 +261,10 @@ final class MemberProfileSheetController: ViewController {
     }
 
     required init(coder: NSCoder) { fatalError() }
+
+    deinit {
+        presenceDisposable.dispose()
+    }
 
     override func loadDisplayNode() {
         displayNode = MemberProfileSheetNode(
@@ -301,6 +306,23 @@ final class MemberProfileSheetController: ViewController {
             }
         )
         displayNodeDidLoad()
+        observePresence()
+    }
+
+    private func observePresence() {
+        guard user.id != 0, !isWebhook else { return }
+        let userId = user.id
+        let clanData = context.engine.clanData
+        if let presence = clanData.presence(userId: userId) {
+            sheetNode.updatePresence(presence)
+        }
+        presenceDisposable.set(
+            (clanData.userPresenceUpdated.signal() |> deliverOnMainQueue).start(next: { [weak self] changedIds in
+                guard let self, changedIds.contains(userId),
+                      let presence = clanData.presence(userId: userId) else { return }
+                self.sheetNode.updatePresence(presence)
+            })
+        )
     }
 
     private func resolveProfileRoles() -> [MemberProfileRole] {
@@ -618,7 +640,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
 
     private let avatarNode = ASImageNode()
     private let textAvatarNode = TextAvatarNode(size: 80.sf)
-    private let statusDotNode = ASDisplayNode()
+    private let statusDotNode = ASImageNode()
 
     private let infoCardNode = ASDisplayNode()
     private let displayNameNode = ASTextNode2()
@@ -760,11 +782,10 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
             textAvatarNode.showPlaceholder()
         }
 
-        statusDotNode.backgroundColor = user.online ? UIColor(red: 0.3, green: 0.78, blue: 0.47, alpha: 1) : UIColor.gray
-        statusDotNode.cornerRadius = 8.sf
-        statusDotNode.borderWidth = 3.sf
-        statusDotNode.borderColor = t.primary.cgColor
+        statusDotNode.contentMode = .scaleToFill
+        statusDotNode.displaysAsynchronously = false
         statusDotNode.isUserInteractionEnabled = false
+        updatePresence(user.online ? .online : .offline)
 
         infoCardNode.backgroundColor = t.secondary
         infoCardNode.cornerRadius = 10.sf
@@ -1005,6 +1026,15 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
 
     func setRoleRemoving(roleId: Int64, removing: Bool) {
         roleChipViews.first(where: { $0.roleId == roleId })?.setRemoving(removing)
+    }
+
+    func updatePresence(_ presence: User.OnlineStatus) {
+        statusDotNode.image = PresenceBadge.image(
+            for: presence,
+            diameter: 24.sf,
+            ringWidth: 4.sf,
+            ringColor: UIColor.theme.primary
+        )
     }
 
     func removeRole(roleId: Int64) {
@@ -1388,9 +1418,9 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
         avatarNode.frame = CGRect(x: avatarX, y: avatarTop, width: avatarSize, height: avatarSize)
         textAvatarNode.frame = CGRect(x: avatarX, y: avatarTop, width: avatarSize, height: avatarSize)
         statusDotNode.frame = CGRect(
-            x: avatarX + avatarSize - 20.sf,
-            y: avatarTop + avatarSize - 20.sh,
-            width: 16.sf, height: 16.sh
+            x: avatarX + avatarSize - 24.sf,
+            y: avatarTop + avatarSize - 24.sf,
+            width: 24.sf, height: 24.sf
         )
         handleNode.frame = CGRect(x: (screenW - 36.sf) / 2, y: 8.sh, width: 36.sf, height: 5.sh)
 

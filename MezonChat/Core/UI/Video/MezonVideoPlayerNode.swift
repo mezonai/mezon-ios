@@ -459,6 +459,9 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     private var areControlsVisible = true
 
     private let seekDelta: Double = 15.0
+    private static let endStallTolerance: Double = 1.0
+    private static let endStallGrace: TimeInterval = 1.0
+    private static let endStallTimeout: TimeInterval = 3.0
     
     private var sourceURL: URL?
     private var chunkedLoader: ChunkedVideoResourceLoader?
@@ -838,7 +841,8 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     @objc private func playPauseTapped() {
         guard let p = player else { return }
         if !wantsPlayback {
-            if p.currentTime() == p.currentItem?.duration {
+            if let duration = p.currentItem?.duration.seconds, duration.isFinite,
+               duration - p.currentTime().seconds <= Self.endStallTolerance {
                 p.seek(to: .zero)
             }
             play()
@@ -889,6 +893,11 @@ final class MezonVideoPlayerNode: ASDisplayNode {
                 resetControlsTimer()
             }
         }
+    }
+
+    private func finishStalledEnd() {
+        player?.pause()
+        playerDidFinishPlaying()
     }
 
     @objc private func playerDidFinishPlaying() {
@@ -984,6 +993,11 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         let duration = item.duration.seconds
         let remaining = duration.isFinite && position.isFinite ? duration - position : nil
         let waitingDuration = clock - (readyWaitingSince ?? clock)
+        if let remaining, remaining <= Self.endStallTolerance,
+           waitingDuration >= (bufferedAhead >= remaining - 0.05 ? Self.endStallGrace : Self.endStallTimeout) {
+            finishStalledEnd()
+            return
+        }
         guard VideoPlaybackBufferPolicy.shouldStart(bufferedAhead: bufferedAhead, remaining: remaining, hasStarted: hasStartedPlayback, waitingDuration: waitingDuration, bufferGrowthRate: growthRate),
               lastImmediatePlaybackAttempt.map({ clock - $0 >= 1 }) ?? true else { return }
         lastImmediatePlaybackAttempt = clock

@@ -142,6 +142,9 @@ extension MezonEngine {
         private var streamViewerCountsByClan: [Int64: [Int64: Int]] = [:]
         let clanBadgeCountUpdated = ValuePipe<(clanId: Int64, count: Int32)>()
         let clanNotificationUpdated = ValuePipe<Int64>()
+        let userPresenceUpdated = ValuePipe<Set<Int64>>()
+        private var presenceByUserId: [Int64: User.OnlineStatus] = [:]
+        private var customStatusByUserId: [Int64: String] = [:]
 
         private var inflightFetchAllByClanId: [Int64: Task<Void, Never>] = [:]
         private var inflightEventFetchByClanId: [Int64: Task<Void, Never>] = [:]
@@ -277,6 +280,8 @@ extension MezonEngine {
             lastPresenceMemberRefreshAtByClanId.removeAll()
             attemptedMemberRefreshUserIdsByClanId.removeAll()
             clanUsersMemoByClanId.removeAll()
+            presenceByUserId.removeAll()
+            customStatusByUserId.removeAll()
         }
 
         func cancelFetchAllClanData(exceptClanId: Int64) {
@@ -319,9 +324,10 @@ extension MezonEngine {
                 async let badgeResult = self.fetchBadgeCount(clanId: clanId, token: token)
                 async let notifResult = self.fetchDefaultNotification(clanId: clanId, token: token)
                 async let catNotifResult = self.fetchCategoryNotification(clanId: clanId, token: token)
+                async let onlineResult = self.refreshOnlineUsers(clanId: clanId, token: token)
                 _ = await (
                     usersResult, rolesResult, eventsResult, userPermsResult, allPermsResult,
-                    voiceResult, streamResult, badgeResult, notifResult, catNotifResult
+                    voiceResult, streamResult, badgeResult, notifResult, catNotifResult, onlineResult
                 )
                 if !Task.isCancelled, !self.hasPersistedClanData(clanId: clanId) {
                     self.lastFetchAllAtByClanId[clanId] = nil
@@ -351,6 +357,106 @@ extension MezonEngine {
                 persistClanUsersResponse(clanId: clanId, response: response)
             } catch {
             }
+        }
+
+        func presence(userId: Int64) -> User.OnlineStatus? {
+            presenceByUserId[userId]
+        }
+
+        func customStatus(userId: Int64) -> String? {
+            customStatusByUserId[userId]
+        }
+
+        func refreshOnlineUsers(clanId: Int64, token: String) async {
+            guard clanId != 0 else { return }
+            let network = self.network
+            async let onlineRequest = network.listUserOnline(clanId: clanId, token: token)
+            async let statusRequest = network.listClanUsersStatus(clanId: clanId, token: token)
+            let onlineResponse = try? await onlineRequest
+            let statusResponse = try? await statusRequest
+
+            var changed = Set<Int64>()
+            if let onlineResponse {
+                var changes: [Int64: User.OnlineStatus] = [:]
+                for member in resolvedClanMembers(clanId: clanId) where member.userId != 0 {
+                    changes[member.userId] = .offline
+                }
+                for user in onlineResponse.users where user.id != 0 {
+                    changes[user.id] = User.presenceStatus(fromApiString: user.status, onlineFallback: true)
+                }
+                changed.formUnion(mergePresence(changes))
+            }
+            if let statusResponse {
+                var statuses: [Int64: String] = [:]
+                for entry in statusResponse.clanUserStatuses where entry.userID != 0 {
+                    statuses[entry.userID] = entry.userStatus
+                }
+                changed.formUnion(mergeCustomStatuses(statuses))
+            }
+            notifyPresenceChanged(changed)
+        }
+
+        func applyStatusPresence(_ event: Mezon_Realtime_StatusPresenceEvent) {
+            var changes: [Int64: User.OnlineStatus] = [:]
+            var statuses: [Int64: String] = [:]
+            for leave in event.leaves where leave.userID != 0 {
+                changes[leave.userID] = .offline
+            }
+            for join in event.joins where join.userID != 0 {
+                let raw = join.hasStatus ? join.status.value : ""
+                changes[join.userID] = User.presenceStatus(fromApiString: raw, onlineFallback: true)
+                if !join.userStatus.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    statuses[join.userID] = join.userStatus
+                }
+            }
+            notifyPresenceChanged(mergePresence(changes).union(mergeCustomStatuses(statuses)))
+        }
+
+        func applyUserStatus(_ event: Mezon_Realtime_UserStatusEvent) {
+            guard event.userID != 0,
+                  let status = User.knownPresenceStatus(fromApiString: event.customStatus) else { return }
+            notifyPresenceChanged(mergePresence([event.userID: status]))
+        }
+
+        func applyCustomStatus(_ event: Mezon_Realtime_CustomStatusEvent) {
+            guard event.userID != 0 else { return }
+            notifyPresenceChanged(mergeCustomStatuses([event.userID: event.status]))
+        }
+
+        func setPresence(userId: Int64, status: User.OnlineStatus) {
+            guard userId != 0 else { return }
+            notifyPresenceChanged(mergePresence([userId: status]))
+        }
+
+        func setCustomStatus(userId: Int64, text: String) {
+            guard userId != 0 else { return }
+            notifyPresenceChanged(mergeCustomStatuses([userId: text]))
+        }
+
+        private func mergePresence(_ changes: [Int64: User.OnlineStatus]) -> Set<Int64> {
+            var changed = Set<Int64>()
+            for (userId, status) in changes where presenceByUserId[userId] != status {
+                presenceByUserId[userId] = status
+                changed.insert(userId)
+            }
+            return changed
+        }
+
+        private func mergeCustomStatuses(_ changes: [Int64: String]) -> Set<Int64> {
+            var changed = Set<Int64>()
+            for (userId, raw) in changes {
+                let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                let next: String? = text.isEmpty ? nil : text
+                guard customStatusByUserId[userId] != next else { continue }
+                customStatusByUserId[userId] = next
+                changed.insert(userId)
+            }
+            return changed
+        }
+
+        private func notifyPresenceChanged(_ changed: Set<Int64>) {
+            guard !changed.isEmpty else { return }
+            userPresenceUpdated.putNext(changed)
         }
 
         func maybeRefreshClanMembersAfterPresenceJoins(clanId: Int64, joinedUserIds: [Int64], token: String) {

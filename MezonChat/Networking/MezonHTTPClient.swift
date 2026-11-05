@@ -1679,6 +1679,26 @@ final class MezonHTTPClient {
         return response
     }
 
+    func listUserOnline(clanId: Int64, token: String) async throws -> Mezon_Api_ListUserOnlineResponse {
+        var req = Mezon_Api_ListUserOnlineRequest()
+        req.clanID = clanId
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListUserOnline",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func listClanUsersStatus(clanId: Int64, token: String) async throws -> Mezon_Api_ClanUserStatusList {
+        var req = Mezon_Api_ListClanUsersStatusRequest()
+        req.clanID = clanId
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListClanUsersStatus",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
     private func recordClanRosterCap(clanId: Int64, rows: Int) {
         rosterCapLock.lock()
         defer { rosterCapLock.unlock() }
