@@ -206,12 +206,14 @@ final class DmListItemCell: UITableViewCell {
         let buzzCenter = buzzLabel.centerYAnchor.constraint(equalTo: containerView.centerYAnchor)
         buzzCenterConstraint = buzzCenter
 
+        let containerMinHeight = containerView.heightAnchor.constraint(greaterThanOrEqualToConstant: 52.sh)
+        containerMinHeight.priority = UILayoutPriority(999)
         NSLayoutConstraint.activate([
             containerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 5.sh),
             containerView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -5.sh),
             containerView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 10.sw),
             containerView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -10.sw),
-            containerView.heightAnchor.constraint(greaterThanOrEqualToConstant: 52.sh),
+            containerMinHeight,
 
             textAvatar.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 8.sw),
             textAvatar.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
