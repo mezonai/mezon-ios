@@ -7602,11 +7602,15 @@ private final class ChannelAppHotbarBarView: UIView {
         stack.addArrangedSubview(launchButton)
         stack.addArrangedSubview(helpButton)
         addSubview(stack)
+        let stackTrailing = stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10)
+        stackTrailing.priority = UILayoutPriority(999)
+        let stackBottom = stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4)
+        stackBottom.priority = UILayoutPriority(999)
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: topAnchor, constant: 4),
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+            stackTrailing,
+            stackBottom,
         ])
         launchButton.addTarget(self, action: #selector(launchTapped), for: .touchUpInside)
         helpButton.addTarget(self, action: #selector(helpTapped), for: .touchUpInside)

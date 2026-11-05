@@ -2,6 +2,7 @@ import UIKit
 import AVFoundation
 import PhotosUI
 import AsyncDisplayKit
+import Vision
 
 final class QRScannerViewController: ViewController {
     
@@ -266,10 +267,20 @@ final class QRScannerViewController: ViewController {
         }
 
         if let url = URL(string: data.trimmingCharacters(in: .whitespacesAndNewlines)),
-           DeepLinkRouter.isDeepLink(url),
-           case let .login(loginId)? = DeepLinkRouter.route(from: url) {
-            showLoginConfirm(userId: loginId)
-            return
+           DeepLinkRouter.isDeepLink(url) {
+            switch DeepLinkRouter.route(from: url) {
+            case let .login(loginId)?:
+                showLoginConfirm(userId: loginId)
+                return
+            case .channel?, .invite?:
+                guard beginExclusiveScanHandling() else { return }
+                stopCaptureSessionIfNeeded()
+                closeTapped()
+                DeepLinkRouter.handle(url)
+                return
+            default:
+                break
+            }
         }
         
         if data.hasPrefix("mezon://invite/") || data.contains("mezon.ai/invite/") {
@@ -788,17 +799,38 @@ extension QRScannerViewController: UIImagePickerControllerDelegate, UINavigation
     }
 
     private func processQRFromImage(_ image: UIImage) {
-        let detector = CIDetector(ofType: CIDetectorTypeQRCode, context: nil, options: [CIDetectorAccuracy: CIDetectorAccuracyHigh])
-        let ciImage = CIImage(image: image)
-        let features = detector?.features(in: ciImage!) as? [CIQRCodeFeature]
-
-        DispatchQueue.main.async { [weak self] in
-            if let firstFeature = features?.first, let data = firstFeature.messageString {
-                self?.handleScannedData(data)
-            } else {
-                self?.showAlert(message: L(L10n.QRScanner.invalidQR))
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let payload = Self.qrPayload(in: image)
+            DispatchQueue.main.async {
+                if let payload {
+                    self?.handleScannedData(payload)
+                } else {
+                    self?.showAlert(message: L(L10n.QRScanner.invalidQR))
+                }
             }
         }
+    }
+
+    private static let galleryQRMaxUpscaledEdge: CGFloat = 4096
+
+    private static func qrPayload(in image: UIImage) -> String? {
+        guard let source = CIImage(image: image) else { return nil }
+        let longestEdge = max(source.extent.width, source.extent.height)
+        guard longestEdge > 0 else { return nil }
+        for scale: CGFloat in [1, 2, 3, 4] {
+            if scale > 1 && longestEdge * scale > galleryQRMaxUpscaledEdge { break }
+            let candidate = scale == 1 ? source : source
+                .applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: scale, kCIInputAspectRatioKey: 1])
+                .applyingFilter("CISharpenLuminance", parameters: [kCIInputSharpnessKey: 1])
+            let request = VNDetectBarcodesRequest()
+            request.symbologies = [.qr]
+            try? VNImageRequestHandler(ciImage: candidate, options: [:]).perform([request])
+            let payload = request.results?
+                .compactMap { $0.payloadStringValue }
+                .first { !$0.isEmpty }
+            if let payload { return payload }
+        }
+        return nil
     }
 }
 
