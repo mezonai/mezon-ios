@@ -411,6 +411,10 @@ final class RolePermissionService {
         return hasClanPermission(.manageClan, clanId: clanId)
     }
 
+    func canManageCommunity(clanId: Int64) -> Bool {
+        return hasClanPermission(.administrator, clanId: clanId)
+    }
+
     func canManageRoles(clanId: Int64) -> Bool {
         if isClanOwner(clanId: clanId) { return true }
         if hasClanPermission(.administrator, clanId: clanId) { return true }
