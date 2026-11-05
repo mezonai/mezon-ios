@@ -124,6 +124,9 @@ final class AccountContextImpl: AccountContext {
         req.minutes = 0
         req.untilTurnOn = true
         try await account.network.updateUserStatus(req, token: token)
+        if let myId = currentUserNumericId() {
+            engine.clanData.setPresence(userId: myId, status: status)
+        }
         if var u = currentUser {
             u.status = status
             applyCurrentUser(u)
@@ -146,6 +149,9 @@ final class AccountContextImpl: AccountContext {
         req.minutes = minutes
         req.untilTurnOn = noClear
         try await account.network.updateUserCustomStatus(req, token: token)
+        if let myId = currentUserNumericId() {
+            engine.clanData.setCustomStatus(userId: myId, text: trimmed)
+        }
 
         if var u = currentUser {
             if trimmed.isEmpty {
@@ -1455,12 +1461,15 @@ final class AccountContextImpl: AccountContext {
 
         case .customStatus(let e):
             applyIncomingCustomStatusEvent(e)
+            engine.clanData.applyCustomStatus(e)
 
         case .userStatus(let e):
             applyIncomingUserStatusEvent(e)
+            engine.clanData.applyUserStatus(e)
 
         case .statusPresence(let e):
             applyIncomingStatusPresenceEvent(e)
+            engine.clanData.applyStatusPresence(e)
 
         case .lastPin(let e):
             ChannelPinnedStatePersistence.applyPinMessage(
