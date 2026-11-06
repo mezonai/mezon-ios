@@ -51,12 +51,14 @@ final class MessageSystemNode: ASDisplayNode {
             bodyFont: .systemFont(ofSize: 13.sf),
             bodyColor: t.text,
             mentionFont: .systemFont(ofSize: 13.sf, weight: .semibold),
-            mentionColor: t.textLink,
-            mentionBgColor: t.midnightBlue,
-            roleMentionColor: t.textRoleLink,
-            roleMentionBgColor: t.darkMossGreen,
-            linkColor: t.textLink,
-            codeBgColor: t.tertiary,
+            mentionColor: t.desktop[.mentionColor],
+            mentionBgColor: t.desktop[.mentionPrimary],
+            roleMentionColor: t.desktop[.colorMentionEvryone],
+            roleMentionBgColor: t.desktop[.bgMentionEvryone],
+            linkColor: t.desktop[.mentionColor],
+            inlineCodeColor: t.desktop[.textSecondary],
+            inlineCodeBgColor: t.desktop[.bgActiveMemberChannel],
+            codeBlockBgColor: t.desktop[.bgMarkdownCode],
             codeFont: UIFont(name: "Menlo", size: 12.sf) ?? .monospacedSystemFont(ofSize: 12.sf, weight: .regular),
             boldFont: .systemFont(ofSize: 13.sf, weight: .bold),
             headingFonts: [],
@@ -391,7 +393,7 @@ final class MessageSystemNode: ASDisplayNode {
     ) -> NSAttributedString {
         let mc = MezonConstants.MessageCode(rawValue: display.messageCode)
         let haystack = base.string
-        let linkColor = theme.textLink
+        let linkColor = theme.desktop[.mentionColor]
         let tapFont = UIFont.systemFont(ofSize: 13.sf, weight: .semibold)
 
         switch mc {
@@ -482,7 +484,7 @@ final class MessageSystemNode: ASDisplayNode {
                     string: threadInfo.label,
                     attributes: [
                         .font: style.mentionFont,
-                        .foregroundColor: theme.textLink,
+                        .foregroundColor: style.linkColor,
                         .mezonSystemAction: ("thread:" + threadInfo.id) as NSString,
                     ]
                 ))
@@ -501,7 +503,7 @@ final class MessageSystemNode: ASDisplayNode {
                 string: L(L10n.ChatSystem.allThreadsAnchor),
                 attributes: [
                     .font: style.mentionFont,
-                    .foregroundColor: theme.textLink,
+                    .foregroundColor: style.linkColor,
                     .mezonSystemAction: "threads" as NSString,
                 ]
             ))

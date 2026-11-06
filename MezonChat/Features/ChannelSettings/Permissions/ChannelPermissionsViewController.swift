@@ -43,6 +43,9 @@ final class ChannelPermissionsViewController: BaseViewController {
 
     private let descriptionLabel = UILabel()
     private let addMemberCard = UIView()
+    private let addMemberTitleLabel = UILabel()
+    private let addMemberIcon = UIImageView()
+    private let addMemberChevron = UIImageView()
     private let whoCanAccessLabel = UILabel()
     private let listCard = UIView()
     private let listContentStack = UIStackView()
@@ -73,6 +76,27 @@ final class ChannelPermissionsViewController: BaseViewController {
         setupHeader()
         setupTabs()
         setupContent()
+    }
+
+    override func applyTheme() {
+        view.backgroundColor = .mezonSecondary
+        headerView.backgroundColor = .mezonSecondary
+        titleLabel.textColor = UIColor.theme.textStrong
+        backButton.tintColor = UIColor.theme.textStrong
+        tabContainer.backgroundColor = UIColor.theme.primary
+        privateToggleCard.backgroundColor = UIColor.theme.primary
+        privateToggleLabel.textColor = UIColor.theme.textStrong
+        privateSwitch.onTintColor = UIColor.theme.iconPrimary
+        descriptionLabel.textColor = UIColor.theme.textNormal
+        addMemberCard.backgroundColor = UIColor.theme.primary
+        addMemberTitleLabel.textColor = UIColor.theme.textStrong
+        addMemberIcon.tintColor = UIColor.theme.textStrong
+        addMemberChevron.tintColor = UIColor.theme.textDisabled
+        whoCanAccessLabel.textColor = UIColor.theme.textNormal
+        listCard.backgroundColor = UIColor.theme.primary
+        emptyAdvancedLabel.textColor = UIColor.theme.textDisabled
+        refreshVisibility()
+        rebuildList()
     }
 
     override func setupBindings() {
@@ -147,7 +171,7 @@ final class ChannelPermissionsViewController: BaseViewController {
     }
 
     private func setupTabs() {
-        tabContainer.backgroundColor = UIColor.theme.tertiary
+        tabContainer.backgroundColor = UIColor.theme.primary
         tabContainer.layer.cornerRadius = 10.swh
         tabContainer.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(tabContainer)
@@ -228,7 +252,7 @@ final class ChannelPermissionsViewController: BaseViewController {
     }
 
     private func setupPrivateToggleCard() {
-        privateToggleCard.backgroundColor = UIColor.theme.tertiary
+        privateToggleCard.backgroundColor = UIColor.theme.primary
         privateToggleCard.layer.cornerRadius = 12.swh
         privateToggleCard.translatesAutoresizingMaskIntoConstraints = false
 
@@ -243,7 +267,7 @@ final class ChannelPermissionsViewController: BaseViewController {
         privateToggleLabel.translatesAutoresizingMaskIntoConstraints = false
         privateToggleCard.addSubview(privateToggleLabel)
 
-        privateSwitch.onTintColor = UIColor.theme.bgViolet
+        privateSwitch.onTintColor = UIColor.theme.iconPrimary
         privateSwitch.addTarget(self, action: #selector(privateSwitchChanged), for: .valueChanged)
         privateSwitch.translatesAutoresizingMaskIntoConstraints = false
         privateSwitch.isOn = isPrivate
@@ -268,64 +292,63 @@ final class ChannelPermissionsViewController: BaseViewController {
     private func setupDescription() {
         descriptionLabel.text = L(L10n.ChannelPermission.basicViewDescription)
         descriptionLabel.font = .systemFont(ofSize: 12.sf, weight: .regular)
-        descriptionLabel.textColor = UIColor.theme.textDisabled
+        descriptionLabel.textColor = UIColor.theme.textNormal
         descriptionLabel.numberOfLines = 0
     }
 
     private func setupAddMemberCard() {
-        addMemberCard.backgroundColor = UIColor.theme.tertiary
+        addMemberCard.backgroundColor = UIColor.theme.primary
         addMemberCard.layer.cornerRadius = 12.swh
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(openAddMemberSheet))
         addMemberCard.addGestureRecognizer(tap)
         addMemberCard.isUserInteractionEnabled = true
 
-        let plus = UIImageView(image: UIImage(systemName: "plus.circle")?.withRenderingMode(.alwaysTemplate))
-        plus.tintColor = .mezonTextPrimary
-        plus.contentMode = .scaleAspectFit
-        plus.translatesAutoresizingMaskIntoConstraints = false
-        addMemberCard.addSubview(plus)
+        addMemberIcon.image = UIImage(systemName: "plus.circle")?.withRenderingMode(.alwaysTemplate)
+        addMemberIcon.tintColor = .mezonTextPrimary
+        addMemberIcon.contentMode = .scaleAspectFit
+        addMemberIcon.translatesAutoresizingMaskIntoConstraints = false
+        addMemberCard.addSubview(addMemberIcon)
 
-        let label = UILabel()
-        label.text = L(L10n.ChannelPermission.addMemberAndRoles)
-        label.font = .systemFont(ofSize: 14.sf, weight: .semibold)
-        label.textColor = .mezonTextPrimary
-        label.translatesAutoresizingMaskIntoConstraints = false
-        addMemberCard.addSubview(label)
+        addMemberTitleLabel.text = L(L10n.ChannelPermission.addMemberAndRoles)
+        addMemberTitleLabel.font = .systemFont(ofSize: 14.sf, weight: .semibold)
+        addMemberTitleLabel.textColor = .mezonTextPrimary
+        addMemberTitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        addMemberCard.addSubview(addMemberTitleLabel)
 
-        let chevron = UIImageView(image: UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate))
-        chevron.tintColor = UIColor.theme.textDisabled
-        chevron.contentMode = .scaleAspectFit
-        chevron.translatesAutoresizingMaskIntoConstraints = false
-        addMemberCard.addSubview(chevron)
+        addMemberChevron.image = UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate)
+        addMemberChevron.tintColor = UIColor.theme.textDisabled
+        addMemberChevron.contentMode = .scaleAspectFit
+        addMemberChevron.translatesAutoresizingMaskIntoConstraints = false
+        addMemberCard.addSubview(addMemberChevron)
 
         NSLayoutConstraint.activate([
             addMemberCard.heightAnchor.constraint(equalToConstant: 54.sh),
 
-            plus.leadingAnchor.constraint(equalTo: addMemberCard.leadingAnchor, constant: 14.sw),
-            plus.centerYAnchor.constraint(equalTo: addMemberCard.centerYAnchor),
-            plus.widthAnchor.constraint(equalToConstant: 22.swh),
-            plus.heightAnchor.constraint(equalToConstant: 22.swh),
+            addMemberIcon.leadingAnchor.constraint(equalTo: addMemberCard.leadingAnchor, constant: 14.sw),
+            addMemberIcon.centerYAnchor.constraint(equalTo: addMemberCard.centerYAnchor),
+            addMemberIcon.widthAnchor.constraint(equalToConstant: 22.swh),
+            addMemberIcon.heightAnchor.constraint(equalToConstant: 22.swh),
 
-            label.leadingAnchor.constraint(equalTo: plus.trailingAnchor, constant: 10.sw),
-            label.centerYAnchor.constraint(equalTo: addMemberCard.centerYAnchor),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: chevron.leadingAnchor, constant: -10.sw),
+            addMemberTitleLabel.leadingAnchor.constraint(equalTo: addMemberIcon.trailingAnchor, constant: 10.sw),
+            addMemberTitleLabel.centerYAnchor.constraint(equalTo: addMemberCard.centerYAnchor),
+            addMemberTitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: addMemberChevron.leadingAnchor, constant: -10.sw),
 
-            chevron.trailingAnchor.constraint(equalTo: addMemberCard.trailingAnchor, constant: -14.sw),
-            chevron.centerYAnchor.constraint(equalTo: addMemberCard.centerYAnchor),
-            chevron.widthAnchor.constraint(equalToConstant: 12.swh),
-            chevron.heightAnchor.constraint(equalToConstant: 18.swh)
+            addMemberChevron.trailingAnchor.constraint(equalTo: addMemberCard.trailingAnchor, constant: -14.sw),
+            addMemberChevron.centerYAnchor.constraint(equalTo: addMemberCard.centerYAnchor),
+            addMemberChevron.widthAnchor.constraint(equalToConstant: 12.swh),
+            addMemberChevron.heightAnchor.constraint(equalToConstant: 18.swh)
         ])
     }
 
     private func setupWhoCanAccessLabel() {
         whoCanAccessLabel.text = L(L10n.ChannelPermission.whoCanAccess)
         whoCanAccessLabel.font = .systemFont(ofSize: 12.sf, weight: .regular)
-        whoCanAccessLabel.textColor = UIColor.theme.textDisabled
+        whoCanAccessLabel.textColor = UIColor.theme.textNormal
     }
 
     private func setupListCard() {
-        listCard.backgroundColor = UIColor.theme.tertiary
+        listCard.backgroundColor = UIColor.theme.primary
         listCard.layer.cornerRadius = 12.swh
         listCard.clipsToBounds = true
 
@@ -416,7 +439,7 @@ final class ChannelPermissionsViewController: BaseViewController {
         tabContainer.isHidden = !showTabs
         tabContainerHeightConstraint?.constant = showTabs ? 40.sh : 0
 
-        let active = UIColor.theme.bgViolet
+        let active = UIColor.theme.iconPrimary
         let inactive = UIColor.clear
         let activeText = UIColor.white
         let inactiveText = UIColor.theme.text
@@ -658,7 +681,7 @@ final class ChannelPermissionsViewController: BaseViewController {
         let l = UILabel()
         l.text = "\(title):"
         l.font = .systemFont(ofSize: 14.sf, weight: .semibold)
-        l.textColor = UIColor.theme.white
+        l.textColor = UIColor.theme.textStrong
         l.translatesAutoresizingMaskIntoConstraints = false
         v.addSubview(l)
         NSLayoutConstraint.activate([
@@ -674,7 +697,7 @@ final class ChannelPermissionsViewController: BaseViewController {
         let v = UIView()
         v.translatesAutoresizingMaskIntoConstraints = false
         v.heightAnchor.constraint(equalToConstant: 0.5).isActive = true
-        v.backgroundColor = UIColor.theme.secondary.withAlphaComponent(0.4)
+        v.backgroundColor = UIColor.theme.borderPrimary
         return v
     }
 

@@ -64,7 +64,7 @@ final class AuditLogViewController: BaseViewController {
     override func applyTheme() {
         let currentTheme = ThemeManager.shared.current
         let effectiveTheme = currentTheme == .system ? (UITraitCollection.current.userInterfaceStyle == .dark ? AppTheme.dark : AppTheme.light) : currentTheme
-        self.overrideUserInterfaceStyle = (effectiveTheme == .light || effectiveTheme == .sunrise) ? .light : .dark
+        self.overrideUserInterfaceStyle = (effectiveTheme.interfaceStyle == .light) ? .light : .dark
         view.backgroundColor = UIColor.theme.primary
         titleLabel.textColor = UIColor.theme.textStrong
         backButton.tintColor = UIColor.theme.textStrong

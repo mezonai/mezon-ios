@@ -46,7 +46,9 @@ enum RichTextBuilder {
         let roleMentionColor: UIColor
         let roleMentionBgColor: UIColor
         let linkColor: UIColor
-        let codeBgColor: UIColor
+        let inlineCodeColor: UIColor
+        let inlineCodeBgColor: UIColor
+        let codeBlockBgColor: UIColor
         let codeFont: UIFont
         let boldFont: UIFont
 
@@ -80,7 +82,9 @@ enum RichTextBuilder {
                 roleMentionColor: red,
                 roleMentionBgColor: mentionBg,
                 linkColor: red,
-                codeBgColor: base.codeBgColor,
+                inlineCodeColor: red,
+                inlineCodeBgColor: base.inlineCodeBgColor,
+                codeBlockBgColor: base.codeBlockBgColor,
                 codeFont: codeBuzz,
                 boldFont: bf,
                 headingFonts: base.headingFonts,
@@ -95,14 +99,16 @@ enum RichTextBuilder {
             let bodyBold = UIFont.systemFont(ofSize: 14.sf, weight: .bold)
             return Style(
                 bodyFont: body,
-                bodyColor: t.textStrong,
+                bodyColor: t.textThemeMessage,
                 mentionFont: .systemFont(ofSize: 14.sf, weight: .semibold),
-                mentionColor: t.textLink,
-                mentionBgColor: t.midnightBlue,
-                roleMentionColor: t.textRoleLink,
-                roleMentionBgColor: t.darkMossGreen,
-                linkColor: t.textLink,
-                codeBgColor: t.tertiary,
+                mentionColor: t.desktop[.mentionColor],
+                mentionBgColor: t.desktop[.mentionPrimary],
+                roleMentionColor: t.desktop[.colorMentionEvryone],
+                roleMentionBgColor: t.desktop[.bgMentionEvryone],
+                linkColor: t.desktop[.mentionColor],
+                inlineCodeColor: t.desktop[.textSecondary],
+                inlineCodeBgColor: t.desktop[.bgActiveMemberChannel],
+                codeBlockBgColor: t.desktop[.bgMarkdownCode],
                 codeFont: body,
                 boldFont: bodyBold,
                 headingFonts: defaultHeadingFonts(),
@@ -125,7 +131,8 @@ enum RichTextBuilder {
                 mentionFont: s.mentionFont, mentionColor: s.mentionColor,
                 mentionBgColor: s.mentionBgColor, roleMentionColor: s.roleMentionColor,
                 roleMentionBgColor: s.roleMentionBgColor, linkColor: s.linkColor,
-                codeBgColor: s.codeBgColor, codeFont: s.codeFont, boldFont: s.boldFont,
+                inlineCodeColor: s.inlineCodeColor, inlineCodeBgColor: s.inlineCodeBgColor,
+                codeBlockBgColor: s.codeBlockBgColor, codeFont: s.codeFont, boldFont: s.boldFont,
                 headingFonts: s.headingFonts,
                 emojiSize: 48.sf,
                 emojiImgproxyFitSide: 100
@@ -338,7 +345,7 @@ enum RichTextBuilder {
                 let tagFont = lineMentionFont ?? s.mentionFont
                 let t = UIColor.theme
                 let inaccessibleFg: UIColor = buzzStyled ? s.bodyColor.withAlphaComponent(0.55) : t.textDisabled
-                let inaccessibleBg: UIColor = buzzStyled ? s.codeBgColor.withAlphaComponent(0.45) : t.tertiary
+                let inaccessibleBg: UIColor = buzzStyled ? t.tertiary.withAlphaComponent(0.45) : t.tertiary
                 let fg = accessible ? s.mentionColor : inaccessibleFg
                 let bg = accessible ? s.mentionBgColor : inaccessibleBg
                 var tagAttrs = bodyAttributes(s)
@@ -382,7 +389,7 @@ enum RichTextBuilder {
                 let tagFont = lineMentionFont ?? s.mentionFont
                 let t = UIColor.theme
                 let inaccessibleFg: UIColor = buzzStyled ? s.bodyColor.withAlphaComponent(0.55) : t.textDisabled
-                let inaccessibleBg: UIColor = buzzStyled ? s.codeBgColor.withAlphaComponent(0.45) : t.tertiary
+                let inaccessibleBg: UIColor = buzzStyled ? t.tertiary.withAlphaComponent(0.45) : t.tertiary
                 let fg = accessible ? s.mentionColor : inaccessibleFg
                 let bg = accessible ? s.mentionBgColor : inaccessibleBg
                 var tagAttrs = bodyAttributes(s)
@@ -408,7 +415,8 @@ enum RichTextBuilder {
             case .inlineCode:
                 var attrs = bodyAttributes(s)
                 attrs[.font] = s.codeFont
-                attrs[.backgroundColor] = s.codeBgColor
+                attrs[.foregroundColor] = s.inlineCodeColor
+                attrs[.backgroundColor] = s.inlineCodeBgColor
                 let paraStyle = NSMutableParagraphStyle()
                 paraStyle.lineHeightMultiple = 1.4
                 attrs[.paragraphStyle] = paraStyle
@@ -423,7 +431,7 @@ enum RichTextBuilder {
             case .codeBlock:
                 var attrs = bodyAttributes(s)
                 attrs[.font] = s.codeFont
-                attrs[.backgroundColor] = s.codeBgColor
+                attrs[.backgroundColor] = s.codeBlockBgColor
                 var displayText = rawText
                 if displayText.hasPrefix("```") && displayText.hasSuffix("```") {
                     displayText = String(displayText.dropFirst(3).dropLast(3))
@@ -745,8 +753,8 @@ extension RichTextBuilder {
                 attributes[.font] = headingFont(level: heading.level, fonts: headingFonts, fallback: font)
             }
             let lineText = NSMutableAttributedString(string: content, attributes: attributes)
-            applyEmbedInlineMarkdown(to: lineText, codeBackground: theme.tertiary)
-            applyEmbedLinks(to: lineText, linkColor: theme.textLink)
+            applyEmbedInlineMarkdown(to: lineText, codeBackground: theme.desktop[.bgMarkdownCode])
+            applyEmbedLinks(to: lineText, linkColor: theme.desktop[.mentionColor])
             result.append(lineText)
             if index < lines.count - 1 {
                 result.append(NSAttributedString(string: "\n", attributes: baseAttributes))

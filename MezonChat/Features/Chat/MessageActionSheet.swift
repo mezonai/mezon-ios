@@ -708,7 +708,7 @@ private final class MessageActionSheetNode: ASDisplayNode {
             if i < actions.count - 1 {
                 let sepX: CGFloat = isWarning ? 58 : 52
                 let sep = UIView(frame: CGRect(x: sepX, y: rowY + rowH - 0.5, width: contentW - sepX - 16, height: 0.5))
-                sep.backgroundColor = t.tertiary
+                sep.backgroundColor = t.border
                 bg.addSubview(sep)
             }
         }
@@ -881,7 +881,7 @@ private final class QuickMenuPickerSheetNode: ASDisplayNode {
         dimmingNode.backgroundColor = UIColor.black.withAlphaComponent(0.4)
         dimmingNode.alpha = 0
 
-        containerNode.backgroundColor = t.primary
+        containerNode.backgroundColor = t.desktop[.bgThemeContexify]
         containerNode.cornerRadius = 14
         containerNode.clipsToBounds = true
 

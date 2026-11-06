@@ -1,37 +1,100 @@
 import UIKit
 
-struct ThemeAttributes {
-    let themeSettingPrimary: UIColor
-    let themeSettingNav: UIColor
-    let borderPrimary: UIColor
-    let textThemePrimary: UIColor
+struct ThemeGradient {
+    let angle: CGFloat
+    let stops: [(location: CGFloat, color: UIColor)]
+    var viewportAnchored = false
 
-    let primary: UIColor
-    let primaryGradient: UIColor
-    let secondary: UIColor
-    let secondaryWeight: UIColor
-    let secondaryLight: UIColor
-    let tertiary: UIColor
-    let border: UIColor
+    func apply(to layer: CAGradientLayer, in window: UIWindow? = nil) {
+        layer.colors = stops.map { $0.color.cgColor }
+        layer.locations = stops.map { NSNumber(value: Double($0.location)) }
+        updateDirection(on: layer, in: window)
+    }
+
+    func updateDirection(on layer: CAGradientLayer, in window: UIWindow? = nil) {
+        let bounds = layer.bounds
+        let reference: CGRect
+        if viewportAnchored, let window {
+            reference = layer.convert(window.layer.bounds, from: window.layer)
+        } else {
+            reference = bounds
+        }
+        let size = reference.size
+        guard bounds.width > 0, bounds.height > 0, size.width > 0, size.height > 0 else { return }
+
+        // Match the desktop gradient axis, which scales the shorter side before projection.
+        let radians = (angle - 90) * .pi / 180
+        let longestSide = max(size.width, size.height)
+        let x = cos(radians) * size.width / longestSide
+        let y = sin(radians) * size.height / longestSide
+        let length = abs(x) > abs(y) ? size.width : size.height
+        let halfAxis = length / (2 * hypot(x, y))
+        let centerX = (reference.midX - bounds.minX) / bounds.width
+        let centerY = (reference.midY - bounds.minY) / bounds.height
+        let dx = x * halfAxis / bounds.width
+        let dy = y * halfAxis / bounds.height
+        layer.startPoint = CGPoint(x: centerX - dx, y: centerY - dy)
+        layer.endPoint = CGPoint(x: centerX + dx, y: centerY + dy)
+    }
+}
+
+final class ThemeFillView: UIView {
+    override class var layerClass: AnyClass { CAGradientLayer.self }
+    private var gradientLayer: CAGradientLayer { layer as! CAGradientLayer }
+    private var gradient: ThemeGradient?
+
+    func apply(solid: UIColor, gradient: ThemeGradient?) {
+        self.gradient = gradient
+        backgroundColor = gradient == nil ? solid : .clear
+        if let gradient {
+            gradient.apply(to: gradientLayer)
+        } else {
+            gradientLayer.colors = nil
+            gradientLayer.locations = nil
+        }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        gradient?.updateDirection(on: gradientLayer)
+    }
+}
+
+struct ThemeAttributes {
+    private(set) var desktop: DesktopThemePalette
+
+    var themeSettingPrimary: UIColor { desktop[.themeSettingPrimary] }
+    var themeSettingNav: UIColor { desktop[.themeSettingNav] }
+    var borderPrimary: UIColor { desktop[.borderPrimary] }
+    var textThemePrimary: UIColor { desktop[.textThemePrimary] }
+    var textThemeMessage: UIColor { desktop[.textThemeMessage] }
+
+    var primary: UIColor { desktop[.bgSecondary] }
+    var primaryGradient: UIColor { desktop.conversationGradient?.stops.first?.color ?? primary }
+    var secondary: UIColor { desktop[.bgThemeDirectMessage] }
+    private(set) var secondaryWeight: UIColor
+    private(set) var secondaryLight: UIColor
+    var tertiary: UIColor { desktop[.bgPrimary] }
+    var border: UIColor { borderPrimary }
     let borderDim: UIColor
     let borderHighlight: UIColor
     let borderRadio: UIColor
-    let text: UIColor
-    let textStrong: UIColor
-    let textDisabled: UIColor
-    let textNormal: UIColor
-    let iconPrimary: UIColor
+    var text: UIColor { desktop.semantic.textPrimary }
+    var textStrong: UIColor { desktop.semantic.textPrimary }
+    var textDisabled: UIColor { desktop.semantic.textMuted }
+    var textNormal: UIColor { desktop.semantic.textSecondary }
+    var iconPrimary: UIColor { desktop[.buttonThemePrimary] }
     let iconSecondary: UIColor
     let iconTertiary: UIColor
     let white: UIColor
     let black: UIColor
-    let bgInputPrimary: UIColor
+    var bgInputPrimary: UIColor { desktop[.bgThemeInputPrimary] }
     let charcoal: UIColor
     let jet: UIColor
     let channelUnread: UIColor
     let channelNormal: UIColor
     let midnightBlue: UIColor
-    let textLink: UIColor
+    var textLink: UIColor { desktop[.colorMentionHover] }
     let reactionBg: UIColor
     let reactionBorder: UIColor
     let selectedOverlay: UIColor
@@ -49,7 +112,7 @@ struct ThemeAttributes {
     let headerInfor: UIColor
     let descInfor: UIColor
     let textSuccess: UIColor
-    let loginGradientColors: [UIColor]
+    private(set) var loginGradientColors: [UIColor]
     let loginInputBg: UIColor
     let loginInputBorder: UIColor
     let loginPlaceholder: UIColor
@@ -60,7 +123,7 @@ struct ThemeAttributes {
     let loginSubtitleColor: UIColor
     let loginInputTextColor: UIColor
 
-    var swatchColor: UIColor { primary }
+    var statusOnline: UIColor { desktop.semantic.statusOnline }
 }
 
 enum AppTheme: String, CaseIterable {
@@ -71,6 +134,8 @@ enum AppTheme: String, CaseIterable {
     case purpleHaze
     case abyssDark
     case sunset
+    case cisher
+    case berrynade
     case system = "system"
 
     var localizedDisplayName: String {
@@ -82,6 +147,8 @@ enum AppTheme: String, CaseIterable {
         case .purpleHaze: return L(L10n.Theme.purpleHaze)
         case .abyssDark:  return L(L10n.Theme.abyssDark)
         case .sunset:     return L(L10n.Theme.sunset)
+        case .cisher:     return L(L10n.Theme.cisher)
+        case .berrynade:  return L(L10n.Theme.berrynade)
         case .system:     return L(L10n.Theme.system)
         }
     }
@@ -95,6 +162,8 @@ enum AppTheme: String, CaseIterable {
         case .purpleHaze: return .purpleHaze
         case .abyssDark:  return .abyssDark
         case .sunset:     return .sunset
+        case .cisher:     return .cisher
+        case .berrynade:  return .berrynade
         case .system:
             if UIScreen.main.traitCollection.userInterfaceStyle == .dark {
                 return .dark
@@ -103,51 +172,41 @@ enum AppTheme: String, CaseIterable {
         }
     }
 
-    var usesLightStatusBarContent: Bool {
+    var interfaceStyle: UIUserInterfaceStyle {
         switch self {
-        case .light, .sunrise:
-            return false
+        case .light, .sunrise, .cisher:
+            return .light
+        case .dark, .redDark, .purpleHaze, .abyssDark, .sunset, .berrynade:
+            return .dark
         case .system:
-            return UITraitCollection.current.userInterfaceStyle == .dark
-        case .dark, .redDark, .purpleHaze, .abyssDark, .sunset:
-            return true
+            return .unspecified
         }
+    }
+
+    var usesLightStatusBarContent: Bool {
+        let style = self == .system ? UITraitCollection.current.userInterfaceStyle : interfaceStyle
+        return style == .dark
     }
 }
 
 private extension ThemeAttributes {
 
     static let dark = ThemeAttributes(
-        themeSettingPrimary: hex("#313338"),
-        themeSettingNav: hex("#2b2d31"),
-        borderPrimary: hex("#646464", alpha: 0.4),
-        textThemePrimary: hex("#9b9ca3"),
-        primary:          hex("#131318"),
-        primaryGradient:  hex("#131318"),
-        secondary:        hex("#1c1d23"),
+        desktop: .dark,
         secondaryWeight:  hex("#212122"),
         secondaryLight:   hex("#26272f"),
-        tertiary:         hex("#383a43"),
-        border:           hex("#2a2d31"),
         borderDim:        hex("#2f2f37"),
         borderHighlight:  hex("#27272f"),
         borderRadio:      hex("#dadada"),
-        text:             hex("#CCCCCC"),
-        textStrong:       hex("#dfe0e4"),
-        textDisabled:     hex("#7b7b83"),
-        textNormal:       hex("#898993"),
-        iconPrimary:      hex("#5a62f4"),
         iconSecondary:    hex("#7b7b83"),
         iconTertiary:     hex("#949aa4"),
         white:            hex("#FFFFFF"),
         black:            hex("#000000"),
-        bgInputPrimary:   hex("#2a2e31"),
         charcoal:         hex("#2b2b2e"),
         jet:              hex("#29292b"),
         channelUnread:    hex("#ffffff"),
         channelNormal:    hex("#aeaeae"),
         midnightBlue:     hex("#3b426e"),
-        textLink:         hex("#3297ff"),
         reactionBg:       rgba(55, 58, 84, 0.5),
         reactionBorder:   hex("#2563eb"),
         selectedOverlay:  hex("#00000096"),
@@ -178,36 +237,21 @@ private extension ThemeAttributes {
     )
 
     static let light = ThemeAttributes(
-        themeSettingPrimary: hex("#f9f9f9"),
-        themeSettingNav: hex("#f0f0f0"),
-        borderPrimary: hex("#dadce0"),
-        textThemePrimary: hex("#666771"),
-        primary:          hex("#f4f4f8"),
-        primaryGradient:  hex("#ffffff"),
-        secondary:        hex("#ffffff"),
+        desktop: .light,
         secondaryWeight:  hex("#F0F0F0"),
         secondaryLight:   hex("#ffffff"),
-        tertiary:         hex("#f2f3f6"),
-        border:           hex("#ededf1"),
         borderDim:        hex("#dfdfdf"),
         borderHighlight:  hex("#e0e1e3"),
         borderRadio:      hex("#4d4d54"),
-        text:             hex("#29292b"),
-        textStrong:       hex("#070709"),
-        textDisabled:     hex("#606065"),
-        textNormal:       hex("#e0e1e3"),
-        iconPrimary:      hex("#5a62f4"),
         iconSecondary:    hex("#606065"),
         iconTertiary:     hex("#6c7077"),
         white:            hex("#000000"),
         black:            hex("#FFFFFF"),
-        bgInputPrimary:   hex("#a0a1a6"),
         charcoal:         hex("#f2f3f5"),
         jet:              hex("#ecedef"),
         channelUnread:    hex("#000000"),
         channelNormal:    hex("#6c7077"),
         midnightBlue:     hex("#d1e0ff"),
-        textLink:         hex("#3297ff"),
         reactionBg:       rgba(229, 231, 235, 0.6),
         reactionBorder:   hex("#2563eb"),
         selectedOverlay:  hex("#FFFFFF96"),
@@ -238,36 +282,21 @@ private extension ThemeAttributes {
     )
 
     static let sunrise = ThemeAttributes(
-        themeSettingPrimary: hex("#fcfaec"),
-        themeSettingNav: hex("#f7f4e7"),
-        borderPrimary: hex("#868581", alpha: 0.46667),
-        textThemePrimary: hex("#6a5563"),
-        primary:          hex("#ead9e0"),
-        primaryGradient:  hex("#fbdbe3"),
-        secondary:        hex("#fae9ef"),
+        desktop: .sunrise,
         secondaryWeight:  hex("#ffe5ed"),
         secondaryLight:   hex("#f8ebee"),
-        tertiary:         hex("#faf2f2"),
-        border:           hex("#9e9eaa"),
         borderDim:        hex("#f4f4f4"),
         borderHighlight:  hex("#e0e1e3"),
         borderRadio:      hex("#4d4d54"),
-        text:             hex("#181819"),
-        textStrong:       hex("#070709"),
-        textDisabled:     hex("#606065"),
-        textNormal:       hex("#e0e1e3"),
-        iconPrimary:      hex("#ec5a6b"),
         iconSecondary:    hex("#b13b3d"),
         iconTertiary:     hex("#e04c51"),
         white:            hex("#000000"),
         black:            hex("#FFFFFF"),
-        bgInputPrimary:   hex("#707075"),
         charcoal:         hex("#f2f3f5"),
         jet:              hex("#ecedef"),
         channelUnread:    hex("#000000"),
         channelNormal:    hex("#6c7077"),
         midnightBlue:     hex("#d1e0ff"),
-        textLink:         hex("#3297ff"),
         reactionBg:       rgba(229, 231, 235, 0.6),
         reactionBorder:   hex("#2563eb"),
         selectedOverlay:  hex("#FFFFFF96"),
@@ -298,36 +327,21 @@ private extension ThemeAttributes {
     )
 
     static let redDark = ThemeAttributes(
-        themeSettingPrimary: hex("#2e2326"),
-        themeSettingNav: hex("#281d1e"),
-        borderPrimary: hex("#4c4c4c", alpha: 0.4),
-        textThemePrimary: hex("#acacac"),
-        primary:          hex("#610101"),
-        primaryGradient:  hex("#700303"),
-        secondary:        hex("#2B1011"),
+        desktop: .redDark,
         secondaryWeight:  hex("#67171a"),
         secondaryLight:   hex("#70393c"),
-        tertiary:         hex("#141319"),
-        border:           hex("#2e2f34"),
         borderDim:        hex("#2f2f37"),
         borderHighlight:  hex("#27272f"),
         borderRadio:      hex("#cacad2"),
-        text:             hex("#CCCCCC"),
-        textStrong:       hex("#dfe0e4"),
-        textDisabled:     hex("#7b7b83"),
-        textNormal:       hex("#898993"),
-        iconPrimary:      hex("#d62940"),
         iconSecondary:    hex("#d23331"),
         iconTertiary:     hex("#dd2f2f"),
         white:            hex("#FFFFFF"),
         black:            hex("#000000"),
-        bgInputPrimary:   hex("#2a2e31"),
         charcoal:         hex("#2b2b2e"),
         jet:              hex("#29292b"),
         channelUnread:    hex("#ffffff"),
         channelNormal:    hex("#aeaeae"),
         midnightBlue:     hex("#3b426e"),
-        textLink:         hex("#3297ff"),
         reactionBg:       rgba(55, 58, 84, 0.5),
         reactionBorder:   hex("#2563eb"),
         selectedOverlay:  hex("#00000096"),
@@ -358,36 +372,21 @@ private extension ThemeAttributes {
     )
 
     static let purpleHaze = ThemeAttributes(
-        themeSettingPrimary: hex("#1b1c20"),
-        themeSettingNav: hex("#151618"),
-        borderPrimary: hex("#494950", alpha: 0.4),
-        textThemePrimary: hex("#acacac"),
-        primary:          hex("#0e032c"),
-        primaryGradient:  hex("#111a35"),
-        secondary:        hex("#23052f"),
+        desktop: .purpleHaze,
         secondaryWeight:  hex("#1E1133"),
         secondaryLight:   hex("#1e143a"),
-        tertiary:         hex("#0e032c"),
-        border:           hex("#23193d"),
         borderDim:        hex("#2f2f37"),
         borderHighlight:  hex("#27272f"),
         borderRadio:      hex("#cacad2"),
-        text:             hex("#CCCCCC"),
-        textStrong:       hex("#dfe0e4"),
-        textDisabled:     hex("#7d7582"),
-        textNormal:       hex("#858593"),
-        iconPrimary:      hex("#a78bfa"),
         iconSecondary:    hex("#7d7582"),
         iconTertiary:     hex("#9ca3af"),
         white:            hex("#FFFFFF"),
         black:            hex("#000000"),
-        bgInputPrimary:   hex("#2a2e31"),
         charcoal:         hex("#3b3b48"),
         jet:              hex("#29292b"),
         channelUnread:    hex("#ffffff"),
         channelNormal:    hex("#a9acb7"),
         midnightBlue:     hex("#3b426e"),
-        textLink:         hex("#3297ff"),
         reactionBg:       rgba(55, 58, 84, 0.5),
         reactionBorder:   hex("#2563eb"),
         selectedOverlay:  hex("#00000096"),
@@ -418,36 +417,21 @@ private extension ThemeAttributes {
     )
 
     static let abyssDark = ThemeAttributes(
-        themeSettingPrimary: hex("#141624"),
-        themeSettingNav: hex("#12131f"),
-        borderPrimary: hex("#4c4c4c", alpha: 0.4),
-        textThemePrimary: hex("#acacac"),
-        primary:          hex("#110B33"),
-        primaryGradient:  hex("#21165c"),
-        secondary:        hex("#19153C"),
+        desktop: .abyssDark,
         secondaryWeight:  hex("#0E0B20"),
         secondaryLight:   hex("#24204E"),
-        tertiary:         hex("#141319"),
-        border:           hex("#2e2f34"),
         borderDim:        hex("#2f2f37"),
         borderHighlight:  hex("#27272f"),
         borderRadio:      hex("#cacad2"),
-        text:             hex("#CCCCCC"),
-        textStrong:       hex("#dfe0e4"),
-        textDisabled:     hex("#7b7b83"),
-        textNormal:       hex("#898993"),
-        iconPrimary:      hex("#5a48fb"),
         iconSecondary:    hex("#5331d2"),
         iconTertiary:     hex("#5331d2"),
         white:            hex("#FFFFFF"),
         black:            hex("#000000"),
-        bgInputPrimary:   hex("#2a2e31"),
         charcoal:         hex("#2b2b2e"),
         jet:              hex("#29292b"),
         channelUnread:    hex("#ffffff"),
         channelNormal:    hex("#aeaeae"),
         midnightBlue:     hex("#3b426e"),
-        textLink:         hex("#3297ff"),
         reactionBg:       rgba(55, 58, 84, 0.5),
         reactionBorder:   hex("#2563eb"),
         selectedOverlay:  hex("#00000096"),
@@ -478,36 +462,21 @@ private extension ThemeAttributes {
     )
 
     static let sunset = ThemeAttributes(
-        themeSettingPrimary: hex("#262433"),
-        themeSettingNav: hex("#1e1b29"),
-        borderPrimary: hex("#868581", alpha: 0.46667),
-        textThemePrimary: hex("#acacac"),
-        primary:          hex("#372013"),
-        primaryGradient:  hex("#57321e"),
-        secondary:        hex("#563928"),
+        desktop: .sunset,
         secondaryWeight:  hex("#2C1910"),
         secondaryLight:   hex("#4C2C1B"),
-        tertiary:         hex("#141319"),
-        border:           hex("#2e2f34"),
         borderDim:        hex("#2f2f37"),
         borderHighlight:  hex("#27272f"),
         borderRadio:      hex("#cacad2"),
-        text:             hex("#CCCCCC"),
-        textStrong:       hex("#dfe0e4"),
-        textDisabled:     hex("#7b7b83"),
-        textNormal:       hex("#898993"),
-        iconPrimary:      hex("#ff873c"),
         iconSecondary:    hex("#ff7e30"),
         iconTertiary:     hex("#dd3f2f"),
         white:            hex("#FFFFFF"),
         black:            hex("#000000"),
-        bgInputPrimary:   hex("#2a2e31"),
         charcoal:         hex("#2b2b2e"),
         jet:              hex("#29292b"),
         channelUnread:    hex("#ffffff"),
         channelNormal:    hex("#aeaeae"),
         midnightBlue:     hex("#3b426e"),
-        textLink:         hex("#3297ff"),
         reactionBg:       rgba(55, 58, 84, 0.5),
         reactionBorder:   hex("#2563eb"),
         selectedOverlay:  hex("#00000096"),
@@ -536,6 +505,20 @@ private extension ThemeAttributes {
         loginSubtitleColor: hex("#b0b0b0"),
         loginInputTextColor: hex("#ffffff")
     )
+
+    static let cisher = light.adapting(to: .cisher)
+    static let berrynade = dark.adapting(to: .berrynade)
+
+    private func adapting(to palette: DesktopThemePalette) -> ThemeAttributes {
+        var theme = self
+        theme.desktop = palette
+        theme.secondaryWeight = palette[.bgActiveFriendList]
+        theme.secondaryLight = palette[.bgSurface]
+        if let preview = palette.previewGradient {
+            theme.loginGradientColors = preview.stops.map { $0.color }
+        }
+        return theme
+    }
 }
 
 private func hex(_ value: String, alpha: CGFloat = 1) -> UIColor {

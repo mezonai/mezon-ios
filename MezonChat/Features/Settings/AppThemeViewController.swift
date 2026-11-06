@@ -203,12 +203,8 @@ final class AppThemeViewController: BaseViewController {
 
 private final class ConversationPreviewCard: UIView {
 
-    private let gradientLayer: CAGradientLayer = {
-        let gl = CAGradientLayer()
-        gl.startPoint = CGPoint(x: 1, y: 0)
-        gl.endPoint = CGPoint(x: 0, y: 0)
-        return gl
-    }()
+    private let gradientLayer = CAGradientLayer()
+    private var gradient: ThemeGradient?
 
     private let titleLabel: UILabel = {
         let l = UILabel()
@@ -297,11 +293,15 @@ private final class ConversationPreviewCard: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         gradientLayer.frame = gradientContainerView?.bounds ?? bounds
+        gradient?.updateDirection(on: gradientLayer)
     }
 
     func apply(theme: AppTheme) {
         let attrs = theme.attributes
-        gradientLayer.colors = [attrs.primary.cgColor, attrs.primaryGradient.cgColor]
+        gradient = attrs.desktop.conversationGradient
+        gradientLayer.isHidden = gradient == nil
+        gradient?.apply(to: gradientLayer)
+        gradientContainerView?.backgroundColor = attrs.secondary
         layer.borderColor = attrs.secondary.cgColor
         titleLabel.text = L(L10n.Theme.conversation)
         titleLabel.textColor = attrs.text
@@ -327,7 +327,6 @@ private final class MockConversationRow: UIView {
     }()
     private let onlineDot: UIView = {
         let v = UIView()
-        v.backgroundColor = UIColor(red: 0.16, green: 0.73, blue: 0.47, alpha: 1)
         v.layer.cornerRadius = 7.swh
         v.layer.borderWidth = 2
         v.layer.borderColor = UIColor.white.cgColor
@@ -404,6 +403,7 @@ private final class MockConversationRow: UIView {
         nameLabel.textColor    = attrs.text
         messageLabel.textColor = attrs.textDisabled
         timeLabel.textColor    = attrs.textDisabled
+        onlineDot.backgroundColor = attrs.statusOnline
         onlineDot.layer.borderColor = attrs.secondary.cgColor
     }
 }
@@ -411,6 +411,8 @@ private final class MockConversationRow: UIView {
 private final class ThemeSwatchButton: UIButton {
 
     let theme: AppTheme
+    private let gradientLayer = CAGradientLayer()
+    private var gradient: ThemeGradient?
 
     private let selectionRing: UIView = {
         let v = UIView()
@@ -443,15 +445,14 @@ private final class ThemeSwatchButton: UIButton {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
 
-        colorSwatch.backgroundColor = theme.attributes.primary
         colorSwatch.layer.borderWidth = 1
-        colorSwatch.layer.borderColor = theme.attributes.border.cgColor
+        colorSwatch.layer.insertSublayer(gradientLayer, at: 0)
 
         if theme == .system {
             iconView.image = UIImage(named: "Setting/systemSync")?.withRenderingMode(
                 .alwaysTemplate)
-            iconView.tintColor = theme.attributes.text
         }
+        applyAppearance()
 
         addSubview(selectionRing)
         addSubview(colorSwatch)
@@ -480,7 +481,28 @@ private final class ThemeSwatchButton: UIButton {
 
     required init?(coder: NSCoder) { fatalError() }
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        gradientLayer.frame = colorSwatch.bounds
+        gradient?.updateDirection(on: gradientLayer)
+    }
+
+    private func applyAppearance() {
+        let attributes = theme.attributes
+        let palette = attributes.desktop
+        colorSwatch.backgroundColor = palette.previewColor
+        colorSwatch.layer.borderColor = attributes.border.cgColor
+        iconView.tintColor = attributes.text
+        accessibilityLabel = theme.localizedDisplayName
+        gradient = palette.previewGradient
+        gradientLayer.isHidden = gradient == nil
+        gradient?.apply(to: gradientLayer)
+    }
+
     func setSelected(_ selected: Bool) {
+        if theme == .system {
+            applyAppearance()
+        }
         selectionRing.isHidden = !selected
         UIView.animate(withDuration: 0.2) {
             self.colorSwatch.layer.cornerRadius = 8.swh

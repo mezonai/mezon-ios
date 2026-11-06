@@ -70,7 +70,7 @@ final class ChannelPermissionsRowView: UIView {
         nameLabel.numberOfLines = 1
 
         subLabel.font = .systemFont(ofSize: 12.sf, weight: .regular)
-        subLabel.textColor = UIColor.theme.textDisabled
+        subLabel.textColor = UIColor.theme.textNormal
         subLabel.numberOfLines = 1
 
         ownerIcon.image = UIImage(systemName: "crown.fill")?.withRenderingMode(.alwaysTemplate)

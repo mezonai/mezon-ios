@@ -591,7 +591,7 @@ final class DiscoverClanEmptyStateViewController: UIViewController {
         let currentTheme = ThemeManager.shared.current
         let effectiveTheme = currentTheme == .system ? (UITraitCollection.current.userInterfaceStyle == .dark ? AppTheme.dark : AppTheme.light) : currentTheme
         qrHeaderButton.setImage(UIImage(named: "Profile/ScanQR")?.withRenderingMode(.alwaysTemplate), for: .normal)
-        if effectiveTheme == .light || effectiveTheme == .sunrise {
+        if effectiveTheme.interfaceStyle == .light {
             qrHeaderButton.tintColor = UIColor(hexString: "#ff6b6f76")
         } else {
             qrHeaderButton.tintColor = UIColor(hexString: "#fefefe")

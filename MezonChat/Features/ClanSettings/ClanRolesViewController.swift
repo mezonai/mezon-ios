@@ -20,7 +20,8 @@ final class ClanRolesViewController: BaseViewController {
         t.backgroundColor = .mezonSecondary
         t.dataSource = self
         t.delegate = self
-        t.separatorStyle = .none
+        t.separatorStyle = .singleLine
+        t.separatorColor = UIColor.theme.border
         t.estimatedRowHeight = 60.sh
         t.rowHeight = UITableView.automaticDimension
         t.register(ClanRoleCell.self, forCellReuseIdentifier: ClanRoleCell.reuseId)
@@ -191,6 +192,7 @@ final class ClanRolesViewController: BaseViewController {
         backButton.tintColor = UIColor.theme.textStrong
         addButton.tintColor = canManage ? UIColor.theme.textStrong : UIColor.theme.textDisabled
         tableView.backgroundColor = .mezonSecondary
+        tableView.separatorColor = UIColor.theme.border
         tableView.reloadData()
     }
 
@@ -352,15 +354,21 @@ private final class ClanRoleCell: UITableViewCell {
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: .default, reuseIdentifier: reuseIdentifier)
-        backgroundColor = .clear
         selectionStyle = .default
-        let selected = UIView()
-        selected.backgroundColor = UIColor.theme.tertiary.withAlphaComponent(0.6)
-        selectedBackgroundView = selected
+        selectedBackgroundView = UIView()
         setupViews()
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    private func applyTheme() {
+        backgroundColor = UIColor.theme.primary
+        selectedBackgroundView?.backgroundColor = UIColor.theme.tertiary.withAlphaComponent(0.6)
+        subtitleLabel.textColor = UIColor.theme.textDisabled
+        lockIcon.tintColor = UIColor.theme.textDisabled
+        chevron.tintColor = UIColor.theme.textDisabled
+        colorIndicator.layer.borderColor = UIColor.theme.borderDim.cgColor
+    }
 
     private func setupViews() {
         iconView.contentMode = .scaleAspectFit
@@ -373,7 +381,6 @@ private final class ClanRoleCell: UITableViewCell {
 
         colorIndicator.layer.cornerRadius = 6.swh
         colorIndicator.layer.borderWidth = 1
-        colorIndicator.layer.borderColor = UIColor.theme.borderDim.cgColor
 
         titleLabel.font = .systemFont(ofSize: 15.sf, weight: .semibold)
         titleLabel.textColor = .mezonTextPrimary
@@ -382,18 +389,15 @@ private final class ClanRoleCell: UITableViewCell {
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         subtitleLabel.font = .systemFont(ofSize: 12.sf, weight: .regular)
-        subtitleLabel.textColor = UIColor.theme.textDisabled
         subtitleLabel.numberOfLines = 1
         subtitleLabel.lineBreakMode = .byTruncatingTail
 
         lockIcon.image = UIImage(systemName: "lock.fill")?.withRenderingMode(.alwaysTemplate)
-        lockIcon.tintColor = UIColor.theme.textDisabled
         lockIcon.contentMode = .scaleAspectFit
         lockIcon.isHidden = true
         lockIcon.setContentCompressionResistancePriority(.required, for: .horizontal)
 
         chevron.image = UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate)
-        chevron.tintColor = UIColor.theme.textDisabled
         chevron.contentMode = .scaleAspectFit
         chevron.setContentCompressionResistancePriority(.required, for: .horizontal)
 
@@ -448,6 +452,7 @@ private final class ClanRoleCell: UITableViewCell {
     }
 
     func configureEveryone(role: Mezon_Api_Role) {
+        applyTheme()
         titleLeadingToContent.isActive = false
         titleLeadingToIcon.isActive = true
         titleTrailingMaxEmpty.isActive = false
@@ -461,6 +466,8 @@ private final class ClanRoleCell: UITableViewCell {
         roleIconTask?.cancel()
         colorIndicator.isHidden = true
         titleLabel.text = L(L10n.ClanRoles.everyone)
+        titleLabel.textColor = .mezonTextPrimary
+        titleLabel.font = .systemFont(ofSize: 15.sf, weight: .semibold)
         subtitleLabel.text = L(L10n.ClanRoles.defaultRole)
         lockIcon.isHidden = true
         chevron.isHidden = false
@@ -468,6 +475,7 @@ private final class ClanRoleCell: UITableViewCell {
     }
 
     func configure(role: Mezon_Api_Role, memberCount: Int, isLocked: Bool) {
+        applyTheme()
         titleLeadingToContent.isActive = false
         titleLeadingToIcon.isActive = true
         titleTrailingMaxEmpty.isActive = false
@@ -496,6 +504,7 @@ private final class ClanRoleCell: UITableViewCell {
     }
 
     func configureEmpty(text: String) {
+        applyTheme()
         roleIconTask?.cancel()
         roleIconView.isHidden = true
         iconView.image = nil

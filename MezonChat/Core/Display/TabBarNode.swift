@@ -103,7 +103,8 @@ final class TabBarItemNode: ASDisplayNode {
 
         let fontSize: CGFloat = 10 * s
         let labelFont = UIFont.systemFont(ofSize: fontSize, weight: isSelected ? .semibold : .regular)
-        let labelColor = isSelected ? UIColor.theme.textStrong : UIColor.theme.channelNormal
+        let theme = UIColor.theme
+        let labelColor = isSelected ? theme.desktop[.textSecondary] : theme.textNormal
         labelNode.attributedText = NSAttributedString(
             string: item.title ?? "",
             attributes: [.font: labelFont, .foregroundColor: labelColor]
@@ -145,26 +146,14 @@ final class TabBarItemNode: ASDisplayNode {
     private func applyStyle(selected: Bool) {
         let icon = selected ? (item.selectedImage ?? item.image) : item.image
         primaryIconNode.image = icon?.withRenderingMode(.alwaysTemplate)
-        let currentTheme = ThemeManager.shared.current
-        let isWhiteTheme = currentTheme == .light
-            || (currentTheme == .system && UITraitCollection.current.userInterfaceStyle == .light)
-        let primaryTint: UIColor
-        if isWhiteTheme {
-            primaryTint = selected ? UIColor(hex: 0xC0C8F2) : UIColor(hex: 0xCECECE)
-        } else {
-            primaryTint = selected ? UIColor.theme.iconPrimary : UIColor.theme.iconSecondary
-        }
-        let faceTint: UIColor
-        if isWhiteTheme {
-            faceTint = selected ? UIColor(hex: 0x475ED9) : UIColor.theme.borderRadio
-        } else {
-            faceTint = selected ? UIColor.theme.textStrong : UIColor.theme.borderRadio
-        }
-        primaryIconNode.tintColor = primaryTint
+        let theme = UIColor.theme
+        let accent = theme.desktop[.colorTextActiveButton]
+        let inactive = theme.desktop[.bgIconTheme]
+        primaryIconNode.tintColor = selected ? accent : inactive.withAlphaComponent(0.6)
         if let faceName = item.mezonTabBarFaceAssetName,
            let face = UIImage(named: faceName, in: Self.imageBundle, compatibleWith: nil) {
             faceIconNode.image = face.withRenderingMode(.alwaysTemplate)
-            faceIconNode.tintColor = faceTint
+            faceIconNode.tintColor = selected ? theme.primary : inactive
             faceIconNode.isHidden = false
         } else {
             faceIconNode.image = nil
@@ -202,14 +191,10 @@ public final class TabBarNode: ASDisplayNode {
 
     var onSelect: ((Int, Bool) -> Void)?
 
-    private static var shouldEnableBackgroundBlurForCurrentTheme: Bool {
-        !ThemeManager.shared.current.usesLightStatusBarContent
-    }
-
     override public init() {
         backgroundNode = NavigationBackgroundNode(
-            color: UIColor.theme.secondaryLight,
-            enableBlur: Self.shouldEnableBackgroundBlurForCurrentTheme
+            color: UIColor.theme.primary,
+            enableBlur: false
         )
         super.init()
         automaticallyManagesSubnodes = false
@@ -257,8 +242,8 @@ public final class TabBarNode: ASDisplayNode {
 
         transition.updateFrame(node: backgroundNode, frame: CGRect(origin: .zero, size: CGSize(width: size.width, height: totalHeight)))
         backgroundNode.updateColor(
-            color: UIColor.theme.secondaryLight,
-            enableBlur: Self.shouldEnableBackgroundBlurForCurrentTheme,
+            color: UIColor.theme.primary,
+            enableBlur: false,
             transition: transition
         )
         backgroundNode.update(size: CGSize(width: size.width, height: totalHeight), cornerRadius: 0, transition: transition)

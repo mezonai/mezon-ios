@@ -56,6 +56,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
     private let searchButton = UIButton(type: .system)
     private let createGroupButton = UIButton(type: .system)
     private let tableView: UITableView
+    private let gradientLayer = CAGradientLayer()
     private let activityStrip = DmMessageActivityStripView()
     private let activityTableHeaderWrapper = UIView()
 
@@ -134,9 +135,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
     override func didLoad() {
         super.didLoad()
 
-        let t = UIColor.theme
-        backgroundColor = t.secondary
-        view.backgroundColor = t.secondary
+        layer.insertSublayer(gradientLayer, at: 0)
         tableView.isOpaque = false
         tableView.backgroundView = nil
 
@@ -267,6 +266,12 @@ final class DirectMessagesContainerNode: ASDisplayNode {
             return
         }
 
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        gradientLayer.frame = CGRect(origin: .zero, size: size)
+        UIColor.theme.desktop.conversationGradient?.updateDirection(on: gradientLayer, in: isNodeLoaded ? view.window : nil)
+        CATransaction.commit()
+
         let topY = safeTop + headerTopPadding
         let sideInset: CGFloat = 18.sw
 
@@ -336,13 +341,14 @@ final class DirectMessagesContainerNode: ASDisplayNode {
 
     func applyTheme() {
         let t = UIColor.theme
-        backgroundColor = t.secondary
-        if isNodeLoaded {
-            view.backgroundColor = t.secondary
-        }
+        let gradient = t.desktop.conversationGradient
+        backgroundColor = gradient == nil ? t.secondary : .clear
         titleLabel.textColor = t.textStrong
 
         guard isNodeLoaded else { return }
+
+        gradientLayer.isHidden = gradient == nil
+        gradient?.apply(to: gradientLayer, in: view.window)
 
         addFriendButton.setTitleColor(UIColor.theme.textStrong, for: .normal)
         addFriendButton.backgroundColor = UIColor.theme.primary
