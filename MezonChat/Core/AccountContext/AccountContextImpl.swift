@@ -1575,7 +1575,8 @@ final class AccountContextImpl: AccountContext {
             engine.clanData.applyClanEventFromSocket(ev)
 
         case .clanUpdated(let ev):
-            account.postbox.write { tx in
+            var updatedClanData: Data?
+            account.postbox.write({ tx in
                 guard let existingClan = tx.getClan(id: ev.clanID) else { return }
                 var d = (try? Mezon_Api_ClanDesc(serializedBytes: existingClan.data)) ?? Mezon_Api_ClanDesc()
                 d.clanID = ev.clanID
@@ -1590,6 +1591,8 @@ final class AccountContextImpl: AccountContext {
                 d.isCommunity = ev.isCommunity
                 if !ev.about.isEmpty { d.about = ev.about }
                 if !ev.description_p.isEmpty { d.description_p = ev.description_p }
+                d.shortURL = ev.shortURL
+                d.hashtags = ev.hashtags
                 d.preventAnonymous = ev.preventAnonymous
 
                 let updatedClan = ClanRecord(
@@ -1600,8 +1603,12 @@ final class AccountContextImpl: AccountContext {
                     data: (try? d.serializedData()) ?? existingClan.data
                 )
                 tx.updateClans([updatedClan])
-            }
-            NotificationCenter.default.post(name: Notification.Name("MezonClanDescUpdated"), object: nil, userInfo: ["clanId": ev.clanID])
+                updatedClanData = updatedClan.data
+            }, completion: {
+                var userInfo: [String: Any] = ["clanId": ev.clanID]
+                userInfo["clanData"] = updatedClanData
+                NotificationCenter.default.post(name: Notification.Name("MezonClanDescUpdated"), object: nil, userInfo: userInfo)
+            })
 
         case .channelUpdated(let ev):
             if engine.channels.handleVoiceChannelUpdated(ev, context: self) { break }
