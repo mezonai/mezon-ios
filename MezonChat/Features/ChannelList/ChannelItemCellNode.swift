@@ -26,6 +26,7 @@ final class ChannelItemCellNode: ASCellNode {
         self.isVoiceActive = isVoiceActive
         self.viewerCount = channel.type == MezonConstants.ChannelType.streaming.rawValue ? viewerCount : nil
         super.init()
+        nameNode.accessibilityIdentifier = AccessibilityID.Chat.channelRow(String(channel.channelID))
         automaticallyManagesSubnodes = true
         neverShowPlaceholders = true
         selectionStyle = .none

@@ -207,6 +207,7 @@ targets:
     sources:
       - path: MezonChat/_Tests/UITests
       - path: MezonChat/_Tests/Shared
+      - path: MezonChat/Core/Accessibility/AccessibilityID.swift
     dependencies:
       - target: MezonChat
     settings:
