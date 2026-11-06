@@ -1606,7 +1606,13 @@ enum MezonApiNameRegistry {
         "SearchMentionUsers",
         "GenerateCDNSignature",
         "GetStreamPlayback",
-        "LinkCDNFile"
+        "LinkCDNFile",
+        "SfuBreakoutRoom",
+        "SfuBreakoutMerge",
+        "SetOverrideEveryoneChannel",
+        "GetOverrideEveryoneChannel",
+        "GetDMSetting",
+        "UpdateDMSetting"
     ]
 
     private static let nameToIndex: [String: Int32] = {
