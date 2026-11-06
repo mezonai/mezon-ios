@@ -71,21 +71,7 @@ extension MezonEngine {
             }
             group.addTask {
                 do {
-                    let res = try await network.getListStickersByUserId(token: token)
-                    let rows = res.stickers.map { $0.toCachedRecord() }
-                    if rows.isEmpty {
-                        let existing = postbox.getSetting(key: MediaPanelPostboxKeys.stickerListByUser, type: MediaPanelStickerListCache.self)
-                        if let existing, !existing.stickers.isEmpty { return }
-                    }
-                    let cache = MediaPanelStickerListCache(fetchedAt: now, stickers: rows)
-                    postbox.setSetting(key: MediaPanelPostboxKeys.stickerListByUser, value: cache)
-                    DispatchQueue.main.async {
-                        NotificationCenter.default.post(
-                            name: .mezonStickerListDidUpdate,
-                            object: nil,
-                            userInfo: nil
-                        )
-                    }
+                    try await self.refreshStickerListFromNetwork(token: token)
                 } catch {
                 }
             }
