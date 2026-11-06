@@ -1360,6 +1360,7 @@ final class ChatViewController: ViewController {
         super.containerLayoutUpdated(layout, transition: transition)
         let layoutToApply = layout
         let composerHasKeyboardFocus = sendInputViewController.view.findFirstResponder() != nil
+        let chatHasKeyboardFocus = composerHasKeyboardFocus || isMessageListHostingFirstResponder
         lastLayout = layout
 
         let bottomInset = max(layoutToApply.intrinsicInsets.bottom, layoutToApply.safeInsets.bottom)
@@ -1367,13 +1368,13 @@ final class ChatViewController: ViewController {
         let shouldIgnoreNotificationKeyboardInset =
             shouldReconcileKeyboardAfterNotificationNavigation
             && layoutInputH > bottomInset + 1
-            && !composerHasKeyboardFocus
+            && !chatHasKeyboardFocus
         let rawInputH: CGFloat
         if shouldIgnoreNotificationKeyboardInset {
             rawInputH = 0
         } else if layoutInputH > 1 {
             rawInputH = layoutInputH
-        } else if composerHasKeyboardFocus, isKeyboardVisible, trackedKeyboardHeight > 0.5 {
+        } else if chatHasKeyboardFocus, isKeyboardVisible, trackedKeyboardHeight > 0.5 {
             rawInputH = trackedKeyboardHeight
         } else {
             rawInputH = layoutInputH
@@ -1382,8 +1383,7 @@ final class ChatViewController: ViewController {
         var keyboardOffset = rawKeyboardOffset
 
         if keyboardOffset > 0 {
-            let hasComposerFirstResponder = sendInputViewController.view.findFirstResponder() != nil
-            if !hasComposerFirstResponder {
+            if !chatHasKeyboardFocus {
                 keyboardOffset = 0
             }
         }
@@ -4654,7 +4654,7 @@ final class ChatViewController: ViewController {
     }
 
     @objc private func keyboardWillShow(_ notification: Notification) {
-        let isInputFocused = sendInputViewController.view.findFirstResponder() != nil
+        let isInputFocused = sendInputViewController.view.findFirstResponder() != nil || isMessageListHostingFirstResponder
         let isEmojiSearchFocused = emojiPicker.isEmojiPanelSearchConsumingKeyboard
         guard isInputFocused || isEmojiSearchFocused else { return }
         isKeyboardVisible = true
@@ -4676,10 +4676,11 @@ final class ChatViewController: ViewController {
             self.containerLayoutUpdated(layout, transition: .immediate)
             self.view.layoutIfNeeded()
         }
+        messagesNode.scrollFirstResponderIntoView()
     }
 
     @objc private func keyboardWillChangeFrame(_ notification: Notification) {
-        let isInputFocused = sendInputViewController.view.findFirstResponder() != nil
+        let isInputFocused = sendInputViewController.view.findFirstResponder() != nil || isMessageListHostingFirstResponder
         let isEmojiSearchFocused = emojiPicker.isEmojiPanelSearchConsumingKeyboard
         guard isInputFocused || isEmojiSearchFocused else { return }
         guard let frame = (notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue else { return }
@@ -4692,6 +4693,7 @@ final class ChatViewController: ViewController {
             self.containerLayoutUpdated(layout, transition: .immediate)
             self.view.layoutIfNeeded()
         }
+        messagesNode.scrollFirstResponderIntoView()
     }
 
     @objc private func keyboardWillHide(_ notification: Notification) {
@@ -6582,6 +6584,10 @@ final class ChatViewController: ViewController {
     private var isReactionEmojiPickerSheetHostingFirstResponder: Bool {
         guard let v = reactionEmojiPickerSheet?.viewIfLoaded, v.window != nil else { return false }
         return v.findFirstResponder() != nil
+    }
+
+    private var isMessageListHostingFirstResponder: Bool {
+        messagesNode.listView.view.findFirstResponder() != nil
     }
 
     private func presentReactionEmojiPicker(for display: ChatMessageDisplay) {

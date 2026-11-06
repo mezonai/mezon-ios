@@ -532,6 +532,54 @@ final class ChatContainerNode: ASDisplayNode {
         )
     }
 
+    func scrollFirstResponderIntoView() {
+        listView.addAfterTransactionsCompleted { [weak self] in
+            self?.scrollFirstResponderIntoViewNow()
+        }
+    }
+
+    private func scrollFirstResponderIntoViewNow() {
+        guard let responder = listView.view.findFirstResponder() else { return }
+        var hostItemNode: ListViewItemNode?
+        listView.forEachItemNode { node in
+            guard hostItemNode == nil,
+                  let itemNode = node as? ListViewItemNode,
+                  itemNode.index != nil,
+                  responder.isDescendant(of: itemNode.view) else { return }
+            hostItemNode = itemNode
+        }
+        guard let itemNode = hostItemNode, let index = itemNode.index else { return }
+
+        let margin: CGFloat = 12
+        let responderFrame = responder.convert(responder.bounds, to: listView.view)
+        let lowestVisibleY = listView.insets.top + margin
+        let highestVisibleY = listView.visibleSize.height - listView.insets.bottom - margin
+        let shift: CGFloat
+        if responderFrame.maxY > highestVisibleY {
+            shift = highestVisibleY - responderFrame.maxY
+        } else if responderFrame.minY < lowestVisibleY {
+            shift = lowestVisibleY - responderFrame.minY
+        } else {
+            return
+        }
+
+        listView.transaction(
+            deleteIndices: [],
+            insertIndicesAndItems: [],
+            updateIndicesAndItems: [],
+            options: [.Synchronous],
+            scrollToItem: ListViewScrollToItem(
+                index: index,
+                position: .top(itemNode.apparentFrame.minY - listView.insets.top + shift),
+                animated: true,
+                curve: .Default(duration: nil),
+                directionHint: shift < 0 ? .Up : .Down
+            ),
+            updateOpaqueState: nil,
+            completion: { _ in }
+        )
+    }
+
     private func findBubble(in node: ListViewItemNode) -> MessageBubbleNode? {
         for sub in node.subnodes ?? [] {
             if let bubble = sub as? MessageBubbleNode { return bubble }
