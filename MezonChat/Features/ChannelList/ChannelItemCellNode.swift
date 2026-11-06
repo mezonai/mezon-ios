@@ -71,7 +71,7 @@ final class ChannelItemCellNode: ASCellNode {
                 iconName = "Channel/channelWarning"
             }
             let displayImage = chType == .voice && channel.channelPrivate != 0
-                ? Self.privateVoiceIcon
+                ? channel.channelListIconImage()
                 : (UIImage(named: iconName) ?? UIImage(systemName: iconName))
             iconImgNode.image = displayImage?.withRenderingMode(.alwaysTemplate)
             iconImgNode.tintColor = iconColor
@@ -145,15 +145,6 @@ final class ChannelItemCellNode: ASCellNode {
 
         isUserInteractionEnabled = true
     }
-
-    private static let privateVoiceIcon: UIImage = {
-        let voice = UIImage(named: "Chat/SpeakerIcon") ?? UIImage(systemName: "Chat/SpeakerIcon")
-        return UIGraphicsImageRenderer(size: CGSize(width: 24, height: 24)).image { context in
-            voice?.draw(in: CGRect(x: 0, y: 0, width: 24, height: 24))
-            context.cgContext.clear(CGRect(x: 15, y: 0, width: 9, height: 12))
-            UIImage(systemName: "lock.fill")?.draw(in: CGRect(x: 16, y: 1, width: 7, height: 10))
-        }
-    }()
 
     func applyListSelectionState(selected: Bool) {
         let t = UIColor.theme
