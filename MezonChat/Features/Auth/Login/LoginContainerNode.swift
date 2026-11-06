@@ -236,7 +236,7 @@ final class LoginFormComponent: CombinedComponent {
                         borderColor: attrs.loginInputBorder,
                         cornerRadius: 25,
                         keyboardType: .emailAddress, leftIcon: "envelope",
-                        accessibilityIdentifier: "auth.login.email",
+                        accessibilityIdentifier: AccessibilityID.Auth.email,
                         onTextChanged: interaction.onEmailChanged),
                     availableSize: CGSize(width: contentWidth, height: 100),
                     transition: context.transition
@@ -256,7 +256,7 @@ final class LoginFormComponent: CombinedComponent {
                         borderColor: attrs.loginInputBorder,
                         cornerRadius: 25,
                         keyboardType: .emailAddress, leftIcon: "envelope",
-                        accessibilityIdentifier: "auth.login.email",
+                        accessibilityIdentifier: AccessibilityID.Auth.email,
                         onTextChanged: interaction.onEmailChanged),
                     availableSize: CGSize(width: contentWidth, height: 100),
                     transition: context.transition
@@ -275,7 +275,7 @@ final class LoginFormComponent: CombinedComponent {
                         borderColor: attrs.loginInputBorder,
                         cornerRadius: 25,
                         isSecureTextEntry: !st.isPasswordVisible, leftIcon: "lock.fill",
-                        accessibilityIdentifier: "auth.login.password",
+                        accessibilityIdentifier: AccessibilityID.Auth.password,
                         onTextChanged: interaction.onPasswordChanged),
                     availableSize: CGSize(width: contentWidth, height: 100),
                     transition: context.transition
@@ -425,7 +425,7 @@ final class PhoneInputComponent: Component {
             separator.backgroundColor = UIColor.loginAlternativeText.withAlphaComponent(0.4)
             container.addSubview(separator)
 
-            textField.accessibilityIdentifier = "auth.login.phone"
+            textField.accessibilityIdentifier = AccessibilityID.Auth.phone
             textField.keyboardType = .phonePad
             textField.autocapitalizationType = .none
             textField.borderStyle = .none
@@ -508,7 +508,7 @@ final class SubmitButtonComponent: Component {
         override init(frame: CGRect) {
             super.init(frame: frame)
 
-            button.accessibilityIdentifier = "auth.login.submit"
+            button.accessibilityIdentifier = AccessibilityID.Auth.submit
             button.layer.insertSublayer(gradientLayer, at: 0)
 
             button.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)

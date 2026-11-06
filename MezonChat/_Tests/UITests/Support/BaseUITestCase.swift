@@ -5,18 +5,57 @@ class BaseUITestCase: XCTestCase {
 
     override func setUpWithError() throws {
         continueAfterFailure = false
+        XCUIDevice.shared.orientation = .portrait
         app = XCUIApplication()
     }
 
     override func tearDownWithError() throws {
         if let testRun = testRun, testRun.hasSucceeded == false {
-            let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-            attachment.name = name
-            attachment.lifetime = .keepAlways
-            add(attachment)
+            attachFailureDiagnostics()
+        }
+        let observationSeconds = UITestConfiguration.observationDelaySeconds
+        if observationSeconds > 0, let app, app.state == .runningForeground {
+            let delay = TimeInterval(observationSeconds)
+            XCTContext.runActivity(named: "Keep app open for \(observationSeconds) seconds for visual inspection") { _ in
+                let elapsed = XCTestExpectation(description: "Observation delay elapsed")
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { elapsed.fulfill() }
+                _ = XCTWaiter.wait(for: [elapsed], timeout: delay + 2)
+                let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+                attachment.name = "After observation delay"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+            }
         }
         app?.terminate()
         app = nil
+    }
+
+    private func attachFailureDiagnostics() {
+        let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        screenshot.name = "Failure screenshot"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+
+        let state = app?.state
+        let stateDescription: String
+        switch state {
+        case .runningForeground: stateDescription = "running in foreground"
+        case .runningBackground: stateDescription = "running in background"
+        case .runningBackgroundSuspended: stateDescription = "suspended in background"
+        case .notRunning: stateDescription = "not running"
+        case .unknown, .none: stateDescription = "unavailable"
+        @unknown default: stateDescription = "unrecognized state"
+        }
+        let status = XCTAttachment(string: "App state: \(stateDescription)")
+        status.name = "App state at teardown"
+        status.lifetime = .keepAlways
+        add(status)
+
+        guard let app, state == .runningForeground else { return }
+        let hierarchy = XCTAttachment(string: app.debugDescription)
+        hierarchy.name = "Accessibility hierarchy at teardown"
+        hierarchy.lifetime = .keepAlways
+        add(hierarchy)
     }
 
     private enum AuthenticationError: Error { case setupFailed }
@@ -25,10 +64,12 @@ class BaseUITestCase: XCTestCase {
     func launchAndEnsureLoggedIn(file: StaticString = #filePath, line: UInt = #line) throws {
         app.launchArguments.removeAll {
             $0 == UITestLaunch.loginArgument || $0 == UITestLaunch.resetSessionArgument
+                || $0 == UITestLaunch.chatMetadataArgument
         }
+        app.launchArguments.append(UITestLaunch.chatMetadataArgument)
         app.launch()
         let login = LoginScreen(app: app)
-        let welcome = app.buttons["auth.welcome.start"]
+        let welcome = app.buttons[AccessibilityID.Auth.welcomeStart]
         let resolved = NSPredicate { _, _ in
             login.authenticatedRoot.exists || welcome.exists || login.submit.exists
         }

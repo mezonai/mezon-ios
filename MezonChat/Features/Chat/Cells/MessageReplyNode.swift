@@ -63,6 +63,10 @@ final class MessageReplyNode: ASDisplayNode, ASNetworkImageNodeDelegate {
     }
 
     func configure(ref: Mezon_Api_MessageRef) {
+        nameNode.accessibilityIdentifier = AccessibilityID.Chat.replyReference
+        if UITestLaunch.exposesChatMetadata {
+            nameNode.accessibilityValue = String(ref.messageRefID)
+        }
         let t = UIColor.theme
         let name = ref.messageSenderClanNick.isEmpty
             ? (ref.messageSenderDisplayName.isEmpty ? ref.messageSenderUsername : ref.messageSenderDisplayName)

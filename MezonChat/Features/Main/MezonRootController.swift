@@ -27,7 +27,7 @@ final class MezonRootController: NavigationController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.accessibilityIdentifier = "main.root"
+        view.accessibilityIdentifier = AccessibilityID.Main.root
     }
 
     @objc private func handleThemeDidChange() {

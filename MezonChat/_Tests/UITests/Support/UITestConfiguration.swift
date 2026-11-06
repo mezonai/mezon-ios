@@ -36,6 +36,11 @@ enum UITestConfiguration {
         return value.isEmpty ? nil : value
     }
 
+    static var observationDelaySeconds: Int {
+        let seconds = value("UITEST_OBSERVATION_DELAY_SECONDS").flatMap { Int($0) } ?? 0
+        return min(max(seconds, 0), 60)
+    }
+
     enum Login {
         static var email: String? { value("UITEST_EMAIL") }
         static var otp: String? { value("UITEST_OTP") }
