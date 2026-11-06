@@ -864,8 +864,30 @@ final class MezonHTTPClient {
         req.type = MezonConstants.ChannelType.dm.rawValue
         req.channelPrivate = 1
         req.userIds = [userId]
+        do {
+            return try await postProto(
+                path: "/mezon.api.Mezon/CreateChannelDesc",
+                message: req,
+                auth: .bearer(token)
+            )
+        } catch MezonError.httpError(let statusCode, _) where statusCode == 403 || statusCode == 7 {
+            throw DirectMessageRestrictionError.onlyFriends
+        }
+    }
+
+    func getDMSetting(token: String) async throws -> Mezon_Api_DMSetting {
+        try await postProto(
+            path: "/mezon.api.Mezon/GetDMSetting",
+            message: Mezon_Api_NoParams(),
+            auth: .bearer(token)
+        )
+    }
+
+    func updateDMSetting(onlyFriendsDm: Bool, token: String) async throws -> Mezon_Api_DMSetting {
+        var req = Mezon_Api_UpdateDMSettingRequest()
+        req.onlyFriendsDm = onlyFriendsDm
         return try await postProto(
-            path: "/mezon.api.Mezon/CreateChannelDesc",
+            path: "/mezon.api.Mezon/UpdateDMSetting",
             message: req,
             auth: .bearer(token)
         )
@@ -3679,6 +3701,14 @@ struct APIError: Decodable, LocalizedError {
 
     var errorDescription: String? {
         MezonError.httpError(statusCode: code ?? 0, message: message ?? "").errorDescription
+    }
+}
+
+enum DirectMessageRestrictionError: LocalizedError {
+    case onlyFriends
+
+    var errorDescription: String? {
+        L(L10n.DirectMessage.onlyFriendsDenied)
     }
 }
 

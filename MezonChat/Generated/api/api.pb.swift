@@ -342,6 +342,9 @@ struct Mezon_Api_Account: Sendable {
   /// password is setted
   var passwordSetted: Bool = false
 
+  /// Profile banner url
+  var banner: String = String()
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
@@ -2014,6 +2017,16 @@ struct Mezon_Api_UpdateAccountRequest: Sendable {
   /// Clears the value of `email`. Subsequent reads from it will return its default value.
   mutating func clearEmail() {self._email = nil}
 
+  /// Profile banner url
+  var banner: SwiftProtobuf.Google_Protobuf_StringValue {
+    get {_banner ?? SwiftProtobuf.Google_Protobuf_StringValue()}
+    set {_banner = newValue}
+  }
+  /// Returns true if `banner` has been explicitly set.
+  var hasBanner: Bool {self._banner != nil}
+  /// Clears the value of `banner`. Subsequent reads from it will return its default value.
+  mutating func clearBanner() {self._banner = nil}
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
@@ -2027,6 +2040,7 @@ struct Mezon_Api_UpdateAccountRequest: Sendable {
   fileprivate var _logo: SwiftProtobuf.Google_Protobuf_StringValue? = nil
   fileprivate var _splashScreen: SwiftProtobuf.Google_Protobuf_StringValue? = nil
   fileprivate var _email: SwiftProtobuf.Google_Protobuf_StringValue? = nil
+  fileprivate var _banner: SwiftProtobuf.Google_Protobuf_StringValue? = nil
 }
 
 /// Update fields in a given group.
@@ -2232,6 +2246,12 @@ struct Mezon_Api_User: @unchecked Sendable {
   var status: String {
     get {_storage._status}
     set {_uniqueStorage()._status = newValue}
+  }
+
+  /// Profile banner url
+  var banner: String {
+    get {_storage._banner}
+    set {_uniqueStorage()._banner = newValue}
   }
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
@@ -9722,6 +9742,30 @@ struct Mezon_Api_SfuBreakoutMergeRequest: Sendable {
   init() {}
 }
 
+struct Mezon_Api_DMSetting: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var onlyFriendsDm: Bool = false
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
+struct Mezon_Api_UpdateDMSettingRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  var onlyFriendsDm: Bool = false
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  init() {}
+}
+
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
 fileprivate let _protobuf_package = "mezon.api"
@@ -9752,7 +9796,7 @@ extension Mezon_Api_EveryoneChannelExcludeType: SwiftProtobuf._ProtoNameProvidin
 
 extension Mezon_Api_Account: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".Account"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}user\0\u{1}email\0\u{3}qr_code\0\u{3}verify_time_seconds\0\u{3}disable_time_seconds\0\u{1}logo\0\u{3}splash_screen\0\u{3}encrypt_private_key\0\u{3}password_setted\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}user\0\u{1}email\0\u{3}qr_code\0\u{3}verify_time_seconds\0\u{3}disable_time_seconds\0\u{1}logo\0\u{3}splash_screen\0\u{3}encrypt_private_key\0\u{3}password_setted\0\u{1}banner\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -9769,6 +9813,7 @@ extension Mezon_Api_Account: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
       case 7: try { try decoder.decodeSingularStringField(value: &self.splashScreen) }()
       case 8: try { try decoder.decodeSingularStringField(value: &self.encryptPrivateKey) }()
       case 9: try { try decoder.decodeSingularBoolField(value: &self.passwordSetted) }()
+      case 10: try { try decoder.decodeSingularStringField(value: &self.banner) }()
       default: break
       }
     }
@@ -9806,6 +9851,9 @@ extension Mezon_Api_Account: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
     if self.passwordSetted != false {
       try visitor.visitSingularBoolField(value: self.passwordSetted, fieldNumber: 9)
     }
+    if !self.banner.isEmpty {
+      try visitor.visitSingularStringField(value: self.banner, fieldNumber: 10)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -9819,6 +9867,7 @@ extension Mezon_Api_Account: SwiftProtobuf.Message, SwiftProtobuf._MessageImplem
     if lhs.splashScreen != rhs.splashScreen {return false}
     if lhs.encryptPrivateKey != rhs.encryptPrivateKey {return false}
     if lhs.passwordSetted != rhs.passwordSetted {return false}
+    if lhs.banner != rhs.banner {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -12659,7 +12708,7 @@ extension Mezon_Api_UpdateUsernameRequest: SwiftProtobuf.Message, SwiftProtobuf.
 
 extension Mezon_Api_UpdateAccountRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".UpdateAccountRequest"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}display_name\0\u{3}avatar_url\0\u{3}lang_tag\0\u{1}location\0\u{1}timezone\0\u{3}about_me\0\u{3}dob_seconds\0\u{1}logo\0\u{3}splash_screen\0\u{3}encrypt_private_key\0\u{1}email\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}display_name\0\u{3}avatar_url\0\u{3}lang_tag\0\u{1}location\0\u{1}timezone\0\u{3}about_me\0\u{3}dob_seconds\0\u{1}logo\0\u{3}splash_screen\0\u{3}encrypt_private_key\0\u{1}email\0\u{1}banner\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -12678,6 +12727,7 @@ extension Mezon_Api_UpdateAccountRequest: SwiftProtobuf.Message, SwiftProtobuf._
       case 9: try { try decoder.decodeSingularMessageField(value: &self._splashScreen) }()
       case 10: try { try decoder.decodeSingularStringField(value: &self.encryptPrivateKey) }()
       case 11: try { try decoder.decodeSingularMessageField(value: &self._email) }()
+      case 12: try { try decoder.decodeSingularMessageField(value: &self._banner) }()
       default: break
       }
     }
@@ -12721,6 +12771,9 @@ extension Mezon_Api_UpdateAccountRequest: SwiftProtobuf.Message, SwiftProtobuf._
     try { if let v = self._email {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 11)
     } }()
+    try { if let v = self._banner {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 12)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -12736,6 +12789,7 @@ extension Mezon_Api_UpdateAccountRequest: SwiftProtobuf.Message, SwiftProtobuf._
     if lhs._splashScreen != rhs._splashScreen {return false}
     if lhs.encryptPrivateKey != rhs.encryptPrivateKey {return false}
     if lhs._email != rhs._email {return false}
+    if lhs._banner != rhs._banner {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -12842,7 +12896,7 @@ extension Mezon_Api_UpdateCategoryDescRequest: SwiftProtobuf.Message, SwiftProto
 
 extension Mezon_Api_User: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".User"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}username\0\u{3}display_name\0\u{3}avatar_url\0\u{3}lang_tag\0\u{1}location\0\u{1}timezone\0\u{3}user_status\0\u{1}online\0\u{3}phone_number\0\u{3}edge_count\0\u{3}create_time_seconds\0\u{3}update_time_seconds\0\u{3}about_me\0\u{3}join_time_seconds\0\u{3}is_mobile\0\u{3}dob_seconds\0\u{3}mezon_id\0\u{3}list_nick_names\0\u{1}status\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}username\0\u{3}display_name\0\u{3}avatar_url\0\u{3}lang_tag\0\u{1}location\0\u{1}timezone\0\u{3}user_status\0\u{1}online\0\u{3}phone_number\0\u{3}edge_count\0\u{3}create_time_seconds\0\u{3}update_time_seconds\0\u{3}about_me\0\u{3}join_time_seconds\0\u{3}is_mobile\0\u{3}dob_seconds\0\u{3}mezon_id\0\u{3}list_nick_names\0\u{1}status\0\u{1}banner\0")
 
   fileprivate class _StorageClass {
     var _id: Int64 = 0
@@ -12865,6 +12919,7 @@ extension Mezon_Api_User: SwiftProtobuf.Message, SwiftProtobuf._MessageImplement
     var _mezonID: String = String()
     var _listNickNames: [String] = []
     var _status: String = String()
+    var _banner: String = String()
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -12895,6 +12950,7 @@ extension Mezon_Api_User: SwiftProtobuf.Message, SwiftProtobuf._MessageImplement
       _mezonID = source._mezonID
       _listNickNames = source._listNickNames
       _status = source._status
+      _banner = source._banner
     }
   }
 
@@ -12933,6 +12989,7 @@ extension Mezon_Api_User: SwiftProtobuf.Message, SwiftProtobuf._MessageImplement
         case 18: try { try decoder.decodeSingularStringField(value: &_storage._mezonID) }()
         case 19: try { try decoder.decodeRepeatedStringField(value: &_storage._listNickNames) }()
         case 20: try { try decoder.decodeSingularStringField(value: &_storage._status) }()
+        case 21: try { try decoder.decodeSingularStringField(value: &_storage._banner) }()
         default: break
         }
       }
@@ -13001,6 +13058,9 @@ extension Mezon_Api_User: SwiftProtobuf.Message, SwiftProtobuf._MessageImplement
       if !_storage._status.isEmpty {
         try visitor.visitSingularStringField(value: _storage._status, fieldNumber: 20)
       }
+      if !_storage._banner.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._banner, fieldNumber: 21)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -13030,6 +13090,7 @@ extension Mezon_Api_User: SwiftProtobuf.Message, SwiftProtobuf._MessageImplement
         if _storage._mezonID != rhs_storage._mezonID {return false}
         if _storage._listNickNames != rhs_storage._listNickNames {return false}
         if _storage._status != rhs_storage._status {return false}
+        if _storage._banner != rhs_storage._banner {return false}
         return true
       }
       if !storagesAreEqual {return false}
@@ -28124,6 +28185,66 @@ extension Mezon_Api_SfuBreakoutMergeRequest: SwiftProtobuf.Message, SwiftProtobu
 
   static func ==(lhs: Mezon_Api_SfuBreakoutMergeRequest, rhs: Mezon_Api_SfuBreakoutMergeRequest) -> Bool {
     if lhs.targetID != rhs.targetID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Api_DMSetting: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".DMSetting"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}only_friends_dm\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBoolField(value: &self.onlyFriendsDm) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.onlyFriendsDm != false {
+      try visitor.visitSingularBoolField(value: self.onlyFriendsDm, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Api_DMSetting, rhs: Mezon_Api_DMSetting) -> Bool {
+    if lhs.onlyFriendsDm != rhs.onlyFriendsDm {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension Mezon_Api_UpdateDMSettingRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".UpdateDMSettingRequest"
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}only_friends_dm\0")
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularBoolField(value: &self.onlyFriendsDm) }()
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.onlyFriendsDm != false {
+      try visitor.visitSingularBoolField(value: self.onlyFriendsDm, fieldNumber: 1)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: Mezon_Api_UpdateDMSettingRequest, rhs: Mezon_Api_UpdateDMSettingRequest) -> Bool {
+    if lhs.onlyFriendsDm != rhs.onlyFriendsDm {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

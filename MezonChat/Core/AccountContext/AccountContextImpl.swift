@@ -389,6 +389,7 @@ final class AccountContextImpl: AccountContext {
         SessionRefreshManager.shared.reset()
         DirectMessageListGate.reset()
         DmBadgeMessageDedup.reset()
+        DmReadFloor.reset()
         buzz.reset()
         account.network.resetProtoBaseURLToDefault()
         session = nil

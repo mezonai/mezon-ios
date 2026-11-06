@@ -39,9 +39,8 @@ private enum VideoPlaybackBufferPolicy {
 private final class ChunkedVideoResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
     // Larger HTTP ranges avoid repeated round trips; delegate callbacks still
     // deliver the first bytes immediately, without waiting for a whole chunk.
-    private static let chunkSize = 512 * 1024
+    private static let chunkSize = VideoRangeCache.chunkSize
     private static let cacheLimit = 4 * 1024 * 1024
-    private static let diskCacheLimit = 128 * 1024 * 1024
     private static let maxConcurrentTransfers = 2
 
     private final class Transfer {
@@ -65,19 +64,19 @@ private final class ChunkedVideoResourceLoader: NSObject, AVAssetResourceLoaderD
 
     // URLSession retains its delegate. A weak owner lets closing the player
     // release this loader and cancel all transfers, even during a slow response.
-    private final class SessionDelegate: NSObject, URLSessionDataDelegate {
+    private final class SessionDelegate: VideoRangeTaskHandler {
         weak var owner: ChunkedVideoResourceLoader?
 
-        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        func videoRangeTask(_ task: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
             guard let owner else { completionHandler(.cancel); return }
-            owner.receive(response, for: dataTask, completionHandler: completionHandler)
+            owner.receive(response, for: task, completionHandler: completionHandler)
         }
 
-        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-            owner?.receive(data, for: dataTask)
+        func videoRangeTask(_ task: URLSessionDataTask, didReceive data: Data) {
+            owner?.receive(data, for: task)
         }
 
-        func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        func videoRangeTask(_ task: URLSessionTask, didCompleteWithError error: Error?) {
             owner?.complete(task, error: error)
         }
     }
@@ -85,8 +84,8 @@ private final class ChunkedVideoResourceLoader: NSObject, AVAssetResourceLoaderD
     let queue = DispatchQueue(label: "mezon.video.chunked-loader", qos: .userInitiated)
     let assetURL: URL?
     private let remoteURL: URL
+    private let cacheKey: String
     private let sessionDelegate = SessionDelegate()
-    private var session: URLSession!
     private var requests: [ObjectIdentifier: AVAssetResourceLoadingRequest] = [:]
     private var transfers: [Int64: Transfer] = [:]
     private var tasks: [Int: Transfer] = [:]
@@ -94,48 +93,34 @@ private final class ChunkedVideoResourceLoader: NSObject, AVAssetResourceLoaderD
     private var cache: [Int64: Data] = [:]
     private var cacheOrder: [Int64] = []
     private var cachedBytes = 0
-    private var cacheFileURL: URL?
-    private var cacheFile: FileHandle?
-    // A sparse file may contain holes; only these contiguous chunk prefixes
-    // contain received bytes and are safe to return to AVPlayer.
-    private var diskChunkLengths: [Int64: Int] = [:]
-    private var diskCachedBytes = 0
+    private var usesDiskCache = true
     private var failedPrefetchOffsets = Set<Int64>()
 
-    init(remoteURL: URL, configuration: URLSessionConfiguration = .ephemeral, initialData: Data? = nil, initialResponse: HTTPURLResponse? = nil, cacheDirectory: URL = FileManager.default.temporaryDirectory) {
+    init(remoteURL: URL, cacheKey: String, initialData: Data? = nil, initialResponse: HTTPURLResponse? = nil) {
         self.remoteURL = remoteURL
+        self.cacheKey = cacheKey
         var components = URLComponents(url: remoteURL, resolvingAgainstBaseURL: false)
         components?.scheme = "mezon-stream"
         self.assetURL = components?.url
         super.init()
-        let fileURL = cacheDirectory.appendingPathComponent("mezon-video-range-\(UUID().uuidString).cache")
-        if #available(iOS 13.4, *), FileManager.default.createFile(atPath: fileURL.path, contents: nil) {
-            do {
-                cacheFile = try FileHandle(forUpdating: fileURL)
-                cacheFileURL = fileURL
-            } catch {
-                try? FileManager.default.removeItem(at: fileURL)
+        sessionDelegate.owner = self
+        queue.async { [self] in
+            VideoRangeCache.shared.retain(cacheKey)
+            contentLength = VideoRangeCache.shared.contentLength(for: cacheKey)
+            if let data = initialData, !data.isEmpty, data.count <= Self.chunkSize,
+               let response = initialResponse, response.statusCode == 206,
+               let header = response.value(forHTTPHeaderField: "Content-Range"),
+               let range = VideoRangeCache.parseContentRange(header),
+               range.start == 0, range.end == Int64(data.count) - 1 {
+                contentLength = range.total
+                storeInCache(data, at: 0)
             }
         }
-        if let data = initialData, !data.isEmpty, data.count <= Self.chunkSize,
-           let response = initialResponse, response.statusCode == 206,
-           let header = response.value(forHTTPHeaderField: "Content-Range"),
-           let range = Self.parseContentRange(header),
-           range.start == 0, range.end == Int64(data.count) - 1 {
-            contentLength = range.total
-            storeInCache(data, at: 0)
-        }
-        sessionDelegate.owner = self
-        let delegateQueue = OperationQueue()
-        delegateQueue.maxConcurrentOperationCount = 1
-        delegateQueue.underlyingQueue = queue
-        configuration.httpMaximumConnectionsPerHost = Self.maxConcurrentTransfers
-        session = URLSession(configuration: configuration, delegate: sessionDelegate, delegateQueue: delegateQueue)
     }
 
     deinit {
-        session.invalidateAndCancel()
-        discardDiskCache()
+        transfers.values.forEach { $0.task?.cancel() }
+        VideoRangeCache.shared.release(cacheKey)
     }
 
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader, shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest) -> Bool {
@@ -249,7 +234,8 @@ private final class ChunkedVideoResourceLoader: NSObject, AVAssetResourceLoaderD
 
     private func isChunkCached(at offset: Int64) -> Bool {
         guard let length = contentLength, offset < length else { return false }
-        let count = max(transfers[offset]?.data.count ?? 0, max(cache[offset]?.count ?? 0, diskChunkLengths[offset] ?? 0))
+        let diskCount = usesDiskCache ? VideoRangeCache.shared.chunkLength(at: offset, for: cacheKey) : 0
+        let count = max(transfers[offset]?.data.count ?? 0, max(cache[offset]?.count ?? 0, diskCount))
         return Int64(count) >= min(Int64(Self.chunkSize), length - offset)
     }
 
@@ -270,7 +256,7 @@ private final class ChunkedVideoResourceLoader: NSObject, AVAssetResourceLoaderD
         request.setValue("bytes=\(transfer.nextOffset)-\(transfer.end)", forHTTPHeaderField: "Range")
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         transfer.responseEnd = nil
-        let task = session.dataTask(with: request)
+        let task = VideoRangeSession.shared.dataTask(with: request, handler: sessionDelegate, queue: queue)
         task.priority = transfer.priority
         transfer.task = task
         tasks[task.taskIdentifier] = transfer
@@ -282,11 +268,17 @@ private final class ChunkedVideoResourceLoader: NSObject, AVAssetResourceLoaderD
         guard let http = response as? HTTPURLResponse,
               http.statusCode == 206,
               let header = http.value(forHTTPHeaderField: "Content-Range"),
-              let range = Self.parseContentRange(header),
+              let range = VideoRangeCache.parseContentRange(header),
               range.start == transfer.nextOffset, range.end <= transfer.end,
               contentLength == nil || contentLength == range.total,
               response.expectedContentLength < 0 || response.expectedContentLength == range.end - range.start + 1 else {
             completionHandler(.cancel)
+            if let header = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Range"),
+               let total = VideoRangeCache.parseContentRange(header)?.total,
+               let contentLength, total != contentLength {
+                usesDiskCache = false
+                VideoRangeCache.shared.remove(cacheKey)
+            }
             fail(transfer, error: URLError(.badServerResponse))
             return
         }
@@ -372,56 +364,14 @@ private final class ChunkedVideoResourceLoader: NSObject, AVAssetResourceLoaderD
 
     private func cachedData(at offset: Int64) -> Data? {
         if let data = cache[offset] { return data }
-        guard #available(iOS 13.4, *) else { return nil }
-        guard let length = diskChunkLengths[offset], let file = cacheFile else { return nil }
-        do {
-            try file.seek(toOffset: UInt64(offset))
-            guard let data = try file.read(upToCount: length), data.count == length else {
-                discardDiskCache()
-                return nil
-            }
-            storeInCache(data, at: offset)
-            return data
-        } catch {
-            // Disk caching is optional; continue using the bounded RAM cache.
-            discardDiskCache()
-            return nil
-        }
+        guard usesDiskCache, let data = VideoRangeCache.shared.data(at: offset, for: cacheKey) else { return nil }
+        storeInCache(data, at: offset)
+        return data
     }
 
     private func persistToDisk(_ data: Data, at offset: Int64) {
-        guard #available(iOS 13.4, *) else { return }
-        let savedLength = diskChunkLengths[offset] ?? 0
-        guard let file = cacheFile, data.count > savedLength,
-              diskCachedBytes + data.count - savedLength <= Self.diskCacheLimit else { return }
-        do {
-            try file.seek(toOffset: UInt64(offset) + UInt64(savedLength))
-            try file.write(contentsOf: data.subdata(in: savedLength..<data.count))
-            diskChunkLengths[offset] = data.count
-            diskCachedBytes += data.count - savedLength
-        } catch {
-            discardDiskCache()
-        }
-    }
-
-    private func discardDiskCache() {
-        try? cacheFile?.close()
-        cacheFile = nil
-        if let url = cacheFileURL { try? FileManager.default.removeItem(at: url) }
-        cacheFileURL = nil
-        diskChunkLengths.removeAll()
-        diskCachedBytes = 0
-    }
-
-    private static func parseContentRange(_ header: String) -> (start: Int64, end: Int64, total: Int64)? {
-        let parts = header.split(separator: " ")
-        guard parts.count == 2, parts[0].lowercased() == "bytes" else { return nil }
-        let lengths = parts[1].split(separator: "/")
-        guard lengths.count == 2, let total = Int64(lengths[1]), total > 0 else { return nil }
-        let bounds = lengths[0].split(separator: "-", omittingEmptySubsequences: false)
-        guard bounds.count == 2, let start = Int64(bounds[0]), let end = Int64(bounds[1]),
-              start >= 0, start <= end, end < total else { return nil }
-        return (start, end, total)
+        guard usesDiskCache, let contentLength else { return }
+        VideoRangeCache.shared.store(data, at: offset, contentLength: contentLength, for: cacheKey)
     }
 }
 
@@ -489,8 +439,8 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         }
     }
 
-    convenience init(url: URL, posterURL: String, usesChunkedLoading: Bool = false, initialData: Data? = nil, initialResponse: HTTPURLResponse? = nil) {
-        let loader = usesChunkedLoading ? ChunkedVideoResourceLoader(remoteURL: url, initialData: initialData, initialResponse: initialResponse) : nil
+    convenience init(url: URL, posterURL: String, cacheKey: String? = nil, usesChunkedLoading: Bool = false, initialData: Data? = nil, initialResponse: HTTPURLResponse? = nil) {
+        let loader = usesChunkedLoading ? ChunkedVideoResourceLoader(remoteURL: url, cacheKey: cacheKey ?? url.absoluteString, initialData: initialData, initialResponse: initialResponse) : nil
         let asset = AVURLAsset(url: loader?.assetURL ?? url, options: [
             AVURLAssetPreferPreciseDurationAndTimingKey: false
         ])

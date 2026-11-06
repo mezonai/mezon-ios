@@ -333,6 +333,7 @@ final class DirectMessagesViewController: ViewController {
 
         if let senderId, senderId != context.currentUser?.id,
            (notification.userInfo?["incrementDmBadge"] as? Bool) == true {
+            DmReadFloor.invalidate(channelId: channelId)
             for i in 0..<directMessages.count where directMessages[i].channelID == channelId {
                 directMessages[i].countMessUnread += 1
                 if wsMessage == nil {
@@ -888,6 +889,8 @@ final class DirectMessagesViewController: ViewController {
     }
 
     private func setDirectMessages(_ v: [Mezon_Api_ChannelDescription]) {
+        var v = v
+        DmReadFloor.apply(to: &v)
         guard directMessages != v else { return }
         directMessages = v
         directMessagesPipe.putNext(v)

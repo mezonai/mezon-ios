@@ -1818,6 +1818,10 @@ extension MezonEngine {
             allFriends().filter { $0.state == EStateFriend.myPending.rawValue }
         }
 
+        func pendingOutgoingFriends() -> [Mezon_Api_Friend] {
+            allFriends().filter { $0.state == EStateFriend.otherPending.rawValue }
+        }
+
         func incomingFriendRequestCount() -> Int {
             pendingIncomingFriends().count
         }
@@ -1885,7 +1889,10 @@ extension MezonEngine {
 
         func removePendingRequest(userId: Int64) {
             var list = allFriends()
-            list.removeAll { $0.user.id == userId && $0.state == EStateFriend.myPending.rawValue }
+            list.removeAll {
+                $0.user.id == userId
+                    && ($0.state == EStateFriend.myPending.rawValue || $0.state == EStateFriend.otherPending.rawValue)
+            }
             persistFriends(list)
         }
 
