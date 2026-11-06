@@ -4,7 +4,7 @@ import UIKit
 @MainActor
 final class ChannelDetailContainerNode: ASDisplayNode, ASNetworkImageNodeDelegate {
 
-    private enum AssetTab: Int {
+    enum AssetTab: Int {
         case members, media, files, pins, canvas
     }
 
@@ -42,6 +42,7 @@ final class ChannelDetailContainerNode: ASDisplayNode, ASNetworkImageNodeDelegat
 
     init(
         context: AccountContext, clanId: Int64, channel: Mezon_Api_ChannelDescription,
+        initialTab: AssetTab? = nil,
         onClose: @escaping () -> Void, onSettingsTapped: @escaping () -> Void,
         onSearchTapped: @escaping () -> Void, onThreadsTapped: @escaping () -> Void,
         onMuteTapped: @escaping () -> Void, onGroupOptionsTapped: @escaping () -> Void
@@ -57,7 +58,9 @@ final class ChannelDetailContainerNode: ASDisplayNode, ASNetworkImageNodeDelegat
         self.onGroupOptionsTapped = onGroupOptionsTapped
 
         let myId = context.currentUser.flatMap { Int64($0.id) }
-        self.visibleTabs = Self.visibleTabsList(channel: channel, currentUserId: myId)
+        let tabs = Self.visibleTabsList(channel: channel, currentUserId: myId)
+        self.visibleTabs = tabs
+        self.activeTabIndex = initialTab.flatMap { tabs.firstIndex(of: $0) } ?? 0
 
         self.actionButtonsNode = ChannelDetailActionButtonsNode(
             channel: channel, context: context)
@@ -99,7 +102,7 @@ final class ChannelDetailContainerNode: ASDisplayNode, ASNetworkImageNodeDelegat
             self?.onMuteTapped()
         }
 
-        loadDataForTab(at: 0)
+        loadDataForTab(at: activeTabIndex)
     }
 
     override func didLoad() {

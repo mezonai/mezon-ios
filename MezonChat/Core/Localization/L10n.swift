@@ -1034,6 +1034,7 @@ enum L10n {
     enum ChatSystem {
         static let pinMessageAnchor = "chat.system.pinMessageAnchor"
         static let allThreadsAnchor = "chat.system.allThreadsAnchor"
+        static let allPinnedAnchor = "chat.system.allPinnedAnchor"
         static let startedThread = "chat.system.startedThread"
         static let deletedThread = "chat.system.deletedThread"
         static let seeAllThreads = "chat.system.seeAllThreads"
@@ -2365,6 +2366,7 @@ extension L10n {
         "channel.thread": "Threads",
         "chat.system.pinMessageAnchor": "a message",
         "chat.system.allThreadsAnchor": "all threads",
+        "chat.system.allPinnedAnchor": "all pinned",
         "chat.system.startedThread": "started a thread:",
         "chat.system.deletedThread": "deleted a thread:",
         "chat.system.seeAllThreads": "See",
@@ -3847,6 +3849,7 @@ extension L10n {
         "channel.thread": "Chủ đề",
         "chat.system.pinMessageAnchor": "một tin nhắn",
         "chat.system.allThreadsAnchor": "tất cả chủ đề",
+        "chat.system.allPinnedAnchor": "tất cả tin nhắn",
         "chat.system.startedThread": "đã tạo một chủ đề:",
         "chat.system.deletedThread": "đã xóa chủ đề:",
         "chat.system.seeAllThreads": "Xem",

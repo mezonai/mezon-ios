@@ -871,6 +871,9 @@ final class ChatViewController: ViewController {
             onSystemAllThreadsTapped: { [weak self] in
                 self?.openThreadListFromChat()
             },
+            onSystemAllPinnedTapped: { [weak self] in
+                self?.openChannelDetail(initialTab: .pins)
+            },
             onSystemWaveWelcomeTapped: { [weak self] display in
                 self?.sendInputViewController.sendWaveWelcome(replyingTo: display)
             },
@@ -5519,7 +5522,7 @@ final class ChatViewController: ViewController {
         }
     }
 
-    private func openChannelDetail() {
+    private func openChannelDetail(initialTab: ChannelDetailContainerNode.AssetTab? = nil) {
         var ch = channel
         let protoLabel = ch.channelLabel.trimmingCharacters(in: .whitespacesAndNewlines)
         if protoLabel.isEmpty {
@@ -5529,7 +5532,8 @@ final class ChatViewController: ViewController {
         let vc = ChannelDetailViewController(
             context: self.context,
             clanId: self.clanId,
-            channel: ch
+            channel: ch,
+            initialTab: initialTab
         )
         self.navigationController?.pushViewController(vc, animated: true)
     }

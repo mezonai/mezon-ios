@@ -55,6 +55,7 @@ struct ChatInteraction {
     let onSystemPinMessageTapped: (ChatMessageDisplay) -> Void
     let onSystemThreadTapped: (Int64, String?) -> Void
     let onSystemAllThreadsTapped: () -> Void
+    let onSystemAllPinnedTapped: () -> Void
     let onSystemWaveWelcomeTapped: (ChatMessageDisplay) -> Void
     let isSystemThreadDeleted: (String) -> Bool
     let onVotePoll: (_ messageId: String, _ channelId: String, _ answerIndices: [Int32], _ completion: @escaping ([Int32]?) -> Void) -> Void
