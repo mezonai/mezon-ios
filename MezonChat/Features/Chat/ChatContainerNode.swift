@@ -88,16 +88,6 @@ final class ChatContainerNode: ASDisplayNode {
     private var messageRelayoutVersions: [String: Int] = [:]
     private let skeletonNode = MessageSkeletonContainerNode(count: 8)
     private let loadingOlderNode = ASDisplayNode()
-    private let loadingLatestNode = ASDisplayNode()
-    private var latestLoadingRequested = false
-    private var latestLoadingGeneration: UInt64 = 0
-    private var latestLoadingWorkItem: DispatchWorkItem?
-    private var latestLoadingShownAt: TimeInterval?
-    private static let latestLoadingDelay: TimeInterval = 0.15
-    private static let minimumLatestLoadingDuration: TimeInterval = 0.6
-    private static let latestLoadingFadeInDuration: TimeInterval = 0.22
-    private static let latestLoadingFadeOutDuration: TimeInterval = 0.28
-    private static let latestLoadingFooterHeight: CGFloat = 14
     private let jumpToPresentNode = ASButtonNode()
 
 
@@ -161,14 +151,6 @@ final class ChatContainerNode: ASDisplayNode {
             return indicator
         }
         loadingOlderNode.isHidden = true
-        loadingLatestNode.setViewBlock {
-            let indicator = ChatLatestLoadingIndicatorView(color: t.textDisabled)
-            indicator.isAccessibilityElement = true
-            indicator.accessibilityLabel = L(L10n.Common.loading)
-            return indicator
-        }
-        loadingLatestNode.isHidden = true
-        loadingLatestNode.isUserInteractionEnabled = false
 
         super.init()
         listView.useMainQueueTransactions = true
@@ -182,7 +164,6 @@ final class ChatContainerNode: ASDisplayNode {
         addSubnode(listView)
         addSubnode(skeletonNode)
         addSubnode(loadingOlderNode)
-        addSubnode(loadingLatestNode)
         addSubnode(jumpToPresentNode)
 
         listView.rotated = true
@@ -254,7 +235,6 @@ final class ChatContainerNode: ASDisplayNode {
     }
 
     deinit {
-        latestLoadingWorkItem?.cancel()
         disposables.dispose()
     }
 
@@ -310,9 +290,6 @@ final class ChatContainerNode: ASDisplayNode {
         let t = UIColor.theme
         gradientLayer.colors = [t.secondary.cgColor, t.primaryGradient.cgColor]
         headerNode.applyTheme()
-        if loadingLatestNode.isNodeLoaded {
-            (loadingLatestNode.view as? ChatLatestLoadingIndicatorView)?.color = t.textDisabled
-        }
 
         reloadAllItems()
     }
@@ -340,70 +317,6 @@ final class ChatContainerNode: ASDisplayNode {
         if let indicator = loadingOlderNode.view as? UIActivityIndicatorView {
             showOlderLoading ? indicator.startAnimating() : indicator.stopAnimating()
         }
-
-        let showLatestLoading = !state.messages.isEmpty
-            && (state.isLoadingNewer || (state.isLoadingMessageContext && pendingJumpMessageId == nil))
-        setLatestLoading(showLatestLoading)
-    }
-
-    private func setLatestLoading(_ loading: Bool) {
-        guard latestLoadingRequested != loading else { return }
-        latestLoadingRequested = loading
-        latestLoadingGeneration &+= 1
-        let generation = latestLoadingGeneration
-        latestLoadingWorkItem?.cancel()
-        latestLoadingWorkItem = nil
-
-        let delay: TimeInterval
-        if loading {
-            // Fast cache refreshes should not flash a spinner.
-            guard latestLoadingShownAt == nil else { return }
-            delay = Self.latestLoadingDelay
-        } else {
-            guard let shownAt = latestLoadingShownAt else { return }
-            delay = max(0, Self.minimumLatestLoadingDuration - (CACurrentMediaTime() - shownAt))
-        }
-
-        let work = DispatchWorkItem { [weak self] in
-            guard let self, self.latestLoadingGeneration == generation else { return }
-            self.latestLoadingWorkItem = nil
-            if loading {
-                self.latestLoadingShownAt = CACurrentMediaTime()
-                self.fadeLatestLoading(visible: true)
-            } else {
-                self.latestLoadingShownAt = nil
-                self.fadeLatestLoading(visible: false)
-            }
-        }
-        latestLoadingWorkItem = work
-        if delay == 0 {
-            work.perform()
-        } else {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
-        }
-    }
-
-    private func fadeLatestLoading(visible: Bool) {
-        guard let indicator = loadingLatestNode.view as? ChatLatestLoadingIndicatorView else { return }
-        if visible {
-            if loadingLatestNode.isHidden {
-                indicator.alpha = 0
-                loadingLatestNode.isHidden = false
-            }
-            indicator.startAnimating()
-        }
-        let curve: UIView.AnimationOptions = visible ? .curveEaseOut : .curveEaseIn
-        UIView.animate(
-            withDuration: visible ? Self.latestLoadingFadeInDuration : Self.latestLoadingFadeOutDuration,
-            delay: 0,
-            options: [.beginFromCurrentState, .allowUserInteraction, curve],
-            animations: { indicator.alpha = visible ? 1 : 0 },
-            completion: { [weak self] _ in
-                guard let self, !visible, self.latestLoadingShownAt == nil else { return }
-                indicator.stopAnimating()
-                self.loadingLatestNode.isHidden = true
-            }
-        )
     }
 
     private var lastLayout: ContainerViewLayout?
@@ -1036,9 +949,7 @@ final class ChatContainerNode: ASDisplayNode {
         )
         transition.updateFrame(node: listView, frame: tvFrame, beginWithCurrentState: true)
 
-        // The list is inverted: its top inset is the footer above the composer.
-        // Reserve it permanently so showing/hiding loading never shifts messages.
-        let listInsets = UIEdgeInsets(top: Self.latestLoadingFooterHeight, left: 0, bottom: 0, right: 0)
+        let listInsets = UIEdgeInsets(top: 14, left: 0, bottom: 0, right: 0)
         listView.transaction(
             deleteIndices: [],
             insertIndicesAndItems: [],
@@ -1059,15 +970,6 @@ final class ChatContainerNode: ASDisplayNode {
             width: liS,
             height: liS
         ))
-        let latestLoadingWidth: CGFloat = 44
-        let latestLoadingHeight = Self.latestLoadingFooterHeight
-        transition.updateFrame(node: loadingLatestNode, frame: CGRect(
-            x: (fullWidth - latestLoadingWidth) / 2,
-            y: tvFrame.maxY - (Self.latestLoadingFooterHeight + latestLoadingHeight) / 2,
-            width: latestLoadingWidth,
-            height: latestLoadingHeight
-        ))
-
         let btnS: CGFloat = 40
         transition.updateFrame(node: jumpToPresentNode, frame: CGRect(
             x: fullWidth - btnS - 10,
@@ -1155,106 +1057,5 @@ final class ChatContainerNode: ASDisplayNode {
             updateOpaqueState: nil,
             completion: { _ in }
         )
-    }
-}
-
-private final class ChatLatestLoadingIndicatorView: UIView {
-    private static let dotCount = 3
-    private static let dotSide: CGFloat = 6
-    private static let dotSpacing: CGFloat = 5
-    private static let pulseHalfPeriod: CFTimeInterval = 0.42
-    private static let pulseStagger: CFTimeInterval = 0.16
-    private static let pulseAnimationKey = "chatLatestLoadingPulse"
-
-    private let dotLayers: [CALayer]
-    private var isAnimating = false
-
-    var color: UIColor {
-        didSet { applyColor() }
-    }
-
-    init(color: UIColor) {
-        self.color = color
-        self.dotLayers = (0..<Self.dotCount).map { _ in CALayer() }
-        super.init(frame: .zero)
-        isUserInteractionEnabled = false
-        backgroundColor = .clear
-        dotLayers.forEach { layer.addSublayer($0) }
-        applyColor()
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        let side = Self.dotSide
-        let rowWidth = CGFloat(Self.dotCount) * side + CGFloat(Self.dotCount - 1) * Self.dotSpacing
-        var x = (bounds.width - rowWidth) / 2
-        let y = (bounds.height - side) / 2
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        for dot in dotLayers {
-            dot.bounds = CGRect(x: 0, y: 0, width: side, height: side)
-            dot.position = CGPoint(x: x + side / 2, y: y + side / 2)
-            dot.cornerRadius = side / 2
-            x += side + Self.dotSpacing
-        }
-        CATransaction.commit()
-    }
-
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        if window != nil, isAnimating {
-            addPulseAnimations()
-        }
-    }
-
-    func startAnimating() {
-        guard !isAnimating else { return }
-        isAnimating = true
-        addPulseAnimations()
-    }
-
-    func stopAnimating() {
-        guard isAnimating else { return }
-        isAnimating = false
-        dotLayers.forEach { $0.removeAnimation(forKey: Self.pulseAnimationKey) }
-    }
-
-    private func applyColor() {
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        dotLayers.forEach { $0.backgroundColor = color.cgColor }
-        CATransaction.commit()
-    }
-
-    private func addPulseAnimations() {
-        let scalesDots = !UIAccessibility.isReduceMotionEnabled
-        for (index, dot) in dotLayers.enumerated() {
-            let fade = CABasicAnimation(keyPath: "opacity")
-            fade.fromValue = 0.28
-            fade.toValue = 1.0
-            fade.duration = Self.pulseHalfPeriod
-
-            var animations: [CAAnimation] = [fade]
-            if scalesDots {
-                let scale = CABasicAnimation(keyPath: "transform.scale")
-                scale.fromValue = 0.72
-                scale.toValue = 1.0
-                scale.duration = Self.pulseHalfPeriod
-                animations.append(scale)
-            }
-
-            let group = CAAnimationGroup()
-            group.animations = animations
-            group.duration = Self.pulseHalfPeriod
-            group.autoreverses = true
-            group.repeatCount = .infinity
-            group.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            group.fillMode = .backwards
-            group.isRemovedOnCompletion = false
-            group.beginTime = dot.convertTime(CACurrentMediaTime(), from: nil) + Double(index) * Self.pulseStagger
-            dot.add(group, forKey: Self.pulseAnimationKey)
-        }
     }
 }

@@ -601,7 +601,6 @@ final class ChatViewController: ViewController {
     private lazy var shouldScrollToBottom: Bool = lastSeenMessageId == nil
     private var pendingScrollToBottom = false
     private var lastMarkedAsReadMessageId: Int64?
-    private var pendingMarkAsRead = false
     private var didMarkChannelAsReadForCurrentAppearance = false
     private var isCatchingUpAfterReconnect = false
     private var activeCatchUpRequestId: UUID?
@@ -1722,9 +1721,6 @@ final class ChatViewController: ViewController {
     @objc private func handleSocketReconnected(_ notification: Notification) {
         guard !hasLeftChat else { return }
         guard let isConnected = notification.userInfo?["isConnected"] as? Bool, isConnected else { return }
-        if pendingMarkAsRead {
-            markChannelAsRead()
-        }
         refreshMessagesAfterReconnect()
     }
 
@@ -2062,6 +2058,11 @@ final class ChatViewController: ViewController {
         if succeeded {
             hasCompletedInitialFetch = true
             messageHistoryRetryCount = 0
+            if didMarkChannelAsReadForCurrentAppearance, !hasMoreNewer,
+               viewIfLoaded?.window != nil,
+               UIApplication.shared.applicationState == .active {
+                markChannelAsRead()
+            }
         } else {
             pendingScrollToBottom = false
         }
@@ -2538,12 +2539,7 @@ final class ChatViewController: ViewController {
 
         if let already = lastMarkedAsReadMessageId, messageId <= already { return }
 
-        guard context.account.socket.isConnected else {
-            pendingMarkAsRead = true
-            return
-        }
         lastMarkedAsReadMessageId = messageId
-        pendingMarkAsRead = false
 
         var channelUnreadCount = channel.countMessUnread
         if clanId != 0, topicId == 0 {
@@ -2570,6 +2566,9 @@ final class ChatViewController: ViewController {
             timestampSeconds: now,
             badgeCount: clanId != 0 && topicId == 0 ? channelUnreadCount : 0
         )
+        if clanId == 0 {
+            DmReadFloor.record(channelId: channel.channelID, messageId: messageId)
+        }
 
         NotificationCenter.default.post(
             name: Notification.Name("MezonChannelMarkedAsRead"),

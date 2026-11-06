@@ -266,6 +266,8 @@ final class MessageMediaContentNode: ASDisplayNode {
     private var pendingRevealAnimationIndices: Set<Int> = []
     private var isOnScreen = false
     private var ingestProbeTimer: Foundation.Timer?
+    private var videoPrefetchTimer: Foundation.Timer?
+    private static let videoPrefetchDwell: TimeInterval = 1
 
     private enum MediaSlotOverlayKind: Equatable {
         case none
@@ -438,6 +440,7 @@ final class MessageMediaContentNode: ASDisplayNode {
         stickerNode = nil
         attachments = media
         updateIngestProbing()
+        updateVideoPrefetch()
         lastRemoteProxyURLByIndex.removeAll()
         remoteLoadInFlightByIndex.removeAll()
         remoteLoadRetryCountByIndex.removeAll()
@@ -984,6 +987,7 @@ final class MessageMediaContentNode: ASDisplayNode {
 
         attachments = newMedia
         updateIngestProbing()
+        updateVideoPrefetch()
         let newUploading = newMedia.contains { $0.isUploading }
         if isUploading != newUploading {
             isUploading = newUploading
@@ -1135,6 +1139,33 @@ final class MessageMediaContentNode: ASDisplayNode {
         guard isOnScreen != onScreen else { return }
         isOnScreen = onScreen
         updateIngestProbing()
+        updateVideoPrefetch()
+    }
+
+    private static func isPrefetchableVideo(_ att: ParsedAttachment) -> Bool {
+        att.isVideo && !att.isUploading && !att.uploadFailed && !att.isPresignPending && !att.url.isEmpty
+    }
+
+    private func updateVideoPrefetch() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.updateVideoPrefetch()
+            }
+            return
+        }
+        videoPrefetchTimer?.invalidate()
+        videoPrefetchTimer = nil
+        let urls = attachments.filter(Self.isPrefetchableVideo).compactMap { URL(string: $0.url) }
+        guard !urls.isEmpty else { return }
+        guard isOnScreen else {
+            urls.forEach { VideoRangePrefetcher.shared.withdraw($0) }
+            return
+        }
+        videoPrefetchTimer = Foundation.Timer.scheduledTimer(withTimeInterval: Self.videoPrefetchDwell, repeats: false) { [weak self] _ in
+            guard let self, self.isOnScreen else { return }
+            self.videoPrefetchTimer = nil
+            urls.forEach { VideoRangePrefetcher.shared.prefetch($0, allowsExpensiveNetwork: false) }
+        }
     }
 
     private func updateIngestProbing() {
