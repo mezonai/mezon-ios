@@ -869,8 +869,19 @@ final class SendMessageInputViewController: UIViewController {
         return btn
     }()
 
+    private let composerSurfaceView: ThemeFillView = {
+        let surface = ThemeFillView()
+        surface.translatesAutoresizingMaskIntoConstraints = false
+        surface.isUserInteractionEnabled = false
+        surface.clipsToBounds = true
+        surface.layer.borderWidth = 1
+        return surface
+    }()
+
     private lazy var textView: PastableTextView = {
         let tv = PastableTextView()
+        tv.backgroundColor = .clear
+        tv.composerSurface = composerSurfaceView
         tv.isScrollEnabled = false
         let pad = Self.composerVerticalInset
         tv.textContainerInset = UIEdgeInsets(top: pad, left: 12, bottom: pad, right: 36)
@@ -1623,11 +1634,7 @@ final class SendMessageInputViewController: UIViewController {
     private func applyCurrentThemeToRestoredComposer(_ archived: NSAttributedString) -> NSAttributedString {
         let m = NSMutableAttributedString(attributedString: archived)
         let full = NSRange(location: 0, length: m.length)
-        let t = UIColor.theme
-        let normalAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 15.sf),
-            .foregroundColor: t.textStrong
-        ]
+        let normalAttrs = composerNormalTypingAttributes()
         let highlightAttrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.boldSystemFont(ofSize: 15.sf),
             .foregroundColor: UIColor(red: 0.35, green: 0.55, blue: 1.0, alpha: 1.0)
@@ -1699,10 +1706,7 @@ final class SendMessageInputViewController: UIViewController {
         }
         refreshHashtagIconAttachments()
         text = textView.text ?? ""
-        textView.typingAttributes = [
-            .font: UIFont.systemFont(ofSize: 15.sf),
-            .foregroundColor: UIColor.theme.textStrong
-        ]
+        textView.typingAttributes = composerNormalTypingAttributes()
         placeholderLabel.isHidden = !text.isEmpty
         textView.isScrollEnabled = false
         flushComposerHeightAfterContentMutation()
@@ -1734,10 +1738,7 @@ final class SendMessageInputViewController: UIViewController {
         emojiIdByColonToken.removeAll()
         textView.attributedText = nil
         text = ""
-        textView.typingAttributes = [
-            .font: UIFont.systemFont(ofSize: 15.sf),
-            .foregroundColor: UIColor.theme.textStrong
-        ]
+        textView.typingAttributes = composerNormalTypingAttributes()
         placeholderLabel.isHidden = false
         textView.isScrollEnabled = false
         clearPickedImages()
@@ -2421,11 +2422,7 @@ final class SendMessageInputViewController: UIViewController {
 
         let (reconstructed, displayToEditDeltas) = Self.editingComposerRestoredText(from: parsed)
         let fullText = reconstructed
-        let t = UIColor.theme
-        let normalAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 15.sf),
-            .foregroundColor: t.textStrong
-        ]
+        let normalAttrs = composerNormalTypingAttributes()
         let highlightAttrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.boldSystemFont(ofSize: 15.sf),
             .foregroundColor: UIColor(red: 0.35, green: 0.55, blue: 1.0, alpha: 1.0)
@@ -3037,11 +3034,7 @@ final class SendMessageInputViewController: UIViewController {
         let insertPlain = leadingSpace + token + trailingSpace
         let insertLen = (insertPlain as NSString).length
 
-        let t = UIColor.theme
-        let normalAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 15.sf),
-            .foregroundColor: t.textStrong
-        ]
+        let normalAttrs = composerNormalTypingAttributes()
         let emojiAttrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.boldSystemFont(ofSize: 15.sf),
             .foregroundColor: UIColor(red: 0.35, green: 0.55, blue: 1.0, alpha: 1.0)
@@ -3240,10 +3233,7 @@ final class SendMessageInputViewController: UIViewController {
         textView.attributedText = nil
         textView.text = ""
         text = ""
-        textView.typingAttributes = [
-            .font: UIFont.systemFont(ofSize: 15.sf),
-            .foregroundColor: UIColor.theme.textStrong
-        ]
+        textView.typingAttributes = composerNormalTypingAttributes()
         placeholderLabel.isHidden = false
         textView.isScrollEnabled = false
         resetTextViewHeight()
@@ -3492,6 +3482,7 @@ final class SendMessageInputViewController: UIViewController {
         inputBarView.addSubview(chevronButton)
         inputBarView.addSubview(attachButton)
         inputBarView.addSubview(advanceButton)
+        inputBarView.addSubview(composerSurfaceView)
         inputBarView.addSubview(textView)
         inputBarView.addSubview(placeholderLabel)
         inputBarView.addSubview(emojiButton)
@@ -3565,6 +3556,11 @@ final class SendMessageInputViewController: UIViewController {
             textView.trailingAnchor.constraint(equalTo: sendButton.leadingAnchor, constant: -6.sw),
             textView.bottomAnchor.constraint(equalTo: inputBarView.bottomAnchor, constant: -8),
             tvHeight,
+
+            composerSurfaceView.topAnchor.constraint(equalTo: textView.topAnchor),
+            composerSurfaceView.bottomAnchor.constraint(equalTo: textView.bottomAnchor),
+            composerSurfaceView.leadingAnchor.constraint(equalTo: textView.leadingAnchor),
+            composerSurfaceView.trailingAnchor.constraint(equalTo: textView.trailingAnchor),
 
             placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor, constant: 13),
             placeholderLabel.centerYAnchor.constraint(equalTo: textView.centerYAnchor),
@@ -5529,10 +5525,7 @@ final class SendMessageInputViewController: UIViewController {
         flashCommand = command.botID != 0 && editingDisplay == nil
             ? BotFlashCommand(botId: command.botID, menuName: command.menuName, actionMsg: command.actionMsg)
             : nil
-        let normalAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 15.sf),
-            .foregroundColor: UIColor.theme.textStrong
-        ]
+        let normalAttrs = composerNormalTypingAttributes()
         activeMentions.removeAll()
         activeHashtags.removeAll()
         emojiIdByColonToken.removeAll()
@@ -5594,11 +5587,7 @@ final class SendMessageInputViewController: UIViewController {
         let trailingSpace = " "
         let insertText = mentionText + trailingSpace
 
-        let t = UIColor.theme
-        let normalAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 15.sf),
-            .foregroundColor: t.textStrong
-        ]
+        let normalAttrs = composerNormalTypingAttributes()
         let mentionAttrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.boldSystemFont(ofSize: 15.sf),
             .foregroundColor: UIColor(red: 0.35, green: 0.55, blue: 1.0, alpha: 1.0)
@@ -5674,11 +5663,7 @@ final class SendMessageInputViewController: UIViewController {
         let trailingSpace = " "
         let insertText = token + trailingSpace
 
-        let t = UIColor.theme
-        let normalAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 15.sf),
-            .foregroundColor: t.textStrong
-        ]
+        let normalAttrs = composerNormalTypingAttributes()
         let tagFont = UIFont.boldSystemFont(ofSize: 15.sf)
         let tagTint = UIColor(red: 0.35, green: 0.55, blue: 1.0, alpha: 1.0)
         let tagAttrs: [NSAttributedString.Key: Any] = [
@@ -6027,29 +6012,29 @@ final class SendMessageInputViewController: UIViewController {
         view.backgroundColor = t.secondary
         inputBarView.backgroundColor = t.secondary
         topSeparator.backgroundColor = t.border
-        textView.backgroundColor = t.tertiary
+        composerSurfaceView.apply(solid: t.desktop[.bgSurface], gradient: t.desktop.composerGradient)
+        composerSurfaceView.layer.borderColor = t.borderPrimary.cgColor
         let preservedAttributed = textView.attributedText
-        textView.textColor = t.textStrong
+        let selectedRange = textView.selectedRange
+        textView.textColor = t.textThemeMessage
         textView.font = .systemFont(ofSize: 15.sf)
-        textView.typingAttributes = [
-            .font: UIFont.systemFont(ofSize: 15.sf),
-            .foregroundColor: t.textStrong
-        ]
         if let preserved = preservedAttributed, preserved.length > 0,
            !activeMentions.isEmpty || !activeHashtags.isEmpty || !emojiIdByColonToken.isEmpty {
             textView.attributedText = applyCurrentThemeToRestoredComposer(preserved)
+            textView.selectedRange = selectedRange
             refreshHashtagIconAttachments()
         }
+        refreshComposerTypingAttributesForSelection()
         placeholderLabel.font = .systemFont(ofSize: 15.sf)
         placeholderLabel.textColor = t.textDisabled
-        attachButton.backgroundColor = t.tertiary
+        attachButton.backgroundColor = t.raisedSurface
         attachButton.tintColor = t.textStrong
-        advanceButton.backgroundColor = t.tertiary
+        advanceButton.backgroundColor = t.raisedSurface
         advanceButton.tintColor = t.textStrong
-        voiceButton.backgroundColor = t.tertiary
+        voiceButton.backgroundColor = t.raisedSurface
         voiceButton.tintColor = t.textStrong
         voiceRecordingOverlay.applyTheme()
-        chevronButton.backgroundColor = t.tertiary
+        chevronButton.backgroundColor = t.raisedSurface
         chevronButton.tintColor = t.textStrong
         emojiButton.tintColor = t.textDisabled
         attachmentPreviewView.applyTheme()
@@ -6663,10 +6648,7 @@ final class SendMessageInputViewController: UIViewController {
         emojiIdByColonToken.removeAll()
         textView.attributedText = nil
         textView.text = ""
-        textView.typingAttributes = [
-            .font: UIFont.systemFont(ofSize: 15.sf),
-            .foregroundColor: UIColor.theme.textStrong
-        ]
+        textView.typingAttributes = composerNormalTypingAttributes()
         placeholderLabel.isHidden = false
         textView.isScrollEnabled = false
         resetTextViewHeight()
@@ -7446,7 +7428,7 @@ final class SendMessageInputViewController: UIViewController {
         let t = UIColor.theme
         return [
             .font: UIFont.systemFont(ofSize: 15.sf),
-            .foregroundColor: t.textStrong
+            .foregroundColor: t.textThemeMessage
         ]
     }
 
@@ -7771,6 +7753,7 @@ struct PastedImage {
 
 final class PastableTextView: UITextView {
 
+    weak var composerSurface: UIView?
     var onImagesPasted: (([PastedImage]) -> Void)?
     var onGIFPasted: ((Data) -> Void)?
     var onLongTextPasted: ((String) -> Bool)?
@@ -7779,10 +7762,12 @@ final class PastableTextView: UITextView {
         super.layoutSubviews()
         let h = bounds.height
         guard h > 0 else { return }
-        let cap = 20.swh
-        layer.cornerRadius = min(h * 0.5, cap)
+        let radius = min(h * 0.5, 20.swh)
+        layer.cornerRadius = radius
+        composerSurface?.layer.cornerRadius = radius
         if #available(iOS 13.0, *) {
             layer.cornerCurve = .continuous
+            composerSurface?.layer.cornerCurve = .continuous
         }
     }
 

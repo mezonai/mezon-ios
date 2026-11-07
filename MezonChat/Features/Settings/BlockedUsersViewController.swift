@@ -45,6 +45,7 @@ final class BlockedUsersViewController: BaseViewController {
         titleLabel.textColor = UIColor.theme.textStrong
         backButton.tintColor = UIColor.theme.textStrong
         emptyLabel.textColor = UIColor.theme.textDisabled
+        tableView.backgroundColor = UIColor.theme.secondary
         tableView.reloadData()
     }
 
@@ -264,15 +265,12 @@ final class BlockedUserItemCell: UITableViewCell {
         contentView.addSubview(avatarImageView)
 
         nameLabel.font = .systemFont(ofSize: 15.sf, weight: .semibold)
-        nameLabel.textColor = UIColor.theme.textStrong
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         nameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         contentView.addSubview(nameLabel)
 
         unblockButton.setTitle(L(L10n.AccountSetting.unblock), for: .normal)
         unblockButton.titleLabel?.font = .systemFont(ofSize: 13.sf, weight: .semibold)
-        unblockButton.setTitleColor(UIColor.theme.textStrong, for: .normal)
-        unblockButton.backgroundColor = UIColor.theme.border
         unblockButton.layer.cornerRadius = 6.swh
         unblockButton.translatesAutoresizingMaskIntoConstraints = false
         unblockButton.addTarget(self, action: #selector(unblockTapped), for: .touchUpInside)
@@ -280,7 +278,6 @@ final class BlockedUserItemCell: UITableViewCell {
         unblockButton.setContentCompressionResistancePriority(.required, for: .horizontal)
         contentView.addSubview(unblockButton)
 
-        separatorView.backgroundColor = UIColor.theme.border
         separatorView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(separatorView)
 
@@ -307,9 +304,19 @@ final class BlockedUserItemCell: UITableViewCell {
             separatorView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
             separatorView.heightAnchor.constraint(equalToConstant: 1.0 / UIScreen.main.scale)
         ])
+        applyTheme()
+    }
+
+    private func applyTheme() {
+        let t = UIColor.theme
+        nameLabel.textColor = t.textStrong
+        unblockButton.setTitleColor(t.textStrong, for: .normal)
+        unblockButton.backgroundColor = t.primary
+        separatorView.backgroundColor = t.border
     }
 
     func configure(with friend: Mezon_Api_Friend, isLast: Bool) {
+        applyTheme()
         let displayName = friend.user.displayName.isEmpty ? friend.user.username : friend.user.displayName
         nameLabel.text = displayName
         separatorView.isHidden = isLast

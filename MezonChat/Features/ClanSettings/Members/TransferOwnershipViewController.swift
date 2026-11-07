@@ -30,14 +30,8 @@ final class TransferOwnershipViewController: BaseViewController {
     }
 
     private var boxBackgroundColor: UIColor {
-        let theme = ThemeManager.shared.current
-        if theme == .light || theme == .sunrise {
-            return UIColor.theme.secondary
-        } else if theme == .system {
-            return UIScreen.main.traitCollection.userInterfaceStyle == .light ? UIColor.theme.secondary : UIColor.theme.tertiary
-        } else {
-            return UIColor.theme.tertiary
-        }
+        ThemeManager.shared.current.effectiveInterfaceStyle == .light
+            ? UIColor.theme.secondary : UIColor.theme.tertiary
     }
 
     override func viewDidLoad() {

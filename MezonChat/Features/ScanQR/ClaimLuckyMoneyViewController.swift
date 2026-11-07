@@ -204,7 +204,7 @@ final class ClaimLuckyMoneyViewController: BaseViewController {
         noteRowValue.textColor = .mezonTextPrimary
         dateRowValue.textColor = .mezonTextPrimary
         loadingTitleLabel.textColor = .mezonTextPrimary
-        errorCloseButton.backgroundColor = UIColor.theme.tertiary
+        errorCloseButton.backgroundColor = UIColor.theme.raisedSurface
         errorCloseButton.setTitleColor(.mezonTextPrimary, for: .normal)
     }
 
@@ -312,7 +312,7 @@ final class ClaimLuckyMoneyViewController: BaseViewController {
 
     private func makeCardStack(arrangedSubviews: [UIView], spacing: CGFloat) -> UIView {
         let wrap = UIView()
-        wrap.backgroundColor = UIColor.theme.tertiary
+        wrap.backgroundColor = UIColor.theme.raisedSurface
         wrap.layer.cornerRadius = 16
         wrap.layer.masksToBounds = true
         let s = UIStackView(arrangedSubviews: arrangedSubviews)

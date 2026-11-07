@@ -77,7 +77,7 @@ final class QuickActionListViewController: BaseViewController {
     }
 
     override func setupUI() {
-        view.backgroundColor = UIColor.theme.primary
+        view.backgroundColor = UIColor.theme.secondary
         setupHeader()
         setupTabs()
         setupAddButton()
@@ -103,7 +103,7 @@ final class QuickActionListViewController: BaseViewController {
 
     override func applyTheme() {
         let t = UIColor.theme
-        view.backgroundColor = t.primary
+        view.backgroundColor = t.secondary
         titleLabel.textColor = t.textStrong
         titleLabel.text = L(L10n.QuickAction.title)
         backButton.tintColor = t.textStrong
@@ -111,7 +111,7 @@ final class QuickActionListViewController: BaseViewController {
         descriptionLabel.text = L(L10n.QuickAction.description)
         tableView.backgroundColor = .clear
         loadingIndicator.color = t.textDisabled
-        addButton.backgroundColor = t.bgViolet
+        addButton.backgroundColor = t.iconPrimary
         addButton.tintColor = .white
         addButton.setTitleColor(.white, for: .normal)
         emptyView.applyTheme()
@@ -457,10 +457,10 @@ final class QuickActionTabButton: UIControl {
         let t = UIColor.theme
         titleLabel.text = title
         countLabel.text = "\(count)"
-        backgroundColor = isActive ? t.bgViolet : .clear
-        titleLabel.textColor = isActive ? .white : t.text
-        countLabel.textColor = isActive ? .white : t.text
-        countLabel.backgroundColor = isActive ? UIColor.white.withAlphaComponent(0.2) : t.secondary
+        backgroundColor = isActive ? t.iconPrimary : .clear
+        titleLabel.textColor = isActive ? .white : t.textThemePrimary
+        countLabel.textColor = isActive ? .white : t.textThemePrimary
+        countLabel.backgroundColor = isActive ? UIColor.white.withAlphaComponent(0.2) : t.primary
     }
 }
 
@@ -512,7 +512,7 @@ final class QuickActionEmptyView: UIView {
 
     func applyTheme() {
         let t = UIColor.theme
-        backgroundColor = t.secondary
+        backgroundColor = t.primary
         layer.borderColor = t.border.cgColor
         iconView.tintColor = t.textDisabled
         titleLabel.textColor = t.textStrong
@@ -641,7 +641,7 @@ final class QuickActionItemCell: UITableViewCell {
 
     func configure(item: Mezon_Api_QuickMenuAccess, kind: QuickActionKind) {
         let t = UIColor.theme
-        cardView.backgroundColor = t.secondary
+        cardView.backgroundColor = t.primary
         cardView.layer.borderColor = t.border.cgColor
         previewLabel.textColor = t.text
         editButton.tintColor = t.textDisabled

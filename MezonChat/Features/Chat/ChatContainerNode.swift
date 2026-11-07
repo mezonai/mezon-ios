@@ -91,12 +91,7 @@ final class ChatContainerNode: ASDisplayNode {
     private let jumpToPresentNode = ASButtonNode()
 
 
-    private lazy var gradientLayer: CAGradientLayer = {
-        let gl = CAGradientLayer()
-        gl.startPoint = CGPoint(x: 0.5, y: 0)
-        gl.endPoint   = CGPoint(x: 0.5, y: 1)
-        return gl
-    }()
+    private let gradientLayer = CAGradientLayer()
 
     private(set) var state: ChatState = .empty
     private(set) var committedMessageIds: [String] = []
@@ -241,9 +236,8 @@ final class ChatContainerNode: ASDisplayNode {
     override func didLoad() {
         super.didLoad()
 
-        let t = UIColor.theme
-        gradientLayer.colors = [t.secondary.cgColor, t.primaryGradient.cgColor]
         layer.insertSublayer(gradientLayer, at: 0)
+        applyChatBackground(theme: UIColor.theme)
 
         listView.backgroundColor = .clear
 
@@ -288,10 +282,17 @@ final class ChatContainerNode: ASDisplayNode {
 
     func applyTheme() {
         let t = UIColor.theme
-        gradientLayer.colors = [t.secondary.cgColor, t.primaryGradient.cgColor]
+        applyChatBackground(theme: t)
         headerNode.applyTheme()
 
         reloadAllItems()
+    }
+
+    private func applyChatBackground(theme: ThemeAttributes) {
+        let gradient = theme.desktop.chatGradient
+        backgroundColor = gradient == nil ? theme.primary : .clear
+        gradientLayer.isHidden = gradient == nil
+        gradient?.apply(to: gradientLayer, in: isNodeLoaded ? view.window : nil)
     }
 
     private func updateHeader(state: ChatState) {
@@ -981,6 +982,7 @@ final class ChatContainerNode: ASDisplayNode {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         gradientLayer.frame = CGRect(origin: .zero, size: layout.size)
+        UIColor.theme.desktop.chatGradient?.updateDirection(on: gradientLayer, in: view.window)
         CATransaction.commit()
     }
 

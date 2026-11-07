@@ -92,11 +92,11 @@ final class SettingsViewController: BaseViewController {
         titleLabel.text = L(L10n.Settings.title)
         titleLabel.textColor = .mezonTextStrong
         backButton.tintColor = .mezonTextStrong
-        headerView.backgroundColor = .mezonPrimary
-        view.backgroundColor = .mezonPrimary
-        scrollView.backgroundColor = .mezonPrimary
+        headerView.backgroundColor = UIColor.theme.secondary
+        view.backgroundColor = UIColor.theme.secondary
+        scrollView.backgroundColor = UIColor.theme.secondary
 
-        searchBgView.backgroundColor = .mezonSecondaryBackground
+        searchBgView.backgroundColor = .mezonPrimary
         searchIconView.tintColor = .mezonTextPrimary
         searchTextField.textColor = .mezonTextStrong
         searchTextField.tintColor = .mezonTextStrong
@@ -242,7 +242,7 @@ final class SettingsViewController: BaseViewController {
         let container = UIView()
         container.translatesAutoresizingMaskIntoConstraints = false
 
-        searchBgView.backgroundColor = .mezonSecondaryBackground
+        searchBgView.backgroundColor = .mezonPrimary
         container.addSubview(searchBgView)
 
         searchIconView.tintColor = .mezonTextPrimary
@@ -299,7 +299,7 @@ final class SettingsViewController: BaseViewController {
 
     private func addGroupedCard(rows: [SettingsRow]) {
         let card = UIView()
-        card.backgroundColor = .mezonSecondaryBackground
+        card.backgroundColor = UIColor.theme.primary
         card.layer.cornerRadius = 10.swh
         card.clipsToBounds = true
         card.translatesAutoresizingMaskIntoConstraints = false
@@ -357,10 +357,8 @@ final class SettingsViewController: BaseViewController {
         iconView.translatesAutoresizingMaskIntoConstraints = false
         if let img = UIImage(named: row.icon, in: .main, compatibleWith: nil) {
             if row.icon == "Profile/ScanQR" {
-                let currentTheme = ThemeManager.shared.current
-                let effectiveTheme = currentTheme == .system ? (UIScreen.main.traitCollection.userInterfaceStyle == .dark ? AppTheme.dark : AppTheme.light) : currentTheme
                 iconView.image = img.withRenderingMode(.alwaysTemplate)
-                if effectiveTheme == .light || effectiveTheme == .sunrise {
+                if ThemeManager.shared.current.effectiveInterfaceStyle == .light {
                     iconView.tintColor = UIColor(hexString: "#ff6b6f76")
                 } else {
                     iconView.tintColor = UIColor(hexString: "#fefefe")
@@ -446,7 +444,7 @@ final class SettingsViewController: BaseViewController {
 
     private func addLogoutCard() {
         let card = UIView()
-        card.backgroundColor = .mezonSecondaryBackground
+        card.backgroundColor = UIColor.theme.primary
         card.layer.cornerRadius = 10.swh
         card.clipsToBounds = true
         card.translatesAutoresizingMaskIntoConstraints = false
