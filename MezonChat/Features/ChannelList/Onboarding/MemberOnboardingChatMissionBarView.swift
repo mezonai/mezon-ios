@@ -43,6 +43,10 @@ final class MemberOnboardingChatMissionBarView: UIControl {
         addSubview(titleLabel)
         addSubview(subtitleLabel)
 
+        let titleTrailing = titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16.sw)
+        titleTrailing.priority = UILayoutPriority(999)
+        let subtitleBottom = subtitleLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -8.sh)
+        subtitleBottom.priority = UILayoutPriority(999)
         NSLayoutConstraint.activate([
             topSeparator.topAnchor.constraint(equalTo: topAnchor),
             topSeparator.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -55,13 +59,13 @@ final class MemberOnboardingChatMissionBarView: UIControl {
             iconView.heightAnchor.constraint(equalToConstant: 20.swh),
 
             titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: 12.sw),
-            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16.sw),
+            titleTrailing,
             titleLabel.topAnchor.constraint(equalTo: topAnchor, constant: 10.sh),
 
             subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
             subtitleLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
             subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2.sh),
-            subtitleLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -8.sh),
+            subtitleBottom,
         ])
     }
 

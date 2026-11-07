@@ -344,6 +344,7 @@ final class ClanListViewController: ViewController {
         }
 
         guard (notification.userInfo?["incrementDmBadge"] as? Bool) == true else { return }
+        DmReadFloor.invalidate(channelId: channelId)
 
         let ts: UInt32
         if let t = notification.userInfo?["timestampSeconds"] as? UInt32 { ts = t }
@@ -680,8 +681,9 @@ final class ClanListViewController: ViewController {
 
     private func applyUnreadDMsFromCache() {
         guard unreadDMs.isEmpty else { return }
-        let cached = context.account.postbox.getCachedDMChannelList()
-            .filter { $0.countMessUnread > 0 }
+        var cachedRows = context.account.postbox.getCachedDMChannelList()
+        DmReadFloor.apply(to: &cachedRows)
+        let cached = cachedRows.filter { $0.countMessUnread > 0 }
         guard !cached.isEmpty else { return }
         setUnreadDMs(cached)
     }
@@ -729,6 +731,7 @@ final class ClanListViewController: ViewController {
                     ChannelUnreadBadgeSync.mergeSocketBadgeRows(into: &channels, badgeRows: badgeRows)
                 } catch {
                 }
+                DmReadFloor.apply(to: &channels)
                 let unread = channels.filter { $0.countMessUnread > 0 }
 
                 self.persistUnreadDmCountsToCache(channels)

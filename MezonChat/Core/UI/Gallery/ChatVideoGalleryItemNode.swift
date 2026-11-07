@@ -6,8 +6,11 @@ final class ChatVideoGalleryItemNode: GalleryItemNode {
 
     private var playerNode: UniversalVideoPlayerNode?
     private let previewNode = ASImageNode()
+    private static let neighborPrefetchDelay: TimeInterval = 2
+
     private var videoURL: URL?
     private var posterURL: String?
+    private var didScheduleNeighborPrefetch = false
     var isPlaying: Bool { playerNode?.isPlaying == true }
     var controlsBottomInset: CGFloat = 0 {
         didSet { playerNode?.controlsBottomInset = controlsBottomInset }
@@ -25,6 +28,7 @@ final class ChatVideoGalleryItemNode: GalleryItemNode {
         playerNode = nil
         videoURL = URL(string: info.url)
         posterURL = info.url
+        didScheduleNeighborPrefetch = false
         previewNode.image = ImageCache.shared.memoryImage(forKey: "video_thumb_\(info.url)")
         previewNode.isHidden = false
     }
@@ -50,6 +54,17 @@ final class ChatVideoGalleryItemNode: GalleryItemNode {
             play()
         } else {
             playerNode?.pause()
+            scheduleNeighborPrefetch()
+        }
+    }
+
+    private func scheduleNeighborPrefetch() {
+        guard !didScheduleNeighborPrefetch, playerNode == nil, let url = videoURL else { return }
+        didScheduleNeighborPrefetch = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.neighborPrefetchDelay) { [weak self] in
+            guard let self, self.playerNode == nil, self.videoURL == url,
+                  self.isNodeLoaded, self.view.window != nil else { return }
+            VideoRangePrefetcher.shared.prefetch(url, allowsExpensiveNetwork: true)
         }
     }
 

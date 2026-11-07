@@ -9,6 +9,11 @@ struct FriendRequestInteraction {
 
 final class FriendRequestContainerNode: ASDisplayNode {
 
+    private enum Tab {
+        case received
+        case sent
+    }
+
     private lazy var gradientLayer: CAGradientLayer = {
         let gl = CAGradientLayer()
         gl.startPoint = CGPoint(x: 0.5, y: 0)
@@ -23,7 +28,12 @@ final class FriendRequestContainerNode: ASDisplayNode {
     private let searchPillView = UIView()
     private let searchPillLabel = UILabel()
     private let searchPillChevron = UIImageView()
-    private let incomingTitleLabel = UILabel()
+
+    private let tabContainerView = UIView()
+    private let tabIndicatorView = UIView()
+    private let receivedTabButton = UIButton(type: .custom)
+    private let sentTabButton = UIButton(type: .custom)
+    private var selectedTab: Tab = .received
 
     private let tableNode: ASTableNode
 
@@ -32,6 +42,7 @@ final class FriendRequestContainerNode: ASDisplayNode {
     private let emptyTitleLabel = UILabel()
     private let emptyDescLabel = UILabel()
 
+    private var latestState: FriendRequestState = .empty
     private var currentFriends: [Mezon_Api_Friend] = []
     private let interaction: FriendRequestInteraction
     private let disposables = DisposableSet()
@@ -46,8 +57,9 @@ final class FriendRequestContainerNode: ASDisplayNode {
         disposables.add(
             (signal |> deliverOnMainQueue).start(next: { [weak self] newState in
                 guard let self else { return }
+                self.latestState = newState
                 let oldFriends = self.currentFriends
-                self.currentFriends = newState.receivedRequests
+                self.currentFriends = self.requests(for: self.selectedTab)
                 self.updateContent(oldFriends: oldFriends, newFriends: self.currentFriends)
             })
         )
@@ -64,7 +76,7 @@ final class FriendRequestContainerNode: ASDisplayNode {
 
         setupHeader()
         setupSearchPill()
-        setupIncomingTitle()
+        setupTabs()
         setupTableView()
         setupEmptyState()
 
@@ -128,14 +140,54 @@ final class FriendRequestContainerNode: ASDisplayNode {
         addSubnode(tableNode)
     }
 
-    private func setupIncomingTitle() {
+    private func setupTabs() {
+        tabContainerView.layer.cornerRadius = 12.sf
+        tabContainerView.clipsToBounds = true
+        tabIndicatorView.layer.cornerRadius = 8.sf
+        tabIndicatorView.isUserInteractionEnabled = false
+
+        receivedTabButton.setTitle(L(L10n.FriendRequest.received), for: .normal)
+        sentTabButton.setTitle(L(L10n.FriendRequest.sent), for: .normal)
+        for button in [receivedTabButton, sentTabButton] {
+            button.titleLabel?.font = .systemFont(ofSize: 14.sf, weight: .medium)
+            button.backgroundColor = .clear
+        }
+        receivedTabButton.addTarget(self, action: #selector(receivedTabTapped), for: .touchUpInside)
+        sentTabButton.addTarget(self, action: #selector(sentTabTapped), for: .touchUpInside)
+
+        tabContainerView.addSubview(tabIndicatorView)
+        tabContainerView.addSubview(receivedTabButton)
+        tabContainerView.addSubview(sentTabButton)
+        view.addSubview(tabContainerView)
+        applyTabColors()
+    }
+
+    private func applyTabColors() {
         let t = UIColor.theme
-        incomingTitleLabel.text = "Incoming Friend Request"
-        incomingTitleLabel.font = .systemFont(ofSize: 14.sf)
-        incomingTitleLabel.textColor = t.textStrong
-        incomingTitleLabel.numberOfLines = 1
-        incomingTitleLabel.textAlignment = .left
-        view.addSubview(incomingTitleLabel)
+        tabContainerView.backgroundColor = t.secondary
+        tabIndicatorView.backgroundColor = t.primary
+        receivedTabButton.setTitleColor(selectedTab == .received ? t.textStrong : t.textDisabled, for: .normal)
+        sentTabButton.setTitleColor(selectedTab == .sent ? t.textStrong : t.textDisabled, for: .normal)
+    }
+
+    private func requests(for tab: Tab) -> [Mezon_Api_Friend] {
+        switch tab {
+        case .received: return latestState.receivedRequests
+        case .sent: return latestState.sentRequests
+        }
+    }
+
+    private func selectTab(_ tab: Tab) {
+        guard tab != selectedTab else { return }
+        selectedTab = tab
+        applyTabColors()
+        currentFriends = requests(for: tab)
+        applyEmptyState()
+        guard isNodeLoaded else { return }
+        tableNode.reloadData()
+        if validLayout != nil {
+            applyLayout(transition: .animated(duration: 0.2, curve: .easeInOut))
+        }
     }
 
     private func setupEmptyState() {
@@ -165,21 +217,29 @@ final class FriendRequestContainerNode: ASDisplayNode {
     }
 
     private func updateContent(oldFriends: [Mezon_Api_Friend], newFriends: [Mezon_Api_Friend]) {
-        let isEmpty = newFriends.isEmpty
-        tableNode.isHidden = isEmpty
-        emptyContainerView.isHidden = !isEmpty
-        incomingTitleLabel.isHidden = isEmpty
-
-        if isEmpty {
-            emptyTitleLabel.text = L(L10n.FriendRequest.emptyReceivedTitle)
-            emptyDescLabel.text = L(L10n.FriendRequest.emptyReceivedDesc)
-        }
+        applyEmptyState()
 
         if isNodeLoaded, validLayout != nil {
             applyLayout(transition: .immediate)
         }
 
         applyFriendDiff(oldFriends: oldFriends, newFriends: newFriends)
+    }
+
+    private func applyEmptyState() {
+        let isEmpty = currentFriends.isEmpty
+        tableNode.isHidden = isEmpty
+        emptyContainerView.isHidden = !isEmpty
+        guard isEmpty else { return }
+
+        switch selectedTab {
+        case .received:
+            emptyTitleLabel.text = L(L10n.FriendRequest.emptyReceivedTitle)
+            emptyDescLabel.text = L(L10n.FriendRequest.emptyReceivedDesc)
+        case .sent:
+            emptyTitleLabel.text = L(L10n.FriendRequest.emptySentTitle)
+            emptyDescLabel.text = L(L10n.FriendRequest.emptySentDesc)
+        }
     }
 
     private func applyFriendDiff(oldFriends: [Mezon_Api_Friend], newFriends: [Mezon_Api_Friend]) {
@@ -289,15 +349,21 @@ final class FriendRequestContainerNode: ASDisplayNode {
         transition.updateFrame(view: searchPillLabel, frame: CGRect(x: pillInset, y: 0, width: size.width - sideInset * 2 - pillInset * 2 - chevronW - 8.sw, height: searchH))
         transition.updateFrame(view: searchPillChevron, frame: CGRect(x: chevronX, y: (searchH - chevronW) / 2, width: chevronW, height: chevronW))
 
-        let showsIncomingTitle = !currentFriends.isEmpty
-        let incomingTitleY = searchY + searchH + 12.sh
-        let incomingTitleH: CGFloat = showsIncomingTitle ? 20.sh : 0
+        let tabsY = searchY + searchH + 12.sh
+        let tabsH: CGFloat = 40.sh
+        let tabsW = size.width - sideInset * 2
+        let tabW = tabsW / 2
+        let indicatorInset: CGFloat = 4.swh
+        transition.updateFrame(view: tabContainerView, frame: CGRect(x: sideInset, y: tabsY, width: tabsW, height: tabsH))
+        transition.updateFrame(view: receivedTabButton, frame: CGRect(x: 0, y: 0, width: tabW, height: tabsH))
+        transition.updateFrame(view: sentTabButton, frame: CGRect(x: tabW, y: 0, width: tabW, height: tabsH))
+        let indicatorX = selectedTab == .received ? indicatorInset : tabW + indicatorInset
         transition.updateFrame(
-            view: incomingTitleLabel,
-            frame: CGRect(x: sideInset, y: incomingTitleY, width: size.width - sideInset * 2, height: incomingTitleH)
+            view: tabIndicatorView,
+            frame: CGRect(x: indicatorX, y: indicatorInset, width: tabW - indicatorInset * 2, height: tabsH - indicatorInset * 2)
         )
 
-        let contentY = showsIncomingTitle ? (incomingTitleY + incomingTitleH + 8.sh) : (searchY + searchH + 12.sh)
+        let contentY = tabsY + tabsH + 8.sh
         let contentH = size.height - contentY - bottomInset
 
         transition.updateFrame(node: tableNode, frame: CGRect(x: 0, y: contentY, width: size.width, height: contentH))
@@ -336,7 +402,7 @@ final class FriendRequestContainerNode: ASDisplayNode {
         searchPillView.backgroundColor = t.secondary
         searchPillChevron.tintColor = t.textStrong
         searchPillLabel.textColor = searchPillChevron.tintColor
-        incomingTitleLabel.textColor = t.textStrong
+        applyTabColors()
         emptyTitleLabel.textColor = t.textStrong
         emptyDescLabel.textColor = t.textDisabled
 
@@ -346,6 +412,8 @@ final class FriendRequestContainerNode: ASDisplayNode {
 
     @objc private func backTapped() { interaction.onBackTapped() }
     @objc private func searchTapped() { interaction.onSearchTapped() }
+    @objc private func receivedTabTapped() { selectTab(.received) }
+    @objc private func sentTabTapped() { selectTab(.sent) }
 
 }
 
@@ -375,10 +443,12 @@ final class FriendRequestItemNode: ASCellNode, ASNetworkImageNodeDelegate {
     private let usernameNode = ASTextNode()
     private let rejectButton = ASButtonNode()
     private let acceptButton = ASButtonNode()
+    private let isSentRequest: Bool
 
     init(friend: Mezon_Api_Friend, interaction: FriendRequestInteraction) {
         self.friend = friend
         self.interaction = interaction
+        self.isSentRequest = friend.state == EStateFriend.otherPending.rawValue
         super.init()
         automaticallyManagesSubnodes = true
         setupUI()
@@ -472,7 +542,7 @@ final class FriendRequestItemNode: ASCellNode, ASNetworkImageNodeDelegate {
         let actionsStack = ASStackLayoutSpec.horizontal()
         actionsStack.spacing = 8.sw
         actionsStack.alignItems = .center
-        actionsStack.children = [rejectButton, acceptButton]
+        actionsStack.children = isSentRequest ? [rejectButton] : [rejectButton, acceptButton]
 
         let contentStack = ASStackLayoutSpec.horizontal()
         contentStack.spacing = 12.sw

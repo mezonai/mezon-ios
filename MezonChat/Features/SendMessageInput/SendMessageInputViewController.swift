@@ -468,11 +468,13 @@ private final class OgpPreviewView: UIView {
         content.addSubview(descriptionLabel)
         content.addSubview(closeButton)
 
+        let contentBottom = content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10)
+        contentBottom.priority = UILayoutPriority(999)
         NSLayoutConstraint.activate([
             content.topAnchor.constraint(equalTo: topAnchor, constant: 10),
             content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10.sw),
             content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10.sw),
-            content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
+            contentBottom,
 
             imageView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             imageView.topAnchor.constraint(equalTo: content.topAnchor),
@@ -1434,7 +1436,7 @@ final class SendMessageInputViewController: UIViewController {
             voiceRecordingOverlay.isHidden = !isVoiceRecordingActive
         }
         if blocked {
-            inputBarHeightConstraint?.constant = 0
+            inputBarHeightConstraint?.constant = Self.textViewMinHeight + Self.inputBarPadding
             replyBannerHeightConstraint?.constant = 0
             previewHeightConstraint?.constant = 0
             ogpPreviewHeightConstraint?.constant = 0
@@ -3639,11 +3641,13 @@ final class SendMessageInputViewController: UIViewController {
         sendPermissionRestrictedChrome.addSubview(sendPermissionRestrictedTopSep)
         sendPermissionRestrictedChrome.addSubview(sendPermissionRestrictedInner)
         sendPermissionRestrictedInner.addSubview(sendPermissionRestrictedLabel)
+        let restrictedChromeHeight = sendPermissionRestrictedChrome.heightAnchor.constraint(equalToConstant: Self.textViewMinHeight + Self.inputBarPadding)
+        restrictedChromeHeight.priority = UILayoutPriority(999)
         NSLayoutConstraint.activate([
             sendPermissionRestrictedChrome.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             sendPermissionRestrictedChrome.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             sendPermissionRestrictedChrome.topAnchor.constraint(equalTo: ogpPreviewView.bottomAnchor),
-            sendPermissionRestrictedChrome.heightAnchor.constraint(equalToConstant: Self.textViewMinHeight + Self.inputBarPadding),
+            restrictedChromeHeight,
             sendPermissionRestrictedChrome.bottomAnchor.constraint(equalTo: inputBarView.bottomAnchor),
 
             sendPermissionRestrictedTopSep.topAnchor.constraint(equalTo: sendPermissionRestrictedChrome.topAnchor),

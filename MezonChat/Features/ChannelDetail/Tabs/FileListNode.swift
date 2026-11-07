@@ -191,9 +191,11 @@ final class FileListNode: ASDisplayNode {
         field.addTarget(self, action: #selector(searchFieldChanged(_:)), for: .editingChanged)
 
         header.addSubview(field)
+        let fieldTrailing = field.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -10)
+        fieldTrailing.priority = UILayoutPriority(999)
         NSLayoutConstraint.activate([
             field.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 10),
-            field.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -10),
+            fieldTrailing,
             field.topAnchor.constraint(equalTo: header.topAnchor, constant: 8),
             field.bottomAnchor.constraint(equalTo: header.bottomAnchor, constant: -8),
             field.heightAnchor.constraint(equalToConstant: 40),

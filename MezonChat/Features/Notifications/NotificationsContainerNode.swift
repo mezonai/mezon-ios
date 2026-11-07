@@ -729,8 +729,10 @@ final class NotificationsContainerNode: ASDisplayNode {
 
         emptyImageView.image = UIImage(named: "Notifications/emptyNotifications")
         emptyImageView.setContentHuggingPriority(.defaultLow, for: .vertical)
+        let emptyImageWidth = emptyImageView.widthAnchor.constraint(equalToConstant: 300)
+        emptyImageWidth.priority = UILayoutPriority(999)
         NSLayoutConstraint.activate([
-            emptyImageView.widthAnchor.constraint(equalToConstant: 300),
+            emptyImageWidth,
             emptyImageView.heightAnchor.constraint(equalToConstant: 300),
         ])
         emptyTitleLabel.text = L(L10n.Notifications.emptyTitle)

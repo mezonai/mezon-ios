@@ -277,6 +277,10 @@ enum L10n {
         static let devices           = "settings.devices"
         static let appVersion        = "settings.appVersion"
         static let appearance        = "settings.appearance"
+        static let chat              = "settings.chat"
+        static let onlyFriendsDmTitle = "settings.chat.onlyFriendsDm.title"
+        static let onlyFriendsDmDescription = "settings.chat.onlyFriendsDm.description"
+        static let onlyFriendsDmUpdateFailed = "settings.chat.onlyFriendsDm.updateFailed"
         static let logout            = "settings.logout"
         static let noSearchResults   = "settings.noSearchResults"
     }
@@ -1036,6 +1040,7 @@ enum L10n {
     enum ChatSystem {
         static let pinMessageAnchor = "chat.system.pinMessageAnchor"
         static let allThreadsAnchor = "chat.system.allThreadsAnchor"
+        static let allPinnedAnchor = "chat.system.allPinnedAnchor"
         static let startedThread = "chat.system.startedThread"
         static let deletedThread = "chat.system.deletedThread"
         static let seeAllThreads = "chat.system.seeAllThreads"
@@ -1207,6 +1212,7 @@ enum L10n {
         static let noFriends = "directMessage.noFriends"
         static let memberLimitReached = "directMessage.memberLimitReached"
         static let createFailed = "directMessage.createFailed"
+        static let onlyFriendsDenied = "directMessage.onlyFriendsDenied"
 
         static let groupCreated   = "directMessage.groupCreated"
         static let previewAttachment = "directMessage.previewAttachment"
@@ -1407,6 +1413,8 @@ enum L10n {
         static let sent               = "friendRequest.sent"
         static let emptyReceivedTitle = "friendRequest.emptyReceivedTitle"
         static let emptyReceivedDesc  = "friendRequest.emptyReceivedDesc"
+        static let emptySentTitle     = "friendRequest.emptySentTitle"
+        static let emptySentDesc      = "friendRequest.emptySentDesc"
         static let addByTitle         = "friendRequest.addByTitle"
         static let addByQuestion      = "friendRequest.addByQuestion"
         static let addByPlaceholder   = "friendRequest.addByPlaceholder"
@@ -1788,6 +1796,10 @@ extension L10n {
         "settings.devices":         "Devices",
         "settings.appVersion":      "App Version",
         "settings.appearance":      "Appearance",
+        "settings.chat":            "Chat",
+        "settings.chat.onlyFriendsDm.title": "Don't receive messages from strangers",
+        "settings.chat.onlyFriendsDm.description": "When on, only people who are your friends can start a conversation with you.",
+        "settings.chat.onlyFriendsDm.updateFailed": "Could not update this setting. Please try again.",
         "settings.logout":          "Logout",
         "settings.noSearchResults": "No search results found",
 
@@ -2369,6 +2381,7 @@ extension L10n {
         "channel.thread": "Threads",
         "chat.system.pinMessageAnchor": "a message",
         "chat.system.allThreadsAnchor": "all threads",
+        "chat.system.allPinnedAnchor": "all pinned",
         "chat.system.startedThread": "started a thread:",
         "chat.system.deletedThread": "deleted a thread:",
         "chat.system.seeAllThreads": "See",
@@ -2582,6 +2595,7 @@ extension L10n {
         "directMessage.noFriends": "No friends available",
         "directMessage.memberLimitReached": "Group chats can have up to 20 members.",
         "directMessage.createFailed": "Could not create group.",
+        "directMessage.onlyFriendsDenied": "This user only accepts messages from friends.",
         "directMessage.groupCreated": "Group created",
         "directMessage.previewAttachment": "Attachment",
         "directMessage.previewLink": "Link",
@@ -2594,6 +2608,8 @@ extension L10n {
         "friendRequest.sent": "Sent",
         "friendRequest.emptyReceivedTitle": "No incoming friend requests",
         "friendRequest.emptyReceivedDesc": "Here you will see all the friend requests that people send to you.",
+        "friendRequest.emptySentTitle": "No sent friend requests",
+        "friendRequest.emptySentDesc": "Requests you send will appear here.",
         "friendRequest.addByTitle": "Add by username or phone number",
         "friendRequest.addByQuestion": "Who would you like to add as a friend?",
         "friendRequest.addByPlaceholder": "Enter username or phone number",
@@ -3272,6 +3288,10 @@ extension L10n {
         "settings.devices":         "Thiết bị",
         "settings.appVersion":      "Phiên bản ứng dụng",
         "settings.appearance":      "Giao diện",
+        "settings.chat":            "Trò chuyện",
+        "settings.chat.onlyFriendsDm.title": "Không nhận tin nhắn từ người lạ",
+        "settings.chat.onlyFriendsDm.description": "Khi bật, chỉ những người đã là bạn bè của bạn mới có thể bắt đầu cuộc trò chuyện với bạn.",
+        "settings.chat.onlyFriendsDm.updateFailed": "Không thể cập nhật cài đặt này. Vui lòng thử lại.",
         "settings.logout":          "Đăng xuất",
         "settings.noSearchResults": "Không tìm thấy kết quả",
 
@@ -3853,6 +3873,7 @@ extension L10n {
         "channel.thread": "Chủ đề",
         "chat.system.pinMessageAnchor": "một tin nhắn",
         "chat.system.allThreadsAnchor": "tất cả chủ đề",
+        "chat.system.allPinnedAnchor": "tất cả tin nhắn",
         "chat.system.startedThread": "đã tạo một chủ đề:",
         "chat.system.deletedThread": "đã xóa chủ đề:",
         "chat.system.seeAllThreads": "Xem",
@@ -4067,6 +4088,7 @@ extension L10n {
         "directMessage.noFriends": "Chưa có bạn bè để chọn",
         "directMessage.memberLimitReached": "Nhóm chat chỉ có tối đa 20 thành viên.",
         "directMessage.createFailed": "Không thể tạo nhóm.",
+        "directMessage.onlyFriendsDenied": "Chỉ bạn bè mới có thể gửi tin nhắn cho người dùng này.",
         "directMessage.groupCreated": "Nhóm đã được tạo",
         "directMessage.previewAttachment": "Đính kèm",
         "directMessage.previewLink": "Liên kết",
@@ -4079,6 +4101,8 @@ extension L10n {
         "friendRequest.sent": "Đã gửi",
         "friendRequest.emptyReceivedTitle": "Không có yêu cầu kết bạn đến",
         "friendRequest.emptyReceivedDesc": "Tại đây bạn sẽ thấy tất cả các yêu cầu kết bạn mà mọi người gửi cho bạn.",
+        "friendRequest.emptySentTitle": "Chưa gửi yêu cầu kết bạn nào",
+        "friendRequest.emptySentDesc": "Các yêu cầu bạn gửi sẽ xuất hiện tại đây.",
         "friendRequest.addByTitle": "Thêm bằng tên người dùng hoặc số điện thoại",
         "friendRequest.addByQuestion": "Bạn muốn thêm ai làm bạn bè?",
         "friendRequest.addByPlaceholder": "Nhập tên người dùng hoặc số điện thoại",

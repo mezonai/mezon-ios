@@ -61,6 +61,7 @@ final class StorageMaintenance {
     func purgeAccountScopedCaches() {
         queue.async {
             try? FileManager.default.removeItem(at: VLCVideoPlayerNode.streamCacheDirectory)
+            try? FileManager.default.removeItem(at: VideoRangeCache.directory)
         }
     }
 
@@ -103,6 +104,7 @@ final class StorageMaintenance {
         let now = Date()
         let trackingStart = usageTrackingStart(now: now)
         let attachedVideoNames = VLCVideoPlayerNode.attachedStreamCacheFileNames()
+            .union(VideoRangeCache.shared.attachedFileNames())
         let resourceKeys: Set<URLResourceKey> = [
             .isRegularFileKey,
             .contentModificationDateKey,
@@ -110,7 +112,7 @@ final class StorageMaintenance {
             .fileSizeKey
         ]
         var files: [CacheFile] = []
-        for directory in [ImageCache.shared.diskCacheURL, VLCVideoPlayerNode.streamCacheDirectory] {
+        for directory in [ImageCache.shared.diskCacheURL, VLCVideoPlayerNode.streamCacheDirectory, VideoRangeCache.directory] {
             guard let urls = try? fileManager.contentsOfDirectory(
                 at: directory,
                 includingPropertiesForKeys: Array(resourceKeys),

@@ -500,7 +500,12 @@ final class EmojiTextView: UIView {
 
 
     let textView: UITextView = {
-        let tv = UITextView()
+        let tv: UITextView
+        if #available(iOS 16.0, *) {
+            tv = UITextView(usingTextLayoutManager: false)
+        } else {
+            tv = UITextView()
+        }
         tv.isEditable = false
         tv.isScrollEnabled = false
         tv.backgroundColor = .clear

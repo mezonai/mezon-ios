@@ -2566,6 +2566,7 @@ final class ChannelListViewController: ViewController {
         needsReloadPipe.putNext(())
         lastChannelFetchAtByClanId.removeValue(forKey: clanId)
         lastBadgeCountFetchAtByClanId.removeValue(forKey: clanId)
+        lastChannelAppsFetchAtByClanId.removeValue(forKey: clanId)
         fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: true, force: true)
     }
 
@@ -4195,7 +4196,6 @@ final class ChannelListViewController: ViewController {
             guard self.clanId == clanId else { return }
 
             let key = PreferencesKeys.channelApps(clanId: clanId)
-            let cachedData = self.context.account.postbox.getPreferenceData(key: key)
 
             do {
                 let apps = try await Task.detached(priority: .utility) {
@@ -4209,13 +4209,6 @@ final class ChannelListViewController: ViewController {
                         let permissive = self.channelAppsForClan(apps, clanId: clanId, fromCache: true)
                         if !permissive.isEmpty {
                             self.applyResolvedChannelApps(permissive, clanId: clanId, cacheKey: key)
-                            return
-                        }
-                    }
-                    if let cachedData, !cachedData.isEmpty {
-                        let validCached = self.channelAppsForClan(self.decodeChannelApps(cachedData), clanId: clanId, fromCache: true)
-                        if !validCached.isEmpty {
-                            self.channelListNode.updateChannelApps(validCached)
                             return
                         }
                     }

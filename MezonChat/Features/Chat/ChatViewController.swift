@@ -601,7 +601,6 @@ final class ChatViewController: ViewController {
     private lazy var shouldScrollToBottom: Bool = lastSeenMessageId == nil
     private var pendingScrollToBottom = false
     private var lastMarkedAsReadMessageId: Int64?
-    private var pendingMarkAsRead = false
     private var didMarkChannelAsReadForCurrentAppearance = false
     private var isCatchingUpAfterReconnect = false
     private var activeCatchUpRequestId: UUID?
@@ -870,6 +869,9 @@ final class ChatViewController: ViewController {
             },
             onSystemAllThreadsTapped: { [weak self] in
                 self?.openThreadListFromChat()
+            },
+            onSystemAllPinnedTapped: { [weak self] in
+                self?.openChannelDetail(initialTab: .pins)
             },
             onSystemWaveWelcomeTapped: { [weak self] display in
                 self?.sendInputViewController.sendWaveWelcome(replyingTo: display)
@@ -1357,6 +1359,7 @@ final class ChatViewController: ViewController {
         super.containerLayoutUpdated(layout, transition: transition)
         let layoutToApply = layout
         let composerHasKeyboardFocus = sendInputViewController.view.findFirstResponder() != nil
+        let chatHasKeyboardFocus = composerHasKeyboardFocus || isMessageListHostingFirstResponder
         lastLayout = layout
 
         let bottomInset = max(layoutToApply.intrinsicInsets.bottom, layoutToApply.safeInsets.bottom)
@@ -1364,13 +1367,13 @@ final class ChatViewController: ViewController {
         let shouldIgnoreNotificationKeyboardInset =
             shouldReconcileKeyboardAfterNotificationNavigation
             && layoutInputH > bottomInset + 1
-            && !composerHasKeyboardFocus
+            && !chatHasKeyboardFocus
         let rawInputH: CGFloat
         if shouldIgnoreNotificationKeyboardInset {
             rawInputH = 0
         } else if layoutInputH > 1 {
             rawInputH = layoutInputH
-        } else if composerHasKeyboardFocus, isKeyboardVisible, trackedKeyboardHeight > 0.5 {
+        } else if chatHasKeyboardFocus, isKeyboardVisible, trackedKeyboardHeight > 0.5 {
             rawInputH = trackedKeyboardHeight
         } else {
             rawInputH = layoutInputH
@@ -1379,8 +1382,7 @@ final class ChatViewController: ViewController {
         var keyboardOffset = rawKeyboardOffset
 
         if keyboardOffset > 0 {
-            let hasComposerFirstResponder = sendInputViewController.view.findFirstResponder() != nil
-            if !hasComposerFirstResponder {
+            if !chatHasKeyboardFocus {
                 keyboardOffset = 0
             }
         }
@@ -1719,9 +1721,6 @@ final class ChatViewController: ViewController {
     @objc private func handleSocketReconnected(_ notification: Notification) {
         guard !hasLeftChat else { return }
         guard let isConnected = notification.userInfo?["isConnected"] as? Bool, isConnected else { return }
-        if pendingMarkAsRead {
-            markChannelAsRead()
-        }
         refreshMessagesAfterReconnect()
     }
 
@@ -2059,6 +2058,11 @@ final class ChatViewController: ViewController {
         if succeeded {
             hasCompletedInitialFetch = true
             messageHistoryRetryCount = 0
+            if didMarkChannelAsReadForCurrentAppearance, !hasMoreNewer,
+               viewIfLoaded?.window != nil,
+               UIApplication.shared.applicationState == .active {
+                markChannelAsRead()
+            }
         } else {
             pendingScrollToBottom = false
         }
@@ -2535,12 +2539,7 @@ final class ChatViewController: ViewController {
 
         if let already = lastMarkedAsReadMessageId, messageId <= already { return }
 
-        guard context.account.socket.isConnected else {
-            pendingMarkAsRead = true
-            return
-        }
         lastMarkedAsReadMessageId = messageId
-        pendingMarkAsRead = false
 
         var channelUnreadCount = channel.countMessUnread
         if clanId != 0, topicId == 0 {
@@ -2567,6 +2566,9 @@ final class ChatViewController: ViewController {
             timestampSeconds: now,
             badgeCount: clanId != 0 && topicId == 0 ? channelUnreadCount : 0
         )
+        if clanId == 0 {
+            DmReadFloor.record(channelId: channel.channelID, messageId: messageId)
+        }
 
         NotificationCenter.default.post(
             name: Notification.Name("MezonChannelMarkedAsRead"),
@@ -4651,7 +4653,7 @@ final class ChatViewController: ViewController {
     }
 
     @objc private func keyboardWillShow(_ notification: Notification) {
-        let isInputFocused = sendInputViewController.view.findFirstResponder() != nil
+        let isInputFocused = sendInputViewController.view.findFirstResponder() != nil || isMessageListHostingFirstResponder
         let isEmojiSearchFocused = emojiPicker.isEmojiPanelSearchConsumingKeyboard
         guard isInputFocused || isEmojiSearchFocused else { return }
         isKeyboardVisible = true
@@ -4673,10 +4675,11 @@ final class ChatViewController: ViewController {
             self.containerLayoutUpdated(layout, transition: .immediate)
             self.view.layoutIfNeeded()
         }
+        messagesNode.scrollFirstResponderIntoView()
     }
 
     @objc private func keyboardWillChangeFrame(_ notification: Notification) {
-        let isInputFocused = sendInputViewController.view.findFirstResponder() != nil
+        let isInputFocused = sendInputViewController.view.findFirstResponder() != nil || isMessageListHostingFirstResponder
         let isEmojiSearchFocused = emojiPicker.isEmojiPanelSearchConsumingKeyboard
         guard isInputFocused || isEmojiSearchFocused else { return }
         guard let frame = (notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue else { return }
@@ -4689,6 +4692,7 @@ final class ChatViewController: ViewController {
             self.containerLayoutUpdated(layout, transition: .immediate)
             self.view.layoutIfNeeded()
         }
+        messagesNode.scrollFirstResponderIntoView()
     }
 
     @objc private func keyboardWillHide(_ notification: Notification) {
@@ -5519,7 +5523,7 @@ final class ChatViewController: ViewController {
         }
     }
 
-    private func openChannelDetail() {
+    private func openChannelDetail(initialTab: ChannelDetailContainerNode.AssetTab? = nil) {
         var ch = channel
         let protoLabel = ch.channelLabel.trimmingCharacters(in: .whitespacesAndNewlines)
         if protoLabel.isEmpty {
@@ -5529,7 +5533,8 @@ final class ChatViewController: ViewController {
         let vc = ChannelDetailViewController(
             context: self.context,
             clanId: self.clanId,
-            channel: ch
+            channel: ch,
+            initialTab: initialTab
         )
         self.navigationController?.pushViewController(vc, animated: true)
     }
@@ -6580,6 +6585,10 @@ final class ChatViewController: ViewController {
         return v.findFirstResponder() != nil
     }
 
+    private var isMessageListHostingFirstResponder: Bool {
+        messagesNode.listView.view.findFirstResponder() != nil
+    }
+
     private func presentReactionEmojiPicker(for display: ChatMessageDisplay) {
         view.endEditing(true)
         let sheet = ReactionEmojiPickerSheetController(engine: context.engine) { [weak self] emojiId, shortname in
@@ -7602,11 +7611,15 @@ private final class ChannelAppHotbarBarView: UIView {
         stack.addArrangedSubview(launchButton)
         stack.addArrangedSubview(helpButton)
         addSubview(stack)
+        let stackTrailing = stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10)
+        stackTrailing.priority = UILayoutPriority(999)
+        let stackBottom = stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4)
+        stackBottom.priority = UILayoutPriority(999)
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: topAnchor, constant: 4),
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+            stackTrailing,
+            stackBottom,
         ])
         launchButton.addTarget(self, action: #selector(launchTapped), for: .touchUpInside)
         helpButton.addTarget(self, action: #selector(helpTapped), for: .touchUpInside)
