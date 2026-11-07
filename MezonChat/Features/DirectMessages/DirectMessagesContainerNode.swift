@@ -190,7 +190,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         addFriendButton.setTitleColor(UIColor.theme.textStrong, for: .normal)
         addFriendButton.tintColor = nil
         addFriendButton.imageView?.tintColor = nil
-        addFriendButton.backgroundColor = UIColor.theme.primary
+        addFriendButton.backgroundColor = UIColor.theme.tertiary
         addFriendButton.contentHorizontalAlignment = .center
         addFriendButton.contentVerticalAlignment = .center
         addFriendButton.contentEdgeInsets = UIEdgeInsets(top: 6.sh, left: 10.sw, bottom: 6.sh, right: 10.sw)
@@ -202,13 +202,13 @@ final class DirectMessagesContainerNode: ASDisplayNode {
             var searchCfg = UIButton.Configuration.filled()
             searchCfg.image = UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf))
             searchCfg.baseForegroundColor = UIColor.theme.textStrong
-            searchCfg.baseBackgroundColor = UIColor.theme.primary
+            searchCfg.baseBackgroundColor = UIColor.theme.tertiary
             searchCfg.cornerStyle = .capsule
             searchButton.configuration = searchCfg
         } else {
             searchButton.setImage(UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf)), for: .normal)
             searchButton.tintColor = UIColor.theme.textStrong
-            searchButton.backgroundColor = UIColor.theme.primary
+            searchButton.backgroundColor = UIColor.theme.tertiary
             searchButton.layer.cornerRadius = 16
         }
         searchButton.addTarget(self, action: #selector(searchTapped), for: .touchUpInside)
@@ -351,7 +351,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         gradient?.apply(to: gradientLayer, in: view.window)
 
         addFriendButton.setTitleColor(UIColor.theme.textStrong, for: .normal)
-        addFriendButton.backgroundColor = UIColor.theme.primary
+        addFriendButton.backgroundColor = t.tertiary
         addFriendButton.tintColor = nil
         addFriendButton.imageView?.tintColor = nil
         let addFriendImage = UIImage(named: "Notifications/AddFriendIcon", in: Bundle.main, compatibleWith: nil)?
@@ -368,12 +368,12 @@ final class DirectMessagesContainerNode: ASDisplayNode {
             var searchCfg = UIButton.Configuration.filled()
             searchCfg.image = UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf))
             searchCfg.baseForegroundColor = UIColor.theme.textStrong
-            searchCfg.baseBackgroundColor = UIColor.theme.primary
+            searchCfg.baseBackgroundColor = t.tertiary
             searchCfg.cornerStyle = .capsule
             searchButton.configuration = searchCfg
         } else {
             searchButton.tintColor = UIColor.theme.textStrong
-            searchButton.backgroundColor = UIColor.theme.primary
+            searchButton.backgroundColor = t.tertiary
         }
 
         createGroupButton.backgroundColor = UIColor(red: 88/255, green: 101/255, blue: 242/255, alpha: 1.0)

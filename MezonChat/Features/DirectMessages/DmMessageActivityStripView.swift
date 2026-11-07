@@ -201,7 +201,7 @@ private final class DmMessageActivityCell: UICollectionViewCell {
 
     func applyTheme() {
         let t = UIColor.theme
-        card.backgroundColor = t.raisedSurface
+        card.backgroundColor = t.tertiary
         nameLabel.textColor = t.textStrong
         subtitleLabel.textColor = t.textDisabled
     }
