@@ -365,7 +365,7 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
             texts.spacing = 6
             let radio = UIImageView(image: UIImage(systemName: selected ? "largecircle.fill.circle" : "circle"))
             radio.contentMode = .scaleAspectFit
-            radio.tintColor = selected ? accent : EventEditorPalette.border
+            radio.tintColor = selected ? accent : UIColor.theme.textDisabled
             radio.widthAnchor.constraint(equalToConstant: 26).isActive = true
             radio.heightAnchor.constraint(equalToConstant: 26).isActive = true
             let row = UIStackView(arrangedSubviews: [icon, texts, radio])
@@ -390,7 +390,8 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
         body.addArrangedSubview(optionStack)
         if draft.locationType == .voice {
             let field = EventEditorFieldButton(caption: L(L10n.EventEditor.voice))
-            field.setValue(channelLabel(draft.voiceChannelId) ?? L(L10n.EventEditor.pickChannel))
+            let value = channelLabel(draft.voiceChannelId)
+            field.setValue(value ?? L(L10n.EventEditor.pickChannel), isPlaceholder: value == nil)
             field.action = { [weak self] in self?.pickChannel(voice: true) }
             body.addArrangedSubview(field)
         } else if draft.locationType == .location {
@@ -398,7 +399,8 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
         }
         if draft.locationType != .external {
             let field = EventEditorFieldButton(caption: L(L10n.EventEditor.announcement))
-            field.setValue(channelLabel(draft.announcementChannelId) ?? L(L10n.EventEditor.pickChannel))
+            let value = channelLabel(draft.announcementChannelId)
+            field.setValue(value ?? L(L10n.EventEditor.pickChannel), isPlaceholder: value == nil)
             field.action = { [weak self] in self?.pickChannel(voice: false) }
             body.addArrangedSubview(field)
         }

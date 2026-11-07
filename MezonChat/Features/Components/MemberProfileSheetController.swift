@@ -156,7 +156,7 @@ private final class VoiceChannelMeetActionConfirmViewController: UIViewControlle
             for: .normal)
         cancelBtn.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
         cancelBtn.setTitleColor(UIColor.theme.textStrong, for: .normal)
-        cancelBtn.backgroundColor = UIColor.theme.tertiary
+        cancelBtn.backgroundColor = UIColor.theme.raisedSurface
         cancelBtn.layer.cornerRadius = 12
         cancelBtn.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
 
@@ -886,7 +886,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
                 with: UIFont.systemFont(ofSize: 15.sf, weight: .semibold),
                 with: danger,
                 for: .normal)
-            removeFromGroupButton.backgroundColor = t.tertiary
+            removeFromGroupButton.backgroundColor = t.raisedSurface
             removeFromGroupButton.cornerRadius = 10.sf
             removeFromGroupButton.clipsToBounds = true
             infoCardNode.addSubnode(removeFromGroupButton)
@@ -1564,7 +1564,7 @@ private final class ProfileRoleChipView: UIView {
         self.onRemoveTapped = onRemoveTapped
         super.init(frame: .zero)
 
-        backgroundColor = UIColor.theme.tertiary
+        backgroundColor = UIColor.theme.raisedSurface
         layer.cornerRadius = 8.sf
         clipsToBounds = true
 
@@ -1685,7 +1685,7 @@ private final class ProfileActionButton: ASDisplayNode {
         super.init()
 
         let t = UIColor.theme
-        backgroundColor = t.tertiary
+        backgroundColor = t.raisedSurface
         cornerRadius = 10.sf
 
         let color = isGreen ? UIColor(red: 0.3, green: 0.78, blue: 0.47, alpha: 1) : t.textStrong

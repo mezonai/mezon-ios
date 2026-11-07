@@ -19,7 +19,7 @@ private final class MediaSkeletonNode: ASDisplayNode {
         backgroundColor = t.secondaryLight
         gradientLayer.colors = [
             t.secondaryLight.cgColor,
-            t.tertiary.cgColor,
+            t.shimmerHighlight(over: t.secondaryLight).cgColor,
             t.secondaryLight.cgColor,
         ]
         gradientLayer.startPoint = CGPoint(x: 0, y: 0.5)

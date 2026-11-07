@@ -357,10 +357,8 @@ final class SettingsViewController: BaseViewController {
         iconView.translatesAutoresizingMaskIntoConstraints = false
         if let img = UIImage(named: row.icon, in: .main, compatibleWith: nil) {
             if row.icon == "Profile/ScanQR" {
-                let currentTheme = ThemeManager.shared.current
-                let effectiveTheme = currentTheme == .system ? (UIScreen.main.traitCollection.userInterfaceStyle == .dark ? AppTheme.dark : AppTheme.light) : currentTheme
                 iconView.image = img.withRenderingMode(.alwaysTemplate)
-                if effectiveTheme.interfaceStyle == .light {
+                if ThemeManager.shared.current.effectiveInterfaceStyle == .light {
                     iconView.tintColor = UIColor(hexString: "#ff6b6f76")
                 } else {
                     iconView.tintColor = UIColor(hexString: "#fefefe")

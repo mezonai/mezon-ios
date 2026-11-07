@@ -1021,7 +1021,7 @@ final class ExternalMeetingLinkSheetViewController: UIViewController {
     @objc private func applyTheme() {
         view.backgroundColor = UIColor.theme.secondary
         grabber.backgroundColor = UIColor.theme.textDisabled.withAlphaComponent(0.5)
-        dismissButton.backgroundColor = UIColor.theme.tertiary
+        dismissButton.backgroundColor = UIColor.theme.raisedSurface
         dismissButton.tintColor = UIColor.theme.textStrong
         titleLabel.textColor = UIColor.theme.textStrong
         iconOuter.backgroundColor = EventDisplayHelper.externalEventBadgeColor.withAlphaComponent(0.16)
@@ -1030,7 +1030,7 @@ final class ExternalMeetingLinkSheetViewController: UIViewController {
         promptLabel.textColor = UIColor.theme.textDisabled
         EventDisplayHelper.applyJoinInAppStyle(joinButton, iconHeight: 16)
         joinButton.setTitleColor(.white, for: .highlighted)
-        browserButton.backgroundColor = UIColor.theme.tertiary
+        browserButton.backgroundColor = UIColor.theme.raisedSurface
         browserButton.tintColor = UIColor.theme.textStrong
         browserButton.setTitleColor(UIColor.theme.textStrong, for: .normal)
         browserButton.setTitleColor(UIColor.theme.textStrong, for: .highlighted)

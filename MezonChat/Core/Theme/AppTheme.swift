@@ -22,7 +22,6 @@ struct ThemeGradient {
         let size = reference.size
         guard bounds.width > 0, bounds.height > 0, size.width > 0, size.height > 0 else { return }
 
-        // Match the desktop gradient axis, which scales the shorter side before projection.
         let radians = (angle - 90) * .pi / 180
         let longestSide = max(size.width, size.height)
         let x = cos(radians) * size.width / longestSide
@@ -75,6 +74,7 @@ struct ThemeAttributes {
     private(set) var secondaryWeight: UIColor
     private(set) var secondaryLight: UIColor
     var tertiary: UIColor { desktop[.bgPrimary] }
+    var raisedSurface: UIColor { desktop[.bgSurface] }
     var border: UIColor { borderPrimary }
     let borderDim: UIColor
     let borderHighlight: UIColor
@@ -124,6 +124,10 @@ struct ThemeAttributes {
     let loginInputTextColor: UIColor
 
     var statusOnline: UIColor { desktop.semantic.statusOnline }
+
+    func shimmerHighlight(over base: UIColor) -> UIColor {
+        base.mixedWith(textStrong, alpha: 0.08)
+    }
 }
 
 enum AppTheme: String, CaseIterable {
@@ -165,10 +169,7 @@ enum AppTheme: String, CaseIterable {
         case .cisher:     return .cisher
         case .berrynade:  return .berrynade
         case .system:
-            if UIScreen.main.traitCollection.userInterfaceStyle == .dark {
-                return .dark
-            }
-            return .light
+            return effectiveInterfaceStyle == .dark ? .dark : .light
         }
     }
 
@@ -183,9 +184,14 @@ enum AppTheme: String, CaseIterable {
         }
     }
 
+    var effectiveInterfaceStyle: UIUserInterfaceStyle {
+        let style = interfaceStyle
+        guard style == .unspecified else { return style }
+        return UIScreen.main.traitCollection.userInterfaceStyle == .dark ? .dark : .light
+    }
+
     var usesLightStatusBarContent: Bool {
-        let style = self == .system ? UITraitCollection.current.userInterfaceStyle : interfaceStyle
-        return style == .dark
+        effectiveInterfaceStyle == .dark
     }
 }
 

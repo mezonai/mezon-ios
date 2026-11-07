@@ -737,7 +737,7 @@ private final class MessageActionSheetNode: ASDisplayNode {
             let circleX: CGFloat = 12
             let circleY = y + (height - circleSize) / 2
             let circleView = UIView(frame: CGRect(x: circleX, y: circleY, width: circleSize, height: circleSize))
-            circleView.backgroundColor = t.tertiary
+            circleView.backgroundColor = t.raisedSurface
             circleView.layer.cornerRadius = circleSize / 2
             circleView.clipsToBounds = true
             parent.addSubview(circleView)
@@ -1051,7 +1051,7 @@ private final class QuickMenuPickerRow: UIControl {
 
     init(name: String, showsSeparator: Bool) {
         let t = UIColor.theme
-        highlightColor = t.tertiary
+        highlightColor = t.raisedSurface
         super.init(frame: .zero)
 
         iconBackground.backgroundColor = QuickActionPalette.typeBadge.withAlphaComponent(0.18)

@@ -283,13 +283,14 @@ final class DmListItemCell: UITableViewCell {
         let isGroup = channel.type == MezonConstants.ChannelType.group.rawValue
         let displayName = displayName(for: channel)
         let isUnread = channel.countMessUnread > 0
-        let metadataColor = isUnread ? theme.textStrong : theme.textNormal
+        let metadataColor = isUnread ? theme.textStrong : theme.textDisabled
 
         nameLabel.text = displayName
         nameLabel.textColor = isUnread ? theme.textStrong : theme.textThemePrimary
         nameLabel.font = isUnread ? Self.unreadNameFont : Self.readNameFont
 
         onlineIndicator.backgroundColor = DesktopThemePalette.onlinePresenceBadge
+        onlineIndicator.layer.borderWidth = theme.desktop.conversationGradient == nil ? 2 : 0
         onlineIndicator.layer.borderColor = theme.secondary.cgColor
 
         if isGroup {

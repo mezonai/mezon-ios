@@ -106,6 +106,7 @@ struct DesktopThemePalette {
     let conversationGradient: ThemeGradient?
     let chatGradient: ThemeGradient?
     let composerGradient: ThemeGradient?
+    let primaryFillGradient: ThemeGradient?
     static let onlinePresenceBadge = color(0.1333333333, 0.7725490196, 0.368627451, 1)
 
     subscript(_ token: DesktopThemeToken) -> UIColor { colors[token.rawValue] }
@@ -235,7 +236,8 @@ struct DesktopThemePalette {
         previewGradient: nil,
         conversationGradient: nil,
         chatGradient: nil,
-        composerGradient: nil
+        composerGradient: nil,
+        primaryFillGradient: nil
     )
 
     static let light = DesktopThemePalette(
@@ -339,7 +341,8 @@ struct DesktopThemePalette {
         previewGradient: nil,
         conversationGradient: nil,
         chatGradient: nil,
-        composerGradient: nil
+        composerGradient: nil,
+        primaryFillGradient: nil
     )
 
     static let sunrise = DesktopThemePalette(
@@ -455,7 +458,8 @@ struct DesktopThemePalette {
             (0.4807, color(0.9652945, 0.934705, 0.9088225, 1)),
             (0.7604, color(0.9476485, 0.937648, 0.8858815, 1)),
         ], viewportAnchored: true),
-        composerGradient: nil
+        composerGradient: nil,
+        primaryFillGradient: nil
     )
 
     static let redDark = DesktopThemePalette(
@@ -569,7 +573,11 @@ struct DesktopThemePalette {
             (0.1617, color(0.24345, 0.0846, 0.11295, 1)),
             (0.72, color(0.06345, 0.02835, 0.0477, 1)),
         ]),
-        composerGradient: nil
+        composerGradient: nil,
+        primaryFillGradient: ThemeGradient(angle: 64.92, stops: [
+            (0.1617, color(0.1623, 0.0564, 0.0753, 1)),
+            (0.72, color(0.0423, 0.0189, 0.0318, 1)),
+        ])
     )
 
     static let purpleHaze = DesktopThemePalette(
@@ -689,7 +697,8 @@ struct DesktopThemePalette {
             (0.78, color(0.120122, 0.064, 0.2, 1)),
             (1.0, color(0.04712, 0.122888, 0.18488, 1)),
         ], viewportAnchored: true),
-        composerGradient: nil
+        composerGradient: nil,
+        primaryFillGradient: nil
     )
 
     static let abyssDark = DesktopThemePalette(
@@ -806,6 +815,10 @@ struct DesktopThemePalette {
         composerGradient: ThemeGradient(angle: 154.19, stops: [
             (0.1121, color(0.148674, 0.1668548, 0.3588548, 1)),
             (0.6192, color(0.047874, 0.1092548, 0.2148548, 1)),
+        ]),
+        primaryFillGradient: ThemeGradient(angle: 48.17, stops: [
+            (0.1121, color(0.078, 0.09, 0.204, 1)),
+            (0.6192, color(0.021, 0.036, 0.084, 1)),
         ])
     )
 
@@ -922,6 +935,10 @@ struct DesktopThemePalette {
         composerGradient: ThemeGradient(angle: 141.68, stops: [
             (0.0557, color(0.120785, 0.07, 0.229215, 1)),
             (0.7125, color(0.300587, 0.174314, 0.102942, 1)),
+        ]),
+        primaryFillGradient: ThemeGradient(angle: 141.68, stops: [
+            (0.2757, color(0.084705, 0.047058, 0.164706, 1)),
+            (0.7125, color(0.257646, 0.149412, 0.088236, 1)),
         ])
     )
 
@@ -1035,7 +1052,11 @@ struct DesktopThemePalette {
             (0.311, color(0.992941, 0.955294, 0.881764, 1)),
             (0.6709, color(0.9899995, 0.9282355, 0.901765, 1)),
         ]),
-        composerGradient: nil
+        composerGradient: nil,
+        primaryFillGradient: ThemeGradient(angle: 180.0, stops: [
+            (0.311, color(0.983529, 0.895686, 0.724116, 1)),
+            (0.6709, color(0.9766655, 0.8325495, 0.770785, 1)),
+        ])
     )
 
     static let berrynade = DesktopThemePalette(
@@ -1151,7 +1172,12 @@ struct DesktopThemePalette {
             (0.4976, color(0.152156, 0.083922, 0.025098, 1)),
             (0.8072, color(0.181176, 0.129412, 0.02902, 1)),
         ]),
-        composerGradient: nil
+        composerGradient: nil,
+        primaryFillGradient: ThemeGradient(angle: 161.03, stops: [
+            (0.1879, color(0.205881, 0.030588, 0.127059, 1)),
+            (0.4976, color(0.228234, 0.125883, 0.037647, 1)),
+            (0.8072, color(0.271764, 0.194118, 0.04353, 1)),
+        ])
     )
 
     private static func color(_ red: CGFloat, _ green: CGFloat, _ blue: CGFloat, _ alpha: CGFloat) -> UIColor {

@@ -49,6 +49,8 @@ final class ChannelPermissionsViewController: BaseViewController {
     private let whoCanAccessLabel = UILabel()
     private let listCard = UIView()
     private let listContentStack = UIStackView()
+    private var listSectionHeaders: [(label: UILabel, localizationKey: String)] = []
+    private var listSeparators: [UIView] = []
     private let emptyAdvancedLabel = UILabel()
 
     init(
@@ -96,7 +98,7 @@ final class ChannelPermissionsViewController: BaseViewController {
         listCard.backgroundColor = UIColor.theme.primary
         emptyAdvancedLabel.textColor = UIColor.theme.textDisabled
         refreshVisibility()
-        rebuildList()
+        applyListTheme()
     }
 
     override func setupBindings() {
@@ -510,7 +512,20 @@ final class ChannelPermissionsViewController: BaseViewController {
         reloadLocalData()
     }
 
+    private func applyListTheme() {
+        for case let row as ChannelPermissionsRowView in listContentStack.arrangedSubviews {
+            row.applyTheme()
+        }
+        for header in listSectionHeaders {
+            header.label.text = "\(L(header.localizationKey)):"
+            header.label.textColor = UIColor.theme.textStrong
+        }
+        listSeparators.forEach { $0.backgroundColor = UIColor.theme.borderPrimary }
+    }
+
     private func rebuildList() {
+        listSectionHeaders.removeAll()
+        listSeparators.removeAll()
         listContentStack.arrangedSubviews.forEach {
             listContentStack.removeArrangedSubview($0)
             $0.removeFromSuperview()
@@ -518,7 +533,7 @@ final class ChannelPermissionsViewController: BaseViewController {
         let isAdvanced = currentTab == .advanced
 
         if !channelRoles.isEmpty {
-            listContentStack.addArrangedSubview(makeSubHeader(L(L10n.ChannelPermission.roles)))
+            listContentStack.addArrangedSubview(makeSubHeader(L10n.ChannelPermission.roles))
             for (idx, role) in channelRoles.enumerated() {
                 let row = makeRoleRow(role, advanced: isAdvanced)
                 listContentStack.addArrangedSubview(row)
@@ -531,7 +546,7 @@ final class ChannelPermissionsViewController: BaseViewController {
             if !channelRoles.isEmpty {
                 listContentStack.addArrangedSubview(makeSeparator())
             }
-            listContentStack.addArrangedSubview(makeSubHeader(L(L10n.ChannelPermission.members)))
+            listContentStack.addArrangedSubview(makeSubHeader(L10n.ChannelPermission.members))
             for (idx, member) in channelMembers.enumerated() {
                 let row = makeMemberRow(member, advanced: isAdvanced)
                 listContentStack.addArrangedSubview(row)
@@ -676,12 +691,13 @@ final class ChannelPermissionsViewController: BaseViewController {
 
     // MARK: - Row builders
 
-    private func makeSubHeader(_ title: String) -> UIView {
+    private func makeSubHeader(_ localizationKey: String) -> UIView {
         let v = UIView()
         let l = UILabel()
-        l.text = "\(title):"
+        l.text = "\(L(localizationKey)):"
         l.font = .systemFont(ofSize: 14.sf, weight: .semibold)
         l.textColor = UIColor.theme.textStrong
+        listSectionHeaders.append((label: l, localizationKey: localizationKey))
         l.translatesAutoresizingMaskIntoConstraints = false
         v.addSubview(l)
         NSLayoutConstraint.activate([
@@ -698,6 +714,7 @@ final class ChannelPermissionsViewController: BaseViewController {
         v.translatesAutoresizingMaskIntoConstraints = false
         v.heightAnchor.constraint(equalToConstant: 0.5).isActive = true
         v.backgroundColor = UIColor.theme.borderPrimary
+        listSeparators.append(v)
         return v
     }
 

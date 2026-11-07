@@ -48,14 +48,13 @@ final class ChannelListContainerNode: ASDisplayNode {
     private let compactViewThreshold = 3
     private var isCompactView: Bool { channelApps.count <= compactViewThreshold }
     private let gradientLayer = CAGradientLayer()
+    private let headerGradientLayer = CAGradientLayer()
 
     private var state: ChannelListState = .empty
     private var threadLookup: [Int64: [Mezon_Api_ChannelDescription]] = [:]
 
     private var cachedRows: [Int: [ChannelListRow]] = [:]
 
-    // Keep category titles in Texture's row map so titles and channels commit
-    // together. UIKit section headers have a separate, floating view lifecycle.
     private static let categoryHeaderRowCount = 1
 
     private func channelIndexPath(row: Int, section: Int) -> IndexPath {
@@ -105,10 +104,6 @@ final class ChannelListContainerNode: ASDisplayNode {
         guard clanChanged else { return false }
         headerClanId = clanId
         clanSwitchGeneration &+= 1
-        // A -> B -> A can coalesce back to the state already on screen. Rebind
-        // retained cells to this visit even if the controller emits no new state.
-        // Preserve a newer queued snapshot for this clan, including initial cache
-        // hydration arriving before the header is configured.
         if state.clanId == clanId, latestCoalescedChannelListState?.clanId != clanId {
             enqueueChannelListState(state)
         }
@@ -210,7 +205,6 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private func applyChannelListStateTransition(to newState: ChannelListState) {
-        // A delivered state may still be queued when configure switches clans.
         guard !hasConfiguredClan || newState.clanId == headerClanId else { return }
         let prevState = state
         if let msg = newState.errorMessage, msg != prevState.errorMessage {
@@ -1512,7 +1506,6 @@ final class ChannelListContainerNode: ASDisplayNode {
         applyClanHeaderMetrics(hasBanner: false)
 
         headerUIView.applyTheme()
-        headerUIView.backgroundColor = UIColor.theme.secondary
         headerUIView.onSearchTapped = interaction.onSearchTapped
         headerUIView.onEventTapped = interaction.onEventTapped
         headerUIView.onClanTitleTap = { [weak self] in
@@ -1524,6 +1517,9 @@ final class ChannelListContainerNode: ASDisplayNode {
             height: currentHeaderH)
         view.addSubview(headerUIView)
         headerUIView.layer.zPosition = 100
+        headerUIView.clipsToBounds = true
+        headerUIView.layer.insertSublayer(headerGradientLayer, at: 0)
+        applyHeaderBackground()
 
         newUnreadButton.layer.zPosition = 85
         newUnreadButton.addTarget(self, action: #selector(newUnreadButtonTapped), for: .touchUpInside)
@@ -1566,6 +1562,11 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     override func didEnterHierarchy() {
         super.didEnterHierarchy()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        UIColor.theme.desktop.conversationGradient?.updateDirection(on: gradientLayer, in: isNodeLoaded ? view.window : nil)
+        updateHeaderGradientLayout()
+        CATransaction.commit()
         drainPendingVisibleReconcile()
     }
 
@@ -1845,7 +1846,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         gradientLayer.frame = CGRect(origin: .zero, size: layout.size)
-        UIColor.theme.desktop.conversationGradient?.updateDirection(on: gradientLayer)
+        UIColor.theme.desktop.conversationGradient?.updateDirection(on: gradientLayer, in: isNodeLoaded ? view.window : nil)
         CATransaction.commit()
 
         let topInset: CGFloat = 0
@@ -1890,6 +1891,28 @@ final class ChannelListContainerNode: ASDisplayNode {
         let contentOffsetY = tableNode.view.contentOffset.y
         let headerY = max(0, bannerHeight - contentOffsetY)
         headerUIView.frame = CGRect(x: 0, y: stickyTopOffset + headerY, width: tableNode.bounds.width, height: currentHeaderH)
+        updateHeaderGradientLayout()
+    }
+
+    private func applyHeaderBackground() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        headerUIView.backgroundColor = UIColor.theme.secondary
+        headerGradientLayer.isHidden = gradientLayer.isHidden
+        headerGradientLayer.colors = gradientLayer.colors
+        headerGradientLayer.locations = gradientLayer.locations
+        updateHeaderGradientLayout()
+        CATransaction.commit()
+    }
+
+    private func updateHeaderGradientLayout() {
+        guard isNodeLoaded, !headerGradientLayer.isHidden else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        headerGradientLayer.frame = headerUIView.layer.convert(gradientLayer.bounds, from: gradientLayer)
+        headerGradientLayer.startPoint = gradientLayer.startPoint
+        headerGradientLayer.endPoint = gradientLayer.endPoint
+        CATransaction.commit()
     }
 
     func markClanSwitching() {
@@ -2262,8 +2285,6 @@ final class ChannelListContainerNode: ASDisplayNode {
         if isCompactView {
             return isChannelAppsExpanded ? channelApps.count : 0
         }
-        // The horizontal stripe has no header to expand it again. Keep it
-        // visible if realtime app updates cross the compact-view threshold.
         return 1
     }
 
@@ -2314,14 +2335,17 @@ final class ChannelListContainerNode: ASDisplayNode {
     func applyTheme() {
         let t = UIColor.theme
         let gradient = t.desktop.conversationGradient
+        headerUIView.applyTheme()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         gradientLayer.isHidden = gradient == nil
-        gradient?.apply(to: gradientLayer)
+        gradient?.apply(to: gradientLayer, in: isNodeLoaded ? view.window : nil)
+        applyHeaderBackground()
+        CATransaction.commit()
         let listBackground = gradient == nil ? t.secondary : UIColor.clear
         backgroundColor = listBackground
         tableNode.backgroundColor = listBackground
         tableNode.view.backgroundColor = listBackground
-        headerUIView.applyTheme()
-        headerUIView.backgroundColor = t.secondary
         newUnreadButton.backgroundColor = UIColor.mezonUnreadBadge
         newUnreadButton.setTitleColor(.white, for: .normal)
         newUnreadButton.titleLabel?.font = .systemFont(ofSize: 11.sf, weight: .semibold)
@@ -2430,7 +2454,6 @@ final class ChannelListContainerNode: ASDisplayNode {
     private var resolvedVoiceMemberSnapshot: [String: [VoiceMemberDisplay]] = [:]
 
     private func voiceMemberSnapshotKey(for row: ChannelListRow, categoryIndex: Int) -> String {
-        // A voice channel can appear in both Favorites and its own category.
         "\(state.categories[categoryIndex].id):\(Self.rowDiffKey(row))"
     }
 
@@ -2490,8 +2513,6 @@ final class ChannelListContainerNode: ASDisplayNode {
                 let path = channelIndexPath(row: r, section: section)
                 if let node = tableNode.nodeForRow(at: path) as? VoiceMemberExpandedCellNode,
                    let member = displays.first {
-                    // Preserve the avatar image/request when only the name or
-                    // screen-sharing indicator changes.
                     node.update(member: member)
                 } else {
                     paths.append(path)
@@ -2817,7 +2838,7 @@ private final class ChannelListSkeletonCellNode: ASCellNode {
     private func attachShimmers() {
         guard shimmerLayers.isEmpty else { return }
         let base = UIColor.theme.secondaryLight
-        let highlight = UIColor.theme.tertiary
+        let highlight = UIColor.theme.shimmerHighlight(over: base)
         for n in bars {
             let layer = n.layer
             let shimmer = CAGradientLayer()
@@ -3202,18 +3223,16 @@ final class ChannelListHeaderView: UIView {
         searchBar.backgroundColor = t.tertiary
         searchIcon.tintColor = t.textDisabled
         searchLabel.textColor = t.textDisabled
-        let currentTheme = ThemeManager.shared.current
-        let effectiveTheme = currentTheme == .system ? (UITraitCollection.current.userInterfaceStyle == .dark ? AppTheme.dark : AppTheme.light) : currentTheme
         qrButton.setImage(UIImage(named: "Profile/ScanQR")?.withRenderingMode(.alwaysTemplate), for: .normal)
-        if effectiveTheme.interfaceStyle == .light {
+        if ThemeManager.shared.current.effectiveInterfaceStyle == .light {
             qrButton.tintColor = UIColor(hexString: "#ff6b6f76")
         } else {
             qrButton.tintColor = UIColor(hexString: "#fefefe")
         }
         
-        qrButton.backgroundColor = t.tertiary
+        qrButton.backgroundColor = t.raisedSurface
         qrButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
-        eventButton.backgroundColor = t.tertiary
+        eventButton.backgroundColor = t.raisedSurface
         eventButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
         separator.backgroundColor = t.borderDim
     }

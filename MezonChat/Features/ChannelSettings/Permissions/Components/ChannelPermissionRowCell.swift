@@ -219,7 +219,7 @@ final class ChannelPermissionRowCell: UITableViewCell {
             checkboxView.isHidden = false
             let symbol = checked ? "checkmark.circle.fill" : "circle"
             checkboxView.image = UIImage(systemName: symbol)?.withRenderingMode(.alwaysTemplate)
-            checkboxView.tintColor = checked ? UIColor.theme.iconPrimary : UIColor.theme.borderPrimary
+            checkboxView.tintColor = checked ? UIColor.theme.iconPrimary : UIColor.theme.textDisabled
         }
     }
 

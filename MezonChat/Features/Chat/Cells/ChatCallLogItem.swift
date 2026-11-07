@@ -52,7 +52,7 @@ final class MessageCallLogNode: ASDisplayNode {
     func configure(callLog: CallLogData, isMe: Bool, senderName: String, contentText: String, isGroupChat: Bool = false) {
         let t = UIColor.theme
 
-        containerNode.backgroundColor = t.border
+        containerNode.backgroundColor = t.secondary
         containerNode.cornerRadius = Self.containerCornerRadius
         containerNode.clipsToBounds = true
         containerNode.borderWidth = 1 / max(UIScreen.main.scale, 1)

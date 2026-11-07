@@ -56,7 +56,6 @@ final class PollCardNode: ASDisplayNode {
     private var cachedOptionSizes: [CGSize] = []
 
     private static let maxVisibleOptions = 5
-    private static let blurpleColor = UIColor(red: 88/255, green: 101/255, blue: 242/255, alpha: 1)
     private static let cardPadding: CGFloat = 16
     private static let optionGap: CGFloat = 8
     private static let footerTopPadding: CGFloat = 12
@@ -165,17 +164,17 @@ final class PollCardNode: ASDisplayNode {
         guard let pollData else { return }
         let t = UIColor.theme
 
-        cardNode.backgroundColor = t.primary
+        cardNode.backgroundColor = t.desktop[.bgActiveMemberChannel]
         cardNode.cornerRadius = 12
         cardNode.borderWidth = 1
-        cardNode.borderColor = UIColor.mezonBorder.cgColor
+        cardNode.borderColor = t.borderPrimary.cgColor
         if cardNode.supernode == nil { addSubnode(cardNode) }
 
         let questionFont = UIFont.systemFont(ofSize: 16.sf, weight: .semibold)
         cachedAttributedQuestionText = PollEmojiParser.parse(
             pollData.question,
             font: questionFont,
-            color: t.textStrong,
+            color: t.desktop[.textSecondary],
             emojiSize: 22.sf,
             lineBreakMode: .byTruncatingTail
         )
@@ -188,7 +187,7 @@ final class PollCardNode: ASDisplayNode {
             string: instructionText,
             attributes: [
                 .font: UIFont.systemFont(ofSize: 13.sf),
-                .foregroundColor: t.textDisabled,
+                .foregroundColor: t.textThemePrimary,
             ]
         )
         instructionNode.maximumNumberOfLines = 1
@@ -280,9 +279,13 @@ final class PollCardNode: ASDisplayNode {
             string: full,
             attributes: [
                 .font: UIFont.systemFont(ofSize: 12.sf),
-                .foregroundColor: pollData.isClosed ? UIColor.systemRed : t.textStrong,
+                .foregroundColor: t.textThemePrimary,
             ]
         )
+        if pollData.isClosed {
+            let endedRange = NSRange(location: (votePart as NSString).length, length: (timePart as NSString).length)
+            attr.addAttribute(.foregroundColor, value: UIColor(hex: 0xEF4444), range: endedRange)
+        }
         statsNode.attributedText = attr
         statsNode.maximumNumberOfLines = 1
     }
@@ -305,7 +308,15 @@ final class PollCardNode: ASDisplayNode {
             title = L(L10n.Poll.showResults)
         }
 
-        actionButton.backgroundColor = Self.blurpleColor
+        let t = UIColor.theme
+        let isPrimaryAction = !showResults && shouldVote
+        if isPrimaryAction {
+            actionButton.backgroundColor = t.desktop[.bgButtonPrimary]
+        } else {
+            actionButton.backgroundColor = hasVoted && !showResults ? t.desktop[.bgButtonSecondary] : .clear
+        }
+        actionButton.borderWidth = isPrimaryAction ? 0 : 1
+        actionButton.borderColor = t.borderPrimary.cgColor
         actionButton.cornerRadius = Self.actionBtnCorner
         if actionButton.supernode == nil { cardNode.addSubnode(actionButton) }
 
@@ -313,7 +324,7 @@ final class PollCardNode: ASDisplayNode {
             string: title,
             attributes: [
                 .font: UIFont.systemFont(ofSize: 13.sf, weight: .semibold),
-                .foregroundColor: UIColor.white,
+                .foregroundColor: isPrimaryAction ? t.desktop[.textSecondary] : t.textThemePrimary,
             ]
         )
         actionButtonLabel.maximumNumberOfLines = 1
@@ -346,7 +357,7 @@ final class PollCardNode: ASDisplayNode {
             string: text,
             attributes: [
                 .font: UIFont.systemFont(ofSize: 12.sf, weight: .semibold),
-                .foregroundColor: t.textStrong,
+                .foregroundColor: t.textThemePrimary,
             ]
         )
         loadMoreNode.maximumNumberOfLines = 1

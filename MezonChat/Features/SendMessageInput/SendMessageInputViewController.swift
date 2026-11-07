@@ -6027,14 +6027,14 @@ final class SendMessageInputViewController: UIViewController {
         refreshComposerTypingAttributesForSelection()
         placeholderLabel.font = .systemFont(ofSize: 15.sf)
         placeholderLabel.textColor = t.textDisabled
-        attachButton.backgroundColor = t.tertiary
+        attachButton.backgroundColor = t.raisedSurface
         attachButton.tintColor = t.textStrong
-        advanceButton.backgroundColor = t.tertiary
+        advanceButton.backgroundColor = t.raisedSurface
         advanceButton.tintColor = t.textStrong
-        voiceButton.backgroundColor = t.tertiary
+        voiceButton.backgroundColor = t.raisedSurface
         voiceButton.tintColor = t.textStrong
         voiceRecordingOverlay.applyTheme()
-        chevronButton.backgroundColor = t.tertiary
+        chevronButton.backgroundColor = t.raisedSurface
         chevronButton.tintColor = t.textStrong
         emojiButton.tintColor = t.textDisabled
         attachmentPreviewView.applyTheme()

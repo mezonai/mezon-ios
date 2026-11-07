@@ -403,7 +403,8 @@ private final class MockConversationRow: UIView {
         nameLabel.textColor    = attrs.text
         messageLabel.textColor = attrs.textDisabled
         timeLabel.textColor    = attrs.textDisabled
-        onlineDot.backgroundColor = attrs.statusOnline
+        onlineDot.backgroundColor = DesktopThemePalette.onlinePresenceBadge
+        onlineDot.layer.borderWidth = attrs.desktop.conversationGradient == nil ? 2 : 0
         onlineDot.layer.borderColor = attrs.secondary.cgColor
     }
 }

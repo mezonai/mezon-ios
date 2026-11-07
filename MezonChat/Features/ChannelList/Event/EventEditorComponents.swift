@@ -1,7 +1,6 @@
 import UIKit
 
 enum EventEditorPalette {
-    // Match Android's event editor roles without changing the app-wide palette.
     static var surface: UIColor { UIColor.theme.primary }
     static var field: UIColor { UIColor.theme.secondaryLight }
     static var border: UIColor { UIColor.theme.borderPrimary }
@@ -42,7 +41,7 @@ final class EventEditorFieldButton: UIControl {
         captionLabel.textColor = EventEditorPalette.secondaryText
         captionLabel.numberOfLines = 0
         valueLabel.font = .systemFont(ofSize: 14)
-        valueLabel.textColor = EventEditorPalette.secondaryText
+        valueLabel.textColor = UIColor.theme.textStrong
         valueLabel.numberOfLines = 2
         let chevron = UIImageView(image: UIImage(systemName: "chevron.right"))
         chevron.tintColor = UIColor.theme.textDisabled
@@ -70,8 +69,9 @@ final class EventEditorFieldButton: UIControl {
     }
     required init?(coder: NSCoder) { fatalError() }
     @objc private func tapped() { action?() }
-    func setValue(_ value: String) {
+    func setValue(_ value: String, isPlaceholder: Bool = false) {
         valueLabel.text = value
+        valueLabel.textColor = isPlaceholder ? EventEditorPalette.secondaryText : UIColor.theme.textStrong
         accessibilityValue = value
     }
 }
@@ -346,10 +346,6 @@ final class EventEditorDateViewController: UIViewController {
         titleLabel.textColor = UIColor.theme.textStrong
         done.setTitleColor(EventEditorPalette.accent, for: .normal)
         picker.tintColor = EventEditorPalette.accent
-        let currentTheme = ThemeManager.shared.current
-        let effectiveTheme = currentTheme == .system
-            ? (traitCollection.userInterfaceStyle == .dark ? AppTheme.dark : AppTheme.light)
-            : currentTheme
-        picker.overrideUserInterfaceStyle = (effectiveTheme.interfaceStyle == .light) ? .light : .dark
+        picker.overrideUserInterfaceStyle = ThemeManager.shared.current.effectiveInterfaceStyle
     }
 }
