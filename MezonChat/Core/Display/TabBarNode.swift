@@ -20,6 +20,45 @@ private enum TabBarLayoutScale {
     }
 }
 
+private extension AppTheme {
+    var usesLightTabBarIconColors: Bool {
+        self == .light || self == .cisher || (self == .system && effectiveInterfaceStyle == .light)
+    }
+
+    var tabBarSelectedTextColor: UIColor {
+        UIColor(hex: effectiveInterfaceStyle == .light ? 0x070709 : 0xDFE0E4)
+    }
+
+    var tabBarSelectedIconColor: UIColor {
+        switch self {
+        case .dark, .berrynade:
+            return UIColor(hex: 0x5A62F4)
+        case .light, .cisher:
+            return UIColor(hex: 0xC0C8F2)
+        case .sunrise:
+            return UIColor(hex: 0xEC5A6B)
+        case .redDark:
+            return UIColor(hex: 0xD62940)
+        case .purpleHaze:
+            return UIColor(hex: 0xA78BFA)
+        case .abyssDark:
+            return UIColor(hex: 0x5A48FB)
+        case .sunset:
+            return UIColor(hex: 0xFF873C)
+        case .system:
+            return (effectiveInterfaceStyle == .light ? AppTheme.light : .dark).tabBarSelectedIconColor
+        }
+    }
+
+    var tabBarUnselectedIconColor: UIColor {
+        usesLightTabBarIconColors ? UIColor(hex: 0xCECECE) : attributes.iconSecondary
+    }
+
+    var tabBarSelectedFaceColor: UIColor {
+        usesLightTabBarIconColors ? UIColor(hex: 0x475ED9) : tabBarSelectedTextColor
+    }
+}
+
 public struct TabBarNodeItem {
     public let item: UITabBarItem
 
@@ -103,8 +142,8 @@ final class TabBarItemNode: ASDisplayNode {
 
         let fontSize: CGFloat = 10 * s
         let labelFont = UIFont.systemFont(ofSize: fontSize, weight: isSelected ? .semibold : .regular)
-        let theme = UIColor.theme
-        let labelColor = isSelected ? theme.desktop[.textSecondary] : theme.textNormal
+        let theme = ThemeManager.shared.current
+        let labelColor = isSelected ? theme.tabBarSelectedTextColor : theme.attributes.channelNormal
         labelNode.attributedText = NSAttributedString(
             string: item.title ?? "",
             attributes: [.font: labelFont, .foregroundColor: labelColor]
@@ -146,14 +185,12 @@ final class TabBarItemNode: ASDisplayNode {
     private func applyStyle(selected: Bool) {
         let icon = selected ? (item.selectedImage ?? item.image) : item.image
         primaryIconNode.image = icon?.withRenderingMode(.alwaysTemplate)
-        let theme = UIColor.theme
-        let accent = theme.desktop[.colorTextActiveButton]
-        let inactive = theme.desktop[.bgIconTheme]
-        primaryIconNode.tintColor = selected ? accent : inactive.withAlphaComponent(0.6)
+        let theme = ThemeManager.shared.current
+        primaryIconNode.tintColor = selected ? theme.tabBarSelectedIconColor : theme.tabBarUnselectedIconColor
         if let faceName = item.mezonTabBarFaceAssetName,
            let face = UIImage(named: faceName, in: Self.imageBundle, compatibleWith: nil) {
             faceIconNode.image = face.withRenderingMode(.alwaysTemplate)
-            faceIconNode.tintColor = selected ? theme.primary : inactive
+            faceIconNode.tintColor = selected ? theme.tabBarSelectedFaceColor : theme.attributes.borderRadio
             faceIconNode.isHidden = false
         } else {
             faceIconNode.image = nil
