@@ -1200,7 +1200,8 @@ final class AttachmentUploadCoordinator {
         token: String
     ) async throws -> (cdnURL: String, pending: PendingMinIOUpload) {
         let progressKey = fileURL.path
-        if FileIngest.isCandidate(filetype: filetype, filename: filename, size: size) {
+        if FileIngest.isCandidate(filetype: filetype, filename: filename, size: size),
+           await FileIngest.supportsHLS(fileURL: fileURL) {
             let info = try await context.account.network.uploadAttachmentFile(
                 filename: filename, filetype: filetype, size: size,
                 width: width, height: height, channelId: channelId, token: token)

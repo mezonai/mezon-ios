@@ -7929,8 +7929,9 @@ extension SendMessageInputViewController: UIDocumentPickerDelegate {
 
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
         var didHitLimit = false
+        var videoFiles: [PickedFileInfo] = []
         for url in urls {
-            guard remainingAttachmentSlots > 0 else { didHitLimit = true; break }
+            guard remainingAttachmentSlots - videoFiles.count > 0 else { didHitLimit = true; break }
             let filename = url.lastPathComponent
             let ext = url.pathExtension.lowercased()
             let filetype = Self.mimeType(for: ext)
@@ -7939,11 +7940,41 @@ extension SendMessageInputViewController: UIDocumentPickerDelegate {
             let fileSize = (try? FileManager.default.attributesOfItem(atPath: stableURL.path)[.size] as? Int) ?? 0
 
             let fileInfo = PickedFileInfo(url: stableURL, filename: filename, filesize: fileSize, filetype: filetype)
-            pickedFiles.append(fileInfo)
-            attachmentPreviewView.addFile(fileInfo)
+            if filetype.hasPrefix("video/") {
+                videoFiles.append(fileInfo)
+            } else {
+                pickedFiles.append(fileInfo)
+                attachmentPreviewView.addFile(fileInfo)
+            }
         }
         if didHitLimit { notifyAttachmentLimitReached() }
         updatePreviewVisibility()
+        addPickedVideoFiles(videoFiles)
+    }
+
+    private func addPickedVideoFiles(_ files: [PickedFileInfo]) {
+        guard !files.isEmpty else { return }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let thumbnails = files.map { MediaPickerViewController.generateVideoThumbnail(from: $0.url) }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                var didHitLimit = false
+                for (file, thumbnail) in zip(files, thumbnails) {
+                    guard self.remainingAttachmentSlots > 0 else { didHitLimit = true; break }
+                    if let thumbnail {
+                        self.pickedFileURLs[self.pickedImages.count] = file.url
+                        self.pickedImages.append(thumbnail)
+                        self.attachmentPreviewView.addVideo(thumbnail: thumbnail)
+                    } else {
+                        self.pickedFiles.append(file)
+                        self.attachmentPreviewView.addFile(file)
+                    }
+                }
+                if didHitLimit { self.notifyAttachmentLimitReached() }
+                self.saveToCache()
+                self.updatePreviewVisibility()
+            }
+        }
     }
 
     static func copyPickedFileToStableLocation(from url: URL, ext: String) -> URL? {
