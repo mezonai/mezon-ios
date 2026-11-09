@@ -285,23 +285,10 @@ final class ChatContainerNode: ASDisplayNode {
         applyChatBackground(theme: t)
         headerNode.applyTheme()
 
-        listView.forEachItemNode { node in
-            guard let itemNode = node as? ChatMessageItemNode else { return }
-            self.findBubble(in: itemNode)?.applyCardTheme()
-        }
         reloadAllItems()
     }
 
     private func applyChatBackground(theme: ThemeAttributes) {
-        if theme.usesLegacyDarkColors {
-            backgroundColor = theme.primary
-            gradientLayer.isHidden = false
-            gradientLayer.colors = [theme.secondary.cgColor, theme.primaryGradient.cgColor]
-            gradientLayer.locations = [0, 1]
-            gradientLayer.startPoint = CGPoint(x: 0.5, y: 0)
-            gradientLayer.endPoint = CGPoint(x: 0.5, y: 1)
-            return
-        }
         let gradient = theme.desktop.chatGradient
         backgroundColor = gradient == nil ? theme.primary : .clear
         gradientLayer.isHidden = gradient == nil

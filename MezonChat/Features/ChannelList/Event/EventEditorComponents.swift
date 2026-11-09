@@ -1,20 +1,18 @@
 import UIKit
 
 enum EventEditorPalette {
-    static var dimming: UIColor { UIColor.black.withAlphaComponent(UIColor.theme.usesLegacyDarkColors ? 0.55 : 0.52) }
-    static var surface: UIColor { UIColor.theme.usesLegacyDarkColors ? UIColor.theme.secondaryLight : UIColor.theme.primary }
-    static var field: UIColor { UIColor.theme.usesLegacyDarkColors ? UIColor.theme.tertiary : UIColor.theme.secondaryLight }
-    static var border: UIColor { UIColor.theme.usesLegacyDarkColors ? UIColor.theme.textDisabled.withAlphaComponent(0.45) : UIColor.theme.borderPrimary }
-    static var accent: UIColor { UIColor.theme.usesLegacyDarkColors ? UIColor(red: 0.39, green: 0.38, blue: 0.91, alpha: 1) : UIColor.theme.iconPrimary }
-    static var secondaryText: UIColor { UIColor.theme.usesLegacyDarkColors ? UIColor.theme.text : UIColor.theme.textNormal }
-    static var fieldLabel: UIColor { UIColor.theme.usesLegacyDarkColors ? UIColor.theme.textStrong : secondaryText }
-    static var inputPlaceholder: UIColor { UIColor.theme.usesLegacyDarkColors ? UIColor.theme.textDisabled : secondaryText.withAlphaComponent(0.5) }
-    static var disabledButton: UIColor { UIColor.theme.usesLegacyDarkColors ? border : UIColor.theme.tertiary }
-    static var error: UIColor { UIColor.theme.usesLegacyDarkColors ? .systemRed : UIColor.theme.desktop.semantic.mentionBadge }
-    static var destructive: UIColor { UIColor.theme.usesLegacyDarkColors ? .systemRed : UIColor(rgb: 0xD30E0E) }
+    static var surface: UIColor { UIColor.theme.primary }
+    static var field: UIColor { UIColor.theme.secondaryLight }
+    static var border: UIColor { UIColor.theme.borderPrimary }
+    static var accent: UIColor { UIColor.theme.iconPrimary }
+    static var secondaryText: UIColor { UIColor.theme.textNormal }
+    static var inputPlaceholder: UIColor { secondaryText.withAlphaComponent(0.5) }
+    static var disabledButton: UIColor { UIColor.theme.tertiary }
+    static var error: UIColor { UIColor.theme.desktop.semantic.mentionBadge }
+    static var destructive: UIColor { UIColor(rgb: 0xD30E0E) }
 
     static func selectedBackground(alpha: CGFloat) -> UIColor {
-        UIColor.theme.usesLegacyDarkColors ? accent.withAlphaComponent(0.1) : surface.mixedWith(accent, alpha: alpha)
+        surface.mixedWith(accent, alpha: alpha)
     }
 }
 
@@ -73,7 +71,7 @@ final class EventEditorFieldButton: UIControl {
     @objc private func tapped() { action?() }
     func setValue(_ value: String, isPlaceholder: Bool = false) {
         valueLabel.text = value
-        valueLabel.textColor = isPlaceholder && !UIColor.theme.usesLegacyDarkColors ? EventEditorPalette.secondaryText : UIColor.theme.textStrong
+        valueLabel.textColor = isPlaceholder ? EventEditorPalette.secondaryText : UIColor.theme.textStrong
         accessibilityValue = value
     }
 }
@@ -191,7 +189,7 @@ final class EventEditorChoiceViewController: UIViewController, UITableViewDataSo
         searchContainer.layer.borderColor = EventEditorPalette.border.cgColor
         searchIcon.tintColor = EventEditorPalette.secondaryText
         searchField.textColor = UIColor.theme.textStrong
-        searchField.tintColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.textStrong : EventEditorPalette.accent
+        searchField.tintColor = EventEditorPalette.accent
         searchField.attributedPlaceholder = NSAttributedString(
             string: L(L10n.EventEditor.search),
             attributes: [.foregroundColor: EventEditorPalette.secondaryText]
@@ -209,16 +207,17 @@ final class EventEditorChoiceViewController: UIViewController, UITableViewDataSo
         let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
         let selected = choice.id == selectedId
         let theme = UIColor.theme
-        cell.backgroundColor = theme.usesLegacyDarkColors ? EventEditorPalette.field
-            : (allowsSearch ? (selected ? EventEditorPalette.selectedBackground(alpha: 0.10) : EventEditorPalette.field) : .clear)
+        cell.backgroundColor = allowsSearch
+            ? (selected ? EventEditorPalette.selectedBackground(alpha: 0.10) : EventEditorPalette.field)
+            : .clear
         cell.layer.cornerRadius = 12
-        cell.layer.borderWidth = selected && (allowsSearch || theme.usesLegacyDarkColors) ? 1 : 0
-        cell.layer.borderColor = (theme.usesLegacyDarkColors ? theme.bgViolet : EventEditorPalette.accent).cgColor
+        cell.layer.borderWidth = allowsSearch && selected ? 1 : 0
+        cell.layer.borderColor = EventEditorPalette.accent.cgColor
         cell.selectionStyle = .none
         let title = UILabel()
         title.text = choice.title
         title.font = .systemFont(ofSize: 16)
-        title.textColor = allowsSearch && selected && !theme.usesLegacyDarkColors ? EventEditorPalette.accent : theme.textStrong
+        title.textColor = allowsSearch && selected ? EventEditorPalette.accent : theme.textStrong
         title.numberOfLines = allowsSearch ? 1 : 0
         title.lineBreakMode = allowsSearch ? .byTruncatingTail : .byWordWrapping
         title.setContentCompressionResistancePriority(.required, for: .vertical)
@@ -228,21 +227,19 @@ final class EventEditorChoiceViewController: UIViewController, UITableViewDataSo
         if let iconName = choice.icon {
             let image = UIImage(named: iconName) ?? UIImage(systemName: iconName)
             let icon = UIImageView(image: image?.withRenderingMode(.alwaysTemplate))
-            icon.tintColor = theme.usesLegacyDarkColors ? theme.textStrong : EventEditorPalette.secondaryText
+            icon.tintColor = EventEditorPalette.secondaryText
             icon.contentMode = .scaleAspectFit
             icon.widthAnchor.constraint(equalToConstant: 24).isActive = true
             icon.heightAnchor.constraint(equalToConstant: 24).isActive = true
             row.addArrangedSubview(icon)
         }
         row.addArrangedSubview(title)
-        if selected && !theme.usesLegacyDarkColors {
+        if selected {
             let check = UIImageView(image: UIImage(systemName: "checkmark"))
             check.tintColor = EventEditorPalette.accent
             check.contentMode = .scaleAspectFit
             check.widthAnchor.constraint(equalToConstant: 20).isActive = true
             row.addArrangedSubview(check)
-        }
-        if selected {
             cell.accessibilityTraits.insert(.selected)
         }
         row.translatesAutoresizingMaskIntoConstraints = false

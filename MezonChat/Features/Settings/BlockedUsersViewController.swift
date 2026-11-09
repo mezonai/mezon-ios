@@ -311,7 +311,7 @@ final class BlockedUserItemCell: UITableViewCell {
         let t = UIColor.theme
         nameLabel.textColor = t.textStrong
         unblockButton.setTitleColor(t.textStrong, for: .normal)
-        unblockButton.backgroundColor = t.usesLegacyDarkColors ? t.border : t.primary
+        unblockButton.backgroundColor = t.primary
         separatorView.backgroundColor = t.border
     }
 

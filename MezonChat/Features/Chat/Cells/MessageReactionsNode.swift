@@ -351,7 +351,7 @@ final class ReactionPillNode: ASDisplayNode {
             string: fallbackText,
             attributes: [
                 .font: UIFont.systemFont(ofSize: 16.sf),
-                .foregroundColor: (t.usesLegacyDarkColors ? t.textStrong : t.textThemePrimary),
+                .foregroundColor: t.textThemePrimary,
             ]
         )
         addSubnode(emojiFallbackNode)
@@ -360,7 +360,7 @@ final class ReactionPillNode: ASDisplayNode {
             string: "\(reaction.count)",
             attributes: [
                 .font: UIFont.systemFont(ofSize: 12.sf, weight: .semibold),
-                .foregroundColor: (t.usesLegacyDarkColors ? t.textStrong : t.textThemePrimary),
+                .foregroundColor: t.textThemePrimary,
             ]
         )
         addSubnode(countNode)
@@ -424,12 +424,9 @@ final class ReactionPillNode: ASDisplayNode {
 
     private func applyPillColors(isSelected: Bool, theme: ThemeAttributes) {
         let brand = theme.iconPrimary
-        backgroundColor = theme.usesLegacyDarkColors
-            ? (isSelected ? UIColor(red: 0.35, green: 0.45, blue: 0.95, alpha: 0.2) : theme.secondary)
-            : (isSelected ? brand.withAlphaComponent(0.18) : theme.tertiary)
+        backgroundColor = isSelected ? brand.withAlphaComponent(0.18) : theme.tertiary
         borderWidth = isSelected ? 1 : 0
-        borderColor = isSelected
-            ? (theme.usesLegacyDarkColors ? UIColor(red: 0.35, green: 0.45, blue: 0.95, alpha: 0.6) : brand).cgColor : nil
+        borderColor = isSelected ? brand.cgColor : nil
     }
 
     func update(reaction: ParsedReaction) {
@@ -441,7 +438,7 @@ final class ReactionPillNode: ASDisplayNode {
             string: "\(reaction.count)",
             attributes: [
                 .font: UIFont.systemFont(ofSize: 12.sf, weight: .semibold),
-                .foregroundColor: (t.usesLegacyDarkColors ? t.textStrong : t.textThemePrimary),
+                .foregroundColor: t.textThemePrimary,
             ]
         )
         applyPillColors(isSelected: reaction.isMe, theme: t)
@@ -451,7 +448,7 @@ final class ReactionPillNode: ASDisplayNode {
             string: fallbackText,
             attributes: [
                 .font: UIFont.systemFont(ofSize: 16.sf),
-                .foregroundColor: (t.usesLegacyDarkColors ? t.textStrong : t.textThemePrimary),
+                .foregroundColor: t.textThemePrimary,
             ]
         )
 

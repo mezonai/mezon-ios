@@ -70,7 +70,7 @@ final class ChannelPermissionsRowView: UIView {
         nameLabel.numberOfLines = 1
 
         subLabel.font = .systemFont(ofSize: 12.sf, weight: .regular)
-        subLabel.textColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.textDisabled : UIColor.theme.textNormal
+        subLabel.textColor = UIColor.theme.textNormal
         subLabel.numberOfLines = 1
 
         ownerIcon.image = UIImage(systemName: "crown.fill")?.withRenderingMode(.alwaysTemplate)
@@ -191,8 +191,8 @@ final class ChannelPermissionsRowView: UIView {
     }
 
     func applyTheme() {
-        nameLabel.textColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.text : UIColor.theme.textStrong
-        subLabel.textColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.textDisabled : UIColor.theme.textNormal
+        nameLabel.textColor = UIColor.theme.textStrong
+        subLabel.textColor = UIColor.theme.textNormal
         chevron.tintColor = UIColor.theme.textDisabled
         switch kind {
         case .role:

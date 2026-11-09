@@ -61,42 +61,40 @@ final class ThemeFillView: UIView {
 
 struct ThemeAttributes {
     private(set) var desktop: DesktopThemePalette
-    // Keep the pre-sync iOS Dark colors without changing the desktop palettes.
-    private(set) var usesLegacyDarkColors = false
 
     var themeSettingPrimary: UIColor { desktop[.themeSettingPrimary] }
     var themeSettingNav: UIColor { desktop[.themeSettingNav] }
     var borderPrimary: UIColor { desktop[.borderPrimary] }
     var textThemePrimary: UIColor { desktop[.textThemePrimary] }
-    var textThemeMessage: UIColor { usesLegacyDarkColors ? textStrong : desktop[.textThemeMessage] }
+    var textThemeMessage: UIColor { desktop[.textThemeMessage] }
 
-    var primary: UIColor { usesLegacyDarkColors ? hex("#131318") : desktop[.bgSecondary] }
-    var primaryGradient: UIColor { usesLegacyDarkColors ? hex("#131318") : desktop.conversationGradient?.stops.first?.color ?? primary }
-    var secondary: UIColor { usesLegacyDarkColors ? hex("#1c1d23") : desktop[.bgThemeDirectMessage] }
+    var primary: UIColor { desktop[.bgSecondary] }
+    var primaryGradient: UIColor { desktop.conversationGradient?.stops.first?.color ?? primary }
+    var secondary: UIColor { desktop[.bgThemeDirectMessage] }
     private(set) var secondaryWeight: UIColor
     private(set) var secondaryLight: UIColor
-    var tertiary: UIColor { usesLegacyDarkColors ? hex("#383a43") : desktop[.bgPrimary] }
-    var raisedSurface: UIColor { usesLegacyDarkColors ? tertiary : desktop[.bgSurface] }
-    var border: UIColor { usesLegacyDarkColors ? hex("#2a2d31") : borderPrimary }
+    var tertiary: UIColor { desktop[.bgPrimary] }
+    var raisedSurface: UIColor { desktop[.bgSurface] }
+    var border: UIColor { borderPrimary }
     let borderDim: UIColor
     let borderHighlight: UIColor
     let borderRadio: UIColor
-    var text: UIColor { usesLegacyDarkColors ? hex("#CCCCCC") : desktop.semantic.textPrimary }
-    var textStrong: UIColor { usesLegacyDarkColors ? hex("#dfe0e4") : desktop.semantic.textPrimary }
-    var textDisabled: UIColor { usesLegacyDarkColors ? hex("#7b7b83") : desktop.semantic.textMuted }
-    var textNormal: UIColor { usesLegacyDarkColors ? hex("#898993") : desktop.semantic.textSecondary }
-    var iconPrimary: UIColor { usesLegacyDarkColors ? hex("#5a62f4") : desktop[.buttonThemePrimary] }
+    var text: UIColor { desktop.semantic.textPrimary }
+    var textStrong: UIColor { desktop.semantic.textPrimary }
+    var textDisabled: UIColor { desktop.semantic.textMuted }
+    var textNormal: UIColor { desktop.semantic.textSecondary }
+    var iconPrimary: UIColor { desktop[.buttonThemePrimary] }
     let iconSecondary: UIColor
     let iconTertiary: UIColor
     let white: UIColor
     let black: UIColor
-    var bgInputPrimary: UIColor { usesLegacyDarkColors ? hex("#2a2e31") : desktop[.bgThemeInputPrimary] }
+    var bgInputPrimary: UIColor { desktop[.bgThemeInputPrimary] }
     let charcoal: UIColor
     let jet: UIColor
     let channelUnread: UIColor
     let channelNormal: UIColor
     let midnightBlue: UIColor
-    var textLink: UIColor { usesLegacyDarkColors ? hex("#3297ff") : desktop[.colorMentionHover] }
+    var textLink: UIColor { desktop[.colorMentionHover] }
     let reactionBg: UIColor
     let reactionBorder: UIColor
     let selectedOverlay: UIColor
@@ -128,7 +126,7 @@ struct ThemeAttributes {
     var statusOnline: UIColor { desktop.semantic.statusOnline }
 
     func shimmerHighlight(over base: UIColor) -> UIColor {
-        usesLegacyDarkColors ? tertiary : base.mixedWith(textStrong, alpha: 0.08)
+        base.mixedWith(textStrong, alpha: 0.08)
     }
 }
 
@@ -201,7 +199,6 @@ private extension ThemeAttributes {
 
     static let dark = ThemeAttributes(
         desktop: .dark,
-        usesLegacyDarkColors: true,
         secondaryWeight:  hex("#212122"),
         secondaryLight:   hex("#26272f"),
         borderDim:        hex("#2f2f37"),
@@ -521,7 +518,6 @@ private extension ThemeAttributes {
     private func adapting(to palette: DesktopThemePalette) -> ThemeAttributes {
         var theme = self
         theme.desktop = palette
-        theme.usesLegacyDarkColors = false
         theme.secondaryWeight = palette[.bgActiveFriendList]
         theme.secondaryLight = palette[.bgSurface]
         if let preview = palette.previewGradient {

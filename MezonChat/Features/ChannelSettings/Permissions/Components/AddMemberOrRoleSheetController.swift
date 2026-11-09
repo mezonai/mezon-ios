@@ -58,18 +58,17 @@ final class AddMemberOrRoleSheetController: UIViewController {
     deinit { NotificationCenter.default.removeObserver(self) }
 
     @objc private func applyTheme() {
-        let primaryTextColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.text : UIColor.theme.textStrong
         view.backgroundColor = .mezonSecondary
-        titleLabel.textColor = primaryTextColor
-        cancelButton.setTitleColor(UIColor.theme.usesLegacyDarkColors ? UIColor.theme.textDisabled : UIColor.theme.textNormal, for: .normal)
+        titleLabel.textColor = UIColor.theme.textStrong
+        cancelButton.setTitleColor(UIColor.theme.textNormal, for: .normal)
         addButton.setTitleColor(UIColor.theme.iconPrimary, for: .normal)
-        searchContainer.backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.tertiary : UIColor.theme.primary
-        searchField.textColor = primaryTextColor
+        searchContainer.backgroundColor = UIColor.theme.primary
+        searchField.textColor = UIColor.theme.textStrong
         searchField.tintColor = UIColor.theme.iconPrimary
-        searchIcon.tintColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.textDisabled : UIColor.theme.textNormal
+        searchIcon.tintColor = UIColor.theme.textNormal
         searchField.attributedPlaceholder = NSAttributedString(
             string: L(L10n.ChannelPermission.searchPlaceholder),
-            attributes: [.foregroundColor: UIColor.theme.usesLegacyDarkColors ? UIColor.theme.textDisabled : UIColor.theme.textNormal]
+            attributes: [.foregroundColor: UIColor.theme.textNormal]
         )
         tableView.reloadData()
     }
@@ -81,7 +80,7 @@ final class AddMemberOrRoleSheetController: UIViewController {
         titleLabel.textAlignment = .center
 
         cancelButton.setTitle(L(L10n.Common.cancel), for: .normal)
-        cancelButton.setTitleColor(UIColor.theme.usesLegacyDarkColors ? UIColor.theme.textDisabled : UIColor.theme.textNormal, for: .normal)
+        cancelButton.setTitleColor(UIColor.theme.textNormal, for: .normal)
         cancelButton.titleLabel?.font = .systemFont(ofSize: 14.sf, weight: .regular)
         cancelButton.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
 
@@ -108,7 +107,7 @@ final class AddMemberOrRoleSheetController: UIViewController {
     }
 
     private func setupSearch() {
-        searchContainer.backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.tertiary : UIColor.theme.primary
+        searchContainer.backgroundColor = UIColor.theme.primary
         searchContainer.layer.cornerRadius = 10.swh
         searchContainer.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(searchContainer)

@@ -434,12 +434,11 @@ private final class MessageActionSheetNode: ASDisplayNode {
         self.dimmingNode.alpha = 0
 
         let t = UIColor.theme
-        // Match the Android Dark sheet surface and drag handle.
-        self.containerNode.backgroundColor = t.usesLegacyDarkColors ? UIColor(hex: 0x1C1B1F) : t.primary
+        self.containerNode.backgroundColor = t.primary
         self.containerNode.cornerRadius = 14
         self.containerNode.clipsToBounds = true
 
-        self.handleNode.backgroundColor = t.usesLegacyDarkColors ? UIColor(hex: 0x938F99) : t.textDisabled
+        self.handleNode.backgroundColor = t.textDisabled
         self.handleNode.cornerRadius = 2.5
         self.handleNode.isUserInteractionEnabled = false
 
@@ -612,7 +611,6 @@ private final class MessageActionSheetNode: ASDisplayNode {
 
     private func buildEmojiRow(at y: CGFloat, screenW: CGFloat) {
         let t = UIColor.theme
-        let reactionBackground = t.usesLegacyDarkColors ? t.border : t.secondary
         let btnSize: CGFloat = 44
         let contentW = screenW - padH * 2
         let totalButtons = Self.emojiData.count + 1
@@ -626,7 +624,7 @@ private final class MessageActionSheetNode: ASDisplayNode {
         for (idx, emoji) in Self.emojiData.enumerated() {
             let btn = UIButton(type: .custom)
             btn.frame = CGRect(x: x, y: btnY, width: btnSize, height: btnSize)
-            btn.backgroundColor = reactionBackground
+            btn.backgroundColor = t.secondary
             btn.layer.cornerRadius = btnSize / 2
             btn.clipsToBounds = true
             btn.tag = idx
@@ -642,7 +640,7 @@ private final class MessageActionSheetNode: ASDisplayNode {
 
         let pickerBtn = UIButton(type: .custom)
         pickerBtn.frame = CGRect(x: x, y: btnY, width: btnSize, height: btnSize)
-        pickerBtn.backgroundColor = reactionBackground
+        pickerBtn.backgroundColor = t.secondary
         pickerBtn.layer.cornerRadius = btnSize / 2
         pickerBtn.clipsToBounds = true
         let smiley: UIImage
@@ -710,7 +708,7 @@ private final class MessageActionSheetNode: ASDisplayNode {
             if i < actions.count - 1 {
                 let sepX: CGFloat = isWarning ? 58 : 52
                 let sep = UIView(frame: CGRect(x: sepX, y: rowY + rowH - 0.5, width: contentW - sepX - 16, height: 0.5))
-                sep.backgroundColor = t.usesLegacyDarkColors ? t.tertiary : t.border
+                sep.backgroundColor = t.border
                 bg.addSubview(sep)
             }
         }
@@ -718,16 +716,8 @@ private final class MessageActionSheetNode: ASDisplayNode {
 
     private func buildActionRow(_ action: MessageAction, in parent: UIView, at y: CGFloat, width: CGFloat, height: CGFloat, isWarning: Bool = false) {
         let t = UIColor.theme
-        let warningColor = t.usesLegacyDarkColors ? UIColor(hex: 0xC61E1B) : UIColor.systemRed
-        let textColor = action.isDestructive ? warningColor : (t.usesLegacyDarkColors ? t.text : t.textStrong)
-        let iconTint = action.isDestructive ? warningColor : t.textStrong
-
-        if t.usesLegacyDarkColors {
-            let background = UIView(frame: CGRect(x: 0, y: y, width: width, height: height))
-            background.backgroundColor = t.border
-            background.isUserInteractionEnabled = false
-            parent.addSubview(background)
-        }
+        let textColor = action.isDestructive ? UIColor.systemRed : t.textStrong
+        let iconTint = action.isDestructive ? UIColor.systemRed : t.textStrong
 
         let useOriginalIconColor = action == .giveACoffee
         var iconImage: UIImage?
@@ -891,7 +881,7 @@ private final class QuickMenuPickerSheetNode: ASDisplayNode {
         dimmingNode.backgroundColor = UIColor.black.withAlphaComponent(0.4)
         dimmingNode.alpha = 0
 
-        containerNode.backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.primary : t.desktop[.bgThemeContexify]
+        containerNode.backgroundColor = t.desktop[.bgThemeContexify]
         containerNode.cornerRadius = 14
         containerNode.clipsToBounds = true
 

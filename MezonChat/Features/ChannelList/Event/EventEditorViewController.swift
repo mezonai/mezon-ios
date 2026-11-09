@@ -77,7 +77,7 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
     }
 
     private func buildShell() {
-        view.backgroundColor = EventEditorPalette.dimming
+        view.backgroundColor = UIColor.black.withAlphaComponent(0.52)
         card.backgroundColor = EventEditorPalette.surface
         card.layer.cornerRadius = 20
         card.clipsToBounds = true
@@ -161,7 +161,7 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
             if self.step == 0 { self.close() } else { self.step -= 1; self.renderStep() }
         }
         nextButton.setTitleColor(.white, for: .normal)
-        nextButton.setTitleColor(UIColor.theme.usesLegacyDarkColors ? UIColor.theme.textDisabled : EventEditorPalette.secondaryText, for: .disabled)
+        nextButton.setTitleColor(EventEditorPalette.secondaryText, for: .disabled)
         nextButton.action = { [weak self] in self?.advance() }
         spinner.color = .white
         spinner.translatesAutoresizingMaskIntoConstraints = false
@@ -220,7 +220,6 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
     }
 
     @objc private func themeChanged() {
-        view.backgroundColor = EventEditorPalette.dimming
         card.backgroundColor = EventEditorPalette.surface
         titleLabel.textColor = UIColor.theme.textStrong
         stepLabel.textColor = EventEditorPalette.secondaryText
@@ -432,13 +431,13 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
         repeatField.action = { [weak self] in self?.pickRepeat() }
         body.addArrangedSubview(repeatField)
         let descriptionCaption = label(L(L10n.EventEditor.description), size: 15, weight: .bold)
-        descriptionCaption.textColor = EventEditorPalette.fieldLabel
+        descriptionCaption.textColor = EventEditorPalette.secondaryText
         let description = UIStackView(arrangedSubviews: [descriptionCaption, descriptionView, descriptionCount])
         description.axis = .vertical
         description.spacing = 6
         body.addArrangedSubview(description)
         let coverCaption = label(L(L10n.EventEditor.cover), size: 14, weight: .bold)
-        coverCaption.textColor = EventEditorPalette.fieldLabel
+        coverCaption.textColor = EventEditorPalette.secondaryText
         body.addArrangedSubview(coverCaption)
         body.addArrangedSubview(coverContainer)
         refreshCover()
@@ -597,15 +596,15 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
         else { valid = draft.isLocationValid && draft.isDetailsValid() && (step != 2 || original.map { draft.hasChanges(from: $0) } ?? true) }
         nextButton.isEnabled = valid && !submitting && !uploading
         nextButton.backgroundColor = nextButton.isEnabled ? accent : EventEditorPalette.disabledButton
-        nextButton.setTitleColor(UIColor.theme.usesLegacyDarkColors ? UIColor.theme.textDisabled : EventEditorPalette.secondaryText, for: .disabled)
+        nextButton.setTitleColor(EventEditorPalette.secondaryText, for: .disabled)
         backButton.setTitleColor(accent, for: .normal)
-        backButton.setTitleColor(UIColor.theme.usesLegacyDarkColors ? nil : EventEditorPalette.secondaryText, for: .disabled)
+        backButton.setTitleColor(EventEditorPalette.secondaryText, for: .disabled)
         let title = step < 2 ? L10n.EventEditor.next : (original == nil ? L10n.EventEditor.create : L10n.EventEditor.update)
         nextButton.setTitle(submitting ? "" : L(title), for: .normal)
         nextButton.accessibilityLabel = L(title)
         backButton.setTitle(L(step == 0 ? L10n.EventEditor.cancel : L10n.EventEditor.back), for: .normal)
         backButton.isEnabled = !submitting
-        backButton.layer.borderColor = (backButton.isEnabled || UIColor.theme.usesLegacyDarkColors ? accent : EventEditorPalette.border).cgColor
+        backButton.layer.borderColor = (backButton.isEnabled ? accent : EventEditorPalette.border).cgColor
         closeButton.isEnabled = !submitting
         body.isUserInteractionEnabled = !submitting
         if submitting { spinner.startAnimating() } else { spinner.stopAnimating() }
@@ -814,7 +813,7 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
     }
     private func labeledField(_ title: String, field: UIView, error: UILabel) -> UIView {
         let caption = label(title, size: 15, weight: .bold)
-        caption.textColor = EventEditorPalette.fieldLabel
+        caption.textColor = EventEditorPalette.secondaryText
         if title.hasSuffix(" *") {
             let attributed = NSMutableAttributedString(string: title)
             attributed.addAttribute(.foregroundColor, value: EventEditorPalette.destructive, range: NSRange(location: (title as NSString).length - 1, length: 1))

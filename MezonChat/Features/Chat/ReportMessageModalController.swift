@@ -122,7 +122,7 @@ private final class ReportMessageModalNode: ASDisplayNode {
         dimmingNode.backgroundColor = UIColor.black.withAlphaComponent(0.4)
         dimmingNode.alpha = 0
         let t = UIColor.theme
-        containerNode.backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.primary : t.themeSettingPrimary
+        containerNode.backgroundColor = t.themeSettingPrimary
         containerNode.cornerRadius = 14
         containerNode.clipsToBounds = true
         handleNode.backgroundColor = t.textDisabled
@@ -253,7 +253,7 @@ private final class ReportMessageModalNode: ASDisplayNode {
 
             let pill = UIView()
             pill.translatesAutoresizingMaskIntoConstraints = false
-            pill.backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.secondary : t.themeSettingNav
+            pill.backgroundColor = t.themeSettingNav
             pill.layer.cornerRadius = 8
             let dot = UIView()
             dot.translatesAutoresizingMaskIntoConstraints = false
@@ -381,7 +381,7 @@ private final class ReportMessageModalNode: ASDisplayNode {
             stack.spacing = 0
             stack.layer.cornerRadius = 10
             stack.clipsToBounds = true
-            stack.backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.secondary : t.themeSettingNav
+            stack.backgroundColor = t.themeSettingNav
             root.addSubview(stack)
 
             NSLayoutConstraint.activate([

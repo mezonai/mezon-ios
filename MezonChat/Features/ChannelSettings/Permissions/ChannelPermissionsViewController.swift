@@ -81,22 +81,21 @@ final class ChannelPermissionsViewController: BaseViewController {
     }
 
     override func applyTheme() {
-        let primaryTextColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.text : UIColor.theme.textStrong
         view.backgroundColor = .mezonSecondary
         headerView.backgroundColor = .mezonSecondary
-        titleLabel.textColor = primaryTextColor
+        titleLabel.textColor = UIColor.theme.textStrong
         backButton.tintColor = UIColor.theme.textStrong
-        tabContainer.backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.tertiary : UIColor.theme.primary
-        privateToggleCard.backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.tertiary : UIColor.theme.primary
-        privateToggleLabel.textColor = primaryTextColor
+        tabContainer.backgroundColor = UIColor.theme.primary
+        privateToggleCard.backgroundColor = UIColor.theme.primary
+        privateToggleLabel.textColor = UIColor.theme.textStrong
         privateSwitch.onTintColor = UIColor.theme.iconPrimary
-        descriptionLabel.textColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.textDisabled : UIColor.theme.textNormal
-        addMemberCard.backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.tertiary : UIColor.theme.primary
-        addMemberTitleLabel.textColor = primaryTextColor
-        addMemberIcon.tintColor = primaryTextColor
+        descriptionLabel.textColor = UIColor.theme.textNormal
+        addMemberCard.backgroundColor = UIColor.theme.primary
+        addMemberTitleLabel.textColor = UIColor.theme.textStrong
+        addMemberIcon.tintColor = UIColor.theme.textStrong
         addMemberChevron.tintColor = UIColor.theme.textDisabled
-        whoCanAccessLabel.textColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.textDisabled : UIColor.theme.textNormal
-        listCard.backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.tertiary : UIColor.theme.primary
+        whoCanAccessLabel.textColor = UIColor.theme.textNormal
+        listCard.backgroundColor = UIColor.theme.primary
         emptyAdvancedLabel.textColor = UIColor.theme.textDisabled
         refreshVisibility()
         applyListTheme()
@@ -174,7 +173,7 @@ final class ChannelPermissionsViewController: BaseViewController {
     }
 
     private func setupTabs() {
-        tabContainer.backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.tertiary : UIColor.theme.primary
+        tabContainer.backgroundColor = UIColor.theme.primary
         tabContainer.layer.cornerRadius = 10.swh
         tabContainer.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(tabContainer)
@@ -255,7 +254,7 @@ final class ChannelPermissionsViewController: BaseViewController {
     }
 
     private func setupPrivateToggleCard() {
-        privateToggleCard.backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.tertiary : UIColor.theme.primary
+        privateToggleCard.backgroundColor = UIColor.theme.primary
         privateToggleCard.layer.cornerRadius = 12.swh
         privateToggleCard.translatesAutoresizingMaskIntoConstraints = false
 
@@ -295,12 +294,12 @@ final class ChannelPermissionsViewController: BaseViewController {
     private func setupDescription() {
         descriptionLabel.text = L(L10n.ChannelPermission.basicViewDescription)
         descriptionLabel.font = .systemFont(ofSize: 12.sf, weight: .regular)
-        descriptionLabel.textColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.textDisabled : UIColor.theme.textNormal
+        descriptionLabel.textColor = UIColor.theme.textNormal
         descriptionLabel.numberOfLines = 0
     }
 
     private func setupAddMemberCard() {
-        addMemberCard.backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.tertiary : UIColor.theme.primary
+        addMemberCard.backgroundColor = UIColor.theme.primary
         addMemberCard.layer.cornerRadius = 12.swh
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(openAddMemberSheet))
@@ -347,11 +346,11 @@ final class ChannelPermissionsViewController: BaseViewController {
     private func setupWhoCanAccessLabel() {
         whoCanAccessLabel.text = L(L10n.ChannelPermission.whoCanAccess)
         whoCanAccessLabel.font = .systemFont(ofSize: 12.sf, weight: .regular)
-        whoCanAccessLabel.textColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.textDisabled : UIColor.theme.textNormal
+        whoCanAccessLabel.textColor = UIColor.theme.textNormal
     }
 
     private func setupListCard() {
-        listCard.backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.tertiary : UIColor.theme.primary
+        listCard.backgroundColor = UIColor.theme.primary
         listCard.layer.cornerRadius = 12.swh
         listCard.clipsToBounds = true
 
@@ -519,12 +518,9 @@ final class ChannelPermissionsViewController: BaseViewController {
         }
         for header in listSectionHeaders {
             header.label.text = "\(L(header.localizationKey)):"
-            header.label.textColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.white : UIColor.theme.textStrong
+            header.label.textColor = UIColor.theme.textStrong
         }
-        listSeparators.forEach {
-            $0.backgroundColor = UIColor.theme.usesLegacyDarkColors
-                ? UIColor.theme.secondary.withAlphaComponent(0.4) : UIColor.theme.borderPrimary
-        }
+        listSeparators.forEach { $0.backgroundColor = UIColor.theme.borderPrimary }
     }
 
     private func rebuildList() {
@@ -700,7 +696,7 @@ final class ChannelPermissionsViewController: BaseViewController {
         let l = UILabel()
         l.text = "\(L(localizationKey)):"
         l.font = .systemFont(ofSize: 14.sf, weight: .semibold)
-        l.textColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.white : UIColor.theme.textStrong
+        l.textColor = UIColor.theme.textStrong
         listSectionHeaders.append((label: l, localizationKey: localizationKey))
         l.translatesAutoresizingMaskIntoConstraints = false
         v.addSubview(l)
@@ -717,7 +713,7 @@ final class ChannelPermissionsViewController: BaseViewController {
         let v = UIView()
         v.translatesAutoresizingMaskIntoConstraints = false
         v.heightAnchor.constraint(equalToConstant: 0.5).isActive = true
-        v.backgroundColor = UIColor.theme.usesLegacyDarkColors ? (UIColor.theme.secondary.withAlphaComponent(0.4)) : UIColor.theme.borderPrimary
+        v.backgroundColor = UIColor.theme.borderPrimary
         listSeparators.append(v)
         return v
     }

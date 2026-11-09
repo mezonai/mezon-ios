@@ -9,11 +9,6 @@ final class ClanOverviewViewController: BaseViewController {
 
     private let scrollView = UIScrollView()
     private let contentStack = UIStackView()
-    private var sectionSurfaces: [UIView] = []
-    private var formLabels: [UILabel] = []
-    private var descriptionLabels: [UILabel] = []
-    private var separators: [UIView] = []
-    private var systemMessageChannelChevron: UIImageView?
 
     private let headerView = UIView()
     private let backButton = UIButton(type: .system)
@@ -205,48 +200,29 @@ final class ClanOverviewViewController: BaseViewController {
 
     override func applyTheme() {
         let theme = UIColor.theme
-        view.backgroundColor = theme.secondary
-        headerView.backgroundColor = theme.secondary
-        backButton.tintColor = theme.textStrong
-        headerTitleLabel.textColor = theme.textStrong
-        saveButton.setTitleColor(theme.bgViolet, for: .normal)
-        saveButton.setTitleColor(theme.textDisabled, for: .disabled)
-        avatarImageView.backgroundColor = theme.primary
-        cameraIcon.tintColor = theme.textDisabled
-        changeAvatarLabel.textColor = theme.textDisabled
         clanNameInputContainer.backgroundColor = theme.primary
         clanNameTextField.textColor = theme.textStrong
-        for surface in sectionSurfaces {
-            surface.backgroundColor = theme.primary
-        }
-        for label in formLabels {
-            label.textColor = theme.textStrong
-        }
-        for label in descriptionLabels {
-            label.textColor = theme.textDisabled
-        }
-        for separator in separators {
-            separator.backgroundColor = theme.borderDim
-        }
-        sysMsgChannelButton.setTitleColor(theme.textDisabled, for: .normal)
-        systemMessageChannelChevron?.tintColor = theme.textDisabled
-        updateNotificationUI()
         updateClanNameInputBorder()
     }
 
     private func setupHeader() {
+        headerView.backgroundColor = UIColor.theme.secondary
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
 
         backButton.setImage(UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        backButton.tintColor = UIColor.theme.textStrong
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
         
         headerTitleLabel.text = L(L10n.ClanSetting.Overview.title)
         headerTitleLabel.font = .systemFont(ofSize: 17.sf, weight: .semibold)
+        headerTitleLabel.textColor = UIColor.theme.textStrong
         headerTitleLabel.textAlignment = .center
 
         saveButton.setTitle(L(L10n.ClanSetting.Overview.save), for: .normal)
         saveButton.titleLabel?.font = .systemFont(ofSize: 16.sf, weight: .bold)
+        saveButton.setTitleColor(UIColor.theme.bgViolet, for: .normal)
+        saveButton.setTitleColor(UIColor.theme.textDisabled, for: .disabled)
         saveButton.addTarget(self, action: #selector(saveTapped), for: .touchUpInside)
 
         [backButton, headerTitleLabel, saveButton, saveSpinner].forEach {
@@ -309,15 +285,20 @@ final class ClanOverviewViewController: BaseViewController {
         avatarImageView.contentMode = .scaleAspectFill
         avatarImageView.clipsToBounds = true
         avatarImageView.layer.cornerRadius = 12.swh
+        avatarImageView.backgroundColor = UIColor.theme.primary
+        
+        cameraIcon.tintColor = UIColor.theme.textDisabled
+        
         changeAvatarLabel.text = L(L10n.ClanSetting.Overview.chooseImage)
         changeAvatarLabel.font = .systemFont(ofSize: 13.sf)
+        changeAvatarLabel.textColor = UIColor.theme.textDisabled
         
         pickAvatarButton.addTarget(self, action: #selector(pickAvatarTapped), for: .touchUpInside)
         
         let label = UILabel()
         label.text = L(L10n.ClanSetting.Overview.clanName)
         label.font = .systemFont(ofSize: 14.sf, weight: .bold)
-        formLabels.append(label)
+        label.textColor = UIColor.theme.textStrong
         
         clanNameInputContainer.layer.cornerRadius = 12.swh
         clanNameInputContainer.layer.borderWidth = 1
@@ -384,10 +365,10 @@ final class ClanOverviewViewController: BaseViewController {
         let titleLabel = UILabel()
         titleLabel.text = L(L10n.ClanSetting.Overview.systemMessageTitle)
         titleLabel.font = .systemFont(ofSize: 14.sf, weight: .bold)
-        formLabels.append(titleLabel)
+        titleLabel.textColor = UIColor.theme.textStrong
         
         let bgView = UIView()
-        sectionSurfaces.append(bgView)
+        bgView.backgroundColor = UIColor.theme.primary
         bgView.layer.cornerRadius = 12.swh
         
         let stack = UIStackView()
@@ -415,7 +396,7 @@ final class ClanOverviewViewController: BaseViewController {
         let descLabel = UILabel()
         descLabel.text = L(L10n.ClanSetting.Overview.systemMessageDescription)
         descLabel.font = .systemFont(ofSize: 13.sf)
-        descriptionLabels.append(descLabel)
+        descLabel.textColor = UIColor.theme.textDisabled
         descLabel.numberOfLines = 0
         
         [titleLabel, bgView, stack, descLabel].forEach {
@@ -451,10 +432,10 @@ final class ClanOverviewViewController: BaseViewController {
         let titleLabel = UILabel()
         titleLabel.text = L(L10n.ClanSetting.Overview.anonymousTitle)
         titleLabel.font = .systemFont(ofSize: 14.sf, weight: .bold)
-        formLabels.append(titleLabel)
+        titleLabel.textColor = UIColor.theme.textStrong
         
         let bgView = UIView()
-        sectionSurfaces.append(bgView)
+        bgView.backgroundColor = UIColor.theme.primary
         bgView.layer.cornerRadius = 12.swh
         
         let row = createSwitchRow(title: L(L10n.ClanSetting.Overview.anonymousDescription), toggle: anonymousSwitch)
@@ -489,10 +470,10 @@ final class ClanOverviewViewController: BaseViewController {
         let titleLabel = UILabel()
         titleLabel.text = L(L10n.ClanSetting.Overview.defaultNotificationTitle)
         titleLabel.font = .systemFont(ofSize: 14.sf, weight: .bold)
-        formLabels.append(titleLabel)
+        titleLabel.textColor = UIColor.theme.textStrong
         
         let bgView = UIView()
-        sectionSurfaces.append(bgView)
+        bgView.backgroundColor = UIColor.theme.primary
         bgView.layer.cornerRadius = 12.swh
         
         let stack = UIStackView()
@@ -511,7 +492,7 @@ final class ClanOverviewViewController: BaseViewController {
         let descLabel = UILabel()
         descLabel.text = L(L10n.ClanSetting.Overview.defaultNotificationDescription)
         descLabel.font = .systemFont(ofSize: 13.sf)
-        descriptionLabels.append(descLabel)
+        descLabel.textColor = UIColor.theme.textDisabled
         descLabel.numberOfLines = 0
         
         [titleLabel, bgView, stack, descLabel].forEach {
@@ -572,7 +553,7 @@ final class ClanOverviewViewController: BaseViewController {
         let label = UILabel()
         label.text = title
         label.font = .systemFont(ofSize: 15.sf)
-        formLabels.append(label)
+        label.textColor = UIColor.theme.textStrong
         label.numberOfLines = 0
         
         toggle.onTintColor = UIColor.theme.bgViolet
@@ -621,9 +602,10 @@ final class ClanOverviewViewController: BaseViewController {
         let label = UILabel()
         label.text = title
         label.font = .systemFont(ofSize: 15.sf)
-        formLabels.append(label)
+        label.textColor = UIColor.theme.textStrong
         
         button.titleLabel?.font = .systemFont(ofSize: 15.sf)
+        button.setTitleColor(UIColor.theme.textDisabled, for: .normal)
         button.contentHorizontalAlignment = .right
         button.isUserInteractionEnabled = false
         
@@ -644,7 +626,7 @@ final class ClanOverviewViewController: BaseViewController {
         
         if showChevron {
             let chevron = UIImageView(image: UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate))
-            systemMessageChannelChevron = chevron
+            chevron.tintColor = UIColor.theme.textDisabled
             chevron.translatesAutoresizingMaskIntoConstraints = false
             row.addSubview(chevron)
             NSLayoutConstraint.activate([
@@ -665,7 +647,7 @@ final class ClanOverviewViewController: BaseViewController {
         let label = UILabel()
         label.text = title
         label.font = .systemFont(ofSize: 15.sf)
-        formLabels.append(label)
+        label.textColor = UIColor.theme.textStrong
         
         button.tag = tag
         let symbolConfig = UIImage.SymbolConfiguration(pointSize: 22.swh, weight: .regular)
@@ -676,6 +658,7 @@ final class ClanOverviewViewController: BaseViewController {
         } else {
             button.setImage(UIImage(systemName: "checkmark.circle.fill", withConfiguration: symbolConfig)?.withRenderingMode(.alwaysTemplate), for: .selected)
         }
+        button.tintColor = UIColor.theme.textDisabled
         button.addTarget(self, action: #selector(notifTypeChanged(_:)), for: .touchUpInside)
         
         let tapBtn = UIButton(type: .custom)
@@ -707,7 +690,7 @@ final class ClanOverviewViewController: BaseViewController {
 
     private func createSeparator() -> UIView {
         let sep = UIView()
-        separators.append(sep)
+        sep.backgroundColor = UIColor.theme.borderDim
         sep.translatesAutoresizingMaskIntoConstraints = false
         
         let wrap = UIView()
@@ -824,7 +807,6 @@ final class ClanOverviewViewController: BaseViewController {
     
     @objc private func updateClanNameInputBorder() {
         let theme = UIColor.theme
-        clanNameInputContainer.layer.borderWidth = theme.usesLegacyDarkColors ? 0 : 1
         let borderColor = clanNameTextField.isEditing ? theme.iconPrimary : theme.borderPrimary
         clanNameInputContainer.layer.borderColor = borderColor.cgColor
     }

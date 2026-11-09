@@ -19,7 +19,6 @@ final class PollCardNode: ASDisplayNode {
     private var optionRowNodes: [PollOptionRowNode] = []
     private let footerSeparator = ASDisplayNode()
     private let statsNode = ASTextNode2()
-    private let detailsButton = ASButtonNode()
     private let actionButton = ASDisplayNode()
     private let actionButtonLabel = ASTextNode2()
     private let loadMoreNode = ASTextNode2()
@@ -52,7 +51,6 @@ final class PollCardNode: ASDisplayNode {
     private var cachedQuestionSize: CGSize = .zero
     private var cachedInstructionSize: CGSize = .zero
     private var cachedStatsSize: CGSize = .zero
-    private var cachedDetailsSize: CGSize = .zero
     private var cachedActionSize: CGSize = .zero
     private var cachedLoadMoreSize: CGSize = .zero
     private var cachedOptionSizes: [CGSize] = []
@@ -61,8 +59,6 @@ final class PollCardNode: ASDisplayNode {
     private static let cardPadding: CGFloat = 16
     private static let optionGap: CGFloat = 8
     private static let footerTopPadding: CGFloat = 12
-    private static let detailsTopPadding: CGFloat = 4
-    private static let detailsMinHeight: CGFloat = 22
     private static let actionBtnVPad: CGFloat = 6
     private static let actionBtnHPad: CGFloat = 12
     private static let actionBtnCorner: CGFloat = 8
@@ -164,11 +160,6 @@ final class PollCardNode: ASDisplayNode {
         }
     }
 
-    func applyTheme() {
-        buildUI()
-        setNeedsLayout()
-    }
-
     private func buildUI() {
         guard let pollData else { return }
         let t = UIColor.theme
@@ -229,15 +220,11 @@ final class PollCardNode: ASDisplayNode {
             }
         }
 
-        footerSeparator.backgroundColor = t.borderPrimary
+        footerSeparator.backgroundColor = UIColor.mezonBorder
         if footerSeparator.supernode == nil { cardNode.addSubnode(footerSeparator) }
 
         if statsNode.supernode == nil { cardNode.addSubnode(statsNode) }
         updateStatsText()
-
-        detailsButton.setTitle(L(L10n.Poll.viewDetails), with: .systemFont(ofSize: 13.sf), with: t.textThemePrimary, for: .normal)
-        if detailsButton.supernode == nil { cardNode.addSubnode(detailsButton) }
-
         updateActionButton()
         updateLoadMoreText()
     }
@@ -337,7 +324,7 @@ final class PollCardNode: ASDisplayNode {
             string: title,
             attributes: [
                 .font: UIFont.systemFont(ofSize: 13.sf, weight: .semibold),
-                .foregroundColor: isPrimaryAction ? UIColor.white : t.textThemePrimary,
+                .foregroundColor: isPrimaryAction ? t.desktop[.textSecondary] : t.textThemePrimary,
             ]
         )
         actionButtonLabel.maximumNumberOfLines = 1
@@ -404,10 +391,9 @@ final class PollCardNode: ASDisplayNode {
         let btnTap = UITapGestureRecognizer(target: self, action: #selector(handleActionTap))
         actionButton.view.addGestureRecognizer(btnTap)
 
-        let statsTap = UITapGestureRecognizer(target: self, action: #selector(openPollDetails))
+        let statsTap = UITapGestureRecognizer(target: self, action: #selector(handleStatsTap))
         statsNode.view.addGestureRecognizer(statsTap)
         statsNode.isUserInteractionEnabled = true
-        detailsButton.addTarget(self, action: #selector(openPollDetails), forControlEvents: .touchUpInside)
 
         let loadMoreTap = UITapGestureRecognizer(target: self, action: #selector(handleLoadMoreTap))
         loadMoreNode.view.addGestureRecognizer(loadMoreTap)
@@ -457,7 +443,7 @@ final class PollCardNode: ASDisplayNode {
         }
     }
 
-    @objc private func openPollDetails() {
+    @objc private func handleStatsTap() {
         onOpenPollDetail?(messageId, channelId)
     }
 
@@ -542,10 +528,6 @@ final class PollCardNode: ASDisplayNode {
 
         totalH += max(cachedStatsSize.height, cachedActionSize.height)
 
-        cachedDetailsSize = detailsButton.measure(CGSize(width: contentWidth, height: .greatestFiniteMagnitude))
-        cachedDetailsSize.height = max(cachedDetailsSize.height, Self.detailsMinHeight)
-        totalH += Self.detailsTopPadding + cachedDetailsSize.height
-
         if shouldShowToggle {
             cachedLoadMoreSize = loadMoreNode.measure(CGSize(width: contentWidth, height: .greatestFiniteMagnitude))
             totalH += Self.optionGap + cachedLoadMoreSize.height
@@ -607,9 +589,7 @@ final class PollCardNode: ASDisplayNode {
             )
         }
 
-        y += rowH + Self.detailsTopPadding
-        detailsButton.frame = CGRect(x: pad, y: y, width: cachedDetailsSize.width, height: cachedDetailsSize.height)
-        y += cachedDetailsSize.height
+        y += rowH
 
         if shouldShowToggle {
             y += Self.optionGap

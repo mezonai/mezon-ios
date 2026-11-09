@@ -28,9 +28,9 @@ final class ChannelPermissionRowCell: UITableViewCell {
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: .default, reuseIdentifier: reuseIdentifier)
-        backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.tertiary : UIColor.theme.primary
+        backgroundColor = UIColor.theme.primary
         let bg = UIView()
-        bg.backgroundColor = UIColor.theme.usesLegacyDarkColors ? (UIColor.theme.tertiary.withAlphaComponent(0.6)) : (UIColor.theme.secondary.withAlphaComponent(0.6))
+        bg.backgroundColor = UIColor.theme.secondary.withAlphaComponent(0.6)
         selectedBackgroundView = bg
         setupViews()
     }
@@ -41,7 +41,7 @@ final class ChannelPermissionRowCell: UITableViewCell {
         avatarView.layer.cornerRadius = 18.swh
         avatarView.clipsToBounds = true
         avatarView.contentMode = .scaleAspectFill
-        avatarView.backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.tertiary : UIColor.theme.secondary
+        avatarView.backgroundColor = UIColor.theme.secondary
 
         avatarInitials.font = .systemFont(ofSize: 13.sf, weight: .bold)
         avatarInitials.textColor = .white
@@ -56,7 +56,7 @@ final class ChannelPermissionRowCell: UITableViewCell {
         nameLabel.numberOfLines = 1
 
         subLabel.font = .systemFont(ofSize: 12.sf, weight: .regular)
-        subLabel.textColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.textDisabled : UIColor.theme.textNormal
+        subLabel.textColor = UIColor.theme.textNormal
         subLabel.numberOfLines = 1
 
         ownerIcon.image = UIImage(systemName: "crown.fill")?.withRenderingMode(.alwaysTemplate)
@@ -148,7 +148,7 @@ final class ChannelPermissionRowCell: UITableViewCell {
         imageTask = nil
         configuredAvatarURL = nil
         avatarView.image = nil
-        avatarView.backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.tertiary : UIColor.theme.secondary
+        avatarView.backgroundColor = UIColor.theme.secondary
         if let urlString = avatarURL, !urlString.isEmpty {
             let resolved = ImgproxyURL.iconURL(from: urlString, width: 100, height: 100)
             configuredAvatarURL = resolved
@@ -194,10 +194,10 @@ final class ChannelPermissionRowCell: UITableViewCell {
     }
 
     private func applyTrailing(_ trailing: Trailing) {
-        backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.tertiary : UIColor.theme.primary
-        selectedBackgroundView?.backgroundColor = (UIColor.theme.usesLegacyDarkColors ? UIColor.theme.tertiary : UIColor.theme.secondary).withAlphaComponent(0.6)
-        nameLabel.textColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.text : UIColor.theme.textStrong
-        subLabel.textColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.textDisabled : UIColor.theme.textNormal
+        backgroundColor = UIColor.theme.primary
+        selectedBackgroundView?.backgroundColor = UIColor.theme.secondary.withAlphaComponent(0.6)
+        nameLabel.textColor = UIColor.theme.textStrong
+        subLabel.textColor = UIColor.theme.textNormal
         chevron.tintColor = UIColor.theme.textDisabled
         trailingButton.isHidden = true
         checkboxView.isHidden = true
@@ -219,7 +219,7 @@ final class ChannelPermissionRowCell: UITableViewCell {
             checkboxView.isHidden = false
             let symbol = checked ? "checkmark.circle.fill" : "circle"
             checkboxView.image = UIImage(systemName: symbol)?.withRenderingMode(.alwaysTemplate)
-            checkboxView.tintColor = UIColor.theme.usesLegacyDarkColors ? (checked ? UIColor.theme.bgViolet : UIColor.theme.textDisabled) : (checked ? UIColor.theme.iconPrimary : UIColor.theme.textDisabled)
+            checkboxView.tintColor = checked ? UIColor.theme.iconPrimary : UIColor.theme.textDisabled
         }
     }
 
@@ -234,7 +234,7 @@ final class ChannelPermissionRowCell: UITableViewCell {
         configuredAvatarURL = nil
         avatarView.image = nil
         avatarView.isHidden = false
-        avatarView.backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.tertiary : UIColor.theme.secondary
+        avatarView.backgroundColor = UIColor.theme.secondary
         avatarInitials.isHidden = false
         roleIconView.isHidden = true
         ownerIcon.isHidden = true

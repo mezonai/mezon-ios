@@ -51,9 +51,9 @@ final class AdvancedPermissionOverridesViewController: BaseViewController {
         view.backgroundColor = .mezonSecondary
         headerView.backgroundColor = .mezonSecondary
         backButton.tintColor = UIColor.theme.textStrong
-        titleLabel.textColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.text : UIColor.theme.textStrong
+        titleLabel.textColor = UIColor.theme.textStrong
         saveButton.setTitleColor(UIColor.theme.iconPrimary, for: .normal)
-        sectionLabel.textColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.textDisabled : UIColor.theme.textNormal
+        sectionLabel.textColor = UIColor.theme.textNormal
         tableView.backgroundColor = .mezonSecondary
         tableView.reloadData()
     }
@@ -285,7 +285,7 @@ private final class PermissionTriToggleCell: UITableViewCell {
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: .default, reuseIdentifier: reuseIdentifier)
-        backgroundColor = UIColor.theme.usesLegacyDarkColors ? .clear : UIColor.theme.primary
+        backgroundColor = UIColor.theme.primary
         contentView.backgroundColor = .clear
         selectionStyle = .none
         setupViews()
@@ -305,7 +305,7 @@ private final class PermissionTriToggleCell: UITableViewCell {
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         descriptionLabel.font = .systemFont(ofSize: 10.sf, weight: .regular)
-        descriptionLabel.textColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.textDisabled : UIColor.theme.textNormal
+        descriptionLabel.textColor = UIColor.theme.textNormal
         descriptionLabel.numberOfLines = 0
 
         segmentOuter.layer.borderWidth = 1 / max(UIScreen.main.scale, 1)
@@ -390,20 +390,20 @@ private final class PermissionTriToggleCell: UITableViewCell {
         titleLabel.text = title
         descriptionLabel.text = description
         current = status
-        backgroundColor = UIColor.theme.usesLegacyDarkColors ? .clear : UIColor.theme.primary
+        backgroundColor = UIColor.theme.primary
         titleLabel.textColor = UIColor.theme.textStrong
-        descriptionLabel.textColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.textDisabled : UIColor.theme.textNormal
-        segmentOuter.layer.borderColor = (UIColor.theme.usesLegacyDarkColors ? UIColor.theme.border : UIColor.theme.borderPrimary).cgColor
-        divider1.backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.border : UIColor.theme.borderPrimary
-        divider2.backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.border : UIColor.theme.borderPrimary
+        descriptionLabel.textColor = UIColor.theme.textNormal
+        segmentOuter.layer.borderColor = UIColor.theme.borderPrimary.cgColor
+        divider1.backgroundColor = UIColor.theme.borderPrimary
+        divider2.backgroundColor = UIColor.theme.borderPrimary
         applyStatus(status)
     }
 
     private func applyStatus(_ status: ChannelPermissionsRepository.PermissionStatus) {
         let inactiveFill = UIColor.mezonSecondary
-        let red = UIColor.theme.usesLegacyDarkColors ? UIColor.systemRed : UIColor(rgb: 0xC61E1B)
-        let green = UIColor.theme.usesLegacyDarkColors ? UIColor.systemGreen : UIColor.theme.statusOnline
-        let noneTintInactive = UIColor.theme.usesLegacyDarkColors ? Self.noneAccent : UIColor.theme.textNormal
+        let red = UIColor(rgb: 0xC61E1B)
+        let green = UIColor.theme.statusOnline
+        let noneTintInactive = UIColor.theme.textNormal
 
         denyButton.backgroundColor = status == .deny ? red : inactiveFill
         denyButton.tintColor = status == .deny ? .white : red

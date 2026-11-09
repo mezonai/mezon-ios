@@ -96,11 +96,11 @@ final class PollDetailViewController: UIViewController {
     }
 
     private func setupContainer() {
-        let palette = UIColor.theme.desktop
-        containerView.backgroundColor = palette[.bgSecondary]
+        let t = UIColor.theme
+        containerView.backgroundColor = t.primary
         containerView.layer.cornerRadius = 12
         containerView.layer.borderWidth = 1
-        containerView.layer.borderColor = palette[.borderPrimary].cgColor
+        containerView.layer.borderColor = UIColor.mezonBorder.cgColor
         containerView.clipsToBounds = true
         containerView.translatesAutoresizingMaskIntoConstraints = false
         containerView.alpha = 0
@@ -119,16 +119,16 @@ final class PollDetailViewController: UIViewController {
     }
 
     private func setupHeader() {
-        let palette = UIColor.theme.desktop
+        let t = UIColor.theme
 
         let titleFont = UIFont.systemFont(ofSize: 20, weight: .bold)
-        titleLabel.attributedText = PollEmojiParser.parse(question, font: titleFont, color: palette.semantic.textPrimary, emojiSize: 24)
+        titleLabel.attributedText = PollEmojiParser.parse(question, font: titleFont, color: t.textStrong, emojiSize: 24)
         titleLabel.textView.textContainer.maximumNumberOfLines = 2
         titleLabel.textView.textContainer.lineBreakMode = .byTruncatingTail
 
         let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
         closeButton.setImage(UIImage(systemName: "xmark", withConfiguration: config), for: .normal)
-        closeButton.tintColor = palette.semantic.textPrimary
+        closeButton.tintColor = t.textStrong
         closeButton.addTarget(self, action: #selector(dismissModal), for: .touchUpInside)
         closeButton.translatesAutoresizingMaskIntoConstraints = false
 
@@ -151,7 +151,7 @@ final class PollDetailViewController: UIViewController {
         let voteWord = totalVotes > 1 ? L(L10n.Poll.votes) : L(L10n.Poll.vote)
         subtitleLabel.text = "\(totalVotes) \(voteWord)"
         subtitleLabel.font = .systemFont(ofSize: 14)
-        subtitleLabel.textColor = palette.semantic.textPrimary
+        subtitleLabel.textColor = t.textStrong
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
         containerView.addSubview(subtitleLabel)
         NSLayoutConstraint.activate([
@@ -162,13 +162,13 @@ final class PollDetailViewController: UIViewController {
     }
 
     private func setupBody() {
-        let palette = UIColor.theme.desktop
+        let t = UIColor.theme
 
         bodyView.translatesAutoresizingMaskIntoConstraints = false
         containerView.addSubview(bodyView)
 
         let topBorder = UIView()
-        topBorder.backgroundColor = palette[.borderPrimary]
+        topBorder.backgroundColor = UIColor.mezonBorder
         topBorder.translatesAutoresizingMaskIntoConstraints = false
         containerView.addSubview(topBorder)
 
@@ -199,7 +199,7 @@ final class PollDetailViewController: UIViewController {
         leftStackView.translatesAutoresizingMaskIntoConstraints = false
         leftScrollView.addSubview(leftStackView)
 
-        dividerView.backgroundColor = palette[.borderPrimary]
+        dividerView.backgroundColor = UIColor.mezonBorder
         dividerView.translatesAutoresizingMaskIntoConstraints = false
         bodyView.addSubview(dividerView)
 
@@ -246,7 +246,7 @@ final class PollDetailViewController: UIViewController {
             leftStackView.addArrangedSubview(optionView)
         }
 
-        loadingIndicator.color = palette.semantic.textPrimary
+        loadingIndicator.color = t.textStrong
         loadingIndicator.hidesWhenStopped = true
         loadingIndicator.translatesAutoresizingMaskIntoConstraints = false
         rightScrollView.addSubview(loadingIndicator)
@@ -258,7 +258,7 @@ final class PollDetailViewController: UIViewController {
 
         emptyLabel.text = L(L10n.Poll.noVotesYet)
         emptyLabel.font = .systemFont(ofSize: 13)
-        emptyLabel.textColor = palette.semantic.textMuted
+        emptyLabel.textColor = t.textDisabled
         emptyLabel.textAlignment = .center
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
         emptyLabel.isHidden = true
@@ -270,7 +270,7 @@ final class PollDetailViewController: UIViewController {
     }
 
     private func createOptionItemView(option: PollOptionDisplay, isActive: Bool) -> UIView {
-        let palette = UIColor.theme.desktop
+        let t = UIColor.theme
         let container = UIView()
         container.layer.cornerRadius = 8
         container.backgroundColor = isActive ? Self.blurpleAlpha : .clear
@@ -285,7 +285,7 @@ final class PollDetailViewController: UIViewController {
             label.textView.trailingAnchor.constraint(equalTo: label.trailingAnchor)
         ])
         let font = UIFont.systemFont(ofSize: 14)
-        label.attributedText = PollEmojiParser.parse(option.label, font: font, color: palette.semantic.textPrimary, emojiSize: 18)
+        label.attributedText = PollEmojiParser.parse(option.label, font: font, color: t.textStrong, emojiSize: 18)
         label.textView.textContainer.maximumNumberOfLines = 1
         label.textView.textContainer.lineBreakMode = .byTruncatingTail
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -293,7 +293,7 @@ final class PollDetailViewController: UIViewController {
         let countLabel = UILabel()
         countLabel.text = "\(option.voteCount)"
         countLabel.font = .systemFont(ofSize: 14)
-        countLabel.textColor = palette.semantic.textMuted
+        countLabel.textColor = t.textDisabled
         countLabel.translatesAutoresizingMaskIntoConstraints = false
 
         container.addSubview(label)
@@ -340,7 +340,7 @@ final class PollDetailViewController: UIViewController {
             emptyLabel.isHidden = false
         } else {
             emptyLabel.isHidden = true
-            let palette = UIColor.theme.desktop
+            let t = UIColor.theme
 
             for voter in voters {
                 let voterView = UIView()
@@ -383,14 +383,14 @@ final class PollDetailViewController: UIViewController {
                 let nameLabel = UILabel()
                 nameLabel.text = voter.displayName
                 nameLabel.font = .systemFont(ofSize: 14, weight: .semibold)
-                nameLabel.textColor = palette.semantic.textPrimary
+                nameLabel.textColor = t.textStrong
                 nameLabel.numberOfLines = 1
                 nameLabel.translatesAutoresizingMaskIntoConstraints = false
 
                 let usernameLabel = UILabel()
                 usernameLabel.text = voter.username
                 usernameLabel.font = .systemFont(ofSize: 12)
-                usernameLabel.textColor = palette.semantic.textMuted
+                usernameLabel.textColor = t.textDisabled
                 usernameLabel.numberOfLines = 1
                 usernameLabel.translatesAutoresizingMaskIntoConstraints = false
 

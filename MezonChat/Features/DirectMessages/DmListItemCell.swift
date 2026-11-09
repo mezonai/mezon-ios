@@ -276,21 +276,22 @@ final class DmListItemCell: UITableViewCell {
         hasBuzz: Bool = false
     ) {
         let theme = UIColor.theme
-        separatorView.backgroundColor = theme.usesLegacyDarkColors ? theme.borderDim : theme.borderPrimary
+        separatorView.backgroundColor = theme.borderPrimary
         separatorView.isHidden = !showsSeparator
         groupIconView.tintColor = .mezonTextSecondary
 
         let isGroup = channel.type == MezonConstants.ChannelType.group.rawValue
         let displayName = displayName(for: channel)
         let isUnread = channel.countMessUnread > 0
+        let metadataColor = isUnread ? theme.textStrong : theme.textDisabled
 
         nameLabel.text = displayName
         nameLabel.textColor = isUnread ? theme.textStrong : theme.textThemePrimary
         nameLabel.font = isUnread ? Self.unreadNameFont : Self.readNameFont
 
-        onlineIndicator.backgroundColor = theme.usesLegacyDarkColors ? .mezonSuccess : DesktopThemePalette.onlinePresenceBadge
+        onlineIndicator.backgroundColor = DesktopThemePalette.onlinePresenceBadge
         onlineIndicator.layer.borderWidth = theme.desktop.conversationGradient == nil ? 2 : 0
-        onlineIndicator.layer.borderColor = (theme.usesLegacyDarkColors ? theme.primary : theme.secondary).cgColor
+        onlineIndicator.layer.borderColor = theme.secondary.cgColor
 
         if isGroup {
             onlineIndicator.isHidden = true
@@ -338,7 +339,7 @@ final class DmListItemCell: UITableViewCell {
         } else {
             lastMessageLabel.font = Self.previewFont
             lastMessageLabel.text = hasMessagePreview ? preview : ""
-            lastMessageLabel.textColor = isUnread ? theme.textStrong : theme.desktop.semantic.textMuted
+            lastMessageLabel.textColor = metadataColor
         }
         lastMessageLabel.isHidden = !hasPreview
         if hasPreviewLayout != hasPreview {
@@ -347,7 +348,7 @@ final class DmListItemCell: UITableViewCell {
             lastMessageZeroHeightConstraint?.isActive = !hasPreview
         }
         timeLabel.text = time
-        timeLabel.textColor = isUnread ? theme.textStrong : theme.textDisabled
+        timeLabel.textColor = metadataColor
         applyUnreadBadge(count: channel.countMessUnread)
     }
 
@@ -369,7 +370,7 @@ final class DmListItemCell: UITableViewCell {
     private static func voiceActivityPreviewText(_ activity: DmVoiceActivity) -> NSAttributedString {
         let font = inVoiceFont
         let result = NSMutableAttributedString()
-        if let icon = activity.icon?.withTintColor(UIColor.theme.usesLegacyDarkColors ? .mezonVoiceActive : UIColor.theme.statusOnline, renderingMode: .alwaysOriginal) {
+        if let icon = activity.icon?.withTintColor(UIColor.theme.statusOnline, renderingMode: .alwaysOriginal) {
             let attachment = NSTextAttachment()
             attachment.image = icon
             let side = font.pointSize

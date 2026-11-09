@@ -453,6 +453,10 @@ final class CodeBlockContainerNode: ASDisplayNode {
     init(code: String) {
         super.init()
 
+        let t = UIColor.theme
+        backgroundNode.backgroundColor = t.desktop[.bgMarkdownCode]
+        backgroundNode.borderWidth = 1
+        backgroundNode.borderColor = t.borderPrimary.cgColor
         backgroundNode.cornerRadius = Self.cornerRadius
         backgroundNode.clipsToBounds = true
 
@@ -463,6 +467,7 @@ final class CodeBlockContainerNode: ASDisplayNode {
             string: code,
             attributes: [
                 .font: bodyFont,
+                .foregroundColor: t.textThemeMessage,
                 .paragraphStyle: codePara,
             ]
         )
@@ -470,31 +475,6 @@ final class CodeBlockContainerNode: ASDisplayNode {
 
         addSubnode(backgroundNode)
         backgroundNode.addSubnode(codeTextNode)
-        applyTheme()
-    }
-
-    override func didLoad() {
-        super.didLoad()
-        NotificationCenter.default.addObserver(
-            self, selector: #selector(applyTheme), name: ThemeManager.didChangeNotification, object: nil
-        )
-        applyTheme()
-    }
-
-    deinit {
-        NotificationCenter.default.removeObserver(self, name: ThemeManager.didChangeNotification, object: nil)
-    }
-
-    @objc private func applyTheme() {
-        let theme = UIColor.theme
-        backgroundNode.backgroundColor = theme.usesLegacyDarkColors ? theme.tertiary : theme.desktop[.bgMarkdownCode]
-        backgroundNode.borderWidth = theme.usesLegacyDarkColors ? 0 : 1
-        backgroundNode.borderColor = theme.borderPrimary.cgColor
-        if let text = codeTextNode.attributedText, text.length > 0 {
-            let updated = NSMutableAttributedString(attributedString: text)
-            updated.addAttribute(.foregroundColor, value: theme.textThemeMessage, range: NSRange(location: 0, length: updated.length))
-            codeTextNode.attributedText = updated
-        }
     }
 
     func measureSize(maxWidth: CGFloat) -> CGSize {

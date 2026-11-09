@@ -101,14 +101,14 @@ enum RichTextBuilder {
                 bodyFont: body,
                 bodyColor: t.textThemeMessage,
                 mentionFont: .systemFont(ofSize: 14.sf, weight: .semibold),
-                mentionColor: (t.usesLegacyDarkColors ? t.textLink : t.desktop[.mentionColor]),
-                mentionBgColor: (t.usesLegacyDarkColors ? t.midnightBlue : t.desktop[.mentionPrimary]),
-                roleMentionColor: (t.usesLegacyDarkColors ? t.textRoleLink : t.desktop[.colorMentionEvryone]),
-                roleMentionBgColor: (t.usesLegacyDarkColors ? t.darkMossGreen : t.desktop[.bgMentionEvryone]),
-                linkColor: (t.usesLegacyDarkColors ? t.textLink : t.desktop[.mentionColor]),
-                inlineCodeColor: t.usesLegacyDarkColors ? t.textStrong : t.desktop[.textSecondary],
-                inlineCodeBgColor: (t.usesLegacyDarkColors ? t.tertiary : t.desktop[.bgActiveMemberChannel]),
-                codeBlockBgColor: (t.usesLegacyDarkColors ? t.tertiary : t.desktop[.bgMarkdownCode]),
+                mentionColor: t.desktop[.mentionColor],
+                mentionBgColor: t.desktop[.mentionPrimary],
+                roleMentionColor: t.desktop[.colorMentionEvryone],
+                roleMentionBgColor: t.desktop[.bgMentionEvryone],
+                linkColor: t.desktop[.mentionColor],
+                inlineCodeColor: t.desktop[.textSecondary],
+                inlineCodeBgColor: t.desktop[.bgActiveMemberChannel],
+                codeBlockBgColor: t.desktop[.bgMarkdownCode],
                 codeFont: body,
                 boldFont: bodyBold,
                 headingFonts: defaultHeadingFonts(),
@@ -415,9 +415,7 @@ enum RichTextBuilder {
             case .inlineCode:
                 var attrs = bodyAttributes(s)
                 attrs[.font] = s.codeFont
-                if !UIColor.theme.usesLegacyDarkColors {
-                    attrs[.foregroundColor] = s.inlineCodeColor
-                }
+                attrs[.foregroundColor] = s.inlineCodeColor
                 attrs[.backgroundColor] = s.inlineCodeBgColor
                 let paraStyle = NSMutableParagraphStyle()
                 paraStyle.lineHeightMultiple = 1.4
@@ -755,8 +753,8 @@ extension RichTextBuilder {
                 attributes[.font] = headingFont(level: heading.level, fonts: headingFonts, fallback: font)
             }
             let lineText = NSMutableAttributedString(string: content, attributes: attributes)
-            applyEmbedInlineMarkdown(to: lineText, codeBackground: theme.usesLegacyDarkColors ? theme.tertiary : theme.desktop[.bgMarkdownCode])
-            applyEmbedLinks(to: lineText, linkColor: theme.usesLegacyDarkColors ? theme.textLink : theme.desktop[.mentionColor])
+            applyEmbedInlineMarkdown(to: lineText, codeBackground: theme.desktop[.bgMarkdownCode])
+            applyEmbedLinks(to: lineText, linkColor: theme.desktop[.mentionColor])
             result.append(lineText)
             if index < lines.count - 1 {
                 result.append(NSAttributedString(string: "\n", attributes: baseAttributes))
