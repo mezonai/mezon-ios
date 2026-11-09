@@ -3673,8 +3673,9 @@ final class ChatViewController: ViewController {
             let overlayMedia = AttachmentUploadCoordinator.shared.imageOverlay(for: record.id)
             let overlayFiles = AttachmentUploadCoordinator.shared.fileOverlay(for: record.id)
             if overlayMedia != nil || overlayFiles != nil {
-                let audio = attachments.filter(\.isAudio)
-                var media = attachments.filter(\.isMedia)
+                let overlayFileURLs = Set((overlayFiles ?? []).map(\.url).filter { !$0.isEmpty })
+                let audio = attachments.filter { $0.isAudio && !overlayFileURLs.contains($0.url) }
+                var media = attachments.filter { $0.isMedia && !overlayFileURLs.contains($0.url) }
                 if let overlayMedia {
                     media = overlayMedia
                 }

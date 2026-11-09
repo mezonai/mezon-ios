@@ -118,6 +118,316 @@ enum FileIngest {
     }
 }
 
+extension FileIngest {
+
+    fileprivate enum HLSRejection {
+        case unreadable
+        case notMP4
+        case fragmented
+        case noMoov
+        case moovTooLarge
+        case tooManyTracks
+        case noVideoTrack
+        case videoCodec
+        case noKeyframe
+        case audioCodec
+        case tooManySamples
+        case tooManySegments
+    }
+
+    fileprivate struct HLSBox {
+        let type: String
+        let start: Int64
+        let payload: Int64
+        let end: Int64
+    }
+
+    fileprivate final class HLSTrack {
+        var handler = ""
+        var isEnabled = false
+        var sampleEntry = ""
+        var hasAvcC = false
+        var hasHvcC = false
+        var hasDOps = false
+        var objectTypeIndication: UInt8?
+        var sampleCount: Int64 = 0
+        var syncSampleCount: Int64?
+    }
+
+    fileprivate final class HLSReport {
+        var firstBox = ""
+        var moovSize: Int64 = 0
+        var duration: Double = 0
+        var tracks: [HLSTrack] = []
+        var video: HLSTrack?
+        var audio: HLSTrack?
+        var rejection: HLSRejection?
+    }
+
+    fileprivate final class HLSFileReader {
+        let size: Int64
+        private let handle: FileHandle
+
+        init?(fileURL: URL) {
+            guard let size = (try? FileManager.default.attributesOfItem(atPath: fileURL.path))?[.size] as? NSNumber,
+                  let handle = try? FileHandle(forReadingFrom: fileURL) else { return nil }
+            self.size = size.int64Value
+            self.handle = handle
+        }
+
+        deinit {
+            try? handle.close()
+        }
+
+        func bytes(at offset: Int64, count: Int) -> [UInt8]? {
+            guard count > 0, offset >= 0, offset <= size - Int64(count),
+                  (try? handle.seek(toOffset: UInt64(offset))) != nil else { return nil }
+            let data = handle.readData(ofLength: count)
+            return data.count == count ? [UInt8](data) : nil
+        }
+    }
+
+    private static let hlsFirstBoxTypes: Set<String> = ["ftyp", "moov", "mdat", "free", "skip", "wide", "uuid", "pnot", "junk", "meta"]
+    private static let hlsFragmentBoxTypes: Set<String> = ["moof", "styp", "sidx"]
+    private static let hlsAVCSampleEntries: Set<String> = ["avc1", "avc3"]
+    private static let hlsHEVCSampleEntries: Set<String> = ["hvc1", "hev1"]
+    private static let hlsMoovLimit: Int64 = 64 * 1024 * 1024
+    private static let hlsTrackLimit = 16
+    private static let hlsSampleLimit: Int64 = 4 * 1024 * 1024
+    private static let hlsSegmentLimit: Double = 16384
+    private static let hlsMinimumSegmentSeconds: Double = 4
+    private static let mpeg4AudioObjectType: UInt8 = 0x40
+
+    static func supportsHLS(fileURL: URL) async -> Bool {
+        await Task.detached(priority: .userInitiated) { () -> Bool in
+            FileIngest.inspectHLSSupport(fileURL: fileURL).rejection == nil
+        }.value
+    }
+
+    fileprivate static func inspectHLSSupport(fileURL: URL) -> HLSReport {
+        let report = HLSReport()
+        guard let reader = HLSFileReader(fileURL: fileURL) else {
+            report.rejection = .unreadable
+            return report
+        }
+        report.rejection = hlsRejection(reader, report)
+        return report
+    }
+
+    private static func hlsRejection(_ reader: HLSFileReader, _ report: HLSReport) -> HLSRejection? {
+        var moov: HLSBox?
+        var isFragmented = false
+        forEachHLSBox(reader, from: 0, to: reader.size) { box in
+            if report.firstBox.isEmpty {
+                report.firstBox = box.type
+                guard hlsFirstBoxTypes.contains(box.type) else { return false }
+            }
+            if hlsFragmentBoxTypes.contains(box.type) {
+                isFragmented = true
+                return false
+            }
+            if box.type == "moov", moov == nil {
+                moov = box
+            }
+            return true
+        }
+        guard hlsFirstBoxTypes.contains(report.firstBox) else { return .notMP4 }
+        guard !isFragmented else { return .fragmented }
+        guard let moov else { return .noMoov }
+        report.moovSize = moov.end - moov.start
+        guard report.moovSize <= hlsMoovLimit else { return .moovTooLarge }
+        forEachHLSBox(reader, from: moov.payload, to: moov.end) { box in
+            switch box.type {
+            case "mvex":
+                isFragmented = true
+                return false
+            case "mvhd":
+                report.duration = movieDuration(reader, box)
+            case "trak":
+                report.tracks.append(hlsTrack(reader, box))
+            default:
+                break
+            }
+            return true
+        }
+        guard !isFragmented else { return .fragmented }
+        guard report.tracks.count <= hlsTrackLimit else { return .tooManyTracks }
+        let videos = report.tracks.filter { $0.handler == "vide" }
+        let audios = report.tracks.filter { $0.handler == "soun" }
+        report.video = videos.first(where: { $0.isEnabled }) ?? videos.first
+        report.audio = audios.first(where: { $0.isEnabled }) ?? audios.first
+        guard let video = report.video else { return .noVideoTrack }
+        guard isSupportedHLSVideo(video) else { return .videoCodec }
+        guard video.sampleCount > 0, (video.syncSampleCount ?? video.sampleCount) > 0 else { return .noKeyframe }
+        if let audio = report.audio, !isSupportedHLSAudio(audio) { return .audioCodec }
+        guard video.sampleCount <= hlsSampleLimit, (report.audio?.sampleCount ?? 0) <= hlsSampleLimit else { return .tooManySamples }
+        guard report.duration / hlsMinimumSegmentSeconds <= hlsSegmentLimit else { return .tooManySegments }
+        return nil
+    }
+
+    private static func isSupportedHLSVideo(_ track: HLSTrack) -> Bool {
+        (hlsAVCSampleEntries.contains(track.sampleEntry) && track.hasAvcC)
+            || (hlsHEVCSampleEntries.contains(track.sampleEntry) && track.hasHvcC)
+    }
+
+    private static func isSupportedHLSAudio(_ track: HLSTrack) -> Bool {
+        (track.sampleEntry == "mp4a" && track.objectTypeIndication == mpeg4AudioObjectType)
+            || (track.sampleEntry == "Opus" && track.hasDOps)
+    }
+
+    private static func forEachHLSBox(_ reader: HLSFileReader, from start: Int64, to end: Int64, _ body: (HLSBox) -> Bool) {
+        let limit = min(end, reader.size)
+        var offset = start
+        while offset <= limit - 8 {
+            guard let header = reader.bytes(at: offset, count: Int(min(16, limit - offset))) else { return }
+            var boxSize = Int64(clamping: bigEndian(header, from: 0, count: 4))
+            var headerSize: Int64 = 8
+            if boxSize == 1 {
+                guard header.count >= 16 else { return }
+                boxSize = Int64(clamping: bigEndian(header, from: 8, count: 8))
+                headerSize = 16
+            } else if boxSize == 0 {
+                boxSize = limit - offset
+            }
+            guard boxSize >= headerSize, boxSize <= limit - offset else { return }
+            let box = HLSBox(type: fourCC(header, at: 4), start: offset, payload: offset + headerSize, end: offset + boxSize)
+            guard body(box) else { return }
+            offset += boxSize
+        }
+    }
+
+    private static func movieDuration(_ reader: HLSFileReader, _ mvhd: HLSBox) -> Double {
+        guard let bytes = reader.bytes(at: mvhd.payload, count: 32) else { return 0 }
+        let isVersion1 = bytes[0] == 1
+        let timescale = bigEndian(bytes, from: isVersion1 ? 20 : 12, count: 4)
+        let duration = bigEndian(bytes, from: isVersion1 ? 24 : 16, count: isVersion1 ? 8 : 4)
+        return timescale > 0 ? Double(duration) / Double(timescale) : 0
+    }
+
+    private static func hlsTrack(_ reader: HLSFileReader, _ trak: HLSBox) -> HLSTrack {
+        let track = HLSTrack()
+        forEachHLSBox(reader, from: trak.payload, to: trak.end) { box in
+            switch box.type {
+            case "tkhd":
+                if let header = reader.bytes(at: box.payload, count: 4) {
+                    track.isEnabled = header[3] & 0x01 != 0
+                }
+            case "mdia":
+                forEachHLSBox(reader, from: box.payload, to: box.end) { media in
+                    if media.type == "hdlr", let header = reader.bytes(at: media.payload, count: 12) {
+                        track.handler = fourCC(header, at: 8)
+                    } else if media.type == "minf" {
+                        forEachHLSBox(reader, from: media.payload, to: media.end) { info in
+                            if info.type == "stbl" {
+                                readHLSSampleTable(reader, info, into: track)
+                            }
+                            return true
+                        }
+                    }
+                    return true
+                }
+            default:
+                break
+            }
+            return true
+        }
+        return track
+    }
+
+    private static func readHLSSampleTable(_ reader: HLSFileReader, _ stbl: HLSBox, into track: HLSTrack) {
+        forEachHLSBox(reader, from: stbl.payload, to: stbl.end) { box in
+            switch box.type {
+            case "stsd":
+                readHLSSampleDescription(reader, box, into: track)
+            case "stsz", "stz2":
+                if let header = reader.bytes(at: box.payload, count: 12) {
+                    track.sampleCount = Int64(clamping: bigEndian(header, from: 8, count: 4))
+                }
+            case "stss":
+                if let header = reader.bytes(at: box.payload, count: 8) {
+                    track.syncSampleCount = Int64(clamping: bigEndian(header, from: 4, count: 4))
+                }
+            default:
+                break
+            }
+            return true
+        }
+    }
+
+    private static func readHLSSampleDescription(_ reader: HLSFileReader, _ stsd: HLSBox, into track: HLSTrack) {
+        let entryStart = stsd.payload + 8
+        guard let header = reader.bytes(at: entryStart, count: 8) else { return }
+        let entryEnd = min(entryStart + Int64(clamping: bigEndian(header, from: 0, count: 4)), stsd.end)
+        track.sampleEntry = fourCC(header, at: 4)
+        if hlsAVCSampleEntries.contains(track.sampleEntry) || hlsHEVCSampleEntries.contains(track.sampleEntry) {
+            forEachHLSBox(reader, from: entryStart + 86, to: entryEnd) { box in
+                if box.type == "avcC" { track.hasAvcC = true }
+                if box.type == "hvcC" { track.hasHvcC = true }
+                return true
+            }
+        } else if track.sampleEntry == "mp4a" {
+            guard let version = reader.bytes(at: entryStart + 16, count: 2) else { return }
+            let extraBytes: Int64
+            switch bigEndian(version, from: 0, count: 2) {
+            case 1: extraBytes = 16
+            case 2: extraBytes = 36
+            default: extraBytes = 0
+            }
+            track.objectTypeIndication = audioObjectTypeIndication(reader, from: entryStart + 36 + extraBytes, to: entryEnd)
+        } else if track.sampleEntry == "Opus" {
+            forEachHLSBox(reader, from: entryStart + 36, to: entryEnd) { box in
+                if box.type == "dOps" { track.hasDOps = true }
+                return true
+            }
+        }
+    }
+
+    private static func audioObjectTypeIndication(_ reader: HLSFileReader, from start: Int64, to end: Int64) -> UInt8? {
+        var result: UInt8?
+        forEachHLSBox(reader, from: start, to: end) { box in
+            if box.type == "esds" {
+                let length = Int(min(box.end - box.payload, 256))
+                result = reader.bytes(at: box.payload, count: length).flatMap { objectTypeIndication(inESDS: $0) }
+            } else if box.type == "wave" {
+                result = audioObjectTypeIndication(reader, from: box.payload, to: box.end)
+            }
+            return result == nil
+        }
+        return result
+    }
+
+    private static func objectTypeIndication(inESDS bytes: [UInt8]) -> UInt8? {
+        guard bytes.count > 4, bytes[4] == 0x03,
+              var index = descriptorBodyStart(bytes, tagAt: 4), index + 3 <= bytes.count else { return nil }
+        let flags = bytes[index + 2]
+        index += 3
+        if flags & 0x80 != 0 { index += 2 }
+        if flags & 0x40 != 0 {
+            guard index < bytes.count else { return nil }
+            index += 1 + Int(bytes[index])
+        }
+        if flags & 0x20 != 0 { index += 2 }
+        guard index < bytes.count, bytes[index] == 0x04,
+              let body = descriptorBodyStart(bytes, tagAt: index), body < bytes.count else { return nil }
+        return bytes[body]
+    }
+
+    private static func descriptorBodyStart(_ bytes: [UInt8], tagAt tag: Int) -> Int? {
+        var index = tag + 1
+        for _ in 0..<4 {
+            guard index < bytes.count else { return nil }
+            let byte = bytes[index]
+            index += 1
+            if byte & 0x80 == 0 { return index }
+        }
+        return nil
+    }
+
+    private static func fourCC(_ bytes: [UInt8], at start: Int) -> String {
+        String(decoding: bytes[start..<start + 4], as: UTF8.self)
+    }
+}
+
 enum FileIngestAvailability {
     private static let availableFor: TimeInterval = 30 * 60
     private static let unavailableFor: TimeInterval = 5 * 60
