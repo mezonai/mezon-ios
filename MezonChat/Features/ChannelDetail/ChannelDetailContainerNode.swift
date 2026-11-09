@@ -138,13 +138,8 @@ final class ChannelDetailContainerNode: ASDisplayNode, ASNetworkImageNodeDelegat
         let group = MezonConstants.ChannelType.group.rawValue
         let isDMOrGroup = channel.type == dm || channel.type == group
         let isSelfDM = channel.type == dm && channel.userIds.first == currentUserId
-        let isOneToOneDM =
-            channel.type == dm && !isSelfDM && channel.userIds.count <= 2
 
         if isSelfDM {
-            return [.media, .files, .pins]
-        }
-        if isOneToOneDM {
             return [.media, .files, .pins]
         }
         if !isDMOrGroup {

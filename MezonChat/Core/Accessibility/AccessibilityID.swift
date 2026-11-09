@@ -52,4 +52,9 @@ enum AccessibilityID {
             makeAccessibilityID("message.item", id: id)
         }
     }
+
+    enum DirectMessage {
+        static let addMember = makeAccessibilityID("chat.direct_message.header.right_container.add_member")
+        static let createGroup = makeAccessibilityID("chat.direct_message.button.create_group")
+    }
 }

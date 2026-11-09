@@ -626,18 +626,15 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
         if indexPath.section == 0 {
             let type = self.channelType
             return {
-                var title = L(L10n.ChannelDetail.inviteMembers)
-                var icon = "person.badge.plus.fill"
-
-                if type == MezonConstants.ChannelType.dm.rawValue {
-                    title = L(L10n.ChannelDetail.newGroup)
-                    icon = "person.2.fill"
-                } else if type == MezonConstants.ChannelType.group.rawValue {
-                    title = L(L10n.ChannelDetail.addMembers)
-                    icon = "person.badge.plus.fill"
+                let isDirectMessage =
+                    type == MezonConstants.ChannelType.dm.rawValue
+                    || type == MezonConstants.ChannelType.group.rawValue
+                let title = isDirectMessage ? L(L10n.ChannelDetail.addMembers) : L(L10n.ChannelDetail.inviteMembers)
+                let cell = ActionButtonCellNode(title: title, iconName: "person.badge.plus.fill")
+                if isDirectMessage {
+                    cell.accessibilityIdentifier = AccessibilityID.DirectMessage.addMember
                 }
-
-                return ActionButtonCellNode(title: title, iconName: icon)
+                return cell
             }
         }
 
@@ -856,7 +853,20 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
             return
         }
 
-        guard clanId != 0, channelType != MezonConstants.ChannelType.dm.rawValue else { return }
+        if channelType == MezonConstants.ChannelType.dm.rawValue {
+            var source = channelDescription
+            if source.userIds.isEmpty {
+                source.userIds = Array(currentGroupMemberSnapshot().ids)
+            }
+            let postbox = context.account.postbox
+            let vc = NewGroupDMViewController(context: context, sourceDirectMessage: source) { created in
+                postbox.updateCachedDMChannelDescription(created)
+            }
+            host.navigationController?.pushViewController(vc, animated: true)
+            return
+        }
+
+        guard clanId != 0 else { return }
         let vc = ClanInviteSheetViewController(context: context, clanId: clanId, channelId: channelId)
         host.present(vc, animated: true)
     }
