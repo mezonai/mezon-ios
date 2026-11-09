@@ -67,7 +67,10 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
             SessionStore.clear()
         }
         #endif
-        SessionStore.prepareInstallationScopedKeychainIfNeeded()
+        let isNewInstallation = SessionStore.prepareInstallationScopedKeychainIfNeeded()
+        if isNewInstallation {
+            ThemeManager.shared.adoptNewInstallationDefault()
+        }
         if let userId = SessionStore.load()?.userId, !userId.isEmpty {
             MessageNotificationCategory.setActiveUser(userId)
         }
