@@ -1079,6 +1079,8 @@ final class ChatViewController: ViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        view.identified(by: AccessibilityID.Chat.screen)
+        view.accessibilityValue = String(channel.channelID)
         messagesNode.applyTheme()
         setupInputBar()
         configureAnonymousComposerAndAdvancePanel()

@@ -238,8 +238,31 @@ final class ChatContainerNode: ASDisplayNode {
         disposables.dispose()
     }
 
+    override var accessibilityElements: [Any]? {
+        get {
+            guard isNodeLoaded else { return nil }
+            let nodeElements = super.accessibilityElements ?? []
+            let children = subnodes ?? []
+            let nodeViews = Set(children.filter { !$0.isLayerBacked && $0.isNodeLoaded }
+                .map { ObjectIdentifier($0.view) })
+            let uiViews = view.subviews.filter {
+                !nodeViews.contains(ObjectIdentifier($0))
+                    && !$0.isHidden && $0.alpha > 0 && !$0.accessibilityElementsHidden
+            }
+            if let modal = uiViews.last(where: { $0.accessibilityViewIsModal }) {
+                return [modal]
+            }
+            if children.contains(where: { $0.accessibilityViewIsModal && !$0.isHidden && $0.alpha > 0 && !$0.accessibilityElementsHidden }) {
+                return nodeElements
+            }
+            return nodeElements + uiViews
+        }
+        set { super.accessibilityElements = newValue }
+    }
+
     override func didLoad() {
         super.didLoad()
+        listView.view.identified(by: AccessibilityID.Chat.messages)
 
         let t = UIColor.theme
         gradientLayer.colors = [t.secondary.cgColor, t.primaryGradient.cgColor]

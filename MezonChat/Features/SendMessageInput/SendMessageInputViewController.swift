@@ -870,7 +870,7 @@ final class SendMessageInputViewController: UIViewController {
     }()
 
     private lazy var textView: PastableTextView = {
-        let tv = PastableTextView()
+        let tv = PastableTextView().identified(by: AccessibilityID.Chat.input)
         tv.isScrollEnabled = false
         let pad = Self.composerVerticalInset
         tv.textContainerInset = UIEdgeInsets(top: pad, left: 12, bottom: pad, right: 36)
@@ -966,7 +966,7 @@ final class SendMessageInputViewController: UIViewController {
     }()
 
     private lazy var sendButton: UIButton = {
-        let btn = UIButton(type: .system)
+        let btn = UIButton(type: .system).identified(by: AccessibilityID.Chat.send)
         btn.translatesAutoresizingMaskIntoConstraints = false
         let sendSide: CGFloat = 40.swh
         btn.layer.cornerRadius = sendSide / 2
@@ -2330,6 +2330,11 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func refreshBannerLabel() {
+        let isReply = editingDisplay == nil && ephemeralTarget == nil && replyDisplay != nil
+        replyLabel.accessibilityIdentifier = isReply ? AccessibilityID.Chat.replyBanner : nil
+        if UITestLaunch.exposesChatMetadata {
+            replyLabel.accessibilityValue = isReply ? replyDisplay?.id : nil
+        }
         if editingDisplay != nil {
             replyLabel.text = L(L10n.MessageAction.editingMessage)
         } else if let target = ephemeralTarget {
