@@ -13,6 +13,18 @@ enum ActiveChannelTracker {
     }
 }
 
+private enum DeliveredNotificationRemovalLedger {
+    private static let lock = NSLock()
+    private static var removedIds = Set<String>()
+    private static let maxTrackedIds = 500
+
+    static func claim(_ ids: [String]) -> [String] {
+        lock.lock(); defer { lock.unlock() }
+        if removedIds.count > maxTrackedIds { removedIds.removeAll() }
+        return ids.filter { removedIds.insert($0).inserted }
+    }
+}
+
 struct ParsedAttachment: Equatable {
     let url: String
     let filename: String
@@ -1105,6 +1117,7 @@ final class ChatViewController: ViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(handleAttachmentUploadProgress(_:)), name: .mezonAttachmentUploadProgress, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleAttachmentUploadSlotStateChanged(_:)), name: .mezonAttachmentUploadSlotStateChanged, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelMetadataChanged(_:)), name: .mezonChannelDescriptionDidUpdate, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(handleAppDidBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
         stateDisposables.add((context.engine.clanData.linkedChannelUpdated.signal() |> deliverOnMainQueue).start(next: { [weak self] _ in
             self?.scheduleLinkedChannelRefresh()
         }))
@@ -1508,6 +1521,7 @@ final class ChatViewController: ViewController {
         refreshMemberOnboardingMissionBar()
         if wasCoveredByPushedController {
             wasCoveredByPushedController = false
+            Self.removeDeliveredNotifications(forChannelId: channel.channelID, topicId: topicId)
             reloadDisplaysWithCurrentPins()
             if isViewLoaded {
                 messagesNode.forceUpdateAllMessageItems()
@@ -2095,8 +2109,8 @@ final class ChatViewController: ViewController {
             context.currentClanId = clanId
             context.currentChannel = channel
             ActiveChannelTracker.currentChannelId = channel.channelID
-            Self.removeDeliveredNotifications(forChannelId: channel.channelID)
         }
+        Self.removeDeliveredNotifications(forChannelId: channel.channelID, topicId: topicId)
 
         if channel.channelLabel.isEmpty || channel.type == 0 {
             resolveChannelLabelFromCache()
@@ -2418,26 +2432,30 @@ final class ChatViewController: ViewController {
         sendInputViewController.syncStoredDraftIdentity(channel: channel, topicId: topicId)
     }
 
-    static func removeDeliveredNotifications(forChannelId channelId: Int64) {
+    static func removeDeliveredNotifications(forChannelId channelId: Int64, topicId: Int64 = 0) {
+        guard channelId != 0 else { return }
         let center = UNUserNotificationCenter.current()
         let channelIdStr = "\(channelId)"
+        let topicIdStr = "\(topicId)"
 
         center.getDeliveredNotifications { notifications in
             let matchingIds = notifications
                 .filter { notification in
                     let userInfo = notification.request.content.userInfo
+                    guard topicId == 0 || userInfo["topic"].map({ "\($0)" }) == topicIdStr else { return false }
                     if let ch = userInfo["channel"] as? String { return ch == channelIdStr }
                     if let ch = userInfo["channel"] { return "\(ch)" == channelIdStr }
                     return false
                 }
                 .map { $0.request.identifier }
 
-            guard !matchingIds.isEmpty else { return }
-            center.removeDeliveredNotifications(withIdentifiers: matchingIds)
+            let freshIds = DeliveredNotificationRemovalLedger.claim(matchingIds)
+            guard !freshIds.isEmpty else { return }
+            center.removeDeliveredNotifications(withIdentifiers: freshIds)
 
             let shared = UserDefaults(suiteName: "group.mezon.mobile")
             let current = shared?.integer(forKey: "badgeCount") ?? 0
-            let newCount = max(0, current - matchingIds.count)
+            let newCount = max(0, current - freshIds.count)
             shared?.set(newCount, forKey: "badgeCount")
 
             DispatchQueue.main.async {
@@ -2469,8 +2487,27 @@ final class ChatViewController: ViewController {
         NotificationCenter.default.removeObserver(self)
     }
 
+    private static let foregroundNotificationClearDelay: TimeInterval = 0.5
+    private static let foregroundNavigationGraceWindow: TimeInterval = 1.5
+
+    @objc private func handleAppDidBecomeActive() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.foregroundNotificationClearDelay) { [weak self] in
+            self?.removeDeliveredNotificationsIfStillVisibleAfterForeground()
+        }
+    }
+
+    private func removeDeliveredNotificationsIfStillVisibleAfterForeground() {
+        guard !hasLeftChat, !wasCoveredByPushedController,
+              viewIfLoaded?.window != nil,
+              UIApplication.shared.applicationState == .active else { return }
+        let sinceNavigationRequest = ProcessInfo.processInfo.systemUptime - AppDelegate.lastNavigationRequestUptime
+        guard sinceNavigationRequest > Self.foregroundNavigationGraceWindow else { return }
+        Self.removeDeliveredNotifications(forChannelId: channel.channelID, topicId: topicId)
+    }
+
     func handleBroughtForwardFromNotificationDeepLink() {
         prepareForNotificationNavigation()
+        Self.removeDeliveredNotifications(forChannelId: channel.channelID, topicId: topicId)
         lastMarkedAsReadMessageId = nil
         if !messages.isEmpty {
             markChannelAsRead()

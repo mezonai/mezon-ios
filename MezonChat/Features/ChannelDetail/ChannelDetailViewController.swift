@@ -55,6 +55,9 @@ final class ChannelDetailViewController: ViewController {
             },
             onGroupOptionsTapped: { [weak self] in
                 self?.showGroupDMOptions()
+            },
+            onCustomizeGroupTapped: { [weak self] in
+                self?.presentCustomizeGroup()
             }
         )
     }

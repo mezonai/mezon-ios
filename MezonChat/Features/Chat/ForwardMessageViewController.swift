@@ -395,7 +395,19 @@ final class ForwardMessageViewController: UIViewController {
     private var awaitingSearchResults = false
     private var isLoadingDestinations = false
     private var searchDebounceTimer: Foundation.Timer?
-    private var isSending = false
+    private var isSending = false {
+        didSet {
+            commentField.isEnabled = !isSending
+            searchField.isEnabled = !isSending
+            tableView.allowsSelection = !isSending
+            refreshSendButtonVisual()
+            if isSending {
+                sendIndicator.startAnimating()
+            } else {
+                sendIndicator.stopAnimating()
+            }
+        }
+    }
 
     private lazy var closeButton = UIButton(type: .system)
     private lazy var titleLbl = UILabel()
@@ -431,6 +443,19 @@ final class ForwardMessageViewController: UIViewController {
     private lazy var inputBg = UIView()
     private lazy var commentField = UITextField()
     private lazy var sendBtn = UIButton(type: .system)
+    private lazy var sendIcon: UIImage? = {
+        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        return UIImage(named: "Chat/SendMessageIcon")?.withRenderingMode(.alwaysTemplate)
+            ?? UIImage(systemName: "paperplane.fill", withConfiguration: config)
+    }()
+    private let sendIndicator: UIActivityIndicatorView = {
+        let indicator = UIActivityIndicatorView(style: .medium)
+        indicator.color = .white
+        indicator.hidesWhenStopped = true
+        indicator.isUserInteractionEnabled = false
+        indicator.translatesAutoresizingMaskIntoConstraints = false
+        return indicator
+    }()
     private let bottomBar = UIView()
 
     private var bottomLiftConstraint: NSLayoutConstraint?
@@ -489,6 +514,8 @@ final class ForwardMessageViewController: UIViewController {
             string: L(L10n.Sharing.commentPlaceholder),
             attributes: [.foregroundColor: UIColor.theme.textDisabled.withAlphaComponent(0.85)]
         )
+        sendBtn.accessibilityLabel = L(L10n.MessageAction.forwardMessage)
+        sendBtn.accessibilityValue = isSending ? L(L10n.Common.loading) : nil
         updatePreviewLabel()
         updatePlaceholderState()
         tableView.reloadData()
@@ -557,14 +584,8 @@ final class ForwardMessageViewController: UIViewController {
 
         sendBtn.layer.cornerRadius = 20
         sendBtn.clipsToBounds = true
-        let sendCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-        let sendImg = UIImage(named: "Chat/SendMessageIcon")?.withRenderingMode(.alwaysTemplate)
-            ?? UIImage(systemName: "paperplane.fill", withConfiguration: sendCfg)
-        sendBtn.setImage(sendImg, for: .normal)
-        sendBtn.imageView?.contentMode = .scaleAspectFit
         let iconInset: CGFloat = 9
         sendBtn.imageEdgeInsets = UIEdgeInsets(top: iconInset, left: iconInset, bottom: iconInset, right: iconInset)
-        sendBtn.isEnabled = false
         sendBtn.addTarget(self, action: #selector(sendTapped), for: .touchUpInside)
 
         closeButton.translatesAutoresizingMaskIntoConstraints = false
@@ -598,6 +619,7 @@ final class ForwardMessageViewController: UIViewController {
         bottomBar.addSubview(inputBg)
         bottomBar.addSubview(sendBtn)
         inputBg.addSubview(commentField)
+        sendBtn.addSubview(sendIndicator)
 
         let safe = view.safeAreaLayoutGuide
         let lift = bottomBar.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: 0)
@@ -667,6 +689,8 @@ final class ForwardMessageViewController: UIViewController {
             sendBtn.centerYAnchor.constraint(equalTo: inputBg.centerYAnchor),
             sendBtn.widthAnchor.constraint(equalToConstant: 40),
             sendBtn.heightAnchor.constraint(equalToConstant: 40),
+            sendIndicator.centerXAnchor.constraint(equalTo: sendBtn.centerXAnchor),
+            sendIndicator.centerYAnchor.constraint(equalTo: sendBtn.centerYAnchor),
 
             composerPad,
         ])
@@ -692,8 +716,12 @@ final class ForwardMessageViewController: UIViewController {
     private func refreshSendButtonVisual() {
         let t = UIColor.theme
         let sendBlue = UIColor(red: 0.34, green: 0.54, blue: 0.95, alpha: 1)
+        sendBtn.isEnabled = !isSending && !selectedItems.isEmpty
+        sendBtn.setImage(isSending ? nil : sendIcon, for: .normal)
+        sendBtn.imageView?.contentMode = .scaleAspectFit
+        sendBtn.accessibilityValue = isSending ? L(L10n.Common.loading) : nil
         sendBtn.alpha = 1
-        guard sendBtn.isEnabled else {
+        guard sendBtn.isEnabled || isSending else {
             sendBtn.backgroundColor = t.borderDim
             sendBtn.tintColor = t.textDisabled
             return
@@ -1213,6 +1241,7 @@ final class ForwardMessageViewController: UIViewController {
             return
         }
         let pendingItems = selectedItems
+        view.endEditing(true)
         isSending = true
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -1320,7 +1349,6 @@ extension ForwardMessageViewController: UITableViewDelegate, UITableViewDataSour
         } else {
             selectedItems.append(item)
         }
-        sendBtn.isEnabled = !selectedItems.isEmpty
         refreshSendButtonVisual()
         tableView.reloadRows(at: [indexPath], with: .none)
     }

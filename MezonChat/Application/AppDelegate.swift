@@ -816,6 +816,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
     }
 
     static var pendingNavigation: [String: Any]?
+    static var lastNavigationRequestUptime: TimeInterval = 0
     static var lastHandledNavigationInstanceId: String?
     static var pendingFriendRequestNavigation: [String: Any]?
     static var lastHandledFriendRequestNavigationInstanceId: String?
@@ -824,6 +825,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         let info: [String: Any] = [
             "navigationInstanceId": UUID().uuidString,
         ]
+        lastNavigationRequestUptime = ProcessInfo.processInfo.systemUptime
         pendingFriendRequestNavigation = info
         NotificationCenter.default.post(name: .mezonNavigateToFriendRequests, object: nil, userInfo: info)
         let instanceId = info["navigationInstanceId"] as? String
@@ -846,6 +848,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         ]
         if let clanId, !clanId.isEmpty { info["clanId"] = clanId }
         if topicId != 0 { info["topicId"] = topicId }
+        lastNavigationRequestUptime = ProcessInfo.processInfo.systemUptime
         pendingNavigation = info
         NotificationCenter.default.post(name: .mezonNavigateToChannel, object: nil, userInfo: info)
         let instanceId = info["navigationInstanceId"] as? String
