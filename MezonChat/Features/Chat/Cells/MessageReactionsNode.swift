@@ -336,13 +336,7 @@ final class ReactionPillNode: ASDisplayNode {
 
         let t = UIColor.theme
 
-        if reaction.isMe {
-            backgroundColor = UIColor(red: 0.35, green: 0.45, blue: 0.95, alpha: 0.2)
-            borderWidth = 1
-            borderColor = UIColor(red: 0.35, green: 0.45, blue: 0.95, alpha: 0.6).cgColor
-        } else {
-            backgroundColor = t.secondary
-        }
+        applyPillColors(isSelected: reaction.isMe, theme: t)
         cornerRadius = 5.swh
         clipsToBounds = true
 
@@ -357,7 +351,7 @@ final class ReactionPillNode: ASDisplayNode {
             string: fallbackText,
             attributes: [
                 .font: UIFont.systemFont(ofSize: 16.sf),
-                .foregroundColor: t.textStrong,
+                .foregroundColor: t.textThemePrimary,
             ]
         )
         addSubnode(emojiFallbackNode)
@@ -367,7 +361,7 @@ final class ReactionPillNode: ASDisplayNode {
             string: "\(reaction.count)",
             attributes: [
                 .font: UIFont.systemFont(ofSize: 12.sf, weight: .semibold),
-                .foregroundColor: t.textStrong,
+                .foregroundColor: t.textThemePrimary,
             ]
         )
         addSubnode(countNode)
@@ -429,6 +423,13 @@ final class ReactionPillNode: ASDisplayNode {
         }
     }
 
+    private func applyPillColors(isSelected: Bool, theme: ThemeAttributes) {
+        let brand = theme.iconPrimary
+        backgroundColor = isSelected ? brand.withAlphaComponent(0.18) : theme.tertiary
+        borderWidth = isSelected ? 1 : 0
+        borderColor = isSelected ? brand.cgColor : nil
+    }
+
     private func updateCountAccessibility(_ reaction: ParsedReaction) {
         countNode.accessibilityIdentifier = AccessibilityID.Chat.reactionCount(reaction.emojiId)
         if reaction.isMe {
@@ -448,25 +449,17 @@ final class ReactionPillNode: ASDisplayNode {
             string: "\(reaction.count)",
             attributes: [
                 .font: UIFont.systemFont(ofSize: 12.sf, weight: .semibold),
-                .foregroundColor: t.textStrong,
+                .foregroundColor: t.textThemePrimary,
             ]
         )
-        if reaction.isMe {
-            backgroundColor = UIColor(red: 0.35, green: 0.45, blue: 0.95, alpha: 0.2)
-            borderWidth = 1
-            borderColor = UIColor(red: 0.35, green: 0.45, blue: 0.95, alpha: 0.6).cgColor
-        } else {
-            backgroundColor = t.secondary
-            borderWidth = 0
-            borderColor = nil
-        }
+        applyPillColors(isSelected: reaction.isMe, theme: t)
 
         let fallbackText = !reaction.emoji.isEmpty ? reaction.emoji : "?"
         emojiFallbackNode.attributedText = NSAttributedString(
             string: fallbackText,
             attributes: [
                 .font: UIFont.systemFont(ofSize: 16.sf),
-                .foregroundColor: t.textStrong,
+                .foregroundColor: t.textThemePrimary,
             ]
         )
 

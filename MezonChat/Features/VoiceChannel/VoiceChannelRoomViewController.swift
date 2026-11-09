@@ -666,14 +666,7 @@ final class VoiceChannelPiPOverlay: NSObject {
         w.windowLevel = .statusBar + 1
         w.backgroundColor = .clear
         w.isUserInteractionEnabled = true
-        switch ThemeManager.shared.current {
-        case .light, .sunrise:
-            w.overrideUserInterfaceStyle = .light
-        case .dark, .redDark, .purpleHaze, .abyssDark, .sunset:
-            w.overrideUserInterfaceStyle = .dark
-        case .system:
-            w.overrideUserInterfaceStyle = .unspecified
-        }
+        w.overrideUserInterfaceStyle = ThemeManager.shared.current.interfaceStyle
         w.pipView = pipView
         let rootVC = UIViewController()
         rootVC.view.backgroundColor = .clear
@@ -2142,7 +2135,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private func makeControlBarIconButton(systemName: String, action: Selector? = nil) -> UIButton {
         let b = UIButton(type: .custom)
         b.translatesAutoresizingMaskIntoConstraints = false
-        b.backgroundColor = UIColor.theme.tertiary
+        b.backgroundColor = UIColor.theme.raisedSurface
         b.layer.cornerRadius = 25
         b.layer.borderWidth = 0.5
         b.layer.borderColor = UIColor.theme.textDisabled.withAlphaComponent(0.6).cgColor
@@ -2181,7 +2174,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         pttMicPill.isEnabled = false
         pttMicPill.alpha = 0.45
         pttMicPill.translatesAutoresizingMaskIntoConstraints = false
-        pttMicPill.backgroundColor = UIColor.theme.tertiary
+        pttMicPill.backgroundColor = UIColor.theme.raisedSurface
         pttMicPill.layer.cornerRadius = 30
         pttMicPill.clipsToBounds = true
         pttMicPill.addTarget(self, action: #selector(pttTouchDown), for: .touchDown)
@@ -2229,7 +2222,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         centerPttPillIcon(endIcon, in: pttEndPill)
         pttEndPill.addTarget(self, action: #selector(popTapped), for: .touchUpInside)
 
-        configurePttSecondaryPill(pttRaisePill, backgroundColor: UIColor.theme.tertiary)
+        configurePttSecondaryPill(pttRaisePill, backgroundColor: UIColor.theme.raisedSurface)
         pttRaiseIcon.translatesAutoresizingMaskIntoConstraints = false
         pttRaiseIcon.contentMode = .scaleAspectFit
         let raiseCfg = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
@@ -2240,7 +2233,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         centerPttPillIcon(pttRaiseIcon, in: pttRaisePill)
         pttRaisePill.addTarget(self, action: #selector(raiseHandTapped), for: .touchUpInside)
 
-        configurePttSecondaryPill(pttChatPill, backgroundColor: UIColor.theme.tertiary)
+        configurePttSecondaryPill(pttChatPill, backgroundColor: UIColor.theme.raisedSurface)
         let chatIcon = makePttPillIcon(systemName: "bubble.left.and.bubble.right.fill", pointSize: 18, tint: UIColor.theme.textStrong)
         pttChatPill.addSubview(chatIcon)
         centerPttPillIcon(chatIcon, in: pttChatPill)
@@ -2328,7 +2321,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         let loading = state == .waiting || state == .preparing
         let micCfg = UIImage.SymbolConfiguration(pointSize: 34, weight: .medium)
         let tint = ready ? UIColor.white : (loading ? UIColor.theme.textWarning : UIColor.theme.textStrong)
-        pttMicPill.backgroundColor = ready ? UIColor.theme.bgViolet : UIColor.theme.tertiary
+        pttMicPill.backgroundColor = ready ? UIColor.theme.bgViolet : UIColor.theme.raisedSurface
         pttMicPill.layer.borderWidth = loading ? 1 : 0
         pttMicPill.layer.borderColor = tint.cgColor
         pttMicIcon.image = UIImage(systemName: ready ? "mic.fill" : "mic.slash.fill", withConfiguration: micCfg)?.withRenderingMode(.alwaysTemplate)
@@ -2966,7 +2959,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             screenShareButton.backgroundColor = UIColor.mezonVoiceActive.withAlphaComponent(0.22)
         } else {
             screenShareButton.tintColor = UIColor.theme.textStrong
-            screenShareButton.backgroundColor = UIColor.theme.tertiary
+            screenShareButton.backgroundColor = UIColor.theme.raisedSurface
         }
     }
 
@@ -3048,7 +3041,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private func makeRaiseHandTopBannerPill(userId: Int64) -> UIView {
         let wrap = UIView()
         wrap.translatesAutoresizingMaskIntoConstraints = false
-        wrap.backgroundColor = UIColor.theme.tertiary
+        wrap.backgroundColor = UIColor.theme.raisedSurface
         wrap.layer.cornerRadius = 14
         wrap.clipsToBounds = true
         wrap.layer.borderWidth = 1

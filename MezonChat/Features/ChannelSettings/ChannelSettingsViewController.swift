@@ -209,10 +209,13 @@ final class ChannelSettingsViewController: BaseViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        settingsNode.applyTheme()
         if channelType == MezonConstants.ChannelType.mezonVoice.rawValue {
             NotificationCenter.default.addObserver(self, selector: #selector(handleVoiceAccessLost(_:)), name: .mezonVoiceChannelAccessLost, object: nil)
         }
+    }
+
+    override func applyTheme() {
+        settingsNode.applyTheme()
     }
 
     deinit { NotificationCenter.default.removeObserver(self) }

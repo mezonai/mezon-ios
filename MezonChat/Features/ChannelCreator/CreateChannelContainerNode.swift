@@ -29,7 +29,7 @@ final class CreateChannelContainerNode: ASDisplayNode {
         self.onClose = onClose
         self.onCreate = onCreate
         super.init()
-        backgroundColor = UIColor.theme.primary
+        backgroundColor = UIColor.theme.themeSettingPrimary
     }
 
     override func didLoad() {
@@ -370,7 +370,7 @@ final class CreateChannelContainerNode: ASDisplayNode {
     }
 
     func applyTheme() {
-        backgroundColor = UIColor.theme.primary
+        backgroundColor = UIColor.theme.themeSettingPrimary
         activityIndicator.color = UIColor.theme.textStrong
     }
 

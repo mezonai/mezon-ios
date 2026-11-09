@@ -481,7 +481,9 @@ final class CodeBlockContainerNode: ASDisplayNode {
         super.init()
 
         let t = UIColor.theme
-        backgroundNode.backgroundColor = t.tertiary
+        backgroundNode.backgroundColor = t.desktop[.bgMarkdownCode]
+        backgroundNode.borderWidth = 1
+        backgroundNode.borderColor = t.borderPrimary.cgColor
         backgroundNode.cornerRadius = Self.cornerRadius
         backgroundNode.clipsToBounds = true
 
@@ -492,7 +494,7 @@ final class CodeBlockContainerNode: ASDisplayNode {
             string: code,
             attributes: [
                 .font: bodyFont,
-                .foregroundColor: t.textStrong,
+                .foregroundColor: t.textThemeMessage,
                 .paragraphStyle: codePara,
             ]
         )

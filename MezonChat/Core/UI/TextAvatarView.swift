@@ -8,7 +8,7 @@ private enum AvatarSkeletonPalette {
     static func currentColors() -> (base: CGColor, highlight: CGColor) {
         let theme = UIColor.theme
         let base = theme.secondaryWeight
-        let highlight = theme.tertiary
+        let highlight = theme.shimmerHighlight(over: base)
         return (base.cgColor, highlight.cgColor)
     }
 

@@ -2082,12 +2082,13 @@ private final class MessageRoleIconImageView: UIImageView {
 }
 
 private final class MessageShareContactNode: ASDisplayNode {
-
-    fileprivate static let blurpleColor = UIColor(red: 88/255, green: 101/255, blue: 242/255, alpha: 1)
-
-    private let gradientView = MessageShareContactGradientView()
+    private let gradientView = ThemeFillView()
     private lazy var gradientNode = ASDisplayNode { [weak self] in
         self?.gradientView ?? UIView()
+    }
+    private let footerSurfaceView = ThemeFillView()
+    private lazy var footerSurfaceNode = ASDisplayNode { [weak self] in
+        self?.footerSurfaceView ?? UIView()
     }
     private let actionBackgroundNode = ASDisplayNode()
     private let dividerNode = ASDisplayNode()
@@ -2098,8 +2099,8 @@ private final class MessageShareContactNode: ASDisplayNode {
     private lazy var profileControlNode = ASDisplayNode { [weak self] in
         self?.profileControl ?? UIView()
     }
-    private let callButtonNode = MessageShareContactActionButtonNode(title: "Call", systemIcon: "phone.fill", titleUsesAccent: false)
-    private let messageButtonNode = MessageShareContactActionButtonNode(title: "Message", systemIcon: "message.fill", titleUsesAccent: true)
+    private let callButtonNode = MessageShareContactActionButtonNode(title: "Call", systemIcon: "phone.fill")
+    private let messageButtonNode = MessageShareContactActionButtonNode(title: "Message", systemIcon: "message.fill")
 
     private var data: ShareContactData?
     private var cachedNameSize: CGSize = .zero
@@ -2122,6 +2123,7 @@ private final class MessageShareContactNode: ASDisplayNode {
         borderWidth = 1
 
         addSubnode(gradientNode)
+        addSubnode(footerSurfaceNode)
         addSubnode(actionBackgroundNode)
         addSubnode(dividerNode)
 
@@ -2129,7 +2131,7 @@ private final class MessageShareContactNode: ASDisplayNode {
         avatarNode.clipsToBounds = true
         avatarNode.contentMode = .scaleAspectFill
         avatarNode.borderWidth = 2
-        avatarNode.borderColor = UIColor.white.cgColor
+        avatarNode.borderColor = UIColor.white.withAlphaComponent(77.0 / 255).cgColor
         addSubnode(avatarNode)
 
         nameNode.maximumNumberOfLines = 2
@@ -2158,10 +2160,11 @@ private final class MessageShareContactNode: ASDisplayNode {
     func configure(data: ShareContactData, callBlocked: Bool) {
         self.data = data
         let t = UIColor.theme
-        borderColor = t.borderDim.cgColor
-        gradientView.update(startColor: t.primary, endColor: t.secondaryLight)
-        actionBackgroundNode.backgroundColor = t.secondaryWeight
-        dividerNode.backgroundColor = t.border
+        borderColor = t.borderPrimary.cgColor
+        gradientView.apply(solid: t.tertiary, gradient: t.desktop.primaryFillGradient)
+        footerSurfaceView.apply(solid: t.tertiary, gradient: t.desktop.primaryFillGradient)
+        actionBackgroundNode.backgroundColor = t.desktop[.bgSecondaryButtonHover]
+        dividerNode.backgroundColor = t.borderPrimary
 
         let displayName = data.resolvedDisplayName
         let username = data.resolvedUsername
@@ -2174,14 +2177,14 @@ private final class MessageShareContactNode: ASDisplayNode {
             string: displayName,
             attributes: [
                 .font: UIFont.systemFont(ofSize: 14.sf, weight: .semibold),
-                .foregroundColor: t.white,
+                .foregroundColor: t.desktop[.textSecondary],
             ]
         )
         usernameNode.attributedText = NSAttributedString(
             string: username.isEmpty ? "" : "@\(username)",
             attributes: [
                 .font: UIFont.systemFont(ofSize: 12.sf),
-                .foregroundColor: t.text,
+                .foregroundColor: t.textThemePrimary,
             ]
         )
         setCallBlocked(callBlocked)
@@ -2250,10 +2253,10 @@ private final class MessageShareContactNode: ASDisplayNode {
 
     override func layout() {
         super.layout()
-        gradientNode.frame = bounds
-
         let topHeight = cachedTopHeight > 0 ? cachedTopHeight : max(bounds.height - 40, 72)
         let actionHeight = max(bounds.height - topHeight, 0)
+        gradientNode.frame = CGRect(x: 0, y: 0, width: bounds.width, height: topHeight)
+        footerSurfaceNode.frame = CGRect(x: 0, y: topHeight, width: bounds.width, height: actionHeight)
         actionBackgroundNode.frame = CGRect(x: 0, y: topHeight, width: bounds.width, height: actionHeight)
         let scale = UIScreen.main.scale
         let dividerWidth = 1 / scale
@@ -2284,19 +2287,6 @@ private final class MessageShareContactNode: ASDisplayNode {
     }
 }
 
-private final class MessageShareContactGradientView: UIView {
-    override class var layerClass: AnyClass {
-        CAGradientLayer.self
-    }
-
-    func update(startColor: UIColor, endColor: UIColor) {
-        guard let gradientLayer = layer as? CAGradientLayer else { return }
-        gradientLayer.startPoint = CGPoint(x: 1, y: 0)
-        gradientLayer.endPoint = CGPoint(x: 0, y: 0)
-        gradientLayer.colors = [startColor.cgColor, endColor.cgColor]
-    }
-}
-
 private final class MessageShareContactActionButtonNode: ASDisplayNode {
     private let backgroundNode = ASDisplayNode()
     private let iconNode = ASImageNode()
@@ -2307,11 +2297,9 @@ private final class MessageShareContactActionButtonNode: ASDisplayNode {
     }
 
     var onTapped: (() -> Void)?
-    private let titleUsesAccent: Bool
     private var actionEnabled = true
 
-    init(title: String, systemIcon: String, titleUsesAccent: Bool) {
-        self.titleUsesAccent = titleUsesAccent
+    init(title: String, systemIcon: String) {
         super.init()
         automaticallyManagesSubnodes = false
         addSubnode(backgroundNode)
@@ -2326,7 +2314,7 @@ private final class MessageShareContactActionButtonNode: ASDisplayNode {
             string: title,
             attributes: [
                 .font: UIFont.systemFont(ofSize: 14.sf, weight: .medium),
-                .foregroundColor: titleUsesAccent ? MessageShareContactNode.blurpleColor : UIColor.theme.textStrong,
+                .foregroundColor: UIColor.theme.textThemePrimary,
             ]
         )
         titleNode.maximumNumberOfLines = 1
@@ -2346,10 +2334,9 @@ private final class MessageShareContactActionButtonNode: ASDisplayNode {
 
     func applyTheme() {
         backgroundNode.backgroundColor = .clear
-        let accentColor = MessageShareContactNode.blurpleColor
-        let textColor = titleUsesAccent ? accentColor : UIColor.theme.textStrong
+        let textColor = UIColor.theme.textThemePrimary
         let foregroundColor = actionEnabled ? textColor : UIColor.theme.textDisabled
-        iconNode.tintColor = actionEnabled ? accentColor : UIColor.theme.textDisabled
+        iconNode.tintColor = actionEnabled ? UIColor.theme.textNormal : UIColor.theme.textDisabled
         if let text = titleNode.attributedText?.string {
             titleNode.attributedText = NSAttributedString(
                 string: text,

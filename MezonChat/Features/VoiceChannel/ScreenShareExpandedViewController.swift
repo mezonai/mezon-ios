@@ -219,7 +219,7 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
             button.translatesAutoresizingMaskIntoConstraints = false
             button.setImage(UIImage(systemName: symbol, withConfiguration: config), for: .normal)
             button.tintColor = UIColor.theme.textStrong
-            button.backgroundColor = UIColor.theme.tertiary
+            button.backgroundColor = UIColor.theme.raisedSurface
             button.layer.cornerRadius = 25
             button.layer.borderWidth = 0.5
             button.layer.borderColor = UIColor.theme.textDisabled.withAlphaComponent(0.6).cgColor
@@ -259,7 +259,7 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
         microphoneButton.isSelected = microphoneOn
         handButton.isSelected = handRaised
         handButton.tintColor = handRaised ? UIColor.theme.textLink : UIColor.theme.textStrong
-        handButton.backgroundColor = handRaised ? UIColor.theme.textLink.withAlphaComponent(0.22) : UIColor.theme.tertiary
+        handButton.backgroundColor = handRaised ? UIColor.theme.textLink.withAlphaComponent(0.22) : UIColor.theme.raisedSurface
         handButton.accessibilityLabel = handRaised
             ? NSLocalizedString("voiceChannel.lowerHand", tableName: nil, bundle: .main, value: "Lower hand", comment: "")
             : NSLocalizedString("voiceChannel.raiseHand", tableName: nil, bundle: .main, value: "Raise hand", comment: "")

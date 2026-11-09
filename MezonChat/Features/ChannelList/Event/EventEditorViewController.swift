@@ -9,7 +9,9 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
     private var draft: EventEditorDraft
     var onSaved: ((Mezon_Api_EventManagement?) -> Void)?
 
-    private let accent = UIColor(red: 0.39, green: 0.38, blue: 0.91, alpha: 1)
+    private var accent: UIColor { EventEditorPalette.accent }
+    private let titleLabel = UILabel()
+    private let separator = UIView()
     private let card = UIView()
     private let header = UIStackView()
     private let body = UIStackView()
@@ -75,7 +77,7 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
     }
 
     private func buildShell() {
-        view.backgroundColor = UIColor.black.withAlphaComponent(0.55)
+        view.backgroundColor = UIColor.black.withAlphaComponent(0.52)
         card.backgroundColor = EventEditorPalette.surface
         card.layer.cornerRadius = 20
         card.clipsToBounds = true
@@ -85,14 +87,17 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
         header.spacing = 20
         header.layoutMargins = UIEdgeInsets(top: 20, left: 20, bottom: 20, right: 20)
         header.isLayoutMarginsRelativeArrangement = true
-        let title = label(L(original == nil ? L10n.EventEditor.create : L10n.EventEditor.edit), size: 20, weight: .bold)
+        titleLabel.text = L(original == nil ? L10n.EventEditor.create : L10n.EventEditor.edit)
+        titleLabel.font = .systemFont(ofSize: 20, weight: .bold)
+        titleLabel.numberOfLines = 0
+        titleLabel.textColor = UIColor.theme.textStrong
         stepLabel.font = .systemFont(ofSize: 13)
-        stepLabel.textColor = UIColor.theme.text
-        let titles = UIStackView(arrangedSubviews: [title, stepLabel])
+        stepLabel.textColor = EventEditorPalette.secondaryText
+        let titles = UIStackView(arrangedSubviews: [titleLabel, stepLabel])
         titles.axis = .vertical
         titles.spacing = 6
         closeButton.setImage(UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 22)), for: .normal)
-        closeButton.tintColor = UIColor.theme.text
+        closeButton.tintColor = EventEditorPalette.secondaryText
         closeButton.accessibilityLabel = L(L10n.EventEditor.close)
         closeButton.widthAnchor.constraint(equalToConstant: 44).isActive = true
         closeButton.heightAnchor.constraint(equalToConstant: 44).isActive = true
@@ -156,7 +161,7 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
             if self.step == 0 { self.close() } else { self.step -= 1; self.renderStep() }
         }
         nextButton.setTitleColor(.white, for: .normal)
-        nextButton.setTitleColor(UIColor.theme.textDisabled, for: .disabled)
+        nextButton.setTitleColor(EventEditorPalette.secondaryText, for: .disabled)
         nextButton.action = { [weak self] in self?.advance() }
         spinner.color = .white
         spinner.translatesAutoresizingMaskIntoConstraints = false
@@ -166,7 +171,6 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
             spinner.centerYAnchor.constraint(equalTo: nextButton.centerYAnchor)
         ])
         footer.addArrangedSubview(actions)
-        let separator = UIView()
         separator.backgroundColor = EventEditorPalette.border
         separator.heightAnchor.constraint(equalToConstant: 1).isActive = true
         let root = UIStackView(arrangedSubviews: [header, scroll, separator, footer])
@@ -217,6 +221,10 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
 
     @objc private func themeChanged() {
         card.backgroundColor = EventEditorPalette.surface
+        titleLabel.textColor = UIColor.theme.textStrong
+        stepLabel.textColor = EventEditorPalette.secondaryText
+        closeButton.tintColor = EventEditorPalette.secondaryText
+        separator.backgroundColor = EventEditorPalette.border
         configureTextInputColors()
         renderStep(preservingScrollPosition: true)
     }
@@ -274,17 +282,18 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
         }
         nameField.attributedPlaceholder = NSAttributedString(
             string: L(L10n.EventEditor.namePlaceholder),
-            attributes: [.foregroundColor: UIColor.theme.textDisabled]
+            attributes: [.foregroundColor: EventEditorPalette.inputPlaceholder]
         )
         addressField.attributedPlaceholder = NSAttributedString(
             string: L(L10n.EventEditor.addressPlaceholder),
-            attributes: [.foregroundColor: UIColor.theme.textDisabled]
+            attributes: [.foregroundColor: EventEditorPalette.inputPlaceholder]
         )
         descriptionView.textColor = UIColor.theme.textStrong
         descriptionView.backgroundColor = EventEditorPalette.field
         descriptionView.layer.borderColor = EventEditorPalette.border.cgColor
-        descriptionPlaceholder.textColor = UIColor.theme.textDisabled
-        descriptionCount.textColor = UIColor.theme.text
+        descriptionPlaceholder.textColor = EventEditorPalette.inputPlaceholder
+        descriptionCount.textColor = EventEditorPalette.secondaryText
+        [errorLabel, nameError, addressError, startError, endError].forEach { $0.textColor = EventEditorPalette.error }
     }
 
     private func renderStep(preservingScrollPosition: Bool = false) {
@@ -296,7 +305,7 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
         stepLabel.text = L(L10n.EventEditor.step, step + 1)
         for index in 0..<3 {
             progressBars[index].backgroundColor = index <= step ? accent : EventEditorPalette.border
-            progressLabels[index].textColor = index == step ? accent : UIColor.theme.text
+            progressLabels[index].textColor = index == step ? accent : EventEditorPalette.secondaryText
             progressLabels[index].font = .systemFont(ofSize: 12, weight: index == step ? .bold : .regular)
             progressLabels[index].accessibilityTraits = index == step ? [.staticText, .selected] : .staticText
         }
@@ -340,7 +349,7 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
             button.layer.cornerRadius = 12
             button.layer.borderWidth = 1
             button.layer.borderColor = (selected ? accent : EventEditorPalette.border).cgColor
-            button.backgroundColor = selected ? accent.withAlphaComponent(0.1) : EventEditorPalette.field
+            button.backgroundColor = selected ? EventEditorPalette.selectedBackground(alpha: 0.08) : EventEditorPalette.field
             button.isEnabled = enabled
             button.alpha = enabled ? 1 : 0.45
             let icon = UIImageView(image: UIImage(systemName: symbol))
@@ -381,7 +390,8 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
         body.addArrangedSubview(optionStack)
         if draft.locationType == .voice {
             let field = EventEditorFieldButton(caption: L(L10n.EventEditor.voice))
-            field.setValue(channelLabel(draft.voiceChannelId) ?? L(L10n.EventEditor.pickChannel))
+            let value = channelLabel(draft.voiceChannelId)
+            field.setValue(value ?? L(L10n.EventEditor.pickChannel), isPlaceholder: value == nil)
             field.action = { [weak self] in self?.pickChannel(voice: true) }
             body.addArrangedSubview(field)
         } else if draft.locationType == .location {
@@ -389,7 +399,8 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
         }
         if draft.locationType != .external {
             let field = EventEditorFieldButton(caption: L(L10n.EventEditor.announcement))
-            field.setValue(channelLabel(draft.announcementChannelId) ?? L(L10n.EventEditor.pickChannel))
+            let value = channelLabel(draft.announcementChannelId)
+            field.setValue(value ?? L(L10n.EventEditor.pickChannel), isPlaceholder: value == nil)
             field.action = { [weak self] in self?.pickChannel(voice: false) }
             body.addArrangedSubview(field)
         }
@@ -419,11 +430,15 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
         self.repeatField = repeatField
         repeatField.action = { [weak self] in self?.pickRepeat() }
         body.addArrangedSubview(repeatField)
-        let description = UIStackView(arrangedSubviews: [label(L(L10n.EventEditor.description), size: 15, weight: .bold), descriptionView, descriptionCount])
+        let descriptionCaption = label(L(L10n.EventEditor.description), size: 15, weight: .bold)
+        descriptionCaption.textColor = EventEditorPalette.secondaryText
+        let description = UIStackView(arrangedSubviews: [descriptionCaption, descriptionView, descriptionCount])
         description.axis = .vertical
         description.spacing = 6
         body.addArrangedSubview(description)
-        body.addArrangedSubview(label(L(L10n.EventEditor.cover), size: 14, weight: .bold))
+        let coverCaption = label(L(L10n.EventEditor.cover), size: 14, weight: .bold)
+        coverCaption.textColor = EventEditorPalette.secondaryText
+        body.addArrangedSubview(coverCaption)
         body.addArrangedSubview(coverContainer)
         refreshCover()
         refreshDateLabels()
@@ -470,7 +485,7 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
         if !draft.logoURL.isEmpty {
             let remove = EventEditorButton()
             remove.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
-            remove.tintColor = .systemRed
+            remove.tintColor = EventEditorPalette.destructive
             remove.accessibilityLabel = L(L10n.EventEditor.removeCover)
             remove.translatesAutoresizingMaskIntoConstraints = false
             remove.isEnabled = !uploading
@@ -580,12 +595,16 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
         if step == 0 { valid = draft.isLocationValid }
         else { valid = draft.isLocationValid && draft.isDetailsValid() && (step != 2 || original.map { draft.hasChanges(from: $0) } ?? true) }
         nextButton.isEnabled = valid && !submitting && !uploading
-        nextButton.backgroundColor = nextButton.isEnabled ? accent : EventEditorPalette.border
+        nextButton.backgroundColor = nextButton.isEnabled ? accent : EventEditorPalette.disabledButton
+        nextButton.setTitleColor(EventEditorPalette.secondaryText, for: .disabled)
+        backButton.setTitleColor(accent, for: .normal)
+        backButton.setTitleColor(EventEditorPalette.secondaryText, for: .disabled)
         let title = step < 2 ? L10n.EventEditor.next : (original == nil ? L10n.EventEditor.create : L10n.EventEditor.update)
         nextButton.setTitle(submitting ? "" : L(title), for: .normal)
         nextButton.accessibilityLabel = L(title)
         backButton.setTitle(L(step == 0 ? L10n.EventEditor.cancel : L10n.EventEditor.back), for: .normal)
         backButton.isEnabled = !submitting
+        backButton.layer.borderColor = (backButton.isEnabled ? accent : EventEditorPalette.border).cgColor
         closeButton.isEnabled = !submitting
         body.isUserInteractionEnabled = !submitting
         if submitting { spinner.startAnimating() } else { spinner.stopAnimating() }
@@ -789,14 +808,15 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
         label.text = text
         label.numberOfLines = 0
         label.font = .systemFont(ofSize: size, weight: weight)
-        label.textColor = weight == .regular ? UIColor.theme.text : UIColor.theme.textStrong
+        label.textColor = weight == .regular ? EventEditorPalette.secondaryText : UIColor.theme.textStrong
         return label
     }
     private func labeledField(_ title: String, field: UIView, error: UILabel) -> UIView {
         let caption = label(title, size: 15, weight: .bold)
+        caption.textColor = EventEditorPalette.secondaryText
         if title.hasSuffix(" *") {
             let attributed = NSMutableAttributedString(string: title)
-            attributed.addAttribute(.foregroundColor, value: UIColor.systemRed, range: NSRange(location: (title as NSString).length - 1, length: 1))
+            attributed.addAttribute(.foregroundColor, value: EventEditorPalette.destructive, range: NSRange(location: (title as NSString).length - 1, length: 1))
             caption.attributedText = attributed
         }
         let stack = UIStackView(arrangedSubviews: [caption, field, error])
@@ -805,7 +825,7 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
         return stack
     }
     private func configureError(_ label: UILabel) {
-        label.textColor = .systemRed
+        label.textColor = EventEditorPalette.error
         label.font = .systemFont(ofSize: 12)
         label.numberOfLines = 0
         label.isHidden = true

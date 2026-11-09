@@ -64,7 +64,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         self.showQuickActionButton = showQuickActionButton
         self.showBanListButton = showBanListButton
         super.init()
-        backgroundColor = UIColor.theme.primary
+        backgroundColor = UIColor.theme.secondary
 
         nameField.text = channelName
         topicView.text = channelTopic
@@ -217,7 +217,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
             let btn = createActionRow(title: delTitle, icon: "ChannelSetting/DeleteIcon", isDestructive: true, tapHandler: { [weak self] in
                 self?.onDeleteTap?()
             })
-            btn.backgroundColor = UIColor.theme.secondary
+            btn.backgroundColor = UIColor.theme.primary
             btn.layer.cornerRadius = 12
             stackView.addArrangedSubview(btn)
             deleteBtn = btn
@@ -241,19 +241,17 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         label.textColor = UIColor.theme.textStrong
         v.addArrangedSubview(label)
 
-        input.backgroundColor = UIColor.theme.secondary
         input.layer.cornerRadius = 12
+        input.layer.borderWidth = 1
         if let tf = input as? UITextField {
             tf.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 12.sw, height: 1))
             tf.leftViewMode = .always
             tf.rightView = UIView(frame: CGRect(x: 0, y: 0, width: 12.sw, height: 1))
             tf.rightViewMode = .always
-            tf.textColor = UIColor.theme.textStrong
             tf.font = .systemFont(ofSize: 16.sf)
             tf.heightAnchor.constraint(equalToConstant: 48.sh).isActive = true
         } else if let tv = input as? UITextView {
             tv.textContainerInset = UIEdgeInsets(top: 12.sh, left: 12.sw, bottom: 12.sh, right: 12.sw)
-            tv.textColor = UIColor.theme.textStrong
             tv.font = .systemFont(ofSize: 16.sf)
             tv.heightAnchor.constraint(equalToConstant: 150.sh).isActive = true
             tv.isScrollEnabled = false
@@ -303,7 +301,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
 
     private func createGroup(actions: [SettingAction]) -> UIView {
         let v = UIView()
-        v.backgroundColor = UIColor.theme.secondary
+        v.backgroundColor = UIColor.theme.primary
         v.layer.cornerRadius = 12
         v.clipsToBounds = true
 
@@ -394,7 +392,16 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
     }
 
     func applyTheme() {
-        backgroundColor = UIColor.theme.primary
+        let theme = UIColor.theme
+        backgroundColor = theme.secondary
+        let inputBackground = theme.primary
+        let inputBorder = theme.border.cgColor
+        nameField.backgroundColor = inputBackground
+        nameField.layer.borderColor = inputBorder
+        nameField.textColor = theme.textStrong
+        topicView.backgroundColor = inputBackground
+        topicView.layer.borderColor = inputBorder
+        topicView.textColor = theme.textStrong
     }
 
     private struct SettingAction {

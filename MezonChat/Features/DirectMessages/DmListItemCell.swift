@@ -7,6 +7,14 @@ final class DmListItemCell: UITableViewCell {
 
     private let textAvatar = TextAvatarView(size: 40.swh)
 
+    private let separatorView: UIView = {
+        let view = UIView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.isUserInteractionEnabled = false
+        view.isHidden = true
+        return view
+    }()
+
     private let avatarImageView: UIImageView = {
         let iv = UIImageView()
         iv.translatesAutoresizingMaskIntoConstraints = false
@@ -28,7 +36,6 @@ final class DmListItemCell: UITableViewCell {
     private let onlineIndicator: UIView = {
         let v = UIView()
         v.translatesAutoresizingMaskIntoConstraints = false
-        v.backgroundColor = .mezonSuccess
         v.layer.cornerRadius = 7.swh
         v.layer.borderWidth = 2
         v.isHidden = true
@@ -179,6 +186,7 @@ final class DmListItemCell: UITableViewCell {
         metadataStack.alignment = .trailing
         metadataStack.spacing = 3.sh
         containerView.addSubview(metadataStack)
+        contentView.addSubview(separatorView)
         let metadataCenterYConstraint = metadataStack.centerYAnchor.constraint(equalTo: containerView.centerYAnchor)
         self.metadataCenterYConstraint = metadataCenterYConstraint
         let timeNameCenterYConstraint = timeLabel.centerYAnchor.constraint(equalTo: nameLabel.centerYAnchor)
@@ -245,6 +253,11 @@ final class DmListItemCell: UITableViewCell {
             metadataStack.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -8.sw),
             timeNameCenterYConstraint,
 
+            separatorView.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
+            separatorView.trailingAnchor.constraint(equalTo: metadataStack.trailingAnchor),
+            separatorView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+            separatorView.heightAnchor.constraint(equalToConstant: 1.0 / UIScreenScale),
+
             lastMessageLabel.leadingAnchor.constraint(equalTo: nameLabel.leadingAnchor),
             lastMessageTopConstraint,
             lastMessageLabel.trailingAnchor.constraint(lessThanOrEqualTo: containerView.trailingAnchor, constant: -8.sw),
@@ -255,18 +268,30 @@ final class DmListItemCell: UITableViewCell {
         ])
     }
 
-    func configure(channel: Mezon_Api_ChannelDescription, resolvedAvatarURL: String? = nil, voiceActivity: DmVoiceActivity? = nil, hasBuzz: Bool = false) {
+    func configure(
+        channel: Mezon_Api_ChannelDescription,
+        showsSeparator: Bool,
+        resolvedAvatarURL: String? = nil,
+        voiceActivity: DmVoiceActivity? = nil,
+        hasBuzz: Bool = false
+    ) {
+        let theme = UIColor.theme
+        separatorView.backgroundColor = theme.borderPrimary
+        separatorView.isHidden = !showsSeparator
         groupIconView.tintColor = .mezonTextSecondary
 
         let isGroup = channel.type == MezonConstants.ChannelType.group.rawValue
         let displayName = displayName(for: channel)
         let isUnread = channel.countMessUnread > 0
+        let metadataColor = isUnread ? theme.textStrong : theme.textDisabled
 
         nameLabel.text = displayName
-        nameLabel.textColor = isUnread ? .mezonTextStrong : UIColor.theme.textDisabled
+        nameLabel.textColor = isUnread ? theme.textStrong : theme.textThemePrimary
         nameLabel.font = isUnread ? Self.unreadNameFont : Self.readNameFont
 
-        onlineIndicator.layer.borderColor = UIColor.theme.primary.cgColor
+        onlineIndicator.backgroundColor = DesktopThemePalette.onlinePresenceBadge
+        onlineIndicator.layer.borderWidth = theme.desktop.conversationGradient == nil ? 2 : 0
+        onlineIndicator.layer.borderColor = theme.secondary.cgColor
 
         if isGroup {
             onlineIndicator.isHidden = true
@@ -314,7 +339,7 @@ final class DmListItemCell: UITableViewCell {
         } else {
             lastMessageLabel.font = Self.previewFont
             lastMessageLabel.text = hasMessagePreview ? preview : ""
-            lastMessageLabel.textColor = isUnread ? UIColor.theme.textStrong : UIColor.theme.textDisabled
+            lastMessageLabel.textColor = metadataColor
         }
         lastMessageLabel.isHidden = !hasPreview
         if hasPreviewLayout != hasPreview {
@@ -323,7 +348,7 @@ final class DmListItemCell: UITableViewCell {
             lastMessageZeroHeightConstraint?.isActive = !hasPreview
         }
         timeLabel.text = time
-        timeLabel.textColor = isUnread ? UIColor.theme.textStrong : UIColor.theme.textDisabled
+        timeLabel.textColor = metadataColor
         applyUnreadBadge(count: channel.countMessUnread)
     }
 
@@ -345,7 +370,7 @@ final class DmListItemCell: UITableViewCell {
     private static func voiceActivityPreviewText(_ activity: DmVoiceActivity) -> NSAttributedString {
         let font = inVoiceFont
         let result = NSMutableAttributedString()
-        if let icon = activity.icon?.withTintColor(.mezonVoiceActive, renderingMode: .alwaysOriginal) {
+        if let icon = activity.icon?.withTintColor(UIColor.theme.statusOnline, renderingMode: .alwaysOriginal) {
             let attachment = NSTextAttachment()
             attachment.image = icon
             let side = font.pointSize

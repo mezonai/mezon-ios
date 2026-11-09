@@ -39,8 +39,8 @@ final class PollOptionRowNode: ASDisplayNode {
     private static let rowHeight: CGFloat = 40
     private static let cornerRadius: CGFloat = 8
     private static let fillAnimationDuration: CFTimeInterval = 0.6
-    private static let blurpleColor = UIColor(red: 88/255, green: 101/255, blue: 242/255, alpha: 1)
-    private static let blurpleFillResult = UIColor(red: 88/255, green: 101/255, blue: 242/255, alpha: 0.35)
+    private static let resultFillColor = UIColor(hex: 0x2563EB)
+    private static let selectionColor = UIColor(hex: 0x3B82F6)
 
     var onTapped: (() -> Void)?
 
@@ -53,9 +53,7 @@ final class PollOptionRowNode: ASDisplayNode {
         automaticallyManagesSubnodes = false
         backgroundColor = .clear
 
-        let t = UIColor.theme
-
-        backgroundNode.backgroundColor = t.secondaryWeight
+        backgroundNode.borderWidth = 1
         backgroundNode.cornerRadius = Self.cornerRadius
         backgroundNode.clipsToBounds = true
         addSubnode(backgroundNode)
@@ -83,32 +81,36 @@ final class PollOptionRowNode: ASDisplayNode {
     }
 
     private func configureCheckmark() {
+        let t = UIColor.theme
         let size: CGFloat = 20
-        checkmarkNode.backgroundColor = hasVoted ? Self.blurpleColor : UIColor.theme.textStrong
+        checkmarkNode.backgroundColor = hasVoted ? t.textThemePrimary : .clear
+        checkmarkNode.borderWidth = hasVoted ? 0 : 2
+        checkmarkNode.borderColor = t.textThemePrimary.cgColor
         checkmarkNode.cornerRadius = allowMultiple ? 4 : size / 2
         checkmarkNode.clipsToBounds = true
 
         let config = UIImage.SymbolConfiguration(pointSize: 10, weight: .bold)
-        checkIconNode.image = UIImage(systemName: "checkmark", withConfiguration: config)?
+        checkIconNode.image = UIImage(systemName: hasVoted ? "checkmark" : "circle.fill", withConfiguration: config)?
             .withRenderingMode(.alwaysTemplate)
-        checkIconNode.tintColor = hasVoted ? .white : UIColor.theme.primary
+        checkIconNode.tintColor = hasVoted ? t.desktop[.textSecondary] : Self.selectionColor
         checkIconNode.contentMode = .scaleAspectFit
         checkmarkNode.addSubnode(checkIconNode)
     }
 
     private func updateFillNodeAppearance() {
-        if option.isSelected {
-            fillNode.backgroundColor = Self.blurpleColor
-        } else if shouldShowResults {
-            fillNode.backgroundColor = Self.blurpleFillResult
+        let t = UIColor.theme
+        backgroundNode.backgroundColor = t.desktop[.bgItemHover]
+        if shouldShowResults {
+            backgroundNode.borderColor = t.borderPrimary.cgColor
         } else {
-            fillNode.backgroundColor = .clear
+            backgroundNode.borderColor = (option.isSelected ? t.textThemePrimary : UIColor.clear).cgColor
         }
+        fillNode.backgroundColor = shouldShowResults ? Self.resultFillColor : .clear
     }
 
     private func updateLabelText() {
         let t = UIColor.theme
-        let color = isLabelWhite == true ? UIColor.white : t.textStrong
+        let color = t.desktop[.textSecondary]
         let font = UIFont.systemFont(ofSize: 14.sf)
         
         cachedAttributedLabelText = PollEmojiParser.parse(option.label, font: font, color: color, emojiSize: 20.sf)
@@ -123,7 +125,7 @@ final class PollOptionRowNode: ASDisplayNode {
             string: "\(option.percentage)% \(option.voteCount) \(voteWord)",
             attributes: [
                 .font: UIFont.systemFont(ofSize: 12.sf),
-                .foregroundColor: isMetaWhite == true ? UIColor.white : t.textStrong,
+                .foregroundColor: t.desktop[.textSecondary],
             ]
         )
     }
@@ -180,8 +182,6 @@ final class PollOptionRowNode: ASDisplayNode {
     private var cachedLabelSize: CGSize = .zero
     private var cachedMetaSize: CGSize = .zero
     
-    private var isLabelWhite: Bool?
-    private var isMetaWhite: Bool?
 
     func measureSize(maxWidth: CGFloat) -> CGSize {
         let hPad: CGFloat = 12
@@ -229,32 +229,6 @@ final class PollOptionRowNode: ASDisplayNode {
         }
 
         cachedSize = CGSize(width: maxWidth, height: rowHeight)
-        
-        let targetFillWidth: CGFloat = shouldShowResults ? maxWidth * CGFloat(option.percentage) / 100.0 : 0
-        let touchesLabel = targetFillWidth > hPad + (cachedLabelSize.width * 0.4)
-        
-        let rightReserved: CGFloat = option.isSelected ? (checkSize + gap) : 0
-        let metaX = maxWidth - hPad - rightReserved - cachedMetaSize.width
-        let coversMeta = targetFillWidth >= (metaX + cachedMetaSize.width - 4)
-        
-        let shouldLabelBeWhite = hasVoted && option.isSelected && shouldShowResults && touchesLabel
-        let shouldMetaBeWhite = hasVoted && option.isSelected && shouldShowResults && coversMeta
-        
-        if isLabelWhite == nil {
-            isLabelWhite = shouldLabelBeWhite
-            if shouldLabelBeWhite { updateLabelText() }
-        } else if isLabelWhite != shouldLabelBeWhite {
-            isLabelWhite = shouldLabelBeWhite
-            updateLabelText()
-        }
-        
-        if isMetaWhite == nil {
-            isMetaWhite = shouldMetaBeWhite
-            if shouldMetaBeWhite { updateMetaText() }
-        } else if isMetaWhite != shouldMetaBeWhite {
-            isMetaWhite = shouldMetaBeWhite
-            updateMetaText()
-        }
         
         return cachedSize
     }
