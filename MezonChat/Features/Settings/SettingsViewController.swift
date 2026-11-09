@@ -92,11 +92,11 @@ final class SettingsViewController: BaseViewController {
         titleLabel.text = L(L10n.Settings.title)
         titleLabel.textColor = .mezonTextStrong
         backButton.tintColor = .mezonTextStrong
-        headerView.backgroundColor = UIColor.theme.secondary
-        view.backgroundColor = UIColor.theme.secondary
-        scrollView.backgroundColor = UIColor.theme.secondary
+        headerView.backgroundColor = UIColor.theme.usesLegacyDarkColors ? .mezonPrimary : UIColor.theme.secondary
+        view.backgroundColor = UIColor.theme.usesLegacyDarkColors ? .mezonPrimary : UIColor.theme.secondary
+        scrollView.backgroundColor = UIColor.theme.usesLegacyDarkColors ? .mezonPrimary : UIColor.theme.secondary
 
-        searchBgView.backgroundColor = .mezonPrimary
+        searchBgView.backgroundColor = UIColor.theme.usesLegacyDarkColors ? .mezonSecondaryBackground : .mezonPrimary
         searchIconView.tintColor = .mezonTextPrimary
         searchTextField.textColor = .mezonTextStrong
         searchTextField.tintColor = .mezonTextStrong
@@ -242,7 +242,7 @@ final class SettingsViewController: BaseViewController {
         let container = UIView()
         container.translatesAutoresizingMaskIntoConstraints = false
 
-        searchBgView.backgroundColor = .mezonPrimary
+        searchBgView.backgroundColor = UIColor.theme.usesLegacyDarkColors ? .mezonSecondaryBackground : .mezonPrimary
         container.addSubview(searchBgView)
 
         searchIconView.tintColor = .mezonTextPrimary
@@ -299,7 +299,7 @@ final class SettingsViewController: BaseViewController {
 
     private func addGroupedCard(rows: [SettingsRow]) {
         let card = UIView()
-        card.backgroundColor = UIColor.theme.primary
+        card.backgroundColor = UIColor.theme.usesLegacyDarkColors ? .mezonSecondaryBackground : UIColor.theme.primary
         card.layer.cornerRadius = 10.swh
         card.clipsToBounds = true
         card.translatesAutoresizingMaskIntoConstraints = false
@@ -444,7 +444,7 @@ final class SettingsViewController: BaseViewController {
 
     private func addLogoutCard() {
         let card = UIView()
-        card.backgroundColor = UIColor.theme.primary
+        card.backgroundColor = UIColor.theme.usesLegacyDarkColors ? .mezonSecondaryBackground : UIColor.theme.primary
         card.layer.cornerRadius = 10.swh
         card.clipsToBounds = true
         card.translatesAutoresizingMaskIntoConstraints = false

@@ -238,12 +238,16 @@ final class ProfileContainerNode: ASDisplayNode {
     }
 
     private func configureAddStatusButton(user: User?) {
+        let palette = UIColor.theme.desktop
+        let textColor = palette.semantic.textPrimary
+        statusBubbleShapeLayer.fillColor = palette[.bgThemeDirectMessage].cgColor
+
         let custom = user?.customStatus?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let hasCustom = !custom.isEmpty
         statusBubbleText = custom
         statusBubbleHasCustom = hasCustom
 
-        statusTextLabel.textColor = .mezonTextPrimary
+        statusTextLabel.textColor = textColor
         statusTextLabel.text = hasCustom ? custom : nil
         statusTextLabel.isHidden = !hasCustom
 
@@ -257,12 +261,12 @@ final class ProfileContainerNode: ASDisplayNode {
             } else {
                 statusCfg.image = Self.makePlusIconInCircle(containerColor: .outgoingBubble, iconColor: .white)
                 statusCfg.imagePadding = 6
-                statusCfg.baseForegroundColor = .mezonTextPrimary
+                statusCfg.baseForegroundColor = textColor
                 statusCfg.attributedTitle = AttributedString(
                     L(L10n.Profile.addStatus),
                     attributes: AttributeContainer([
                         .font: Self.statusFont,
-                        .foregroundColor: UIColor.mezonTextPrimary
+                        .foregroundColor: textColor
                     ])
                 )
             }
@@ -274,7 +278,7 @@ final class ProfileContainerNode: ASDisplayNode {
             } else {
                 addStatusButton.setImage(Self.makePlusIconInCircle(containerColor: .outgoingBubble, iconColor: .white), for: .normal)
                 addStatusButton.setTitle(L(L10n.Profile.addStatus), for: .normal)
-                addStatusButton.setTitleColor(.mezonTextPrimary, for: .normal)
+                addStatusButton.setTitleColor(textColor, for: .normal)
                 addStatusButton.titleLabel?.font = Self.statusFont
                 addStatusButton.contentEdgeInsets = UIEdgeInsets(top: 14, left: 6, bottom: 14, right: 6)
                 addStatusButton.imageEdgeInsets = UIEdgeInsets(top: 0, left: -3, bottom: 0, right: 3)
@@ -353,7 +357,6 @@ final class ProfileContainerNode: ASDisplayNode {
         contentView.backgroundColor = .mezonSecondaryBackground
 
         avatarContainerView.layer.borderColor = UIColor.mezonSecondaryBackground.cgColor
-        statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
 
         nameLabel.textColor = .mezonTextStrong
         chevronDown.tintColor = .mezonTextPrimary
@@ -380,7 +383,6 @@ final class ProfileContainerNode: ASDisplayNode {
             headerBackgroundView.backgroundColor = .mezonPrimary
             avatarContainerView.backgroundColor = UIColor.theme.secondaryLight
         }
-        statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
 
         configureAddStatusButton(user: context.currentUser)
     }
@@ -410,40 +412,17 @@ final class ProfileContainerNode: ASDisplayNode {
         avatarContainerView.isUserInteractionEnabled = true
 
         statusBubbleContainer.backgroundColor = .clear
-        statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
         statusBubbleContainer.layer.insertSublayer(statusBubbleShapeLayer, at: 0)
 
-        if #available(iOS 15.0, *) {
-            var statusCfg = UIButton.Configuration.plain()
-            statusCfg.image = Self.makePlusIconInCircle(containerColor: .outgoingBubble, iconColor: .white)
-            statusCfg.imagePadding = 6
-            statusCfg.contentInsets = NSDirectionalEdgeInsets(top: 14, leading: 6, bottom: 14, trailing: 6)
-            statusCfg.baseForegroundColor = .mezonTextPrimary
-            statusCfg.attributedTitle = AttributedString(
-                L(L10n.Profile.addStatus),
-                attributes: AttributeContainer([
-                    .font: UIFont.systemFont(ofSize: 14.sf, weight: .medium),
-                    .foregroundColor: UIColor.mezonTextPrimary
-                ])
-            )
-            addStatusButton.configuration = statusCfg
-        } else {
-            addStatusButton.setImage(Self.makePlusIconInCircle(containerColor: .outgoingBubble, iconColor: .white), for: .normal)
-            addStatusButton.setTitle(L(L10n.Profile.addStatus), for: .normal)
-            addStatusButton.setTitleColor(.mezonTextPrimary, for: .normal)
-            addStatusButton.titleLabel?.font = .systemFont(ofSize: 14.sf, weight: .medium)
-            addStatusButton.contentEdgeInsets = UIEdgeInsets(top: 14, left: 6, bottom: 14, right: 6)
-            addStatusButton.imageEdgeInsets = UIEdgeInsets(top: 0, left: -3, bottom: 0, right: 3)
-        }
         statusBubbleContainer.addSubview(addStatusButton)
 
         statusTextLabel.numberOfLines = Self.maxStatusLines
         statusTextLabel.lineBreakMode = .byTruncatingTail
         statusTextLabel.font = Self.statusFont
-        statusTextLabel.textColor = .mezonTextPrimary
         statusTextLabel.isUserInteractionEnabled = false
         statusTextLabel.isHidden = true
         statusBubbleContainer.addSubview(statusTextLabel)
+        configureAddStatusButton(user: context.currentUser)
 
         fixedHeaderView.addSubview(statusBubbleContainer)
 
@@ -749,7 +728,6 @@ final class ProfileContainerNode: ASDisplayNode {
         avatarImageView.image = DefaultUserAvatar.image(side: avatarSize)
         avatarContainerView.backgroundColor = .clear
         headerBackgroundView.backgroundColor = .mezonPrimary
-        statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
     }
 
     private func styleCard(_ card: UIView) {
@@ -771,12 +749,10 @@ final class ProfileContainerNode: ASDisplayNode {
                 avatarImageView.image = cached
                 avatarContainerView.backgroundColor = .clear
                 headerBackgroundView.backgroundColor = cached.dominantColor() ?? .mezonPrimary
-                statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
             } else {
                 avatarImageView.image = nil
                 avatarContainerView.backgroundColor = UIColor.theme.secondaryLight
                 headerBackgroundView.backgroundColor = .mezonPrimary
-                statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
                 ImageCache.shared.loadAvatar(urlString: proxiedURLString) { [weak self] image in
                     guard let self else { return }
                     guard self.currentAvatarLoadKey == proxiedURLString else { return }
@@ -784,7 +760,6 @@ final class ProfileContainerNode: ASDisplayNode {
                         self.avatarImageView.image = image
                         self.avatarContainerView.backgroundColor = .clear
                         self.headerBackgroundView.backgroundColor = image.dominantColor() ?? .mezonPrimary
-                        self.statusBubbleShapeLayer.fillColor = UIColor.mezonSecondaryBackground.cgColor
                     } else {
                         self.applyProfileAvatarPlaceholder()
                     }

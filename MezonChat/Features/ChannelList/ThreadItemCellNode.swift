@@ -31,7 +31,7 @@ final class ThreadItemCellNode: ASCellNode {
         nameNode.truncationMode = .byTruncatingTail
 
         let connectorName = isLast ? "Channel/ShortCorner" : "Channel/LongCorner"
-        connectorNode.image = UIImage(named: connectorName)?.withRenderingMode(.alwaysTemplate)
+        connectorNode.image = UIImage(named: connectorName)
         connectorNode.contentMode = .scaleAspectFit
 
         if unread > 0 {
@@ -45,7 +45,7 @@ final class ThreadItemCellNode: ASCellNode {
                     .foregroundColor: UIColor.white,
                     .paragraphStyle: para,
                 ])
-            badgeBackground.backgroundColor = UIColor.theme.desktop.semantic.mentionBadge
+            badgeBackground.backgroundColor = UIColor.mezonUnreadBadge
             badgeBackground.clipsToBounds = true
             badgeBackground.isHidden = false
             badgeNode.isHidden = false
@@ -63,7 +63,9 @@ final class ThreadItemCellNode: ASCellNode {
     func applyListSelectionState(selected: Bool) {
         let theme = UIColor.theme
         let isHighlighted = selected || isUnread
-        let nameColor = isHighlighted ? theme.desktop[.textSecondary] : theme.textThemePrimary
+        let nameColor = theme.usesLegacyDarkColors
+            ? (isUnread ? theme.channelUnread : theme.channelNormal)
+            : (isHighlighted ? theme.desktop[.textSecondary] : theme.textThemePrimary)
         let nameWeight: UIFont.Weight = isHighlighted ? .semibold : .medium
         nameNode.attributedText = NSAttributedString(
             string: channelLabel,
@@ -71,9 +73,14 @@ final class ThreadItemCellNode: ASCellNode {
                 .font: UIFont.systemFont(ofSize: 14.sf, weight: nameWeight),
                 .foregroundColor: nameColor,
             ])
+        let connectorMode: UIImage.RenderingMode = theme.usesLegacyDarkColors ? .alwaysOriginal : .alwaysTemplate
+        if let image = connectorNode.image, image.renderingMode != connectorMode {
+            connectorNode.image = image.withRenderingMode(connectorMode)
+        }
         connectorNode.tintColor = theme.textDisabled
         selectionNode.isHidden = !selected
-        selectionNode.backgroundColor = selected ? theme.desktop[.bgActiveMemberChannel] : .clear
+        selectionNode.backgroundColor = selected
+            ? (theme.usesLegacyDarkColors ? theme.secondaryLight : theme.desktop[.bgActiveMemberChannel]) : .clear
         setNeedsLayout()
     }
 

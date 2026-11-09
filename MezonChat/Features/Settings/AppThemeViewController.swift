@@ -298,7 +298,9 @@ private final class ConversationPreviewCard: UIView {
 
     func apply(theme: AppTheme) {
         let attrs = theme.attributes
-        gradient = attrs.desktop.conversationGradient
+        gradient = attrs.usesLegacyDarkColors
+            ? ThemeGradient(angle: 270, stops: [(0, attrs.primary), (1, attrs.primaryGradient)])
+            : attrs.desktop.conversationGradient
         gradientLayer.isHidden = gradient == nil
         gradient?.apply(to: gradientLayer)
         gradientContainerView?.backgroundColor = attrs.secondary
@@ -403,7 +405,8 @@ private final class MockConversationRow: UIView {
         nameLabel.textColor    = attrs.text
         messageLabel.textColor = attrs.textDisabled
         timeLabel.textColor    = attrs.textDisabled
-        onlineDot.backgroundColor = DesktopThemePalette.onlinePresenceBadge
+        onlineDot.backgroundColor = attrs.usesLegacyDarkColors
+            ? UIColor(red: 0.16, green: 0.73, blue: 0.47, alpha: 1) : DesktopThemePalette.onlinePresenceBadge
         onlineDot.layer.borderWidth = attrs.desktop.conversationGradient == nil ? 2 : 0
         onlineDot.layer.borderColor = attrs.secondary.cgColor
     }
@@ -491,7 +494,7 @@ private final class ThemeSwatchButton: UIButton {
     private func applyAppearance() {
         let attributes = theme.attributes
         let palette = attributes.desktop
-        colorSwatch.backgroundColor = palette.previewColor
+        colorSwatch.backgroundColor = attributes.usesLegacyDarkColors ? attributes.primary : palette.previewColor
         colorSwatch.layer.borderColor = attributes.border.cgColor
         iconView.tintColor = attributes.text
         accessibilityLabel = theme.localizedDisplayName

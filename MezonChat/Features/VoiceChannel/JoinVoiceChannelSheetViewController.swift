@@ -48,6 +48,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
     private let titleLabel = UILabel()
     private let centerStack = UIStackView()
     private let membersContainer = UIView()
+    private var memberOverflowBadge: (background: UIView, label: UILabel)?
     private let iconOuter = UIView()
     private let iconView = UIImageView()
     private let voiceTitleLabel = UILabel()
@@ -61,6 +62,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
     private let splitJoinDivider = UIView()
     private let roleDropdownButton = UIButton(type: .custom)
     private var roleMenuHost: UIView?
+    private var applyRoleMenuTheme: (() -> Void)?
     private let chatWrap = UIView()
     private let chatButton = UIButton(type: .custom)
     private let chatBadge = UILabel()
@@ -98,7 +100,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         view.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         view.clipsToBounds = true
 
-        grabber.backgroundColor = UIColor.theme.borderPrimary
+        grabber.backgroundColor = UIColor.theme.usesLegacyDarkColors ? (UIColor.theme.textDisabled.withAlphaComponent(0.5)) : UIColor.theme.borderPrimary
         grabber.layer.cornerRadius = 2.5
         grabber.translatesAutoresizingMaskIntoConstraints = false
 
@@ -134,9 +136,9 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         headerRow.addArrangedSubview(inviteButton)
 
         iconOuter.translatesAutoresizingMaskIntoConstraints = false
-        iconOuter.backgroundColor = UIColor.theme.secondary
+        iconOuter.backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.tertiary : UIColor.theme.secondary
         iconOuter.layer.cornerRadius = 999
-        iconOuter.layer.borderWidth = 1
+        iconOuter.layer.borderWidth = UIColor.theme.usesLegacyDarkColors ? 0 : 1
         iconOuter.layer.borderColor = UIColor.theme.borderPrimary.cgColor
 
         iconView.translatesAutoresizingMaskIntoConstraints = false
@@ -183,7 +185,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         }
 
         statusLabel.font = .systemFont(ofSize: 16, weight: .regular)
-        statusLabel.textColor = UIColor.theme.textNormal
+        statusLabel.textColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.textDisabled : UIColor.theme.textNormal
         statusLabel.textAlignment = .center
         statusLabel.numberOfLines = 2
         statusLabel.lineBreakMode = .byTruncatingTail
@@ -395,7 +397,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
 
     private func updateJoinButtonAppearance() {
         let theme = UIColor.theme
-        let background = joinButton.isEnabled ? theme.statusOnline : theme.textDisabled
+        let background = joinButton.isEnabled ? joinVoiceColor : theme.textDisabled
         let alpha: CGFloat = joinButton.isEnabled ? 1 : 0.72
         if kind == .voice {
             splitJoinContainer.backgroundColor = background
@@ -478,11 +480,9 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
 
         let panel = UIView()
         panel.translatesAutoresizingMaskIntoConstraints = false
-        panel.backgroundColor = UIColor.theme.primary
         panel.layer.cornerRadius = 14
         panel.layer.cornerCurve = .continuous
         panel.layer.borderWidth = 1
-        panel.layer.borderColor = UIColor.theme.border.cgColor
         panel.layer.shadowColor = UIColor.black.cgColor
         panel.layer.shadowOpacity = 0.22
         panel.layer.shadowRadius = 16
@@ -499,14 +499,13 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
                 "voiceChannel.joinSheet.joinAsSpeaker", tableName: nil, bundle: .main, value: "Join as speaker", comment: ""))
         let separator = UIView()
         separator.translatesAutoresizingMaskIntoConstraints = false
-        separator.backgroundColor = UIColor.theme.border.withAlphaComponent(0.7)
         let audienceRow = makeRoleMenuRow(
             role: .audience,
             title: NSLocalizedString(
                 "voiceChannel.joinSheet.joinAsAudience", tableName: nil, bundle: .main, value: "Join as audience", comment: ""))
-        stack.addArrangedSubview(speakerRow)
+        stack.addArrangedSubview(speakerRow.control)
         stack.addArrangedSubview(separator)
-        stack.addArrangedSubview(audienceRow)
+        stack.addArrangedSubview(audienceRow.control)
 
         panel.addSubview(stack)
         host.addSubview(dismissTap)
@@ -537,6 +536,18 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         ])
 
         roleMenuHost = host
+        applyRoleMenuTheme = { [weak self] in
+            guard let self else { return }
+            let theme = UIColor.theme
+            panel.backgroundColor = theme.usesLegacyDarkColors ? theme.tertiary : theme.primary
+            panel.layer.borderColor = theme.border.cgColor
+            separator.backgroundColor = theme.border.withAlphaComponent(0.7)
+            for row in [speakerRow, audienceRow] {
+                row.label.textColor = theme.textStrong
+                row.check.tintColor = self.joinVoiceColor
+            }
+        }
+        applyRoleMenuTheme?()
         panel.alpha = 0
         panel.transform = CGAffineTransform(translationX: 0, y: 10).scaledBy(x: 0.97, y: 0.97)
         UIView.animate(
@@ -552,7 +563,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         }
     }
 
-    private func makeRoleMenuRow(role: SfuRole, title: String) -> UIControl {
+    private func makeRoleMenuRow(role: SfuRole, title: String) -> (control: UIControl, label: UILabel, check: UIImageView) {
         let row = UIControl()
         row.translatesAutoresizingMaskIntoConstraints = false
         row.heightAnchor.constraint(equalToConstant: 46).isActive = true
@@ -565,14 +576,12 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         label.translatesAutoresizingMaskIntoConstraints = false
         label.text = title
         label.font = .systemFont(ofSize: 15, weight: selected ? .semibold : .regular)
-        label.textColor = UIColor.theme.textStrong
         label.isUserInteractionEnabled = false
 
         let check = UIImageView()
         check.translatesAutoresizingMaskIntoConstraints = false
         let checkCfg = UIImage.SymbolConfiguration(pointSize: 13, weight: .bold)
         check.image = UIImage(systemName: "checkmark", withConfiguration: checkCfg)?.withRenderingMode(.alwaysTemplate)
-        check.tintColor = UIColor.theme.statusOnline
         check.isHidden = !selected
         check.isUserInteractionEnabled = false
 
@@ -585,7 +594,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
             check.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -16),
             check.centerYAnchor.constraint(equalTo: row.centerYAnchor),
         ])
-        return row
+        return (row, label, check)
     }
 
     @objc private func roleMenuRowTapped(_ sender: UIControl) {
@@ -600,6 +609,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
     private func dismissRoleMenu() {
         guard let host = roleMenuHost else { return }
         roleMenuHost = nil
+        applyRoleMenuTheme = nil
         UIView.animate(withDuration: 0.16, animations: {
             host.alpha = 0
             self.roleDropdownButton.imageView?.transform = .identity
@@ -616,11 +626,16 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
                 "voiceChannel.joinSheet.joinAsAudienceTitle", tableName: nil, bundle: .main, value: "Join as Audience", comment: "")
     }
 
+    private var joinVoiceColor: UIColor {
+        UIColor.theme.usesLegacyDarkColors
+            ? UIColor(red: 0.133, green: 0.694, blue: 0.298, alpha: 1) : UIColor.theme.statusOnline
+    }
+
     private func styleTertiaryCircleButton(_ button: UIButton, systemImage: String, pointSize: CGFloat) {
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.backgroundColor = UIColor.theme.secondary
+        button.backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.tertiary : UIColor.theme.secondary
         button.layer.cornerRadius = 22
-        button.layer.borderWidth = 1
+        button.layer.borderWidth = UIColor.theme.usesLegacyDarkColors ? 0 : 1
         button.layer.borderColor = UIColor.theme.borderPrimary.cgColor
         let img = UIImage(systemName: systemImage, withConfiguration: UIImage.SymbolConfiguration(pointSize: pointSize, weight: .medium))
         button.setImage(img?.withRenderingMode(.alwaysTemplate), for: .normal)
@@ -656,7 +671,6 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
             let container = TextAvatarView(size: avatarSize)
             container.translatesAutoresizingMaskIntoConstraints = false
             container.layer.borderWidth = 2
-            container.layer.borderColor = UIColor.theme.primary.cgColor
 
             let imageView = UIImageView()
             imageView.translatesAutoresizingMaskIntoConstraints = false
@@ -703,19 +717,17 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
             badge.translatesAutoresizingMaskIntoConstraints = false
             badge.layer.cornerRadius = avatarSize / 2
             badge.clipsToBounds = true
-            badge.backgroundColor = UIColor.theme.secondary
             badge.layer.borderWidth = 2
-            badge.layer.borderColor = UIColor.theme.primary.cgColor
 
             let badgeLabel = UILabel()
             badgeLabel.translatesAutoresizingMaskIntoConstraints = false
             badgeLabel.font = .systemFont(ofSize: 13, weight: .semibold)
-            badgeLabel.textColor = UIColor.theme.textStrong
             badgeLabel.textAlignment = .center
             badgeLabel.text = "+\(overflowCount)"
 
             badge.addSubview(badgeLabel)
             membersContainer.addSubview(badge)
+            memberOverflowBadge = (badge, badgeLabel)
 
             let xOffset = CGFloat(visible.count) * (avatarSize - overlap)
             NSLayoutConstraint.activate([
@@ -730,27 +742,39 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
     }
 
     @objc private func applyTheme() {
-        view.backgroundColor = UIColor.theme.primary
-        grabber.backgroundColor = UIColor.theme.borderPrimary
+        let theme = UIColor.theme
+        let sheetBackground = theme.usesLegacyDarkColors ? theme.secondary : theme.primary
+        view.backgroundColor = sheetBackground
+        for member in membersContainer.subviews {
+            member.layer.borderColor = sheetBackground.cgColor
+        }
+        if let memberOverflowBadge {
+            memberOverflowBadge.background.backgroundColor = theme.usesLegacyDarkColors ? theme.tertiary : theme.secondary
+            memberOverflowBadge.label.textColor = theme.textStrong
+        }
+        grabber.backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.textDisabled.withAlphaComponent(0.5) : UIColor.theme.borderPrimary
+        iconOuter.layer.borderWidth = UIColor.theme.usesLegacyDarkColors ? 0 : 1
         iconOuter.layer.borderColor = UIColor.theme.borderPrimary.cgColor
         for button in [dismissButton, inviteButton, chatButton] {
+            button.layer.borderWidth = UIColor.theme.usesLegacyDarkColors ? 0 : 1
             button.layer.borderColor = UIColor.theme.borderPrimary.cgColor
         }
         titleLabel.textColor = UIColor.theme.textStrong
         voiceTitleLabel.textColor = UIColor.theme.textStrong
-        statusLabel.textColor = UIColor.theme.textNormal
-        iconOuter.backgroundColor = UIColor.theme.secondary
+        statusLabel.textColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.textDisabled : UIColor.theme.textNormal
+        iconOuter.backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.tertiary : UIColor.theme.secondary
         iconView.tintColor = UIColor.theme.textStrong
-        dismissButton.backgroundColor = UIColor.theme.secondary
+        dismissButton.backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.tertiary : UIColor.theme.secondary
         dismissButton.tintColor = UIColor.theme.textStrong
-        inviteButton.backgroundColor = UIColor.theme.secondary
+        inviteButton.backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.tertiary : UIColor.theme.secondary
         inviteButton.tintColor = UIColor.theme.textStrong
-        chatButton.backgroundColor = UIColor.theme.secondary
+        chatButton.backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.tertiary : UIColor.theme.secondary
         chatButton.tintColor = UIColor.theme.textStrong
         joinButton.setTitleColor(.white, for: .normal)
         joinButton.setTitleColor(.white, for: .highlighted)
         joinButton.tintColor = .white
         updateJoinButtonAppearance()
+        applyRoleMenuTheme?()
     }
 
     @objc private func closeTapped() {

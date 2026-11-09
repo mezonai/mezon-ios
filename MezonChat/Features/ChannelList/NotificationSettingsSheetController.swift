@@ -406,7 +406,7 @@ private final class NotificationSettingsSheetNode: ASDisplayNode, UIGestureRecog
         dimNode.alpha = 0
         addSubnode(dimNode)
 
-        containerNode.backgroundColor = UIColor.theme.themeSettingPrimary
+        containerNode.backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.primary : UIColor.theme.themeSettingPrimary
         containerNode.cornerRadius = 16
         containerNode.clipsToBounds = true
         addSubnode(containerNode)

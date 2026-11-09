@@ -20,6 +20,13 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
 
     private let scrollView = UIScrollView()
     private let stackView = UIStackView()
+    private let closeBtn = UIButton(type: .system)
+    private let titleLabel = UILabel()
+    private let footerLabel = UILabel()
+    private var inputLabels: [UILabel] = []
+    private var actionGroups: [UIView] = []
+    private var actionRows: [ActionRowButton] = []
+    private var actionSeparators: [UIView] = []
 
     private let nameField = UITextField()
     private let topicView = UITextView()
@@ -64,7 +71,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         self.showQuickActionButton = showQuickActionButton
         self.showBanListButton = showBanListButton
         super.init()
-        backgroundColor = UIColor.theme.secondary
+        backgroundColor = UIColor.theme.usesLegacyDarkColors ? UIColor.theme.primary : UIColor.theme.secondary
 
         nameField.text = channelName
         topicView.text = channelTopic
@@ -84,9 +91,6 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
     }
 
     private func setupUI() {
-        let t = UIColor.theme
-
-
         let header = UIView()
         view.addSubview(header)
         header.translatesAutoresizingMaskIntoConstraints = false
@@ -97,9 +101,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
             header.heightAnchor.constraint(equalToConstant: 44.sh),
         ])
 
-        let closeBtn = UIButton(type: .system)
         closeBtn.setImage(UIImage(systemName: "xmark")?.withRenderingMode(.alwaysTemplate), for: .normal)
-        closeBtn.tintColor = t.textStrong
         closeBtn.addTarget(self, action: #selector(handleClose), for: .touchUpInside)
         header.addSubview(closeBtn)
         closeBtn.translatesAutoresizingMaskIntoConstraints = false
@@ -110,10 +112,8 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
             closeBtn.heightAnchor.constraint(equalToConstant: 24.swh),
         ])
 
-        let titleLabel = UILabel()
         titleLabel.text = isThread ? L(L10n.Channel.threadSettings) : L(L10n.Channel.settings)
         titleLabel.font = .systemFont(ofSize: 17.sf, weight: .bold)
-        titleLabel.textColor = t.textStrong
         header.addSubview(titleLabel)
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -127,7 +127,6 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         saveBtn.addTarget(self, action: #selector(handleSave), for: .touchUpInside)
         saveBtn.isEnabled = false
         saveBtn.alpha = 0.5
-        saveBtn.tintColor = t.textDisabled
         header.addSubview(saveBtn)
         saveBtn.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -194,10 +193,8 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         let group1 = createGroup(actions: group1Actions)
         stackView.addArrangedSubview(group1)
 
-        let footerLabel = UILabel()
         footerLabel.text = L(L10n.ChannelSetting.privacyFooter)
         footerLabel.font = .systemFont(ofSize: 12.sf)
-        footerLabel.textColor = t.textDisabled
         footerLabel.numberOfLines = 0
         stackView.addArrangedSubview(footerLabel)
 
@@ -217,11 +214,11 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
             let btn = createActionRow(title: delTitle, icon: "ChannelSetting/DeleteIcon", isDestructive: true, tapHandler: { [weak self] in
                 self?.onDeleteTap?()
             })
-            btn.backgroundColor = UIColor.theme.primary
             btn.layer.cornerRadius = 12
             stackView.addArrangedSubview(btn)
             deleteBtn = btn
         }
+        applyTheme()
     }
     
     func setDeleteButtonEnabled(_ enabled: Bool) {
@@ -238,8 +235,8 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         let label = UILabel()
         label.text = title
         label.font = .systemFont(ofSize: 14.sf, weight: .bold)
-        label.textColor = UIColor.theme.textStrong
         v.addArrangedSubview(label)
+        inputLabels.append(label)
 
         input.layer.cornerRadius = 12
         input.layer.borderWidth = 1
@@ -301,9 +298,9 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
 
     private func createGroup(actions: [SettingAction]) -> UIView {
         let v = UIView()
-        v.backgroundColor = UIColor.theme.primary
         v.layer.cornerRadius = 12
         v.clipsToBounds = true
+        actionGroups.append(v)
 
         let stack = UIStackView()
         stack.axis = .vertical
@@ -322,8 +319,8 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
             stack.addArrangedSubview(row)
             if idx < actions.count - 1 {
                 let sep = UIView()
-                sep.backgroundColor = UIColor.theme.border
                 stack.addArrangedSubview(sep)
+                actionSeparators.append(sep)
                 sep.heightAnchor.constraint(equalToConstant: 1.0 / UIScreen.main.scale).isActive = true
             }
         }
@@ -336,13 +333,11 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         v.tapHandler = tapHandler
         v.addTarget(v, action: #selector(ActionRowButton.handleTap), for: .touchUpInside)
 
-        let iconView = UIImageView()
+        let iconView = v.iconView
         iconView.image = UIImage(named: icon)?.withRenderingMode(.alwaysTemplate)
         iconView.contentMode = .scaleAspectFit
         if isDestructive {
             iconView.tintColor = .mezonError
-        } else {
-            iconView.tintColor = .mezonTextPrimary
         }
         v.addSubview(iconView)
         iconView.translatesAutoresizingMaskIntoConstraints = false
@@ -353,10 +348,12 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
             iconView.heightAnchor.constraint(equalToConstant: 24.swh),
         ])
 
-        let l = UILabel()
+        let l = v.actionLabel
         l.text = title
         l.font = .systemFont(ofSize: 14.sf, weight: .medium)
-        l.textColor = isDestructive ? .mezonError : UIColor.theme.textStrong
+        if isDestructive {
+            l.textColor = .mezonError
+        }
         v.addSubview(l)
         l.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -368,9 +365,10 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
             let arrowImage =
                 UIImage(named: "Channel/ChevronRight")?.withRenderingMode(.alwaysTemplate)
                 ?? UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate)
-            let arrow = UIImageView(image: arrowImage)
-            arrow.tintColor = UIColor.theme.textStrong
+            let arrow = v.chevronView
+            arrow.image = arrowImage
             v.addSubview(arrow)
+            actionRows.append(v)
             arrow.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
                 arrow.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -16.sw),
@@ -393,13 +391,36 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
 
     func applyTheme() {
         let theme = UIColor.theme
-        backgroundColor = theme.secondary
-        let inputBackground = theme.primary
+        backgroundColor = theme.usesLegacyDarkColors ? theme.primary : theme.secondary
+        closeBtn.tintColor = theme.textStrong
+        titleLabel.textColor = theme.textStrong
+        footerLabel.textColor = theme.textDisabled
+        if let saveBtn {
+            saveBtn.tintColor = saveBtn.isEnabled ? .mezonLink : theme.textDisabled
+        }
+        for label in inputLabels {
+            label.textColor = theme.textStrong
+        }
+        let inputBackground = theme.usesLegacyDarkColors ? theme.secondary : theme.primary
+        for group in actionGroups {
+            group.backgroundColor = inputBackground
+        }
+        deleteBtn?.backgroundColor = inputBackground
+        for row in actionRows {
+            row.iconView.tintColor = theme.text
+            row.actionLabel.textColor = theme.textStrong
+            row.chevronView.tintColor = theme.textStrong
+        }
+        for separator in actionSeparators {
+            separator.backgroundColor = theme.border
+        }
         let inputBorder = theme.border.cgColor
         nameField.backgroundColor = inputBackground
+        nameField.layer.borderWidth = theme.usesLegacyDarkColors ? 0 : 1
         nameField.layer.borderColor = inputBorder
         nameField.textColor = theme.textStrong
         topicView.backgroundColor = inputBackground
+        topicView.layer.borderWidth = theme.usesLegacyDarkColors ? 0 : 1
         topicView.layer.borderColor = inputBorder
         topicView.textColor = theme.textStrong
     }
@@ -412,6 +433,10 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
 }
 
 private final class ActionRowButton: UIButton {
+    let iconView = UIImageView()
+    let actionLabel = UILabel()
+    let chevronView = UIImageView()
+
     var tapHandler: (() -> Void)?
     @objc func handleTap() { tapHandler?() }
 }

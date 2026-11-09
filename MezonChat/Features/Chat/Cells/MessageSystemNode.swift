@@ -51,14 +51,14 @@ final class MessageSystemNode: ASDisplayNode {
             bodyFont: .systemFont(ofSize: 13.sf),
             bodyColor: t.text,
             mentionFont: .systemFont(ofSize: 13.sf, weight: .semibold),
-            mentionColor: t.desktop[.mentionColor],
-            mentionBgColor: t.desktop[.mentionPrimary],
-            roleMentionColor: t.desktop[.colorMentionEvryone],
-            roleMentionBgColor: t.desktop[.bgMentionEvryone],
-            linkColor: t.desktop[.mentionColor],
-            inlineCodeColor: t.desktop[.textSecondary],
-            inlineCodeBgColor: t.desktop[.bgActiveMemberChannel],
-            codeBlockBgColor: t.desktop[.bgMarkdownCode],
+            mentionColor: (t.usesLegacyDarkColors ? t.textLink : t.desktop[.mentionColor]),
+            mentionBgColor: (t.usesLegacyDarkColors ? t.midnightBlue : t.desktop[.mentionPrimary]),
+            roleMentionColor: (t.usesLegacyDarkColors ? t.textRoleLink : t.desktop[.colorMentionEvryone]),
+            roleMentionBgColor: (t.usesLegacyDarkColors ? t.darkMossGreen : t.desktop[.bgMentionEvryone]),
+            linkColor: (t.usesLegacyDarkColors ? t.textLink : t.desktop[.mentionColor]),
+            inlineCodeColor: t.usesLegacyDarkColors ? t.text : t.desktop[.textSecondary],
+            inlineCodeBgColor: (t.usesLegacyDarkColors ? t.tertiary : t.desktop[.bgActiveMemberChannel]),
+            codeBlockBgColor: (t.usesLegacyDarkColors ? t.tertiary : t.desktop[.bgMarkdownCode]),
             codeFont: UIFont(name: "Menlo", size: 12.sf) ?? .monospacedSystemFont(ofSize: 12.sf, weight: .regular),
             boldFont: .systemFont(ofSize: 13.sf, weight: .bold),
             headingFonts: [],
@@ -393,7 +393,7 @@ final class MessageSystemNode: ASDisplayNode {
     ) -> NSAttributedString {
         let mc = MezonConstants.MessageCode(rawValue: display.messageCode)
         let haystack = base.string
-        let linkColor = theme.desktop[.mentionColor]
+        let linkColor = theme.usesLegacyDarkColors ? theme.textLink : theme.desktop[.mentionColor]
         let tapFont = UIFont.systemFont(ofSize: 13.sf, weight: .semibold)
 
         switch mc {

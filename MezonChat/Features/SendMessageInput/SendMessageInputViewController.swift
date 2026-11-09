@@ -6012,7 +6012,11 @@ final class SendMessageInputViewController: UIViewController {
         view.backgroundColor = t.secondary
         inputBarView.backgroundColor = t.secondary
         topSeparator.backgroundColor = t.border
-        composerSurfaceView.apply(solid: t.desktop[.bgSurface], gradient: t.desktop.composerGradient)
+        composerSurfaceView.apply(
+            solid: t.usesLegacyDarkColors ? t.tertiary : t.desktop[.bgSurface],
+            gradient: t.usesLegacyDarkColors ? nil : t.desktop.composerGradient
+        )
+        composerSurfaceView.layer.borderWidth = t.usesLegacyDarkColors ? 0 : 1
         composerSurfaceView.layer.borderColor = t.borderPrimary.cgColor
         let preservedAttributed = textView.attributedText
         let selectedRange = textView.selectedRange

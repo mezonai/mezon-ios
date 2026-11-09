@@ -115,9 +115,9 @@ final class AccountSettingsViewController: BaseViewController {
         titleLabel.text = L(L10n.Settings.account)
         titleLabel.textColor = .mezonTextStrong
         backButton.tintColor = .mezonTextStrong
-        headerView.backgroundColor = UIColor.theme.secondary
-        view.backgroundColor = UIColor.theme.secondary
-        scrollView.backgroundColor = UIColor.theme.secondary
+        headerView.backgroundColor = UIColor.theme.usesLegacyDarkColors ? .mezonPrimary : UIColor.theme.secondary
+        view.backgroundColor = UIColor.theme.usesLegacyDarkColors ? .mezonPrimary : UIColor.theme.secondary
+        scrollView.backgroundColor = UIColor.theme.usesLegacyDarkColors ? .mezonPrimary : UIColor.theme.secondary
         rebuildContent()
     }
 
@@ -201,7 +201,7 @@ final class AccountSettingsViewController: BaseViewController {
 
     private func addGroupedCard(rows: [(title: String, detail: String?, warn: Bool, destructive: Bool, tap: RowTapAction)]) {
         let card = UIView()
-        card.backgroundColor = UIColor.theme.primary
+        card.backgroundColor = UIColor.theme.usesLegacyDarkColors ? .mezonSecondaryBackground : UIColor.theme.primary
         card.layer.cornerRadius = 10.swh
         card.clipsToBounds = true
         card.translatesAutoresizingMaskIntoConstraints = false

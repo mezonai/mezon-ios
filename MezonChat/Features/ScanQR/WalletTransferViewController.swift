@@ -463,22 +463,22 @@ final class WalletTransferViewController: BaseViewController, UIGestureRecognize
 
         recipientLabel.text = (payload.walletAddress?.isEmpty == false) ? L(L10n.Profile.sendTokenSendToAddress) : L(L10n.Profile.sendTokenSendTo)
         recipientLabel.textColor = .mezonTextPrimary
-        recipientField.backgroundColor = .mezonSecondaryBackground
-        recipientField.layer.borderColor = UIColor.mezonBorder.cgColor
+        recipientField.backgroundColor = UIColor.theme.usesLegacyDarkColors ? (.loginInputBg) : (.mezonSecondaryBackground)
+        recipientField.layer.borderColor = UIColor.theme.usesLegacyDarkColors ? UIColor.loginInputBorder.cgColor : UIColor.mezonBorder.cgColor
         recipientValueLabel.textColor = .mezonTextStrong
         copyButton.tintColor = .mezonTextStrong
         recipientChevron.tintColor = .mezonTextStrong
 
         amountLabel.text = L(L10n.Profile.sendTokenToken)
         amountLabel.textColor = .mezonTextPrimary
-        amountFieldContainer.backgroundColor = .mezonSecondaryBackground
-        amountFieldContainer.layer.borderColor = UIColor.mezonBorder.cgColor
+        amountFieldContainer.backgroundColor = UIColor.theme.usesLegacyDarkColors ? (.loginInputBg) : (.mezonSecondaryBackground)
+        amountFieldContainer.layer.borderColor = UIColor.theme.usesLegacyDarkColors ? UIColor.loginInputBorder.cgColor : UIColor.mezonBorder.cgColor
         amountField.textColor = .mezonTextStrong
 
         noteLabel.text = L(L10n.Profile.sendTokenNote)
         noteLabel.textColor = .mezonTextPrimary
-        noteContainer.backgroundColor = .mezonSecondaryBackground
-        noteContainer.layer.borderColor = UIColor.mezonBorder.cgColor
+        noteContainer.backgroundColor = UIColor.theme.usesLegacyDarkColors ? (.loginInputBg) : (.mezonSecondaryBackground)
+        noteContainer.layer.borderColor = UIColor.theme.usesLegacyDarkColors ? UIColor.loginInputBorder.cgColor : UIColor.mezonBorder.cgColor
         noteField.textColor = .mezonTextStrong
         noteCounterLabel.textColor = .mezonTextMuted
         notePlaceholder.textColor = .mezonTextMuted

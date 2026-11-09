@@ -299,15 +299,9 @@ final class MessageBubbleNode: ASDisplayNode {
             addSubnode(forwardHeaderLabelNode)
         }
 
-        if let callLog = display.callLog {
+        if display.callLog != nil {
             let cln = MessageCallLogNode()
-            cln.configure(
-                callLog: callLog,
-                isMe: display.isMe,
-                senderName: display.senderDisplayName,
-                contentText: parsed.text,
-                isGroupChat: interaction.isGroupDMChat()
-            )
+            configureCallLog(cln, display: display)
             cln.onCallBackTapped = { [weak self] in
                 guard let self,
                       let callLog = self.display.callLog else { return }
@@ -504,6 +498,25 @@ final class MessageBubbleNode: ASDisplayNode {
 
         self.isFailed = display.isFailed
         applyMessageBodyAlpha()
+    }
+
+    func applyCardTheme() {
+        shareContactNode?.applyTheme()
+        pollCardNode?.applyTheme()
+        if let callLogNode {
+            configureCallLog(callLogNode, display: display)
+        }
+    }
+
+    private func configureCallLog(_ node: MessageCallLogNode, display: ChatMessageDisplay) {
+        guard let callLog = display.callLog else { return }
+        node.configure(
+            callLog: callLog,
+            isMe: display.isMe,
+            senderName: display.senderDisplayName,
+            contentText: display.parsedContent.text,
+            isGroupChat: interaction.isGroupDMChat()
+        )
     }
 
     func updateReactions(newDisplay: ChatMessageDisplay) {
@@ -851,14 +864,8 @@ final class MessageBubbleNode: ASDisplayNode {
             topicNode = nil
         }
 
-        if callLogChanged, let cln = callLogNode, let callLog = newDisplay.callLog {
-            cln.configure(
-                callLog: callLog,
-                isMe: newDisplay.isMe,
-                senderName: newDisplay.senderDisplayName,
-                contentText: newDisplay.parsedContent.text,
-                isGroupChat: interaction.isGroupDMChat()
-            )
+        if callLogChanged, let callLogNode {
+            configureCallLog(callLogNode, display: newDisplay)
         }
 
         if editedChanged {
@@ -2154,19 +2161,26 @@ private final class MessageShareContactNode: ASDisplayNode {
 
     func configure(data: ShareContactData, callBlocked: Bool) {
         self.data = data
+        avatarNode.image = nil
+        setCallBlocked(callBlocked)
+        applyTheme()
+        loadAvatar(data.avatar)
+    }
+
+    func applyTheme() {
+        guard let data else { return }
         let t = UIColor.theme
+        let surface = t.desktop[.bgPrimary]
         borderColor = t.borderPrimary.cgColor
-        gradientView.apply(solid: t.tertiary, gradient: t.desktop.primaryFillGradient)
-        footerSurfaceView.apply(solid: t.tertiary, gradient: t.desktop.primaryFillGradient)
+        gradientView.apply(solid: surface, gradient: t.desktop.primaryFillGradient)
+        footerSurfaceView.apply(solid: surface, gradient: t.desktop.primaryFillGradient)
         actionBackgroundNode.backgroundColor = t.desktop[.bgSecondaryButtonHover]
         dividerNode.backgroundColor = t.borderPrimary
 
         let displayName = data.resolvedDisplayName
         let username = data.resolvedUsername
 
-        avatarNode.backgroundColor = t.secondaryWeight
-        avatarNode.image = nil
-        loadAvatar(data.avatar)
+        avatarNode.backgroundColor = avatarNode.image == nil ? t.secondaryWeight : .clear
 
         nameNode.attributedText = NSAttributedString(
             string: displayName,
@@ -2182,8 +2196,9 @@ private final class MessageShareContactNode: ASDisplayNode {
                 .foregroundColor: t.textThemePrimary,
             ]
         )
-        setCallBlocked(callBlocked)
+        callButtonNode.applyTheme()
         messageButtonNode.applyTheme()
+        setNeedsLayout()
     }
 
     func setCallBlocked(_ callBlocked: Bool) {
@@ -2329,9 +2344,9 @@ private final class MessageShareContactActionButtonNode: ASDisplayNode {
 
     func applyTheme() {
         backgroundNode.backgroundColor = .clear
-        let textColor = UIColor.theme.textThemePrimary
-        let foregroundColor = actionEnabled ? textColor : UIColor.theme.textDisabled
-        iconNode.tintColor = actionEnabled ? UIColor.theme.textNormal : UIColor.theme.textDisabled
+        let theme = UIColor.theme
+        let foregroundColor = actionEnabled ? theme.textThemePrimary : theme.desktop.semantic.textMuted
+        iconNode.tintColor = actionEnabled ? theme.desktop.semantic.textSecondary : theme.desktop.semantic.textMuted
         if let text = titleNode.attributedText?.string {
             titleNode.attributedText = NSAttributedString(
                 string: text,

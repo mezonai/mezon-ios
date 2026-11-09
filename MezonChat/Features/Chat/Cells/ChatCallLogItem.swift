@@ -50,13 +50,13 @@ final class MessageCallLogNode: ASDisplayNode {
     }
 
     func configure(callLog: CallLogData, isMe: Bool, senderName: String, contentText: String, isGroupChat: Bool = false) {
-        let t = UIColor.theme
+        let palette = UIColor.theme.desktop
 
-        containerNode.backgroundColor = t.secondary
+        containerNode.backgroundColor = palette[.bgThemeDirectMessage]
         containerNode.cornerRadius = Self.containerCornerRadius
         containerNode.clipsToBounds = true
         containerNode.borderWidth = 1 / max(UIScreen.main.scale, 1)
-        containerNode.borderColor = t.borderDim.cgColor
+        containerNode.borderColor = UIColor.theme.borderDim.cgColor
 
         let title = Self.titleText(callLog: callLog, isMe: isMe, senderName: senderName, isGroupChat: isGroupChat)
         hasTitle = !title.isEmpty
@@ -66,7 +66,7 @@ final class MessageCallLogNode: ASDisplayNode {
                 string: title,
                 attributes: [
                     .font: UIFont.systemFont(ofSize: Self.titleFontSize, weight: .bold),
-                    .foregroundColor: isFailed ? Self.redStrong : t.textStrong,
+                    .foregroundColor: isFailed ? Self.redStrong : palette.semantic.textPrimary,
                 ]
             )
             titleNode.maximumNumberOfLines = 0
@@ -90,14 +90,14 @@ final class MessageCallLogNode: ASDisplayNode {
             string: description,
             attributes: [
                 .font: UIFont.systemFont(ofSize: Self.descriptionFontSize),
-                .foregroundColor: t.textDisabled,
+                .foregroundColor: palette.semantic.textMuted,
             ]
         )
         descriptionNode.maximumNumberOfLines = 1
 
         showsCallBack = Self.shouldShowCallBack(callLogType: callLog.callLogType, isMe: isMe, isGroupChat: isGroupChat)
         if showsCallBack {
-            dividerNode.backgroundColor = t.secondaryWeight
+            dividerNode.backgroundColor = UIColor.theme.secondaryWeight
             dividerNode.isHidden = false
             callBackButton.isHidden = false
             callBackButton.setAttributedTitle(
@@ -105,7 +105,7 @@ final class MessageCallLogNode: ASDisplayNode {
                     string: L(L10n.CallLog.callBack).uppercased(),
                     attributes: [
                         .font: UIFont.systemFont(ofSize: Self.callBackFontSize, weight: .bold),
-                        .foregroundColor: t.textLink,
+                        .foregroundColor: palette[.colorMentionHover],
                     ]
                 ),
                 for: .normal
@@ -307,11 +307,11 @@ final class MessageCallLogNode: ASDisplayNode {
     }
 
     private static func iconInfo(callLog: CallLogData, isMe: Bool) -> (name: String, color: UIColor)? {
-        let t = UIColor.theme
+        let mutedColor = UIColor.theme.desktop.semantic.textMuted
         switch callLog.callLogType {
         case .timeoutCall:
             return isMe
-                ? ("CallOutGoingIcon", t.textDisabled)
+                ? ("CallOutGoingIcon", mutedColor)
                 : ("CallMissIcon", redStrong)
         case .rejectCall:
             return ("CallCancelIcon", redStrong)
@@ -321,8 +321,8 @@ final class MessageCallLogNode: ASDisplayNode {
                 : ("CallMissIcon", redStrong)
         case .finishCall, .startCall:
             return isMe
-                ? ("CallOutGoingIcon", t.textDisabled)
-                : ("CallInComingIcon", t.textDisabled)
+                ? ("CallOutGoingIcon", mutedColor)
+                : ("CallInComingIcon", mutedColor)
         }
     }
 

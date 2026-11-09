@@ -23,7 +23,7 @@ final class TabBarControllerNode: ASDisplayNode {
             self?.itemSelected(index, longTap)
         }
 
-        backgroundColor = UIColor.theme.primary
+        backgroundColor = TabBarNode.containerBackgroundColor
     }
 
     func setCurrentController(_ controller: ViewController?) -> () -> Void {
@@ -63,7 +63,7 @@ final class TabBarControllerNode: ASDisplayNode {
 
         transition.updateAlpha(node: tabBarNode, alpha: tabBarHidden ? 0.0 : 1.0)
 
-        backgroundColor = UIColor.theme.primary
+        backgroundColor = TabBarNode.containerBackgroundColor
 
         return tabBarHidden ? layout.intrinsicInsets.bottom : max(layout.intrinsicInsets.bottom, tabBarTotalHeight)
     }

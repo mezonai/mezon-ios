@@ -87,7 +87,7 @@ final class ChannelItemCellNode: ASCellNode {
                     .foregroundColor: UIColor.white,
                     .paragraphStyle: para,
                 ])
-            badgeBackground.backgroundColor = UIColor.theme.desktop.semantic.mentionBadge
+            badgeBackground.backgroundColor = UIColor.mezonUnreadBadge
             badgeBackground.clipsToBounds = true
             badgeBackground.isHidden = false
             badgeNode.isHidden = false
@@ -121,17 +121,21 @@ final class ChannelItemCellNode: ASCellNode {
                     && channel.lastSeenMessage.timestampSeconds
                         < channel.lastSentMessage.timestampSeconds))
         let isHighlighted = selected || isUnread
-        let activeTextColor = theme.desktop[.textSecondary]
+        let activeTextColor = theme.usesLegacyDarkColors ? theme.channelUnread : theme.desktop[.textSecondary]
         let nameWeight: UIFont.Weight = isHighlighted && supportsUnread ? .semibold : .medium
         nameNode.attributedText = NSAttributedString(
             string: channel.channelLabel.isEmpty ? "channel" : channel.channelLabel,
             attributes: [
                 .font: UIFont.systemFont(ofSize: 14.sf, weight: nameWeight),
-                .foregroundColor: isHighlighted ? activeTextColor : theme.textThemePrimary,
+                .foregroundColor: theme.usesLegacyDarkColors
+                    ? (isUnread ? theme.channelUnread : theme.channelNormal)
+                    : (isHighlighted ? activeTextColor : theme.textThemePrimary),
             ])
 
         let iconColor = isVoiceActive ? UIColor.mezonVoiceActive
-            : theme.desktop[isHighlighted ? .bgIconThemeActive : .bgIconTheme]
+            : (theme.usesLegacyDarkColors
+                ? (isUnread ? theme.channelUnread : theme.channelNormal)
+                : theme.desktop[isHighlighted ? .bgIconThemeActive : .bgIconTheme])
         if iconNode.isHidden {
             iconImgNode.tintColor = iconColor
         } else {
@@ -147,7 +151,8 @@ final class ChannelItemCellNode: ASCellNode {
         unreadDot.backgroundColor = activeTextColor
         unreadDot.isHidden = !(isUnread && !selected)
         selectionNode.isHidden = !selected
-        selectionNode.backgroundColor = selected ? theme.desktop[.bgActiveMemberChannel] : .clear
+        selectionNode.backgroundColor = selected
+            ? (theme.usesLegacyDarkColors ? theme.secondaryLight : theme.desktop[.bgActiveMemberChannel]) : .clear
         setNeedsLayout()
     }
 

@@ -46,22 +46,22 @@ final class MessageClanInviteLinkNode: ASDisplayNode {
         backgroundColor = .clear
 
         let t = UIColor.theme
-        containerNode.backgroundColor = t.secondary
+        containerNode.backgroundColor = t.desktop[.bgThemeDirectMessage]
         containerNode.cornerRadius = 12
         containerNode.borderWidth = 1
-        containerNode.borderColor = t.border.cgColor
+        containerNode.borderColor = t.borderPrimary.cgColor
 
         loadingNode.setViewBlock {
             let v = UIActivityIndicatorView(style: .medium)
             v.startAnimating()
-            v.color = t.textDisabled
+            v.color = t.desktop.semantic.textMuted
             return v
         }
 
         avatarContainerNode.cornerRadius = 10
         avatarContainerNode.clipsToBounds = true
         avatarContainerNode.borderWidth = 1
-        avatarContainerNode.borderColor = t.border.withAlphaComponent(0.35).cgColor
+        avatarContainerNode.borderColor = t.borderPrimary.withAlphaComponent(0.35).cgColor
 
         avatarImageNode.cornerRadius = 10
         avatarImageNode.clipsToBounds = true
@@ -159,7 +159,7 @@ final class MessageClanInviteLinkNode: ASDisplayNode {
             avatarImageNode.url = url
             avatarImageNode.isHidden = false
             avatarPlaceholderNode.isHidden = true
-            avatarContainerNode.backgroundColor = UIColor.theme.primary
+            avatarContainerNode.backgroundColor = t.desktop[.bgSecondary]
         } else {
             avatarImageNode.url = nil
             avatarImageNode.isHidden = true
@@ -169,14 +169,14 @@ final class MessageClanInviteLinkNode: ASDisplayNode {
 
         nameNode.attributedText = NSAttributedString(string: clanName, attributes: [
             .font: UIFont.systemFont(ofSize: 16.sf, weight: .bold),
-            .foregroundColor: t.textStrong,
+            .foregroundColor: t.desktop.semantic.textPrimary,
         ])
 
         let count = info.member_count ?? 0
         let memberText = String(format: L(L10n.ClanAction.memberCount), count)
         memberNode.attributedText = NSAttributedString(string: memberText, attributes: [
             .font: UIFont.systemFont(ofSize: 13.sf),
-            .foregroundColor: t.textDisabled,
+            .foregroundColor: t.desktop.semantic.textMuted,
         ])
 
         let isJoined = info.user_joined == true
@@ -205,7 +205,7 @@ final class MessageClanInviteLinkNode: ASDisplayNode {
             string: L(L10n.ChannelMessages.clanInviteLoadFailed),
             attributes: [
                 .font: UIFont.systemFont(ofSize: 13.sf),
-                .foregroundColor: t.textDisabled,
+                .foregroundColor: t.desktop.semantic.textMuted,
             ]
         )
         actionButton.backgroundColor = Self.primaryButtonColor

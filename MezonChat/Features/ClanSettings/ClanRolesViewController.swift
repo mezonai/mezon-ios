@@ -20,8 +20,6 @@ final class ClanRolesViewController: BaseViewController {
         t.backgroundColor = .mezonSecondary
         t.dataSource = self
         t.delegate = self
-        t.separatorStyle = .singleLine
-        t.separatorColor = UIColor.theme.border
         t.estimatedRowHeight = 60.sh
         t.rowHeight = UITableView.automaticDimension
         t.register(ClanRoleCell.self, forCellReuseIdentifier: ClanRoleCell.reuseId)
@@ -186,13 +184,15 @@ final class ClanRolesViewController: BaseViewController {
     }
 
     override func applyTheme() {
+        let theme = UIColor.theme
         view.backgroundColor = .mezonSecondary
         headerView.backgroundColor = .mezonSecondary
         headerTitleLabel.textColor = .mezonTextPrimary
         backButton.tintColor = UIColor.theme.textStrong
         addButton.tintColor = canManage ? UIColor.theme.textStrong : UIColor.theme.textDisabled
         tableView.backgroundColor = .mezonSecondary
-        tableView.separatorColor = UIColor.theme.border
+        tableView.separatorStyle = theme.usesLegacyDarkColors ? .none : .singleLine
+        tableView.separatorColor = theme.border
         tableView.reloadData()
     }
 
@@ -362,7 +362,7 @@ private final class ClanRoleCell: UITableViewCell {
     required init?(coder: NSCoder) { fatalError() }
 
     private func applyTheme() {
-        backgroundColor = UIColor.theme.primary
+        backgroundColor = UIColor.theme.usesLegacyDarkColors ? .clear : UIColor.theme.primary
         selectedBackgroundView?.backgroundColor = UIColor.theme.tertiary.withAlphaComponent(0.6)
         subtitleLabel.textColor = UIColor.theme.textDisabled
         lockIcon.tintColor = UIColor.theme.textDisabled
