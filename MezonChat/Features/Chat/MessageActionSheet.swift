@@ -459,6 +459,9 @@ private final class MessageActionSheetNode: ASDisplayNode {
         scrollView.delaysContentTouches = true
         scrollView.bounces = true
         containerNode.view.addSubview(scrollView)
+        
+        containerNode.accessibilityElements = [scrollView]
+        scrollView.accessibilityIdentifier = AccessibilityID.Chat.messageMenu
 
         dragToDismissView.backgroundColor = .clear
         containerNode.view.addSubview(dragToDismissView)
@@ -628,6 +631,8 @@ private final class MessageActionSheetNode: ASDisplayNode {
             btn.layer.cornerRadius = btnSize / 2
             btn.clipsToBounds = true
             btn.tag = idx
+            btn.accessibilityIdentifier = AccessibilityID.Chat.quickReaction(emoji.id)
+            btn.accessibilityLabel = emoji.shortname
 
             if let url = MezonConfig.emojiResourceURL(emojiId: emoji.id, imgproxyFitSide: 40) {
                 loadEmojiImage(url: url, into: btn)
@@ -768,11 +773,16 @@ private final class MessageActionSheetNode: ASDisplayNode {
 
         let label = UILabel(frame: CGRect(x: labelX, y: y, width: width - labelX - 16, height: height))
         label.text = action.title
+        label.isAccessibilityElement = false
         label.font = .systemFont(ofSize: 16)
         label.textColor = textColor
         parent.addSubview(label)
 
         let btn = ActionButton(type: .system)
+        btn.accessibilityLabel = action.title
+        if action == .reply {
+            btn.accessibilityIdentifier = AccessibilityID.Chat.replyAction
+        }
         btn.frame = CGRect(x: 0, y: y, width: width, height: height)
         btn.actionHandler = { [weak self] in
             self?.onAction(action)

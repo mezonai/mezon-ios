@@ -988,7 +988,7 @@ final class MediaPickerViewController: UIViewController {
         }
     }
 
-    private static func generateVideoThumbnail(from url: URL) -> UIImage? {
+    static func generateVideoThumbnail(from url: URL) -> UIImage? {
         let asset = AVAsset(url: url)
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true

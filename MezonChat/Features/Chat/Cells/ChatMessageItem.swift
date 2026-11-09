@@ -323,6 +323,8 @@ final class ChatMessageItemNode: ListViewItemNode, UIGestureRecognizerDelegate {
             return (nodeLayout, {
                 guard let self else { return }
                 self.currentItem = item
+                bubble.updateMessageAccessibility()
+                self.accessibilityIdentifier = AccessibilityID.Chat.message(item.display.id)
                 bubble.setRoleIconAnimationVisible(self.isMessageVisible)
                 if self.bubbleNode !== bubble {
                     self.bubbleNode?.removeFromSupernode()

@@ -33,6 +33,7 @@ final class ChatHeaderNode: ASDisplayNode {
             UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate),
             for: .normal
         )
+        backButtonNode.accessibilityIdentifier = AccessibilityID.Chat.back
         backButtonNode.addTarget(self, action: #selector(backPressed), forControlEvents: .touchUpInside)
 
         titleContainerNode.automaticallyManagesSubnodes = true

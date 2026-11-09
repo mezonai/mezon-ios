@@ -1499,6 +1499,8 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
     private let context: AccountContext
     private let onChannelCreated: (Mezon_Api_ChannelDescription) -> Void
     private let existingGroupChannel: Mezon_Api_ChannelDescription?
+    private let sourceDirectMessage: Mezon_Api_ChannelDescription?
+    private let seedMemberIds: [Int64]
     private var excludedMemberIds: Set<Int64>
     private var existingMemberCountOverride: Int?
 
@@ -1530,7 +1532,33 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
         self.context = context
         self.onChannelCreated = onChannelCreated
         self.existingGroupChannel = nil
+        self.sourceDirectMessage = nil
+        self.seedMemberIds = []
         self.excludedMemberIds = []
+        self.existingMemberCountOverride = nil
+        super.init(navigationBarPresentationData: nil)
+    }
+
+    init(
+        context: AccountContext,
+        sourceDirectMessage: Mezon_Api_ChannelDescription,
+        onChannelCreated: @escaping (Mezon_Api_ChannelDescription) -> Void
+    ) {
+        self.context = context
+        self.onChannelCreated = onChannelCreated
+        self.existingGroupChannel = nil
+        self.sourceDirectMessage = sourceDirectMessage
+        let currentUserId = context.currentUser.flatMap { Int64($0.id) }
+        var seedIds: [Int64] = []
+        for id in sourceDirectMessage.userIds where id != 0 && id != currentUserId && !seedIds.contains(id) {
+            seedIds.append(id)
+        }
+        self.seedMemberIds = seedIds
+        var excludedIds = Set(seedIds)
+        if let currentUserId {
+            excludedIds.insert(currentUserId)
+        }
+        self.excludedMemberIds = excludedIds
         self.existingMemberCountOverride = nil
         super.init(navigationBarPresentationData: nil)
     }
@@ -1545,6 +1573,8 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
         self.context = context
         self.onChannelCreated = onMembersAdded
         self.existingGroupChannel = existingGroupChannel
+        self.sourceDirectMessage = nil
+        self.seedMemberIds = []
         var excludedIds = Set(existingGroupChannel.userIds)
         if let existingMemberIds, !existingMemberIds.isEmpty {
             excludedIds.formUnion(existingMemberIds)
@@ -1637,6 +1667,7 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
         createButton.titleLabel?.font = .systemFont(ofSize: 15.sf, weight: .medium)
         createButton.contentHorizontalAlignment = .right
         createButton.addTarget(self, action: #selector(createTapped), for: .touchUpInside)
+        createButton.accessibilityIdentifier = AccessibilityID.DirectMessage.createGroup
 
         activityIndicator.hidesWhenStopped = true
 
@@ -1762,6 +1793,9 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
         if existingGroupChannel != nil {
             titleLabel.text = L(L10n.ChannelDetail.addMembers)
             createButton.setTitle(L(L10n.ChannelPermission.bsAdd), for: .normal)
+        } else if sourceDirectMessage != nil {
+            titleLabel.text = L(L10n.ChannelDetail.addMembers)
+            createButton.setTitle(L(L10n.DirectMessage.create), for: .normal)
         } else {
             titleLabel.text = L(L10n.DirectMessage.newGroup)
             createButton.setTitle(L(L10n.DirectMessage.create), for: .normal)
@@ -1914,7 +1948,7 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
             }
             return max(ids.count, 1)
         }
-        return 1
+        return 1 + seedMemberIds.count
     }
 
     private func canSelectAdditionalFriend() -> Bool {
@@ -2003,21 +2037,35 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
             }
 
             do {
+                let memberIds = self.seedMemberIds + selectedIds
                 let channel: Mezon_Api_ChannelDescription
-                if selectedIds.count == 1, let userId = selectedIds.first {
+                var reusedExistingGroup = false
+                if memberIds.count == 1, let userId = memberIds.first {
                     if let existing = await self.existingOneToOneDirectMessage(userId: userId, token: token) {
                         channel = existing
                     } else {
                         channel = try await self.context.account.network.createDirectMessage(userId: userId, token: token)
                     }
                 } else {
-                    channel = try await self.context.account.network.createGroupDirectMessage(userIds: selectedIds, token: token)
+                    do {
+                        channel = try await self.context.account.network.createGroupDirectMessage(userIds: memberIds, token: token)
+                    } catch let error where Self.isGroupAlreadyExists(error) {
+                        guard let existing = await self.existingGroupDirectMessage(memberIds: memberIds, token: token) else {
+                            throw error
+                        }
+                        channel = existing
+                        reusedExistingGroup = true
+                    }
                 }
 
-                let decorated = self.decoratedChannel(channel, selectedIds: selectedIds)
-                self.openCreatedChannel(decorated, showCreatedToast: selectedIds.count > 1)
+                let decorated = self.decoratedChannel(channel, selectedIds: memberIds)
+                self.openCreatedChannel(decorated, showCreatedToast: memberIds.count > 1 && !reusedExistingGroup)
             } catch {
-                Toast.error(error.localizedDescription.isEmpty ? L(L10n.DirectMessage.createFailed) : error.localizedDescription)
+                if Self.isGroupAlreadyExists(error) {
+                    Toast.error(L(L10n.DirectMessage.groupAlreadyExists))
+                } else {
+                    Toast.error(error.localizedDescription.isEmpty ? L(L10n.DirectMessage.createFailed) : error.localizedDescription)
+                }
             }
         }
     }
@@ -2030,6 +2078,34 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
             channel.type == MezonConstants.ChannelType.dm.rawValue
                 && channel.userIds.count == 1
                 && channel.userIds.contains(userId)
+        }
+    }
+
+    private static func isGroupAlreadyExists(_ error: Error) -> Bool {
+        if let apiError = error as? APIError {
+            return apiError.code == 6
+        }
+        if case let MezonError.httpError(code, _) = error {
+            return code == 409 || code == 6
+        }
+        return false
+    }
+
+    private func existingGroupDirectMessage(memberIds: [Int64], token: String) async -> Mezon_Api_ChannelDescription? {
+        guard let channels = try? await context.account.network.listGroupMessageChannels(token: token) else {
+            return nil
+        }
+        let currentUserId = context.currentUser.flatMap { Int64($0.id) }
+        var expectedIds = Set(memberIds)
+        if let currentUserId {
+            expectedIds.remove(currentUserId)
+        }
+        return channels.first { channel in
+            var channelMemberIds = Set(channel.userIds)
+            if let currentUserId {
+                channelMemberIds.remove(currentUserId)
+            }
+            return channelMemberIds == expectedIds
         }
     }
 
@@ -2056,6 +2132,21 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
         }.filter { !$0.isEmpty }
         var usernames = selectedFriends.map(\.username).filter { !$0.isEmpty }
         var avatars = selectedFriends.map(\.avatarURL).filter { !$0.isEmpty }
+
+        if let source = sourceDirectMessage {
+            let seedUsername = source.usernames.first ?? ""
+            let seedDisplay = (source.displayNames.first ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let seedName = seedDisplay.isEmpty ? seedUsername : seedDisplay
+            if !seedName.isEmpty {
+                displayNames.insert(seedName, at: 0)
+            }
+            if !seedUsername.isEmpty {
+                usernames.insert(seedUsername, at: 0)
+            }
+            if let seedAvatar = source.avatars.first, !seedAvatar.isEmpty {
+                avatars.insert(seedAvatar, at: 0)
+            }
+        }
 
         if let current = context.currentUser {
             let currentDisplay = current.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2092,6 +2183,16 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
 
         let chatVC = ChatViewController(clanId: 0, channel: channel, context: context, parentName: nil)
         guard let navigationController else { return }
+        if sourceDirectMessage != nil {
+            var stack = navigationController.viewControllers
+            stack.removeAll { $0 === self }
+            if stack.last is ChannelDetailViewController {
+                stack.removeLast()
+            }
+            stack.append(chatVC)
+            navigationController.setViewControllers(stack, animated: true)
+            return
+        }
         if let navigationController = navigationController as? NavigationController {
             navigationController.replaceTopController(chatVC, animated: true)
         } else {

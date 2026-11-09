@@ -31,6 +31,15 @@ final class FileListNode: ASDisplayNode {
     private let channelId: Int64
     private let channelType: Int32
 
+    private var requestClanId: Int64 {
+        (channelType == MezonConstants.ChannelType.dm.rawValue
+            || channelType == MezonConstants.ChannelType.group.rawValue) ? 0 : clanId
+    }
+    private lazy var senderResolver = ChannelGallerySenderResolver(
+        context: context, clanId: requestClanId, channelId: channelId
+    )
+    private var anonymousSenderTasks: [Int64: Task<GallerySenderInfo?, Never>] = [:]
+
     private var filesStateByType: [ChannelFilesType: ChannelFilesState] = [:]
     private var selectedFilesType: ChannelFilesType = .doc
     private var sections: [FileDaySection] = []
@@ -263,12 +272,8 @@ final class FileListNode: ASDisplayNode {
             guard let self else { return }
             do {
                 let token = await self.context.getToken() ?? ""
-                let targetClanId =
-                    (self.channelType == MezonConstants.ChannelType.dm.rawValue
-                        || self.channelType == MezonConstants.ChannelType.group.rawValue) ? 0 : self.clanId
-
                 let res = try await self.context.account.network.listChannelAttachments(
-                    clanId: targetClanId,
+                    clanId: self.requestClanId,
                     channelId: self.channelId,
                     fileType: filesType.rawValue,
                     limit: 100,
@@ -449,8 +454,9 @@ extension FileListNode: ASTableDataSource, ASTableDelegate {
         -> ASCellNodeBlock
     {
         let att = sections[indexPath.section].items[indexPath.row]
-        let ctx = context
-        let uploaderName = Self.resolveUploaderName(uploaderId: att.uploader, context: ctx)
+        let uploaderName = att.uploader == MezonConstants.anonymousUserId
+            ? senderResolver.senderInfo(for: att).name
+            : Self.resolveUploaderName(uploaderId: att.uploader, context: context)
         let timeStr = Self.formatTime(createSeconds: att.createTimeSeconds)
         return {
             FileDocumentCellNode(
@@ -458,6 +464,32 @@ extension FileListNode: ASTableDataSource, ASTableDelegate {
                 uploaderDisplayName: uploaderName,
                 timeString: timeStr
             )
+        }
+    }
+
+    func tableNode(_ tableNode: ASTableNode, willDisplayRowWith node: ASCellNode) {
+        guard let cell = node as? FileDocumentCellNode,
+            cell.attachment.uploader == MezonConstants.anonymousUserId,
+            cell.attachment.messageID != 0
+        else { return }
+
+        let attachment = cell.attachment
+        let messageId = attachment.messageID
+        let task: Task<GallerySenderInfo?, Never>
+        if let pending = anonymousSenderTasks[messageId] {
+            task = pending
+        } else {
+            let resolver = senderResolver
+            task = Task { @MainActor [weak self] in
+                defer { self?.anonymousSenderTasks[messageId] = nil }
+                return await resolver.loadSenderInfo(for: attachment)
+            }
+            anonymousSenderTasks[messageId] = task
+        }
+
+        Task { @MainActor [weak cell] in
+            guard let sender = await task.value else { return }
+            cell?.setUploaderDisplayName(sender.name)
         }
     }
 
@@ -562,6 +594,7 @@ private final class FileSectionHeaderNode: ASCellNode {
 
 private final class FileDocumentCellNode: ASCellNode {
 
+    let attachment: Mezon_Api_ChannelAttachment
     private let card = ASDisplayNode()
     private let iconNode = ASImageNode()
     private let titleNode = ASTextNode2()
@@ -574,6 +607,7 @@ private final class FileDocumentCellNode: ASCellNode {
         uploaderDisplayName: String,
         timeString: String
     ) {
+        self.attachment = attachment
         self.fileURL = URL(string: attachment.url)
         super.init()
         automaticallyManagesSubnodes = true
@@ -603,13 +637,7 @@ private final class FileDocumentCellNode: ASCellNode {
 
         sharedNode.maximumNumberOfLines = 1
         sharedNode.truncationMode = .byTruncatingTail
-        sharedNode.attributedText = NSAttributedString(
-            string: String(format: L(L10n.ChannelDetail.fileSharedBy), uploaderDisplayName),
-            attributes: [
-                .font: UIFont.systemFont(ofSize: 13.sf, weight: .regular),
-                .foregroundColor: t.text,
-            ]
-        )
+        setUploaderDisplayName(uploaderDisplayName)
 
         timeNode.maximumNumberOfLines = 1
         timeNode.attributedText = NSAttributedString(
@@ -622,6 +650,18 @@ private final class FileDocumentCellNode: ASCellNode {
         
         sharedNode.style.flexShrink = 1
         timeNode.style.flexShrink = 0
+    }
+
+    func setUploaderDisplayName(_ name: String) {
+        let text = String(format: L(L10n.ChannelDetail.fileSharedBy), name)
+        guard sharedNode.attributedText?.string != text else { return }
+        sharedNode.attributedText = NSAttributedString(
+            string: text,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 13.sf, weight: .regular),
+                .foregroundColor: UIColor.theme.text,
+            ]
+        )
     }
 
     override func didLoad() {

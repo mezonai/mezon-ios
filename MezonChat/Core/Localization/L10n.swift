@@ -1212,6 +1212,7 @@ enum L10n {
         static let noFriends = "directMessage.noFriends"
         static let memberLimitReached = "directMessage.memberLimitReached"
         static let createFailed = "directMessage.createFailed"
+        static let groupAlreadyExists = "directMessage.groupAlreadyExists"
         static let onlyFriendsDenied = "directMessage.onlyFriendsDenied"
 
         static let groupCreated   = "directMessage.groupCreated"
@@ -2595,6 +2596,7 @@ extension L10n {
         "directMessage.noFriends": "No friends available",
         "directMessage.memberLimitReached": "Group chats can have up to 20 members.",
         "directMessage.createFailed": "Could not create group.",
+        "directMessage.groupAlreadyExists": "A group with these members already exists.",
         "directMessage.onlyFriendsDenied": "This user only accepts messages from friends.",
         "directMessage.groupCreated": "Group created",
         "directMessage.previewAttachment": "Attachment",
@@ -4088,6 +4090,7 @@ extension L10n {
         "directMessage.noFriends": "Chưa có bạn bè để chọn",
         "directMessage.memberLimitReached": "Nhóm chat chỉ có tối đa 20 thành viên.",
         "directMessage.createFailed": "Không thể tạo nhóm.",
+        "directMessage.groupAlreadyExists": "Đã có nhóm gồm đúng những thành viên này.",
         "directMessage.onlyFriendsDenied": "Chỉ bạn bè mới có thể gửi tin nhắn cho người dùng này.",
         "directMessage.groupCreated": "Nhóm đã được tạo",
         "directMessage.previewAttachment": "Đính kèm",

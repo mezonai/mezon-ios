@@ -7,25 +7,26 @@ struct LoginScreen {
     }
 
     let app: XCUIApplication
-    var email: XCUIElement { app.textFields["auth.login.email"] }
-    var phone: XCUIElement { app.textFields["auth.login.phone"] }
-    var password: XCUIElement { app.secureTextFields["auth.login.password"] }
+    var email: XCUIElement { app.textFields[AccessibilityID.Auth.email] }
+    var phone: XCUIElement { app.textFields[AccessibilityID.Auth.phone] }
+    var password: XCUIElement { app.secureTextFields[AccessibilityID.Auth.password] }
     // App language may be persisted independently of the simulator locale.
     var invalidOTPMessage: XCUIElement {
         app.staticTexts.matching(NSPredicate(
             format: "label IN %@", ["OTP invalid", "Mã OTP không hợp lệ"]
         )).firstMatch
     }
-    var otpSubmit: XCUIElement { app.buttons["auth.otp.submit"] }
-    var authenticatedRoot: XCUIElement { app.otherElements["main.root"] }
-    func otpDigit(_ index: Int) -> XCUIElement { app.textFields["auth.otp.digit.\(index)"] }
-    var submit: XCUIElement { app.buttons["auth.login.submit"] }
+    var otpSubmit: XCUIElement { app.buttons[AccessibilityID.Auth.otpSubmit] }
+    var authenticatedRoot: XCUIElement { app.otherElements[AccessibilityID.Main.root] }
+    func otpDigit(_ index: Int) -> XCUIElement { app.textFields[AccessibilityID.Auth.otpDigit(index)] }
+    var submit: XCUIElement { app.buttons[AccessibilityID.Auth.submit] }
 
     func launch(mode: Mode, resetSession: Bool = true, file: StaticString = #filePath, line: UInt = #line) {
+        let chatMetadataArguments = app.launchArguments.filter { $0 == UITestLaunch.chatMetadataArgument }
         app.launchArguments = [
             UITestLaunch.loginArgument,
             "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
-        ]
+        ] + chatMetadataArguments
         if resetSession {
             app.launchArguments.append(UITestLaunch.resetSessionArgument)
         }
@@ -35,8 +36,7 @@ struct LoginScreen {
             XCTFail("Mezon did not stay in foreground after launch (state: \(app.state.rawValue)). Check app crash logs and the test runner log.", file: file, line: line)
             return
         }
-        XCUIDevice.shared.orientation = .portrait
-        let start = app.buttons["auth.welcome.start"]
+        let start = app.buttons[AccessibilityID.Auth.welcomeStart]
         XCTAssertTrue(start.waitForExistence(timeout: 20), "Welcome did not appear", file: file, line: line)
         start.tap()
         XCTAssertTrue(submit.waitForExistence(timeout: 15), "Login did not appear", file: file, line: line)

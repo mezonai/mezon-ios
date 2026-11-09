@@ -356,6 +356,7 @@ final class ReactionPillNode: ASDisplayNode {
         )
         addSubnode(emojiFallbackNode)
 
+        updateCountAccessibility(reaction)
         countNode.attributedText = NSAttributedString(
             string: "\(reaction.count)",
             attributes: [
@@ -429,11 +430,21 @@ final class ReactionPillNode: ASDisplayNode {
         borderColor = isSelected ? brand.cgColor : nil
     }
 
+    private func updateCountAccessibility(_ reaction: ParsedReaction) {
+        countNode.accessibilityIdentifier = AccessibilityID.Chat.reactionCount(reaction.emojiId)
+        if reaction.isMe {
+            countNode.accessibilityTraits.insert(.selected)
+        } else {
+            countNode.accessibilityTraits.remove(.selected)
+        }
+    }
+
     func update(reaction: ParsedReaction) {
         let priorEmojiId = emojiId
         emojiId = reaction.emojiId
 
         let t = UIColor.theme
+        updateCountAccessibility(reaction)
         countNode.attributedText = NSAttributedString(
             string: "\(reaction.count)",
             attributes: [

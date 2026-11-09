@@ -397,8 +397,12 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     private var isScrubbing = false
     private var scrubGeneration = 0
     private let bufferingSpinner = UIActivityIndicatorView(style: .large)
+    private let bufferingProgressLabel = UILabel()
     private var isBuffering = false
-    private var wantsPlayback = false
+    private var wantsPlayback = false {
+        didSet { updatePrefetchPause() }
+    }
+    private var holdsPrefetchPause = false
     private var hasStartedPlayback = false
     private var readyWaitingSince: TimeInterval?
     private var bufferBaseline: (time: TimeInterval, seconds: Double)?
@@ -412,6 +416,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     private static let endStallTolerance: Double = 1.0
     private static let endStallGrace: TimeInterval = 1.0
     private static let endStallTimeout: TimeInterval = 3.0
+    private static let loadedToEndTolerance: Double = 0.5
     
     private var sourceURL: URL?
     private var chunkedLoader: ChunkedVideoResourceLoader?
@@ -557,6 +562,15 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         bufferingSpinner.color = .white
         bufferingSpinner.hidesWhenStopped = true
         view.addSubview(bufferingSpinner)
+        bufferingProgressLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
+        bufferingProgressLabel.textColor = .white
+        bufferingProgressLabel.textAlignment = .center
+        bufferingProgressLabel.layer.shadowColor = UIColor.black.cgColor
+        bufferingProgressLabel.layer.shadowOpacity = 0.6
+        bufferingProgressLabel.layer.shadowRadius = 2
+        bufferingProgressLabel.layer.shadowOffset = .zero
+        bufferingProgressLabel.isHidden = true
+        view.addSubview(bufferingProgressLabel)
         updateBufferingIndicator()
         resetControlsTimer()
     }
@@ -619,6 +633,8 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     private func observe(_ playerItem: AVPlayerItem) {
         loadedRangesObserver = playerItem.observe(\.loadedTimeRanges, options: [.new]) { [weak self] _, _ in
             DispatchQueue.main.async {
+                self?.updateBufferingProgress()
+                self?.updatePrefetchPause()
                 self?.startPlaybackIfBuffered()
             }
         }
@@ -666,6 +682,9 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         loadedRangesObserver?.invalidate()
         bufferingMonitor?.invalidate()
         NotificationCenter.default.removeObserver(self)
+        if holdsPrefetchPause {
+            VideoRangePrefetcher.shared.resume()
+        }
     }
     
     private func showErrorOverlay(error: Error?) {
@@ -1077,6 +1096,47 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         } else {
             bufferingSpinner.stopAnimating()
         }
+        updateBufferingProgress()
+    }
+
+    private func updateBufferingProgress() {
+        guard isNodeLoaded else { return }
+        guard isBuffering, let progress = loadedProgress(), progress.end < progress.duration else {
+            bufferingProgressLabel.isHidden = true
+            return
+        }
+        bufferingProgressLabel.text = "\(Int(progress.end / progress.duration * 100))%"
+        bufferingProgressLabel.isHidden = false
+        layoutBufferingProgressLabel()
+    }
+
+    private func layoutBufferingProgressLabel() {
+        bufferingProgressLabel.sizeToFit()
+        bufferingProgressLabel.center = CGPoint(
+            x: bufferingSpinner.center.x,
+            y: bufferingSpinner.frame.maxY + 8 + bufferingProgressLabel.bounds.height / 2
+        )
+    }
+
+    private func loadedProgress() -> (end: Double, duration: Double)? {
+        guard let item = player?.currentItem else { return nil }
+        let duration = item.duration.seconds
+        let position = item.currentTime().seconds
+        guard duration.isFinite, duration > 0, position.isFinite else { return nil }
+        let ranges = item.loadedTimeRanges.map(\.timeRangeValue)
+        return (position + VideoPlaybackBufferPolicy.bufferedAhead(at: position, ranges: ranges), duration)
+    }
+
+    private func updatePrefetchPause() {
+        let isLoadedToEnd = loadedProgress().map { $0.end >= $0.duration - Self.loadedToEndTolerance } ?? false
+        let shouldPause = wantsPlayback && !isLoadedToEnd
+        guard shouldPause != holdsPrefetchPause else { return }
+        holdsPrefetchPause = shouldPause
+        if shouldPause {
+            VideoRangePrefetcher.shared.pause()
+        } else {
+            VideoRangePrefetcher.shared.resume()
+        }
     }
 
     private func updatePlayPauseIcons(isPlaying: Bool) {
@@ -1141,6 +1201,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         posterNode.frame = b
         bufferingSpinner.sizeToFit()
         bufferingSpinner.center = CGPoint(x: b.midX, y: b.midY)
+        layoutBufferingProgressLabel()
         
         if let errorNode = errorOverlayNode {
             errorNode.frame = b

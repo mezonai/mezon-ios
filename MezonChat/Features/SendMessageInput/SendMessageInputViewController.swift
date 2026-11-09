@@ -879,7 +879,7 @@ final class SendMessageInputViewController: UIViewController {
     }()
 
     private lazy var textView: PastableTextView = {
-        let tv = PastableTextView()
+        let tv = PastableTextView().identified(by: AccessibilityID.Chat.input)
         tv.backgroundColor = .clear
         tv.composerSurface = composerSurfaceView
         tv.isScrollEnabled = false
@@ -977,7 +977,7 @@ final class SendMessageInputViewController: UIViewController {
     }()
 
     private lazy var sendButton: UIButton = {
-        let btn = UIButton(type: .system)
+        let btn = UIButton(type: .system).identified(by: AccessibilityID.Chat.send)
         btn.translatesAutoresizingMaskIntoConstraints = false
         let sendSide: CGFloat = 40.swh
         btn.layer.cornerRadius = sendSide / 2
@@ -2331,6 +2331,11 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func refreshBannerLabel() {
+        let isReply = editingDisplay == nil && ephemeralTarget == nil && replyDisplay != nil
+        replyLabel.accessibilityIdentifier = isReply ? AccessibilityID.Chat.replyBanner : nil
+        if UITestLaunch.exposesChatMetadata {
+            replyLabel.accessibilityValue = isReply ? replyDisplay?.id : nil
+        }
         if editingDisplay != nil {
             replyLabel.text = L(L10n.MessageAction.editingMessage)
         } else if let target = ephemeralTarget {
@@ -7909,8 +7914,9 @@ extension SendMessageInputViewController: UIDocumentPickerDelegate {
 
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
         var didHitLimit = false
+        var videoFiles: [PickedFileInfo] = []
         for url in urls {
-            guard remainingAttachmentSlots > 0 else { didHitLimit = true; break }
+            guard remainingAttachmentSlots - videoFiles.count > 0 else { didHitLimit = true; break }
             let filename = url.lastPathComponent
             let ext = url.pathExtension.lowercased()
             let filetype = Self.mimeType(for: ext)
@@ -7919,11 +7925,41 @@ extension SendMessageInputViewController: UIDocumentPickerDelegate {
             let fileSize = (try? FileManager.default.attributesOfItem(atPath: stableURL.path)[.size] as? Int) ?? 0
 
             let fileInfo = PickedFileInfo(url: stableURL, filename: filename, filesize: fileSize, filetype: filetype)
-            pickedFiles.append(fileInfo)
-            attachmentPreviewView.addFile(fileInfo)
+            if filetype.hasPrefix("video/") {
+                videoFiles.append(fileInfo)
+            } else {
+                pickedFiles.append(fileInfo)
+                attachmentPreviewView.addFile(fileInfo)
+            }
         }
         if didHitLimit { notifyAttachmentLimitReached() }
         updatePreviewVisibility()
+        addPickedVideoFiles(videoFiles)
+    }
+
+    private func addPickedVideoFiles(_ files: [PickedFileInfo]) {
+        guard !files.isEmpty else { return }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let thumbnails = files.map { MediaPickerViewController.generateVideoThumbnail(from: $0.url) }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                var didHitLimit = false
+                for (file, thumbnail) in zip(files, thumbnails) {
+                    guard self.remainingAttachmentSlots > 0 else { didHitLimit = true; break }
+                    if let thumbnail {
+                        self.pickedFileURLs[self.pickedImages.count] = file.url
+                        self.pickedImages.append(thumbnail)
+                        self.attachmentPreviewView.addVideo(thumbnail: thumbnail)
+                    } else {
+                        self.pickedFiles.append(file)
+                        self.attachmentPreviewView.addFile(file)
+                    }
+                }
+                if didHitLimit { self.notifyAttachmentLimitReached() }
+                self.saveToCache()
+                self.updatePreviewVisibility()
+            }
+        }
     }
 
     static func copyPickedFileToStableLocation(from url: URL, ext: String) -> URL? {

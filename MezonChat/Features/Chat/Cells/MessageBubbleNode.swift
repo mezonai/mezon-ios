@@ -16,6 +16,11 @@ final class MessageBubbleNode: ASDisplayNode {
     private var callLogNode: MessageCallLogNode?
     private var topicNode: MessageTopicNode?
     private var textContentNode: MessageTextContentNode?
+
+    func updateMessageAccessibility() {
+        textContentNode?.updateAccessibility(messageID: display.id, sendingState: display.sendingState)
+    }
+
     private var mediaContentNode: MessageMediaContentNode?
     private var audioAttachmentNode: MessageAudioAttachmentNode?
     private var fileAttachmentNode: MessageFileAttachmentNode?

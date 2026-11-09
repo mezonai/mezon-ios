@@ -17,13 +17,16 @@ final class ChannelDetailContainerNode: ASDisplayNode, ASNetworkImageNodeDelegat
     private let onThreadsTapped: () -> Void
     private let onMuteTapped: () -> Void
     private let onGroupOptionsTapped: () -> Void
+    private let onCustomizeGroupTapped: () -> Void
 
     private let backButtonNode = ASButtonNode()
     private let moreButtonNode = ASButtonNode()
     private let headerTrailingSpacerNode = ASDisplayNode()
     private let titleNode = ASTextNode2()
     private let channelIconNode = ASImageNode()
+    private let groupAvatarContainerNode = ASControlNode()
     private let groupAvatarNode = ASNetworkImageNode()
+    private let groupAvatarPlaceholderNode = ASImageNode()
 
     private let actionButtonsNode: ChannelDetailActionButtonsNode
 
@@ -45,7 +48,8 @@ final class ChannelDetailContainerNode: ASDisplayNode, ASNetworkImageNodeDelegat
         initialTab: AssetTab? = nil,
         onClose: @escaping () -> Void, onSettingsTapped: @escaping () -> Void,
         onSearchTapped: @escaping () -> Void, onThreadsTapped: @escaping () -> Void,
-        onMuteTapped: @escaping () -> Void, onGroupOptionsTapped: @escaping () -> Void
+        onMuteTapped: @escaping () -> Void, onGroupOptionsTapped: @escaping () -> Void,
+        onCustomizeGroupTapped: @escaping () -> Void
     ) {
         self.context = context
         self.clanId = clanId
@@ -56,6 +60,7 @@ final class ChannelDetailContainerNode: ASDisplayNode, ASNetworkImageNodeDelegat
         self.onThreadsTapped = onThreadsTapped
         self.onMuteTapped = onMuteTapped
         self.onGroupOptionsTapped = onGroupOptionsTapped
+        self.onCustomizeGroupTapped = onCustomizeGroupTapped
 
         let myId = context.currentUser.flatMap { Int64($0.id) }
         let tabs = Self.visibleTabsList(channel: channel, currentUserId: myId)
@@ -95,6 +100,9 @@ final class ChannelDetailContainerNode: ASDisplayNode, ASNetworkImageNodeDelegat
         actionButtonsNode.onSearchTapped = { [weak self] in
             self?.onSearchTapped()
         }
+        actionButtonsNode.onCustomizeGroupTapped = { [weak self] in
+            self?.onCustomizeGroupTapped()
+        }
         actionButtonsNode.onThreadsTapped = { [weak self] in
             self?.onThreadsTapped()
         }
@@ -130,13 +138,8 @@ final class ChannelDetailContainerNode: ASDisplayNode, ASNetworkImageNodeDelegat
         let group = MezonConstants.ChannelType.group.rawValue
         let isDMOrGroup = channel.type == dm || channel.type == group
         let isSelfDM = channel.type == dm && channel.userIds.first == currentUserId
-        let isOneToOneDM =
-            channel.type == dm && !isSelfDM && channel.userIds.count <= 2
 
         if isSelfDM {
-            return [.media, .files, .pins]
-        }
-        if isOneToOneDM {
             return [.media, .files, .pins]
         }
         if !isDMOrGroup {
@@ -179,10 +182,28 @@ final class ChannelDetailContainerNode: ASDisplayNode, ASNetworkImageNodeDelegat
         titleNode.truncationMode = .byTruncatingTail
         titleNode.style.flexShrink = 1
 
-        groupAvatarNode.cornerRadius = 14.sf
-        groupAvatarNode.clipsToBounds = true
         groupAvatarNode.contentMode = .scaleAspectFill
         groupAvatarNode.delegate = self
+
+        groupAvatarPlaceholderNode.image = UIImage(systemName: "person.2.fill")?.withRenderingMode(.alwaysTemplate)
+        groupAvatarPlaceholderNode.tintColor = .white
+        groupAvatarPlaceholderNode.contentMode = .scaleAspectFit
+        groupAvatarPlaceholderNode.style.preferredSize = CGSize(width: 22.sf, height: 22.sf)
+
+        groupAvatarContainerNode.style.preferredSize = CGSize(width: 50.sf, height: 50.sf)
+        groupAvatarContainerNode.cornerRadius = 25.sf
+        groupAvatarContainerNode.clipsToBounds = true
+        groupAvatarContainerNode.automaticallyManagesSubnodes = true
+        let avatarImageNode = groupAvatarNode
+        let avatarPlaceholderNode = groupAvatarPlaceholderNode
+        groupAvatarContainerNode.layoutSpecBlock = { _, _ in
+            ASOverlayLayoutSpec(
+                child: avatarImageNode,
+                overlay: ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: avatarPlaceholderNode)
+            )
+        }
+        groupAvatarContainerNode.addTarget(
+            self, action: #selector(groupAvatarPressed), forControlEvents: .touchUpInside)
 
         headerTrailingSpacerNode.style.preferredSize = CGSize(width: 52.sf, height: 44.sf)
         headerTrailingSpacerNode.isUserInteractionEnabled = false
@@ -206,9 +227,13 @@ final class ChannelDetailContainerNode: ASDisplayNode, ASNetworkImageNodeDelegat
         if let avatarURL = resolvedGroupDMAvatarURL() {
             groupAvatarNode.url = avatarURL
             groupAvatarNode.isHidden = false
+            groupAvatarPlaceholderNode.isHidden = true
+            groupAvatarContainerNode.backgroundColor = UIColor.theme.secondary
         } else {
             groupAvatarNode.url = nil
             groupAvatarNode.isHidden = true
+            groupAvatarPlaceholderNode.isHidden = false
+            groupAvatarContainerNode.backgroundColor = .groupDMDefaultAvatar
         }
 
         titleNode.attributedText = NSAttributedString(
@@ -311,6 +336,7 @@ final class ChannelDetailContainerNode: ASDisplayNode, ASNetworkImageNodeDelegat
     @objc private func backPressed() { onClose() }
     @objc private func settingsPressed() { onSettingsTapped() }
     @objc private func groupOptionsPressed() { onGroupOptionsTapped() }
+    @objc private func groupAvatarPressed() { onCustomizeGroupTapped() }
 
     private var isGroupDirectMessage: Bool {
         clanId == 0 && channel.type == MezonConstants.ChannelType.group.rawValue
@@ -333,10 +359,8 @@ final class ChannelDetailContainerNode: ASDisplayNode, ASNetworkImageNodeDelegat
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         channelIconNode.style.preferredSize = CGSize(width: 16.sf, height: 16.sf)
-        let showsGroupAvatar = resolvedGroupDMAvatarURL() != nil
-        groupAvatarNode.style.preferredSize = CGSize(width: 28.sf, height: 28.sf)
-        let headerContentChildren: [ASLayoutElement] = showsGroupAvatar
-            ? [groupAvatarNode, titleNode]
+        let headerContentChildren: [ASLayoutElement] = channelIconNode.isHidden
+            ? [titleNode]
             : [channelIconNode, titleNode]
         let headerContent = ASStackLayoutSpec(
             direction: .horizontal,
@@ -346,7 +370,7 @@ final class ChannelDetailContainerNode: ASDisplayNode, ASNetworkImageNodeDelegat
             children: headerContentChildren
         )
         let headerHorizontalControlsWidth = 44.sf + 52.sf
-        let headerTitlePadding: CGFloat = 20.sw + (showsGroupAvatar ? 36.sf : 0)
+        let headerTitlePadding: CGFloat = 20.sw
         let maxHeaderContentWidth = max(
             0,
             constrainedSize.max.width - 32.sw - headerHorizontalControlsWidth - headerTitlePadding
@@ -405,6 +429,14 @@ final class ChannelDetailContainerNode: ASDisplayNode, ASNetworkImageNodeDelegat
         tabsHeader.style.alignSelf = .stretch
 
         var headerChildren: [ASLayoutElement] = [topBar]
+        if isGroupDirectMessage {
+            let avatarRow = ASInsetLayoutSpec(
+                insets: UIEdgeInsets(top: 10.sf, left: 0, bottom: 0, right: 0),
+                child: groupAvatarContainerNode
+            )
+            avatarRow.style.alignSelf = .center
+            headerChildren.append(avatarRow)
+        }
         headerChildren.append(actionButtonsNode)
         headerChildren.append(tabsHeader)
 

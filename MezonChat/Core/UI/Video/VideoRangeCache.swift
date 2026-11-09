@@ -329,6 +329,8 @@ final class VideoRangePrefetcher: VideoRangeTaskHandler {
     private var activeJobCount = 0
     private var tasks: [String: URLSessionDataTask] = [:]
     private var transfers: [Int: Transfer] = [:]
+    private var pauseCount = 0
+    private var suspendedTaskIDs = Set<Int>()
 
     private init() {}
 
@@ -361,8 +363,29 @@ final class VideoRangePrefetcher: VideoRangeTaskHandler {
         }
     }
 
+    func pause() {
+        queue.async {
+            self.pauseCount += 1
+            guard self.pauseCount == 1 else { return }
+            for task in self.tasks.values {
+                self.suspendedTaskIDs.insert(task.taskIdentifier)
+                task.cancel()
+            }
+        }
+    }
+
+    func resume() {
+        queue.async {
+            guard self.pauseCount > 0 else { return }
+            self.pauseCount -= 1
+            if self.pauseCount == 0 {
+                self.startWaitingJobs()
+            }
+        }
+    }
+
     private func startWaitingJobs() {
-        while activeJobCount < Self.maxActiveJobs, let job = waitingJobs.popLast() {
+        while pauseCount == 0, activeJobCount < Self.maxActiveJobs, let job = waitingJobs.popLast() {
             activeJobCount += 1
             states[job.key] = .active
             begin(job)
@@ -386,6 +409,10 @@ final class VideoRangePrefetcher: VideoRangeTaskHandler {
             finish(job, retryable: false)
             return
         }
+        guard pauseCount == 0 else {
+            requeue(job)
+            return
+        }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
         request.setValue("bytes=\(start)-\(end)", forHTTPHeaderField: "Range")
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
@@ -406,6 +433,14 @@ final class VideoRangePrefetcher: VideoRangeTaskHandler {
         } else {
             states[job.key] = .finished
         }
+        startWaitingJobs()
+    }
+
+    private func requeue(_ job: Job) {
+        tasks[job.key] = nil
+        activeJobCount -= 1
+        states[job.key] = .waiting
+        waitingJobs.append(job)
         startWaitingJobs()
     }
 
@@ -446,6 +481,10 @@ final class VideoRangePrefetcher: VideoRangeTaskHandler {
     func videoRangeTask(_ task: URLSessionTask, didCompleteWithError error: Error?) {
         guard let transfer = transfers.removeValue(forKey: task.taskIdentifier) else { return }
         let job = transfer.job
+        if suspendedTaskIDs.remove(task.taskIdentifier) != nil, error != nil, case .active? = states[job.key] {
+            requeue(job)
+            return
+        }
         guard error == nil, let contentLength = transfer.contentLength, !transfer.data.isEmpty else {
             let isCancelled = (error as? URLError)?.code == .cancelled
             finish(job, retryable: error != nil && !isCancelled)
