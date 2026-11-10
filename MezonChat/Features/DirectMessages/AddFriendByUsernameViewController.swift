@@ -169,11 +169,7 @@ final class AddFriendByUsernameViewController: ViewController {
                 await self.context.engine.friendsData.refreshFromNetwork(token: token, force: true)
                 Toast.success(L(L10n.FriendRequest.toastSendSuccess))
             } catch {
-                if case let MezonError.httpError(_, message) = error, !message.isEmpty {
-                    Toast.error(message, title: "")
-                } else {
-                    Toast.error(L(L10n.FriendRequest.addByGenericError), title: "")
-                }
+                Toast.error(error.userMessage(fallback: L(L10n.FriendRequest.addByGenericError)), title: "")
             }
         }
     }

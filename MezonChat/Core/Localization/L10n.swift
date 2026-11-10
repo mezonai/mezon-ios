@@ -161,6 +161,13 @@ enum L10n {
         static let linkEmail      = "common.linkEmail"
         static let linkPhoneNumber = "common.linkPhoneNumber"
         static let detail         = "common.detail"
+        static let actionFailed   = "common.actionFailed"
+        static let networkError   = "common.networkError"
+        static let recordFailed   = "common.recordFailed"
+        static let notInAnyClan   = "common.notInAnyClan"
+        static let roleRemoved    = "common.roleRemoved"
+        static let attachmentLimit = "common.attachmentLimit"
+        static let loginRequired  = "common.loginRequired"
     }
 
     enum ImageEditor {
@@ -173,9 +180,12 @@ enum L10n {
     }
 
     enum MediaPicker {
+        static let uploadFile = "mediaPicker.uploadFile"
         static let edit      = "mediaPicker.edit"
         static let doneCount = "mediaPicker.doneCount"
         static let sizeLimit = "mediaPicker.sizeLimit"
+        static let selectLimitOne = "mediaPicker.selectLimitOne"
+        static let selectLimit = "mediaPicker.selectLimit"
     }
 
     enum AccountSetting {
@@ -856,6 +866,7 @@ enum L10n {
         static let launchApp = "channelApp.launchApp"
         static let help = "channelApp.help"
         static let unavailable = "channelApp.unavailable"
+        static let installed = "channelApp.installed"
     }
 
     enum ClanInviteSheet {
@@ -1189,6 +1200,8 @@ enum L10n {
         static let userIsTyping        = "channelMessages.userIsTyping"
         static let usersAreTyping      = "channelMessages.usersAreTyping"
         static let severalPeopleTyping = "channelMessages.severalPeopleTyping"
+        static let jumpToPresent = "channelMessages.jumpToPresent"
+        static let unreadIncomingCount = "channelMessages.unreadIncomingCount"
         static let voiceMessageA11y      = "channelMessages.voiceMessageA11y"
         static let yourLocation          = "channelMessages.yourLocation"
         static let locationOf            = "channelMessages.locationOf"
@@ -1592,6 +1605,13 @@ enum L10n {
         static let externalLinkInvalid = "voiceChannel.externalLinkInvalid"
         static let externalLinkPrompt = "voiceChannel.externalLinkPrompt"
         static let externalGuest = "voiceChannel.externalGuest"
+        static let mutedByModerator = "voiceChannel.mutedByModerator"
+        static let cameraLimitReached = "voiceChannel.cameraLimitReached"
+        static let cameraUpdateFailed = "voiceChannel.cameraUpdateFailed"
+        static let screenShareLimitReached = "voiceChannel.screenShareLimitReached"
+        static let screenShareNotAllowed = "voiceChannel.screenShareNotAllowed"
+        static let screenShareUpdateFailed = "voiceChannel.screenShareUpdateFailed"
+        static let kickedFromChannel = "voiceChannel.kickedFromChannel"
     }
 }
 
@@ -1666,6 +1686,8 @@ extension L10n {
         "streamingRoom.showControls": "Show stream controls",
         "streamingRoom.resetZoom": "Reset zoom",
         "streamingRoom.video": "Stream video",
+        "streamingRoom.audioRouteFailed": "Couldn't switch the audio output. Please try again.",
+        "streamingRoom.noDisplay": "This stream isn't available right now.",
         "tab.clans":            "Clans",
         "tab.messages":         "Messages",
         "tab.notifications":    "Notifications",
@@ -1701,6 +1723,13 @@ extension L10n {
         "common.linkEmail":     "Add email",
         "common.linkPhoneNumber": "Add phone number",
         "common.detail":        "Detail",
+        "common.actionFailed":  "Couldn't complete this action. Please try again.",
+        "common.networkError":  "Connection problem. Please check your network and try again.",
+        "common.recordFailed":  "Couldn't record audio. Please try again.",
+        "common.notInAnyClan":  "You are not a member of any clan.",
+        "common.roleRemoved":   "Role removed.",
+        "common.attachmentLimit": "You can attach up to %d items per message.",
+        "common.loginRequired": "Please log in to Mezon first.",
 
         "imageEditor.send":   "Send",
         "imageEditor.draw":   "Draw",
@@ -1709,9 +1738,12 @@ extension L10n {
         "imageEditor.rotate": "Rotate",
         "imageEditor.done":   "Done",
 
+        "mediaPicker.uploadFile": "Upload a file",
         "mediaPicker.edit":      "Edit",
         "mediaPicker.doneCount": "Done (%d)",
         "mediaPicker.sizeLimit": "You can select up to %dGB in total.",
+        "mediaPicker.selectLimitOne": "You can select only 1 item.",
+        "mediaPicker.selectLimit": "You can select up to %d items.",
 
         "updateGate.outOfDateVersion": "New Version Ready",
         "updateGate.updateExperience": "A quick update is needed to continue using our latest family features.",
@@ -2521,6 +2553,8 @@ extension L10n {
         "channelPermission.warningChangeSettingModal.cancel":  "Discard",
 
         "channelMessages.emptyMessages": "No messages yet",
+        "channelMessages.jumpToPresent": "Go to latest message",
+        "channelMessages.unreadIncomingCount": "%@ unread",
         "channelMessages.todayAt": "Today at %@",
         "channelMessages.yesterdayAt": "Yesterday at %@",
         "channelMessages.writeMessage": "Write message...",
@@ -2545,6 +2579,7 @@ extension L10n {
         "channelApp.launchApp": "Launch App",
         "channelApp.help": "Help",
         "channelApp.unavailable": "App unavailable",
+        "channelApp.installed": "App installed successfully.",
 
         "poll.selectOne": "Select one option",
         "poll.selectOneOrMore": "Select one or more options",
@@ -3128,6 +3163,13 @@ extension L10n {
         "mediaPanel.emptyGifs": "GIFs will appear here",
 
         "voiceChannel.disconnectedAlone": "You were disconnected from the voice channel because you were alone in it for too long.",
+        "voiceChannel.mutedByModerator": "You have been muted by a channel moderator.",
+        "voiceChannel.cameraLimitReached": "This voice channel has reached its camera limit. Try again when someone turns their camera off.",
+        "voiceChannel.cameraUpdateFailed": "Couldn't turn your camera on or off. Please try again.",
+        "voiceChannel.screenShareLimitReached": "This voice channel has reached its screen share limit. Try again when someone stops sharing.",
+        "voiceChannel.screenShareNotAllowed": "Only speakers can share their screen in this voice channel.",
+        "voiceChannel.screenShareUpdateFailed": "Couldn't start or stop screen sharing. Please try again.",
+        "voiceChannel.kickedFromChannel": "You have been removed from the voice channel.",
         "voiceChannel.disconnectedOtherDevice": "You joined the voice channel on another device, so this session was disconnected.",
         "voiceChannel.disconnectedRejoin": "You were disconnected from the voice channel.",
         "voiceChannel.rejoinTitle": "Unable to connect to voice",
@@ -3162,6 +3204,8 @@ extension L10n {
         "streamingRoom.showControls": "Hiện điều khiển stream",
         "streamingRoom.resetZoom": "Đặt lại mức thu phóng",
         "streamingRoom.video": "Video của kênh stream",
+        "streamingRoom.audioRouteFailed": "Không thể chuyển thiết bị phát âm thanh. Vui lòng thử lại.",
+        "streamingRoom.noDisplay": "Buổi stream hiện không khả dụng.",
         "tab.clans":            "Kênh",
         "tab.messages":         "Tin nhắn",
         "tab.notifications":    "Thông báo",
@@ -3197,6 +3241,13 @@ extension L10n {
         "common.linkEmail":     "Thêm email",
         "common.linkPhoneNumber": "Thêm số điện thoại",
         "common.detail":        "Chi tiết",
+        "common.actionFailed":  "Không thể thực hiện thao tác. Vui lòng thử lại.",
+        "common.networkError":  "Kết nối mạng không ổn định. Vui lòng kiểm tra mạng và thử lại.",
+        "common.recordFailed":  "Không thể ghi âm. Vui lòng thử lại.",
+        "common.notInAnyClan":  "Bạn chưa tham gia clan nào.",
+        "common.roleRemoved":   "Đã gỡ vai trò.",
+        "common.attachmentLimit": "Mỗi tin nhắn chỉ đính kèm được tối đa %d mục.",
+        "common.loginRequired": "Vui lòng đăng nhập Mezon trước.",
 
         "imageEditor.send":   "Gửi",
         "imageEditor.draw":   "Vẽ",
@@ -3205,9 +3256,12 @@ extension L10n {
         "imageEditor.rotate": "Xoay",
         "imageEditor.done":   "Xong",
 
+        "mediaPicker.uploadFile": "Tải tệp lên",
         "mediaPicker.edit":      "Chỉnh sửa",
         "mediaPicker.doneCount": "Xong (%d)",
         "mediaPicker.sizeLimit": "Bạn chỉ có thể chọn tối đa %dGB.",
+        "mediaPicker.selectLimitOne": "Bạn chỉ có thể chọn 1 mục.",
+        "mediaPicker.selectLimit": "Bạn chỉ có thể chọn tối đa %d mục.",
 
         "updateGate.outOfDateVersion": "Phiên Bản Mới Đã Sẵn Sàng",
         "updateGate.updateExperience": "Cần cập nhật nhanh để tiếp tục sử dụng các tính năng gia đình mới nhất của chúng tôi.",
@@ -4018,6 +4072,8 @@ extension L10n {
         "channelPermission.warningChangeSettingModal.cancel":  "Bỏ qua",
 
         "channelMessages.emptyMessages": "Chưa có tin nhắn",
+        "channelMessages.jumpToPresent": "Đến tin nhắn mới nhất",
+        "channelMessages.unreadIncomingCount": "%@ tin chưa đọc",
         "channelMessages.todayAt": "Hôm nay lúc %@",
         "channelMessages.yesterdayAt": "Hôm qua lúc %@",
         "channelMessages.writeMessage": "Nhập tin nhắn...",
@@ -4042,6 +4098,7 @@ extension L10n {
         "channelApp.launchApp": "Mở app",
         "channelApp.help": "Trợ giúp",
         "channelApp.unavailable": "Không mở được app.",
+        "channelApp.installed": "Đã cài đặt app.",
 
         "poll.selectOne": "Chọn một tùy chọn",
         "poll.selectOneOrMore": "Chọn một hoặc nhiều tùy chọn",
@@ -4626,6 +4683,13 @@ extension L10n {
         "mediaPanel.emptyGifs": "GIF sẽ xuất hiện ở đây",
 
         "voiceChannel.disconnectedAlone": "Bạn đã bị ngắt khỏi kênh thoại vì ở một mình quá lâu.",
+        "voiceChannel.mutedByModerator": "Bạn đã bị quản trị viên tắt micro.",
+        "voiceChannel.cameraLimitReached": "Kênh thoại đã đủ số người bật camera. Hãy thử lại khi có người tắt camera.",
+        "voiceChannel.cameraUpdateFailed": "Không thể bật hoặc tắt camera. Vui lòng thử lại.",
+        "voiceChannel.screenShareLimitReached": "Kênh thoại đã đủ số người chia sẻ màn hình. Hãy thử lại khi có người dừng chia sẻ.",
+        "voiceChannel.screenShareNotAllowed": "Chỉ người nói mới được chia sẻ màn hình trong kênh thoại này.",
+        "voiceChannel.screenShareUpdateFailed": "Không thể bắt đầu hoặc dừng chia sẻ màn hình. Vui lòng thử lại.",
+        "voiceChannel.kickedFromChannel": "Bạn đã bị mời ra khỏi kênh thoại.",
         "voiceChannel.disconnectedOtherDevice": "Bạn đã tham gia kênh thoại trên thiết bị khác nên phiên này bị ngắt kết nối.",
         "voiceChannel.disconnectedRejoin": "Bạn đã bị ngắt khỏi kênh thoại.",
         "voiceChannel.rejoinTitle": "Không thể kết nối thoại",

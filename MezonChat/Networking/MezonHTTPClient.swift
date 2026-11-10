@@ -3704,7 +3704,7 @@ struct APIError: Decodable, LocalizedError {
     }
 }
 
-enum DirectMessageRestrictionError: LocalizedError {
+enum DirectMessageRestrictionError: UserFacingError {
     case onlyFriends
 
     var errorDescription: String? {
@@ -3970,5 +3970,51 @@ enum MezonError: LocalizedError {
         case .httpError(let c, let msg):    return "HTTP \(c): \(msg)"
         case .socketError(let msg):         return "Socket: \(msg)"
         }
+    }
+
+    var serverMessage: String? {
+        guard case .httpError(let statusCode, let message) = self,
+              (400..<500).contains(statusCode),
+              !message.isEmpty,
+              !message.hasPrefix("MinIO "),
+              message != HTTPURLResponse.localizedString(forStatusCode: statusCode) else { return nil }
+        return message
+    }
+}
+
+protocol UserFacingError: LocalizedError {}
+
+struct UserFacingMessageError: UserFacingError {
+    let message: String
+
+    var errorDescription: String? { message }
+}
+
+extension Error {
+    var userMessage: String {
+        userMessage(fallback: L(L10n.Common.actionFailed))
+    }
+
+    func userMessage(fallback: String) -> String {
+        if let message = (self as? MezonError)?.serverMessage {
+            return message
+        }
+        if let message = (self as? APIError)?.message, !message.isEmpty {
+            return message
+        }
+        if let message = (self as? UserFacingError)?.errorDescription, !message.isEmpty {
+            return message
+        }
+        if let urlError = self as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet, .networkConnectionLost, .timedOut, .cannotConnectToHost,
+                 .cannotFindHost, .dnsLookupFailed, .dataNotAllowed, .internationalRoamingOff,
+                 .secureConnectionFailed:
+                return L(L10n.Common.networkError)
+            default:
+                break
+            }
+        }
+        return fallback
     }
 }

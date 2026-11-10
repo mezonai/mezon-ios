@@ -306,16 +306,8 @@ final class AuditLogViewController: BaseViewController {
                 let response = try await MezonHTTPClient.shared.listAuditLog(request: req, token: token)
                 self.logs = response.logs
                 self.reloadUI()
-            } catch let error as MezonError {
-                if case .httpError(let code, let msg) = error {
-                    Toast.error("ListAuditLog: HTTP \(code): \(msg)")
-                } else {
-                    Toast.error("ListAuditLog: \(error.localizedDescription)")
-                }
-                self.logs = []
-                self.reloadUI()
             } catch {
-                Toast.error("ListAuditLog: \(error.localizedDescription)")
+                Toast.error(error.userMessage)
                 self.logs = []
                 self.reloadUI()
             }

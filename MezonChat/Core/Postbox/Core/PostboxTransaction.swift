@@ -90,6 +90,10 @@ final class PostboxTransaction {
         messageTable.getMessages(channelId: channelId, limit: limit)
     }
 
+    func messageHistoryView(channelId: String) -> MessageHistoryView {
+        messageTable.messageHistoryView(channelId: channelId)
+    }
+
     func resolvedPendingMessageIds(_ pendingIds: Set<String>) -> [String: UInt64] {
         messageTable.resolvedPendingMessageIds(pendingIds)
     }
@@ -129,8 +133,8 @@ final class PostboxTransaction {
         messageTable.beginMessageHistoryPage(channelId: channelId)
     }
 
-    func applyMessageHistoryPage(_ messages: [MessageRecord], page: MessageHistoryPage) {
-        if messageTable.applyMessageHistoryPage(messages, page: page) {
+    func applyMessageHistoryPage(_ messages: [MessageRecord], page: MessageHistoryPage, newerThan cursor: Int64? = nil) {
+        if messageTable.applyMessageHistoryPage(messages, page: page, newerThan: cursor) {
             updatedMessageChannelIds.insert(page.channelId)
         }
     }

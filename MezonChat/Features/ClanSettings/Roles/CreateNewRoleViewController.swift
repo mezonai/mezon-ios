@@ -321,7 +321,7 @@ final class CreateNewRoleViewController: BaseViewController {
                     .filter { $0 !== self }
                 self.navigationController?.setViewControllers(viewControllers + [next], animated: true)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
                 self.isCreating = false
                 self.refreshCreateButton()
             }

@@ -134,7 +134,7 @@ final class ChannelSettingsViewController: BaseViewController {
                 self.navigateBackAfterDelete()
             } catch {
                 settingsNode.setDeleteButtonEnabled(true)
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -268,7 +268,7 @@ final class ChannelSettingsViewController: BaseViewController {
                 }
             } catch {
                 await MainActor.run {
-                    Toast.error(error.localizedDescription)
+                    Toast.error(error.userMessage)
                 }
             }
         }

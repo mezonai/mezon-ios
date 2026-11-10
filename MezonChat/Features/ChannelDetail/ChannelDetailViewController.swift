@@ -990,7 +990,7 @@ private final class GroupDMCustomizeViewController: UIViewController, UITextFiel
     private func handlePickedImage(_ selection: PublicImageSelection) {
         guard let data = selection.preservedData ?? selection.image.jpegData(compressionQuality: 0.85) else { return }
         if data.count > Self.maxAvatarBytes {
-            Toast.error("File size exceeds 10MB limit")
+            Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge10MB))
             return
         }
         selectedImage = selection.image
@@ -1047,7 +1047,7 @@ enum ChannelMuteHelper {
                     userInfo: ["channelId": channelId, "record": record]
                 )
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }

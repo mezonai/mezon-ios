@@ -129,7 +129,7 @@ final class SettingsViewController: BaseViewController {
                 SettingsRow(icon: "Setting/ChatIcon", title: L(L10n.Settings.chat), action: .navigate),
                 SettingsRow(icon: "Setting/FriendRequestIcon", title: L(L10n.Settings.friendRequests), action: .navigate),
                 SettingsRow(icon: "Profile/ScanQR", title: L(L10n.Settings.qrScan), action: .navigate),
-                SettingsRow(icon: "Setting/DeviceIcon", title: L(L10n.Settings.devices), action: .navigate),
+                // SettingsRow(icon: "Setting/DeviceIcon", title: L(L10n.Settings.devices), action: .navigate),
             ]),
             (L(L10n.Settings.appSettings), [
                 SettingsRow(icon: "Setting/AppIcon", title: L(L10n.Settings.appVersion), action: .detail(appVersion)),
@@ -523,9 +523,9 @@ final class SettingsViewController: BaseViewController {
         case L(L10n.Settings.qrScan):
             let vc = QRScannerViewController(context: context)
             navigationController?.pushViewController(vc, animated: true)
-        case L(L10n.Settings.devices):
-            let line = "\(L(L10n.Settings.devices)) — \(L(L10n.Common.comingSoon))"
-            Toast.comingSoonLine(line)
+        // case L(L10n.Settings.devices):
+        //     let line = "\(L(L10n.Settings.devices)) — \(L(L10n.Common.comingSoon))"
+        //     Toast.comingSoonLine(line)
         default:
             break
         }
@@ -753,7 +753,7 @@ final class ChatSettingsViewController: BaseViewController {
                 self.onlyFriendsDmSwitch?.setOn(setting.onlyFriendsDm, animated: false)
                 self.onlyFriendsDmSwitch?.isEnabled = true
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -784,7 +784,7 @@ final class ChatSettingsViewController: BaseViewController {
             } catch {
                 guard generation == self.dmSettingGeneration else { return }
                 self.revertOnlyFriendsDm(to: previous, generation: generation)
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }

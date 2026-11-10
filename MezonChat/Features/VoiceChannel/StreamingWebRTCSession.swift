@@ -211,9 +211,7 @@ final class StreamingWebRTCSession: NSObject {
         } catch {
             preferredSpeakerOutput = previous
             logError("audio-route-failed", error)
-            Toast.error(NSLocalizedString(
-                "streamingRoom.audioRouteFailed", tableName: nil, bundle: .main,
-                value: "Unable to switch audio output", comment: ""))
+            Toast.error(L("streamingRoom.audioRouteFailed"))
         }
         onStreamingStateChanged?()
     }
@@ -742,8 +740,7 @@ final class StreamingWebRTCSession: NSObject {
     }
 
     private func showPlaybackError() {
-        Toast.error(NSLocalizedString(
-            "streamingRoom.noDisplay", tableName: nil, bundle: .main, value: "Stream is not available", comment: ""))
+        Toast.error(L("streamingRoom.noDisplay"))
     }
 
     private func deleteResource(_ url: URL) {

@@ -209,11 +209,9 @@ final class Postbox {
             var viewIndex: Bag<(MutableMessageHistoryView, ValuePipe<MessageHistoryView>)>.Index?
             var innerDisposable: Disposable?
             self.queue.sync {
-                let initial = self.messageTable.getMessages(channelId: channelId)
-                subscriber.putNext(MessageHistoryView(channelId: channelId, messages: initial))
-                let (index, signal) = self.viewTracker.addMessageHistoryView(
-                    channelId: channelId, initial: initial
-                )
+                let initial = self.messageTable.messageHistoryView(channelId: channelId)
+                subscriber.putNext(initial)
+                let (index, signal) = self.viewTracker.addMessageHistoryView(initial: initial)
                 viewIndex = index
                 innerDisposable = signal.start(next: { subscriber.putNext($0) })
             }
