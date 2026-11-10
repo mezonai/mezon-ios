@@ -148,7 +148,9 @@ final class MezonRootController: NavigationController {
     }
 
     private func bootstrapGlobalFriendState() {
-        context.engine.friendsData.start(tokenProvider: { [weak self] in
+        context.engine.friendsData.start(currentUserIdProvider: { [weak self] in
+            self?.context.currentUserNumericID
+        }, tokenProvider: { [weak self] in
             guard let self else { return nil }
             return await self.context.getToken()
         })

@@ -2,6 +2,31 @@ import Foundation
 import SwiftProtobuf
 
 extension AccountContext {
+    var currentUserNumericID: Int64? {
+        Int64(currentUser?.id ?? session?.userId ?? "")
+    }
+
+    func setUserBlocked(_ user: Mezon_Api_User, blocked: Bool) async throws {
+        let epoch = sessionEpoch
+        guard let currentUserId = currentUserNumericID, currentUserId != 0,
+              user.id != 0, user.id != currentUserId,
+              let token = await getToken() else {
+            throw UserBlockError.unavailable
+        }
+        guard isStillCurrentSession(epoch: epoch) else { throw CancellationError() }
+
+        if blocked {
+            try await account.network.blockFriends(ids: [user.id], token: token)
+        } else {
+            try await account.network.unblockFriends(ids: [user.id], token: token)
+        }
+        guard isStillCurrentSession(epoch: epoch) else { throw CancellationError() }
+
+        engine.friendsData.updateLocalBlock(user: user, blocked: blocked, currentUserId: currentUserId)
+        await engine.friendsData.refreshFromNetwork(token: token, force: true)
+        guard isStillCurrentSession(epoch: epoch) else { throw CancellationError() }
+    }
+
     func sendMessageReaction(
         clanId: Int64,
         channelId: Int64,
@@ -61,6 +86,10 @@ extension AccountContext {
             .first { !$0.isEmpty } ?? ""
         return "\(name);\(avatar)"
     }
+}
+
+private enum UserBlockError: Error {
+    case unavailable
 }
 
 @MainActor

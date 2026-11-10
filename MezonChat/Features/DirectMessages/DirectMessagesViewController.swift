@@ -60,6 +60,7 @@ final class DirectMessagesViewController: ViewController {
     private(set) var incomingFriendRequestCount: Int = 0
     private var userActivities: [Mezon_Api_UserActivity] = []
     private var didRefreshForCurrentAppearance = false
+    private var isChangingUserBlock = false
 
     private var directMessagesNode: DirectMessagesContainerNode { displayNode as! DirectMessagesContainerNode }
 
@@ -501,7 +502,7 @@ final class DirectMessagesViewController: ViewController {
         channel: Mezon_Api_ChannelDescription,
         groupMemberUserIds: [Int64]
     ) -> DmMenuContext {
-        let currentUserId = Int64(context.currentUser?.id ?? "") ?? 0
+        let currentUserId = context.currentUserNumericID ?? 0
         let displayName = Self.dmDisplayName(for: channel)
         let userName = channel.usernames.first(where: { !$0.isEmpty }) ?? ""
         let avatarURL = currentState.resolvedAvatarURLByChannelId[channel.channelID] ?? ""
@@ -573,9 +574,9 @@ final class DirectMessagesViewController: ViewController {
         case .removeFriend:
             handleRemoveFriend(channel: channel, menuContext: menuContext)
         case .blockUser:
-            handleBlockUser(channel: channel, menuContext: menuContext)
+            handleUserBlock(menuContext: menuContext, blocked: true)
         case .unblockUser:
-            handleUnblockUser(channel: channel, menuContext: menuContext)
+            handleUserBlock(menuContext: menuContext, blocked: false)
         case .markAsRead:
             handleMarkDmAsRead(channel)
         case .pinConversation:
@@ -707,49 +708,27 @@ final class DirectMessagesViewController: ViewController {
         }
     }
 
-    private func handleBlockUser(channel: Mezon_Api_ChannelDescription, menuContext: DmMenuContext) {
-        guard let peerId = menuContext.peerUserId else { return }
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard let token = await self.context.getToken() else { return }
-            let username = channel.usernames.first ?? ""
-            do {
-                if peerId != 0 {
-                    try await self.context.account.network.blockFriends(ids: [peerId], token: token)
-                } else if !username.isEmpty {
-                    try await self.context.account.network.blockFriends(usernames: [username], token: token)
-                } else {
-                    return
-                }
-                let currentUserId = Int64(self.context.currentUser?.id ?? "") ?? 0
-                self.context.engine.friendsData.applyLocalBlockState(userId: peerId, blocked: true, blockerUserId: currentUserId)
-                await self.context.engine.friendsData.refreshFromNetwork(token: token, force: true)
-                Toast.success(L(L10n.DmMenu.blockUserSuccess))
-            } catch {
-                Toast.error(L(L10n.DmMenu.blockUserError))
+    private func handleUserBlock(menuContext: DmMenuContext, blocked: Bool) {
+        guard !isChangingUserBlock, let peerId = menuContext.blockTargetUserId else { return }
+        var user = Mezon_Api_User()
+        user.id = peerId
+        user.username = menuContext.userName
+        user.displayName = menuContext.displayName
+        user.avatarURL = menuContext.avatarURL
+        isChangingUserBlock = true
+        let loadingOverlay = showBlockingSpinner(accessibilityIdentifier: AccessibilityID.DirectMessage.blockLoading)
+        Task { @MainActor [weak self, context, user] in
+            defer {
+                loadingOverlay.removeFromSuperview()
+                self?.isChangingUserBlock = false
             }
-        }
-    }
-
-    private func handleUnblockUser(channel: Mezon_Api_ChannelDescription, menuContext: DmMenuContext) {
-        guard let peerId = menuContext.peerUserId else { return }
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard let token = await self.context.getToken() else { return }
-            let username = channel.usernames.first ?? ""
             do {
-                if peerId != 0 {
-                    try await self.context.account.network.unblockFriends(ids: [peerId], token: token)
-                } else if !username.isEmpty {
-                    try await self.context.account.network.unblockFriends(usernames: [username], token: token)
-                } else {
-                    return
-                }
-                self.context.engine.friendsData.applyLocalBlockState(userId: peerId, blocked: false)
-                await self.context.engine.friendsData.refreshFromNetwork(token: token, force: true)
-                Toast.success(L(L10n.DmMenu.unblockUserSuccess))
+                try await context.setUserBlocked(user, blocked: blocked)
+                Toast.success(L(blocked ? L10n.DmMenu.blockUserSuccess : L10n.DmMenu.unblockUserSuccess))
+            } catch is CancellationError {
+                return
             } catch {
-                Toast.error(L(L10n.DmMenu.unblockUserError))
+                Toast.error(L(blocked ? L10n.DmMenu.blockUserError : L10n.DmMenu.unblockUserError))
             }
         }
     }
