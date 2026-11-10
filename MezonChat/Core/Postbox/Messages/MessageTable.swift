@@ -77,6 +77,7 @@ final class MessageTable: Table {
     private var cache: [String: [MessageRecord]] = [:]
     private var historyRefreshIds: [String: UUID] = [:]
     private var historyWindowIds: [String: UUID] = [:]
+    private var historicalNewestMessageIds: [String: Int64] = [:]
     private var pendingServerTailIds: [String: UInt64] = [:]
     private var deletedMessageIds: Set<String> = []
     private var pendingWrites:  Set<String> = []
@@ -566,8 +567,22 @@ final class MessageTable: Table {
     func prepareMessageHistoryForChannelEntry(channelId: String) -> [MessageRecord] {
         historyRefreshIds.removeValue(forKey: channelId)
         historyWindowIds[channelId] = UUID()
+        historicalNewestMessageIds.removeValue(forKey: channelId)
         cache.removeValue(forKey: channelId)
         return getMessages(channelId: channelId)
+    }
+
+    func messageHistoryView(channelId: String) -> MessageHistoryView {
+        let newestHistoricalMessageId = historicalNewestMessageIds[channelId]
+        let messages = getMessages(channelId: channelId).filter { record in
+            guard let newestHistoricalMessageId, let id = Int64(record.id) else { return true }
+            return id <= newestHistoricalMessageId
+        }
+        return MessageHistoryView(
+            channelId: channelId,
+            messages: messages,
+            newestHistoricalMessageId: newestHistoricalMessageId
+        )
     }
 
     func cancelMessageHistoryRefresh(_ refresh: MessageHistoryRefresh) {
@@ -584,16 +599,31 @@ final class MessageTable: Table {
         let currentById = Dictionary(current.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
         var fresh = mergeFetchedMessages(messages, channelId: refresh.channelId, baseline: refresh.baseline, currentById: currentById)
         guard let newest = fresh.max(by: { MessageRecord.isOrderedAscending($0, $1) }) else { return false }
+        let previousHistoricalNewestId = historicalNewestMessageIds[refresh.channelId]
+        let newestHistoricalMessageId: Int64?
         if atLatest {
+            newestHistoricalMessageId = nil
             let freshIds = Set(fresh.map(\.id))
             // This includes server acknowledgements that replaced a pending ID during the fetch.
             fresh += current.filter {
                 !$0.id.hasPrefix("pending-") && !freshIds.contains($0.id)
                     && MessageRecord.isOrderedAscending(newest, $0)
             }
+        } else {
+            // Use the server page boundary even if its last message was deleted locally.
+            guard let boundary = messages.compactMap({ Int64($0.id) }).max() else { return false }
+            newestHistoricalMessageId = boundary
+            // Keep arrivals during the jump and messages already waiting beyond the previous window.
+            fresh += current.filter { record in
+                guard let id = Int64(record.id), id > boundary else { return false }
+                return refresh.baseline[record.id] == nil
+                    || previousHistoricalNewestId.map { id > $0 } == true
+            }
         }
         replaceAllMessages(fresh, channelId: refresh.channelId,
-            preservingContiguousHistory: atLatest, preservingOfflineHistory: !atLatest)
+            preservingContiguousHistory: atLatest,
+            preservingOfflineHistory: !atLatest)
+        historicalNewestMessageIds[refresh.channelId] = newestHistoricalMessageId
         return true
     }
 
@@ -605,13 +635,18 @@ final class MessageTable: Table {
     }
 
     @discardableResult
-    func applyMessageHistoryPage(_ messages: [MessageRecord], page: MessageHistoryPage) -> Bool {
+    func applyMessageHistoryPage(_ messages: [MessageRecord], page: MessageHistoryPage, newerThan cursor: Int64? = nil) -> Bool {
         guard historyWindowIds[page.channelId] == page.windowId else { return false }
+        if let cursor {
+            guard historicalNewestMessageIds[page.channelId] == cursor else { return false }
+            // Realtime records stay cached, but only a newer page can extend the visible history.
+            historicalNewestMessageIds[page.channelId] = messages.lazy.compactMap { Int64($0.id) }
+                .filter { $0 > cursor }.max()
+        }
         let currentById = Dictionary(getMessages(channelId: page.channelId).map { ($0.id, $0) }, uniquingKeysWith: { $1 })
         let records = mergeFetchedMessages(messages, channelId: page.channelId, baseline: page.baseline, currentById: currentById)
-        guard !records.isEmpty else { return false }
         addMessages(records)
-        return true
+        return !records.isEmpty || cursor != nil
     }
 
     private func mergeFetchedMessages(_ messages: [MessageRecord], channelId: String, baseline: [String: MessageRecord], currentById: [String: MessageRecord]) -> [MessageRecord] {
@@ -639,6 +674,7 @@ final class MessageTable: Table {
     ) {
         historyRefreshIds.removeValue(forKey: channelId)
         historyWindowIds[channelId] = UUID()
+        let previousHistoricalNewestId = historicalNewestMessageIds.removeValue(forKey: channelId)
         let belonging = messages.filter { $0.channelId == channelId }
         let existing = cache[channelId] ?? getMessages(channelId: channelId)
         let existingById = Dictionary(existing.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
@@ -674,7 +710,8 @@ final class MessageTable: Table {
         var preservedHistory: [MessageRecord] = []
         if preservingContiguousHistory,
            let oldestIncoming = mergedBelonging.min(by: { MessageRecord.isOrderedAscending($0, $1) }),
-           existingById[oldestIncoming.id] != nil {
+           existingById[oldestIncoming.id] != nil,
+           (Int64(oldestIncoming.id) ?? .max) <= (previousHistoricalNewestId ?? .max) {
             for record in existing where !record.id.hasPrefix("pending-") {
                 guard !keptIds.contains(record.id),
                       MessageRecord.isOrderedAscending(record, oldestIncoming) else { continue }
@@ -1511,6 +1548,7 @@ final class MessageTable: Table {
     override func clearMemoryCache() {
         historyRefreshIds.removeAll()
         historyWindowIds.removeAll()
+        historicalNewestMessageIds.removeAll()
         deletedMessageIds.removeAll()
         pendingServerTailIds.removeAll()
         optimisticReactions.removeAll()

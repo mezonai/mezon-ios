@@ -721,7 +721,8 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         titleNode.maximumNumberOfLines = 1
         
         let messageNode = ASTextNode()
-        let errorMessage = error?.localizedDescription ?? "This video format may not be supported"
+        let unsupportedMessage = "This video format may not be supported"
+        let errorMessage = error?.userMessage(fallback: unsupportedMessage) ?? unsupportedMessage
         messageNode.attributedText = NSAttributedString(
             string: errorMessage,
             attributes: [

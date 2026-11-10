@@ -821,9 +821,7 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
 
     private func removeMemberFromGroup(userId: Int64) async throws {
         guard let token = await context.getToken() else {
-            throw NSError(
-                domain: "MezonRemoveMember", code: -1,
-                userInfo: [NSLocalizedDescriptionKey: L(L10n.ChannelDetail.removeFromGroupFailed)])
+            throw UserFacingMessageError(message: L(L10n.ChannelDetail.removeFromGroupFailed))
         }
         try await context.account.network.removeChannelUsers(
             channelId: channelId, userIds: [userId], token: token)

@@ -545,7 +545,7 @@ final class QuickActionEditViewController: BaseViewController {
             } catch {
                 self.isSubmitting = false
                 self.updateFormState()
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }

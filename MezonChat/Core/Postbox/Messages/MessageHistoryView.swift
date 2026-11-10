@@ -3,27 +3,24 @@ import Foundation
 struct MessageHistoryView: PostboxView {
     let channelId: String
     let messages: [MessageRecord]
+    let newestHistoricalMessageId: Int64?
 }
 
 final class MutableMessageHistoryView: MutablePostboxView {
 
-    let channelId: String
-    private(set) var messages: [MessageRecord]
+    private var view: MessageHistoryView
 
-    init(channelId: String, initial: [MessageRecord]) {
-        self.channelId = channelId
-        self.messages  = initial.filter { $0.channelId == channelId }
+    init(initial: MessageHistoryView) {
+        self.view = initial
     }
 
     func replay(transaction: PostboxTransaction) -> Bool {
-        guard transaction.updatedMessageChannelIds.contains(channelId) else { return false }
-        let next = transaction.messageTable.getMessages(channelId: channelId)
-            .filter { $0.channelId == channelId }
-        messages = next
+        guard transaction.updatedMessageChannelIds.contains(view.channelId) else { return false }
+        view = transaction.messageHistoryView(channelId: view.channelId)
         return true
     }
 
     func immutableView() -> MessageHistoryView {
-        MessageHistoryView(channelId: channelId, messages: messages)
+        view
     }
 }

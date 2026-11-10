@@ -634,10 +634,7 @@ final class WebhookEditViewController: BaseViewController {
     private func fetchLatestWebhook() {
         Task { [weak self] in
             guard let self else { return }
-            guard let token = await self.context.getToken() else {
-                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
-                return
-            }
+            guard let token = await self.context.getToken() else { return }
             do {
                 if self.isClanIntegration {
                     let clanWebhooks = try await MezonHTTPClient.shared.listClanWebhooks(clanId: self.clanId, token: token)
@@ -725,7 +722,7 @@ extension WebhookEditViewController {
     private func handlePickedImage(_ selection: PublicImageSelection) {
         guard let data = selection.preservedData ?? selection.image.jpegData(compressionQuality: 0.85) else { return }
         if data.count > 10 * 1024 * 1024 {
-            Toast.error("File size exceeds 10MB limit")
+            Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge10MB))
             return
         }
         selectedImage = selection.image

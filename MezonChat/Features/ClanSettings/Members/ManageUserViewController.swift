@@ -573,7 +573,7 @@ final class ManageUserViewController: BaseViewController {
                     } else {
                         self.selectedRoleIds.remove(roleId)
                     }
-                    Toast.error(error.localizedDescription)
+                    Toast.error(error.userMessage)
                     self.buildContent()
                 }
             }

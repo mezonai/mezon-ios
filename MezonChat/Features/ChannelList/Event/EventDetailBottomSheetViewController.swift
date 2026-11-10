@@ -24,7 +24,7 @@ enum EventDeleteConfirmation {
                     Toast.success(L(L10n.EventMenu.deleted))
                     onDeleted?()
                 } catch {
-                    Toast.error(error.localizedDescription)
+                    Toast.error(error.userMessage)
                 }
             }
         })

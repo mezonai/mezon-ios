@@ -395,7 +395,7 @@ final class ChangeCategoryViewController: BaseViewController {
 
                 self.navigationController?.popViewController(animated: true)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }

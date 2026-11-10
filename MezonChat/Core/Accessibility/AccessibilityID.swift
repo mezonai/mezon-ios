@@ -31,6 +31,7 @@ enum AccessibilityID {
         static let input = makeAccessibilityID("mention.input")
         static let send = makeAccessibilityID("mention.button.send")
         static let messages = makeAccessibilityID("message.list")
+        static let jumpToPresent = makeAccessibilityID("chat.jump.to.present")
 
         static func quickReaction(_ emojiID: String) -> String {
             makeAccessibilityID("message.quick.reaction", id: emojiID)
@@ -51,6 +52,11 @@ enum AccessibilityID {
         static func message(_ id: String) -> String {
             makeAccessibilityID("message.item", id: id)
         }
+    }
+
+    enum MediaPicker {
+        static let uploadFile = makeAccessibilityID("mediaPicker.uploadFile")
+        static let album = makeAccessibilityID("mediaPicker.album")
     }
 
     enum DirectMessage {

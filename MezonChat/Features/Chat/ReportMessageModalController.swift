@@ -86,7 +86,7 @@ final class ReportMessageModalController: ViewController {
                 Toast.success(L(L10n.ReportMessage.submitted))
                 self.animateDismiss(completion: nil)
             } catch {
-                Toast.error(error.localizedDescription.isEmpty ? L(L10n.ReportMessage.failed) : error.localizedDescription)
+                Toast.error(error.userMessage(fallback: L(L10n.ReportMessage.failed)))
             }
         }
     }

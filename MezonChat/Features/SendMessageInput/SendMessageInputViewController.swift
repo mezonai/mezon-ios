@@ -696,7 +696,7 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func notifyAttachmentLimitReached() {
-        Toast.info("You can attach up to \(Self.maxAttachmentsPerMessage) items per message.", title: "")
+        Toast.info(L(L10n.Common.attachmentLimit, Self.maxAttachmentsPerMessage), title: "")
     }
 
     private var allMentionMembers: [MentionMember] = []
@@ -2005,7 +2005,7 @@ final class SendMessageInputViewController: UIViewController {
 
             Task { @MainActor in
                 guard let token = await self.context.getToken() else {
-                    self.onError?("No session")
+                    self.onError?(L(L10n.ClanInviteSheet.sessionNotFound))
                     return
                 }
                 do {
@@ -2036,7 +2036,7 @@ final class SendMessageInputViewController: UIViewController {
                         "channelId": channel.channelID,
                         "clanId": clanId,
                     ])
-                    self.onError?(error.localizedDescription)
+                    self.onError?(error.userMessage)
             }
         }
     }
@@ -2079,7 +2079,7 @@ final class SendMessageInputViewController: UIViewController {
 
             Task { @MainActor in
                 guard let token = await self.context.getToken() else {
-                    self.onError?("No session")
+                    self.onError?(L(L10n.ClanInviteSheet.sessionNotFound))
                     return
                 }
                 guard !self.shouldSendAsAnonymousMessage else { return }
@@ -2113,7 +2113,7 @@ final class SendMessageInputViewController: UIViewController {
                         "channelId": channel.channelID,
                         "clanId": clanId,
                     ])
-                    self.onError?(error.localizedDescription)
+                    self.onError?(error.userMessage)
             }
         }
     }
@@ -2175,7 +2175,7 @@ final class SendMessageInputViewController: UIViewController {
 
         Task { @MainActor in
             guard let token = await self.context.getToken() else {
-                self.onError?("No session")
+                self.onError?(L(L10n.ClanInviteSheet.sessionNotFound))
                 return
             }
             do {
@@ -2207,7 +2207,7 @@ final class SendMessageInputViewController: UIViewController {
                     "channelId": channel.channelID,
                     "clanId": clanId,
                 ])
-                self.onError?(error.localizedDescription)
+                self.onError?(error.userMessage)
             }
         }
     }
@@ -2869,6 +2869,9 @@ final class SendMessageInputViewController: UIViewController {
             selectionLimit: remaining,
             onEditedSend: { [weak self] result in
                 self?.sendEditedImageImmediately(result)
+            },
+            onUploadFile: { [weak self] in
+                self?.openFilePicker()
             }
         ) { [weak self] results in
             guard let self else { return }
@@ -5442,7 +5445,7 @@ final class SendMessageInputViewController: UIViewController {
                 message.topicID = topicId
                 try await MezonSocket.shared.sendEphemeralMessage(message, receiverIds: [receiverId])
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -6232,7 +6235,7 @@ final class SendMessageInputViewController: UIViewController {
         do {
             try AppAudioSession.activateForVoiceMessageRecording()
         } catch {
-            onError?(error.localizedDescription)
+            onError?(error.userMessage)
             return
         }
 
@@ -6248,14 +6251,14 @@ final class SendMessageInputViewController: UIViewController {
             let recorder = try AVAudioRecorder(url: url, settings: settings)
             recorder.prepareToRecord()
             guard recorder.record() else {
-                onError?("Could not record")
+                onError?(L(L10n.Common.recordFailed))
                 try? FileManager.default.removeItem(at: url)
                 voiceRecordingFileURL = nil
                 return
             }
             voiceAudioRecorder = recorder
         } catch {
-            onError?(error.localizedDescription)
+            onError?(error.userMessage)
             try? FileManager.default.removeItem(at: url)
             voiceRecordingFileURL = nil
             return
@@ -6332,7 +6335,7 @@ final class SendMessageInputViewController: UIViewController {
         let file = PickedFileInfo(url: fileURL, filename: fileURL.lastPathComponent, filesize: size, filetype: "audio/mp4")
         Task { @MainActor in
             guard let token = await self.context.getToken() else {
-                self.onError?("No session")
+                self.onError?(L(L10n.ClanInviteSheet.sessionNotFound))
                 try? FileManager.default.removeItem(at: fileURL)
                 return
             }
@@ -6352,7 +6355,7 @@ final class SendMessageInputViewController: UIViewController {
                     "clanId": self.clanId,
                     "durationSeconds": durationSeconds,
                 ])
-                self.onError?(error.localizedDescription)
+                self.onError?(error.userMessage)
                 try? FileManager.default.removeItem(at: fileURL)
             }
         }
@@ -7066,7 +7069,7 @@ final class SendMessageInputViewController: UIViewController {
                 if let key = textOnlyEditPendingKey {
                     self.context.account.postbox.write { tx in tx.markMessageFailed(id: key) }
                 }
-                self.onError?("No session")
+                self.onError?(L(L10n.ClanInviteSheet.sessionNotFound))
                 return
             }
             do {
@@ -7274,7 +7277,7 @@ final class SendMessageInputViewController: UIViewController {
                     self.skipOptimisticPendingMessageOnSend = false
                 }
                 if !suppressErrorToast {
-                    self.onError?(error.localizedDescription)
+                    self.onError?(error.userMessage)
                 }
             }
         }
@@ -7368,7 +7371,7 @@ final class SendMessageInputViewController: UIViewController {
 
         Task { @MainActor in
             guard let token = await self.context.getToken() else {
-                self.onError?("No session")
+                self.onError?(L(L10n.ClanInviteSheet.sessionNotFound))
                 return
             }
             do {
@@ -7399,7 +7402,7 @@ final class SendMessageInputViewController: UIViewController {
                     "clanId": clanId,
                     "attachmentCount": attachments.count,
                 ])
-                self.onError?(error.localizedDescription)
+                self.onError?(error.userMessage)
             }
         }
     }

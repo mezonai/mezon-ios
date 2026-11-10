@@ -115,7 +115,7 @@ private func voiceChannelAvatarURLFromClanUser(_ cu: Mezon_Api_ClanUserList.Clan
 private func voiceChannelRemovalMessage(cause: SfuRemovalCause, reason: String?) -> String {
     switch cause {
     case .kicked:
-        return reason ?? NSLocalizedString("voiceChannel.kickedFromChannel", tableName: nil, bundle: .main, value: "You have been kicked from the channel.", comment: "")
+        return L(L10n.VoiceChannel.kickedFromChannel)
     case .aloneTimeout:
         return L(L10n.VoiceChannel.disconnectedAlone)
     case .duplicateSession:
@@ -3287,9 +3287,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
     private func relayVoiceParticipantAction(token actionToken: String) throws {
         guard let session = sfuSession, session.sendParticipantAction(token: actionToken) else {
-            throw NSError(domain: "VoiceChannel", code: 0, userInfo: [
-                NSLocalizedDescriptionKey: voiceParticipantActionFailureMessage(),
-            ])
+            throw UserFacingMessageError(message: voiceParticipantActionFailureMessage())
         }
     }
 
@@ -3309,22 +3307,15 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         refreshMicButtonIcon()
         refreshCamButtonIcon()
         refreshParticipantRowsFromSession()
-        Toast.info(NSLocalizedString(
-            "voiceChannel.mutedByModerator", tableName: nil, bundle: .main,
-            value: "You have been muted by a channel moderator.", comment: ""))
+        Toast.info(L(L10n.VoiceChannel.mutedByModerator))
     }
 
     private func handleCameraRefused(_ code: String) {
         refreshCamButtonIcon()
         refreshParticipantRowsFromSession()
         let message = code == "camera_capacity_full"
-            ? NSLocalizedString(
-                "voiceChannel.cameraLimitReached", tableName: nil, bundle: .main,
-                value: "This voice channel has reached its camera limit. Try again when someone turns their camera off.",
-                comment: "")
-            : NSLocalizedString(
-                "voiceChannel.cameraUpdateFailed", tableName: nil, bundle: .main,
-                value: "Couldn't turn your camera on or off. Please try again.", comment: "")
+            ? L(L10n.VoiceChannel.cameraLimitReached)
+            : L(L10n.VoiceChannel.cameraUpdateFailed)
         Toast.info(message)
     }
 
@@ -3332,18 +3323,11 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         let message: String
         switch code {
         case "screen_share_capacity_full":
-            message = NSLocalizedString(
-                "voiceChannel.screenShareLimitReached", tableName: nil, bundle: .main,
-                value: "This voice channel has reached its screen share limit. Try again when someone stops sharing.",
-                comment: "")
+            message = L(L10n.VoiceChannel.screenShareLimitReached)
         case "screen_share_not_allowed":
-            message = NSLocalizedString(
-                "voiceChannel.screenShareNotAllowed", tableName: nil, bundle: .main,
-                value: "Only speakers can share their screen in this voice channel.", comment: "")
+            message = L(L10n.VoiceChannel.screenShareNotAllowed)
         default:
-            message = NSLocalizedString(
-                "voiceChannel.screenShareUpdateFailed", tableName: nil, bundle: .main,
-                value: "Couldn't start or stop screen sharing. Please try again.", comment: "")
+            message = L(L10n.VoiceChannel.screenShareUpdateFailed)
         }
         Toast.info(message)
     }
@@ -4017,7 +4001,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             setConnectingOverlayVisible(false)
             presentVoiceAlert(
                 title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Voice", comment: ""),
-                message: error.localizedDescription)
+                message: error.userMessage)
             sfuSession = nil
         }
     }
@@ -4096,7 +4080,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             guard !Task.isCancelled else { return }
             setConnectingOverlayVisible(false)
             sfuSession = nil
-            var message = error.localizedDescription
+            var message = error.userMessage
             if case MezonError.httpError(let statusCode, _) = error, (400..<500).contains(statusCode) {
                 message = L(L10n.VoiceChannel.externalLinkInvalid)
             }
@@ -5215,7 +5199,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             } catch {
                 self.presentVoiceAlert(
                     title: NSLocalizedString("voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Error", comment: ""),
-                    message: error.localizedDescription)
+                    message: error.userMessage)
             }
         }
     }
@@ -5293,10 +5277,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                     onMute: { [weak self] in
                         guard let self else { return }
                         guard let token = await self.context.getToken() else {
-                            throw NSError(domain: "VoiceChannel", code: 0, userInfo: [
-                                NSLocalizedDescriptionKey: NSLocalizedString(
-                                    "voiceChannel.shortProfile.notSignedIn", tableName: nil, bundle: .main, value: "Not signed in", comment: ""),
-                            ])
+                            throw UserFacingMessageError(message: L(L10n.ClanInviteSheet.sessionNotFound))
                         }
                         let actionToken = try await self.context.account.network.muteMezonMeetParticipant(
                             clanId: self.channel.clanID,
@@ -5309,10 +5290,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
                     onKick: { [weak self] in
                         guard let self else { return }
                         guard let token = await self.context.getToken() else {
-                            throw NSError(domain: "VoiceChannel", code: 0, userInfo: [
-                                NSLocalizedDescriptionKey: NSLocalizedString(
-                                    "voiceChannel.shortProfile.notSignedIn", tableName: nil, bundle: .main, value: "Not signed in", comment: ""),
-                            ])
+                            throw UserFacingMessageError(message: L(L10n.ClanInviteSheet.sessionNotFound))
                         }
                         let actionToken = try await self.context.account.network.removeMezonMeetParticipant(
                             clanId: self.channel.clanID,

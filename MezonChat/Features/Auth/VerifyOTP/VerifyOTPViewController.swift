@@ -321,7 +321,7 @@ final class VerifyOTPViewController: BaseViewController, AuthScreenStatusBarStyl
             clearOTPFields()
             startCooldown()
         } catch {
-            setErrorMessage(error.localizedDescription)
+            setErrorMessage(error.userMessage(fallback: L(L10n.OTPVerify.resendFailed)))
         }
         setIsLoading(false)
     }
