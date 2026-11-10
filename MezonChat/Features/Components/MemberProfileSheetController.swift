@@ -229,6 +229,8 @@ final class MemberProfileSheetController: ViewController {
     private let onTransferFunds: ((TransferQRPayload) -> Void)?
     private let isWebhook: Bool
     private let presenceDisposable = MetaDisposable()
+    private let friendsUpdatedDisposable = MetaDisposable()
+    private var isChangingUserBlock = false
 
     private var sheetNode: MemberProfileSheetNode { displayNode as! MemberProfileSheetNode }
 
@@ -264,15 +266,19 @@ final class MemberProfileSheetController: ViewController {
 
     deinit {
         presenceDisposable.dispose()
+        friendsUpdatedDisposable.dispose()
     }
 
     override func loadDisplayNode() {
+        let relation = friendRelation
         displayNode = MemberProfileSheetNode(
             user: user,
             isCurrentUser: isCurrentUser,
             roles: resolveProfileRoles(),
-            showCallAction: onStartCall != nil && !isCurrentUser && user.id != 0 && !isWebhook,
-            showAddFriendAction: voiceChannelActions == nil && shouldShowAddFriendAction() && !isWebhook,
+            showCallAction: shouldShowCallAction(relation: relation),
+            showAddFriendAction: shouldShowAddFriendAction(relation: relation),
+            showBlockAction: canManageBlock,
+            isBlockedByMe: isBlockedByMe(relation: relation),
             voiceChannelActions: user.id != 0 && !isWebhook ? voiceChannelActions : nil,
             showRemoveFromGroup: groupAction != nil && !isCurrentUser && user.id != 0 && !isWebhook,
             showTransferAction: onTransferFunds != nil && !isCurrentUser && user.id != 0 && !isWebhook,
@@ -285,6 +291,9 @@ final class MemberProfileSheetController: ViewController {
             },
             onAddFriendTapped: { [weak self] in
                 self?.handleAddFriend()
+            },
+            onBlockTapped: { [weak self] in
+                self?.handleUserBlock()
             },
             onTransferFundsTapped: { [weak self] in
                 self?.handleTransferFunds()
@@ -307,6 +316,44 @@ final class MemberProfileSheetController: ViewController {
         )
         displayNodeDidLoad()
         observePresence()
+        observeFriendRelationship()
+    }
+
+    private var canManageBlock: Bool {
+        guard let currentUserId = context.currentUserNumericID, currentUserId != 0 else { return false }
+        return !isCurrentUser && !isWebhook && user.id != 0 && user.id != currentUserId
+    }
+
+    private var friendRelation: Mezon_Api_Friend? {
+        context.engine.friendsData.allFriends().first { $0.hasUser && $0.user.id == user.id }
+    }
+
+    private func isBlockedByMe(relation: Mezon_Api_Friend?) -> Bool {
+        guard let currentUserId = context.currentUserNumericID, currentUserId != 0, let relation else { return false }
+        return relation.state == EStateFriend.block.rawValue && relation.sourceID == currentUserId
+    }
+
+    private func shouldShowCallAction(relation: Mezon_Api_Friend?) -> Bool {
+        onStartCall != nil && !isCurrentUser && user.id != 0 && !isWebhook && relation?.state != EStateFriend.block.rawValue
+    }
+
+    private func observeFriendRelationship() {
+        guard !isCurrentUser, !isWebhook, user.id != 0 else { return }
+        friendsUpdatedDisposable.set(
+            (context.engine.friendsData.friendsUpdated.signal() |> deliverOnMainQueue).start(next: { [weak self] _ in
+                guard let self else { return }
+                let relation = self.friendRelation
+                self.sheetNode.updateRelationshipActions(
+                    showCallAction: self.shouldShowCallAction(relation: relation),
+                    showAddFriendAction: self.shouldShowAddFriendAction(relation: relation),
+                    isBlockedByMe: self.isBlockedByMe(relation: relation)
+                )
+            })
+        )
+        Task { @MainActor [context] in
+            guard let token = await context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
+            await context.engine.friendsData.refreshFromNetwork(token: token)
+        }
     }
 
     private func observePresence() {
@@ -363,11 +410,9 @@ final class MemberProfileSheetController: ViewController {
             }
     }
 
-    private func shouldShowAddFriendAction() -> Bool {
-        guard clanId != 0, !isCurrentUser, user.id != 0 else { return false }
-        guard let friend = context.engine.friendsData.allFriends().first(where: { $0.hasUser && $0.user.id == user.id }) else {
-            return true
-        }
+    private func shouldShowAddFriendAction(relation: Mezon_Api_Friend?) -> Bool {
+        guard clanId != 0, voiceChannelActions == nil, !isCurrentUser, user.id != 0, !isWebhook else { return false }
+        guard let friend = relation else { return true }
         switch friend.state {
         case EStateFriend.friend.rawValue,
              EStateFriend.otherPending.rawValue,
@@ -526,7 +571,7 @@ final class MemberProfileSheetController: ViewController {
     }
 
     private func handleStartCall() {
-        guard onStartCall != nil else { return }
+        guard shouldShowCallAction(relation: friendRelation) else { return }
         sheetNode.setLoading(true)
 
         Task { @MainActor in
@@ -538,7 +583,7 @@ final class MemberProfileSheetController: ViewController {
     }
 
     private func handleAddFriend() {
-        guard !isCurrentUser, user.id != 0 else { return }
+        guard shouldShowAddFriendAction(relation: friendRelation) else { return }
 
         Task { @MainActor in
             guard let token = await context.getToken() else {
@@ -554,6 +599,27 @@ final class MemberProfileSheetController: ViewController {
                     ? L(L10n.FriendRequest.toastSelfAddError)
                     : error.localizedDescription
                 Toast.error(message, title: "")
+            }
+        }
+    }
+
+    private func handleUserBlock() {
+        guard canManageBlock, !isChangingUserBlock else { return }
+        let blocked = !isBlockedByMe(relation: friendRelation)
+        isChangingUserBlock = true
+        let loadingOverlay = showBlockingSpinner(accessibilityIdentifier: AccessibilityID.MemberProfile.blockLoading)
+        Task { @MainActor in
+            defer {
+                loadingOverlay.removeFromSuperview()
+                isChangingUserBlock = false
+            }
+            do {
+                try await context.setUserBlocked(user, blocked: blocked)
+                Toast.success(L(blocked ? L10n.DmMenu.blockUserSuccess : L10n.DmMenu.unblockUserSuccess))
+            } catch is CancellationError {
+                return
+            } catch {
+                Toast.error(L(blocked ? L10n.DmMenu.blockUserError : L10n.DmMenu.unblockUserError))
             }
         }
     }
@@ -650,6 +716,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
     private let messageBtn = ProfileActionButton(icon: "bubble.left.fill", title: "Message")
     private let callBtn = ProfileActionButton(icon: "phone.fill", title: "Call")
     private let addFriendBtn = ProfileActionButton(icon: "person.badge.plus", title: "Add Friend", isGreen: true)
+    private let blockUserButton = ASButtonNode()
     private let transferButton = ASButtonNode()
     private let removeFromGroupButton = ASButtonNode()
 
@@ -663,6 +730,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
     private let onSendMessageTapped: () -> Void
     private let onStartCallTapped: () -> Void
     private let onAddFriendTapped: () -> Void
+    private let onBlockTapped: () -> Void
     private let onTransferFundsTapped: () -> Void
     private let onDimTapped: () -> Void
     private let onVoiceMuteTap: () -> Void
@@ -670,8 +738,10 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
     private let onRemoveFromGroupTap: () -> Void
     private let onRemoveRoleTapped: (MemberProfileRole) -> Void
     private let isCurrentUser: Bool
-    private let showCallAction: Bool
-    private let showAddFriendAction: Bool
+    private var showCallAction: Bool
+    private var showAddFriendAction: Bool
+    private let showBlockAction: Bool
+    private var isBlockedByMe: Bool
     private let showTransferAction: Bool
     private let voiceChannelActions: MemberProfileVoiceChannelActions?
     private let showRemoveFromGroup: Bool
@@ -706,6 +776,8 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
         roles: [MemberProfileRole],
         showCallAction: Bool,
         showAddFriendAction: Bool,
+        showBlockAction: Bool,
+        isBlockedByMe: Bool,
         voiceChannelActions: MemberProfileVoiceChannelActions?,
         showRemoveFromGroup: Bool,
         showTransferAction: Bool,
@@ -713,6 +785,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
         onSendMessageTapped: @escaping () -> Void,
         onStartCallTapped: @escaping () -> Void,
         onAddFriendTapped: @escaping () -> Void,
+        onBlockTapped: @escaping () -> Void,
         onTransferFundsTapped: @escaping () -> Void,
         onDimTapped: @escaping () -> Void,
         onVoiceMuteTap: @escaping () -> Void,
@@ -725,12 +798,15 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
         self.roles = roles
         self.showCallAction = showCallAction
         self.showAddFriendAction = showAddFriendAction
+        self.showBlockAction = showBlockAction
+        self.isBlockedByMe = isBlockedByMe
         self.voiceChannelActions = voiceChannelActions
         self.showRemoveFromGroup = showRemoveFromGroup
         self.showTransferAction = showTransferAction
         self.onSendMessageTapped = onSendMessageTapped
         self.onStartCallTapped = onStartCallTapped
         self.onAddFriendTapped = onAddFriendTapped
+        self.onBlockTapped = onBlockTapped
         self.onTransferFundsTapped = onTransferFundsTapped
         self.onDimTapped = onDimTapped
         self.onVoiceMuteTap = onVoiceMuteTap
@@ -879,6 +955,14 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
         actionRow.addSubnode(messageBtn)
         actionRow.addSubnode(callBtn)
         actionRow.addSubnode(addFriendBtn)
+        if showBlockAction {
+            blockUserButton.backgroundColor = t.raisedSurface
+            blockUserButton.cornerRadius = 10.sf
+            blockUserButton.isAccessibilityElement = true
+            blockUserButton.accessibilityTraits = .button
+            updateBlockButton()
+            infoCardNode.addSubnode(blockUserButton)
+        }
         if showRemoveFromGroup {
             let danger = UIColor(red: 0.92, green: 0.25, blue: 0.25, alpha: 1)
             removeFromGroupButton.setTitle(
@@ -908,6 +992,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
 
     override func didLoad() {
         super.didLoad()
+        view.accessibilityIdentifier = AccessibilityID.MemberProfile.sheet
         loadProfileAvatar()
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(dimTapped))
@@ -944,6 +1029,9 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
         messageBtn.onTapped = { [weak self] in self?.messageTapped() }
         callBtn.onTapped = { [weak self] in self?.callTapped() }
         addFriendBtn.onTapped = { [weak self] in self?.addFriendTapped() }
+        if showBlockAction {
+            blockUserButton.addTarget(self, action: #selector(blockTapped), forControlEvents: .touchUpInside)
+        }
         if showTransferAction {
             transferButton.addTarget(self, action: #selector(transferTapped), forControlEvents: .touchUpInside)
         }
@@ -1051,6 +1139,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let fallback = super.hitTest(point, with: event)
+        if fallback is BlockingSpinnerOverlay { return fallback }
         if voiceChannelActions != nil,
            voiceCardNode.supernode === contentNode,
            !voiceCardNode.isHidden,
@@ -1079,6 +1168,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
     private func messageTapped() { onSendMessageTapped() }
     private func callTapped() { onStartCallTapped() }
     private func addFriendTapped() { onAddFriendTapped() }
+    @objc private func blockTapped() { onBlockTapped() }
 
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
         guard let layout = validLayout else { return }
@@ -1180,7 +1270,31 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
         )
     }
 
+    func updateRelationshipActions(showCallAction: Bool, showAddFriendAction: Bool, isBlockedByMe: Bool) {
+        let needsLayout = self.showCallAction != showCallAction || self.showAddFriendAction != showAddFriendAction
+        self.showCallAction = showCallAction
+        self.showAddFriendAction = showAddFriendAction
+        if self.isBlockedByMe != isBlockedByMe {
+            self.isBlockedByMe = isBlockedByMe
+            if showBlockAction { updateBlockButton() }
+        }
+        if needsLayout, let layout = validLayout {
+            updateLayout(layout: layout, transition: .immediate)
+        }
+    }
+
+    private func updateBlockButton() {
+        let title = L(isBlockedByMe ? L10n.DmMenu.unblockUser : L10n.DmMenu.blockUser)
+        blockUserButton.setTitle(title, with: .systemFont(ofSize: 15.sf, weight: .semibold),
+                                 with: isBlockedByMe ? UIColor.theme.textStrong : .mezonError, for: .normal)
+        blockUserButton.accessibilityLabel = title
+        blockUserButton.accessibilityIdentifier = isBlockedByMe
+            ? AccessibilityID.MemberProfile.unblockUser : AccessibilityID.MemberProfile.blockUser
+    }
+
     func setLoading(_ loading: Bool) {
+        blockUserButton.isEnabled = !loading
+        blockUserButton.alpha = loading ? 0.5 : 1
         if loading {
             loadingIndicator.startAnimating()
             messageBtn.isUserInteractionEnabled = false
@@ -1322,6 +1436,13 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
             let removeH: CGFloat = 48.sh
             removeFromGroupButton.frame = CGRect(x: infoCardPad, y: infoY, width: actionW, height: removeH)
             infoY += removeH
+        }
+
+        if showBlockAction {
+            infoY += 12.sh
+            let blockHeight = max(44, 48.sh)
+            blockUserButton.frame = CGRect(x: infoCardPad, y: infoY, width: actionW, height: blockHeight)
+            infoY += blockHeight
         }
 
         infoY += infoBottomPad

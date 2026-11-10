@@ -1751,6 +1751,7 @@ extension MezonEngine {
         private var socketDisposable: Disposable?
         private var socketRefreshTask: Task<Void, Never>?
         private var tokenProvider: (() async -> String?)?
+        private var currentUserIdProvider: (() -> Int64?)?
         private var inflightNetworkRefreshTask: Task<Void, Never>?
         private var lastFriendsNetworkRefreshAt: Date?
         private let friendsNetworkRefreshCooldown: TimeInterval = 3.0
@@ -1767,6 +1768,7 @@ extension MezonEngine {
             inflightNetworkRefreshTask?.cancel()
             inflightNetworkRefreshTask = nil
             tokenProvider = nil
+            currentUserIdProvider = nil
             lastFriendsNetworkRefreshAt = nil
         }
 
@@ -1776,20 +1778,15 @@ extension MezonEngine {
             inflightNetworkRefreshTask?.cancel()
         }
 
-        func start(tokenProvider: @escaping () async -> String?) {
+        func start(currentUserIdProvider: @escaping () -> Int64?, tokenProvider: @escaping () async -> String?) {
             self.tokenProvider = tokenProvider
+            self.currentUserIdProvider = currentUserIdProvider
             socketDisposable?.dispose()
             socketDisposable = (MezonSocket.shared.events()
                 |> deliverOnMainQueue).start(next: { [weak self] event in
                     guard let self else { return }
                     switch event {
-                    case .blockFriend(let m):
-                        self.applyLocalBlockState(userId: m.userID, blocked: true, blockerUserId: m.userID)
-                        self.scheduleRefreshFromSocket()
-                    case .unBlockFriend(let m):
-                        self.applyLocalBlockState(userId: m.userID, blocked: false)
-                        self.scheduleRefreshFromSocket()
-                    case .addFriend, .removeFriend:
+                    case .blockFriend, .unBlockFriend, .addFriend, .removeFriend:
                         self.scheduleRefreshFromSocket()
                     default:
                         break
@@ -1797,15 +1794,28 @@ extension MezonEngine {
                 })
         }
 
-        func applyLocalBlockState(userId: Int64, blocked: Bool, blockerUserId: Int64 = 0) {
-            guard userId != 0 else { return }
+        func updateLocalBlock(user: Mezon_Api_User, blocked: Bool, currentUserId: Int64) {
             var list = allFriends()
-            guard let idx = list.firstIndex(where: { $0.user.id == userId }) else { return }
-            let newState = blocked ? EStateFriend.block.rawValue : EStateFriend.friend.rawValue
-            guard list[idx].state != newState else { return }
-            list[idx].state = newState
-            if blocked, blockerUserId != 0 {
-                list[idx].sourceID = blockerUserId
+            if blocked {
+                let index = list.firstIndex { $0.user.id == user.id }
+                var relation = index.map { list[$0] } ?? Mezon_Api_Friend()
+                var profile = relation.hasUser ? relation.user : user
+                if profile.username.isEmpty { profile.username = user.username }
+                if profile.displayName.isEmpty { profile.displayName = user.displayName }
+                if profile.avatarURL.isEmpty { profile.avatarURL = user.avatarURL }
+                relation.user = profile
+                relation.state = EStateFriend.block.rawValue
+                relation.sourceID = currentUserId
+                if let index {
+                    list[index] = relation
+                } else {
+                    list.append(relation)
+                }
+            } else {
+                // Only ListFriends can tell whether the server restored a previous friendship.
+                list.removeAll {
+                    $0.user.id == user.id && $0.state == EStateFriend.block.rawValue && $0.sourceID == currentUserId
+                }
             }
             persistFriends(list)
         }
@@ -1843,10 +1853,11 @@ extension MezonEngine {
         }
 
         func refreshFromNetwork(token: String, force: Bool = false) async {
-            if let inflight = inflightNetworkRefreshTask {
+            while let inflight = inflightNetworkRefreshTask {
                 _ = await inflight.value
-                if !force { return }
+                if !force || Task.isCancelled { return }
             }
+            guard !Task.isCancelled else { return }
             if !force,
                let last = lastFriendsNetworkRefreshAt,
                Date().timeIntervalSince(last) < friendsNetworkRefreshCooldown {
@@ -1854,9 +1865,10 @@ extension MezonEngine {
             }
             let task = Task<Void, Never> { @MainActor [weak self] in
                 guard let self else { return }
-                defer { self.inflightNetworkRefreshTask = nil }
                 await self.performRefreshFromNetwork(token: token)
+                guard !Task.isCancelled else { return }
                 self.lastFriendsNetworkRefreshAt = Date()
+                self.inflightNetworkRefreshTask = nil
             }
             inflightNetworkRefreshTask = task
             _ = await task.value
@@ -1864,13 +1876,25 @@ extension MezonEngine {
 
         private func performRefreshFromNetwork(token: String) async {
             let net = network
-            guard let response = try? await net.listFriends(token: token, limit: 0, state: 0) else {
+            guard let response = try? await net.listFriends(token: token, limit: 0, state: 0),
+                  !Task.isCancelled else {
                 return
             }
+            let currentUserId = currentUserIdProvider?() ?? Int64(engine.account.id) ?? 0
             let fetched = response.friends
             var dedupByUserId: [Int64: Mezon_Api_Friend] = [:]
-            for friend in fetched {
+            for var friend in fetched {
                 guard friend.hasUser, friend.user.id != 0 else { continue }
+                if friend.state == EStateFriend.block.rawValue, friend.user.id == currentUserId {
+                    // An incoming block can carry our own profile; the source is the peer.
+                    guard friend.sourceID != 0, friend.sourceID != currentUserId else { continue }
+                    friend.user = Mezon_Api_User()
+                    friend.user.id = friend.sourceID
+                }
+                if let existing = dedupByUserId[friend.user.id], existing.state == EStateFriend.block.rawValue,
+                   friend.state != EStateFriend.block.rawValue || existing.sourceID == currentUserId {
+                    continue
+                }
                 dedupByUserId[friend.user.id] = friend
             }
 
@@ -1901,7 +1925,8 @@ extension MezonEngine {
             socketRefreshTask = Task { [weak self] in
                 guard let self else { return }
                 try? await Task.sleep(nanoseconds: 300_000_000)
-                guard let tokenProvider = self.tokenProvider, let token = await tokenProvider() else { return }
+                guard !Task.isCancelled, let tokenProvider = self.tokenProvider,
+                      let token = await tokenProvider(), !Task.isCancelled else { return }
                 await self.refreshFromNetwork(token: token, force: true)
             }
         }

@@ -83,11 +83,10 @@ struct DmMenuContext {
         return channel.userIds.first
     }
 
-    var didIBlockUser: Bool {
-        guard let friend, let peerId = peerUserId else { return false }
-        return friend.state == EStateFriend.block.rawValue
-            && friend.sourceID == currentUserId
-            && friend.user.id == peerId
+    var blockTargetUserId: Int64? {
+        guard channel.type == MezonConstants.ChannelType.dm.rawValue,
+              currentUserId != 0, let peerId = peerUserId, peerId != 0, peerId != currentUserId else { return nil }
+        return peerId
     }
 
     var isLastOneInGroup: Bool {
@@ -105,13 +104,6 @@ struct DmMenuContext {
             groups.append([.leaveOrDeleteGroup(isDelete: isLastOneInGroup)])
         }
 
-        let effectiveDidIBlockUser: Bool = {
-            guard let friend = currentFriend, let peerId = peerUserId else { return false }
-            return friend.state == EStateFriend.block.rawValue
-                && friend.sourceID == currentUserId
-                && friend.user.id == peerId
-        }()
-
         var profileGroup: [DmAction] = []
         if !isGroup {
             profileGroup.append(.closeDm)
@@ -119,8 +111,11 @@ struct DmMenuContext {
         if shouldShowFriendAction(friend: currentFriend) {
             profileGroup.append(currentFriend?.state == EStateFriend.friend.rawValue ? .removeFriend : .addFriend)
         }
-        if shouldShowBlockAction(friend: currentFriend, didIBlockUser: effectiveDidIBlockUser) {
-            profileGroup.append(effectiveDidIBlockUser ? .unblockUser : .blockUser)
+        if let targetId = blockTargetUserId {
+            let blockedByMe = currentFriend?.state == EStateFriend.block.rawValue
+                && currentFriend?.sourceID == currentUserId
+                && currentFriend?.user.id == targetId
+            profileGroup.append(blockedByMe ? .unblockUser : .blockUser)
         }
         if !profileGroup.isEmpty {
             groups.append(profileGroup)
@@ -151,12 +146,6 @@ struct DmMenuContext {
         default:
             return true
         }
-    }
-
-    private func shouldShowBlockAction(friend: Mezon_Api_Friend?, didIBlockUser: Bool) -> Bool {
-        guard !isGroup, !isChatWithMyself else { return false }
-        if didIBlockUser { return true }
-        return friend?.state == EStateFriend.friend.rawValue
     }
 
     static func isConversationMuted(record: NotificationSettingRecord?) -> Bool {
@@ -307,6 +296,7 @@ private final class DmActionSheetNode: ASDisplayNode, UIGestureRecognizerDelegat
 
     override func didLoad() {
         super.didLoad()
+        view.accessibilityIdentifier = AccessibilityID.DirectMessage.actionSheet
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleDimTap))
         dimNode.view.addGestureRecognizer(tap)
 
@@ -558,6 +548,13 @@ private final class DmActionSheetNode: ASDisplayNode, UIGestureRecognizerDelegat
 
         v.heightAnchor.constraint(equalToConstant: 56.sh).isActive = true
         let wrapper = DmActionButton(type: .custom)
+        if action == .blockUser || action == .unblockUser {
+            wrapper.accessibilityIdentifier = action == .blockUser
+                ? AccessibilityID.DirectMessage.blockUser : AccessibilityID.DirectMessage.unblockUser
+            wrapper.accessibilityLabel = label.text
+            wrapper.isAccessibilityElement = true
+            label.isAccessibilityElement = false
+        }
         wrapper.actionHandler = { [weak self] in self?.onAction(action) }
         wrapper.addTarget(wrapper, action: #selector(DmActionButton.performAction), for: .touchUpInside)
         v.addSubview(wrapper)

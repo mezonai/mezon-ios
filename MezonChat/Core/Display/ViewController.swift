@@ -666,6 +666,12 @@ public protocol CustomViewControllerNavigationDataSummary: AnyObject {
         self.window?.presentInGlobalOverlay(controller)
     }
 
+    func showBlockingSpinner(accessibilityIdentifier: String) -> UIView {
+        let overlay = BlockingSpinnerOverlay(frame: view.bounds, accessibilityIdentifier: accessibilityIdentifier)
+        view.addSubview(overlay)
+        return overlay
+    }
+
     public func addGlobalPortalHostView(sourceView: PortalSourceView) {
         self.window?.addGlobalPortalHostView(sourceView: sourceView)
     }
@@ -768,6 +774,31 @@ public protocol CustomViewControllerNavigationDataSummary: AnyObject {
     open func acceptPossibleControllerDropContent(content: NavigationControllerDropContent) -> Bool {
         return false
     }
+}
+
+final class BlockingSpinnerOverlay: UIView {
+    init(frame: CGRect, accessibilityIdentifier: String) {
+        super.init(frame: frame)
+        autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        backgroundColor = UIColor.black.withAlphaComponent(0.3)
+        accessibilityViewIsModal = true
+
+        let spinner = UIActivityIndicatorView(style: .large)
+        spinner.color = UIColor.theme.textStrong
+        spinner.translatesAutoresizingMaskIntoConstraints = false
+        spinner.isUserInteractionEnabled = false
+        spinner.isAccessibilityElement = true
+        spinner.accessibilityLabel = L(L10n.Common.loading)
+        spinner.accessibilityIdentifier = accessibilityIdentifier
+        addSubview(spinner)
+        NSLayoutConstraint.activate([
+            spinner.centerXAnchor.constraint(equalTo: centerXAnchor),
+            spinner.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
+        spinner.startAnimating()
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }
 
 func traceIsOpaque(layer: CALayer, rect: CGRect) -> Bool {
