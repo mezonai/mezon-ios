@@ -1289,6 +1289,9 @@ enum L10n {
         static let videoDownloading = "gallery.videoDownloading"
         static let videoPreparingForShare = "gallery.videoPreparingForShare"
         static let videoShareFailed = "gallery.videoShareFailed"
+        static let videoStillUploading = "gallery.videoStillUploading"
+        static let videoDownloadNetworkFailed = "gallery.videoDownloadNetworkFailed"
+        static let videoSaveNoSpace = "gallery.videoSaveNoSpace"
         static let videoSaving = "gallery.videoSaving"
         static let imageLoadFailed = "gallery.imageLoadFailed"
         static let photoPermissionDenied = "gallery.photoPermissionDenied"
@@ -2643,6 +2646,9 @@ extension L10n {
         "gallery.videoDownloading": "Downloading video...",
         "gallery.videoPreparingForShare": "Preparing video...",
         "gallery.videoShareFailed": "Could not prepare video for sharing",
+        "gallery.videoStillUploading": "This video is still uploading. Try again in a few minutes",
+        "gallery.videoDownloadNetworkFailed": "Couldn't download the video. Check your connection and try again",
+        "gallery.videoSaveNoSpace": "Not enough storage to save this video",
         "gallery.videoSaving": "Saving video...",
         "gallery.imageLoadFailed": "Could not load image",
         "gallery.photoPermissionDenied": "Allow photo access to save images",
@@ -4159,6 +4165,9 @@ extension L10n {
         "gallery.videoDownloading": "Đang tải video...",
         "gallery.videoPreparingForShare": "Đang chuẩn bị video...",
         "gallery.videoShareFailed": "Không thể chuẩn bị video để chia sẻ",
+        "gallery.videoStillUploading": "Video đang được tải lên. Hãy thử lại sau ít phút",
+        "gallery.videoDownloadNetworkFailed": "Không tải được video. Kiểm tra kết nối mạng rồi thử lại",
+        "gallery.videoSaveNoSpace": "Không đủ dung lượng để lưu video",
         "gallery.videoSaving": "Đang lưu video...",
         "gallery.imageLoadFailed": "Không thể tải ảnh",
         "gallery.photoPermissionDenied": "Vui lòng cấp quyền ảnh để lưu ảnh",
