@@ -18,6 +18,7 @@ final class ChatVideoGalleryItemNode: GalleryItemNode {
 
     override init() {
         super.init()
+        accessibilityElementsHidden = true
         previewNode.contentMode = .scaleAspectFit
         addSubnode(previewNode)
     }
@@ -30,7 +31,6 @@ final class ChatVideoGalleryItemNode: GalleryItemNode {
         posterURL = info.url
         didScheduleNeighborPrefetch = false
         previewNode.image = ImageCache.shared.memoryImage(forKey: "video_thumb_\(info.url)")
-        previewNode.isHidden = false
     }
 
     private func makePlayerIfNeeded() {
@@ -46,10 +46,10 @@ final class ChatVideoGalleryItemNode: GalleryItemNode {
         self.playerNode = node
         self.addSubnode(node)
         node.frame = bounds
-        previewNode.isHidden = true
     }
 
     override func centralityUpdated(isCentral: Bool) {
+        accessibilityElementsHidden = !isCentral
         if isCentral {
             play()
         } else {

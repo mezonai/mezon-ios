@@ -2069,8 +2069,7 @@ final class ChannelListViewController: ViewController {
         let events = clanId != 0 ? context.engine.clanData.getClanEvents(clanId: clanId)?.events ?? [] : []
         let count = EventListFilter.visibleEvents(
             from: events,
-            channels: allChannels,
-            currentUserId: context.currentUserNumericID ?? 0
+            channels: allChannels
         ).count
         channelListNode.updateEventCount(count)
     }
@@ -2516,9 +2515,13 @@ final class ChannelListViewController: ViewController {
         for channelId in channelIds {
             clearPendingMentionUnreadFloor(clanId: clanId, channelId: channelId)
         }
-        replaceAllChannels(allChannels.filter {
-            !channelIds.contains($0.channelID) && !channelIds.contains($0.parentID)
-        })
+        let removedChannelIds = channelIds.union(allChannels.lazy
+            .filter { channelIds.contains($0.parentID) }
+            .map(\.channelID))
+        replaceAllChannels(
+            allChannels.filter { !removedChannelIds.contains($0.channelID) },
+            removedChannelIds: removedChannelIds
+        )
         channelListFavoriteIds.subtract(channelIds)
         if let selectedChannelId, channelIds.contains(selectedChannelId) {
             setSelectedChannelId(nil)
@@ -3936,13 +3939,16 @@ final class ChannelListViewController: ViewController {
 
     private(set) var allChannels: [Mezon_Api_ChannelDescription] = []
 
-    private func replaceAllChannels(_ channels: [Mezon_Api_ChannelDescription]) {
+    private func replaceAllChannels(
+        _ channels: [Mezon_Api_ChannelDescription],
+        removedChannelIds: Set<Int64> = []
+    ) {
         let channelIdsChanged = Set(allChannels.map(\.channelID)) != Set(channels.map(\.channelID))
         allChannels = channels
         if channelIdsChanged {
             refreshEventBadge()
         }
-        eventViewer?.updateChannels(channels, clanId: clanId)
+        eventViewer?.updateChannels(channels, clanId: clanId, removedChannelIds: removedChannelIds)
     }
 
     var currentState: ChannelListState {
