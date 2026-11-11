@@ -910,6 +910,7 @@ enum L10n {
         static let chooseTypeSubtitle = "eventEditor.chooseTypeSubtitle"
         static let voice = "eventEditor.voice"
         static let voiceSubtitle = "eventEditor.voiceSubtitle"
+        static let privateVoiceChannelTip = "eventEditor.privateVoiceChannelTip"
         static let elsewhere = "eventEditor.elsewhere"
         static let elsewhereSubtitle = "eventEditor.elsewhereSubtitle"
         static let external = "eventEditor.external"
@@ -971,6 +972,7 @@ enum L10n {
         static let tenMinutesLeft     = "eventMenu.eventDetail.tenMinutesLeft"
         static let newEvent           = "eventMenu.eventDetail.newEvent"
         static let privateRoom        = "eventMenu.eventDetail.privateRoom"
+        static let externalMeetingRoom = "eventMenu.eventDetail.externalMeetingRoom"
         static let channelAudience    = "eventMenu.eventDetail.channelAudience"
         static let detailEventInfo    = "eventMenu.detail.eventInfo"
         static let detailInterested   = "eventMenu.detail.interested"
@@ -2018,6 +2020,7 @@ extension L10n {
         "eventEditor.chooseTypeSubtitle": "Choose how members will join your event.",
         "eventEditor.voice": "Voice Channel",
         "eventEditor.voiceSubtitle": "Host the event in a voice channel",
+        "eventEditor.privateVoiceChannelTip": "Tip: Make sure everyone can join the event by adding them to %@.",
         "eventEditor.elsewhere": "Somewhere else",
         "eventEditor.elsewhereSubtitle": "Meet at an offline location",
         "eventEditor.external": "Create External Event",
@@ -2076,7 +2079,8 @@ extension L10n {
         "eventMenu.eventDetail.eventIsTaking":    "Event is taking place!",
         "eventMenu.eventDetail.tenMinutesLeft":   "%d minutes left. Join in!",
         "eventMenu.eventDetail.newEvent":         "New",
-        "eventMenu.eventDetail.privateRoom":      "Private room",
+        "eventMenu.eventDetail.privateRoom":      "Private Voice Room",
+        "eventMenu.eventDetail.externalMeetingRoom": "External Meeting Room",
         "eventMenu.eventDetail.channelAudience":  "The audience consists of members from channel: %@",
         "eventMenu.detail.eventInfo":             "Event Info",
         "eventMenu.detail.interested":            "Interested",
@@ -3536,6 +3540,7 @@ extension L10n {
         "eventEditor.chooseTypeSubtitle": "Chọn cách thành viên tham gia sự kiện.",
         "eventEditor.voice": "Kênh thoại",
         "eventEditor.voiceSubtitle": "Tổ chức sự kiện trong kênh thoại",
+        "eventEditor.privateVoiceChannelTip": "Tip: Đảm bảo tất cả khán giả đều có thể tham gia được sự kiện, hãy thêm họ vào %@.",
         "eventEditor.elsewhere": "Địa điểm khác",
         "eventEditor.elsewhereSubtitle": "Gặp mặt tại một địa điểm trực tiếp",
         "eventEditor.external": "Tạo sự kiện bên ngoài",
@@ -3594,7 +3599,8 @@ extension L10n {
         "eventMenu.eventDetail.eventIsTaking":    "Sự kiện đang diễn ra!",
         "eventMenu.eventDetail.tenMinutesLeft":   "Còn %d phút. Tham gia ngay!",
         "eventMenu.eventDetail.newEvent":         "Mới",
-        "eventMenu.eventDetail.privateRoom":      "Phòng riêng",
+        "eventMenu.eventDetail.privateRoom":      "Phòng thoại riêng tư",
+        "eventMenu.eventDetail.externalMeetingRoom": "Phòng họp bên ngoài",
         "eventMenu.eventDetail.channelAudience":  "Đối tượng là thành viên từ kênh: %@",
         "eventMenu.detail.eventInfo":             "Thông tin sự kiện",
         "eventMenu.detail.interested":            "Quan tâm",
