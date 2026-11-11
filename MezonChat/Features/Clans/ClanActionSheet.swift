@@ -627,15 +627,8 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
         let iconView = UIImageView()
         if let name = action.iconName {
             if name.contains("/") {
-                let needsOriginalRendering =
-                    name == "ClanSetting/InviteIcon"
-                    || name == "ClanSetting/BellIcon"
-                    || name == "Profile/SettingIcon"
-
-                let loadedImage = UIImage(named: name, in: Bundle.main, compatibleWith: nil)
-                iconView.image = needsOriginalRendering
-                    ? loadedImage?.withRenderingMode(.alwaysOriginal)
-                    : loadedImage?.withRenderingMode(.alwaysTemplate)
+                iconView.image = UIImage(named: name, in: Bundle.main, compatibleWith: nil)?
+                    .withRenderingMode(.alwaysTemplate)
             } else {
                 iconView.image = UIImage(systemName: name)
             }

@@ -100,13 +100,8 @@ final class ProfileOnlineStatusSheetController: UIViewController {
         }
         guard let img = UIImage(named: "Profile/\(name)", in: Bundle.main, compatibleWith: nil) else { return nil }
         let canvas: CGFloat = 20
-        let drawSide: CGFloat
-        switch s {
-        case .online, .invisible, .offline:
-            drawSide = 14
-        case .idle, .doNotDisturb:
-            drawSide = 20
-        }
+        // The status PDFs have more padding than the custom status face.
+        let drawSide = canvas * 1.5
         let r = UIGraphicsImageRenderer(size: CGSize(width: canvas, height: canvas))
         return r.image { _ in
             let o = (canvas - drawSide) / 2

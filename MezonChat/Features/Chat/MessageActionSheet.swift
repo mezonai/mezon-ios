@@ -58,47 +58,30 @@ enum MessageAction: CaseIterable {
         }
     }
 
-    var iconImageName: String? {
+    var iconImageName: String {
         switch self {
-        case .giveACoffee:      return "Chat/GiveCoffeeIcon"
+        case .giveACoffee:      return "Profile/TransferIcon"
         case .reply:            return "Chat/IconArrowLeftUp"
         case .forwardMessage:   return "Chat/IconArrowRightUp"
         case .forwardAll:       return "Chat/IconForwardAll"
-        case .createThread:     return nil
+        case .createThread:     return "Chat/ThreadAdd"
         case .copyText:         return "Chat/IconCopy"
-        case .shareText:        return nil
-        case .saveImage, .saveVideo, .copyImageLink, .copyVideoLink, .shareImage: return nil
-        case .copyImage:        return "Chat/IconCopy"
-        case .addToInbox:       return nil
+        case .shareText, .shareImage: return "Invite/ShareIcon"
+        case .saveImage, .saveVideo: return "Chat/IconDownload"
+        case .copyImageLink, .copyVideoLink: return "Invite/CopyLink"
+        case .copyImage:        return "Chat/Image"
+        case .addToInbox:       return "Chat/Inbox"
         case .markUnread:       return "Chat/IconMarkUnread"
-        case .topicDiscussion:  return nil
+        case .topicDiscussion:  return "Notifications/topic"
         case .pinMessage:       return "Chat/IconPin"
-        case .unpinMessage:     return nil
+        case .unpinMessage:     return "Chat/IconUnpin"
         case .markMessage:      return "Chat/IconStar"
-        case .quickMenu:        return nil
-        case .editMessage:      return nil
+        case .quickMenu:        return "ChannelSetting/QuickActionIcon"
+        case .editMessage:      return "Profile/EditIcon"
         case .deleteMessage:    return "Chat/IconTrash"
-        case .report:           return nil
-        case .resend:           return nil
+        case .report:           return "Chat/ReportFlag"
+        case .resend:           return "Setting/ChatIcon"
         case .forward:          return "Chat/IconArrowRightUp"
-        }
-    }
-
-    var sfSymbolName: String? {
-        switch self {
-        case .createThread:     return "square.and.pencil"
-        case .saveImage, .saveVideo: return "square.and.arrow.down"
-        case .copyImageLink, .copyVideoLink: return "link"
-        case .shareImage:       return "square.and.arrow.up"
-        case .shareText:        return "square.and.arrow.up"
-        case .addToInbox:       return "tray.and.arrow.down"
-        case .topicDiscussion:  return "text.bubble"
-        case .quickMenu:       return "bolt.fill"
-        case .unpinMessage:     return "pin.slash"
-        case .editMessage:      return "pencil"
-        case .report:           return "flag.fill"
-        case .resend:           return "arrow.clockwise"
-        default:                return nil
         }
     }
 
@@ -655,7 +638,7 @@ private final class MessageActionSheetNode: ASDisplayNode {
             let symCfg = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
             smiley = UIImage(systemName: "face.smiling", withConfiguration: symCfg) ?? UIImage()
         }
-        pickerBtn.setImage(smiley, for: .normal)
+        pickerBtn.setImage(smiley.withRenderingMode(.alwaysTemplate), for: .normal)
         pickerBtn.tintColor = t.textStrong
         pickerBtn.addTarget(self, action: #selector(fullEmojiPickerTapped), for: .touchUpInside)
         scrollView.addSubview(pickerBtn)
@@ -722,17 +705,8 @@ private final class MessageActionSheetNode: ASDisplayNode {
     private func buildActionRow(_ action: MessageAction, in parent: UIView, at y: CGFloat, width: CGFloat, height: CGFloat, isWarning: Bool = false) {
         let t = UIColor.theme
         let textColor = action.isDestructive ? UIColor.systemRed : t.textStrong
-        let iconTint = action.isDestructive ? UIColor.systemRed : t.textStrong
 
-        let useOriginalIconColor = action == .giveACoffee
-        var iconImage: UIImage?
-        if let assetName = action.iconImageName {
-            iconImage = UIImage(named: assetName)?
-                .withRenderingMode(useOriginalIconColor ? .alwaysOriginal : .alwaysTemplate)
-        } else if let sfName = action.sfSymbolName {
-            let config = UIImage.SymbolConfiguration(pointSize: isWarning ? 14 : 20, weight: .medium)
-            iconImage = UIImage(systemName: sfName, withConfiguration: config)
-        }
+        let iconImage = UIImage(named: action.iconImageName)?.withRenderingMode(.alwaysTemplate)
 
         var labelX: CGFloat
 
@@ -755,7 +729,7 @@ private final class MessageActionSheetNode: ASDisplayNode {
                 height: innerIconSize
             ))
             iconView.contentMode = .scaleAspectFit
-            iconView.tintColor = useOriginalIconColor ? nil : iconTint
+            iconView.tintColor = textColor
             iconView.image = iconImage
             circleView.addSubview(iconView)
 
@@ -764,7 +738,7 @@ private final class MessageActionSheetNode: ASDisplayNode {
             let iconX: CGFloat = 16
             let iconView = UIImageView(frame: CGRect(x: iconX, y: y + (height - iconSize) / 2, width: iconSize, height: iconSize))
             iconView.contentMode = .scaleAspectFit
-            iconView.tintColor = useOriginalIconColor ? nil : iconTint
+            iconView.tintColor = textColor
             iconView.image = iconImage
             parent.addSubview(iconView)
 

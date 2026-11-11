@@ -77,7 +77,7 @@ final class MessageCallLogNode: ASDisplayNode {
         }
 
         if let (imageName, color) = Self.iconInfo(callLog: callLog, isMe: isMe) {
-            iconNode.image = UIImage(named: imageName)?.withRenderingMode(.alwaysTemplate)
+            iconNode.image = UIImage(named: "Chat/\(imageName)")?.withRenderingMode(.alwaysTemplate)
             iconNode.tintColor = color
             iconNode.isHidden = false
         } else {

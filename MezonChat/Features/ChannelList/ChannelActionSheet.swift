@@ -34,7 +34,7 @@ enum ChannelAction: CaseIterable {
         switch self {
         case .markAsRead: return "ChannelSetting/MarkAsRead"
         case .markFavorite, .unmarkFavorite: return "ChannelSetting/Favorite"
-        case .copyLink: return "ClanSetting/Invite"
+        case .copyLink: return "Invite/CopyLink"
         case .mute: return "ChannelSetting/MuteChannel"
         case .unmute: return "ChannelSetting/UmuteChannelIcon"
         case .notificationSettings: return "ChannelSetting/NotificationSettings"
@@ -456,13 +456,8 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
         let icon = UIImageView()
         if let iconName = action.icon {
             guard let base = ChannelActionAssetCache.image(named: iconName) else { return v }
-            if action.isDestructive {
-                icon.image = base.withRenderingMode(.alwaysTemplate)
-                icon.tintColor = .mezonError
-            } else {
-                icon.image = base.withRenderingMode(.alwaysOriginal)
-                icon.tintColor = nil
-            }
+            icon.image = base.withRenderingMode(.alwaysTemplate)
+            icon.tintColor = action.isDestructive ? .mezonError : .mezonIconDefault
         }
         icon.contentMode = .scaleAspectFit
         v.addSubview(icon)

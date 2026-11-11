@@ -3014,7 +3014,7 @@ final class ChannelListHeaderView: UIView {
     }()
 
     private let searchIcon: UIImageView = {
-        let iv = UIImageView(image: UIImage(named: "Channel/Search"))
+        let iv = UIImageView(image: UIImage(named: "Channel/Search")?.withRenderingMode(.alwaysTemplate))
         iv.contentMode = .scaleAspectFit
         iv.translatesAutoresizingMaskIntoConstraints = false
         return iv
@@ -3042,10 +3042,10 @@ final class ChannelListHeaderView: UIView {
     private let eventButton: UIButton = {
         let btn = UIButton(type: .system)
         btn.setImage(
-            UIImage(named: "Channel/Event")?.withRenderingMode(.alwaysOriginal), for: .normal)
+            UIImage(named: "Channel/Event")?.withRenderingMode(.alwaysTemplate), for: .normal)
         btn.layer.cornerRadius = 16
         btn.layer.borderWidth = 1
-        btn.imageEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+        btn.imageEdgeInsets = UIEdgeInsets(top: 7, left: 7, bottom: 7, right: 7)
         btn.translatesAutoresizingMaskIntoConstraints = false
         return btn
     }()
@@ -3232,6 +3232,7 @@ final class ChannelListHeaderView: UIView {
         
         qrButton.backgroundColor = t.raisedSurface
         qrButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
+        eventButton.tintColor = .mezonIconDefault
         eventButton.backgroundColor = t.raisedSurface
         eventButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
         separator.backgroundColor = t.borderDim

@@ -189,8 +189,7 @@ final class FriendListContainerNode: ASDisplayNode {
         requestPillNode.cornerRadius = 12.sf
         requestPillNode.clipsToBounds = true
 
-        let paperPlaneImg = makeSymbolImage(name: "paperplane.fill", pointSize: 20.sf)
-        requestIconNode.image = paperPlaneImg
+        requestIconNode.image = UIImage(named: "Chat/SendMessageIcon")?.withRenderingMode(.alwaysTemplate)
         requestIconNode.tintColor = t.textStrong
         requestIconNode.contentMode = .scaleAspectFit
 
@@ -434,7 +433,6 @@ final class FriendListContainerNode: ASDisplayNode {
         requestPillNode.backgroundColor = t.secondary
         requestBadgeLabel.backgroundColor = .mezonUnreadBadge
         requestBadgeLabel.textColor = .white
-        requestIconNode.image = makeSymbolImage(name: "paperplane.fill", pointSize: 20.sf)
         requestIconNode.tintColor = t.textStrong
         requestChevronNode.image = makeSymbolImage(name: "chevron.right", pointSize: 12.sf, weight: .medium)
         requestChevronNode.tintColor = t.textDisabled

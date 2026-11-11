@@ -418,24 +418,9 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         v.heightAnchor.constraint(equalToConstant: 60.sh).isActive = true
 
         let iconAssetName = action.icon.split(separator: "/").last.map(String.init) ?? action.icon
-        let needsOriginalRendering = action.icon == "ClanSetting/Overview"
-            || action.icon == "ClanSetting/emoji"
-            || action.icon == "ClanSetting/Invite"
-            || action.icon == "ClanSetting/ActivityLogIcon"
-            || action.icon == "ClanSetting/GamingIcon"
-            || action.icon == "ClanSetting/StickerIcon"
-            || action.icon == "ClanSetting/SoundEffectIcon"
-            || action.icon == "ClanSetting/EnableCommunityIcon"
-            || action.icon == "ClanSetting/MemberIcon"
-            || action.icon == "ClanSetting/RolesIcon"
         let loadedImage = UIImage(named: action.icon) ?? UIImage(named: iconAssetName)
-        let iconImage = needsOriginalRendering
-            ? loadedImage?.withRenderingMode(.alwaysOriginal)
-            : loadedImage?.withRenderingMode(.alwaysTemplate)
-        let icon = UIImageView(image: iconImage)
-        if !needsOriginalRendering {
-            icon.tintColor = .mezonTextPrimary
-        }
+        let icon = UIImageView(image: loadedImage?.withRenderingMode(.alwaysTemplate))
+        icon.tintColor = .mezonIconDefault
         icon.contentMode = .scaleAspectFit
         v.addSubview(icon)
 

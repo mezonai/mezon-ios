@@ -1001,7 +1001,7 @@ final class SendMessageInputViewController: UIViewController {
         let iv = UIImageView()
         iv.translatesAutoresizingMaskIntoConstraints = false
         iv.contentMode = .scaleAspectFit
-        iv.image = UIImage(named: "Chat/MicrophoneIcon")?.withRenderingMode(.alwaysOriginal)
+        iv.image = UIImage(named: "Chat/MicrophoneIcon")?.withRenderingMode(.alwaysTemplate)
         iv.setContentHuggingPriority(.required, for: .horizontal)
         iv.setContentHuggingPriority(.required, for: .vertical)
         return iv

@@ -61,7 +61,6 @@ final class MezonRootController: NavigationController {
             image: clansImg,
             selectedImage: clansSel
         )
-        homeTab.mezonTabBarFaceAssetName = "TabBar/ClansIconFace"
         homeVC.tabBarItem = homeTab
 
         let (messagesImg, messagesSel) = Self.tabBarImage(name: "TabBar/MessagesIcon", systemFallback: "bubble.left.and.bubble.right", systemFallbackSelected: "bubble.left.and.bubble.right.fill")
@@ -71,7 +70,6 @@ final class MezonRootController: NavigationController {
             image: messagesImg,
             selectedImage: messagesSel
         )
-        messagesTab.mezonTabBarFaceAssetName = "TabBar/MessagesIconFace"
         directMessagesVC.tabBarItem = messagesTab
 
         let (notifImg, notifSel) = Self.tabBarImage(
@@ -83,7 +81,6 @@ final class MezonRootController: NavigationController {
             image: notifImg,
             selectedImage: notifSel
         )
-        notifTab.mezonTabBarFaceAssetName = "TabBar/NotificationIconFace"
         notificationsVC.tabBarItem = notifTab
 
         let (profileImg, profileSel) = Self.tabBarImage(name: "TabBar/ProfileIcon", systemFallback: "person.crop.circle", systemFallbackSelected: "person.crop.circle.fill")
@@ -93,7 +90,6 @@ final class MezonRootController: NavigationController {
             image: profileImg,
             selectedImage: profileSel
         )
-        profileTab.mezonTabBarFaceAssetName = "TabBar/ProfileIconFace"
         profileVC.tabBarItem = profileTab
 
         let controllers: [ViewController] = [homeVC, directMessagesVC, notificationsVC, profileVC]

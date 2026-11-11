@@ -211,9 +211,11 @@ final class EmojisPanel: UIView {
                 categoryCollection.reloadData()
                 emojiGrid.reloadData()
             }
-        } else if flatItems.isEmpty {
+        } else {
             categoryCollection.reloadData()
-            emojiGrid.reloadData()
+            if flatItems.isEmpty {
+                emojiGrid.reloadData()
+            }
         }
     }
 
@@ -635,7 +637,7 @@ extension EmojisPanel {
                 ?? UIImage(systemName: "bag.fill", withConfiguration: config)?.withRenderingMode(.alwaysTemplate)
         case EmojiCategoryOrdering.frequently: return UIImage(systemName: "star.fill", withConfiguration: config)
         case "People":
-            return UIImage(named: "Chat/FaceIcon")
+            return UIImage(named: "Chat/FaceIcon")?.withRenderingMode(.alwaysTemplate)
                 ?? UIImage(systemName: "face.smiling", withConfiguration: config)
         case "Nature": return UIImage(systemName: "leaf.fill", withConfiguration: config)
         case "Food": return UIImage(systemName: "fork.knife", withConfiguration: config)

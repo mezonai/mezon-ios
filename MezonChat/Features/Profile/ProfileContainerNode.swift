@@ -344,6 +344,7 @@ final class ProfileContainerNode: ASDisplayNode {
     @objc private func handleThemeOrLanguageChange() {
         applyTheme()
         updateContent()
+        updateBalanceUI()
     }
 
     private func applyTheme() {
@@ -813,21 +814,24 @@ final class ProfileContainerNode: ASDisplayNode {
         fetchWalletDetail()
         transferRow.configure(
             icon: "arrow.up.circle.fill",
-            iconImage: Self.profileImage(named: "TransferIcon"),
-            iconColor: .mezonSuccess,
+            iconImage: Self.profileImage(named: "TransferIcon")?
+                .withTintColor(.mezonIconDefault, renderingMode: .alwaysOriginal),
+            iconColor: .mezonIconDefault,
             text: L(L10n.Profile.transferFunds),
             textColor: .mezonTextStrong
         )
         historyRow.configure(
             icon: "clock.arrow.circlepath",
-            iconImage: Self.profileImage(named: "HistoryIcon"),
+            iconImage: Self.profileImage(named: "HistoryIcon")?
+                .withTintColor(.mezonTextSecondary, renderingMode: .alwaysOriginal),
             iconColor: .mezonTextSecondary,
             text: L(L10n.Profile.historyTransaction),
             textColor: .mezonTextStrong
         )
 
-        let editIcon = Self.profileImageResized(named: "EditIcon", size: 20)?.withRenderingMode(.alwaysOriginal)
-            ?? UIImage(systemName: "pencil", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf, weight: .semibold))
+        let editIcon = (Self.profileImageResized(named: "EditIcon", size: 20)
+            ?? UIImage(systemName: "pencil", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf, weight: .semibold)))?
+            .withTintColor(.white, renderingMode: .alwaysOriginal)
         if #available(iOS 15.0, *) {
             editProfileButton.configuration?.image = editIcon
             editProfileButton.configuration?.title = L(L10n.Profile.editProfile)
@@ -936,8 +940,9 @@ final class ProfileContainerNode: ASDisplayNode {
         let formattedBalance = BalanceFormatter.format(walletDetail?.balance)
         balanceRow.configure(
             icon: "checkmark.circle.fill",
-            iconImage: Self.profileImage(named: "BalanceIcon"),
-            iconColor: .mezonSuccess,
+            iconImage: Self.profileImage(named: "BalanceIcon")?
+                .withTintColor(.mezonIconDefault, renderingMode: .alwaysOriginal),
+            iconColor: .mezonIconDefault,
             text: "\(L(L10n.Profile.balance)): \(formattedBalance) \(L(L10n.Profile.currency))",
             textColor: .mezonTextStrong
         )

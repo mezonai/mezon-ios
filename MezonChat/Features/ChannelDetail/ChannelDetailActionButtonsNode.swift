@@ -135,7 +135,7 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
             actionIconImage(
                 assetName: assetName,
                 fallbackSystemName: icon,
-                fallbackTintColor: t.textStrong
+                tintColor: t.textStrong
             ),
             for: .normal
         )
@@ -215,7 +215,7 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
             actionIconImage(
                 assetName: assetName,
                 fallbackSystemName: fallbackSystemName,
-                fallbackTintColor: t.textStrong
+                tintColor: t.textStrong
             ),
             for: .normal
         )
@@ -250,7 +250,7 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
                 actionIconImage(
                     assetName: assetName,
                     fallbackSystemName: iconName,
-                    fallbackTintColor: t.textStrong
+                    tintColor: t.textStrong
                 ),
                 for: .normal
             )
@@ -267,18 +267,16 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
         updateMuteButtonState()
     }
 
-    private func actionIconImage(assetName: String?, fallbackSystemName: String, fallbackTintColor: UIColor)
+    private func actionIconImage(assetName: String?, fallbackSystemName: String, tintColor: UIColor)
         -> UIImage?
     {
         if let assetName, let assetImage = UIImage(named: assetName) {
-            if assetName.hasPrefix("ChannelSetting/") {
-                return assetImage.withRenderingMode(.alwaysOriginal)
-            }
-            return resizedOriginalIcon(assetImage)
+            let image = assetName.hasPrefix("ChannelSetting/") ? assetImage : resizedOriginalIcon(assetImage)
+            return image.withTintColor(tintColor, renderingMode: .alwaysOriginal)
         }
         let baseConfig = UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)
         let symbolImage = UIImage(systemName: fallbackSystemName, withConfiguration: baseConfig)
-        return symbolImage?.withTintColor(fallbackTintColor, renderingMode: .alwaysOriginal)
+        return symbolImage?.withTintColor(tintColor, renderingMode: .alwaysOriginal)
     }
 
     private func resizedOriginalIcon(_ image: UIImage) -> UIImage {

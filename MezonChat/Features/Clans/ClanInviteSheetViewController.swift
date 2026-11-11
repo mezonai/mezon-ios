@@ -93,14 +93,9 @@ private final class ClanInviteActionButtonNode: ASDisplayNode {
         iconWrapNode.cornerRadius = 20.swh
         iconWrapNode.clipsToBounds = true
 
-        if !iconAsset.isEmpty, let assetImage = UIImage(named: iconAsset) {
-            iconNode.image = assetImage.withRenderingMode(.alwaysOriginal)
-            iconNode.tintColor = .clear
-        } else {
-            let symbol = UIImage(systemName: fallbackSystemIcon)?.withRenderingMode(.alwaysTemplate)
-            iconNode.image = symbol
-            iconNode.tintColor = UIColor.theme.textStrong
-        }
+        iconNode.image = (UIImage(named: iconAsset) ?? UIImage(systemName: fallbackSystemIcon))?
+            .withRenderingMode(.alwaysTemplate)
+        iconNode.tintColor = .mezonIconDefault
         iconNode.contentMode = .scaleAspectFit
 
         let para = NSMutableParagraphStyle()
@@ -125,6 +120,11 @@ private final class ClanInviteActionButtonNode: ASDisplayNode {
     }
 
     @objc private func handleTap() { onTap?() }
+
+    func applyTheme() {
+        iconWrapNode.backgroundColor = UIColor.theme.secondary
+        iconNode.tintColor = .mezonIconDefault
+    }
 
     func setEnabled(_ enabled: Bool) {
         isUserInteractionEnabled = enabled
@@ -1118,7 +1118,7 @@ private final class ClanInviteSheetContainerNode: ASDisplayNode {
             title: isChannelInvite ? L(L10n.Common.share) : L(L10n.ClanInviteSheet.share)
         )
         copyButton = ClanInviteActionButtonNode(
-            iconAsset: "ClanSetting/Invite",
+            iconAsset: "Invite/CopyLink",
             fallbackSystemIcon: "link",
             title: L(L10n.ClanInviteSheet.copy)
         )
@@ -1226,6 +1226,9 @@ private final class ClanInviteSheetContainerNode: ASDisplayNode {
         inviteLinkContainerNode.backgroundColor = UIColor.theme.secondary
         updateInviteLinkText(inviteLinkNode.attributedText?.string)
         searchWrapNode.applyTheme()
+        shareButton.applyTheme()
+        copyButton.applyTheme()
+        qrButton.applyTheme()
         loadingSpinner.color = UIColor.theme.textDisabled
         loadingLabel.textColor = UIColor.theme.textDisabled
         listContainerNode.backgroundColor = UIColor.theme.secondary

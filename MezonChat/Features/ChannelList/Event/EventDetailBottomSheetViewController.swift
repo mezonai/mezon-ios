@@ -492,7 +492,8 @@ final class EventDetailBottomSheetViewController: UIViewController {
                 color: UIColor(red: 0.20, green: 0.78, blue: 0.35, alpha: 1)
             ))
         }
-        let icon = UIImageView(image: UIImage(named: "Channel/Event"))
+        let icon = UIImageView(image: UIImage(named: "Channel/Event")?.withRenderingMode(.alwaysTemplate))
+        icon.tintColor = EventDisplayHelper.statusColor(for: status)
         icon.contentMode = .scaleAspectFit
         icon.translatesAutoresizingMaskIntoConstraints = false
         icon.widthAnchor.constraint(equalToConstant: 20).isActive = true

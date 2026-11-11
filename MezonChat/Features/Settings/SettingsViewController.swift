@@ -364,7 +364,8 @@ final class SettingsViewController: BaseViewController {
                     iconView.tintColor = UIColor(hexString: "#fefefe")
                 }
             } else {
-                iconView.image = img.withRenderingMode(.alwaysOriginal)
+                iconView.image = img.withRenderingMode(.alwaysTemplate)
+                iconView.tintColor = .mezonIconDefault
             }
         }
         container.addSubview(iconView)

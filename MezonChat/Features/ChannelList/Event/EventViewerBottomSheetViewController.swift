@@ -400,7 +400,7 @@ final class EventViewerBottomSheetViewController: UIViewController {
         let iconWrap = UIView()
         iconWrap.layer.cornerRadius = 28
         iconWrap.translatesAutoresizingMaskIntoConstraints = false
-        let iconView = UIImageView(image: UIImage(named: "Channel/Event"))
+        let iconView = UIImageView(image: UIImage(named: "Channel/Event")?.withRenderingMode(.alwaysTemplate))
         iconView.contentMode = .scaleAspectFit
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconWrap.addSubview(iconView)
@@ -451,6 +451,7 @@ final class EventViewerBottomSheetViewController: UIViewController {
         guard let stack = view.subviews.first as? UIStackView else { return }
         if let iconWrap = stack.arrangedSubviews.first {
             iconWrap.backgroundColor = UIColor.theme.tertiary
+            iconWrap.tintColor = .mezonIconDefault
         }
         for case let label as UILabel in stack.arrangedSubviews {
             if label.font.pointSize >= 16 {
@@ -865,7 +866,8 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
             ))
         }
 
-        let icon = UIImageView(image: UIImage(named: "Channel/Event"))
+        let icon = UIImageView(image: UIImage(named: "Channel/Event")?.withRenderingMode(.alwaysTemplate))
+        icon.tintColor = EventDisplayHelper.statusColor(for: status)
         icon.contentMode = .scaleAspectFit
         icon.translatesAutoresizingMaskIntoConstraints = false
         icon.widthAnchor.constraint(equalToConstant: 20).isActive = true

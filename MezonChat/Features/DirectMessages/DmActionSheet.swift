@@ -515,7 +515,8 @@ private final class DmActionSheetNode: ASDisplayNode, UIGestureRecognizerDelegat
                 icon.image = base.withRenderingMode(.alwaysTemplate)
                 icon.tintColor = UIColor.theme.textStrong
             } else {
-                icon.image = base.withRenderingMode(.alwaysOriginal)
+                icon.image = base.withRenderingMode(.alwaysTemplate)
+                icon.tintColor = .mezonIconDefault
             }
         } else if case .leaveOrDeleteGroup = action {
             icon.image = UIImage(systemName: "rectangle.portrait.and.arrow.right", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18.sf))

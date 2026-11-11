@@ -104,14 +104,7 @@ final class ChannelItemCellNode: ASCellNode {
         isUserInteractionEnabled = true
     }
 
-    private static let privateVoiceIcon: UIImage = {
-        let voice = UIImage(named: "Chat/SpeakerIcon") ?? UIImage(systemName: "Chat/SpeakerIcon")
-        return UIGraphicsImageRenderer(size: CGSize(width: 24, height: 24)).image { context in
-            voice?.draw(in: CGRect(x: 0, y: 0, width: 24, height: 24))
-            context.cgContext.clear(CGRect(x: 15, y: 0, width: 9, height: 12))
-            UIImage(systemName: "lock.fill")?.draw(in: CGRect(x: 16, y: 1, width: 7, height: 10))
-        }
-    }()
+    private static let privateVoiceIcon = UIImage(named: "Channel/VoicePrivate")
 
     func applyListSelectionState(selected: Bool) {
         let theme = UIColor.theme
@@ -171,8 +164,15 @@ final class ChannelItemCellNode: ASCellNode {
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         iconNode.style.preferredSize = CGSize(width: 14.swh, height: 14.swh)
-        iconImgNode.style.preferredSize = CGSize(width: 12.swh, height: 12.swh)
-        let iconChild: ASLayoutElement = iconNode.isHidden ? iconImgNode : iconNode
+        let iconSize = 16.swh
+        iconImgNode.style.preferredSize = CGSize(width: iconSize, height: iconSize)
+        // Let the padded artwork draw larger while keeping the channel name aligned.
+        let iconInset = (12.swh - iconSize) / 2
+        let iconImageSlot = ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: iconInset, left: iconInset, bottom: iconInset, right: iconInset),
+            child: iconImgNode
+        )
+        let iconChild: ASLayoutElement = iconNode.isHidden ? iconImageSlot : iconNode
 
         let badgeInset = ASInsetLayoutSpec(
             insets: UIEdgeInsets(top: 2.swh, left: 6.swh, bottom: 2.swh, right: 6.swh),
