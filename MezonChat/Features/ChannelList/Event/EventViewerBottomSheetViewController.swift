@@ -9,13 +9,11 @@ enum EventListFilter {
     static func visibleEvents(
         from events: [Mezon_Api_EventManagement],
         channels: [Mezon_Api_ChannelDescription],
-        currentUserId: Int64,
         now: Date = Date()
     ) -> [Mezon_Api_EventManagement] {
         let channelIds = Set(channels.map(\.channelID))
         return events.filter { event in
             isActive(event, now: now)
-                && (!event.isPrivate || (currentUserId != 0 && event.creatorID == currentUserId))
                 && (event.channelID == 0 || channelIds.contains(event.channelID))
         }
     }
@@ -256,20 +254,25 @@ final class EventViewerBottomSheetViewController: UIViewController {
         eventsDisposable?.dispose()
     }
 
-    func updateChannels(_ channels: [Mezon_Api_ChannelDescription], clanId: Int64) {
+    func updateChannels(
+        _ channels: [Mezon_Api_ChannelDescription],
+        clanId: Int64,
+        removedChannelIds: Set<Int64> = []
+    ) {
         guard clanId == self.clanId else { return }
         let needsReload = self.channels.count != channels.count || zip(self.channels, channels).contains {
             $0.channelID != $1.channelID || $0.channelLabel != $1.channelLabel
         }
         self.channels = channels
-        if needsReload {
-            if isViewLoaded { reloadEvents() }
-            eventDetail?.updateChannels(channels, clanId: clanId)
+        if needsReload, isViewLoaded { reloadEvents() }
+        if needsReload || !removedChannelIds.isEmpty {
+            eventDetail?.updateChannels(channels, removedChannelIds: removedChannelIds)
         }
     }
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        view.accessibilityIdentifier = AccessibilityID.Event.list
         configureSheet()
         buildContent()
         applyTheme()
@@ -487,8 +490,7 @@ final class EventViewerBottomSheetViewController: UIViewController {
     private func filteredEvents() -> [Mezon_Api_EventManagement] {
         EventListFilter.visibleEvents(
             from: allEventsSource(),
-            channels: channels,
-            currentUserId: context.currentUserNumericID ?? 0
+            channels: channels
         )
     }
 
@@ -640,6 +642,7 @@ final class EventViewerBottomSheetViewController: UIViewController {
     }
 
     private func presentEventDetail(_ event: Mezon_Api_EventManagement) {
+        guard !EventListFilter.visibleEvents(from: [event], channels: channels).isEmpty else { return }
         let vc = EventDetailBottomSheetViewController(
             context: context,
             clanId: clanId,
@@ -964,6 +967,7 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
 
         let titleLabel = UILabel()
         titleLabel.text = event.title
+        titleLabel.accessibilityIdentifier = AccessibilityID.Event.itemTitle(event.id)
         titleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
         titleLabel.textColor = UIColor.theme.textStrong
         titleLabel.numberOfLines = 0

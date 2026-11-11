@@ -305,8 +305,14 @@ enum FileIngestHLSCopy {
         case failed
     }
 
-    static func makeFile(attachmentURL: String, progress: @escaping (Double) -> Void, completion: @escaping (Outcome) -> Void) {
+    static func makeFile(
+        attachmentURL: String,
+        shouldContinue: @escaping () -> Bool = { true },
+        progress: @escaping (Double) -> Void,
+        completion: @escaping (Outcome) -> Void
+    ) {
         FileIngestPlaylist.finishedParts(attachmentURL: attachmentURL) { finished in
+            guard shouldContinue() else { completion(.failed); return }
             let parts: [URL]
             switch finished {
             case .parts(let found):
@@ -327,7 +333,7 @@ enum FileIngestHLSCopy {
                 completion(.failed)
                 return
             }
-            append(parts, from: 0, to: handle, progress: progress) { failure in
+            append(parts, from: 0, to: handle, shouldContinue: shouldContinue, progress: progress) { failure in
                 try? handle.close()
                 if let failure {
                     try? FileManager.default.removeItem(at: joined)
@@ -352,12 +358,21 @@ enum FileIngestHLSCopy {
         return false
     }
 
-    private static func append(_ parts: [URL], from index: Int, to handle: FileHandle, progress: @escaping (Double) -> Void, completion: @escaping (Outcome?) -> Void) {
+    private static func append(
+        _ parts: [URL],
+        from index: Int,
+        to handle: FileHandle,
+        shouldContinue: @escaping () -> Bool,
+        progress: @escaping (Double) -> Void,
+        completion: @escaping (Outcome?) -> Void
+    ) {
+        guard shouldContinue() else { completion(.failed); return }
         guard index < parts.count else {
             completion(nil)
             return
         }
         session.downloadTask(with: parts[index]) { location, response, error in
+            guard shouldContinue() else { completion(.failed); return }
             if let error {
                 completion(isOutOfSpace(error) ? .outOfSpace : .unreachable)
                 return
@@ -378,7 +393,7 @@ enum FileIngestHLSCopy {
                 return
             }
             progress(Double(index + 1) / Double(parts.count))
-            append(parts, from: index + 1, to: handle, progress: progress, completion: completion)
+            append(parts, from: index + 1, to: handle, shouldContinue: shouldContinue, progress: progress, completion: completion)
         }.resume()
     }
 

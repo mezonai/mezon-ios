@@ -3046,6 +3046,7 @@ final class ChannelListHeaderView: UIView {
 
     private let eventButton: UIButton = {
         let btn = UIButton(type: .system)
+        btn.accessibilityIdentifier = AccessibilityID.Event.openList
         btn.setImage(
             UIImage(named: "Channel/Event")?.withRenderingMode(.alwaysOriginal), for: .normal)
         btn.layer.cornerRadius = 16
@@ -3061,6 +3062,7 @@ final class ChannelListHeaderView: UIView {
         view.layer.cornerRadius = 9
         view.isHidden = true
         view.isUserInteractionEnabled = false
+        view.accessibilityElementsHidden = true
         view.translatesAutoresizingMaskIntoConstraints = false
         return view
     }()
@@ -3117,10 +3119,14 @@ final class ChannelListHeaderView: UIView {
 
         qrButton.addTarget(self, action: #selector(qrTapped), for: .touchUpInside)
         eventButton.addTarget(self, action: #selector(eventTapped), for: .touchUpInside)
-        eventButton.addSubview(eventBadgeView)
+        let eventButtonContainer = UIView()
+        eventButtonContainer.translatesAutoresizingMaskIntoConstraints = false
+        eventButtonContainer.addSubview(eventButton)
+        // Keep the badge above the button layer, which draws its border over its sublayers.
+        eventButtonContainer.addSubview(eventBadgeView)
         eventBadgeView.addSubview(eventCountLabel)
 
-        let actionRow = UIStackView(arrangedSubviews: [searchBar, qrButton, eventButton])
+        let actionRow = UIStackView(arrangedSubviews: [searchBar, qrButton, eventButtonContainer])
         actionRow.axis = .horizontal
         actionRow.spacing = 8
         actionRow.alignment = .center
@@ -3180,6 +3186,10 @@ final class ChannelListHeaderView: UIView {
             qrButton.heightAnchor.constraint(equalToConstant: 32),
             eventButton.widthAnchor.constraint(equalToConstant: 32),
             eventButton.heightAnchor.constraint(equalToConstant: 32),
+            eventButton.topAnchor.constraint(equalTo: eventButtonContainer.topAnchor),
+            eventButton.leadingAnchor.constraint(equalTo: eventButtonContainer.leadingAnchor),
+            eventButton.trailingAnchor.constraint(equalTo: eventButtonContainer.trailingAnchor),
+            eventButton.bottomAnchor.constraint(equalTo: eventButtonContainer.bottomAnchor),
             eventBadgeView.topAnchor.constraint(equalTo: eventButton.topAnchor, constant: -5),
             eventBadgeView.trailingAnchor.constraint(equalTo: eventButton.trailingAnchor, constant: 5),
             eventBadgeView.heightAnchor.constraint(equalToConstant: 18),

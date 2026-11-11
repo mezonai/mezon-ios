@@ -49,6 +49,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
     private let contentStack = UIStackView()
     private let interestButton = UIButton(type: .custom)
     private var eventsDisposable: Disposable?
+    private var audienceRefreshChannelId: Int64?
 
     init(
         context: AccountContext,
@@ -78,6 +79,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        view.accessibilityIdentifier = AccessibilityID.Event.detail
         configureSheet()
         buildContent()
         applyTheme()
@@ -106,10 +108,9 @@ final class EventDetailBottomSheetViewController: UIViewController {
         rebuildContent()
     }
 
-    func updateChannels(_ channels: [Mezon_Api_ChannelDescription], clanId: Int64) {
-        guard clanId == self.clanId else { return }
+    func updateChannels(_ channels: [Mezon_Api_ChannelDescription], removedChannelIds: Set<Int64>) {
         self.channels = channels
-        if isViewLoaded { rebuildContent() }
+        if isViewLoaded { rebuildContent(removedChannelIds: removedChannelIds) }
     }
 
     @objc private func themeDidChange() {
@@ -276,20 +277,43 @@ final class EventDetailBottomSheetViewController: UIViewController {
         present(invite, animated: true)
     }
 
-    private func rebuildContent() {
+    private func rebuildContent(removedChannelIds: Set<Int64> = []) {
         let events = context.engine.clanData.getClanEvents(clanId: clanId)?.events ?? [event]
-        guard let updated = EventListFilter.visibleEvents(
-            from: events,
-            channels: channels,
-            currentUserId: context.currentUserNumericID ?? 0
-        )
-            .first(where: { $0.id == event.id }) else {
+        guard let updated = events.first(where: { $0.id == event.id }),
+              EventListFilter.isActive(updated),
+              !removedChannelIds.contains(updated.channelID) else {
             dismissDetail()
             return
+        }
+
+        if updated.channelID != 0, !channels.contains(where: { $0.channelID == updated.channelID }) {
+            // The channel snapshot can be partial. ListEvents also checks audience access.
+            guard !removedChannelIds.contains(event.channelID) else {
+                dismissDetail()
+                return
+            }
+            refreshEventsForMissingAudience(updated.channelID)
+            // Keep the last visible event if a socket update moves it to an unknown audience.
+            guard updated.channelID == event.channelID else { return }
+        } else {
+            audienceRefreshChannelId = nil
         }
         event = updated
         updateInterestedSegmentTitle()
         showTab(segmentedControl.selectedSegmentIndex)
+    }
+
+    private func refreshEventsForMissingAudience(_ channelId: Int64) {
+        guard audienceRefreshChannelId != channelId, NetworkMonitor.shared.isConnected else { return }
+        audienceRefreshChannelId = channelId
+        let epoch = context.sessionEpoch
+        Task { @MainActor [weak self] in
+            guard let self,
+                  let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait(),
+                  self.context.isStillCurrentSession(epoch: epoch),
+                  self.audienceRefreshChannelId == channelId else { return }
+            await self.context.engine.clanData.refetchEvents(clanId: self.clanId, token: token)
+        }
     }
 
     private func makeDetailCard() -> UIView {
