@@ -170,12 +170,13 @@ struct ParsedContent {
     var isPlainText: Bool { tokens.isEmpty && embeds.isEmpty && ogpPreviews.isEmpty }
 
     var isOnlyEmoji: Bool {
-        guard !tokens.isEmpty else { return false }
-        let emojiTokens = tokens.filter {
+        let structuralTokens = tokens.filter { !$0.kind.isInlineStyle }
+        guard !structuralTokens.isEmpty else { return false }
+        let emojiTokens = structuralTokens.filter {
             if case .emoji = $0.kind { return true }
             return false
         }
-        guard emojiTokens.count == tokens.count else { return false }
+        guard emojiTokens.count == structuralTokens.count else { return false }
         let len = text.utf16.count
         var gaps: [String] = []
         var cursor = 0
@@ -201,8 +202,16 @@ enum ContentTokenKind: Equatable {
     case inlineCode
     case codeBlock
     case bold
+    case italic
     case strikethrough
     case link
+
+    var isInlineStyle: Bool {
+        switch self {
+        case .bold, .italic, .strikethrough: return true
+        default: return false
+        }
+    }
 }
 
 struct ContentToken: Equatable {
@@ -382,6 +391,10 @@ enum MessageContentParser {
         var acceptedEnd: Int?
         for entry in sorted {
             let token = entry.element
+            if token.kind.isInlineStyle {
+                accepted.append(token)
+                continue
+            }
             if let end = acceptedEnd, token.start < end {
                 continue
             }
@@ -564,14 +577,16 @@ enum MessageContentParser {
             let mkClanId = normalizedMkId(item["clanId"]) ?? ""
 
             switch type {
-            case "c":
+            case "c", "s":
                 return ContentToken(start: s, end: e, kind: .inlineCode)
-            case "s":
-                return ContentToken(start: s, end: e, kind: .strikethrough)
             case "t", "pre":
                 return ContentToken(start: s, end: e, kind: .codeBlock)
             case "b":
                 return ContentToken(start: s, end: e, kind: .bold)
+            case "i":
+                return ContentToken(start: s, end: e, kind: .italic)
+            case "st":
+                return ContentToken(start: s, end: e, kind: .strikethrough)
             case "lk_yt", "lk_fb", "lk_tt":
                 return ContentToken(start: s, end: e, kind: .link)
             case "vk", "lk":
@@ -591,7 +606,7 @@ enum MessageContentParser {
                 }
                 return ContentToken(start: s, end: e, kind: .link)
             default:
-                return ContentToken(start: s, end: e, kind: .bold)
+                return nil
             }
         }
     }
