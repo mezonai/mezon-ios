@@ -2365,68 +2365,14 @@ final class SendMessageInputViewController: UIViewController {
         layoutSuperviewForComposerChange(shouldAnimateSuperview: heightChanged, duration: 0.2)
     }
 
-    private static func mapUTF16InDisplayToEditing(_ p: Int, endDeltas: [(end: Int, delta: Int)]) -> Int {
-        var t = p
-        for d in endDeltas where d.end <= t {
-            t += d.delta
-        }
-        return t
-    }
-
-    private static func mapNSRangeFromDisplayToEditing(_ r: NSRange, endDeltas: [(end: Int, delta: Int)]) -> NSRange {
-        let s0 = r.location
-        let e0 = r.location + r.length
-        let s1 = mapUTF16InDisplayToEditing(s0, endDeltas: endDeltas)
-        let e1 = mapUTF16InDisplayToEditing(e0, endDeltas: endDeltas)
-        return NSRange(location: s1, length: e1 - s1)
-    }
-
-    private static func editingComposerRestoredText(from parsed: ParsedContent) -> (String, [(end: Int, delta: Int)]) {
-        var text = parsed.text
-        var endDeltas: [(end: Int, delta: Int)] = []
-        let md = parsed.tokens.filter { t in
-            switch t.kind {
-            case .inlineCode, .codeBlock, .bold, .strikethrough: return true
-            default: return false
-            }
-        }
-        .sorted { $0.start > $1.start }
-        for token in md {
-            guard token.start >= 0, token.end <= (text as NSString).length, token.start < token.end else { continue }
-            let r = NSRange(location: token.start, length: token.end - token.start)
-            let inner = (text as NSString).substring(with: r)
-            let wrapped: String?
-            switch token.kind {
-            case .inlineCode:
-                wrapped = "`" + inner + "`"
-            case .codeBlock:
-                wrapped = "```" + inner + "```"
-            case .bold:
-                wrapped = "**" + inner + "**"
-            case .strikethrough:
-                wrapped = "~~" + inner + "~~"
-            default:
-                wrapped = nil
-            }
-            guard let w = wrapped else { continue }
-            let oldLen = r.length
-            let newLen = (w as NSString).length
-            let ms = NSMutableString(string: text)
-            ms.replaceCharacters(in: r, with: w)
-            text = ms as String
-            endDeltas.append((end: token.end, delta: newLen - oldLen))
-        }
-        return (text, endDeltas)
-    }
-
     private func populateComposerFromEditDisplay(_ display: ChatMessageDisplay) {
         let parsed = display.parsedContent
         activeMentions.removeAll()
         activeHashtags.removeAll()
         emojiIdByColonToken.removeAll()
 
-        let (reconstructed, displayToEditDeltas) = Self.editingComposerRestoredText(from: parsed)
-        let fullText = reconstructed
+        let editSource = ComposerContentPayloadBuilder.editSource(text: parsed.text, tokens: parsed.tokens)
+        let fullText = editSource.text
         let normalAttrs = composerNormalTypingAttributes()
         let highlightAttrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.boldSystemFont(ofSize: 15.sf),
@@ -2441,7 +2387,7 @@ final class SendMessageInputViewController: UIViewController {
         for token in sorted {
             guard token.start >= 0, token.end <= displayUTF16Count, token.start < token.end else { continue }
             let rDisplay = NSRange(location: token.start, length: token.end - token.start)
-            let r = Self.mapNSRangeFromDisplayToEditing(rDisplay, endDeltas: displayToEditDeltas)
+            let r = editSource.editRange(fromDisplay: rDisplay)
             guard r.location >= 0, r.location + r.length <= (fullText as NSString).length else { continue }
             switch token.kind {
             case .mention(let userIdStr, let roleIdStr, let username):
@@ -5388,7 +5334,11 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func sendEphemeralMessage(text: String, receiverId: Int64) {
-        let built = ComposerContentPayloadBuilder.build(rawInput: text, emojiIdByColon: emojiIdByColonToken)
+        let built = ComposerContentPayloadBuilder.build(
+            rawInput: text,
+            emojiIdByColon: emojiIdByColonToken,
+            protectedRanges: markdownProtectedRanges(in: text)
+        )
         let displayText = built.displayText
         let mentionList = buildMentionList(displayPlain: displayText)
         let contentData = makeOutgoingContentData(
@@ -5462,7 +5412,11 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func sendBotCommand(_ command: BotFlashCommand, text: String, handler: (BotCommandDispatch) -> Void) {
-        let built = ComposerContentPayloadBuilder.build(rawInput: text, emojiIdByColon: emojiIdByColonToken)
+        let built = ComposerContentPayloadBuilder.build(
+            rawInput: text,
+            emojiIdByColon: emojiIdByColonToken,
+            protectedRanges: markdownProtectedRanges(in: text)
+        )
         let displayText = built.displayText
         let mentionList = buildMentionList(displayPlain: displayText)
         let contentData = makeOutgoingContentData(
@@ -5934,6 +5888,22 @@ final class SendMessageInputViewController: UIViewController {
         return false
     }
 
+
+    private func markdownProtectedRanges(in raw: String) -> [NSRange] {
+        let ns = raw as NSString
+        func sequentialRanges(of needles: [String]) -> [NSRange] {
+            var searchStart = 0
+            return needles.compactMap { needle in
+                guard needle.count > 1, searchStart < ns.length else { return nil }
+                let r = ns.range(of: needle, range: NSRange(location: searchStart, length: ns.length - searchStart))
+                guard r.location != NSNotFound else { return nil }
+                searchStart = NSMaxRange(r)
+                return r
+            }
+        }
+        return sequentialRanges(of: activeMentions.map { "@\($0.displayName)" })
+            + sequentialRanges(of: activeHashtags.map { "#\($0.channelLabel)" })
+    }
 
     private func buildMentionList(displayPlain: String) -> [Mezon_Api_MessageMention] {
         let plain = displayPlain as NSString
@@ -6803,7 +6773,11 @@ final class SendMessageInputViewController: UIViewController {
         }
 
         let replyRef: Mezon_Api_MessageRef? = isEdit ? nil : buildReplyRef()
-        let built = ComposerContentPayloadBuilder.build(rawInput: text, emojiIdByColon: emojiIdByColonToken)
+        let built = ComposerContentPayloadBuilder.build(
+            rawInput: text,
+            emojiIdByColon: emojiIdByColonToken,
+            protectedRanges: markdownProtectedRanges(in: text)
+        )
         let displayText = built.displayText
         let mentionList = buildMentionList(displayPlain: displayText)
         let hashtagListForContent = buildHashtagList(displayPlain: displayText)
