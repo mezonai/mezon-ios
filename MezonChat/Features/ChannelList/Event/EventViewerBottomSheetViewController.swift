@@ -9,11 +9,13 @@ enum EventListFilter {
     static func visibleEvents(
         from events: [Mezon_Api_EventManagement],
         channels: [Mezon_Api_ChannelDescription],
+        currentUserId: Int64,
         now: Date = Date()
     ) -> [Mezon_Api_EventManagement] {
         let channelIds = Set(channels.map(\.channelID))
         return events.filter { event in
             isActive(event, now: now)
+                && (!event.isPrivate || (currentUserId != 0 && event.creatorID == currentUserId))
                 && (event.channelID == 0 || channelIds.contains(event.channelID))
         }
     }
@@ -485,7 +487,8 @@ final class EventViewerBottomSheetViewController: UIViewController {
     private func filteredEvents() -> [Mezon_Api_EventManagement] {
         EventListFilter.visibleEvents(
             from: allEventsSource(),
-            channels: channels
+            channels: channels,
+            currentUserId: context.currentUserNumericID ?? 0
         )
     }
 

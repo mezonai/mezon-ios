@@ -277,8 +277,12 @@ final class EventDetailBottomSheetViewController: UIViewController {
     }
 
     private func rebuildContent() {
-        let events = context.engine.clanData.getClanEvents(clanId: clanId)?.events ?? []
-        guard let updated = EventListFilter.visibleEvents(from: events, channels: channels)
+        let events = context.engine.clanData.getClanEvents(clanId: clanId)?.events ?? [event]
+        guard let updated = EventListFilter.visibleEvents(
+            from: events,
+            channels: channels,
+            currentUserId: context.currentUserNumericID ?? 0
+        )
             .first(where: { $0.id == event.id }) else {
             dismissDetail()
             return
