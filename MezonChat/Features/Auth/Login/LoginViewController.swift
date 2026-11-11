@@ -205,7 +205,7 @@ final class LoginViewController: ViewController, AuthScreenStatusBarStyle {
             let session = try await self.context.account.network.authenticateEmail(email: email.trimmingCharacters(in: .whitespaces), password: password)
             handleSessionReceived(session)
         } catch {
-            setErrorMessage(error.localizedDescription)
+            setErrorMessage(error.userMessage)
         }
         setIsLoading(false)
     }
@@ -220,7 +220,7 @@ final class LoginViewController: ViewController, AuthScreenStatusBarStyle {
             startCooldown()
             pushOTPScreen(otpContext: OTPContext(reqId: reqId, target: email.trimmingCharacters(in: .whitespaces), type: .email))
         } catch {
-            setErrorMessage(error.localizedDescription)
+            setErrorMessage(error.userMessage(fallback: L(L10n.OTPVerify.sendOtpError)))
         }
         setIsLoading(false)
     }
@@ -236,7 +236,7 @@ final class LoginViewController: ViewController, AuthScreenStatusBarStyle {
             startCooldown()
             pushOTPScreen(otpContext: OTPContext(reqId: reqId, target: fullPhone, type: .sms))
         } catch {
-            setErrorMessage(error.localizedDescription)
+            setErrorMessage(error.userMessage(fallback: L(L10n.OTPVerify.sendOtpError)))
         }
         setIsLoading(false)
     }

@@ -645,7 +645,7 @@ final class DirectMessagesViewController: ViewController {
                 }
                 self.removeDmChannelFromList(channelId: channel.channelID)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -661,7 +661,7 @@ final class DirectMessagesViewController: ViewController {
                 )
                 self.removeDmChannelFromList(channelId: channel.channelID)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -682,7 +682,7 @@ final class DirectMessagesViewController: ViewController {
                 }
                 await self.context.engine.friendsData.refreshFromNetwork(token: token, force: true)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -703,7 +703,7 @@ final class DirectMessagesViewController: ViewController {
                 }
                 await self.context.engine.friendsData.refreshFromNetwork(token: token, force: true)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -754,7 +754,7 @@ final class DirectMessagesViewController: ViewController {
                     ]
                 )
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -1084,7 +1084,7 @@ final class DirectMessagesViewController: ViewController {
                 let chatVC = ChatViewController(clanId: 0, channel: channel, context: self.context, parentName: nil)
                 self.navigationController?.pushViewController(chatVC, animated: true)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -2010,7 +2010,7 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
                     self.onChannelCreated(updated)
                     self.navigationController?.popViewController(animated: true)
                 } catch {
-                    Toast.error(error.localizedDescription.isEmpty ? L(L10n.DirectMessage.createFailed) : error.localizedDescription)
+                    Toast.error(error.userMessage(fallback: L(L10n.DirectMessage.createFailed)))
                 }
                 return
             }
@@ -2043,7 +2043,7 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
                 if Self.isGroupAlreadyExists(error) {
                     Toast.error(L(L10n.DirectMessage.groupAlreadyExists))
                 } else {
-                    Toast.error(error.localizedDescription.isEmpty ? L(L10n.DirectMessage.createFailed) : error.localizedDescription)
+                    Toast.error(error.userMessage(fallback: L(L10n.DirectMessage.createFailed)))
                 }
             }
         }

@@ -48,12 +48,12 @@ final class MediaActionHandler {
             case .authorized:
                 PHPhotoLibrary.shared().performChanges({
                     PHAssetChangeRequest.creationRequestForAsset(from: image)
-                }, completionHandler: { success, error in
+                }, completionHandler: { success, _ in
                     DispatchQueue.main.async {
                         if success {
                             Toast.success(L(L10n.Gallery.imageSaved))
                         } else {
-                            Toast.error(error?.localizedDescription ?? L(L10n.Gallery.imageSaveFailed))
+                            Toast.error(L(L10n.Gallery.imageSaveFailed))
                         }
                     }
                 })
@@ -90,12 +90,19 @@ final class MediaActionHandler {
                             }
                         }
                     }
-                }) { [weak self] tempURL, _, error in
+                }) { [weak self] tempURL, response, error in
                     guard let self else { return }
-                    guard let tempURL, error == nil else {
+                    let statusCode = (response as? HTTPURLResponse)?.statusCode
+                    let isHTTPFailure = statusCode.map { !(200...299).contains($0) } ?? false
+                    guard let tempURL, error == nil, !isHTTPFailure else {
+                        if statusCode == 403 || statusCode == 404 {
+                            self.saveFinishedHLSCopy(of: remoteURL)
+                            return
+                        }
+                        let message = Self.videoDownloadFailureMessage(error)
                         DispatchQueue.main.async {
                             self.finishVideoSave()
-                            Toast.error(error?.localizedDescription ?? L(L10n.Gallery.videoSaveFailed))
+                            Toast.error(message)
                         }
                         return
                     }
@@ -110,33 +117,17 @@ final class MediaActionHandler {
                         }
                         try FileManager.default.moveItem(at: tempURL, to: destURL)
                     } catch {
+                        let message = FileIngestHLSCopy.isOutOfSpace(error)
+                            ? L(L10n.Gallery.videoSaveNoSpace)
+                            : L(L10n.Gallery.videoSaveFailed)
                         DispatchQueue.main.async {
                             self.finishVideoSave()
-                            Toast.error(L(L10n.Gallery.videoSaveFailed))
+                            Toast.error(message)
                         }
                         return
                     }
 
-                    DispatchQueue.main.async {
-                        self.updateVideoSaveOverlaySavingPhase()
-                    }
-
-                    let savedAt = Date()
-                    PHPhotoLibrary.shared().performChanges({
-                        let request = PHAssetCreationRequest.forAsset()
-                        request.creationDate = savedAt
-                        request.addResource(with: .video, fileURL: destURL, options: nil)
-                    }, completionHandler: { success, saveError in
-                        try? FileManager.default.removeItem(at: destURL)
-                        DispatchQueue.main.async {
-                            self.finishVideoSave()
-                            if success {
-                                Toast.success(L(L10n.Gallery.videoSaved))
-                            } else {
-                                Toast.error(saveError?.localizedDescription ?? L(L10n.Gallery.videoSaveFailed))
-                            }
-                        }
-                    })
+                    self.addVideoToPhotoLibrary(destURL)
                 }
             case .denied:
                 self.finishVideoSave()
@@ -146,6 +137,79 @@ final class MediaActionHandler {
                 Toast.error(L(L10n.Gallery.photoPermissionDenied))
             }
         }
+    }
+
+    private func saveFinishedHLSCopy(of remoteURL: URL) {
+        DispatchQueue.main.async {
+            self.videoSaveProgressObservation?.invalidate()
+            self.videoSaveProgressObservation = nil
+            self.showVideoSaveOverlay(progress: 0)
+        }
+        FileIngestHLSCopy.makeFile(attachmentURL: remoteURL.absoluteString, progress: { [weak self] fraction in
+            DispatchQueue.main.async {
+                guard let self, self.isSavingVideo else { return }
+                self.showVideoSaveOverlay(progress: Float(fraction))
+            }
+        }) { [weak self] outcome in
+            if case .file(let fileURL) = outcome {
+                guard let self else {
+                    try? FileManager.default.removeItem(at: fileURL)
+                    return
+                }
+                self.addVideoToPhotoLibrary(fileURL)
+                return
+            }
+            guard let self else { return }
+            let message = Self.videoCopyFailureMessage(outcome)
+            DispatchQueue.main.async {
+                self.finishVideoSave()
+                Toast.error(message)
+            }
+        }
+    }
+
+    static func videoCopyFailureMessage(_ outcome: FileIngestHLSCopy.Outcome) -> String {
+        switch outcome {
+        case .stillUploading:
+            return L(L10n.Gallery.videoStillUploading)
+        case .unreachable:
+            return L(L10n.Gallery.videoDownloadNetworkFailed)
+        case .outOfSpace:
+            return L(L10n.Gallery.videoSaveNoSpace)
+        case .file, .unavailable, .failed:
+            return L(L10n.Gallery.videoSaveFailed)
+        }
+    }
+
+    static func videoDownloadFailureMessage(_ error: Error?) -> String {
+        guard let error else { return L(L10n.Gallery.videoSaveFailed) }
+        if FileIngestHLSCopy.isOutOfSpace(error) { return L(L10n.Gallery.videoSaveNoSpace) }
+        if error is URLError { return L(L10n.Gallery.videoDownloadNetworkFailed) }
+        return L(L10n.Gallery.videoSaveFailed)
+    }
+
+    private func addVideoToPhotoLibrary(_ fileURL: URL) {
+        DispatchQueue.main.async {
+            self.updateVideoSaveOverlaySavingPhase()
+        }
+
+        let savedAt = Date()
+        PHPhotoLibrary.shared().performChanges({
+            let request = PHAssetCreationRequest.forAsset()
+            request.creationDate = savedAt
+            request.addResource(with: .video, fileURL: fileURL, options: nil)
+        }, completionHandler: { success, error in
+            try? FileManager.default.removeItem(at: fileURL)
+            let isOutOfSpace = error.map(FileIngestHLSCopy.isOutOfSpace) ?? false
+            DispatchQueue.main.async {
+                self.finishVideoSave()
+                if success {
+                    Toast.success(L(L10n.Gallery.videoSaved))
+                } else {
+                    Toast.error(L(isOutOfSpace ? L10n.Gallery.videoSaveNoSpace : L10n.Gallery.videoSaveFailed))
+                }
+            }
+        })
     }
 
     private func requestPhotoLibrarySaveAuthorization(completion: @escaping (PhotoLibrarySaveAuthorizationResult) -> Void) {

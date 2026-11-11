@@ -739,7 +739,7 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
                 ImageCache.shared.setImage(image, data: data, forKey: self.draft.logoURL)
             } catch is CancellationError {
             } catch {
-                self.showError(error.localizedDescription)
+                self.showError(error.userMessage)
             }
         }
     }
@@ -771,7 +771,7 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
                 self.dismiss(animated: true) {
                     Toast.success(L(self.original == nil ? L10n.EventEditor.created : L10n.EventEditor.updated))
                 }
-            } catch { self.showError(error.localizedDescription) }
+            } catch { self.showError(error.userMessage) }
         }
     }
 
@@ -850,7 +850,7 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
     }
 }
 
-private enum EventEditorError: LocalizedError {
+private enum EventEditorError: UserFacingError {
     case sessionExpired
     var errorDescription: String? { L(L10n.EventEditor.sessionExpired) }
 }

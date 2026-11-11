@@ -1765,10 +1765,7 @@ final class ChannelListViewController: ViewController {
         Task { @MainActor [weak self] in
             defer { self?.onboardingMemberFetchInFlight = false }
             guard let self else { return }
-            guard let token = await self.context.getToken() else {
-                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
-                return
-            }
+            guard let token = await self.context.getToken() else { return }
             do {
                 let response = try await self.context.account.network.listClanUsers(
                     clanId: self.clanId,
@@ -2304,7 +2301,7 @@ final class ChannelListViewController: ViewController {
                     userInfo: ["channelId": channel.channelID, "clanId": channel.clanID]
                 )
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -2322,7 +2319,7 @@ final class ChannelListViewController: ViewController {
                     userInfo: ["clanId": clanId, "categoryId": Int64(0)]
                 )
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -2346,7 +2343,7 @@ final class ChannelListViewController: ViewController {
                 persistFullChannelListCache(clanId: clanId, channels: allChannels, categoryDescs: channelListCategoryDescs, favoriteIds: channelListFavoriteIds, categories: cats)
                 needsReloadPipe.putNext(())
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -2370,7 +2367,7 @@ final class ChannelListViewController: ViewController {
                 persistFullChannelListCache(clanId: clanId, channels: allChannels, categoryDescs: channelListCategoryDescs, favoriteIds: channelListFavoriteIds, categories: cats)
                 needsReloadPipe.putNext(())
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -2521,7 +2518,7 @@ final class ChannelListViewController: ViewController {
                 try await MezonHTTPClient.shared.deleteChannelDesc(channelId: channel.channelID, clanId: channel.clanID, token: token)
                 context.engine.clanData.removeChannelLocally(clanId: channel.clanID, channelId: channel.channelID, channelType: channel.type)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -2533,7 +2530,7 @@ final class ChannelListViewController: ViewController {
                 try await MezonHTTPClient.shared.leaveThread(clanId: channel.clanID, channelId: channel.channelID, token: token)
                 context.engine.clanData.removeChannelLocally(clanId: channel.clanID, channelId: channel.channelID)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -3439,23 +3436,23 @@ final class ChannelListViewController: ViewController {
 
     private func openChannelApp(_ app: Mezon_Api_ChannelAppResponse) {
         guard app.appID != 0, !app.appURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            Toast.error("App unavailable")
+            Toast.error(L(L10n.ChannelApp.unavailable))
             return
         }
         Task { @MainActor [weak self] in
             guard let self else { return }
             guard let token = await self.context.getToken() else {
-                Toast.error("Session unavailable")
+                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
                 return
             }
             do {
                 let webAppData = try await self.context.account.network.generateChannelAppHash(appId: app.appID, token: token)
                 guard !webAppData.isEmpty else {
-                    Toast.error("App unavailable")
+                    Toast.error(L(L10n.ChannelApp.unavailable))
                     return
                 }
                 guard let url = app.channelAppWebPageURL(webAppData: webAppData) else {
-                    Toast.error("App unavailable")
+                    Toast.error(L(L10n.ChannelApp.unavailable))
                     return
                 }
                 let title = app.appName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3468,14 +3465,14 @@ final class ChannelListViewController: ViewController {
                 } else if let host = self.presentationWindowHostForChannelApp() {
                     host.presentInGlobalOverlay(vc)
                 } else {
-                    Toast.error("App unavailable")
+                    Toast.error(L(L10n.ChannelApp.unavailable))
                     return
                 }
                 DispatchQueue.main.async {
                     navForOverlay?.requestLayout(transition: .immediate)
                 }
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }

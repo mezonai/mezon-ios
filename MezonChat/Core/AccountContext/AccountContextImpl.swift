@@ -1178,7 +1178,7 @@ final class AccountContextImpl: AccountContext {
                 NotificationCenter.default.post(
                     name: Notification.Name("MezonChannelMessageDeleted"),
                     object: nil,
-                    userInfo: ["channelId": channelId, "clanId": clanId]
+                    userInfo: ["channelId": channelId, "clanId": clanId, "messageId": apiMessage.messageID]
                 )
                 return
             }
@@ -1277,6 +1277,7 @@ final class AccountContextImpl: AccountContext {
                 ) && DmBadgeMessageDedup.markCounted(messageCopy.messageID)
                 var userInfo: [String: Any] = [
                     "channelId": channelId, "clanId": clanId,
+                    "messageId": messageCopy.messageID,
                     "senderId": String(messageCopy.senderID), "mode": messageCopy.mode,
                     "timestampSeconds": messageCopy.createTimeSeconds,
                     "messageCode": messageCopy.code,
@@ -1346,7 +1347,7 @@ final class AccountContextImpl: AccountContext {
             NotificationCenter.default.post(
                 name: Notification.Name("MezonChannelMessageDeleted"),
                 object: nil,
-                userInfo: ["channelId": removed.channelID, "clanId": removed.clanID]
+                userInfo: ["channelId": removed.channelID, "clanId": removed.clanID, "messageId": removed.messageID]
             )
 
         case .lastSeen(let e):

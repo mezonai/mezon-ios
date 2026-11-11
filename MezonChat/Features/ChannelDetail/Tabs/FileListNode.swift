@@ -292,7 +292,7 @@ final class FileListNode: ASDisplayNode {
                 var state = self.filesState(for: filesType)
                 state.attachments = []
                 state.didLoad = true
-                state.loadErrorMessage = error.localizedDescription
+                state.loadErrorMessage = error.userMessage
                 state.isFetching = false
                 state.showsLoading = false
                 self.filesStateByType[filesType] = state

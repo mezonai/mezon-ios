@@ -342,7 +342,7 @@ final class HistoryTransactionViewController: BaseViewController {
             } catch {
                 if Task.isCancelled { return }
                 if let urlError = error as? URLError, urlError.code == .cancelled { return }
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
             if !Task.isCancelled {
                 spinner.stopAnimating()
@@ -392,7 +392,7 @@ final class HistoryTransactionViewController: BaseViewController {
             } catch {
                 if Task.isCancelled { return }
                 if let urlError = error as? URLError, urlError.code == .cancelled { return }
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
             if !Task.isCancelled {
                 isLoadMore = false

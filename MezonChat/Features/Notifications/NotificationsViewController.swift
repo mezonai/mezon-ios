@@ -348,7 +348,7 @@ final class NotificationsViewController: ViewController {
                     token: token
                 )
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }

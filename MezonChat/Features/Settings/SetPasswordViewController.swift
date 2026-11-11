@@ -384,7 +384,7 @@ final class SetPasswordViewController: BaseViewController {
                         Toast.error(errorMsg)
                     }
                 default:
-                    Toast.error(error.localizedDescription)
+                    Toast.error(error.userMessage)
                 }
             } catch {
                 setLoading(false)

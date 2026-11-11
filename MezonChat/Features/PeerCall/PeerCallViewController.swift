@@ -12,7 +12,7 @@ final class PeerCallViewController: ViewController {
         from controller: UIViewController
     ) {
         guard user.id != (Int64(context.currentUser?.id ?? "") ?? 0) else {
-            Toast.error("Cannot call yourself")
+            Toast.error(L(L10n.QRScanner.cannotCallYourself))
             return
         }
 

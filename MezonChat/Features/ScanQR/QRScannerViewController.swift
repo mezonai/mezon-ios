@@ -473,7 +473,7 @@ final class QRScannerViewController: ViewController {
                     }
                 } catch {
                     await MainActor.run {
-                        self.showAlert(message: error.localizedDescription) {
+                        self.showAlert(message: error.userMessage) {
                             self.hideLoginConfirm()
                         }
                     }
@@ -561,7 +561,7 @@ final class QRScannerViewController: ViewController {
             } catch {
                 await MainActor.run {
                     self.endExclusiveScanHandling()
-                    self.showAlert(message: error.localizedDescription) {
+                    self.showAlert(message: error.userMessage) {
                         self.startCaptureSessionIfNeeded()
                     }
                 }
@@ -714,7 +714,7 @@ final class QRScannerViewController: ViewController {
             } catch is CancellationError {
             } catch {
                 guard self.userProfileNode === node, !Task.isCancelled else { return }
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }

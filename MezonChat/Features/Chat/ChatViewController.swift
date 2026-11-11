@@ -418,6 +418,7 @@ struct ChatState {
     var threadCreatorName: String
     var hasMoreOlder: Bool
     var hasMoreNewer: Bool
+    var unreadIncomingMessageCount: Int
     var isLoadingMore: Bool
     var isLoadingNewer: Bool
     var isLoadingMessageContext: Bool
@@ -432,7 +433,8 @@ struct ChatState {
         messages: [], messagesRevision: 0, channelLabel: "", channelType: 0, isPrivate: false, isAgeRestricted: false,
         isDM: false, isPeerBlocked: false, dmPeerUsername: "", dmPeerDisplayName: "", dmAvatarURL: "", dmGroupAvatarURL: "",
         threadCreatorName: "",
-        hasMoreOlder: false, hasMoreNewer: false, isLoadingMore: false, isLoadingNewer: false,
+        hasMoreOlder: false, hasMoreNewer: false, unreadIncomingMessageCount: 0,
+        isLoadingMore: false, isLoadingNewer: false,
         isLoadingMessageContext: false,
         isLoading: false, errorMessage: nil, lastSeenMessageId: nil, currentUserId: nil,
         parentName: nil)
@@ -449,6 +451,7 @@ final class ChatViewController: ViewController {
     var topicId: Int64 = 0 {
         didSet {
             guard topicId != oldValue else { return }
+            unreadIncomingMessageIds.removeAll()
             if isViewLoaded {
                 cancelMessageHistoryRequests()
                 hasCompletedInitialFetch = false
@@ -509,7 +512,9 @@ final class ChatViewController: ViewController {
     }()
     private var channelLabel: String = ""
     private(set) var hasMoreOlder: Bool = true
-    private(set) var hasMoreNewer: Bool = false
+    private var newestHistoricalMessageId: Int64?
+    private var hasMoreNewerAfterReconnect = false
+    var hasMoreNewer: Bool { newestHistoricalMessageId != nil || hasMoreNewerAfterReconnect }
     private(set) var isLoadingMore: Bool = false
     private(set) var isLoadingNewer: Bool = false
     private(set) var isLoadingMessageContext: Bool = false
@@ -613,6 +618,7 @@ final class ChatViewController: ViewController {
     private lazy var shouldScrollToBottom: Bool = lastSeenMessageId == nil
     private var pendingScrollToBottom = false
     private var lastMarkedAsReadMessageId: Int64?
+    private var unreadIncomingMessageIds: Set<Int64> = []
     private var didMarkChannelAsReadForCurrentAppearance = false
     private var isCatchingUpAfterReconnect = false
     private var activeCatchUpRequestId: UUID?
@@ -694,6 +700,9 @@ final class ChatViewController: ViewController {
         }
         isJumping = false
         readyToLoadMore = true
+        if !unreadIncomingMessageIds.isEmpty, messagesNode.isAtBottom {
+            updateScrollToBottom(true)
+        }
     }
 
     init(
@@ -753,17 +762,7 @@ final class ChatViewController: ViewController {
                 guard let self, !self.isJumping, self.readyToLoadMore, self.hasMoreNewer, !self.isLoadingNewer else { return }
                 self.fetchNewerMessages()
             },
-            onScrolledToBottom: { [weak self] atBottom in
-                guard let self else { return }
-                self.shouldScrollToBottom = atBottom
-                if atBottom,
-                   self.viewIfLoaded?.window != nil,
-                   UIApplication.shared.applicationState == .active,
-                   self.hasPerformedInitialUnreadScroll || self.lastSeenMessageId == nil {
-                    self.clearLastSeenMessageId()
-                    self.markChannelAsRead()
-                }
-            },
+            onScrolledToBottom: { [weak self] atBottom in self?.updateScrollToBottom(atBottom) },
             onJumpToPresent: { [weak self] in self?.jumpToPresent() },
             onMentionTapped: { [weak self] mentionId in
                 self?.showMemberProfileById(mentionId)
@@ -854,7 +853,7 @@ final class ChatViewController: ViewController {
                     do {
                         clanId = try await ClanInviteJoiner.join(context: self.context, code: code, clanId: info.clan_id.flatMap(Int64.init))
                     } catch {
-                        await MainActor.run { Toast.error(error.localizedDescription) }
+                        await MainActor.run { Toast.error(error.userMessage) }
                         return
                     }
                     await MainActor.run {
@@ -917,7 +916,7 @@ final class ChatViewController: ViewController {
                         }
                     } catch {
                         await MainActor.run {
-                            Toast.error(error.localizedDescription)
+                            Toast.error(error.userMessage)
                             completion(nil)
                         }
                     }
@@ -995,7 +994,7 @@ final class ChatViewController: ViewController {
                         }
                     } catch {
                         await MainActor.run {
-                            Toast.error(error.localizedDescription)
+                            Toast.error(error.userMessage)
                         }
                     }
                 }
@@ -1102,8 +1101,14 @@ final class ChatViewController: ViewController {
         
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(handleEphemeralMessageReceived(_:)),
+            selector: #selector(handleMessageReceived(_:)),
             name: Notification.Name("MezonNewMessageReceived"),
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleMessageDeleted(_:)),
+            name: Notification.Name("MezonChannelMessageDeleted"),
             object: nil
         )
 
@@ -1189,9 +1194,9 @@ final class ChatViewController: ViewController {
         }
     }
     
-    @objc private func handleEphemeralMessageReceived(_ notification: Notification) {
-        guard let messageCode = notification.userInfo?["messageCode"] as? Int64 else { return }
-        guard let channelId = notification.userInfo?["channelId"] as? Int64 else { return }
+    @objc private func handleMessageReceived(_ notification: Notification) {
+        guard let messageCode = Self.userInfoInt64(notification.userInfo?["messageCode"]) else { return }
+        guard let channelId = Self.userInfoInt64(notification.userInfo?["channelId"]) else { return }
         guard channelId == channel.channelID else { return }
         let userInfo = notification.userInfo
 
@@ -1205,9 +1210,25 @@ final class ChatViewController: ViewController {
     private func processMessageNotification(messageCode: Int64, userInfo: [AnyHashable: Any]?) {
 
         if messageCode == 1 {
-            let channelIdStr = storageChannelId
-            let rows = context.account.postbox.read { tx in tx.getMessages(channelId: channelIdStr) }
-            setMessages(buildDisplayMessages(from: rows))
+            reloadMessageHistory()
+            return
+        }
+
+        if let messageId = Self.userInfoInt64(userInfo?["messageId"]) {
+            guard !hasLeftChat,
+                  Self.userInfoInt64(userInfo?["topicId"]) == topicId,
+                  let senderId = userInfo?["senderId"] as? String,
+                  !isSenderCurrentUser(senderId: senderId, currentUserId: context.currentUser?.id),
+                  messageId > (lastMarkedAsReadMessageId ?? 0),
+                  isJumping || hasMoreNewer || !messagesNode.isAtBottom,
+                  !unreadIncomingMessageIds.contains(messageId) else { return }
+            // The socket write is queued first. A message already removed from storage is not unread.
+            let exists = context.account.postbox.read {
+                $0.getMessageById(String(messageId), channelId: storageChannelId) != nil
+            }
+            guard exists else { return }
+            unreadIncomingMessageIds.insert(messageId)
+            metadataOnlyPipe.putNext(())
             return
         }
 
@@ -1283,6 +1304,16 @@ final class ChatViewController: ViewController {
         }
         timelineOrder.observeServerTail(serverTailId)
         updateMessagesWithEphemeral()
+    }
+
+    @objc private func handleMessageDeleted(_ notification: Notification) {
+        guard Self.userInfoInt64(notification.userInfo?["channelId"]) == channel.channelID,
+              let messageId = Self.userInfoInt64(notification.userInfo?["messageId"]) else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.hasLeftChat,
+                  self.unreadIncomingMessageIds.remove(messageId) != nil else { return }
+            self.metadataOnlyPipe.putNext(())
+        }
     }
 
     private static func ephemeralRowId(serverId: Int64) -> String {
@@ -1524,7 +1555,7 @@ final class ChatViewController: ViewController {
         if wasCoveredByPushedController {
             wasCoveredByPushedController = false
             Self.removeDeliveredNotifications(forChannelId: channel.channelID, topicId: topicId)
-            reloadDisplaysWithCurrentPins()
+            reloadMessageHistory()
             if isViewLoaded {
                 messagesNode.forceUpdateAllMessageItems()
             }
@@ -1714,7 +1745,7 @@ final class ChatViewController: ViewController {
         if let pinnedMid = Self.int64FromTypingUserInfo(notification.userInfo?["pinnedMessageId"]), pinnedMid != 0 {
             pinnedMessageIds.insert("\(pinnedMid)")
             syncPinnedStateToPostbox()
-            reloadDisplaysWithCurrentPins()
+            reloadMessageHistory()
             return
         }
         if let unpinnedMid = Self.int64FromTypingUserInfo(notification.userInfo?["unpinnedMessageId"]), unpinnedMid != 0 {
@@ -1728,7 +1759,7 @@ final class ChatViewController: ViewController {
                 }
             }
             syncPinnedStateToPostbox()
-            reloadDisplaysWithCurrentPins()
+            reloadMessageHistory()
             return
         }
 
@@ -1847,14 +1878,20 @@ final class ChatViewController: ViewController {
         messageHistoryDisposable = (context.account.postbox.messageHistoryView(channelId: channelIdStr)
             |> deliverOnMainQueue)
             .start(next: { [weak self] view in
-                guard let self else { return }
-                guard !self.hasLeftChat else { return }
-                guard view.channelId == channelIdStr else { return }
-                guard self.storageChannelId == channelIdStr else { return }
-                let rows = view.messages.filter { $0.channelId == channelIdStr }
-                let displays = self.buildDisplayMessages(from: rows)
-                self.setMessages(displays)
+                self?.applyMessageHistoryView(view)
             })
+    }
+
+    private func applyMessageHistoryView(_ view: MessageHistoryView) {
+        guard !hasLeftChat, view.channelId == storageChannelId else { return }
+        newestHistoricalMessageId = view.newestHistoricalMessageId
+        if newestHistoricalMessageId != nil { hasMoreNewerAfterReconnect = false }
+        setMessages(buildDisplayMessages(from: view.messages))
+    }
+
+    private func reloadMessageHistory() {
+        let history = context.account.postbox.read { $0.messageHistoryView(channelId: storageChannelId) }
+        applyMessageHistoryView(history)
     }
 
     private func setMessages(_ v: [ChatMessageDisplay]) {
@@ -1888,10 +1925,11 @@ final class ChatViewController: ViewController {
             DispatchQueue.main.async { [weak self] in
                 self?.jumpToMessage(id: jumpId)
             }
-        } else if pendingScrollToBottom && !v.isEmpty {
+        } else if pendingScrollToBottom && newestHistoricalMessageId == nil && !v.isEmpty {
             pendingScrollToBottom = false
             DispatchQueue.main.async { [weak self] in
-                self?.forceScrollToBottom()
+                guard let self, !self.isJumping else { return }
+                self.scrollToPresentAndUpdateReadState()
             }
         }
     }
@@ -1921,18 +1959,10 @@ final class ChatViewController: ViewController {
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.sendingFeedbackRefreshWorkItem = nil
-            self.reloadDisplaysForPendingSendingFeedback()
+            self.reloadMessageHistory()
         }
         sendingFeedbackRefreshWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + nextDelay + 0.02, execute: workItem)
-    }
-
-    private func reloadDisplaysForPendingSendingFeedback() {
-        let channelIdStr = storageChannelId
-        let rows = context.account.postbox.read { tx in
-            tx.getMessages(channelId: channelIdStr).filter { $0.channelId == channelIdStr }
-        }
-        setMessages(buildDisplayMessages(from: rows))
     }
 
     private func normalizedDisplayOrder(_ displays: [ChatMessageDisplay]) -> [ChatMessageDisplay] {
@@ -1969,7 +1999,10 @@ final class ChatViewController: ViewController {
         metadataOnlyPipe.putNext(())
     }
     private func setHasMoreOlder(_ v: Bool) { hasMoreOlder = v; metadataOnlyPipe.putNext(()) }
-    private func setHasMoreNewer(_ v: Bool) { hasMoreNewer = v; metadataOnlyPipe.putNext(()) }
+    private func setHasMoreNewerAfterReconnect(_ hasMore: Bool) {
+        hasMoreNewerAfterReconnect = hasMore && newestHistoricalMessageId == nil
+        metadataOnlyPipe.putNext(())
+    }
     private func setIsLoadingMore(_ v: Bool) { isLoadingMore = v; metadataOnlyPipe.putNext(()) }
     private func setIsLoadingNewer(_ v: Bool) { isLoadingNewer = v; metadataOnlyPipe.putNext(()) }
     private func setIsLoadingMessageContext(_ v: Bool) { isLoadingMessageContext = v; metadataOnlyPipe.putNext(()) }
@@ -2142,7 +2175,7 @@ final class ChatViewController: ViewController {
             if skipInitialRemoteFetchForEmptyTopic {
                 hasCompletedInitialFetch = true
                 setHasMoreOlder(false)
-                setHasMoreNewer(false)
+                setHasMoreNewerAfterReconnect(false)
             }
             if !hasCache && NetworkMonitor.shared.isConnected && !skipInitialRemoteFetchForEmptyTopic {
                 setIsLoading(true)
@@ -2187,7 +2220,7 @@ final class ChatViewController: ViewController {
                 }
                 if shouldSkipInitialRemoteFetchForEmptyTopic {
                     self.setHasMoreOlder(false)
-                    self.setHasMoreNewer(false)
+                    self.setHasMoreNewerAfterReconnect(false)
                     self.setIsLoading(false)
                     self.setIsLoadingMessageContext(false)
                 }
@@ -2549,8 +2582,27 @@ final class ChatViewController: ViewController {
         metadataOnlyPipe.putNext(())
     }
 
+    private func updateScrollToBottom(_ atBottom: Bool) {
+        guard !hasLeftChat else { return }
+        let atPresent = atBottom && !isJumping && !hasMoreNewer
+        shouldScrollToBottom = atPresent
+        guard atPresent, viewIfLoaded?.window != nil,
+              UIApplication.shared.applicationState == .active else { return }
+        if !unreadIncomingMessageIds.isEmpty, let newest = newestServerMessageId() {
+            let unread = unreadIncomingMessageIds.filter { $0 > newest }
+            if unread != unreadIncomingMessageIds {
+                unreadIncomingMessageIds = unread
+                metadataOnlyPipe.putNext(())
+            }
+        }
+        if hasPerformedInitialUnreadScroll || lastSeenMessageId == nil {
+            clearLastSeenMessageId()
+            markChannelAsRead()
+        }
+    }
+
     private func markChannelAsReadOnEntryIfPossible() {
-        guard !didMarkChannelAsReadForCurrentAppearance else { return }
+        guard !didMarkChannelAsReadForCurrentAppearance, !isJumping, newestHistoricalMessageId == nil else { return }
         guard topicId == 0, pendingJumpToMessageId == nil else { return }
         guard viewIfLoaded?.window != nil,
               UIApplication.shared.applicationState == .active else { return }
@@ -2561,6 +2613,7 @@ final class ChatViewController: ViewController {
     }
 
     private func markChannelAsRead() {
+        guard !isJumping, newestHistoricalMessageId == nil else { return }
         var latestServerMessageId: Int64?
         for display in messages.reversed() where !display.isWelcome {
             if let id = Int64(display.message.id), id != 0 {
@@ -2690,18 +2743,16 @@ final class ChatViewController: ViewController {
                 self.fetchChannelMembers(token: token)
                 self.checkBanStatus(token: token)
             }
-            if self.newestServerMessageId() == nil {
-                self.fetchMessages(token: token)
-            } else {
-                await self.catchUpMessagesAfterReconnect(token: token)
-            }
+            await self.catchUpMessagesAfterReconnect(token: token)
         }
     }
 
     private func catchUpMessagesAfterReconnect(token: String) async {
-        guard !hasLeftChat, !isJumping, messageFetchTask == nil, !isCatchingUpAfterReconnect else { return }
+        guard !hasLeftChat, !isJumping, messageFetchTask == nil, newerMessagesTask == nil,
+              !isCatchingUpAfterReconnect else { return }
         guard pendingJumpToMessageId == nil else { return }
-        guard var cursor = newestServerMessageId() else {
+        let isBrowsingHistory = newestHistoricalMessageId != nil
+        guard var cursor = newestHistoricalMessageId ?? newestServerMessageId() else {
             fetchMessages(token: token)
             return
         }
@@ -2715,8 +2766,8 @@ final class ChatViewController: ViewController {
         activeCatchUpRequestId = requestId
         beginMessageRequestTimeout(id: requestId, generation: generation)
         isCatchingUpAfterReconnect = true
-        setHasMoreNewer(true)
-        let wasAtBottom = messagesNode.isAtBottom
+        setHasMoreNewerAfterReconnect(true)
+        let wasAtBottom = !isBrowsingHistory && messagesNode.isAtBottom
         let visibleMessageAnchor = wasAtBottom ? nil : messagesNode.captureVisibleMessageAnchor()
         let initialUserScrollGeneration = messagesNode.userScrollGeneration
         if !wasAtBottom {
@@ -2784,18 +2835,17 @@ final class ChatViewController: ViewController {
                     $0.messageID != 0 && ($0.channelID == 0 || $0.channelID == channelId || $0.channelID == requestTopicId)
                         && (requestTopicId == 0 || $0.topicID == 0 || $0.topicID == requestTopicId)
                 }
-                if !validMessages.isEmpty {
+                let nextCursor = validMessages.lazy.map(\.messageID).filter { $0 > cursor }.max()
+                let reachedEnd = nextCursor == nil && consecutiveNoAdvancePasses == 1
+                let historicalCursor = isBrowsingHistory && (nextCursor != nil || reachedEnd) ? cursor : nil
+                if !validMessages.isEmpty || historicalCursor != nil {
                     let records = validMessages.map { self.messageRecord(from: $0, storageChannelId: storageId) }
                     context.account.postbox.write { tx in
-                        tx.applyMessageHistoryPage(records, page: page)
+                        tx.applyMessageHistoryPage(records, page: page, newerThan: historicalCursor)
                     }
                 }
 
-                let newerMessages = validMessages.filter {
-                    $0.messageID > cursor
-                }
-                guard let nextCursor = newerMessages.map(\.messageID).max(),
-                      nextCursor > cursor else {
+                guard let nextCursor else {
                     consecutiveNoAdvancePasses += 1
                     if consecutiveNoAdvancePasses >= 2 {
                         reachedPresent = true
@@ -2813,14 +2863,14 @@ final class ChatViewController: ViewController {
             if reachedPresent {
                 hasCompletedInitialFetch = true
                 messageHistoryRetryCount = 0
-                setHasMoreNewer(false)
+                setHasMoreNewerAfterReconnect(false)
             } else if hitPageCap {
-                setHasMoreNewer(true)
+                setHasMoreNewerAfterReconnect(true)
                 lastFetchedNewerMessageId = nil
             }
         } catch {
             if error is CancellationError || Task.isCancelled || !isCurrentMessageHistoryRequest(generation, storageId: storageId) { return }
-            setHasMoreNewer(true)
+            setHasMoreNewerAfterReconnect(true)
             lastFetchedNewerMessageId = nil
             SentryLogger.capture(error, extras: [
                 "where": "ChatViewController.catchUpMessagesAfterReconnect",
@@ -2842,7 +2892,7 @@ final class ChatViewController: ViewController {
             hadCachedInPostbox: hadCachedInPostbox
         ) {
             setHasMoreOlder(false)
-            setHasMoreNewer(false)
+            setHasMoreNewerAfterReconnect(false)
             setIsLoading(false)
             setIsLoadingMessageContext(false)
             setErrorMessage(nil)
@@ -2924,7 +2974,7 @@ final class ChatViewController: ViewController {
                     return
                 }
                 self.setHasMoreOlder(records.count > 1)
-                self.setHasMoreNewer(false)
+                self.setHasMoreNewerAfterReconnect(false)
                 if let initialScrollGeneration {
                     self.messagesNode.initialCacheRefreshScrollGeneration = initialScrollGeneration
                 }
@@ -2956,13 +3006,6 @@ final class ChatViewController: ViewController {
 
     private static func oldestServerMessageId(in messages: [ChatMessageDisplay]) -> Int64? {
         for item in messages where !item.isWelcome {
-            if let id = Int64(item.message.id), id != 0 { return id }
-        }
-        return nil
-    }
-
-    private static func newestServerMessageId(in messages: [ChatMessageDisplay]) -> Int64? {
-        for item in messages.reversed() where !item.isWelcome {
             if let id = Int64(item.message.id), id != 0 { return id }
         }
         return nil
@@ -3036,7 +3079,8 @@ final class ChatViewController: ViewController {
     func fetchNewerMessages() {
         guard !hasLeftChat, messageFetchTask == nil, !isJumping, !isCatchingUpAfterReconnect,
               hasMoreNewer, !isLoadingNewer else { return }
-        guard let msgId = Self.newestServerMessageId(in: messages) else { return }
+        let historicalCursor = newestHistoricalMessageId
+        guard let msgId = historicalCursor ?? newestServerMessageId() else { return }
         guard msgId != lastFetchedNewerMessageId else { return }
         lastFetchedNewerMessageId = msgId
         let generation = messageHistoryGeneration
@@ -3074,12 +3118,14 @@ final class ChatViewController: ViewController {
                         && (requestTopicId == 0 || $0.topicID == 0 || $0.topicID == requestTopicId)
                 }
                 receivedPage = true
-                self.setHasMoreNewer(valid.contains { $0.messageID > msgId })
+                if historicalCursor == nil {
+                    self.setHasMoreNewerAfterReconnect(valid.contains { $0.messageID > msgId })
+                }
                 let records = valid.map { self.messageRecord(from: $0, storageChannelId: storageId) }
-                guard !records.isEmpty else { return }
+                guard !records.isEmpty || historicalCursor != nil else { return }
                 waitingForCommit = true
                 accountContext.account.postbox.write({ tx in
-                    tx.applyMessageHistoryPage(records, page: page)
+                    tx.applyMessageHistoryPage(records, page: page, newerThan: historicalCursor)
                 }, completion: { [weak self] in
                     guard let self, self.isCurrentMessageHistoryRequest(generation, storageId: storageId) else { return }
                     self.messagesNode.listView.addAfterTransactionsCompleted { [weak self] in
@@ -3097,17 +3143,27 @@ final class ChatViewController: ViewController {
     }
 
     private func jumpToPresent() {
-        guard !hasLeftChat else { return }
+        guard !hasLeftChat, !(pendingScrollToBottom && messageFetchTask != nil) else { return }
+        let canScrollToPresent = !isJumping && !hasMoreNewer && !messages.isEmpty
         initialMessageJumpTargetId = nil
         pendingJumpToMessageId = nil
         messagesNode.pendingJumpMessageId = nil
         isJumping = false
         shouldScrollToBottom = true
-        pendingScrollToBottom = true
-        setHasMoreNewer(false)
+        pendingScrollToBottom = !canScrollToPresent
+        if canScrollToPresent {
+            scrollToPresentAndUpdateReadState()
+            return
+        }
         fetchMessages()
     }
 
+    private func scrollToPresentAndUpdateReadState() {
+        forceScrollToBottom { [weak self] in
+            guard let self else { return }
+            self.updateScrollToBottom(self.messagesNode.isAtBottom)
+        }
+    }
 
     private func fetchNotificationSetting(token: String? = nil) {
         let channelId = channel.channelID
@@ -3332,6 +3388,7 @@ final class ChatViewController: ViewController {
             threadCreatorName: resolvedThreadCreatorName(),
             hasMoreOlder: hasMoreOlder,
             hasMoreNewer: hasMoreNewer,
+            unreadIncomingMessageCount: unreadIncomingMessageIds.count,
             isLoadingMore: isLoadingMore,
             isLoadingNewer: isLoadingNewer,
             isLoadingMessageContext: isLoadingMessageContext,
@@ -3402,6 +3459,7 @@ final class ChatViewController: ViewController {
             var lastError = self.errorMessage
             var lastHasMoreOlder = self.hasMoreOlder
             var lastHasMoreNewer = self.hasMoreNewer
+            var lastUnreadIncomingMessageCount = self.unreadIncomingMessageIds.count
             var lastLastSeenMessageId = self.lastSeenMessageId
             var lastParentName = self.currentState.parentName
             var lastIsPrivate = self.currentState.isPrivate
@@ -3451,6 +3509,7 @@ final class ChatViewController: ViewController {
                         || newState.errorMessage != lastError
                         || newState.hasMoreOlder != lastHasMoreOlder
                         || newState.hasMoreNewer != lastHasMoreNewer
+                        || newState.unreadIncomingMessageCount != lastUnreadIncomingMessageCount
                         || newState.lastSeenMessageId != lastLastSeenMessageId
                         || newState.parentName != lastParentName
                         || newState.isPrivate != lastIsPrivate
@@ -3471,6 +3530,7 @@ final class ChatViewController: ViewController {
                     lastError = newState.errorMessage
                     lastHasMoreOlder = newState.hasMoreOlder
                     lastHasMoreNewer = newState.hasMoreNewer
+                    lastUnreadIncomingMessageCount = newState.unreadIncomingMessageCount
                     lastLastSeenMessageId = newState.lastSeenMessageId
                     lastParentName = newState.parentName
                     lastIsPrivate = newState.isPrivate
@@ -4428,14 +4488,6 @@ final class ChatViewController: ViewController {
         }
     }
 
-    private func reloadDisplaysWithCurrentPins() {
-        let channelIdStr = storageChannelId
-        let rows = context.account.postbox.read { tx in
-            tx.getMessages(channelId: channelIdStr)
-        }
-        setMessages(buildDisplayMessages(from: rows))
-    }
-
     private func fetchPinListFromServerAndApply() async {
         guard channel.channelID != 0 else { return }
         guard let token = await context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
@@ -4455,7 +4507,7 @@ final class ChatViewController: ViewController {
         Task { @MainActor [weak self] in
             guard let self else { return }
             await self.fetchPinListFromServerAndApply()
-            self.reloadDisplaysWithCurrentPins()
+            self.reloadMessageHistory()
         }
     }
 
@@ -5050,6 +5102,7 @@ final class ChatViewController: ViewController {
         guard !hasLeftChat else { return }
         cancelMessageHistoryRequests()
         shouldScrollToBottom = false
+        pendingScrollToBottom = false
         isJumping = true
         if messages.contains(where: { $0.id == messageId }) {
             messagesNode.pendingJumpMessageId = messageId
@@ -5096,7 +5149,6 @@ final class ChatViewController: ViewController {
                 guard valid.contains(where: { $0.messageID == msgId }) else { return }
                 let records = valid.map { self.messageRecord(from: $0, storageChannelId: storageId) }
                 self.setHasMoreOlder(records.count > 1)
-                self.setHasMoreNewer(true)
                 waitingForCommit = true
                 accountContext.account.postbox.write({ tx in
                     tx.applyMessageHistoryRefresh(records, refresh: refresh, atLatest: false)
@@ -5128,7 +5180,7 @@ final class ChatViewController: ViewController {
     }
 
     private func scrollToBottomIfNeeded() {
-        guard messagesNode.pendingJumpMessageId == nil else { return }
+        guard !isJumping, !hasMoreNewer, messagesNode.pendingJumpMessageId == nil else { return }
         guard !messagesNode.didAutoScrollForNewMessages else { return }
         guard shouldScrollToBottom, !messages.isEmpty else { return }
         messagesNode.listView.transaction(
@@ -5215,7 +5267,7 @@ final class ChatViewController: ViewController {
                     token: token
                 )
                 guard topic.id != 0 else {
-                    Toast.error(MezonError.invalidResponse.localizedDescription)
+                    Toast.error(L(L10n.Common.actionFailed))
                     return
                 }
                 let creatorIdValue = topic.creatorID != 0
@@ -5245,7 +5297,7 @@ final class ChatViewController: ViewController {
                 self.bindMessageHistoryView()
                 self.sendInputViewController.send()
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -5261,7 +5313,7 @@ final class ChatViewController: ViewController {
         Task { @MainActor [weak self] in
             guard let self else { return }
             guard let token = await self.context.getToken() else {
-                Toast.error("No session")
+                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
                 return
             }
             do {
@@ -5289,7 +5341,7 @@ final class ChatViewController: ViewController {
                 )
                 self.navigationController?.pushViewController(chatVC, animated: true)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -6303,7 +6355,7 @@ final class ChatViewController: ViewController {
 
     private func startShareContactCall(_ data: ShareContactData) {
         guard data.userId != context.currentUser?.id else {
-            Toast.error("Cannot call yourself")
+            Toast.error(L(L10n.QRScanner.cannotCallYourself))
             return
         }
         guard !isShareContactCallBlocked(data) else {
@@ -6362,7 +6414,7 @@ final class ChatViewController: ViewController {
                 )
                 completion(channel)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -7001,7 +7053,7 @@ final class ChatViewController: ViewController {
             if !items.isEmpty {
                 self.showQuickMenuSheet(items: items, display: display)
             } else if catalog.cached(channelId: channelId, menuType: .quickMenu) == nil {
-                Toast.error(catalog.lastFailure(channelId: channelId, menuType: .quickMenu)?.localizedDescription ?? L(L10n.ClanInviteSheet.sessionNotFound))
+                Toast.error(catalog.lastFailure(channelId: channelId, menuType: .quickMenu)?.userMessage ?? L(L10n.ClanInviteSheet.sessionNotFound))
             } else {
                 Toast.info(L(L10n.QuickAction.emptyQuickMenu))
             }
@@ -7070,7 +7122,7 @@ final class ChatViewController: ViewController {
                     messageSenderId: senderId
                 )
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -7281,7 +7333,7 @@ final class ChatViewController: ViewController {
                 self?.context.logout()
             }
         } catch {
-            Toast.error(error.localizedDescription)
+            Toast.error(error.userMessage)
         }
     }
 
@@ -7395,7 +7447,7 @@ final class ChatViewController: ViewController {
                     self.pinnedMessageIds.insert(idStr)
                 }
                 self.syncPinnedStateToPostbox()
-                self.reloadDisplaysWithCurrentPins()
+                self.reloadMessageHistory()
                 Toast.success(L(L10n.MessageAction.pinSuccess))
             } catch {
                 Toast.error(L(L10n.MessageAction.pinError))
@@ -7431,7 +7483,7 @@ final class ChatViewController: ViewController {
                     messageId: msgId
                 )
                 self.syncPinnedStateToPostbox()
-                self.reloadDisplaysWithCurrentPins()
+                self.reloadMessageHistory()
                 Toast.success(L(L10n.MessageAction.unpinSuccess))
             } catch {
                 Toast.error(L(L10n.MessageAction.unpinError))
@@ -7523,7 +7575,7 @@ final class ChatViewController: ViewController {
                 let vc = ChannelAppWebViewController(pageURL: pageURL, appTitle: title)
                 self.presentInGlobalOverlay(vc)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }

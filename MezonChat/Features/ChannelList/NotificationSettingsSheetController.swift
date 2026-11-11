@@ -270,7 +270,7 @@ final class NotificationSettingsSheetController: ViewController {
             } catch {
                 isSaving = false
                 sheetNode.setOptionsEnabled(true)
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -322,7 +322,7 @@ final class NotificationSettingsSheetController: ViewController {
             } catch {
                 isSaving = false
                 sheetNode.setOptionsEnabled(true)
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -358,7 +358,7 @@ final class NotificationSettingsSheetController: ViewController {
     }
 
     private func handleClanLoadFailure(_ error: Error? = nil) {
-        Toast.error(error?.localizedDescription ?? L(L10n.ClanInviteSheet.sessionNotFound))
+        Toast.error(error?.userMessage ?? L(L10n.ClanInviteSheet.sessionNotFound))
         dismissSheet()
     }
 }

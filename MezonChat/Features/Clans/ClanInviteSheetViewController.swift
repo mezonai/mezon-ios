@@ -526,12 +526,12 @@ private final class ClanInviteQRCodeViewController: UIViewController {
             case .authorized:
                 PHPhotoLibrary.shared().performChanges({
                     PHAssetChangeRequest.creationRequestForAsset(from: image)
-                }, completionHandler: { success, error in
+                }, completionHandler: { success, _ in
                     DispatchQueue.main.async {
                         if success {
                             Toast.success(L(L10n.ClanInviteSheet.qrSaved))
                         } else {
-                            Toast.error(error?.localizedDescription ?? L(L10n.ClanInviteSheet.qrSaveFailed))
+                            Toast.error(L(L10n.ClanInviteSheet.qrSaveFailed))
                         }
                     }
                 })

@@ -263,7 +263,7 @@ class ShareViewController: UIViewController {
     private func saveAndRedirect() {
 
         guard let userDefaults = UserDefaults(suiteName: ExistingVideoSharePayload.appGroupIdentifier) else {
-            dismissWithError(message: "Cannot access shared storage")
+            dismissWithError(message: "Couldn't share this content. Please try again.")
             return
         }
 
@@ -288,7 +288,7 @@ class ShareViewController: UIViewController {
 
     private func redirectToHostApp(type: RedirectType) {
         guard let url = URL(string: "\(shareProtocol)://dataUrl=\(sharedKey)#\(type)") else {
-            dismissWithError(message: "Failed to create redirect URL")
+            dismissWithError(message: "Couldn't share this content. Please try again.")
             return
         }
 

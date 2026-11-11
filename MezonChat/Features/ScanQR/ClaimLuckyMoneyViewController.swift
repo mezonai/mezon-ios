@@ -441,7 +441,7 @@ final class ClaimLuckyMoneyViewController: BaseViewController {
             let data = try await MmnRedEnvelopeClient.claimAmount(luckyMoneyId: luckyMoneyId, userId: uid)
             showState(.preview(data))
         } catch {
-            showState(.error(error.localizedDescription))
+            showState(.error(error.userMessage(fallback: L(L10n.QRScanner.luckyMoneyClaimFailed))))
         }
     }
 
@@ -473,7 +473,7 @@ final class ClaimLuckyMoneyViewController: BaseViewController {
             } catch {
                 await MainActor.run {
                     setClaimBusy(false)
-                    showState(.error(error.localizedDescription))
+                    showState(.error(error.userMessage(fallback: L(L10n.QRScanner.luckyMoneyClaimFailed))))
                 }
             }
         }

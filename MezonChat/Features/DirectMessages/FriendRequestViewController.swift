@@ -186,7 +186,7 @@ final class FriendRequestViewController: ViewController {
                 self.context.engine.friendsData.removePendingRequest(userId: userId)
                 self.refreshFromNetwork(force: true)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -207,7 +207,7 @@ final class FriendRequestViewController: ViewController {
                 self.context.engine.friendsData.removePendingRequest(userId: userId)
                 self.refreshFromNetwork(force: true)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }

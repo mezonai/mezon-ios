@@ -682,7 +682,7 @@ final class WalletTransferViewController: BaseViewController, UIGestureRecognize
                     if nsErr.code == 401 {
                         self.showSessionExpired()
                     } else {
-                        self.showFailure(message: nsErr.localizedDescription)
+                        self.showFailure(message: nsErr.userMessage(fallback: L(L10n.Profile.sendTokenErrSendFailed)))
                     }
                 }
             }

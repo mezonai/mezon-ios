@@ -539,10 +539,10 @@ final class MemberProfileSheetController: ViewController {
                     removePermissionIds: []
                 )
                 sheetNode.removeRole(roleId: role.id)
-                Toast.success("Role removed")
+                Toast.success(L(L10n.Common.roleRemoved))
             } catch {
                 sheetNode.setRoleRemoving(roleId: role.id, removing: false)
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -551,7 +551,7 @@ final class MemberProfileSheetController: ViewController {
         let ac = UIAlertController(
             title: NSLocalizedString(
                 "voiceChannel.errorTitle", tableName: nil, bundle: .main, value: "Voice", comment: ""),
-            message: error.localizedDescription,
+            message: error.userMessage,
             preferredStyle: .alert)
         ac.addAction(UIAlertAction(
             title: NSLocalizedString("voiceChannel.ok", tableName: nil, bundle: .main, value: "OK", comment: ""),
@@ -595,10 +595,7 @@ final class MemberProfileSheetController: ViewController {
                 await context.engine.friendsData.refreshFromNetwork(token: token, force: true)
                 Toast.success(L(L10n.FriendRequest.toastSendSuccess))
             } catch {
-                let message = error.localizedDescription.isEmpty
-                    ? L(L10n.FriendRequest.toastSelfAddError)
-                    : error.localizedDescription
-                Toast.error(message, title: "")
+                Toast.error(error.userMessage(fallback: L(L10n.FriendRequest.addByGenericError)), title: "")
             }
         }
     }
@@ -670,7 +667,7 @@ final class MemberProfileSheetController: ViewController {
             return channel
         } catch {
             if !error.localizedDescription.isEmpty {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
             return nil
         }

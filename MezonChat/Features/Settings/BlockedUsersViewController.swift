@@ -155,7 +155,7 @@ final class BlockedUsersViewController: BaseViewController {
                 }
                 self.reloadUI()
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }

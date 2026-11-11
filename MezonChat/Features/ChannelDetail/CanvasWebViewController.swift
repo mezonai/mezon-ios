@@ -121,7 +121,7 @@ final class CanvasWebViewController: ViewController, WKNavigationDelegate {
         guard let context = accountContext else { return }
         await context.waitForSessionReady()
         guard let session = context.session else {
-            Toast.error("Session unavailable")
+            Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
             navigationController?.popViewController(animated: true)
             return
         }

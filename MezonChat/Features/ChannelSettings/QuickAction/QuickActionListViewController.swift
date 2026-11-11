@@ -285,7 +285,7 @@ final class QuickActionListViewController: BaseViewController {
                 self.loadedKinds.insert(kind)
                 self.setItems(fetched, for: kind)
             } else if kind == self.activeKind {
-                Toast.error(failure?.localizedDescription ?? L(L10n.ClanInviteSheet.sessionNotFound))
+                Toast.error(failure?.userMessage ?? L(L10n.ClanInviteSheet.sessionNotFound))
             }
             self.updateContent()
         }
@@ -385,7 +385,7 @@ final class QuickActionListViewController: BaseViewController {
                 self.setItems(remaining, for: kind)
                 self.updateContent()
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
