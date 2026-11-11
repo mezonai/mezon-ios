@@ -138,7 +138,7 @@ final class VLCVideoPlayerNode: ASDisplayNode {
         
         setupVLCPlayer(url: url)
         
-        posterNode.setSignal(videoThumbnailSignal(url: posterURL, resizeMode: .fit))
+        posterNode.setSignal(videoThumbnailSignal(url: posterURL, resizeMode: .fit, allowRemoteGeneration: false))
     }
     
     override func didLoad() {

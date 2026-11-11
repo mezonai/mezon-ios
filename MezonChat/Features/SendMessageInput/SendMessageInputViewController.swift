@@ -468,11 +468,13 @@ private final class OgpPreviewView: UIView {
         content.addSubview(descriptionLabel)
         content.addSubview(closeButton)
 
+        let contentBottom = content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10)
+        contentBottom.priority = UILayoutPriority(999)
         NSLayoutConstraint.activate([
             content.topAnchor.constraint(equalTo: topAnchor, constant: 10),
             content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10.sw),
             content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10.sw),
-            content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
+            contentBottom,
 
             imageView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             imageView.topAnchor.constraint(equalTo: content.topAnchor),
@@ -694,7 +696,7 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func notifyAttachmentLimitReached() {
-        Toast.info("You can attach up to \(Self.maxAttachmentsPerMessage) items per message.", title: "")
+        Toast.info(L(L10n.Common.attachmentLimit, Self.maxAttachmentsPerMessage), title: "")
     }
 
     private var allMentionMembers: [MentionMember] = []
@@ -867,8 +869,19 @@ final class SendMessageInputViewController: UIViewController {
         return btn
     }()
 
+    private let composerSurfaceView: ThemeFillView = {
+        let surface = ThemeFillView()
+        surface.translatesAutoresizingMaskIntoConstraints = false
+        surface.isUserInteractionEnabled = false
+        surface.clipsToBounds = true
+        surface.layer.borderWidth = 1
+        return surface
+    }()
+
     private lazy var textView: PastableTextView = {
-        let tv = PastableTextView()
+        let tv = PastableTextView().identified(by: AccessibilityID.Chat.input)
+        tv.backgroundColor = .clear
+        tv.composerSurface = composerSurfaceView
         tv.isScrollEnabled = false
         let pad = Self.composerVerticalInset
         tv.textContainerInset = UIEdgeInsets(top: pad, left: 12, bottom: pad, right: 36)
@@ -964,7 +977,7 @@ final class SendMessageInputViewController: UIViewController {
     }()
 
     private lazy var sendButton: UIButton = {
-        let btn = UIButton(type: .system)
+        let btn = UIButton(type: .system).identified(by: AccessibilityID.Chat.send)
         btn.translatesAutoresizingMaskIntoConstraints = false
         let sendSide: CGFloat = 40.swh
         btn.layer.cornerRadius = sendSide / 2
@@ -1423,7 +1436,7 @@ final class SendMessageInputViewController: UIViewController {
             voiceRecordingOverlay.isHidden = !isVoiceRecordingActive
         }
         if blocked {
-            inputBarHeightConstraint?.constant = 0
+            inputBarHeightConstraint?.constant = Self.textViewMinHeight + Self.inputBarPadding
             replyBannerHeightConstraint?.constant = 0
             previewHeightConstraint?.constant = 0
             ogpPreviewHeightConstraint?.constant = 0
@@ -1621,11 +1634,7 @@ final class SendMessageInputViewController: UIViewController {
     private func applyCurrentThemeToRestoredComposer(_ archived: NSAttributedString) -> NSAttributedString {
         let m = NSMutableAttributedString(attributedString: archived)
         let full = NSRange(location: 0, length: m.length)
-        let t = UIColor.theme
-        let normalAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 15.sf),
-            .foregroundColor: t.textStrong
-        ]
+        let normalAttrs = composerNormalTypingAttributes()
         let highlightAttrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.boldSystemFont(ofSize: 15.sf),
             .foregroundColor: UIColor(red: 0.35, green: 0.55, blue: 1.0, alpha: 1.0)
@@ -1697,10 +1706,7 @@ final class SendMessageInputViewController: UIViewController {
         }
         refreshHashtagIconAttachments()
         text = textView.text ?? ""
-        textView.typingAttributes = [
-            .font: UIFont.systemFont(ofSize: 15.sf),
-            .foregroundColor: UIColor.theme.textStrong
-        ]
+        textView.typingAttributes = composerNormalTypingAttributes()
         placeholderLabel.isHidden = !text.isEmpty
         textView.isScrollEnabled = false
         flushComposerHeightAfterContentMutation()
@@ -1732,10 +1738,7 @@ final class SendMessageInputViewController: UIViewController {
         emojiIdByColonToken.removeAll()
         textView.attributedText = nil
         text = ""
-        textView.typingAttributes = [
-            .font: UIFont.systemFont(ofSize: 15.sf),
-            .foregroundColor: UIColor.theme.textStrong
-        ]
+        textView.typingAttributes = composerNormalTypingAttributes()
         placeholderLabel.isHidden = false
         textView.isScrollEnabled = false
         clearPickedImages()
@@ -2002,7 +2005,7 @@ final class SendMessageInputViewController: UIViewController {
 
             Task { @MainActor in
                 guard let token = await self.context.getToken() else {
-                    self.onError?("No session")
+                    self.onError?(L(L10n.ClanInviteSheet.sessionNotFound))
                     return
                 }
                 do {
@@ -2033,7 +2036,7 @@ final class SendMessageInputViewController: UIViewController {
                         "channelId": channel.channelID,
                         "clanId": clanId,
                     ])
-                    self.onError?(error.localizedDescription)
+                    self.onError?(error.userMessage)
             }
         }
     }
@@ -2076,7 +2079,7 @@ final class SendMessageInputViewController: UIViewController {
 
             Task { @MainActor in
                 guard let token = await self.context.getToken() else {
-                    self.onError?("No session")
+                    self.onError?(L(L10n.ClanInviteSheet.sessionNotFound))
                     return
                 }
                 guard !self.shouldSendAsAnonymousMessage else { return }
@@ -2110,7 +2113,7 @@ final class SendMessageInputViewController: UIViewController {
                         "channelId": channel.channelID,
                         "clanId": clanId,
                     ])
-                    self.onError?(error.localizedDescription)
+                    self.onError?(error.userMessage)
             }
         }
     }
@@ -2172,7 +2175,7 @@ final class SendMessageInputViewController: UIViewController {
 
         Task { @MainActor in
             guard let token = await self.context.getToken() else {
-                self.onError?("No session")
+                self.onError?(L(L10n.ClanInviteSheet.sessionNotFound))
                 return
             }
             do {
@@ -2204,7 +2207,7 @@ final class SendMessageInputViewController: UIViewController {
                     "channelId": channel.channelID,
                     "clanId": clanId,
                 ])
-                self.onError?(error.localizedDescription)
+                self.onError?(error.userMessage)
             }
         }
     }
@@ -2328,6 +2331,11 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func refreshBannerLabel() {
+        let isReply = editingDisplay == nil && ephemeralTarget == nil && replyDisplay != nil
+        replyLabel.accessibilityIdentifier = isReply ? AccessibilityID.Chat.replyBanner : nil
+        if UITestLaunch.exposesChatMetadata {
+            replyLabel.accessibilityValue = isReply ? replyDisplay?.id : nil
+        }
         if editingDisplay != nil {
             replyLabel.text = L(L10n.MessageAction.editingMessage)
         } else if let target = ephemeralTarget {
@@ -2419,11 +2427,7 @@ final class SendMessageInputViewController: UIViewController {
 
         let (reconstructed, displayToEditDeltas) = Self.editingComposerRestoredText(from: parsed)
         let fullText = reconstructed
-        let t = UIColor.theme
-        let normalAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 15.sf),
-            .foregroundColor: t.textStrong
-        ]
+        let normalAttrs = composerNormalTypingAttributes()
         let highlightAttrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.boldSystemFont(ofSize: 15.sf),
             .foregroundColor: UIColor(red: 0.35, green: 0.55, blue: 1.0, alpha: 1.0)
@@ -2865,6 +2869,9 @@ final class SendMessageInputViewController: UIViewController {
             selectionLimit: remaining,
             onEditedSend: { [weak self] result in
                 self?.sendEditedImageImmediately(result)
+            },
+            onUploadFile: { [weak self] in
+                self?.openFilePicker()
             }
         ) { [weak self] results in
             guard let self else { return }
@@ -3035,11 +3042,7 @@ final class SendMessageInputViewController: UIViewController {
         let insertPlain = leadingSpace + token + trailingSpace
         let insertLen = (insertPlain as NSString).length
 
-        let t = UIColor.theme
-        let normalAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 15.sf),
-            .foregroundColor: t.textStrong
-        ]
+        let normalAttrs = composerNormalTypingAttributes()
         let emojiAttrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.boldSystemFont(ofSize: 15.sf),
             .foregroundColor: UIColor(red: 0.35, green: 0.55, blue: 1.0, alpha: 1.0)
@@ -3238,10 +3241,7 @@ final class SendMessageInputViewController: UIViewController {
         textView.attributedText = nil
         textView.text = ""
         text = ""
-        textView.typingAttributes = [
-            .font: UIFont.systemFont(ofSize: 15.sf),
-            .foregroundColor: UIColor.theme.textStrong
-        ]
+        textView.typingAttributes = composerNormalTypingAttributes()
         placeholderLabel.isHidden = false
         textView.isScrollEnabled = false
         resetTextViewHeight()
@@ -3490,6 +3490,7 @@ final class SendMessageInputViewController: UIViewController {
         inputBarView.addSubview(chevronButton)
         inputBarView.addSubview(attachButton)
         inputBarView.addSubview(advanceButton)
+        inputBarView.addSubview(composerSurfaceView)
         inputBarView.addSubview(textView)
         inputBarView.addSubview(placeholderLabel)
         inputBarView.addSubview(emojiButton)
@@ -3563,6 +3564,11 @@ final class SendMessageInputViewController: UIViewController {
             textView.trailingAnchor.constraint(equalTo: sendButton.leadingAnchor, constant: -6.sw),
             textView.bottomAnchor.constraint(equalTo: inputBarView.bottomAnchor, constant: -8),
             tvHeight,
+
+            composerSurfaceView.topAnchor.constraint(equalTo: textView.topAnchor),
+            composerSurfaceView.bottomAnchor.constraint(equalTo: textView.bottomAnchor),
+            composerSurfaceView.leadingAnchor.constraint(equalTo: textView.leadingAnchor),
+            composerSurfaceView.trailingAnchor.constraint(equalTo: textView.trailingAnchor),
 
             placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor, constant: 13),
             placeholderLabel.centerYAnchor.constraint(equalTo: textView.centerYAnchor),
@@ -3643,11 +3649,13 @@ final class SendMessageInputViewController: UIViewController {
         sendPermissionRestrictedChrome.addSubview(sendPermissionRestrictedTopSep)
         sendPermissionRestrictedChrome.addSubview(sendPermissionRestrictedInner)
         sendPermissionRestrictedInner.addSubview(sendPermissionRestrictedLabel)
+        let restrictedChromeHeight = sendPermissionRestrictedChrome.heightAnchor.constraint(equalToConstant: Self.textViewMinHeight + Self.inputBarPadding)
+        restrictedChromeHeight.priority = UILayoutPriority(999)
         NSLayoutConstraint.activate([
             sendPermissionRestrictedChrome.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             sendPermissionRestrictedChrome.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             sendPermissionRestrictedChrome.topAnchor.constraint(equalTo: ogpPreviewView.bottomAnchor),
-            sendPermissionRestrictedChrome.heightAnchor.constraint(equalToConstant: Self.textViewMinHeight + Self.inputBarPadding),
+            restrictedChromeHeight,
             sendPermissionRestrictedChrome.bottomAnchor.constraint(equalTo: inputBarView.bottomAnchor),
 
             sendPermissionRestrictedTopSep.topAnchor.constraint(equalTo: sendPermissionRestrictedChrome.topAnchor),
@@ -5437,7 +5445,7 @@ final class SendMessageInputViewController: UIViewController {
                 message.topicID = topicId
                 try await MezonSocket.shared.sendEphemeralMessage(message, receiverIds: [receiverId])
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -5525,10 +5533,7 @@ final class SendMessageInputViewController: UIViewController {
         flashCommand = command.botID != 0 && editingDisplay == nil
             ? BotFlashCommand(botId: command.botID, menuName: command.menuName, actionMsg: command.actionMsg)
             : nil
-        let normalAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 15.sf),
-            .foregroundColor: UIColor.theme.textStrong
-        ]
+        let normalAttrs = composerNormalTypingAttributes()
         activeMentions.removeAll()
         activeHashtags.removeAll()
         emojiIdByColonToken.removeAll()
@@ -5590,11 +5595,7 @@ final class SendMessageInputViewController: UIViewController {
         let trailingSpace = " "
         let insertText = mentionText + trailingSpace
 
-        let t = UIColor.theme
-        let normalAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 15.sf),
-            .foregroundColor: t.textStrong
-        ]
+        let normalAttrs = composerNormalTypingAttributes()
         let mentionAttrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.boldSystemFont(ofSize: 15.sf),
             .foregroundColor: UIColor(red: 0.35, green: 0.55, blue: 1.0, alpha: 1.0)
@@ -5670,11 +5671,7 @@ final class SendMessageInputViewController: UIViewController {
         let trailingSpace = " "
         let insertText = token + trailingSpace
 
-        let t = UIColor.theme
-        let normalAttrs: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 15.sf),
-            .foregroundColor: t.textStrong
-        ]
+        let normalAttrs = composerNormalTypingAttributes()
         let tagFont = UIFont.boldSystemFont(ofSize: 15.sf)
         let tagTint = UIColor(red: 0.35, green: 0.55, blue: 1.0, alpha: 1.0)
         let tagAttrs: [NSAttributedString.Key: Any] = [
@@ -6023,29 +6020,29 @@ final class SendMessageInputViewController: UIViewController {
         view.backgroundColor = t.secondary
         inputBarView.backgroundColor = t.secondary
         topSeparator.backgroundColor = t.border
-        textView.backgroundColor = t.tertiary
+        composerSurfaceView.apply(solid: t.desktop[.bgSurface], gradient: t.desktop.composerGradient)
+        composerSurfaceView.layer.borderColor = t.borderPrimary.cgColor
         let preservedAttributed = textView.attributedText
-        textView.textColor = t.textStrong
+        let selectedRange = textView.selectedRange
+        textView.textColor = t.textThemeMessage
         textView.font = .systemFont(ofSize: 15.sf)
-        textView.typingAttributes = [
-            .font: UIFont.systemFont(ofSize: 15.sf),
-            .foregroundColor: t.textStrong
-        ]
         if let preserved = preservedAttributed, preserved.length > 0,
            !activeMentions.isEmpty || !activeHashtags.isEmpty || !emojiIdByColonToken.isEmpty {
             textView.attributedText = applyCurrentThemeToRestoredComposer(preserved)
+            textView.selectedRange = selectedRange
             refreshHashtagIconAttachments()
         }
+        refreshComposerTypingAttributesForSelection()
         placeholderLabel.font = .systemFont(ofSize: 15.sf)
         placeholderLabel.textColor = t.textDisabled
-        attachButton.backgroundColor = t.tertiary
+        attachButton.backgroundColor = t.raisedSurface
         attachButton.tintColor = t.textStrong
-        advanceButton.backgroundColor = t.tertiary
+        advanceButton.backgroundColor = t.raisedSurface
         advanceButton.tintColor = t.textStrong
-        voiceButton.backgroundColor = t.tertiary
+        voiceButton.backgroundColor = t.raisedSurface
         voiceButton.tintColor = t.textStrong
         voiceRecordingOverlay.applyTheme()
-        chevronButton.backgroundColor = t.tertiary
+        chevronButton.backgroundColor = t.raisedSurface
         chevronButton.tintColor = t.textStrong
         emojiButton.tintColor = t.textDisabled
         attachmentPreviewView.applyTheme()
@@ -6238,7 +6235,7 @@ final class SendMessageInputViewController: UIViewController {
         do {
             try AppAudioSession.activateForVoiceMessageRecording()
         } catch {
-            onError?(error.localizedDescription)
+            onError?(error.userMessage)
             return
         }
 
@@ -6254,14 +6251,14 @@ final class SendMessageInputViewController: UIViewController {
             let recorder = try AVAudioRecorder(url: url, settings: settings)
             recorder.prepareToRecord()
             guard recorder.record() else {
-                onError?("Could not record")
+                onError?(L(L10n.Common.recordFailed))
                 try? FileManager.default.removeItem(at: url)
                 voiceRecordingFileURL = nil
                 return
             }
             voiceAudioRecorder = recorder
         } catch {
-            onError?(error.localizedDescription)
+            onError?(error.userMessage)
             try? FileManager.default.removeItem(at: url)
             voiceRecordingFileURL = nil
             return
@@ -6338,7 +6335,7 @@ final class SendMessageInputViewController: UIViewController {
         let file = PickedFileInfo(url: fileURL, filename: fileURL.lastPathComponent, filesize: size, filetype: "audio/mp4")
         Task { @MainActor in
             guard let token = await self.context.getToken() else {
-                self.onError?("No session")
+                self.onError?(L(L10n.ClanInviteSheet.sessionNotFound))
                 try? FileManager.default.removeItem(at: fileURL)
                 return
             }
@@ -6358,7 +6355,7 @@ final class SendMessageInputViewController: UIViewController {
                     "clanId": self.clanId,
                     "durationSeconds": durationSeconds,
                 ])
-                self.onError?(error.localizedDescription)
+                self.onError?(error.userMessage)
                 try? FileManager.default.removeItem(at: fileURL)
             }
         }
@@ -6659,10 +6656,7 @@ final class SendMessageInputViewController: UIViewController {
         emojiIdByColonToken.removeAll()
         textView.attributedText = nil
         textView.text = ""
-        textView.typingAttributes = [
-            .font: UIFont.systemFont(ofSize: 15.sf),
-            .foregroundColor: UIColor.theme.textStrong
-        ]
+        textView.typingAttributes = composerNormalTypingAttributes()
         placeholderLabel.isHidden = false
         textView.isScrollEnabled = false
         resetTextViewHeight()
@@ -7075,7 +7069,7 @@ final class SendMessageInputViewController: UIViewController {
                 if let key = textOnlyEditPendingKey {
                     self.context.account.postbox.write { tx in tx.markMessageFailed(id: key) }
                 }
-                self.onError?("No session")
+                self.onError?(L(L10n.ClanInviteSheet.sessionNotFound))
                 return
             }
             do {
@@ -7283,7 +7277,7 @@ final class SendMessageInputViewController: UIViewController {
                     self.skipOptimisticPendingMessageOnSend = false
                 }
                 if !suppressErrorToast {
-                    self.onError?(error.localizedDescription)
+                    self.onError?(error.userMessage)
                 }
             }
         }
@@ -7377,7 +7371,7 @@ final class SendMessageInputViewController: UIViewController {
 
         Task { @MainActor in
             guard let token = await self.context.getToken() else {
-                self.onError?("No session")
+                self.onError?(L(L10n.ClanInviteSheet.sessionNotFound))
                 return
             }
             do {
@@ -7408,7 +7402,7 @@ final class SendMessageInputViewController: UIViewController {
                     "clanId": clanId,
                     "attachmentCount": attachments.count,
                 ])
-                self.onError?(error.localizedDescription)
+                self.onError?(error.userMessage)
             }
         }
     }
@@ -7442,7 +7436,7 @@ final class SendMessageInputViewController: UIViewController {
         let t = UIColor.theme
         return [
             .font: UIFont.systemFont(ofSize: 15.sf),
-            .foregroundColor: t.textStrong
+            .foregroundColor: t.textThemeMessage
         ]
     }
 
@@ -7767,6 +7761,7 @@ struct PastedImage {
 
 final class PastableTextView: UITextView {
 
+    weak var composerSurface: UIView?
     var onImagesPasted: (([PastedImage]) -> Void)?
     var onGIFPasted: ((Data) -> Void)?
     var onLongTextPasted: ((String) -> Bool)?
@@ -7775,10 +7770,12 @@ final class PastableTextView: UITextView {
         super.layoutSubviews()
         let h = bounds.height
         guard h > 0 else { return }
-        let cap = 20.swh
-        layer.cornerRadius = min(h * 0.5, cap)
+        let radius = min(h * 0.5, 20.swh)
+        layer.cornerRadius = radius
+        composerSurface?.layer.cornerRadius = radius
         if #available(iOS 13.0, *) {
             layer.cornerCurve = .continuous
+            composerSurface?.layer.cornerCurve = .continuous
         }
     }
 
@@ -7920,8 +7917,9 @@ extension SendMessageInputViewController: UIDocumentPickerDelegate {
 
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
         var didHitLimit = false
+        var videoFiles: [PickedFileInfo] = []
         for url in urls {
-            guard remainingAttachmentSlots > 0 else { didHitLimit = true; break }
+            guard remainingAttachmentSlots - videoFiles.count > 0 else { didHitLimit = true; break }
             let filename = url.lastPathComponent
             let ext = url.pathExtension.lowercased()
             let filetype = Self.mimeType(for: ext)
@@ -7930,11 +7928,41 @@ extension SendMessageInputViewController: UIDocumentPickerDelegate {
             let fileSize = (try? FileManager.default.attributesOfItem(atPath: stableURL.path)[.size] as? Int) ?? 0
 
             let fileInfo = PickedFileInfo(url: stableURL, filename: filename, filesize: fileSize, filetype: filetype)
-            pickedFiles.append(fileInfo)
-            attachmentPreviewView.addFile(fileInfo)
+            if filetype.hasPrefix("video/") {
+                videoFiles.append(fileInfo)
+            } else {
+                pickedFiles.append(fileInfo)
+                attachmentPreviewView.addFile(fileInfo)
+            }
         }
         if didHitLimit { notifyAttachmentLimitReached() }
         updatePreviewVisibility()
+        addPickedVideoFiles(videoFiles)
+    }
+
+    private func addPickedVideoFiles(_ files: [PickedFileInfo]) {
+        guard !files.isEmpty else { return }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let thumbnails = files.map { MediaPickerViewController.generateVideoThumbnail(from: $0.url) }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                var didHitLimit = false
+                for (file, thumbnail) in zip(files, thumbnails) {
+                    guard self.remainingAttachmentSlots > 0 else { didHitLimit = true; break }
+                    if let thumbnail {
+                        self.pickedFileURLs[self.pickedImages.count] = file.url
+                        self.pickedImages.append(thumbnail)
+                        self.attachmentPreviewView.addVideo(thumbnail: thumbnail)
+                    } else {
+                        self.pickedFiles.append(file)
+                        self.attachmentPreviewView.addFile(file)
+                    }
+                }
+                if didHitLimit { self.notifyAttachmentLimitReached() }
+                self.saveToCache()
+                self.updatePreviewVisibility()
+            }
+        }
     }
 
     static func copyPickedFileToStableLocation(from url: URL, ext: String) -> URL? {

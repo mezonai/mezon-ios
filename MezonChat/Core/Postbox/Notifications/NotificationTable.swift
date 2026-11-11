@@ -158,7 +158,7 @@ final class NotificationTable: Table {
 
             for item in list {
                 db.run("""
-                    INSERT INTO notifications(
+                    INSERT OR IGNORE INTO notifications(
                         id, subject, content, code, sender_id, create_time_seconds,
                         persistent, clan_id, channel_id, channel_type, avatar_url, topic_id, category, message_id
                     ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)

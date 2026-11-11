@@ -454,7 +454,7 @@ final class SetupMembersViewController: BaseViewController {
                 Toast.success(L(L10n.ClanRoles.membersAdded))
                 self.loadFromStore()
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -476,7 +476,7 @@ final class SetupMembersViewController: BaseViewController {
                 )
                 self.loadFromStore()
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -501,7 +501,7 @@ final class SetupMembersViewController: BaseViewController {
                 Toast.success(L(L10n.ClanRoles.membersAdded))
                 self.popToRolesList()
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }

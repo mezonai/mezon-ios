@@ -71,7 +71,7 @@ final class CreateCategoryViewController: BaseViewController {
             } catch {
                 await MainActor.run {
                     createNode.setLoading(false)
-                    Toast.error(error.localizedDescription)
+                    Toast.error(error.userMessage)
                 }
             }
         }

@@ -105,6 +105,17 @@ final class ChatMessageItemNode: ListViewItemNode, UIGestureRecognizerDelegate {
     private var bubbleNode: MessageBubbleNode?
     private var currentItem: ChatMessageItem?
 
+    private var isMessageVisible: Bool {
+        if case .visible = visibility { return true }
+        return false
+    }
+
+    override var visibility: ListViewItemNodeVisibility {
+        didSet {
+            bubbleNode?.setRoleIconAnimationVisible(isMessageVisible)
+        }
+    }
+
     private var panGesture: UIPanGestureRecognizer?
     private var swipeReplyIcon: UIImageView?
     private var swipeStartX: CGFloat = 0
@@ -312,6 +323,9 @@ final class ChatMessageItemNode: ListViewItemNode, UIGestureRecognizerDelegate {
             return (nodeLayout, {
                 guard let self else { return }
                 self.currentItem = item
+                bubble.updateMessageAccessibility()
+                self.accessibilityIdentifier = AccessibilityID.Chat.message(item.display.id)
+                bubble.setRoleIconAnimationVisible(self.isMessageVisible)
                 if self.bubbleNode !== bubble {
                     self.bubbleNode?.removeFromSupernode()
                     self.addSubnode(bubble)

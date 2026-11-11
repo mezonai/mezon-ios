@@ -656,7 +656,7 @@ final class CreatePollViewController: BaseViewController {
                 )
                 self.navigationController?.popViewController(animated: true)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
                 self.postButton.isEnabled = true
                 self.postButton.setTitle(L(L10n.CreatePoll.postButton), for: .normal)
             }

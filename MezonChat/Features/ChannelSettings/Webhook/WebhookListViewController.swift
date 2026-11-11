@@ -297,7 +297,7 @@ final class WebhookListViewController: BaseViewController {
                 self.members = self.context.account.postbox.read { $0.getClanMembers(clanId: self.clanId) }
                 self.reloadUI()
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }

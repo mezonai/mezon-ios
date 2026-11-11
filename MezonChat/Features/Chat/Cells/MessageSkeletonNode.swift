@@ -96,7 +96,7 @@ final class MessageSkeletonCellNode: ASCellNode {
             shimmer.endPoint = CGPoint(x: 1, y: 0.5)
 
             let base = UIColor.theme.secondaryLight
-            let highlight = UIColor.theme.tertiary
+            let highlight = UIColor.theme.shimmerHighlight(over: base)
             shimmer.colors = [base.cgColor, highlight.cgColor, base.cgColor]
             shimmer.locations = [0, 0.5, 1]
 

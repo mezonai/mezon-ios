@@ -255,7 +255,7 @@ final class WebRTCCallManager {
             }
             walk = cur.presentedViewController
         }
-        let display = IncomingPeerCallPayloadParser.callerDisplay(for: payload, skipDecompressOffer: true)
+        let display = IncomingPeerCallPayloadParser.callerDisplay(for: payload, skipDecompressOffer: true, context: ctx)
         let vc = PeerCallViewController(
             context: ctx,
             incoming: payload,
@@ -312,17 +312,17 @@ final class WebRTCCallManager {
             if hasAnsweredIncomingPeerCall(channelId: push.channelID, callerId: push.callerID) {
                 return
             }
-            dismissUnansweredIncomingRing(channelId: push.channelID, callerId: push.callerID)
-            bufferedSignaling.removeAll()
-            awaitingIncomingAttachment = false
-            expectedIncomingBufferKey = nil
-            pendingIncomingPeerCallUserInfo = nil
             CallKitManager.shared.endRingingCallIfMatching(
                 channelId: push.channelID,
                 callerId: push.callerID,
                 remoteIsConnected: isConnectedFlag,
                 cancelSentAtMs: cancelSentAtMs
             )
+            dismissUnansweredIncomingRing(channelId: push.channelID, callerId: push.callerID)
+            bufferedSignaling.removeAll()
+            awaitingIncomingAttachment = false
+            expectedIncomingBufferKey = nil
+            pendingIncomingPeerCallUserInfo = nil
             return
         }
         guard signalingSession == nil else {
@@ -471,11 +471,12 @@ final class WebRTCCallManager {
         awaitingIncomingAttachment = false
         expectedIncomingBufferKey = nil
         pendingIncomingPeerCallUserInfo = nil
-        dismissUnansweredIncomingRing(channelId: msg.channelID, callerId: msg.callerID)
         CallKitManager.shared.endRingingCallIfMatching(
             channelId: msg.channelID,
-            callerId: msg.callerID
+            callerId: msg.callerID,
+            remoteIsConnected: msg.dataType == WebRTCSignalingDataType.sdpJoinedOtherCall
         )
+        dismissUnansweredIncomingRing(channelId: msg.channelID, callerId: msg.callerID)
     }
 
     private static func isTerminalSignalingDataType(_ dt: Int32) -> Bool {
@@ -605,6 +606,63 @@ struct IncomingPeerCallPayload {
     }
 }
 
+struct PeerCallCallerIdentity: Equatable {
+    let name: String
+    let avatar: String?
+
+    init(displayName: String? = nil, username: String? = nil, fallbackName: String? = nil,
+         avatar: String? = nil, fallbackAvatar: String? = nil) {
+        name = Self.nonEmpty(displayName) ?? Self.nonEmpty(fallbackName)
+            ?? Self.nonEmpty(username) ?? "Incoming call"
+        self.avatar = Self.nonEmpty(avatar) ?? Self.nonEmpty(fallbackAvatar)
+    }
+
+    static func nonEmpty(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+        return value
+    }
+}
+
+@MainActor
+enum PeerCallCallerIdentityResolver {
+    static func resolve(
+        context: AccountContext?, callerId: Int64, channelId: Int64,
+        fallbackName: String?, fallbackAvatar: String?,
+        channels: [Mezon_Api_ChannelDescription]? = nil
+    ) -> PeerCallCallerIdentity {
+        guard let context else {
+            return PeerCallCallerIdentity(fallbackName: fallbackName, avatar: fallbackAvatar)
+        }
+        let friend = context.engine.friendsData.allFriends().first { $0.hasUser && $0.user.id == callerId }?.user
+        let directChannels = channels ?? context.account.postbox.getCachedDMChannelList()
+        let channel = directChannels.first { $0.channelID == channelId && $0.userIds.contains(callerId) }
+        let index = channel?.userIds.firstIndex(of: callerId)
+        func value(_ values: [String]?) -> String? {
+            guard let values, let index, values.indices.contains(index) else { return nil }
+            return PeerCallCallerIdentity.nonEmpty(values[index])
+        }
+        // ProfileRecord may contain a clan nickname/avatar. Use global friend/DM identity for peer calls.
+        let useFriendFallback = channels == nil || channel == nil
+        let displayName = value(channel?.displayNames)
+            ?? (useFriendFallback ? PeerCallCallerIdentity.nonEmpty(friend?.displayName) : nil)
+        let username = value(channel?.usernames)
+            ?? (useFriendFallback ? PeerCallCallerIdentity.nonEmpty(friend?.username) : nil)
+        let avatar = value(channel?.avatars)
+            ?? (useFriendFallback ? PeerCallCallerIdentity.nonEmpty(friend?.avatarURL) : nil)
+        let resolvedFallbackName = channels == nil || (displayName == nil && username == nil) ? fallbackName : nil
+        let hasFreshAvatar = channels != nil && index.map { channel?.avatars.indices.contains($0) == true } == true
+        let resolvedAvatar = hasFreshAvatar ? avatar : (PeerCallCallerIdentity.nonEmpty(fallbackAvatar) ?? avatar)
+        return PeerCallCallerIdentity(
+            displayName: displayName, username: username, fallbackName: resolvedFallbackName,
+            avatar: resolvedAvatar
+        )
+    }
+}
+
+extension Notification.Name {
+    static let mezonPeerCallCallerIdentityDidUpdate = Notification.Name("mezon.call.callerIdentityDidUpdate")
+}
+
 enum IncomingPeerCallPayloadParser {
 
     static func callerDisplayFromPushJsonData(_ json: String) -> (name: String?, avatar: String?) {
@@ -613,8 +671,8 @@ enum IncomingPeerCallPayloadParser {
         else {
             return (nil, nil)
         }
-        let name = obj["callerName"] as? String
-        let avatar = obj["callerAvatar"] as? String
+        let name = PeerCallCallerIdentity.nonEmpty(obj["callerName"] as? String)
+        let avatar = PeerCallCallerIdentity.nonEmpty(obj["callerAvatar"] as? String)
         return (name, avatar)
     }
 
@@ -651,17 +709,30 @@ enum IncomingPeerCallPayloadParser {
         return v
     }
 
-    static func callerDisplay(for payload: IncomingPeerCallPayload, skipDecompressOffer: Bool) -> (name: String, avatar: String?) {
+    @MainActor
+    static func callerDisplay(for payload: IncomingPeerCallPayload, skipDecompressOffer: Bool,
+                              context: AccountContext? = nil) -> (name: String, avatar: String?) {
+        if let identity = CallKitManager.shared.incomingCallerIdentity(callerId: payload.callerId, channelId: payload.channelId) {
+            return (identity.name, identity.avatar)
+        }
+        var name: String?
+        var avatar: String?
         let trimmedJson = payload.pushJsonData?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !trimmedJson.isEmpty {
             let m = callerDisplayFromPushJsonData(trimmedJson)
-            if let n = m.name, !n.isEmpty { return (n, m.avatar) }
+            name = m.name
+            avatar = m.avatar
         }
-        if !skipDecompressOffer, let compressed = payload.resolvedCompressedOffer() {
+        if !skipDecompressOffer, (name == nil || avatar == nil), let compressed = payload.resolvedCompressedOffer() {
             let m = callerDisplayFromCompressedOffer(compressed)
-            if let n = m.name, !n.isEmpty { return (n, m.avatar) }
+            name = name ?? m.name
+            avatar = avatar ?? m.avatar
         }
-        return ("Incoming call", nil)
+        let identity = PeerCallCallerIdentityResolver.resolve(
+            context: context, callerId: payload.callerId, channelId: payload.channelId,
+            fallbackName: name, fallbackAvatar: avatar
+        )
+        return (identity.name, identity.avatar)
     }
 
     static func callerDisplayFromCompressedOffer(_ compressed: String) -> (name: String?, avatar: String?, sdpHint: String?) {
@@ -671,8 +742,8 @@ enum IncomingPeerCallPayloadParser {
         else {
             return (nil, nil, nil)
         }
-        let name = obj["callerName"] as? String
-        let avatar = obj["callerAvatar"] as? String
+        let name = PeerCallCallerIdentity.nonEmpty(obj["callerName"] as? String)
+        let avatar = PeerCallCallerIdentity.nonEmpty(obj["callerAvatar"] as? String)
         let sdp = obj["sdp"] as? String
         return (name, avatar, sdp)
     }

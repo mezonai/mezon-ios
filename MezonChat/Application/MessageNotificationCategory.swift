@@ -38,7 +38,11 @@ enum MessageNotificationCategory {
             intentIdentifiers: [],
             options: []
         )
-        UNUserNotificationCenter.current().setNotificationCategories([category])
+        let missedCall = UNNotificationCategory(
+            identifier: PeerCallNotifications.missedCallCategory,
+            actions: [], intentIdentifiers: [], options: []
+        )
+        UNUserNotificationCenter.current().setNotificationCategories([category, missedCall])
     }
 
     static func isReplyAction(_ response: UNNotificationResponse) -> Bool {

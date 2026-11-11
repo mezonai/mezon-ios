@@ -53,6 +53,8 @@ private extension ExistingVideoSharePayload {
 
 private enum GalleryVideoSharePreparationError: Error {
     case unavailable
+    case outOfSpace
+    case failed(message: String)
 }
 
 private final class GalleryVideoActivityItemProvider: UIActivityItemProvider {
@@ -239,6 +241,7 @@ private final class GalleryVideoActivityItemProvider: UIActivityItemProvider {
         preparationError = nil
         stateLock.unlock()
         let progressObservation = Atomic<NSKeyValueObservation?>(value: nil)
+        let originalMissing = Atomic<Bool>(value: false)
         let task = CDNSigner.shared.downloadTask(with: sourceURL, in: session, onStart: { [weak self] started in
             let observation = started.progress.observe(\.fractionCompleted) { [weak self] progress, _ in
                 self?.notifyPreparationProgress(progress.fractionCompleted)
@@ -254,6 +257,9 @@ private final class GalleryVideoActivityItemProvider: UIActivityItemProvider {
             guard let temporaryURL,
                   let response = response as? HTTPURLResponse,
                   (200...299).contains(response.statusCode) else {
+                if let statusCode = (response as? HTTPURLResponse)?.statusCode, statusCode == 403 || statusCode == 404 {
+                    _ = originalMissing.swap(true)
+                }
                 self.setPreparationError(GalleryVideoSharePreparationError.unavailable)
                 return
             }
@@ -298,7 +304,46 @@ private final class GalleryVideoActivityItemProvider: UIActivityItemProvider {
         if let result {
             return .success(result)
         }
+        if originalMissing.swap(false) {
+            return copyFinishedHLS(into: directory, named: safeFilename)
+        }
         return .failure(error ?? GalleryVideoSharePreparationError.unavailable)
+    }
+
+    private func copyFinishedHLS(into directory: URL, named filename: String) -> Result<URL, Error> {
+        let finished = DispatchSemaphore(value: 0)
+        let result = Atomic<FileIngestHLSCopy.Outcome>(value: .failed)
+        FileIngestHLSCopy.makeFile(attachmentURL: payload.url, progress: { [weak self] fraction in
+            self?.notifyPreparationProgress(fraction)
+        }) { outcome in
+            _ = result.swap(outcome)
+            finished.signal()
+        }
+        finished.wait()
+        let outcome = result.swap(.failed)
+        guard case .file(let fileURL) = outcome else {
+            switch outcome {
+            case .stillUploading, .unreachable, .outOfSpace:
+                return .failure(GalleryVideoSharePreparationError.failed(message: MediaActionHandler.videoCopyFailureMessage(outcome)))
+            default:
+                return .failure(GalleryVideoSharePreparationError.unavailable)
+            }
+        }
+        let baseName = (filename as NSString).deletingPathExtension
+        let destination = directory.appendingPathComponent("\(UUID().uuidString)_\(baseName.isEmpty ? "video" : baseName).mp4")
+        do {
+            try FileManager.default.moveItem(at: fileURL, to: destination)
+            let fileSize = try destination.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+            try trimShareCache(in: directory, incomingBytes: Int64(fileSize), retaining: destination)
+            stateLock.lock()
+            downloadedURL = destination
+            stateLock.unlock()
+            return .success(destination)
+        } catch {
+            try? FileManager.default.removeItem(at: fileURL)
+            try? FileManager.default.removeItem(at: destination)
+            return .failure(error)
+        }
     }
 
     private func trimShareCache(
@@ -350,7 +395,7 @@ private final class GalleryVideoActivityItemProvider: UIActivityItemProvider {
         let values = try directory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
         if let availableBytes = values.volumeAvailableCapacityForImportantUsage,
            availableBytes < incomingBytes {
-            throw GalleryVideoSharePreparationError.unavailable
+            throw GalleryVideoSharePreparationError.outOfSpace
         }
     }
 
@@ -1192,7 +1237,7 @@ final class GalleryController: UIViewController {
                 let finish = {
                     self.hideVideoSharePreparationOverlay()
                     if (error as? URLError)?.code != .cancelled {
-                        Toast.error(L(L10n.Gallery.videoShareFailed))
+                        Toast.error(Self.videoSharePreparationMessage(error))
                     }
                     self.resumeVideoPlaybackIfPossible()
                     acknowledge()
@@ -1290,7 +1335,22 @@ final class GalleryController: UIViewController {
     }
 }
 
-extension GalleryController: UICollectionViewDataSource, UICollectionViewDelegate {
+extension GalleryController {
+    fileprivate static func videoSharePreparationMessage(_ error: Error) -> String {
+        switch error {
+        case GalleryVideoSharePreparationError.failed(let message):
+            return message
+        case GalleryVideoSharePreparationError.outOfSpace:
+            return L(L10n.Gallery.videoSaveNoSpace)
+        default:
+            if FileIngestHLSCopy.isOutOfSpace(error) { return L(L10n.Gallery.videoSaveNoSpace) }
+            if error is URLError { return L(L10n.Gallery.videoDownloadNetworkFailed) }
+            return L(L10n.Gallery.videoShareFailed)
+        }
+    }
+}
+
+extension GalleryController: UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
 
     func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
         items.count
@@ -1305,9 +1365,17 @@ extension GalleryController: UICollectionViewDataSource, UICollectionViewDelegat
         }
         let index = indexPath.item
         if index < items.count {
-            cell.configure(item: items[index], isSelected: index == pagingNode.centralItemIndex)
+            let centralIndex = pagingNode.centralItemIndex
+            let isViewingVideo = items.indices.contains(centralIndex) && items[centralIndex].isVideo
+            cell.configure(item: items[index], isSelected: index == centralIndex, allowVideoThumbnailGeneration: !isViewingVideo)
         }
         return cell
+    }
+
+    func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
+        let sectionInsets = (collectionViewLayout as? UICollectionViewFlowLayout)?.sectionInset ?? .zero
+        let availableHeight = collectionView.bounds.height - collectionView.adjustedContentInset.top - collectionView.adjustedContentInset.bottom - sectionInsets.top - sectionInsets.bottom
+        return CGSize(width: 44, height: max(1, min(64, availableHeight)))
     }
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
@@ -1324,6 +1392,7 @@ private final class GalleryThumbnailCell: UICollectionViewCell {
     private let playOverlayView = UIView()
     private let playIconView = UIImageView()
     private var representedIdentity: String?
+    private var thumbnailGeneration = UUID()
     private var imageTask: URLSessionDataTask?
     private var thumbnailGenerator: AVAssetImageGenerator?
 
@@ -1374,6 +1443,7 @@ private final class GalleryThumbnailCell: UICollectionViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         representedIdentity = nil
+        thumbnailGeneration = UUID()
         imageTask?.cancel()
         imageTask = nil
         thumbnailGenerator?.cancelAllCGImageGeneration()
@@ -1382,14 +1452,28 @@ private final class GalleryThumbnailCell: UICollectionViewCell {
         playOverlayView.isHidden = true
     }
 
-    func configure(item: GalleryItemInfo, isSelected: Bool) {
+    func configure(item: GalleryItemInfo, isSelected: Bool, allowVideoThumbnailGeneration: Bool) {
+        thumbnailGeneration = UUID()
+        imageTask?.cancel()
+        imageTask = nil
+        thumbnailGenerator?.cancelAllCGImageGeneration()
+        thumbnailGenerator = nil
+        imageView.image = nil
         representedIdentity = item.stableIdentity
         contentView.layer.borderWidth = isSelected ? 2 : 0
         contentView.layer.borderColor = isSelected ? UIColor.systemBlue.cgColor : UIColor.clear.cgColor
         playOverlayView.isHidden = !item.isVideo
 
         if item.isVideo {
-            loadVideoThumbnail(urlString: item.sourceURL ?? item.url, identity: item.stableIdentity)
+            imageView.image = item.image
+            if let thumbnail = item.videoShareMetadata?.thumbnail,
+               let thumbnailURL = URL(string: thumbnail),
+               ["https", "http"].contains(thumbnailURL.scheme?.lowercased() ?? ""),
+               thumbnail != item.url, thumbnail != item.sourceURL {
+                loadImage(urlString: thumbnail, identity: item.stableIdentity)
+            } else {
+                loadVideoThumbnail(urlString: item.sourceURL ?? item.url, identity: item.stableIdentity, allowRemoteGeneration: allowVideoThumbnailGeneration && !isSelected)
+            }
         } else if let image = item.image {
             imageView.image = image
         } else {
@@ -1406,26 +1490,29 @@ private final class GalleryThumbnailCell: UICollectionViewCell {
         }
     }
 
-    private func loadVideoThumbnail(urlString: String, identity: String) {
+    private func loadVideoThumbnail(urlString: String, identity: String, allowRemoteGeneration: Bool) {
         guard let videoURL = URL(string: urlString), !urlString.isEmpty else { return }
         let cacheKey = "video_thumb_\(urlString)"
         if let cached = ImageCache.shared.image(forKey: cacheKey) {
             imageView.image = cached
             return
         }
+        guard allowRemoteGeneration || videoURL.isFileURL else { return }
         if let request = CDNSigner.shared.readyRequestURL(for: videoURL) {
             generateVideoThumbnail(from: request.url, cacheKey: cacheKey, identity: identity)
             return
         }
+        let generation = thumbnailGeneration
         CDNSigner.shared.requestURL(for: videoURL) { [weak self] request in
             DispatchQueue.main.async {
-                guard let self, self.representedIdentity == identity else { return }
+                guard let self, self.representedIdentity == identity, self.thumbnailGeneration == generation else { return }
                 self.generateVideoThumbnail(from: request.url, cacheKey: cacheKey, identity: identity)
             }
         }
     }
 
     private func generateVideoThumbnail(from assetURL: URL, cacheKey: String, identity: String) {
+        let generation = thumbnailGeneration
         let asset = AVURLAsset(url: assetURL, options: [
             AVURLAssetPreferPreciseDurationAndTimingKey: false
         ])
@@ -1440,7 +1527,7 @@ private final class GalleryThumbnailCell: UICollectionViewCell {
             let image = UIImage(cgImage: cgImage)
             ImageCache.shared.setImage(image, data: image.jpegData(compressionQuality: 0.7), forKey: cacheKey)
             DispatchQueue.main.async {
-                guard let self, self.representedIdentity == identity else { return }
+                guard let self, self.representedIdentity == identity, self.thumbnailGeneration == generation else { return }
                 self.imageView.image = image
             }
         }

@@ -459,6 +459,9 @@ private final class MessageActionSheetNode: ASDisplayNode {
         scrollView.delaysContentTouches = true
         scrollView.bounces = true
         containerNode.view.addSubview(scrollView)
+        
+        containerNode.accessibilityElements = [scrollView]
+        scrollView.accessibilityIdentifier = AccessibilityID.Chat.messageMenu
 
         dragToDismissView.backgroundColor = .clear
         containerNode.view.addSubview(dragToDismissView)
@@ -628,6 +631,8 @@ private final class MessageActionSheetNode: ASDisplayNode {
             btn.layer.cornerRadius = btnSize / 2
             btn.clipsToBounds = true
             btn.tag = idx
+            btn.accessibilityIdentifier = AccessibilityID.Chat.quickReaction(emoji.id)
+            btn.accessibilityLabel = emoji.shortname
 
             if let url = MezonConfig.emojiResourceURL(emojiId: emoji.id, imgproxyFitSide: 40) {
                 loadEmojiImage(url: url, into: btn)
@@ -708,7 +713,7 @@ private final class MessageActionSheetNode: ASDisplayNode {
             if i < actions.count - 1 {
                 let sepX: CGFloat = isWarning ? 58 : 52
                 let sep = UIView(frame: CGRect(x: sepX, y: rowY + rowH - 0.5, width: contentW - sepX - 16, height: 0.5))
-                sep.backgroundColor = t.tertiary
+                sep.backgroundColor = t.border
                 bg.addSubview(sep)
             }
         }
@@ -737,7 +742,7 @@ private final class MessageActionSheetNode: ASDisplayNode {
             let circleX: CGFloat = 12
             let circleY = y + (height - circleSize) / 2
             let circleView = UIView(frame: CGRect(x: circleX, y: circleY, width: circleSize, height: circleSize))
-            circleView.backgroundColor = t.tertiary
+            circleView.backgroundColor = t.raisedSurface
             circleView.layer.cornerRadius = circleSize / 2
             circleView.clipsToBounds = true
             parent.addSubview(circleView)
@@ -768,11 +773,16 @@ private final class MessageActionSheetNode: ASDisplayNode {
 
         let label = UILabel(frame: CGRect(x: labelX, y: y, width: width - labelX - 16, height: height))
         label.text = action.title
+        label.isAccessibilityElement = false
         label.font = .systemFont(ofSize: 16)
         label.textColor = textColor
         parent.addSubview(label)
 
         let btn = ActionButton(type: .system)
+        btn.accessibilityLabel = action.title
+        if action == .reply {
+            btn.accessibilityIdentifier = AccessibilityID.Chat.replyAction
+        }
         btn.frame = CGRect(x: 0, y: y, width: width, height: height)
         btn.actionHandler = { [weak self] in
             self?.onAction(action)
@@ -881,7 +891,7 @@ private final class QuickMenuPickerSheetNode: ASDisplayNode {
         dimmingNode.backgroundColor = UIColor.black.withAlphaComponent(0.4)
         dimmingNode.alpha = 0
 
-        containerNode.backgroundColor = t.primary
+        containerNode.backgroundColor = t.desktop[.bgThemeContexify]
         containerNode.cornerRadius = 14
         containerNode.clipsToBounds = true
 
@@ -1051,7 +1061,7 @@ private final class QuickMenuPickerRow: UIControl {
 
     init(name: String, showsSeparator: Bool) {
         let t = UIColor.theme
-        highlightColor = t.tertiary
+        highlightColor = t.raisedSurface
         super.init(frame: .zero)
 
         iconBackground.backgroundColor = QuickActionPalette.typeBadge.withAlphaComponent(0.18)

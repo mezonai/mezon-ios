@@ -86,15 +86,19 @@ final class PostboxTransaction {
         updatedClans = true
     }
 
-    func getMessages(channelId: String, limit: Int = 50) -> [MessageRecord] {
+    func getMessages(channelId: String, limit: Int = MessageTable.cachedHistoryLimit) -> [MessageRecord] {
         messageTable.getMessages(channelId: channelId, limit: limit)
+    }
+
+    func messageHistoryView(channelId: String) -> MessageHistoryView {
+        messageTable.messageHistoryView(channelId: channelId)
     }
 
     func resolvedPendingMessageIds(_ pendingIds: Set<String>) -> [String: UInt64] {
         messageTable.resolvedPendingMessageIds(pendingIds)
     }
 
-    func getRecentMessages(channelId: String, limit: Int = 50) -> [MessageRecord] {
+    func getRecentMessages(channelId: String, limit: Int = MessageTable.cachedHistoryLimit) -> [MessageRecord] {
         messageTable.getRecentMessages(channelId: channelId, limit: limit)
     }
 
@@ -105,6 +109,34 @@ final class PostboxTransaction {
     func addMessages(_ messages: [MessageRecord]) {
         messageTable.addMessages(messages)
         for m in messages { updatedMessageChannelIds.insert(m.channelId) }
+    }
+
+    func beginMessageHistoryRefresh(channelId: String) -> MessageHistoryRefresh {
+        messageTable.beginMessageHistoryRefresh(channelId: channelId)
+    }
+
+    func prepareMessageHistoryForChannelEntry(channelId: String) -> [MessageRecord] {
+        messageTable.prepareMessageHistoryForChannelEntry(channelId: channelId)
+    }
+
+    func cancelMessageHistoryRefresh(_ refresh: MessageHistoryRefresh) {
+        messageTable.cancelMessageHistoryRefresh(refresh)
+    }
+
+    func applyMessageHistoryRefresh(_ messages: [MessageRecord], refresh: MessageHistoryRefresh, atLatest: Bool = true) {
+        if messageTable.applyMessageHistoryRefresh(messages, refresh: refresh, atLatest: atLatest) {
+            updatedMessageChannelIds.insert(refresh.channelId)
+        }
+    }
+
+    func beginMessageHistoryPage(channelId: String) -> MessageHistoryPage {
+        messageTable.beginMessageHistoryPage(channelId: channelId)
+    }
+
+    func applyMessageHistoryPage(_ messages: [MessageRecord], page: MessageHistoryPage, newerThan cursor: Int64? = nil) {
+        if messageTable.applyMessageHistoryPage(messages, page: page, newerThan: cursor) {
+            updatedMessageChannelIds.insert(page.channelId)
+        }
     }
 
     func replaceAllMessages(

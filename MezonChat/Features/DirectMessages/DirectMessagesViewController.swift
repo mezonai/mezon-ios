@@ -60,6 +60,7 @@ final class DirectMessagesViewController: ViewController {
     private(set) var incomingFriendRequestCount: Int = 0
     private var userActivities: [Mezon_Api_UserActivity] = []
     private var didRefreshForCurrentAppearance = false
+    private var isChangingUserBlock = false
 
     private var directMessagesNode: DirectMessagesContainerNode { displayNode as! DirectMessagesContainerNode }
 
@@ -140,7 +141,6 @@ final class DirectMessagesViewController: ViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = UIColor.theme.secondary
         NotificationCenter.default.addObserver(self, selector: #selector(handleChannelMarkedAsRead(_:)), name: Notification.Name("MezonChannelMarkedAsRead"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleNewMessageReceived(_:)), name: Notification.Name("MezonNewMessageReceived"), object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(handleNewMessageReceived(_:)), name: Notification.Name("MezonDMListMessageReceived"), object: nil)
@@ -221,7 +221,6 @@ final class DirectMessagesViewController: ViewController {
 
     @objc private func handleDirectMessagesThemeChange() {
         guard isNodeLoaded else { return }
-        view.backgroundColor = UIColor.theme.secondary
         directMessagesNode.applyTheme()
     }
 
@@ -333,6 +332,7 @@ final class DirectMessagesViewController: ViewController {
 
         if let senderId, senderId != context.currentUser?.id,
            (notification.userInfo?["incrementDmBadge"] as? Bool) == true {
+            DmReadFloor.invalidate(channelId: channelId)
             for i in 0..<directMessages.count where directMessages[i].channelID == channelId {
                 directMessages[i].countMessUnread += 1
                 if wsMessage == nil {
@@ -502,7 +502,7 @@ final class DirectMessagesViewController: ViewController {
         channel: Mezon_Api_ChannelDescription,
         groupMemberUserIds: [Int64]
     ) -> DmMenuContext {
-        let currentUserId = Int64(context.currentUser?.id ?? "") ?? 0
+        let currentUserId = context.currentUserNumericID ?? 0
         let displayName = Self.dmDisplayName(for: channel)
         let userName = channel.usernames.first(where: { !$0.isEmpty }) ?? ""
         let avatarURL = currentState.resolvedAvatarURLByChannelId[channel.channelID] ?? ""
@@ -574,9 +574,9 @@ final class DirectMessagesViewController: ViewController {
         case .removeFriend:
             handleRemoveFriend(channel: channel, menuContext: menuContext)
         case .blockUser:
-            handleBlockUser(channel: channel, menuContext: menuContext)
+            handleUserBlock(menuContext: menuContext, blocked: true)
         case .unblockUser:
-            handleUnblockUser(channel: channel, menuContext: menuContext)
+            handleUserBlock(menuContext: menuContext, blocked: false)
         case .markAsRead:
             handleMarkDmAsRead(channel)
         case .pinConversation:
@@ -645,7 +645,7 @@ final class DirectMessagesViewController: ViewController {
                 }
                 self.removeDmChannelFromList(channelId: channel.channelID)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -661,7 +661,7 @@ final class DirectMessagesViewController: ViewController {
                 )
                 self.removeDmChannelFromList(channelId: channel.channelID)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -682,7 +682,7 @@ final class DirectMessagesViewController: ViewController {
                 }
                 await self.context.engine.friendsData.refreshFromNetwork(token: token, force: true)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -703,54 +703,32 @@ final class DirectMessagesViewController: ViewController {
                 }
                 await self.context.engine.friendsData.refreshFromNetwork(token: token, force: true)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
 
-    private func handleBlockUser(channel: Mezon_Api_ChannelDescription, menuContext: DmMenuContext) {
-        guard let peerId = menuContext.peerUserId else { return }
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard let token = await self.context.getToken() else { return }
-            let username = channel.usernames.first ?? ""
-            do {
-                if peerId != 0 {
-                    try await self.context.account.network.blockFriends(ids: [peerId], token: token)
-                } else if !username.isEmpty {
-                    try await self.context.account.network.blockFriends(usernames: [username], token: token)
-                } else {
-                    return
-                }
-                let currentUserId = Int64(self.context.currentUser?.id ?? "") ?? 0
-                self.context.engine.friendsData.applyLocalBlockState(userId: peerId, blocked: true, blockerUserId: currentUserId)
-                await self.context.engine.friendsData.refreshFromNetwork(token: token, force: true)
-                Toast.success(L(L10n.DmMenu.blockUserSuccess))
-            } catch {
-                Toast.error(L(L10n.DmMenu.blockUserError))
+    private func handleUserBlock(menuContext: DmMenuContext, blocked: Bool) {
+        guard !isChangingUserBlock, let peerId = menuContext.blockTargetUserId else { return }
+        var user = Mezon_Api_User()
+        user.id = peerId
+        user.username = menuContext.userName
+        user.displayName = menuContext.displayName
+        user.avatarURL = menuContext.avatarURL
+        isChangingUserBlock = true
+        let loadingOverlay = showBlockingSpinner(accessibilityIdentifier: AccessibilityID.DirectMessage.blockLoading)
+        Task { @MainActor [weak self, context, user] in
+            defer {
+                loadingOverlay.removeFromSuperview()
+                self?.isChangingUserBlock = false
             }
-        }
-    }
-
-    private func handleUnblockUser(channel: Mezon_Api_ChannelDescription, menuContext: DmMenuContext) {
-        guard let peerId = menuContext.peerUserId else { return }
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard let token = await self.context.getToken() else { return }
-            let username = channel.usernames.first ?? ""
             do {
-                if peerId != 0 {
-                    try await self.context.account.network.unblockFriends(ids: [peerId], token: token)
-                } else if !username.isEmpty {
-                    try await self.context.account.network.unblockFriends(usernames: [username], token: token)
-                } else {
-                    return
-                }
-                self.context.engine.friendsData.applyLocalBlockState(userId: peerId, blocked: false)
-                await self.context.engine.friendsData.refreshFromNetwork(token: token, force: true)
-                Toast.success(L(L10n.DmMenu.unblockUserSuccess))
+                try await context.setUserBlocked(user, blocked: blocked)
+                Toast.success(L(blocked ? L10n.DmMenu.blockUserSuccess : L10n.DmMenu.unblockUserSuccess))
+            } catch is CancellationError {
+                return
             } catch {
-                Toast.error(L(L10n.DmMenu.unblockUserError))
+                Toast.error(L(blocked ? L10n.DmMenu.blockUserError : L10n.DmMenu.unblockUserError))
             }
         }
     }
@@ -776,7 +754,7 @@ final class DirectMessagesViewController: ViewController {
                     ]
                 )
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -888,6 +866,8 @@ final class DirectMessagesViewController: ViewController {
     }
 
     private func setDirectMessages(_ v: [Mezon_Api_ChannelDescription]) {
+        var v = v
+        DmReadFloor.apply(to: &v)
         guard directMessages != v else { return }
         directMessages = v
         directMessagesPipe.putNext(v)
@@ -1104,7 +1084,7 @@ final class DirectMessagesViewController: ViewController {
                 let chatVC = ChatViewController(clanId: 0, channel: channel, context: self.context, parentName: nil)
                 self.navigationController?.pushViewController(chatVC, animated: true)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -1498,6 +1478,8 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
     private let context: AccountContext
     private let onChannelCreated: (Mezon_Api_ChannelDescription) -> Void
     private let existingGroupChannel: Mezon_Api_ChannelDescription?
+    private let sourceDirectMessage: Mezon_Api_ChannelDescription?
+    private let seedMemberIds: [Int64]
     private var excludedMemberIds: Set<Int64>
     private var existingMemberCountOverride: Int?
 
@@ -1529,7 +1511,33 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
         self.context = context
         self.onChannelCreated = onChannelCreated
         self.existingGroupChannel = nil
+        self.sourceDirectMessage = nil
+        self.seedMemberIds = []
         self.excludedMemberIds = []
+        self.existingMemberCountOverride = nil
+        super.init(navigationBarPresentationData: nil)
+    }
+
+    init(
+        context: AccountContext,
+        sourceDirectMessage: Mezon_Api_ChannelDescription,
+        onChannelCreated: @escaping (Mezon_Api_ChannelDescription) -> Void
+    ) {
+        self.context = context
+        self.onChannelCreated = onChannelCreated
+        self.existingGroupChannel = nil
+        self.sourceDirectMessage = sourceDirectMessage
+        let currentUserId = context.currentUser.flatMap { Int64($0.id) }
+        var seedIds: [Int64] = []
+        for id in sourceDirectMessage.userIds where id != 0 && id != currentUserId && !seedIds.contains(id) {
+            seedIds.append(id)
+        }
+        self.seedMemberIds = seedIds
+        var excludedIds = Set(seedIds)
+        if let currentUserId {
+            excludedIds.insert(currentUserId)
+        }
+        self.excludedMemberIds = excludedIds
         self.existingMemberCountOverride = nil
         super.init(navigationBarPresentationData: nil)
     }
@@ -1544,6 +1552,8 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
         self.context = context
         self.onChannelCreated = onMembersAdded
         self.existingGroupChannel = existingGroupChannel
+        self.sourceDirectMessage = nil
+        self.seedMemberIds = []
         var excludedIds = Set(existingGroupChannel.userIds)
         if let existingMemberIds, !existingMemberIds.isEmpty {
             excludedIds.formUnion(existingMemberIds)
@@ -1636,6 +1646,7 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
         createButton.titleLabel?.font = .systemFont(ofSize: 15.sf, weight: .medium)
         createButton.contentHorizontalAlignment = .right
         createButton.addTarget(self, action: #selector(createTapped), for: .touchUpInside)
+        createButton.accessibilityIdentifier = AccessibilityID.DirectMessage.createGroup
 
         activityIndicator.hidesWhenStopped = true
 
@@ -1761,6 +1772,9 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
         if existingGroupChannel != nil {
             titleLabel.text = L(L10n.ChannelDetail.addMembers)
             createButton.setTitle(L(L10n.ChannelPermission.bsAdd), for: .normal)
+        } else if sourceDirectMessage != nil {
+            titleLabel.text = L(L10n.ChannelDetail.addMembers)
+            createButton.setTitle(L(L10n.DirectMessage.create), for: .normal)
         } else {
             titleLabel.text = L(L10n.DirectMessage.newGroup)
             createButton.setTitle(L(L10n.DirectMessage.create), for: .normal)
@@ -1913,7 +1927,7 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
             }
             return max(ids.count, 1)
         }
-        return 1
+        return 1 + seedMemberIds.count
     }
 
     private func canSelectAdditionalFriend() -> Bool {
@@ -1996,27 +2010,41 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
                     self.onChannelCreated(updated)
                     self.navigationController?.popViewController(animated: true)
                 } catch {
-                    Toast.error(error.localizedDescription.isEmpty ? L(L10n.DirectMessage.createFailed) : error.localizedDescription)
+                    Toast.error(error.userMessage(fallback: L(L10n.DirectMessage.createFailed)))
                 }
                 return
             }
 
             do {
+                let memberIds = self.seedMemberIds + selectedIds
                 let channel: Mezon_Api_ChannelDescription
-                if selectedIds.count == 1, let userId = selectedIds.first {
+                var reusedExistingGroup = false
+                if memberIds.count == 1, let userId = memberIds.first {
                     if let existing = await self.existingOneToOneDirectMessage(userId: userId, token: token) {
                         channel = existing
                     } else {
                         channel = try await self.context.account.network.createDirectMessage(userId: userId, token: token)
                     }
                 } else {
-                    channel = try await self.context.account.network.createGroupDirectMessage(userIds: selectedIds, token: token)
+                    do {
+                        channel = try await self.context.account.network.createGroupDirectMessage(userIds: memberIds, token: token)
+                    } catch let error where Self.isGroupAlreadyExists(error) {
+                        guard let existing = await self.existingGroupDirectMessage(memberIds: memberIds, token: token) else {
+                            throw error
+                        }
+                        channel = existing
+                        reusedExistingGroup = true
+                    }
                 }
 
-                let decorated = self.decoratedChannel(channel, selectedIds: selectedIds)
-                self.openCreatedChannel(decorated, showCreatedToast: selectedIds.count > 1)
+                let decorated = self.decoratedChannel(channel, selectedIds: memberIds)
+                self.openCreatedChannel(decorated, showCreatedToast: memberIds.count > 1 && !reusedExistingGroup)
             } catch {
-                Toast.error(error.localizedDescription.isEmpty ? L(L10n.DirectMessage.createFailed) : error.localizedDescription)
+                if Self.isGroupAlreadyExists(error) {
+                    Toast.error(L(L10n.DirectMessage.groupAlreadyExists))
+                } else {
+                    Toast.error(error.userMessage(fallback: L(L10n.DirectMessage.createFailed)))
+                }
             }
         }
     }
@@ -2029,6 +2057,34 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
             channel.type == MezonConstants.ChannelType.dm.rawValue
                 && channel.userIds.count == 1
                 && channel.userIds.contains(userId)
+        }
+    }
+
+    private static func isGroupAlreadyExists(_ error: Error) -> Bool {
+        if let apiError = error as? APIError {
+            return apiError.code == 6
+        }
+        if case let MezonError.httpError(code, _) = error {
+            return code == 409 || code == 6
+        }
+        return false
+    }
+
+    private func existingGroupDirectMessage(memberIds: [Int64], token: String) async -> Mezon_Api_ChannelDescription? {
+        guard let channels = try? await context.account.network.listGroupMessageChannels(token: token) else {
+            return nil
+        }
+        let currentUserId = context.currentUser.flatMap { Int64($0.id) }
+        var expectedIds = Set(memberIds)
+        if let currentUserId {
+            expectedIds.remove(currentUserId)
+        }
+        return channels.first { channel in
+            var channelMemberIds = Set(channel.userIds)
+            if let currentUserId {
+                channelMemberIds.remove(currentUserId)
+            }
+            return channelMemberIds == expectedIds
         }
     }
 
@@ -2055,6 +2111,21 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
         }.filter { !$0.isEmpty }
         var usernames = selectedFriends.map(\.username).filter { !$0.isEmpty }
         var avatars = selectedFriends.map(\.avatarURL).filter { !$0.isEmpty }
+
+        if let source = sourceDirectMessage {
+            let seedUsername = source.usernames.first ?? ""
+            let seedDisplay = (source.displayNames.first ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let seedName = seedDisplay.isEmpty ? seedUsername : seedDisplay
+            if !seedName.isEmpty {
+                displayNames.insert(seedName, at: 0)
+            }
+            if !seedUsername.isEmpty {
+                usernames.insert(seedUsername, at: 0)
+            }
+            if let seedAvatar = source.avatars.first, !seedAvatar.isEmpty {
+                avatars.insert(seedAvatar, at: 0)
+            }
+        }
 
         if let current = context.currentUser {
             let currentDisplay = current.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2091,6 +2162,16 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
 
         let chatVC = ChatViewController(clanId: 0, channel: channel, context: context, parentName: nil)
         guard let navigationController else { return }
+        if sourceDirectMessage != nil {
+            var stack = navigationController.viewControllers
+            stack.removeAll { $0 === self }
+            if stack.last is ChannelDetailViewController {
+                stack.removeLast()
+            }
+            stack.append(chatVC)
+            navigationController.setViewControllers(stack, animated: true)
+            return
+        }
         if let navigationController = navigationController as? NavigationController {
             navigationController.replaceTopController(chatVC, animated: true)
         } else {

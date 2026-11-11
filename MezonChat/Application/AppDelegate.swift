@@ -62,7 +62,15 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
             object: nil
         )
 
-        SessionStore.prepareInstallationScopedKeychainIfNeeded()
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains(UITestLaunch.resetSessionArgument) {
+            SessionStore.clear()
+        }
+        #endif
+        let isNewInstallation = SessionStore.prepareInstallationScopedKeychainIfNeeded()
+        if isNewInstallation {
+            ThemeManager.shared.adoptNewInstallationDefault()
+        }
         if let userId = SessionStore.load()?.userId, !userId.isEmpty {
             MessageNotificationCategory.setActiveUser(userId)
         }
@@ -123,6 +131,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         NetworkMonitor.shared.start()
         NetworkBannerView.install(on: nativeWindow)
 
+        if let response = connectionOptions.notificationResponse {
+            prepareToOpenMissedCall(response)
+        }
         VoIPMinimalCallBootstrap.reconcileAfterAppColdStartIfNoActiveVoIPCall()
 
 
@@ -135,7 +146,12 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
         let sharedContext = SharedAccountContextImpl(mainWindow: mainWindow)
         self.sharedContext = sharedContext
 
-        let savedSession = SessionStore.load()
+        #if DEBUG
+        let isUITestingLogin = ProcessInfo.processInfo.arguments.contains(UITestLaunch.loginArgument)
+        #else
+        let isUITestingLogin = false
+        #endif
+        let savedSession = isUITestingLogin ? nil : SessionStore.load()
 
         let onReady: @MainActor (AccountContextImpl) -> Void = { [weak self] context in
             guard let self, !self.hasStartedAuthFlow else { return }
@@ -343,10 +359,12 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UIWindowSceneDelega
                 return
             }
             await ctx.engine.clanData.refetchVoiceChannelUsers(clanId: clanId, token: token)
+            await ctx.engine.clanData.refreshOnlineUsers(clanId: clanId, token: token)
         }
     }
 
     @objc private func handleDidBecomeActive() {
+        PeerCallNotifications.shared.cleanupDeliveredStartNotifications()
         if let shell = mainWindow?.viewController as? VoIPMinimalShellViewController {
             shell.flushPendingIncomingPeerCallIfNeeded()
         }
@@ -598,6 +616,21 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         let title = notification.request.content.title
         let body = notification.request.content.body
 
+        if notification.request.content.categoryIdentifier == PeerCallNotifications.missedCallCategory {
+            if #available(iOS 14.0, *) {
+                completionHandler([.banner, .list, .sound])
+            } else {
+                completionHandler([.alert, .sound])
+            }
+            return
+        }
+
+        if PeerCallNotifications.shared.shouldSuppressStartNotification(notification) {
+            completionHandler([])
+            PeerCallNotifications.shared.cleanupDeliveredStartNotifications()
+            return
+        }
+
         let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)
         let topicId = Self.pushPayloadTopicId(userInfo)
 
@@ -681,6 +714,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
             return
         }
 
+        prepareToOpenMissedCall(response)
         let userInfo = response.notification.request.content.userInfo
         let isFriendRequestNotification = Self.isFriendRequestNotification(response: response)
         let (channelId, clanId, isDM) = Self.parseFCMPayload(userInfo)
@@ -697,6 +731,17 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         }
 
         completionHandler()
+    }
+
+    private func prepareToOpenMissedCall(_ response: UNNotificationResponse) {
+        guard response.notification.request.content.categoryIdentifier == PeerCallNotifications.missedCallCategory else { return }
+        CallKitManager.shared.prepareToOpenMissedCallNotification(response.notification.request.content.userInfo)
+        if !VoIPMinimalCallBootstrap.isMinimalChromeActive,
+           mainWindow?.viewController is VoIPMinimalShellViewController,
+           let context = accountContext, context.isLoggedIn,
+           let sharedContext, let mainWindow {
+            showRoot(isLoggedIn: true, context: context, sharedContext: sharedContext, mainWindow: mainWindow)
+        }
     }
 
     private static func isFriendRequestNotification(response: UNNotificationResponse) -> Bool {
@@ -774,6 +819,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
     }
 
     static var pendingNavigation: [String: Any]?
+    static var lastNavigationRequestUptime: TimeInterval = 0
     static var lastHandledNavigationInstanceId: String?
     static var pendingFriendRequestNavigation: [String: Any]?
     static var lastHandledFriendRequestNavigationInstanceId: String?
@@ -782,6 +828,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         let info: [String: Any] = [
             "navigationInstanceId": UUID().uuidString,
         ]
+        lastNavigationRequestUptime = ProcessInfo.processInfo.systemUptime
         pendingFriendRequestNavigation = info
         NotificationCenter.default.post(name: .mezonNavigateToFriendRequests, object: nil, userInfo: info)
         let instanceId = info["navigationInstanceId"] as? String
@@ -804,6 +851,7 @@ extension AppDelegate: UNUserNotificationCenterDelegate {
         ]
         if let clanId, !clanId.isEmpty { info["clanId"] = clanId }
         if topicId != 0 { info["topicId"] = topicId }
+        lastNavigationRequestUptime = ProcessInfo.processInfo.systemUptime
         pendingNavigation = info
         NotificationCenter.default.post(name: .mezonNavigateToChannel, object: nil, userInfo: info)
         let instanceId = info["navigationInstanceId"] as? String

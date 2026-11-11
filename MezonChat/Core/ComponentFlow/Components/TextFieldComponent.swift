@@ -2,6 +2,7 @@ import Foundation
 import UIKit
 
 final class TextFieldComponent: Component {
+    let accessibilityIdentifier: String?
     let placeholder: String
     let text: String
     let font: UIFont
@@ -29,8 +30,10 @@ final class TextFieldComponent: Component {
         isSecureTextEntry: Bool = false,
         leftIcon: String? = nil,
         height: CGFloat = 50,
+        accessibilityIdentifier: String? = nil,
         onTextChanged: @escaping (String) -> Void
     ) {
+        self.accessibilityIdentifier = accessibilityIdentifier
         self.placeholder = placeholder
         self.text = text
         self.font = font
@@ -47,7 +50,7 @@ final class TextFieldComponent: Component {
     }
 
     static func == (lhs: TextFieldComponent, rhs: TextFieldComponent) -> Bool {
-        return lhs.placeholder == rhs.placeholder && lhs.text == rhs.text && lhs.keyboardType == rhs.keyboardType && lhs.isSecureTextEntry == rhs.isSecureTextEntry && lhs.leftIcon == rhs.leftIcon && lhs.height == rhs.height
+        return lhs.accessibilityIdentifier == rhs.accessibilityIdentifier && lhs.placeholder == rhs.placeholder && lhs.text == rhs.text && lhs.keyboardType == rhs.keyboardType && lhs.isSecureTextEntry == rhs.isSecureTextEntry && lhs.leftIcon == rhs.leftIcon && lhs.height == rhs.height
     }
 
     final class View: UIView, UITextFieldDelegate {
@@ -76,6 +79,7 @@ final class TextFieldComponent: Component {
             container.layer.borderColor = component.borderColor.cgColor
             container.layer.cornerRadius = component.cornerRadius
 
+            textField.accessibilityIdentifier = component.accessibilityIdentifier
             textField.font = component.font
             textField.textColor = component.textColor
             textField.keyboardType = component.keyboardType

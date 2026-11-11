@@ -55,6 +55,7 @@ struct ChatInteraction {
     let onSystemPinMessageTapped: (ChatMessageDisplay) -> Void
     let onSystemThreadTapped: (Int64, String?) -> Void
     let onSystemAllThreadsTapped: () -> Void
+    let onSystemAllPinnedTapped: () -> Void
     let onSystemWaveWelcomeTapped: (ChatMessageDisplay) -> Void
     let isSystemThreadDeleted: (String) -> Bool
     let onVotePoll: (_ messageId: String, _ channelId: String, _ answerIndices: [Int32], _ completion: @escaping ([Int32]?) -> Void) -> Void
@@ -88,14 +89,10 @@ final class ChatContainerNode: ASDisplayNode {
     private let skeletonNode = MessageSkeletonContainerNode(count: 8)
     private let loadingOlderNode = ASDisplayNode()
     private let jumpToPresentNode = ASButtonNode()
+    private let jumpToPresentBadge = UILabel()
+    private var isJumpButtonVisible = false
 
-
-    private lazy var gradientLayer: CAGradientLayer = {
-        let gl = CAGradientLayer()
-        gl.startPoint = CGPoint(x: 0.5, y: 0)
-        gl.endPoint   = CGPoint(x: 0.5, y: 1)
-        return gl
-    }()
+    private let gradientLayer = CAGradientLayer()
 
     private(set) var state: ChatState = .empty
     private(set) var committedMessageIds: [String] = []
@@ -111,6 +108,7 @@ final class ChatContainerNode: ASDisplayNode {
     private(set) var userScrollGeneration: UInt64 = 0
     var initialCacheRefreshScrollGeneration: UInt64?
     private static let nearBottomDistanceThreshold: CGFloat = 100
+    private static let jumpButtonSize: CGFloat = 40
 
     var isAtBottom: Bool {
         guard listView.displayedItemRange.visibleRange?.firstIndex == 0 else {
@@ -152,6 +150,8 @@ final class ChatContainerNode: ASDisplayNode {
         loadingOlderNode.isHidden = true
 
         super.init()
+        jumpToPresentNode.isHidden = true
+        jumpToPresentNode.alpha = 0
         listView.useMainQueueTransactions = true
         headerNode.onBackTapped = { interaction.onBackTapped() }
         headerNode.onHeaderTapped = { interaction.onHeaderTapped() }
@@ -214,6 +214,9 @@ final class ChatContainerNode: ASDisplayNode {
                 self.state = newState
                 self.updateHeader(state: newState)
                 self.updateLoadingState(newState)
+                if oldState.unreadIncomingMessageCount != newState.unreadIncomingMessageCount {
+                    self.updateJumpBadge()
+                }
                 self.refreshJumpButtonVisibility()
 
                 let isEmpty = newState.messages.isEmpty
@@ -229,22 +232,51 @@ final class ChatContainerNode: ASDisplayNode {
                 if self.pendingJumpMessageId != nil {
                     self.triggerPendingJump()
                 }
+                if oldState.hasMoreNewer && !newState.hasMoreNewer && newState.unreadIncomingMessageCount > 0 {
+                    self.listView.addAfterTransactionsCompleted { [weak self] in
+                        guard let self else { return }
+                        self.interaction.onScrolledToBottom(self.isAtBottom)
+                    }
+                }
             })
         )
     }
 
-    deinit { disposables.dispose() }
+    deinit {
+        disposables.dispose()
+    }
+
+    override var accessibilityElements: [Any]? {
+        get {
+            guard isNodeLoaded else { return nil }
+            let nodeElements = super.accessibilityElements ?? []
+            let children = subnodes ?? []
+            let nodeViews = Set(children.filter { !$0.isLayerBacked && $0.isNodeLoaded }
+                .map { ObjectIdentifier($0.view) })
+            let uiViews = view.subviews.filter {
+                !nodeViews.contains(ObjectIdentifier($0))
+                    && !$0.isHidden && $0.alpha > 0 && !$0.accessibilityElementsHidden
+            }
+            if let modal = uiViews.last(where: { $0.accessibilityViewIsModal }) {
+                return [modal]
+            }
+            if children.contains(where: { $0.accessibilityViewIsModal && !$0.isHidden && $0.alpha > 0 && !$0.accessibilityElementsHidden }) {
+                return nodeElements
+            }
+            return nodeElements + uiViews
+        }
+        set { super.accessibilityElements = newValue }
+    }
 
     override func didLoad() {
         super.didLoad()
+        listView.view.identified(by: AccessibilityID.Chat.messages)
 
-        let t = UIColor.theme
-        gradientLayer.colors = [t.secondary.cgColor, t.primaryGradient.cgColor]
         layer.insertSublayer(gradientLayer, at: 0)
+        applyChatBackground(theme: UIColor.theme)
 
         listView.backgroundColor = .clear
 
-        let btnSize: CGFloat = 40
         jumpToPresentNode.setImage(
             UIImage(systemName: "chevron.down")?.withConfiguration(
                 UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
@@ -252,32 +284,58 @@ final class ChatContainerNode: ASDisplayNode {
             for: .normal
         )
         jumpToPresentNode.backgroundColor = UIColor.theme.textDisabled.withAlphaComponent(0.85)
-        jumpToPresentNode.cornerRadius = btnSize / 2
-        jumpToPresentNode.clipsToBounds = true
-        jumpToPresentNode.style.preferredSize = CGSize(width: btnSize, height: btnSize)
-        jumpToPresentNode.isHidden = true
-        jumpToPresentNode.alpha = 0
+        jumpToPresentNode.cornerRadius = Self.jumpButtonSize / 2
+        jumpToPresentNode.clipsToBounds = false
+        jumpToPresentNode.hitTestSlop = UIEdgeInsets(top: -6, left: -6, bottom: -6, right: -6)
+        jumpToPresentNode.accessibilityIdentifier = AccessibilityID.Chat.jumpToPresent
+        jumpToPresentNode.accessibilityLabel = L(L10n.ChannelMessages.jumpToPresent)
+        jumpToPresentNode.isAccessibilityElement = true
+        jumpToPresentNode.accessibilityTraits = .button
         jumpToPresentNode.addTarget(self, action: #selector(jumpToPresentTapped), forControlEvents: .touchUpInside)
+
+        jumpToPresentBadge.font = .systemFont(ofSize: 11, weight: .semibold)
+        jumpToPresentBadge.textColor = .white
+        jumpToPresentBadge.textAlignment = .center
+        jumpToPresentBadge.backgroundColor = .mezonUnreadBadge
+        jumpToPresentBadge.layer.cornerRadius = 9
+        jumpToPresentBadge.clipsToBounds = true
+        jumpToPresentBadge.isAccessibilityElement = false
+        jumpToPresentNode.view.addSubview(jumpToPresentBadge)
+        updateJumpBadge()
     }
 
     @objc private func jumpToPresentTapped() {
         interaction.onJumpToPresent()
-        setJumpButtonVisible(false)
+    }
+
+    private func updateJumpBadge() {
+        let count = state.unreadIncomingMessageCount
+        jumpToPresentBadge.isHidden = count == 0
+        guard count > 0 else {
+            jumpToPresentNode.accessibilityValue = nil
+            return
+        }
+        let formattedCount = NumberFormatter.localizedString(from: NSNumber(value: count), number: .decimal)
+        jumpToPresentNode.accessibilityValue = L(L10n.ChannelMessages.unreadIncomingCount, formattedCount)
+        jumpToPresentBadge.text = count > 99 ? "99+" : "\(count)"
+        let width = max(18, ceil(jumpToPresentBadge.intrinsicContentSize.width) + 8)
+        jumpToPresentBadge.frame = CGRect(x: Self.jumpButtonSize + 3 - width, y: -4, width: width, height: 18)
     }
 
     private func refreshJumpButtonVisibility() {
         let isFarFromBottom = lastKnownDistanceFromBottom >= Self.nearBottomDistanceThreshold
         let hasNewerToLoad = state.hasMoreNewer
-        setJumpButtonVisible(isFarFromBottom || hasNewerToLoad)
+        setJumpButtonVisible(isFarFromBottom || hasNewerToLoad || state.unreadIncomingMessageCount > 0)
     }
 
     private func setJumpButtonVisible(_ visible: Bool) {
-        guard jumpToPresentNode.isHidden == visible else { return }
-        if visible {
-            jumpToPresentNode.isHidden = false
-            UIView.animate(withDuration: 0.2) { self.jumpToPresentNode.alpha = 1 }
-        } else {
-            UIView.animate(withDuration: 0.2, animations: { self.jumpToPresentNode.alpha = 0 }) { _ in
+        guard isJumpButtonVisible != visible else { return }
+        isJumpButtonVisible = visible
+        if visible { jumpToPresentNode.isHidden = false }
+        UIView.animate(withDuration: 0.2, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+            self.jumpToPresentNode.alpha = visible ? 1 : 0
+        } completion: { _ in
+            if !self.isJumpButtonVisible {
                 self.jumpToPresentNode.isHidden = true
             }
         }
@@ -285,10 +343,19 @@ final class ChatContainerNode: ASDisplayNode {
 
     func applyTheme() {
         let t = UIColor.theme
-        gradientLayer.colors = [t.secondary.cgColor, t.primaryGradient.cgColor]
+        applyChatBackground(theme: t)
         headerNode.applyTheme()
+        jumpToPresentNode.backgroundColor = t.textDisabled.withAlphaComponent(0.85)
+        jumpToPresentBadge.backgroundColor = .mezonUnreadBadge
 
         reloadAllItems()
+    }
+
+    private func applyChatBackground(theme: ThemeAttributes) {
+        let gradient = theme.desktop.chatGradient
+        backgroundColor = gradient == nil ? theme.primary : .clear
+        gradientLayer.isHidden = gradient == nil
+        gradient?.apply(to: gradientLayer, in: isNodeLoaded ? view.window : nil)
     }
 
     private func updateHeader(state: ChatState) {
@@ -436,6 +503,54 @@ final class ChatContainerNode: ASDisplayNode {
                 animated: false,
                 curve: .Default(duration: nil),
                 directionHint: .Down
+            ),
+            updateOpaqueState: nil,
+            completion: { _ in }
+        )
+    }
+
+    func scrollFirstResponderIntoView() {
+        listView.addAfterTransactionsCompleted { [weak self] in
+            self?.scrollFirstResponderIntoViewNow()
+        }
+    }
+
+    private func scrollFirstResponderIntoViewNow() {
+        guard let responder = listView.view.findFirstResponder() else { return }
+        var hostItemNode: ListViewItemNode?
+        listView.forEachItemNode { node in
+            guard hostItemNode == nil,
+                  let itemNode = node as? ListViewItemNode,
+                  itemNode.index != nil,
+                  responder.isDescendant(of: itemNode.view) else { return }
+            hostItemNode = itemNode
+        }
+        guard let itemNode = hostItemNode, let index = itemNode.index else { return }
+
+        let margin: CGFloat = 12
+        let responderFrame = responder.convert(responder.bounds, to: listView.view)
+        let lowestVisibleY = listView.insets.top + margin
+        let highestVisibleY = listView.visibleSize.height - listView.insets.bottom - margin
+        let shift: CGFloat
+        if responderFrame.maxY > highestVisibleY {
+            shift = highestVisibleY - responderFrame.maxY
+        } else if responderFrame.minY < lowestVisibleY {
+            shift = lowestVisibleY - responderFrame.minY
+        } else {
+            return
+        }
+
+        listView.transaction(
+            deleteIndices: [],
+            insertIndicesAndItems: [],
+            updateIndicesAndItems: [],
+            options: [.Synchronous],
+            scrollToItem: ListViewScrollToItem(
+                index: index,
+                position: .top(itemNode.apparentFrame.minY - listView.insets.top + shift),
+                animated: true,
+                curve: .Default(duration: nil),
+                directionHint: shift < 0 ? .Up : .Down
             ),
             updateOpaqueState: nil,
             completion: { _ in }
@@ -695,12 +810,23 @@ final class ChatContainerNode: ASDisplayNode {
             && !oldIds.contains(Self.unreadLineId)
             && !old.isLoadingMore && !new.isLoadingMore
             && !old.isLoadingNewer && !new.isLoadingNewer
+            && !listView.isTracking && !listView.isDragging && !listView.isDeceleratingAfterTracking
             && !new.hasMoreNewer && isAtBottom
         if hasNewAtBottom && keepBottomDuringInitialCacheRefresh {
             didAutoScrollForNewMessages = true
-            scrollToItem = ListViewScrollToItem(index: 0, position: .top(0), animated: false, curve: .Default(duration: nil), directionHint: .Up)
+            // Animate only a short, continuous extension of the cached viewport.
+            // Large gaps and user gestures must not start a long automatic scroll.
+            let addedAtBottom = oldIds.first.flatMap { newIndexMap[$0] }
+            let animateRefresh = addedAtBottom.map { (1...3).contains($0) } == true
+                && deletedIds.isEmpty && !hasReorderedIds
+                && !UIAccessibility.isReduceMotionEnabled
+            scrollToItem = ListViewScrollToItem(
+                index: 0, position: .top(0), animated: animateRefresh,
+                curve: animateRefresh ? .Default(duration: 0.2) : .Default(duration: nil),
+                directionHint: .Up
+            )
         } else if initialCacheRefreshScrollGeneration == nil
-                    && hasNewAtBottom && !isLoadMoreResult && !new.hasMoreNewer
+                    && pendingJumpMessageId == nil && hasNewAtBottom && !isLoadMoreResult && !new.hasMoreNewer
                     && (isAtBottom || newestMessageIsMe) {
             didAutoScrollForNewMessages = true
             scrollToItem = ListViewScrollToItem(index: 0, position: .top(0), animated: true, curve: .Spring(duration: 0.3), directionHint: .Up)
@@ -908,8 +1034,7 @@ final class ChatContainerNode: ASDisplayNode {
             width: liS,
             height: liS
         ))
-
-        let btnS: CGFloat = 40
+        let btnS = Self.jumpButtonSize
         transition.updateFrame(node: jumpToPresentNode, frame: CGRect(
             x: fullWidth - btnS - 10,
             y: tvFrame.maxY - btnS - 28,
@@ -920,6 +1045,7 @@ final class ChatContainerNode: ASDisplayNode {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         gradientLayer.frame = CGRect(origin: .zero, size: layout.size)
+        UIColor.theme.desktop.chatGradient?.updateDirection(on: gradientLayer, in: view.window)
         CATransaction.commit()
     }
 

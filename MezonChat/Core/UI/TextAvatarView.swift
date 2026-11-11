@@ -8,7 +8,7 @@ private enum AvatarSkeletonPalette {
     static func currentColors() -> (base: CGColor, highlight: CGColor) {
         let theme = UIColor.theme
         let base = theme.secondaryWeight
-        let highlight = theme.tertiary
+        let highlight = theme.shimmerHighlight(over: base)
         return (base.cgColor, highlight.cgColor)
     }
 
@@ -309,5 +309,89 @@ final class TextAvatarNode: ASDisplayNode {
         }
         guard let textNode else { return ASLayoutSpec() }
         return ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: .minimumXY, child: textNode)
+    }
+}
+
+enum PresenceBadge {
+    private static let cache = NSCache<NSString, UIImage>()
+
+    static func color(for status: User.OnlineStatus) -> UIColor {
+        switch status {
+        case .online:
+            return UIColor(red: 0x16 / 255.0, green: 0xA3 / 255.0, blue: 0x4A / 255.0, alpha: 1)
+        case .idle:
+            return UIColor(red: 0xF0 / 255.0, green: 0xB2 / 255.0, blue: 0x32 / 255.0, alpha: 1)
+        case .doNotDisturb:
+            return UIColor(red: 0xF2 / 255.0, green: 0x3F / 255.0, blue: 0x43 / 255.0, alpha: 1)
+        case .invisible, .offline:
+            return UIColor(red: 0xAE / 255.0, green: 0xAE / 255.0, blue: 0xAE / 255.0, alpha: 1)
+        }
+    }
+
+    static func image(
+        for status: User.OnlineStatus,
+        diameter: CGFloat,
+        ringWidth: CGFloat,
+        ringColor: UIColor
+    ) -> UIImage {
+        let key = cacheKey(status: status, diameter: diameter, ringWidth: ringWidth, ringColor: ringColor)
+        if let cached = cache.object(forKey: key) {
+            return cached
+        }
+        let size = CGSize(width: diameter, height: diameter)
+        let image = UIGraphicsImageRenderer(size: size).image { context in
+            let cg = context.cgContext
+            let outer = CGRect(origin: .zero, size: size)
+            cg.addEllipse(in: outer)
+            cg.clip()
+
+            cg.setFillColor(ringColor.cgColor)
+            cg.fillEllipse(in: outer)
+
+            let inner = outer.insetBy(dx: ringWidth, dy: ringWidth)
+            let d = inner.width
+            cg.setFillColor(color(for: status).cgColor)
+            cg.fillEllipse(in: inner)
+
+            cg.setFillColor(ringColor.cgColor)
+            switch status {
+            case .online:
+                break
+            case .idle:
+                cg.fillEllipse(in: CGRect(
+                    x: inner.minX - d * 0.125,
+                    y: inner.minY - d * 0.125,
+                    width: d * 0.75,
+                    height: d * 0.75
+                ))
+            case .doNotDisturb:
+                let bar = CGRect(
+                    x: inner.minX + d * 0.125,
+                    y: inner.minY + d * 0.375,
+                    width: d * 0.75,
+                    height: d * 0.25
+                )
+                cg.addPath(UIBezierPath(roundedRect: bar, cornerRadius: bar.height / 2).cgPath)
+                cg.fillPath()
+            case .invisible, .offline:
+                cg.fillEllipse(in: inner.insetBy(dx: d * 0.25, dy: d * 0.25))
+            }
+        }
+        cache.setObject(image, forKey: key)
+        return image
+    }
+
+    private static func cacheKey(
+        status: User.OnlineStatus,
+        diameter: CGFloat,
+        ringWidth: CGFloat,
+        ringColor: UIColor
+    ) -> NSString {
+        var r: CGFloat = 0
+        var g: CGFloat = 0
+        var b: CGFloat = 0
+        var a: CGFloat = 0
+        ringColor.getRed(&r, green: &g, blue: &b, alpha: &a)
+        return "\(status.rawValue)|\(diameter)|\(ringWidth)|\(r),\(g),\(b),\(a)" as NSString
     }
 }

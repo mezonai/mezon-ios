@@ -2,6 +2,7 @@ import UIKit
 import AVFoundation
 import PhotosUI
 import AsyncDisplayKit
+import Vision
 
 final class QRScannerViewController: ViewController {
     
@@ -11,6 +12,8 @@ final class QRScannerViewController: ViewController {
     private var loginConfirmNode: QRLoginConfirmNode?
     private var clanInviteNode: QRClanInviteNode?
     private var userProfileNode: QRUserProfileNode?
+    private var profileActionTask: Task<Void, Never>?
+    private var isHidingUserProfile = false
     private var externalLinkSheetController: QRExternalLinkSheetController?
     private var scannedTextPayloadSheetController: QRScannedTextPayloadSheetController?
     private let captureSessionQueue = DispatchQueue(label: "mezon.qrScanner.captureSession")
@@ -67,6 +70,7 @@ final class QRScannerViewController: ViewController {
     }
 
     deinit {
+        profileActionTask?.cancel()
         NotificationCenter.default.removeObserver(self)
     }
     
@@ -81,6 +85,9 @@ final class QRScannerViewController: ViewController {
     
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        if isMovingFromParent || isBeingDismissed {
+            profileActionTask?.cancel()
+        }
         stopCaptureSessionIfNeeded()
     }
     
@@ -89,6 +96,8 @@ final class QRScannerViewController: ViewController {
         
         scannerNode.updateLayout(size: layout.size, safeInsets: layout.safeInsets, intrinsicInsets: layout.intrinsicInsets, transition: transition)
         previewLayer?.frame = CGRect(origin: .zero, size: layout.size)
+        userProfileNode?.frame = CGRect(origin: .zero, size: layout.size)
+        userProfileNode?.setNeedsLayout()
     }
     
     private func checkCameraPermission() {
@@ -258,10 +267,20 @@ final class QRScannerViewController: ViewController {
         }
 
         if let url = URL(string: data.trimmingCharacters(in: .whitespacesAndNewlines)),
-           DeepLinkRouter.isDeepLink(url),
-           case let .login(loginId)? = DeepLinkRouter.route(from: url) {
-            showLoginConfirm(userId: loginId)
-            return
+           DeepLinkRouter.isDeepLink(url) {
+            switch DeepLinkRouter.route(from: url) {
+            case let .login(loginId)?:
+                showLoginConfirm(userId: loginId)
+                return
+            case .channel?, .invite?:
+                guard beginExclusiveScanHandling() else { return }
+                stopCaptureSessionIfNeeded()
+                closeTapped()
+                DeepLinkRouter.handle(url)
+                return
+            default:
+                break
+            }
         }
         
         if data.hasPrefix("mezon://invite/") || data.contains("mezon.ai/invite/") {
@@ -303,7 +322,13 @@ final class QRScannerViewController: ViewController {
             }
             guard beginExclusiveScanHandling() else { return }
             stopCaptureSessionIfNeeded()
-            presentUserProfile(profileData: profile)
+            let username: String?
+            if let url = URL(string: data), case let .chat(value, _)? = DeepLinkRouter.route(from: url) {
+                username = value.removingPercentEncoding ?? value
+            } else {
+                username = nil
+            }
+            presentUserProfile(profileData: profile, username: username)
             return
         }
 
@@ -448,7 +473,7 @@ final class QRScannerViewController: ViewController {
                     }
                 } catch {
                     await MainActor.run {
-                        self.showAlert(message: error.localizedDescription) {
+                        self.showAlert(message: error.userMessage) {
                             self.hideLoginConfirm()
                         }
                     }
@@ -536,7 +561,7 @@ final class QRScannerViewController: ViewController {
             } catch {
                 await MainActor.run {
                     self.endExclusiveScanHandling()
-                    self.showAlert(message: error.localizedDescription) {
+                    self.showAlert(message: error.userMessage) {
                         self.startCaptureSessionIfNeeded()
                     }
                 }
@@ -556,34 +581,31 @@ final class QRScannerViewController: ViewController {
         }
     }
     
-    private func presentUserProfile(profileData: QRUserProfileData) {
+    private enum ProfileAction {
+        case message, call, addFriend
+    }
+
+    private func presentUserProfile(profileData: QRUserProfileData, username: String?) {
         let theme = context.sharedContext.currentPresentationTheme.attributes
-        let profileNode = QRUserProfileNode(profile: profileData, theme: theme)
+        let userId = Int64(profileData.id) ?? 0
+        let isSelf = profileData.id == context.currentUser?.id
+        let relation = context.engine.friendsData.allFriends().first { $0.hasUser && $0.user.id == userId }
+        let showAddFriend = userId != 0 && !isSelf && relation?.state != EStateFriend.friend.rawValue
+        let profileNode = QRUserProfileNode(
+            profile: profileData, username: username, showAddFriend: showAddFriend, theme: theme)
         profileNode.frame = self.displayNode.bounds
-        
-        profileNode.onMessage = { [weak self] in
-            guard let self = self else { return }
-            Task {
-                do {
-                    let token = await self.context.getToken() ?? ""
-                    if let userId = Int64(profileData.id) {
-                        let channel = try await self.context.account.network.createDirectMessage(userId: userId, token: token)
-                        await MainActor.run {
-                            self.hideUserProfile()
-                            self.closeTapped()
-                            NotificationCenter.default.post(
-                                name: .mezonQRNavigateToDM,
-                                object: nil,
-                                userInfo: ["channelId": "\(channel.channelID)", "title": profileData.name]
-                            )
-                        }
-                    }
-                } catch {
-                    await MainActor.run {
-                        self.showAlert(message: error.localizedDescription)
-                    }
-                }
-            }
+
+        profileNode.onMessage = { [weak self, weak profileNode] in
+            guard let self, let profileNode else { return }
+            self.performProfileAction(.message, profile: profileData, node: profileNode)
+        }
+        profileNode.onCall = { [weak self, weak profileNode] in
+            guard let self, let profileNode else { return }
+            self.performProfileAction(.call, profile: profileData, node: profileNode)
+        }
+        profileNode.onAddFriend = { [weak self, weak profileNode] in
+            guard let self, let profileNode else { return }
+            self.performProfileAction(.addFriend, profile: profileData, node: profileNode)
         }
         
         profileNode.onClose = { [weak self] in
@@ -599,15 +621,124 @@ final class QRScannerViewController: ViewController {
         }
     }
     
-    private func hideUserProfile() {
-        guard let profileNode = userProfileNode else { return }
+    private func performProfileAction(_ action: ProfileAction, profile: QRUserProfileData, node: QRUserProfileNode) {
+        guard profileActionTask == nil, !isHidingUserProfile, userProfileNode === node else { return }
+        guard let userId = Int64(profile.id), userId > 0 else {
+            showAlert(message: L(L10n.QRScanner.invalidQR))
+            return
+        }
+        if action == .call && !canCallProfile(userId: userId) { return }
+
+        node.setActionsEnabled(false)
+        profileActionTask = Task { @MainActor [weak self, weak node] in
+            guard let self, let node else { return }
+            defer {
+                if self.userProfileNode === node && !self.isHidingUserProfile {
+                    self.profileActionTask = nil
+                    node.setActionsEnabled(true)
+                }
+            }
+            do {
+                let token = await self.context.getToken()
+                try Task.checkCancellation()
+                guard let token, !token.isEmpty else {
+                    Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                    return
+                }
+                try Task.checkCancellation()
+
+                if action == .addFriend {
+                    try await self.context.account.network.addFriends(ids: [userId], token: token)
+                    try Task.checkCancellation()
+                    await self.context.engine.friendsData.refreshFromNetwork(token: token, force: true)
+                    try Task.checkCancellation()
+                    guard self.userProfileNode === node else { return }
+                    node.hideAddFriend()
+                    Toast.success(L(L10n.FriendRequest.toastSendSuccess))
+                    return
+                }
+
+                let channels = try? await self.context.account.network.listDirectMessageChannels(token: token)
+                try Task.checkCancellation()
+                let myUserId = Int64(self.context.currentUser?.id ?? "") ?? 0
+                let channel: Mezon_Api_ChannelDescription
+                if let existing = channels?.first(where: {
+                    $0.type == MezonConstants.ChannelType.dm.rawValue
+                        && $0.userIds.filter { $0 != myUserId } == [userId]
+                }) {
+                    channel = existing
+                } else {
+                    channel = try await self.context.account.network.createDirectMessage(userId: userId, token: token)
+                }
+                try Task.checkCancellation()
+                guard self.userProfileNode === node, channel.channelID != 0 else {
+                    Toast.error(L(L10n.Sharing.targetUnavailable))
+                    return
+                }
+
+                if action == .call {
+                    guard self.canCallProfile(userId: userId) else { return }
+                    self.hideUserProfile(resumeScanning: false) { [weak self] in
+                        guard let self else { return }
+                        guard self.canCallProfile(userId: userId) else {
+                            self.startCaptureSessionIfNeeded()
+                            return
+                        }
+                        PeerCallLogMessage.sendStartCallLog(context: self.context, channel: channel, isVideoCall: false)
+                        let call = PeerCallViewController(
+                            context: self.context,
+                            remoteUserName: profile.name,
+                            remoteAvatarURL: profile.avatar,
+                            remoteUserId: userId,
+                            channelId: channel.channelID,
+                            isVideo: false,
+                            preferSpeaker: true
+                        )
+                        if let navigation = self.navigationController {
+                            navigation.pushViewController(call, animated: true)
+                        } else {
+                            self.present(call, animated: true)
+                        }
+                    }
+                } else {
+                    self.hideUserProfile(resumeScanning: false) { [weak self] in
+                        guard let self else { return }
+                        self.closeTapped()
+                        NotificationCenter.default.post(
+                            name: .mezonQRNavigateToDM,
+                            object: nil,
+                            userInfo: ["channelId": "\(channel.channelID)", "title": profile.name]
+                        )
+                    }
+                }
+            } catch is CancellationError {
+            } catch {
+                guard self.userProfileNode === node, !Task.isCancelled else { return }
+                Toast.error(error.userMessage)
+            }
+        }
+    }
+
+    private func canCallProfile(userId: Int64) -> Bool {
+        QRProfileCall.canStart(context: context, userId: userId)
+    }
+
+    private func hideUserProfile(resumeScanning: Bool = true, completion: (() -> Void)? = nil) {
+        guard let profileNode = userProfileNode, !isHidingUserProfile else { return }
+        isHidingUserProfile = true
+        profileNode.onClose = nil
+        profileNode.setActionsEnabled(false)
+        profileActionTask?.cancel()
+        profileActionTask = nil
         UIView.animate(withDuration: 0.3, animations: {
             profileNode.alpha = 0
         }) { _ in
             profileNode.removeFromSupernode()
             self.userProfileNode = nil
+            self.isHidingUserProfile = false
             self.endExclusiveScanHandling()
-            self.startCaptureSessionIfNeeded()
+            if resumeScanning { self.startCaptureSessionIfNeeded() }
+            completion?()
         }
     }
     
@@ -668,17 +799,38 @@ extension QRScannerViewController: UIImagePickerControllerDelegate, UINavigation
     }
 
     private func processQRFromImage(_ image: UIImage) {
-        let detector = CIDetector(ofType: CIDetectorTypeQRCode, context: nil, options: [CIDetectorAccuracy: CIDetectorAccuracyHigh])
-        let ciImage = CIImage(image: image)
-        let features = detector?.features(in: ciImage!) as? [CIQRCodeFeature]
-
-        DispatchQueue.main.async { [weak self] in
-            if let firstFeature = features?.first, let data = firstFeature.messageString {
-                self?.handleScannedData(data)
-            } else {
-                self?.showAlert(message: L(L10n.QRScanner.invalidQR))
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let payload = Self.qrPayload(in: image)
+            DispatchQueue.main.async {
+                if let payload {
+                    self?.handleScannedData(payload)
+                } else {
+                    self?.showAlert(message: L(L10n.QRScanner.invalidQR))
+                }
             }
         }
+    }
+
+    private static let galleryQRMaxUpscaledEdge: CGFloat = 4096
+
+    private static func qrPayload(in image: UIImage) -> String? {
+        guard let source = CIImage(image: image) else { return nil }
+        let longestEdge = max(source.extent.width, source.extent.height)
+        guard longestEdge > 0 else { return nil }
+        for scale: CGFloat in [1, 2, 3, 4] {
+            if scale > 1 && longestEdge * scale > galleryQRMaxUpscaledEdge { break }
+            let candidate = scale == 1 ? source : source
+                .applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: scale, kCIInputAspectRatioKey: 1])
+                .applyingFilter("CISharpenLuminance", parameters: [kCIInputSharpnessKey: 1])
+            let request = VNDetectBarcodesRequest()
+            request.symbologies = [.qr]
+            try? VNImageRequestHandler(ciImage: candidate, options: [:]).perform([request])
+            let payload = request.results?
+                .compactMap { $0.payloadStringValue }
+                .first { !$0.isEmpty }
+            if let payload { return payload }
+        }
+        return nil
     }
 }
 

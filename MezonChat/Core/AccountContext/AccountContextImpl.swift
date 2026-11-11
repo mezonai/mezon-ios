@@ -124,6 +124,9 @@ final class AccountContextImpl: AccountContext {
         req.minutes = 0
         req.untilTurnOn = true
         try await account.network.updateUserStatus(req, token: token)
+        if let myId = currentUserNumericId() {
+            engine.clanData.setPresence(userId: myId, status: status)
+        }
         if var u = currentUser {
             u.status = status
             applyCurrentUser(u)
@@ -146,6 +149,9 @@ final class AccountContextImpl: AccountContext {
         req.minutes = minutes
         req.untilTurnOn = noClear
         try await account.network.updateUserCustomStatus(req, token: token)
+        if let myId = currentUserNumericId() {
+            engine.clanData.setCustomStatus(userId: myId, text: trimmed)
+        }
 
         if var u = currentUser {
             if trimmed.isEmpty {
@@ -383,6 +389,7 @@ final class AccountContextImpl: AccountContext {
         SessionRefreshManager.shared.reset()
         DirectMessageListGate.reset()
         DmBadgeMessageDedup.reset()
+        DmReadFloor.reset()
         buzz.reset()
         account.network.resetProtoBaseURLToDefault()
         session = nil
@@ -395,6 +402,7 @@ final class AccountContextImpl: AccountContext {
         account.postbox.clearAllSync()
         ImageCache.shared.purgeAccountScopedCaches()
         CDNSigner.shared.reset()
+        FileIngestJobStore.shared.removeAll()
         StorageMaintenance.shared.purgeAccountScopedCaches()
         WKWebsiteDataStore.default().removeData(
             ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(),
@@ -685,6 +693,9 @@ final class AccountContextImpl: AccountContext {
                 guard self.isStillCurrentSession(epoch: startEpoch) else { return }
                 self.markSessionReady()
                 onReady(self)
+                Task { @MainActor in
+                    FileIngestResumer.shared.resume(context: self)
+                }
             }
         )
     }
@@ -1179,7 +1190,7 @@ final class AccountContextImpl: AccountContext {
                 NotificationCenter.default.post(
                     name: Notification.Name("MezonChannelMessageDeleted"),
                     object: nil,
-                    userInfo: ["channelId": channelId, "clanId": clanId]
+                    userInfo: ["channelId": channelId, "clanId": clanId, "messageId": apiMessage.messageID]
                 )
                 return
             }
@@ -1278,6 +1289,7 @@ final class AccountContextImpl: AccountContext {
                 ) && DmBadgeMessageDedup.markCounted(messageCopy.messageID)
                 var userInfo: [String: Any] = [
                     "channelId": channelId, "clanId": clanId,
+                    "messageId": messageCopy.messageID,
                     "senderId": String(messageCopy.senderID), "mode": messageCopy.mode,
                     "timestampSeconds": messageCopy.createTimeSeconds,
                     "messageCode": messageCopy.code,
@@ -1347,7 +1359,7 @@ final class AccountContextImpl: AccountContext {
             NotificationCenter.default.post(
                 name: Notification.Name("MezonChannelMessageDeleted"),
                 object: nil,
-                userInfo: ["channelId": removed.channelID, "clanId": removed.clanID]
+                userInfo: ["channelId": removed.channelID, "clanId": removed.clanID, "messageId": removed.messageID]
             )
 
         case .lastSeen(let e):
@@ -1463,12 +1475,15 @@ final class AccountContextImpl: AccountContext {
 
         case .customStatus(let e):
             applyIncomingCustomStatusEvent(e)
+            engine.clanData.applyCustomStatus(e)
 
         case .userStatus(let e):
             applyIncomingUserStatusEvent(e)
+            engine.clanData.applyUserStatus(e)
 
         case .statusPresence(let e):
             applyIncomingStatusPresenceEvent(e)
+            engine.clanData.applyStatusPresence(e)
 
         case .lastPin(let e):
             ChannelPinnedStatePersistence.applyPinMessage(

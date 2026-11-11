@@ -24,7 +24,7 @@ enum EventDeleteConfirmation {
                     Toast.success(L(L10n.EventMenu.deleted))
                     onDeleted?()
                 } catch {
-                    Toast.error(error.localizedDescription)
+                    Toast.error(error.userMessage)
                 }
             }
         })
@@ -173,7 +173,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
     private func applyTheme() {
         view.backgroundColor = UIColor.theme.primary
         if #available(iOS 13.0, *) {
-            segmentedControl.selectedSegmentTintColor = UIColor.theme.tertiary
+            segmentedControl.selectedSegmentTintColor = UIColor.theme.raisedSurface
             segmentedControl.backgroundColor = UIColor.theme.secondary
         }
         let font = UIFont.systemFont(ofSize: 13, weight: .medium)

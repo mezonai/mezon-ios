@@ -70,7 +70,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         self.canShowOverview = canShowOverview
         self.canShowAuditLog = canShowAuditLog
         super.init()
-        backgroundColor = UIColor.theme.primary
+        backgroundColor = UIColor.theme.secondary
     }
 
     override func didLoad() {
@@ -374,7 +374,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
 
     private func createGroup(actions: [SettingAction]) -> UIView {
         let container = UIView()
-        container.backgroundColor = UIColor.theme.secondary
+        container.backgroundColor = UIColor.theme.primary
         container.layer.cornerRadius = 12.swh
         container.clipsToBounds = true
 

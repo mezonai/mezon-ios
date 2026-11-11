@@ -44,11 +44,13 @@ final class CDNSigner {
     private enum Entry {
         case signed(String, Date)
         case refused(Date)
+        case unavailable(Date)
     }
 
     private enum CacheState {
         case missing
         case refused
+        case unavailable
         case signed(String)
     }
 
@@ -59,6 +61,7 @@ final class CDNSigner {
 
     private static let refreshAfter: TimeInterval = 2 * 60 * 60
     private static let refusedRetryAfter: TimeInterval = 60
+    private static let unavailableRetryAfter: TimeInterval = 5
     private static let forbiddenRefetchAfter: TimeInterval = 30
     private static let fetchTimeoutNanoseconds: UInt64 = 5_000_000_000
     private static let channelSegmentLength = 16
@@ -117,6 +120,16 @@ final class CDNSigner {
         signingTarget(for: url) != nil
     }
 
+    func canStillSign(_ url: URL) -> Bool {
+        guard let target = signingTarget(for: url) else { return false }
+        lock.lock()
+        defer { lock.unlock() }
+        if case .refused = cacheStateLocked(target.channelID) {
+            return false
+        }
+        return true
+    }
+
     func readyRequestURL(for url: URL) -> CDNRequestURL? {
         guard let target = signingTarget(for: url) else { return CDNRequestURL.unsigned(url) }
         lock.lock()
@@ -125,7 +138,7 @@ final class CDNSigner {
         switch state {
         case .missing:
             return nil
-        case .refused:
+        case .refused, .unavailable:
             return CDNRequestURL.unsigned(url)
         case .signed(let signature):
             return request(for: url, target: target, signature: signature)
@@ -273,6 +286,8 @@ final class CDNSigner {
             return .signed(signature)
         case .refused(let refusedAt)? where Self.age(of: refusedAt) < Self.refusedRetryAfter:
             return .refused
+        case .unavailable(let failedAt)? where Self.age(of: failedAt) < Self.unavailableRetryAfter:
+            return .unavailable
         default:
             return .missing
         }
@@ -296,7 +311,7 @@ final class CDNSigner {
         switch state {
         case .signed(let signature):
             return signature
-        case .refused:
+        case .refused, .unavailable:
             return nil
         case .missing:
             guard let flight else {
@@ -307,45 +322,65 @@ final class CDNSigner {
     }
 
     private func fetchSignature(for channelID: Int64, generation started: Int) async -> String? {
-        let fetched = await fetchWithTimeout(channelID)
+        let fetched = await fetchWithTimeout(channelID, generation: started)
         lock.lock()
         defer { lock.unlock() }
         guard generation == started else {
             return nil
         }
         flights[channelID] = nil
-        entries[channelID] = fetched.map { Entry.signed($0, Date()) } ?? Entry.refused(Date())
-        return fetched
+        if case .signed(let signature, _) = fetched {
+            entries[channelID] = fetched
+            return signature
+        }
+        if case .signed(let lateSignature) = cacheStateLocked(channelID) {
+            return lateSignature
+        }
+        entries[channelID] = fetched
+        return nil
     }
 
-    private func fetchWithTimeout(_ channelID: Int64) async -> String? {
+    private func fetchWithTimeout(_ channelID: Int64, generation started: Int) async -> Entry {
         lock.lock()
         let provider = self.provider
         lock.unlock()
         guard let provider else {
-            return nil
+            return .unavailable(Date())
         }
-        return await withCheckedContinuation { (continuation: CheckedContinuation<String?, Never>) in
+        return await withCheckedContinuation { (continuation: CheckedContinuation<Entry, Never>) in
             let resumed = Atomic<Bool>(value: false)
             let timer = Task {
                 try? await Task.sleep(nanoseconds: Self.fetchTimeoutNanoseconds)
                 guard !resumed.swap(true) else { return }
-                continuation.resume(returning: nil)
+                continuation.resume(returning: .unavailable(Date()))
             }
             Task {
-                let fetched: String?
+                let fetched: Entry
                 do {
-                    fetched = try await provider(channelID)
+                    let signature = try await provider(channelID)
+                    fetched = signature.isEmpty ? .unavailable(Date()) : .signed(signature, Date())
+                } catch MezonError.httpError(statusCode: 403, message: _) {
+                    fetched = .refused(Date())
                 } catch {
-                    fetched = nil
+                    fetched = .unavailable(Date())
                 }
                 guard !resumed.swap(true) else {
+                    if case .signed = fetched {
+                        self.storeLateSignature(fetched, for: channelID, generation: started)
+                    }
                     return
                 }
                 timer.cancel()
-                continuation.resume(returning: fetched.flatMap { $0.isEmpty ? nil : $0 })
+                continuation.resume(returning: fetched)
             }
         }
+    }
+
+    private func storeLateSignature(_ entry: Entry, for channelID: Int64, generation started: Int) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard generation == started else { return }
+        entries[channelID] = entry
     }
 
     private func signingTarget(for url: URL) -> SigningTarget? {

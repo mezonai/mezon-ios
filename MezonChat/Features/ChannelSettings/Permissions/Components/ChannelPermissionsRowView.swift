@@ -70,7 +70,7 @@ final class ChannelPermissionsRowView: UIView {
         nameLabel.numberOfLines = 1
 
         subLabel.font = .systemFont(ofSize: 12.sf, weight: .regular)
-        subLabel.textColor = UIColor.theme.textDisabled
+        subLabel.textColor = UIColor.theme.textNormal
         subLabel.numberOfLines = 1
 
         ownerIcon.image = UIImage(systemName: "crown.fill")?.withRenderingMode(.alwaysTemplate)
@@ -184,9 +184,24 @@ final class ChannelPermissionsRowView: UIView {
                 UIImage(systemName: "xmark.circle.fill")?.withRenderingMode(.alwaysTemplate),
                 for: .normal
             )
-            trailingButton.tintColor = enabled ? UIColor.theme.text : UIColor.theme.textDisabled
             trailingButton.isEnabled = enabled
             chevron.isHidden = true
+        }
+        applyTheme()
+    }
+
+    func applyTheme() {
+        nameLabel.textColor = UIColor.theme.textStrong
+        subLabel.textColor = UIColor.theme.textNormal
+        chevron.tintColor = UIColor.theme.textDisabled
+        switch kind {
+        case .role:
+            subLabel.text = L(L10n.ChannelPermission.role)
+        case .member:
+            avatarView.backgroundColor = UIColor.theme.secondary
+        }
+        if case .removeButton(let enabled) = trailing {
+            trailingButton.tintColor = enabled ? UIColor.theme.text : UIColor.theme.textDisabled
         }
     }
 

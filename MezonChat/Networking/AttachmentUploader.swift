@@ -89,6 +89,7 @@ final class AttachmentUploadProgressStore {
 
     private let lock = NSLock()
     private var progressByKey: [String: Double] = [:]
+    private var finishingKeys: Set<String> = []
 
     func setProgress(_ value: Double, forKey key: String) {
         guard !key.isEmpty else { return }
@@ -102,9 +103,26 @@ final class AttachmentUploadProgressStore {
         return progressByKey[key] ?? 0
     }
 
+    func setFinishing(_ finishing: Bool, forKey key: String) {
+        guard !key.isEmpty else { return }
+        lock.lock()
+        if finishing {
+            finishingKeys.insert(key)
+        } else {
+            finishingKeys.remove(key)
+        }
+        lock.unlock()
+    }
+
+    func isFinishing(forKey key: String) -> Bool {
+        guard !key.isEmpty else { return false }
+        lock.lock(); defer { lock.unlock() }
+        return finishingKeys.contains(key)
+    }
+
     func clear(forKey key: String) {
         guard !key.isEmpty else { return }
-        lock.lock(); progressByKey.removeValue(forKey: key); lock.unlock()
+        lock.lock(); progressByKey.removeValue(forKey: key); finishingKeys.remove(key); lock.unlock()
     }
 }
 

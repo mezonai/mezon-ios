@@ -15,6 +15,24 @@ extension ASImageNode {
     }
 }
 
+enum VideoRangeLoadingPolicy {
+    static func shouldProbe(_ url: URL) -> Bool {
+        !url.isFileURL && ["mp4", "mov", "m4v"].contains(url.pathExtension.lowercased())
+    }
+
+    static func supportsChunkedLoading(data: Data?, response: URLResponse?) -> Bool {
+        guard let data, !data.isEmpty,
+              let response = response as? HTTPURLResponse, response.statusCode == 206,
+              let header = response.value(forHTTPHeaderField: "Content-Range") else { return false }
+        let fields = header.split(separator: " ")
+        guard fields.count == 2, fields[0].lowercased() == "bytes" else { return false }
+        let sizes = fields[1].split(separator: "/")
+        guard sizes.count == 2, let total = Int64(sizes[1]), total >= Int64(data.count) else { return false }
+        let bounds = sizes[0].split(separator: "-", omittingEmptySubsequences: false)
+        return bounds.count == 2 && Int64(bounds[0]) == 0 && Int64(bounds[1]) == Int64(data.count) - 1
+    }
+}
+
 final class UniversalVideoPlayerNode: ASDisplayNode {
     
     private var avPlayerNode: MezonVideoPlayerNode?
@@ -27,6 +45,9 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
     private var didResignAVPlayer = false
     private var wantsPlay = false
     private var usesChunkedLoading = false
+    private var containerProbeTask: URLSessionDataTask?
+    private var isContainerProbePending = false
+    private var containerProbePrefix: (data: Data, response: HTTPURLResponse)?
     
     var setOverlayVisible: ((Bool) -> Void)?
     var setPagingEnabled: ((Bool) -> Void)?
@@ -42,10 +63,55 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
         self.url = url
         self.posterURL = posterURL
         super.init()
-        
+
+        if FileIngestPlaylist.isMarked(url.absoluteString) {
+            resolveIngestPlaylist()
+        } else {
+            setupAppropriatePlayer()
+        }
+    }
+
+    private func resolveIngestPlaylist() {
+        FileIngestPlaylist.resolve(attachmentURL: url.absoluteString) { [weak self] state in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if case let .playable(playlist) = state {
+                    self.attachIngestPlayer(playlist)
+                } else {
+                    self.setupAppropriatePlayer()
+                }
+            }
+        }
+    }
+
+    private func attachIngestPlayer(_ playlist: URL) {
+        guard avPlayerNode == nil, vlcPlayerNode == nil else { return }
+        let avNode = MezonVideoPlayerNode(growingPlaylistURL: playlist, posterURL: posterURL)
+        avNode.setOverlayVisible = { [weak self] visible in
+            self?.setOverlayVisible?(visible)
+        }
+        avNode.setPagingEnabled = { [weak self] enabled in
+            self?.setPagingEnabled?(enabled)
+        }
+        avNode.onPlaybackFailed = { [weak self] in
+            self?.fallbackFromIngestPlaylist()
+        }
+        avNode.controlsBottomInset = controlsBottomInset
+        avPlayerNode = avNode
+        addSubnode(avNode)
+        avNode.frame = bounds
+        if wantsPlay {
+            avNode.play()
+        }
+    }
+
+    private func fallbackFromIngestPlaylist() {
+        avPlayerNode?.pause()
+        avPlayerNode?.removeFromSupernode()
+        avPlayerNode = nil
         setupAppropriatePlayer()
     }
-    
+
     private func setupAppropriatePlayer() {
         let fileExtension = url.pathExtension.lowercased()
         let useVLC = shouldUseVLCPlayer(for: fileExtension)
@@ -60,6 +126,7 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
     private func setupAVPlayer() {
         guard !didTryAVPlayer else { return }
         didTryAVPlayer = true
+        VideoRangePrefetcher.shared.cancel(url)
 
         if let request = CDNSigner.shared.readyRequestURL(for: url) {
             attachPlayerMatchingContainer(request)
@@ -73,41 +140,58 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
     }
 
     private func attachPlayerMatchingContainer(_ request: CDNRequestURL) {
-        guard request.isSigned else {
+        guard VideoRangeLoadingPolicy.shouldProbe(request.url) else {
             attachAVPlayer(request)
             return
         }
-        var probe = URLRequest(url: request.url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 2)
-        probe.setValue("bytes=0-8191", forHTTPHeaderField: "Range")
-        URLSession.shared.dataTask(with: probe) { [weak self] data, _, _ in
-            let isFragmented = data.map(UniversalVideoPlayerNode.isFragmentedMP4) ?? false
+        let cacheKey = url.absoluteString
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let isCached = VideoRangeCache.shared.cachedContentLength(for: cacheKey) != nil
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.usesChunkedLoading = isFragmented
-                self.attachAVPlayer(request)
+                if isCached {
+                    self.usesChunkedLoading = true
+                    self.attachAVPlayer(request)
+                } else {
+                    self.probeContainer(request)
+                }
             }
-        }.resume()
+        }
     }
 
-    private static func isFragmentedMP4(_ data: Data) -> Bool {
-        var offset = 0
-        while offset + 8 <= data.count {
-            let size = data[offset..<offset + 4].reduce(0) { $0 << 8 | Int($1) }
-            if data[offset + 4..<offset + 8] == Data("moov".utf8) {
-                let end = min(offset + size, data.count)
-                guard end > offset else { return false }
-                return data.range(of: Data("mvex".utf8), options: [], in: offset..<end) != nil
+    private func probeContainer(_ request: CDNRequestURL) {
+        var probe = URLRequest(url: request.url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 2)
+        probe.setValue("bytes=0-8191", forHTTPHeaderField: "Range")
+        isContainerProbePending = true
+        containerProbeTask = VideoRangeSession.shared.session.dataTask(with: probe) { [weak self] data, response, error in
+            let supportsChunks = error == nil && VideoRangeLoadingPolicy.supportsChunkedLoading(data: data, response: response)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let prefix = data.flatMap { data in (response as? HTTPURLResponse).map { (data, $0) } }
+                self.finishContainerProbe(request, supportsChunks: supportsChunks, prefix: prefix)
             }
-            guard size >= 8 else { return false }
-            offset += size
         }
-        return false
+        containerProbeTask?.resume()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            self?.finishContainerProbe(request, supportsChunks: false)
+        }
+    }
+
+    private func finishContainerProbe(_ request: CDNRequestURL, supportsChunks: Bool, prefix: (data: Data, response: HTTPURLResponse)? = nil) {
+        guard isContainerProbePending else { return }
+        isContainerProbePending = false
+        containerProbeTask?.cancel()
+        containerProbeTask = nil
+        usesChunkedLoading = supportsChunks
+        containerProbePrefix = supportsChunks ? prefix : nil
+        attachAVPlayer(request)
     }
 
     private func attachAVPlayer(_ request: CDNRequestURL) {
         guard avPlayerNode == nil, vlcPlayerNode == nil else { return }
         avRequest = request
-        let avNode = MezonVideoPlayerNode(url: request.url, posterURL: posterURL, usesChunkedLoading: usesChunkedLoading)
+        let avNode = MezonVideoPlayerNode(url: request.url, posterURL: posterURL, cacheKey: url.absoluteString, usesChunkedLoading: usesChunkedLoading, initialData: containerProbePrefix?.data, initialResponse: containerProbePrefix?.response)
+        containerProbePrefix = nil
         avNode.setOverlayVisible = { [weak self] visible in
             self?.setOverlayVisible?(visible)
         }
@@ -130,7 +214,7 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
         guard !didResignAVPlayer,
               let request = avRequest,
               CDNSigner.shared.invalidate(request) else {
-            fallbackToVLC()
+            fallbackToNativePlayerOrVLC()
             return
         }
         didResignAVPlayer = true
@@ -142,10 +226,22 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
                 if let next {
                     self.attachAVPlayer(next)
                 } else {
-                    self.fallbackToVLC()
+                    self.fallbackToNativePlayerOrVLC()
                 }
             }
         }
+    }
+
+    private func fallbackToNativePlayerOrVLC() {
+        guard usesChunkedLoading, let request = avRequest else {
+            fallbackToVLC()
+            return
+        }
+        usesChunkedLoading = false
+        avPlayerNode?.pause()
+        avPlayerNode?.removeFromSupernode()
+        avPlayerNode = nil
+        attachAVPlayer(request)
     }
     
     private func setupVLCPlayer() {
@@ -201,5 +297,9 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
         super.layout()
         avPlayerNode?.frame = bounds
         vlcPlayerNode?.frame = bounds
+    }
+
+    deinit {
+        containerProbeTask?.cancel()
     }
 }

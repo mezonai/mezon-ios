@@ -585,19 +585,17 @@ final class DiscoverClanEmptyStateViewController: UIViewController {
             attributes: [.foregroundColor: t.textDisabled]
         )
         headerContainer.layer.borderWidth = 0
-        qrHeaderButton.backgroundColor = t.tertiary
+        qrHeaderButton.backgroundColor = t.raisedSurface
         qrHeaderButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
         
-        let currentTheme = ThemeManager.shared.current
-        let effectiveTheme = currentTheme == .system ? (UITraitCollection.current.userInterfaceStyle == .dark ? AppTheme.dark : AppTheme.light) : currentTheme
         qrHeaderButton.setImage(UIImage(named: "Profile/ScanQR")?.withRenderingMode(.alwaysTemplate), for: .normal)
-        if effectiveTheme == .light || effectiveTheme == .sunrise {
+        if ThemeManager.shared.current.effectiveInterfaceStyle == .light {
             qrHeaderButton.tintColor = UIColor(hexString: "#ff6b6f76")
         } else {
             qrHeaderButton.tintColor = UIColor(hexString: "#fefefe")
         }
         
-        addFriendHeaderButton.backgroundColor = t.tertiary
+        addFriendHeaderButton.backgroundColor = t.raisedSurface
         addFriendHeaderButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
         statusLabel.textColor = t.textDisabled
         loadingIndicator.color = t.textStrong

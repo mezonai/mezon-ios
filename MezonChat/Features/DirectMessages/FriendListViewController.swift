@@ -31,6 +31,7 @@ final class FriendListViewController: ViewController {
     private var searchDebounceWorkItem: DispatchWorkItem?
     private var friendsUpdatedDisposable: Disposable?
     private var lastStateSignature: String?
+    private var isStartingCall = false
 
     private var friendListNode: FriendListContainerNode { displayNode as! FriendListContainerNode }
 
@@ -234,7 +235,10 @@ final class FriendListViewController: ViewController {
         guard friend.hasUser else { return }
         Task { @MainActor [weak self] in
             guard let self else { return }
-            guard let token = await self.context.getToken() else { return }
+            guard let token = await self.context.getToken() else {
+                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                return
+            }
             let targetUserId = friend.user.id
 
             let dmChannels = try? await self.context.account.network.listDirectMessageChannels(token: token)
@@ -256,12 +260,39 @@ final class FriendListViewController: ViewController {
                 let chatVC = ChatViewController(clanId: 0, channel: channel, context: self.context, parentName: nil)
                 self.navigationController?.pushViewController(chatVC, animated: true)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(L(L10n.Sharing.targetUnavailable))
             }
         }
     }
 
     private func handleCallFriend(_ friend: Mezon_Api_Friend) {
+        guard !isStartingCall, friend.user.id != 0 else { return }
+        isStartingCall = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.isStartingCall = false }
+            guard let token = await self.context.getToken() else {
+                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                return
+            }
+            do {
+                let channels = try? await self.context.account.network.listDirectMessageChannels(token: token)
+                let existing = channels?.first {
+                    $0.type == MezonConstants.ChannelType.dm.rawValue
+                        && $0.userIds.count == 1
+                        && $0.userIds.contains(friend.user.id)
+                }
+                let channel: Mezon_Api_ChannelDescription
+                if let existing {
+                    channel = existing
+                } else {
+                    channel = try await self.context.account.network.createDirectMessage(userId: friend.user.id, token: token)
+                }
+                PeerCallViewController.startAudioCall(context: self.context, channel: channel, user: friend.user, from: self)
+            } catch {
+                Toast.error(L(L10n.PeerCall.errorCouldNotStartCall))
+            }
+        }
     }
 
     private func makeStateSignature() -> String {

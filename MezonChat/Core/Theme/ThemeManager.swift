@@ -27,6 +27,11 @@ final class ThemeManager {
         }
     }
 
+    func adoptNewInstallationDefault() {
+        current = .purpleHaze
+        UserDefaults.standard.set(AppTheme.purpleHaze.rawValue, forKey: Self.userDefaultsKey)
+    }
+
     func set(_ theme: AppTheme) {
         guard theme != current else { return }
         current = theme

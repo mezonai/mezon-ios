@@ -105,10 +105,7 @@ enum MemberOnboardingProgress {
             clearClanData(clanId: clanId)
             return
         }
-        guard let token = await context.getToken() else {
-            Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
-            return
-        }
+        guard let token = await context.getToken() else { return }
 
         do {
             async let onboardingItemsTask = MezonHTTPClient.shared.listOnboarding(clanId: clanId, token: token)
@@ -378,10 +375,7 @@ enum MemberOnboardingProgress {
     ) {
         guard clanId != 0, onboardingStep > 0 else { return }
         Task { @MainActor in
-            guard let token = await context.getToken() else {
-                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
-                return
-            }
+            guard let token = await context.getToken() else { return }
             do {
                 try await MezonHTTPClient.shared.updateOnboardingStep(
                     clanId: clanId,

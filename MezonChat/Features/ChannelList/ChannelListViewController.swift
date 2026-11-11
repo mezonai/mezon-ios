@@ -11,13 +11,15 @@ struct ChannelListState: Equatable {
     var voiceUsersByChannel: [Int64: [String]] = [:]
     var streamViewerCounts: [Int64: Int] = [:]
     var buzzChannelIds: Set<Int64> = []
+    var clanId: Int64 = 0
 
     static let empty = ChannelListState(
         categories: [], allChannels: [], selectedChannelId: nil,
         isLoading: false, errorMessage: nil)
 
     static func == (lhs: ChannelListState, rhs: ChannelListState) -> Bool {
-        guard lhs.isLoading == rhs.isLoading
+        guard lhs.clanId == rhs.clanId
+            && lhs.isLoading == rhs.isLoading
             && lhs.selectedChannelId == rhs.selectedChannelId
             && lhs.errorMessage == rhs.errorMessage
             && lhs.categories.count == rhs.categories.count
@@ -29,7 +31,13 @@ struct ChannelListState: Equatable {
         else { return false }
         return zip(lhs.allChannels, rhs.allChannels).allSatisfy {
             $0.channelID == $1.channelID
+            && $0.categoryID == $1.categoryID
+            && $0.parentID == $1.parentID
+            && $0.type == $1.type
+            && $0.channelPrivate == $1.channelPrivate
+            && $0.ageRestricted == $1.ageRestricted
             && $0.countMessUnread == $1.countMessUnread
+            && $0.hasLastSentMessage == $1.hasLastSentMessage
             && $0.lastSentMessage.timestampSeconds == $1.lastSentMessage.timestampSeconds
             && $0.lastSeenMessage.timestampSeconds == $1.lastSeenMessage.timestampSeconds
             && $0.channelLabel == $1.channelLabel
@@ -1769,10 +1777,7 @@ final class ChannelListViewController: ViewController {
         Task { @MainActor [weak self] in
             defer { self?.onboardingMemberFetchInFlight = false }
             guard let self else { return }
-            guard let token = await self.context.getToken() else {
-                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
-                return
-            }
+            guard let token = await self.context.getToken() else { return }
             do {
                 let response = try await self.context.account.network.listClanUsers(
                     clanId: self.clanId,
@@ -2316,7 +2321,7 @@ final class ChannelListViewController: ViewController {
                     userInfo: ["channelId": channel.channelID, "clanId": channel.clanID]
                 )
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -2334,7 +2339,7 @@ final class ChannelListViewController: ViewController {
                     userInfo: ["clanId": clanId, "categoryId": Int64(0)]
                 )
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -2358,7 +2363,7 @@ final class ChannelListViewController: ViewController {
                 persistFullChannelListCache(clanId: clanId, channels: allChannels, categoryDescs: channelListCategoryDescs, favoriteIds: channelListFavoriteIds, categories: cats)
                 needsReloadPipe.putNext(())
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -2382,7 +2387,7 @@ final class ChannelListViewController: ViewController {
                 persistFullChannelListCache(clanId: clanId, channels: allChannels, categoryDescs: channelListCategoryDescs, favoriteIds: channelListFavoriteIds, categories: cats)
                 needsReloadPipe.putNext(())
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -2533,7 +2538,7 @@ final class ChannelListViewController: ViewController {
                 try await MezonHTTPClient.shared.deleteChannelDesc(channelId: channel.channelID, clanId: channel.clanID, token: token)
                 context.engine.clanData.removeChannelLocally(clanId: channel.clanID, channelId: channel.channelID, channelType: channel.type)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -2545,7 +2550,7 @@ final class ChannelListViewController: ViewController {
                 try await MezonHTTPClient.shared.leaveThread(clanId: channel.clanID, channelId: channel.channelID, token: token)
                 context.engine.clanData.removeChannelLocally(clanId: channel.clanID, channelId: channel.channelID)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -2578,6 +2583,7 @@ final class ChannelListViewController: ViewController {
         needsReloadPipe.putNext(())
         lastChannelFetchAtByClanId.removeValue(forKey: clanId)
         lastBadgeCountFetchAtByClanId.removeValue(forKey: clanId)
+        lastChannelAppsFetchAtByClanId.removeValue(forKey: clanId)
         fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: true, force: true)
     }
 
@@ -3451,23 +3457,23 @@ final class ChannelListViewController: ViewController {
 
     private func openChannelApp(_ app: Mezon_Api_ChannelAppResponse) {
         guard app.appID != 0, !app.appURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            Toast.error("App unavailable")
+            Toast.error(L(L10n.ChannelApp.unavailable))
             return
         }
         Task { @MainActor [weak self] in
             guard let self else { return }
             guard let token = await self.context.getToken() else {
-                Toast.error("Session unavailable")
+                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
                 return
             }
             do {
                 let webAppData = try await self.context.account.network.generateChannelAppHash(appId: app.appID, token: token)
                 guard !webAppData.isEmpty else {
-                    Toast.error("App unavailable")
+                    Toast.error(L(L10n.ChannelApp.unavailable))
                     return
                 }
                 guard let url = app.channelAppWebPageURL(webAppData: webAppData) else {
-                    Toast.error("App unavailable")
+                    Toast.error(L(L10n.ChannelApp.unavailable))
                     return
                 }
                 let title = app.appName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3480,14 +3486,14 @@ final class ChannelListViewController: ViewController {
                 } else if let host = self.presentationWindowHostForChannelApp() {
                     host.presentInGlobalOverlay(vc)
                 } else {
-                    Toast.error("App unavailable")
+                    Toast.error(L(L10n.ChannelApp.unavailable))
                     return
                 }
                 DispatchQueue.main.async {
                     navForOverlay?.requestLayout(transition: .immediate)
                 }
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -3961,7 +3967,8 @@ final class ChannelListViewController: ViewController {
             }.map {
                 ($0.channelID, context.engine.clanData.streamViewerCount(clanId: clanId, channelId: $0.channelID))
             }),
-            buzzChannelIds: context.buzz.state.channelIdsSnapshot().intersection(allChannels.map(\.channelID))
+            buzzChannelIds: context.buzz.state.channelIdsSnapshot().intersection(allChannels.map(\.channelID)),
+            clanId: clanId
         )
     }
 
@@ -4214,7 +4221,6 @@ final class ChannelListViewController: ViewController {
             guard self.clanId == clanId else { return }
 
             let key = PreferencesKeys.channelApps(clanId: clanId)
-            let cachedData = self.context.account.postbox.getPreferenceData(key: key)
 
             do {
                 let apps = try await Task.detached(priority: .utility) {
@@ -4228,13 +4234,6 @@ final class ChannelListViewController: ViewController {
                         let permissive = self.channelAppsForClan(apps, clanId: clanId, fromCache: true)
                         if !permissive.isEmpty {
                             self.applyResolvedChannelApps(permissive, clanId: clanId, cacheKey: key)
-                            return
-                        }
-                    }
-                    if let cachedData, !cachedData.isEmpty {
-                        let validCached = self.channelAppsForClan(self.decodeChannelApps(cachedData), clanId: clanId, fromCache: true)
-                        if !validCached.isEmpty {
-                            self.channelListNode.updateChannelApps(validCached)
                             return
                         }
                     }

@@ -13,6 +13,7 @@ final class MediaPickerViewController: UIViewController {
     var onPicked: (([MediaPickerResult]) -> Void)?
     var onEditedSend: ((MediaPickerResult) -> Void)?
     var selectionLimit: Int = .max
+    private var onUploadFile: (() -> Void)?
 
     private static let maxUploadImageDimension: CGFloat = 2048
 
@@ -68,16 +69,19 @@ final class MediaPickerViewController: UIViewController {
     private lazy var titleButton: UIButton = {
         let btn = UIButton(type: .system)
         btn.translatesAutoresizingMaskIntoConstraints = false
+        btn.accessibilityIdentifier = AccessibilityID.MediaPicker.album
         if #available(iOS 15.0, *) {
             var config = UIButton.Configuration.plain()
             config.title = "Recent Photos"
             config.image = UIImage(systemName: "chevron.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold))
             config.imagePlacement = .trailing
             config.imagePadding = 4
+            config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 4)
+            config.titleLineBreakMode = .byTruncatingTail
             config.baseForegroundColor = UIColor.theme.textStrong
             config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
                 var outgoing = incoming
-                outgoing.font = UIFont.systemFont(ofSize: 16, weight: .semibold)
+                outgoing.font = UIFont.systemFont(ofSize: 15, weight: .semibold)
                 return outgoing
             }
             btn.configuration = config
@@ -85,10 +89,12 @@ final class MediaPickerViewController: UIViewController {
             btn.setTitle("Recent Photos", for: .normal)
             btn.setImage(UIImage(systemName: "chevron.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 10, weight: .semibold)), for: .normal)
             btn.semanticContentAttribute = .forceRightToLeft
-            btn.titleLabel?.font = UIFont.systemFont(ofSize: 16, weight: .semibold)
+            btn.titleLabel?.font = UIFont.systemFont(ofSize: 15, weight: .semibold)
             btn.setTitleColor(UIColor.theme.textStrong, for: .normal)
             btn.tintColor = UIColor.theme.textStrong
         }
+        btn.titleLabel?.lineBreakMode = .byTruncatingTail
+        btn.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         btn.addTarget(self, action: #selector(toggleAlbumDropdownAction), for: .touchUpInside)
         return btn
     }()
@@ -145,13 +151,15 @@ final class MediaPickerViewController: UIViewController {
         return view
     }()
 
-    private lazy var cancelButton: UIButton = {
+    private lazy var uploadFileButton: UIButton = {
         let btn = UIButton(type: .system)
         btn.translatesAutoresizingMaskIntoConstraints = false
-        btn.setTitle("Cancel", for: .normal)
-        btn.titleLabel?.font = .systemFont(ofSize: 16, weight: .regular)
+        btn.accessibilityIdentifier = AccessibilityID.MediaPicker.uploadFile
+        btn.setTitle(L(L10n.MediaPicker.uploadFile), for: .normal)
+        btn.titleLabel?.font = .systemFont(ofSize: 14, weight: .regular)
+        btn.titleLabel?.lineBreakMode = .byTruncatingTail
         btn.tintColor = UIColor.theme.textStrong
-        btn.addTarget(self, action: #selector(cancelButtonTapped), for: .touchUpInside)
+        btn.addTarget(self, action: #selector(uploadFileButtonTapped), for: .touchUpInside)
         return btn
     }()
 
@@ -334,7 +342,7 @@ final class MediaPickerViewController: UIViewController {
         view.addSubview(headerView)
         headerView.addSubview(dragIndicator)
         headerView.addSubview(titleButton)
-        headerView.addSubview(cancelButton)
+        headerView.addSubview(uploadFileButton)
         view.addSubview(limitedBanner)
         view.addSubview(collectionView)
         view.addSubview(actionBar)
@@ -343,7 +351,7 @@ final class MediaPickerViewController: UIViewController {
         view.addSubview(dropdownOverlay)
         view.addSubview(albumDropdownView)
 
-        let headerHeight: CGFloat = 52
+        let headerHeight: CGFloat = 60
         let bannerHeight = limitedBanner.heightAnchor.constraint(equalToConstant: 0)
         self.limitedBannerHeightConstraint = bannerHeight
 
@@ -364,11 +372,14 @@ final class MediaPickerViewController: UIViewController {
             dragIndicator.widthAnchor.constraint(equalToConstant: 36),
             dragIndicator.heightAnchor.constraint(equalToConstant: 5),
 
-            cancelButton.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 16),
-            cancelButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor, constant: 4),
+            uploadFileButton.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 16),
+            uploadFileButton.trailingAnchor.constraint(lessThanOrEqualTo: titleButton.leadingAnchor, constant: -12),
+            uploadFileButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor, constant: 6),
+            uploadFileButton.heightAnchor.constraint(equalToConstant: 44),
 
             titleButton.centerXAnchor.constraint(equalTo: headerView.centerXAnchor),
-            titleButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor, constant: 4),
+            titleButton.centerYAnchor.constraint(equalTo: uploadFileButton.centerYAnchor),
+            titleButton.heightAnchor.constraint(equalToConstant: 44),
 
             limitedBanner.topAnchor.constraint(equalTo: headerView.bottomAnchor),
             limitedBanner.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -675,8 +686,18 @@ final class MediaPickerViewController: UIViewController {
         }
     }
 
-    @objc private func cancelButtonTapped() {
-        dismiss(animated: true)
+    @objc private func uploadFileButtonTapped() {
+        guard let onUploadFile, !isBeingDismissed else { return }
+        dismiss(animated: true, completion: onUploadFile)
+    }
+
+    override func accessibilityPerformEscape() -> Bool {
+        if albumDropdownView.isHidden {
+            dismiss(animated: true)
+        } else {
+            hideDropdown()
+        }
+        return true
     }
 
     @objc private func openSettingsAction() {
@@ -784,7 +805,7 @@ final class MediaPickerViewController: UIViewController {
             }
         } else {
             guard selectedAssets.count < selectionLimit else {
-                Toast.info("You can select up to \(selectionLimit) item\(selectionLimit == 1 ? "" : "s").", title: "")
+                Toast.info(selectionLimit == 1 ? L(L10n.MediaPicker.selectLimitOne) : L(L10n.MediaPicker.selectLimit, selectionLimit), title: "")
                 return
             }
             guard selectedByteSize() + byteSize(of: asset) < totalSizeLimitBytes else {
@@ -988,7 +1009,7 @@ final class MediaPickerViewController: UIViewController {
         }
     }
 
-    private static func generateVideoThumbnail(from url: URL) -> UIImage? {
+    static func generateVideoThumbnail(from url: URL) -> UIImage? {
         let asset = AVAsset(url: url)
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
@@ -1280,11 +1301,13 @@ extension MediaPickerViewController {
         from viewController: UIViewController,
         selectionLimit: Int = .max,
         onEditedSend: ((MediaPickerResult) -> Void)? = nil,
+        onUploadFile: @escaping () -> Void,
         onPicked: @escaping ([MediaPickerResult]) -> Void
     ) {
         let picker = MediaPickerViewController()
         picker.onPicked = onPicked
         picker.onEditedSend = onEditedSend
+        picker.onUploadFile = onUploadFile
         picker.selectionLimit = selectionLimit
         picker.modalPresentationStyle = .pageSheet
 

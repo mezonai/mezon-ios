@@ -92,11 +92,11 @@ final class SettingsViewController: BaseViewController {
         titleLabel.text = L(L10n.Settings.title)
         titleLabel.textColor = .mezonTextStrong
         backButton.tintColor = .mezonTextStrong
-        headerView.backgroundColor = .mezonPrimary
-        view.backgroundColor = .mezonPrimary
-        scrollView.backgroundColor = .mezonPrimary
+        headerView.backgroundColor = UIColor.theme.secondary
+        view.backgroundColor = UIColor.theme.secondary
+        scrollView.backgroundColor = UIColor.theme.secondary
 
-        searchBgView.backgroundColor = .mezonSecondaryBackground
+        searchBgView.backgroundColor = .mezonPrimary
         searchIconView.tintColor = .mezonTextPrimary
         searchTextField.textColor = .mezonTextStrong
         searchTextField.tintColor = .mezonTextStrong
@@ -126,9 +126,10 @@ final class SettingsViewController: BaseViewController {
         [
             (L(L10n.Settings.accountSettings), [
                 SettingsRow(icon: "Setting/AccountIcon", title: L(L10n.Settings.account), action: .navigate),
+                SettingsRow(icon: "Setting/ChatIcon", title: L(L10n.Settings.chat), action: .navigate),
                 SettingsRow(icon: "Setting/FriendRequestIcon", title: L(L10n.Settings.friendRequests), action: .navigate),
                 SettingsRow(icon: "Profile/ScanQR", title: L(L10n.Settings.qrScan), action: .navigate),
-                SettingsRow(icon: "Setting/DeviceIcon", title: L(L10n.Settings.devices), action: .navigate),
+                // SettingsRow(icon: "Setting/DeviceIcon", title: L(L10n.Settings.devices), action: .navigate),
             ]),
             (L(L10n.Settings.appSettings), [
                 SettingsRow(icon: "Setting/AppIcon", title: L(L10n.Settings.appVersion), action: .detail(appVersion)),
@@ -241,7 +242,7 @@ final class SettingsViewController: BaseViewController {
         let container = UIView()
         container.translatesAutoresizingMaskIntoConstraints = false
 
-        searchBgView.backgroundColor = .mezonSecondaryBackground
+        searchBgView.backgroundColor = .mezonPrimary
         container.addSubview(searchBgView)
 
         searchIconView.tintColor = .mezonTextPrimary
@@ -298,7 +299,7 @@ final class SettingsViewController: BaseViewController {
 
     private func addGroupedCard(rows: [SettingsRow]) {
         let card = UIView()
-        card.backgroundColor = .mezonSecondaryBackground
+        card.backgroundColor = UIColor.theme.primary
         card.layer.cornerRadius = 10.swh
         card.clipsToBounds = true
         card.translatesAutoresizingMaskIntoConstraints = false
@@ -356,10 +357,8 @@ final class SettingsViewController: BaseViewController {
         iconView.translatesAutoresizingMaskIntoConstraints = false
         if let img = UIImage(named: row.icon, in: .main, compatibleWith: nil) {
             if row.icon == "Profile/ScanQR" {
-                let currentTheme = ThemeManager.shared.current
-                let effectiveTheme = currentTheme == .system ? (UIScreen.main.traitCollection.userInterfaceStyle == .dark ? AppTheme.dark : AppTheme.light) : currentTheme
                 iconView.image = img.withRenderingMode(.alwaysTemplate)
-                if effectiveTheme == .light || effectiveTheme == .sunrise {
+                if ThemeManager.shared.current.effectiveInterfaceStyle == .light {
                     iconView.tintColor = UIColor(hexString: "#ff6b6f76")
                 } else {
                     iconView.tintColor = UIColor(hexString: "#fefefe")
@@ -445,7 +444,7 @@ final class SettingsViewController: BaseViewController {
 
     private func addLogoutCard() {
         let card = UIView()
-        card.backgroundColor = .mezonSecondaryBackground
+        card.backgroundColor = UIColor.theme.primary
         card.layer.cornerRadius = 10.swh
         card.clipsToBounds = true
         card.translatesAutoresizingMaskIntoConstraints = false
@@ -515,15 +514,18 @@ final class SettingsViewController: BaseViewController {
         case L(L10n.Settings.appearance):
             let vc = AppThemeViewController()
             navigationController?.pushViewController(vc, animated: true)
+        case L(L10n.Settings.chat):
+            let vc = ChatSettingsViewController(context: context)
+            navigationController?.pushViewController(vc, animated: true)
         case L(L10n.Settings.language):
             let vc = LanguageSettingsViewController()
             navigationController?.pushViewController(vc, animated: true)
         case L(L10n.Settings.qrScan):
             let vc = QRScannerViewController(context: context)
             navigationController?.pushViewController(vc, animated: true)
-        case L(L10n.Settings.devices):
-            let line = "\(L(L10n.Settings.devices)) — \(L(L10n.Common.comingSoon))"
-            Toast.comingSoonLine(line)
+        // case L(L10n.Settings.devices):
+        //     let line = "\(L(L10n.Settings.devices)) — \(L(L10n.Common.comingSoon))"
+        //     Toast.comingSoonLine(line)
         default:
             break
         }
@@ -561,4 +563,246 @@ private enum SettingsRowAction {
 
 private final class SettingsRowTapGesture: UITapGestureRecognizer {
     var row: SettingsRow?
+}
+
+final class ChatSettingsViewController: BaseViewController {
+
+    private let context: AccountContext
+
+    private let headerView = UIView()
+    private let backButton: UIButton = {
+        let btn = UIButton(type: .system)
+        let img = UIImage(systemName: "chevron.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium))
+        btn.setImage(img, for: .normal)
+        btn.translatesAutoresizingMaskIntoConstraints = false
+        return btn
+    }()
+    private let titleLabel: UILabel = {
+        let l = UILabel()
+        l.font = .systemFont(ofSize: 17.sf, weight: .semibold)
+        l.translatesAutoresizingMaskIntoConstraints = false
+        return l
+    }()
+
+    private lazy var scrollView: UIScrollView = {
+        let sv = UIScrollView()
+        sv.showsVerticalScrollIndicator = false
+        sv.translatesAutoresizingMaskIntoConstraints = false
+        return sv
+    }()
+
+    private lazy var contentStack: UIStackView = {
+        let sv = UIStackView()
+        sv.axis = .vertical
+        sv.spacing = 0
+        sv.translatesAutoresizingMaskIntoConstraints = false
+        return sv
+    }()
+
+    private let side: CGFloat = 16.sw
+
+    private var onlyFriendsDm = false
+    private var isDMSettingLoaded = false
+    private var dmSettingGeneration = 0
+    private weak var onlyFriendsDmSwitch: UISwitch?
+
+    init(context: AccountContext) {
+        self.context = context
+        super.init(navigationBarPresentationData: nil)
+    }
+
+    required init(coder aDecoder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func setupUI() {
+        headerView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(headerView)
+        headerView.addSubview(backButton)
+        headerView.addSubview(titleLabel)
+
+        backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
+
+        view.addSubview(scrollView)
+        scrollView.addSubview(contentStack)
+
+        let headerHeight: CGFloat = 96
+
+        NSLayoutConstraint.activate([
+            headerView.topAnchor.constraint(equalTo: view.topAnchor),
+            headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            headerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            headerView.heightAnchor.constraint(equalToConstant: headerHeight),
+
+            backButton.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 16.sw),
+            backButton.bottomAnchor.constraint(equalTo: headerView.bottomAnchor, constant: -8.sh),
+            backButton.widthAnchor.constraint(equalToConstant: 44),
+            backButton.heightAnchor.constraint(equalToConstant: 44),
+
+            titleLabel.leadingAnchor.constraint(equalTo: backButton.trailingAnchor, constant: 4),
+            titleLabel.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: headerView.trailingAnchor, constant: -16.sw),
+
+            scrollView.topAnchor.constraint(equalTo: headerView.bottomAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+
+            contentStack.topAnchor.constraint(equalTo: scrollView.topAnchor),
+            contentStack.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
+            contentStack.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
+            contentStack.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
+            contentStack.widthAnchor.constraint(equalTo: scrollView.widthAnchor),
+        ])
+    }
+
+    override func setupBindings() {
+        loadDMSetting()
+    }
+
+    override func applyTheme() {
+        titleLabel.text = L(L10n.Settings.chat)
+        titleLabel.textColor = .mezonTextStrong
+        backButton.tintColor = .mezonTextStrong
+        headerView.backgroundColor = .mezonPrimary
+        view.backgroundColor = .mezonPrimary
+        scrollView.backgroundColor = .mezonPrimary
+        rebuildContent()
+    }
+
+    private func rebuildContent() {
+        contentStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        addSpacer(16.sh)
+        addOnlyFriendsDmCard()
+        addSpacer(40.sh)
+    }
+
+    private func addOnlyFriendsDmCard() {
+        let card = UIView()
+        card.backgroundColor = .mezonSecondaryBackground
+        card.layer.cornerRadius = 10.swh
+        card.clipsToBounds = true
+        card.translatesAutoresizingMaskIntoConstraints = false
+
+        let wrapper = UIView()
+        wrapper.translatesAutoresizingMaskIntoConstraints = false
+        wrapper.addSubview(card)
+
+        let titleLabel = UILabel()
+        titleLabel.text = L(L10n.Settings.onlyFriendsDmTitle)
+        titleLabel.font = .systemFont(ofSize: 15.sf, weight: .semibold)
+        titleLabel.textColor = .mezonTextStrong
+        titleLabel.numberOfLines = 0
+
+        let toggle = UISwitch()
+        toggle.isOn = onlyFriendsDm
+        toggle.isEnabled = isDMSettingLoaded
+        toggle.onTintColor = UIColor.theme.bgViolet
+        toggle.setContentHuggingPriority(.required, for: .horizontal)
+        toggle.setContentCompressionResistancePriority(.required, for: .horizontal)
+        toggle.addTarget(self, action: #selector(onlyFriendsDmSwitchChanged(_:)), for: .valueChanged)
+        onlyFriendsDmSwitch = toggle
+
+        let rowStack = UIStackView(arrangedSubviews: [titleLabel, toggle])
+        rowStack.axis = .horizontal
+        rowStack.alignment = .center
+        rowStack.spacing = 12.sw
+        rowStack.translatesAutoresizingMaskIntoConstraints = false
+        card.addSubview(rowStack)
+
+        let descriptionLabel = UILabel()
+        descriptionLabel.text = L(L10n.Settings.onlyFriendsDmDescription)
+        descriptionLabel.font = .systemFont(ofSize: 13.sf, weight: .regular)
+        descriptionLabel.textColor = .mezonTextPrimary
+        descriptionLabel.numberOfLines = 0
+        descriptionLabel.translatesAutoresizingMaskIntoConstraints = false
+        wrapper.addSubview(descriptionLabel)
+
+        NSLayoutConstraint.activate([
+            card.topAnchor.constraint(equalTo: wrapper.topAnchor),
+            card.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor, constant: side),
+            card.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor, constant: -side),
+
+            rowStack.topAnchor.constraint(equalTo: card.topAnchor, constant: 12.sh),
+            rowStack.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16.sw),
+            rowStack.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16.sw),
+            rowStack.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -12.sh),
+
+            descriptionLabel.topAnchor.constraint(equalTo: card.bottomAnchor, constant: 8.sh),
+            descriptionLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16.sw),
+            descriptionLabel.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -16.sw),
+            descriptionLabel.bottomAnchor.constraint(equalTo: wrapper.bottomAnchor),
+        ])
+
+        contentStack.addArrangedSubview(wrapper)
+    }
+
+    private func loadDMSetting() {
+        let generation = dmSettingGeneration
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getToken() else {
+                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                return
+            }
+            do {
+                let setting = try await self.context.account.network.getDMSetting(token: token)
+                guard generation == self.dmSettingGeneration else { return }
+                self.onlyFriendsDm = setting.onlyFriendsDm
+                self.isDMSettingLoaded = true
+                self.onlyFriendsDmSwitch?.setOn(setting.onlyFriendsDm, animated: false)
+                self.onlyFriendsDmSwitch?.isEnabled = true
+            } catch {
+                Toast.error(error.userMessage)
+            }
+        }
+    }
+
+    @objc private func onlyFriendsDmSwitchChanged(_ sender: UISwitch) {
+        let enabled = sender.isOn
+        let previous = onlyFriendsDm
+        onlyFriendsDm = enabled
+        dmSettingGeneration += 1
+        let generation = dmSettingGeneration
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            guard let token = await self.context.getToken() else {
+                self.revertOnlyFriendsDm(to: previous, generation: generation)
+                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                return
+            }
+            do {
+                let setting = try await self.context.account.network.updateDMSetting(onlyFriendsDm: enabled, token: token)
+                guard generation == self.dmSettingGeneration else { return }
+                guard setting.onlyFriendsDm == enabled else {
+                    self.revertOnlyFriendsDm(to: previous, generation: generation)
+                    Toast.error(L(L10n.Settings.onlyFriendsDmUpdateFailed))
+                    return
+                }
+                self.onlyFriendsDm = setting.onlyFriendsDm
+                self.onlyFriendsDmSwitch?.setOn(setting.onlyFriendsDm, animated: true)
+            } catch {
+                guard generation == self.dmSettingGeneration else { return }
+                self.revertOnlyFriendsDm(to: previous, generation: generation)
+                Toast.error(error.userMessage)
+            }
+        }
+    }
+
+    private func revertOnlyFriendsDm(to value: Bool, generation: Int) {
+        guard generation == dmSettingGeneration else { return }
+        onlyFriendsDm = value
+        onlyFriendsDmSwitch?.setOn(value, animated: true)
+    }
+
+    private func addSpacer(_ height: CGFloat) {
+        let spacer = UIView()
+        spacer.translatesAutoresizingMaskIntoConstraints = false
+        spacer.heightAnchor.constraint(equalToConstant: height).isActive = true
+        contentStack.addArrangedSubview(spacer)
+    }
+
+    @objc private func backTapped() {
+        navigationController?.popViewController(animated: true)
+    }
 }

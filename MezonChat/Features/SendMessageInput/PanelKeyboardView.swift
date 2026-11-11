@@ -161,6 +161,8 @@ final class PanelKeyboardView: UIView, UIGestureRecognizerDelegate {
         tabTop.priority = Self.collapsingConstraintPriority
         let tabH = tabContainerView.heightAnchor.constraint(equalToConstant: Self.tabBarHeight)
         tabH.priority = Self.collapsingConstraintPriority
+        let tabTrailing = tabContainerView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16)
+        tabTrailing.priority = Self.collapsingConstraintPriority
         let sepTop = separatorLine.topAnchor.constraint(equalTo: tabContainerView.bottomAnchor, constant: 4)
         sepTop.priority = Self.collapsingConstraintPriority
         let sepH = separatorLine.heightAnchor.constraint(equalToConstant: 0.5)
@@ -180,7 +182,7 @@ final class PanelKeyboardView: UIView, UIGestureRecognizerDelegate {
 
             tabTop,
             tabContainerView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-            tabContainerView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            tabTrailing,
             tabH,
 
             sepTop,

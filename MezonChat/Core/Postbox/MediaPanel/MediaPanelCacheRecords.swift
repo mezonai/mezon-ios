@@ -105,7 +105,7 @@ extension Mezon_Api_ClanSticker {
 extension CachedClanEmojiRecord {
     var displayImageURLString: String {
         let src = self.src.trimmingCharacters(in: .whitespacesAndNewlines)
-        return ImgproxyURL.absoluteResourceURL(from: src.isEmpty ? "emojis/\(id).webp" : src)
+        return ImgproxyURL.absoluteResourceURL(from: src.isEmpty ? "\(MezonConfig.mezonCdnURL)/emojis/\(id).webp" : src)
     }
 
     static func innerName(from shortname: String) -> String {

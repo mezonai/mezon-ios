@@ -134,7 +134,7 @@ final class ChannelSettingsViewController: BaseViewController {
                 self.navigateBackAfterDelete()
             } catch {
                 settingsNode.setDeleteButtonEnabled(true)
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -209,10 +209,13 @@ final class ChannelSettingsViewController: BaseViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        settingsNode.applyTheme()
         if channelType == MezonConstants.ChannelType.mezonVoice.rawValue {
             NotificationCenter.default.addObserver(self, selector: #selector(handleVoiceAccessLost(_:)), name: .mezonVoiceChannelAccessLost, object: nil)
         }
+    }
+
+    override func applyTheme() {
+        settingsNode.applyTheme()
     }
 
     deinit { NotificationCenter.default.removeObserver(self) }
@@ -265,7 +268,7 @@ final class ChannelSettingsViewController: BaseViewController {
                 }
             } catch {
                 await MainActor.run {
-                    Toast.error(error.localizedDescription)
+                    Toast.error(error.userMessage)
                 }
             }
         }

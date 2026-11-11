@@ -25,6 +25,11 @@ final class MezonRootController: NavigationController {
         )
     }
 
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.accessibilityIdentifier = AccessibilityID.Main.root
+    }
+
     @objc private func handleThemeDidChange() {
         let newTheme = Self.makeNavTheme()
         self.updateTheme(newTheme)
@@ -143,7 +148,9 @@ final class MezonRootController: NavigationController {
     }
 
     private func bootstrapGlobalFriendState() {
-        context.engine.friendsData.start(tokenProvider: { [weak self] in
+        context.engine.friendsData.start(currentUserIdProvider: { [weak self] in
+            self?.context.currentUserNumericID
+        }, tokenProvider: { [weak self] in
             guard let self else { return nil }
             return await self.context.getToken()
         })
@@ -374,7 +381,7 @@ final class MezonRootController: NavigationController {
             return
         case .ready:
             let skipRing = (notification.userInfo?["mezonSkipIncomingRingingUI"] as? Bool) == true
-            let display = IncomingPeerCallPayloadParser.callerDisplay(for: payload, skipDecompressOffer: skipRing)
+            let display = IncomingPeerCallPayloadParser.callerDisplay(for: payload, skipDecompressOffer: skipRing, context: context)
             let vc = PeerCallViewController(
                 context: context,
                 incoming: payload,
@@ -1133,7 +1140,7 @@ final class MezonRootController: NavigationController {
                 token = await self.context.getToken() ?? ""
             }
             guard !token.isEmpty else {
-                Toast.info("Please log in to Mezon first")
+                Toast.info(L(L10n.Common.loginRequired))
                 return
             }
             let sessionToken = token
@@ -1154,7 +1161,7 @@ final class MezonRootController: NavigationController {
                         node?.setSuccess(true)
                     } catch {
                         overlay?.dismissOverlay()
-                        Toast.error(error.localizedDescription)
+                        Toast.error(error.userMessage)
                     }
                 }
             }
@@ -1185,23 +1192,23 @@ final class MezonRootController: NavigationController {
         Task { @MainActor [weak self] in
             guard let self else { return }
             guard let token = await self.context.getToken() else {
-                Toast.error("Session unavailable")
+                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
                 return
             }
             let clanIdInt = clanId.flatMap { Int64($0) } ?? self.context.currentClanId
             guard clanIdInt != 0 else {
-                Toast.error("App unavailable")
+                Toast.error(L(L10n.ChannelApp.unavailable))
                 return
             }
             do {
                 let apps = try await self.context.account.network.listChannelApps(clanId: clanIdInt, token: token)
                 guard let app = apps.first(where: { $0.channelID == channelIdInt }) else {
-                    Toast.error("App unavailable")
+                    Toast.error(L(L10n.ChannelApp.unavailable))
                     return
                 }
                 let webAppData = try await self.context.account.network.generateChannelAppHash(appId: app.appID, token: token)
                 guard !webAppData.isEmpty, let url = app.channelAppWebPageURL(webAppData: webAppData) else {
-                    Toast.error("App unavailable")
+                    Toast.error(L(L10n.ChannelApp.unavailable))
                     return
                 }
                 let title = app.appName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1211,7 +1218,7 @@ final class MezonRootController: NavigationController {
                     self?.requestLayout(transition: .immediate)
                 }
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -1243,7 +1250,7 @@ final class MezonRootController: NavigationController {
                                 clanId = try await ClanInviteJoiner.join(context: self.context, code: code, clanId: inviteInfo.clan_id.flatMap(Int64.init))
                             } catch {
                                 overlay?.dismissOverlay()
-                                Toast.error(error.localizedDescription)
+                                Toast.error(error.userMessage)
                                 return
                             }
                         }
@@ -1264,7 +1271,7 @@ final class MezonRootController: NavigationController {
                 }
                 self.presentDeepLinkOverlay(overlay)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -1274,27 +1281,127 @@ final class MezonRootController: NavigationController {
             return
         }
         let theme = context.sharedContext.currentPresentationTheme.attributes
-        let node = QRUserProfileNode(profile: profile, theme: theme)
+        let userId = Int64(profile.id) ?? 0
+        let relation = context.engine.friendsData.allFriends().first { $0.hasUser && $0.user.id == userId }
+        let showAddFriend = userId > 0 && profile.id != context.currentUser?.id && relation?.state != EStateFriend.friend.rawValue
+        let node = QRUserProfileNode(
+            profile: profile,
+            username: username.removingPercentEncoding ?? username,
+            showAddFriend: showAddFriend,
+            theme: theme
+        )
         let overlay = DeepLinkNodeOverlayController(node: node)
-        node.onClose = { [weak overlay] in
+        var actionTask: Task<Void, Never>?
+        var isDismissingProfile = false
+        node.onClose = { [weak overlay, weak node] in
+            guard !isDismissingProfile else { return }
+            isDismissingProfile = true
+            actionTask?.cancel()
+            node?.setActionsEnabled(false)
             overlay?.dismissOverlay()
         }
-        node.onMessage = { [weak self, weak overlay] in
-            guard let self else { return }
-            Task { @MainActor in
+        let openConversation: (Bool) -> Void = { [weak self, weak overlay, weak node] isCall in
+            guard let self, let overlay, let node, actionTask == nil, !isDismissingProfile else { return }
+            guard userId > 0 else {
+                Toast.error(L(L10n.QRScanner.invalidQR))
+                return
+            }
+            if isCall && !QRProfileCall.canStart(context: self.context, userId: userId) { return }
+            node.setActionsEnabled(false)
+            actionTask = Task { @MainActor in
+                defer {
+                    actionTask = nil
+                    if !isDismissingProfile { node.setActionsEnabled(true) }
+                }
                 do {
-                    guard let userId = Int64(profile.id) else { return }
-                    let token = await self.context.getToken() ?? ""
-                    let channel = try await self.context.account.network.createDirectMessage(userId: userId, token: token)
-                    overlay?.dismissOverlay {
-                        NotificationCenter.default.post(
-                            name: .mezonQRNavigateToDM,
-                            object: nil,
-                            userInfo: ["channelId": "\(channel.channelID)", "title": profile.name]
-                        )
+                    let token = await self.context.getToken()
+                    try Task.checkCancellation()
+                    guard let token, !token.isEmpty else {
+                        Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                        return
                     }
+                    try Task.checkCancellation()
+                    let channels = try? await self.context.account.network.listDirectMessageChannels(token: token)
+                    try Task.checkCancellation()
+                    let myUserId = Int64(self.context.currentUser?.id ?? "") ?? 0
+                    let channel: Mezon_Api_ChannelDescription
+                    if let existing = channels?.first(where: {
+                        $0.type == MezonConstants.ChannelType.dm.rawValue
+                            && $0.userIds.filter { $0 != myUserId } == [userId]
+                    }) {
+                        channel = existing
+                    } else {
+                        channel = try await self.context.account.network.createDirectMessage(userId: userId, token: token)
+                    }
+                    try Task.checkCancellation()
+                    guard overlay.viewIfLoaded?.window != nil else { return }
+                    guard channel.channelID != 0 else {
+                        Toast.error(L(L10n.Sharing.targetUnavailable))
+                        return
+                    }
+                    if isCall && !QRProfileCall.canStart(context: self.context, userId: userId) { return }
+                    isDismissingProfile = true
+                    overlay.dismissOverlay { [weak self] in
+                        guard let self else { return }
+                        if isCall {
+                            guard QRProfileCall.canStart(context: self.context, userId: userId) else { return }
+                            PeerCallLogMessage.sendStartCallLog(context: self.context, channel: channel, isVideoCall: false)
+                            let call = PeerCallViewController(
+                                context: self.context,
+                                remoteUserName: profile.name,
+                                remoteAvatarURL: profile.avatar,
+                                remoteUserId: userId,
+                                channelId: channel.channelID,
+                                isVideo: false,
+                                preferSpeaker: true
+                            )
+                            self.pushViewController(call, animated: true)
+                        } else {
+                            NotificationCenter.default.post(
+                                name: .mezonQRNavigateToDM,
+                                object: nil,
+                                userInfo: ["channelId": "\(channel.channelID)", "title": profile.name]
+                            )
+                        }
+                    }
+                } catch is CancellationError {
+                    // Dismissing the profile cancels the pending action.
                 } catch {
-                    Toast.error(error.localizedDescription)
+                    guard !Task.isCancelled, overlay.viewIfLoaded?.window != nil else { return }
+                    Toast.error(error.userMessage)
+                }
+            }
+        }
+        node.onMessage = { openConversation(false) }
+        node.onCall = { openConversation(true) }
+        node.onAddFriend = { [weak self, weak overlay, weak node] in
+            guard let self, let overlay, let node, actionTask == nil, !isDismissingProfile, showAddFriend else { return }
+            node.setActionsEnabled(false)
+            actionTask = Task { @MainActor in
+                defer {
+                    actionTask = nil
+                    if !isDismissingProfile { node.setActionsEnabled(true) }
+                }
+                do {
+                    let token = await self.context.getToken()
+                    try Task.checkCancellation()
+                    guard let token, !token.isEmpty else {
+                        Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
+                        return
+                    }
+                    try Task.checkCancellation()
+                    try await self.context.account.network.addFriends(ids: [userId], token: token)
+                    try Task.checkCancellation()
+                    await self.context.engine.friendsData.refreshFromNetwork(token: token, force: true)
+                    try Task.checkCancellation()
+                    guard overlay.viewIfLoaded?.window != nil else { return }
+                    node.hideAddFriend()
+                    Toast.success(L(L10n.FriendRequest.toastSendSuccess))
+                } catch is CancellationError {
+                    // Dismissing the profile cancels the pending action.
+                } catch {
+                    guard !Task.isCancelled, overlay.viewIfLoaded?.window != nil else { return }
+                    Toast.error(error.userMessage)
                 }
             }
         }

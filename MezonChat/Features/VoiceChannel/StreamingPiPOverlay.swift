@@ -191,14 +191,7 @@ final class StreamingPiPOverlay: NSObject, UIGestureRecognizerDelegate {
         w.windowLevel = .statusBar + 1
         w.backgroundColor = .clear
         w.isUserInteractionEnabled = true
-        switch ThemeManager.shared.current {
-        case .light, .sunrise:
-            w.overrideUserInterfaceStyle = .light
-        case .dark, .redDark, .purpleHaze, .abyssDark, .sunset:
-            w.overrideUserInterfaceStyle = .dark
-        case .system:
-            w.overrideUserInterfaceStyle = .unspecified
-        }
+        w.overrideUserInterfaceStyle = ThemeManager.shared.current.interfaceStyle
         w.pipView = pipView
 
         let rootVC = UIViewController()

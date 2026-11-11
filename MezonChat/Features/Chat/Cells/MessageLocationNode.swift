@@ -32,6 +32,51 @@ struct LocationData {
     }
 }
 
+private final class LocationSnapshotStore {
+    static let shared = LocationSnapshotStore()
+
+    private let images: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.totalCostLimit = 32 * 1024 * 1024
+        return cache
+    }()
+    private var runningSnapshotters: [String: MKMapSnapshotter] = [:]
+    private var waiters: [String: [(UIImage) -> Void]] = [:]
+
+    func cachedImage(forKey key: String) -> UIImage? {
+        images.object(forKey: key as NSString)
+    }
+
+    func snapshot(key: String, options: MKMapSnapshotter.Options, completion: @escaping (UIImage) -> Void) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { self.snapshot(key: key, options: options, completion: completion) }
+            return
+        }
+        if let image = cachedImage(forKey: key) {
+            completion(image)
+            return
+        }
+        waiters[key, default: []].append(completion)
+        guard runningSnapshotters[key] == nil else { return }
+
+        let snapshotter = MKMapSnapshotter(options: options)
+        runningSnapshotters[key] = snapshotter
+        snapshotter.start { snapshot, error in
+            let finished = self.runningSnapshotters.removeValue(forKey: key)
+            let callbacks = self.waiters.removeValue(forKey: key) ?? []
+            if let image = snapshot?.image, error == nil {
+                self.images.setObject(image, forKey: key as NSString, cost: Self.byteCost(of: image))
+                callbacks.forEach { $0(image) }
+            }
+            DispatchQueue.main.async { withExtendedLifetime(finished) {} }
+        }
+    }
+
+    private static func byteCost(of image: UIImage) -> Int {
+        Int(image.size.width * image.scale * image.size.height * image.scale * 4)
+    }
+}
+
 final class MessageLocationNode: ASDisplayNode {
 
     private let containerNode = ASDisplayNode()
@@ -134,21 +179,26 @@ final class MessageLocationNode: ASDisplayNode {
     }
 
     private func loadMapSnapshot(latitude: Double, longitude: Double) {
+        let key = "\(latitude),\(longitude)"
+        if let image = LocationSnapshotStore.shared.cachedImage(forKey: key) {
+            mapImageNode.image = image
+            return
+        }
+
         let coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
         let region = MKCoordinateRegion(center: coordinate, latitudinalMeters: 500, longitudinalMeters: 500)
 
         let options = MKMapSnapshotter.Options()
         options.region = region
         options.size = CGSize(width: 320 * UIScreen.main.scale, height: Self.mapHeight * UIScreen.main.scale)
-        options.traitCollection = UITraitCollection(userInterfaceStyle: .dark)
+        options.traitCollection = UITraitCollection(traitsFrom: [
+            UITraitCollection(userInterfaceStyle: .dark),
+            UITraitCollection(displayScale: 1),
+        ])
 
-        let snapshotter = MKMapSnapshotter(options: options)
-        snapshotter.start { [weak self] snapshot, error in
-            guard let snapshot, error == nil else { return }
-            DispatchQueue.main.async {
-                self?.mapImageNode.image = snapshot.image
-                self?.setNeedsLayout()
-            }
+        LocationSnapshotStore.shared.snapshot(key: key, options: options) { [weak self] image in
+            self?.mapImageNode.image = image
+            self?.setNeedsLayout()
         }
     }
 

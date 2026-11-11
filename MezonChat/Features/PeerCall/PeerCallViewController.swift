@@ -5,6 +5,40 @@ import UIKit
 @MainActor
 final class PeerCallViewController: ViewController {
 
+    static func startAudioCall(
+        context: AccountContext,
+        channel: Mezon_Api_ChannelDescription,
+        user: Mezon_Api_User,
+        from controller: UIViewController
+    ) {
+        guard user.id != (Int64(context.currentUser?.id ?? "") ?? 0) else {
+            Toast.error(L(L10n.QRScanner.cannotCallYourself))
+            return
+        }
+
+        PeerCallLogMessage.sendStartCallLog(
+            context: context,
+            channel: channel,
+            isVideoCall: false
+        )
+
+        let displayName = user.displayName.isEmpty ? (channel.channelLabel.isEmpty ? user.username : channel.channelLabel) : user.displayName
+        let avatarURL = user.avatarURL.isEmpty ? channel.avatars.first : user.avatarURL
+        let callVC = PeerCallViewController(
+            context: context,
+            remoteUserName: displayName,
+            remoteAvatarURL: avatarURL,
+            remoteUserId: user.id,
+            channelId: channel.channelID,
+            isVideo: false
+        )
+        if let nav = controller.navigationController {
+            nav.pushViewController(callVC, animated: true)
+        } else {
+            controller.present(callVC, animated: true)
+        }
+    }
+
     private enum Entry {
         case outgoing(isVideo: Bool, remoteUserName: String, remoteAvatarURL: String?, remoteUserId: Int64, channelId: Int64)
         case incoming(payload: IncomingPeerCallPayload, remoteDisplayName: String, remoteAvatarURL: String?)
@@ -12,6 +46,7 @@ final class PeerCallViewController: ViewController {
 
     private let accountContext: AccountContext
     private let entry: Entry
+    private var remoteIdentity: PeerCallCallerIdentity
 
     private let gradientHost = UIView()
     private let gradientLayer = CAGradientLayer()
@@ -86,6 +121,7 @@ final class PeerCallViewController: ViewController {
     private var closeHeaderWidthConstraint: NSLayoutConstraint?
     private var callKitMatchedIncomingObserver: NSObjectProtocol?
     private let skipIncomingRingingUI: Bool
+    private let prefersSpeakerOnStart: Bool
     private var connectingSubtitleShownAt: Date?
     private var pendingConnectedChromeWorkItem: DispatchWorkItem?
 
@@ -95,11 +131,18 @@ final class PeerCallViewController: ViewController {
         remoteAvatarURL: String?,
         remoteUserId: Int64,
         channelId: Int64,
-        isVideo: Bool
+        isVideo: Bool,
+        preferSpeaker: Bool = false
     ) {
         self.skipIncomingRingingUI = false
+        self.prefersSpeakerOnStart = preferSpeaker
         self.accountContext = context
         self.entry = .outgoing(isVideo: isVideo, remoteUserName: remoteUserName, remoteAvatarURL: remoteAvatarURL, remoteUserId: remoteUserId, channelId: channelId)
+        self.remoteIdentity = PeerCallCallerIdentityResolver.resolve(
+            context: context, callerId: remoteUserId, channelId: channelId,
+            fallbackName: PeerCallCallerIdentity.nonEmpty(remoteUserName) ?? PeerCallLocalizedStrings.titleDefaultOutgoing,
+            fallbackAvatar: remoteAvatarURL
+        )
         super.init(navigationBarPresentationData: nil)
         modalPresentationStyle = .fullScreen
         modalTransitionStyle = .coverVertical
@@ -114,8 +157,10 @@ final class PeerCallViewController: ViewController {
         skipIncomingRingingUI: Bool = false
     ) {
         self.skipIncomingRingingUI = skipIncomingRingingUI
+        self.prefersSpeakerOnStart = false
         self.accountContext = context
         self.entry = .incoming(payload: payload, remoteDisplayName: remoteDisplayName, remoteAvatarURL: remoteAvatarURL)
+        self.remoteIdentity = PeerCallCallerIdentity(fallbackName: remoteDisplayName, avatar: remoteAvatarURL)
         super.init(navigationBarPresentationData: nil)
         modalPresentationStyle = .fullScreen
         modalTransitionStyle = .coverVertical
@@ -474,15 +519,15 @@ final class PeerCallViewController: ViewController {
         refreshRemoteCallLayout()
 
         switch entry {
-        case .outgoing(_, let remoteUserName, _, _, _):
-            titleLabel.text = remoteUserName.isEmpty ? PeerCallLocalizedStrings.titleDefaultOutgoing : remoteUserName
+        case .outgoing:
+            titleLabel.text = remoteIdentity.name
             subtitleLabel.text = PeerCallLocalizedStrings.statusRinging
             activeFooterStack.isHidden = false
             incomingFooterStack.isHidden = true
             setCloseHeaderChromeVisible(false)
             PeerCallSoundPlayer.shared.playDialToneLoop()
-        case .incoming(_, let remoteDisplayName, _):
-            titleLabel.text = remoteDisplayName.isEmpty ? PeerCallLocalizedStrings.titleDefaultIncoming : remoteDisplayName
+        case .incoming:
+            titleLabel.text = remoteIdentity.name
             if skipIncomingRingingUI {
                 subtitleLabel.text = PeerCallLocalizedStrings.statusConnecting
                 connectingSubtitleShownAt = Date()
@@ -513,6 +558,12 @@ final class PeerCallViewController: ViewController {
             name: ThemeManager.didChangeNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleCallerIdentityUpdate(_:)),
+            name: .mezonPeerCallCallerIdentityDidUpdate,
+            object: nil
+        )
 
         switch entry {
         case .incoming:
@@ -533,6 +584,22 @@ final class PeerCallViewController: ViewController {
             NotificationCenter.default.removeObserver(o)
         }
         NotificationCenter.default.removeObserver(self, name: ThemeManager.didChangeNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: .mezonPeerCallCallerIdentityDidUpdate, object: nil)
+    }
+
+    @objc private func handleCallerIdentityUpdate(_ notification: Notification) {
+        guard case .incoming(let payload, _, _) = entry,
+              let info = notification.userInfo,
+              let callerId = info["callerId"] as? Int64, callerId == payload.callerId,
+              let channelId = info["channelId"] as? Int64, channelId == payload.channelId,
+              let name = info["callerName"] as? String else { return }
+        let identity = PeerCallCallerIdentity(fallbackName: name, avatar: info["callerAvatar"] as? String)
+        guard identity != remoteIdentity else { return }
+        let avatarChanged = identity.avatar != remoteIdentity.avatar
+        remoteIdentity = identity
+        titleLabel.text = identity.name
+        updateRemoteMutedBanner()
+        if avatarChanged { loadRemoteAvatar() }
     }
 
     @objc private func handleThemeChange() {
@@ -870,17 +937,11 @@ final class PeerCallViewController: ViewController {
     }
 
     private var remoteDisplayNameForBanner: String {
-        switch entry {
-        case .outgoing(_, let name, _, _, _): return name
-        case .incoming(_, let name, _): return name
-        }
+        remoteIdentity.name
     }
 
     private func remoteAvatarURLString() -> String? {
-        switch entry {
-        case .outgoing(_, _, let url, _, _): return url
-        case .incoming(_, _, let url): return url
-        }
+        remoteIdentity.avatar
     }
 
     private func resolveLocalUserIdForPeerCall() -> Int64? {
@@ -899,8 +960,13 @@ final class PeerCallViewController: ViewController {
             return
         }
 
-        let callerName = accountContext.currentUser?.username ?? ""
-        let callerAvatar = accountContext.currentUser?.avatarURL?.absoluteString ?? ""
+        let caller = PeerCallCallerIdentity(
+            displayName: accountContext.currentUser?.displayName,
+            username: accountContext.currentUser?.username ?? SessionStore.load()?.username,
+            avatar: accountContext.currentUser?.avatarURL?.absoluteString
+        )
+        let callerName = caller.name
+        let callerAvatar = caller.avatar ?? ""
 
         switch entry {
         case .outgoing(let isVideo, _, _, let peerId, let channelId):
@@ -913,7 +979,8 @@ final class PeerCallViewController: ViewController {
                 callerAvatarURLStringForPush: callerAvatar,
                 wantsVideo: isVideo,
                 incomingStartsRinging: false,
-                initialCompressedOffer: nil
+                initialCompressedOffer: nil,
+                preferSpeaker: prefersSpeakerOnStart
             )
         case .incoming(let payload, _, _):
             if let warm = WebRTCCallManager.shared.consumePreWarmedIncomingSession(
@@ -1093,7 +1160,7 @@ final class PeerCallViewController: ViewController {
             return
         }
         ImageCache.shared.loadAvatar(urlString: urlString) { [weak self] image in
-            guard let self else { return }
+            guard let self, ImgproxyURL.iconURL(from: self.remoteAvatarURLString() ?? "") == urlString else { return }
             if let image {
                 self.avatarImageView.image = image
                 self.avatarImageView.contentMode = .scaleAspectFill

@@ -5,16 +5,19 @@ import UIKit
 final class ChannelDetailActionButtonsNode: ASDisplayNode {
 
     private let searchButtonNode = ASButtonNode()
+    private let customizeGroupButtonNode = ASButtonNode()
     private let threadsButtonNode = ASButtonNode()
     private let muteButtonNode = ASButtonNode()
     private let settingsButtonNode = ASButtonNode()
 
     private let searchLabel = ASTextNode2()
+    private let customizeGroupLabel = ASTextNode2()
     private let threadsLabel = ASTextNode2()
     private let muteLabel = ASTextNode2()
     private let settingsLabel = ASTextNode2()
 
     private let showSearch: Bool
+    private let showCustomizeGroup: Bool
     private let showThreads: Bool
     private let showMute: Bool
     private let showSettings: Bool
@@ -24,6 +27,7 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
 
     var onSettingsTapped: (() -> Void)?
     var onSearchTapped: (() -> Void)?
+    var onCustomizeGroupTapped: (() -> Void)?
     var onThreadsTapped: (() -> Void)?
     var onMuteTapped: (() -> Void)?
 
@@ -39,11 +43,13 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
 
         if channel.clanID == 0 {
             self.showSearch = true
+            self.showCustomizeGroup = channel.type == group
             self.showThreads = false
             self.showSettings = false
             self.showMute = !isSelfDM
         } else {
             self.showSearch = true
+            self.showCustomizeGroup = false
             self.showThreads = channel.type == channelType
             self.showMute = !isSelfDM
             self.showSettings = !isDMOrGroup
@@ -56,6 +62,9 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
             searchButtonNode, icon: "magnifyingglass", assetName: "Channel/Search", label: searchLabel,
             text: L(L10n.Common.search))
         setupButton(
+            customizeGroupButtonNode, icon: "pencil", assetName: "Channel/Pencil", label: customizeGroupLabel,
+            text: L(L10n.ChannelDetail.customizeGroup))
+        setupButton(
             threadsButtonNode, icon: "text.bubble", assetName: "Channel/channelThread", label: threadsLabel,
             text: L(L10n.Channel.thread))
         setupButton(
@@ -65,6 +74,8 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
             settingsButtonNode, icon: "gearshape.fill", assetName: "Profile/SettingIcon", label: settingsLabel,
             text: L(L10n.Common.settings))
 
+        customizeGroupButtonNode.isHidden = !showCustomizeGroup
+        customizeGroupLabel.isHidden = !showCustomizeGroup
         threadsButtonNode.isHidden = !showThreads
         threadsLabel.isHidden = !showThreads
         muteButtonNode.isHidden = !showMute
@@ -76,6 +87,8 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
             self, action: #selector(settingsPressed), forControlEvents: .touchUpInside)
         searchButtonNode.addTarget(
             self, action: #selector(searchPressed), forControlEvents: .touchUpInside)
+        customizeGroupButtonNode.addTarget(
+            self, action: #selector(customizeGroupPressed), forControlEvents: .touchUpInside)
         threadsButtonNode.addTarget(
             self, action: #selector(threadsPressed), forControlEvents: .touchUpInside)
         muteButtonNode.addTarget(
@@ -88,6 +101,10 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
 
     @objc private func searchPressed() {
         onSearchTapped?()
+    }
+
+    @objc private func customizeGroupPressed() {
+        onCustomizeGroupTapped?()
     }
 
     @objc private func threadsPressed() {
@@ -133,52 +150,42 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        var children: [ASLayoutElement] = []
+        let circleSize: CGFloat = 52.sw
+        let candidates: [(button: ASButtonNode, label: ASTextNode2, isVisible: Bool)] = [
+            (searchButtonNode, searchLabel, showSearch),
+            (customizeGroupButtonNode, customizeGroupLabel, showCustomizeGroup),
+            (threadsButtonNode, threadsLabel, showThreads),
+            (muteButtonNode, muteLabel, showMute),
+            (settingsButtonNode, settingsLabel, showSettings),
+        ]
+        let visibleItems = candidates.filter { $0.isVisible }
+        let labelWidths = visibleItems.map { ceil($0.label.attributedText?.size().width ?? 0) }
 
-        if showSearch {
-            children.append(
-                ASStackLayoutSpec(
-                    direction: .vertical,
-                    spacing: 12.sw,
-                    justifyContent: .center,
-                    alignItems: .center,
-                    children: [searchButtonNode, searchLabel]
-                ))
+        var centerDistance = circleSize + 30.sw
+        for index in labelWidths.indices.dropFirst() {
+            centerDistance = max(centerDistance, (labelWidths[index - 1] + labelWidths[index]) / 2 + 12.sw)
         }
-        if showThreads {
+
+        var children: [ASLayoutElement] = []
+        for (index, item) in visibleItems.enumerated() {
+            let column = ASStackLayoutSpec(
+                direction: .vertical,
+                spacing: 12.sw,
+                justifyContent: .center,
+                alignItems: .center,
+                children: [item.button, item.label]
+            )
+            let labelOverhang = max(0, labelWidths[index] - circleSize) / 2
             children.append(
-                ASStackLayoutSpec(
-                    direction: .vertical,
-                    spacing: 12.sw,
-                    justifyContent: .center,
-                    alignItems: .center,
-                    children: [threadsButtonNode, threadsLabel]
-                ))
-        }
-        if showMute {
-            children.append(
-                ASStackLayoutSpec(
-                    direction: .vertical,
-                    spacing: 12.sw,
-                    justifyContent: .center,
-                    alignItems: .center,
-                    children: [muteButtonNode, muteLabel]
-                ))
-        }
-        if showSettings {
-            children.append(
-                ASStackLayoutSpec(
-                    direction: .vertical,
-                    spacing: 12.sw,
-                    justifyContent: .center,
-                    alignItems: .center,
-                    children: [settingsButtonNode, settingsLabel]
+                ASInsetLayoutSpec(
+                    insets: UIEdgeInsets(top: 0, left: -labelOverhang, bottom: 0, right: -labelOverhang),
+                    child: column
                 ))
         }
 
         let mainStack = ASStackLayoutSpec(
             direction: .horizontal,
-            spacing: 30.sw,
+            spacing: centerDistance - circleSize,
             justifyContent: .center,
             alignItems: .center,
             children: children
@@ -231,6 +238,7 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
         let t = UIColor.theme
         let pairs: [(ASButtonNode, ASTextNode2, String, String?)] = [
             (searchButtonNode, searchLabel, "magnifyingglass", "Channel/Search"),
+            (customizeGroupButtonNode, customizeGroupLabel, "pencil", "Channel/Pencil"),
             (threadsButtonNode, threadsLabel, "text.bubble", "Channel/channelThread"),
             (settingsButtonNode, settingsLabel, "gearshape.fill", "Profile/SettingIcon"),
         ]
