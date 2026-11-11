@@ -780,8 +780,11 @@ private final class MessageActionSheetNode: ASDisplayNode {
 
         let btn = ActionButton(type: .system)
         btn.accessibilityLabel = action.title
-        if action == .reply {
-            btn.accessibilityIdentifier = AccessibilityID.Chat.replyAction
+        switch action {
+        case .reply: btn.accessibilityIdentifier = AccessibilityID.Chat.replyAction
+        case .editMessage: btn.accessibilityIdentifier = AccessibilityID.Chat.editAction
+        case .deleteMessage: btn.accessibilityIdentifier = AccessibilityID.Chat.deleteAction
+        default: break
         }
         btn.frame = CGRect(x: 0, y: y, width: width, height: height)
         btn.actionHandler = { [weak self] in

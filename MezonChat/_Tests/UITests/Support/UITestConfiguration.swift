@@ -48,6 +48,7 @@ enum UITestConfiguration {
     }
 
     enum Channel {
+        static var clanID: String? { value("UITEST_CLAN_ID") }
         static var id: String? { value("UITEST_CHANNEL_ID") }
         static var name: String { value("UITEST_CHANNEL_NAME") ?? "general" }
     }

@@ -245,6 +245,9 @@ final class ChannelListContainerNode: ASDisplayNode {
             || appliedClanSwitchGeneration != clanSwitchGeneration
         appliedClanSwitchGeneration = clanSwitchGeneration
         state = newState
+        if tableNode.isNodeLoaded {
+            tableNode.view.accessibilityIdentifier = AccessibilityID.Clan.channelList(String(newState.clanId))
+        }
         threadLookup = buildThreadLookup(newState.allChannels)
         cachedRows = [:]
 
@@ -1558,6 +1561,7 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private func configureTableNodeView(_ table: ASTableNode) {
+        table.view.accessibilityIdentifier = AccessibilityID.Clan.channelList(String(state.clanId))
         table.backgroundColor = .clear
         table.view.backgroundColor = .clear
         table.view.separatorStyle = .none

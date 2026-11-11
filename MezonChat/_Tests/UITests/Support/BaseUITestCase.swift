@@ -2,15 +2,20 @@ import XCTest
 
 class BaseUITestCase: XCTestCase {
     var app: XCUIApplication!
+    var tearDownCleanup: (() -> Void)?
+    private var firstFailureSummary: String?
 
     override func setUpWithError() throws {
+        tearDownCleanup = nil
+        firstFailureSummary = nil
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
         app = XCUIApplication()
+        app.launchArguments.append(UITestLaunch.skipUpdateCheckArgument)
     }
 
     override func tearDownWithError() throws {
-        if let testRun = testRun, testRun.hasSucceeded == false {
+        if firstFailureSummary != nil || (testRun?.totalFailureCount ?? 0) > 0 {
             attachFailureDiagnostics()
         }
         let observationSeconds = UITestConfiguration.observationDelaySeconds
@@ -26,8 +31,21 @@ class BaseUITestCase: XCTestCase {
                 add(attachment)
             }
         }
+        tearDownCleanup?()
+        tearDownCleanup = nil
         app?.terminate()
         app = nil
+    }
+
+    override func record(_ issue: XCTIssue) {
+        if firstFailureSummary == nil {
+            var details = ["Issue: \(issue.compactDescription)", "Type: \(issue.type)"]
+            if let location = issue.sourceCodeContext.location {
+                details.append("Source: \(location.fileURL.lastPathComponent):\(location.lineNumber)")
+            }
+            firstFailureSummary = details.joined(separator: "\n")
+        }
+        super.record(issue)
     }
 
     private func attachFailureDiagnostics() {
@@ -46,8 +64,9 @@ class BaseUITestCase: XCTestCase {
         case .unknown, .none: stateDescription = "unavailable"
         @unknown default: stateDescription = "unrecognized state"
         }
-        let status = XCTAttachment(string: "App state: \(stateDescription)")
-        status.name = "App state at teardown"
+        let details = firstFailureSummary ?? "Issue details are available in the test report."
+        let status = XCTAttachment(string: "Test: \(name)\n\(details)\nApp state at teardown: \(stateDescription)")
+        status.name = "Failure summary"
         status.lifetime = .keepAlways
         add(status)
 

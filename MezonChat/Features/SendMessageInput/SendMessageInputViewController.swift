@@ -2345,6 +2345,7 @@ final class SendMessageInputViewController: UIViewController {
     }
 
     private func updateReplyBannerVisibility() {
+        replyCancelButton.accessibilityIdentifier = editingDisplay == nil ? nil : AccessibilityID.Chat.editCancel
         if composerSendPermissionBlocked {
             if (replyBannerHeightConstraint?.constant ?? 0) != 0 {
                 replyBannerHeightConstraint?.constant = 0
