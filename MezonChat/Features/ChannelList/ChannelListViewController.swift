@@ -3686,6 +3686,10 @@ final class ChannelListViewController: ViewController {
                 self.pushVoiceChannelRoom(for: channel, role: role)
             }
         }
+        let streamClanId = clanId
+        let streamState: (() -> JoinStreamSheetState?)? = kind == .streaming
+            ? { [weak self] in self?.joinStreamSheetState(clanId: streamClanId, channelId: channel.channelID) }
+            : nil
 
         let sheet = JoinVoiceChannelSheetViewController(
             channelTitle: title,
@@ -3695,6 +3699,7 @@ final class ChannelListViewController: ViewController {
             canJoin: kind == .voice || !voiceUserIds.isEmpty,
             streamViewerCount: kind == .streaming ? context.engine.clanData.streamViewerCount(clanId: clanId, channelId: channel.channelID) : nil,
             streamPublisher: streamPublisher,
+            streamState: streamState,
             onChat: chatAction,
             onJoinVoice: joinAction,
             onInvite: {}
@@ -3726,6 +3731,16 @@ final class ChannelListViewController: ViewController {
             resolvedPresenter.present(sheet, animated: true)
         }
         CATransaction.commit()
+    }
+
+    private func joinStreamSheetState(clanId: Int64, channelId: Int64) -> JoinStreamSheetState {
+        let clanData = context.engine.clanData
+        let userIds = clanData.streamMembers(clanId: clanId, channelId: channelId).map { String($0.userID) }
+        return JoinStreamSheetState(
+            canJoin: !userIds.isEmpty,
+            viewerCount: clanData.streamViewerCount(clanId: clanId, channelId: channelId),
+            publisher: userIds.first.flatMap { resolveVoiceMember($0) }
+        )
     }
 
     private func pushChatViewController(for channel: Mezon_Api_ChannelDescription) {

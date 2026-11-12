@@ -3,6 +3,18 @@ import SwiftProtobuf
 import UIKit
 import Network
 
+private final class CallSetupSessionDelegate: NSObject, URLSessionTaskDelegate {
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        completionHandler(nil)
+    }
+}
+
 final class MezonHTTPClient {
 
     static let shared = MezonHTTPClient()
@@ -11,6 +23,7 @@ final class MezonHTTPClient {
 
     private let urlSession: URLSession
     private let uploadURLSession: URLSession
+    private let callSetupURLSession: URLSession
     private var authBaseURL: URL = MezonConfig.authBaseURL
     private var protoBaseURL: URL = MezonConfig.protoBaseURL
     static let listClanUsersCap = 1000
@@ -39,6 +52,13 @@ final class MezonHTTPClient {
         }
         urlSession = URLSession(configuration: config)
 
+        let callSetupConfig = URLSessionConfiguration.ephemeral
+        callSetupConfig.timeoutIntervalForRequest = 5
+        callSetupConfig.timeoutIntervalForResource = 5
+        callSetupConfig.httpShouldSetCookies = false
+        callSetupConfig.urlCache = nil
+        callSetupURLSession = URLSession(configuration: callSetupConfig, delegate: CallSetupSessionDelegate(), delegateQueue: nil)
+
         let uploadConfig = URLSessionConfiguration.default
         uploadConfig.timeoutIntervalForRequest = 120
         uploadConfig.timeoutIntervalForResource = 600
@@ -60,11 +80,12 @@ final class MezonHTTPClient {
         return "\(appName)/\(appVersion).\(build) (iOS \(osVersion); \(model))"
     }()
 
-    private func httpData(_ request: URLRequest) async throws -> (Data, URLResponse) {
+    private func httpData(_ request: URLRequest, session: URLSession? = nil) async throws -> (Data, URLResponse) {
+        let session = session ?? urlSession
         if #available(iOS 15.0, *) {
-            return try await urlSession.data(for: request)
+            return try await session.data(for: request)
         } else {
-            return try await legacyData(for: request)
+            return try await legacyData(for: request, session: session)
         }
     }
 
@@ -96,9 +117,9 @@ final class MezonHTTPClient {
         return .bearer(await resolveFreshBearer(token))
     }
 
-    private func legacyData(for request: URLRequest) async throws -> (Data, URLResponse) {
+    private func legacyData(for request: URLRequest, session: URLSession) async throws -> (Data, URLResponse) {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(Data, URLResponse), Error>) in
-            let task = urlSession.dataTask(with: request) { data, response, error in
+            let task = session.dataTask(with: request) { data, response, error in
                 if let error {
                     continuation.resume(throwing: error)
                     return
@@ -110,6 +131,28 @@ final class MezonHTTPClient {
                 continuation.resume(returning: (data ?? Data(), response))
             }
             task.resume()
+        }
+    }
+
+    func forwardCallSetup(_ signal: Mezon_Realtime_WebrtcSignalingFwd, token: String) async throws {
+        try Task.checkCancellation()
+        let url = protoBaseURL.appendingPathComponent("mezon.api.Mezon/ForwardCallSetup")
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/proto", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/proto", forHTTPHeaderField: "Accept")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try signal.serializedData()
+
+        let (data, response) = try await httpData(request, session: callSetupURLSession)
+        guard let http = response as? HTTPURLResponse else { throw MezonError.invalidResponse }
+        guard (200..<300).contains(http.statusCode) else {
+            throw MezonError.httpError(statusCode: http.statusCode, message: apiFailureMessage(httpStatusCode: http.statusCode, data: data))
+        }
+        let ack = try Mezon_Realtime_WebrtcSignalingFwd(serializedBytes: data)
+        guard ack.receiverID == signal.receiverID, ack.channelID == signal.channelID,
+              ack.callerID == signal.callerID, ack.dataType == signal.dataType else {
+            throw MezonError.invalidResponse
         }
     }
 

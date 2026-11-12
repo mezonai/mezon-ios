@@ -1182,15 +1182,20 @@ final class ForwardMessageViewController: UIViewController {
     private func resolveDestinations(
         for items: [SharingSuggestionItem],
         token: String
-    ) async throws -> [Mezon_Api_ChannelDescription] {
+    ) async -> (channels: [Mezon_Api_ChannelDescription], errors: [Error]) {
         var destinations: [Mezon_Api_ChannelDescription] = []
+        var errors: [Error] = []
         var seenChannelIDs = Set<Int64>()
         for item in items {
-            guard let channel = try await resolveDestination(for: item, token: token),
-                  seenChannelIDs.insert(channel.channelID).inserted else { continue }
-            destinations.append(channel)
+            do {
+                guard let channel = try await resolveDestination(for: item, token: token),
+                      seenChannelIDs.insert(channel.channelID).inserted else { continue }
+                destinations.append(channel)
+            } catch {
+                errors.append(error)
+            }
         }
-        return destinations
+        return (channels: destinations, errors: errors)
     }
 
     private func resolveDestination(
@@ -1210,7 +1215,7 @@ final class ForwardMessageViewController: UIViewController {
         _ attachments: [Mezon_Api_MessageAttachment],
         into channelID: Int64,
         token: String
-    ) async -> [Mezon_Api_MessageAttachment] {
+    ) async -> (attachments: [Mezon_Api_MessageAttachment], failedCount: Int) {
         let network = context.account.network
         return await withTaskGroup(of: (Int, String?).self) { group in
             for (index, attachment) in attachments.enumerated() {
@@ -1225,12 +1230,16 @@ final class ForwardMessageViewController: UIViewController {
                 }
             }
             var linked = attachments
+            var failedIndexes = Set<Int>()
             for await (index, url) in group {
                 if let url {
                     linked[index].url = url
+                } else {
+                    failedIndexes.insert(index)
                 }
             }
-            return linked
+            let kept = linked.indices.filter { !failedIndexes.contains($0) }.map { linked[$0] }
+            return (attachments: kept, failedCount: failedIndexes.count)
         }
     }
 
@@ -1251,29 +1260,35 @@ final class ForwardMessageViewController: UIViewController {
                 Toast.error(L(L10n.Sharing.sessionExpired))
                 return
             }
-            do {
-                let selectedChannels = try await resolveDestinations(for: pendingItems, token: tok)
-                if selectedChannels.isEmpty {
-                    Toast.error(L(L10n.Sharing.targetUnavailable))
-                    return
-                }
-                for dest in selectedChannels {
-                    let cid = forwardClanId(for: dest)
-                    let mid = forwardingMode(for: dest)
-                    let pub = isPublicDestination(dest)
-                    let avatar = context.currentUser?.avatarURL?.absoluteString ?? ""
-                    for msg in messagesToForward {
-                        let contentStr = ForwardOutgoing.contentJSONString(for: msg)
-                        let mentions = ForwardOutgoing.mentions(
-                            record: msg,
-                            destinationChannelID: dest.channelID,
-                            forwardFromChannelID: forwardFromChannelID
-                        )
-                        let atts = await linkedAttachments(
-                            ForwardOutgoing.attachments(for: msg, fallback: attachmentHints[msg.id] ?? []),
-                            into: dest.channelID,
-                            token: tok
-                        )
+            let resolved = await resolveDestinations(for: pendingItems, token: tok)
+            let selectedChannels = resolved.channels
+            var lastError = resolved.errors.last
+            var failedCount = resolved.errors.count
+            var sentCount = 0
+            if selectedChannels.isEmpty {
+                let unavailable = L(L10n.Sharing.targetUnavailable)
+                Toast.error(lastError?.userMessage(fallback: unavailable) ?? unavailable)
+                return
+            }
+            for dest in selectedChannels {
+                let cid = forwardClanId(for: dest)
+                let mid = forwardingMode(for: dest)
+                let pub = isPublicDestination(dest)
+                let avatar = context.currentUser?.avatarURL?.absoluteString ?? ""
+                for msg in messagesToForward {
+                    let contentStr = ForwardOutgoing.contentJSONString(for: msg)
+                    let mentions = ForwardOutgoing.mentions(
+                        record: msg,
+                        destinationChannelID: dest.channelID,
+                        forwardFromChannelID: forwardFromChannelID
+                    )
+                    let sourceAtts = ForwardOutgoing.attachments(for: msg, fallback: attachmentHints[msg.id] ?? [])
+                    let linked = await linkedAttachments(sourceAtts, into: dest.channelID, token: tok)
+                    failedCount += linked.failedCount
+                    if !sourceAtts.isEmpty, linked.attachments.isEmpty, Self.previewPlainText(for: msg).isEmpty {
+                        continue
+                    }
+                    do {
                         _ = try await context.account.network.sendChannelMessage(
                             clanId: cid,
                             channelId: dest.channelID,
@@ -1281,7 +1296,7 @@ final class ForwardMessageViewController: UIViewController {
                             isPublic: pub,
                             content: contentStr,
                             mentions: mentions,
-                            attachments: atts,
+                            attachments: linked.attachments,
                             references: [],
                             anonymous: false,
                             mentionEveryone: false,
@@ -1290,8 +1305,14 @@ final class ForwardMessageViewController: UIViewController {
                             code: msg.code == MezonConstants.MessageCode.buzz.rawValue ? 0 : msg.code,
                             token: tok
                         )
+                        sentCount += 1
+                    } catch {
+                        failedCount += 1
+                        lastError = error
                     }
-                    if let cJSON = ForwardOutgoing.commentContentJSON(trimmed: extraRaw), !extraRaw.isEmpty {
+                }
+                if let cJSON = ForwardOutgoing.commentContentJSON(trimmed: extraRaw), !extraRaw.isEmpty {
+                    do {
                         _ = try await context.account.network.sendChannelMessage(
                             clanId: cid,
                             channelId: dest.channelID,
@@ -1308,18 +1329,34 @@ final class ForwardMessageViewController: UIViewController {
                             code: 0,
                             token: tok
                         )
+                        sentCount += 1
+                    } catch {
+                        failedCount += 1
+                        lastError = error
                     }
                 }
-                Toast.success(L(L10n.Forward.success))
-                dismiss(animated: true)
-            } catch {
-                SentryLogger.capture(error, extras: [
+            }
+            if let lastError {
+                SentryLogger.capture(lastError, extras: [
                     "where": "ForwardMessage",
                     "messageCount": messagesToForward.count,
                     "destinationCount": pendingItems.count,
+                    "failedCount": failedCount,
+                    "sentCount": sentCount,
                 ])
-                Toast.error(L(L10n.Sharing.errorTitle))
             }
+            guard failedCount > 0 else {
+                Toast.success(L(L10n.Forward.success))
+                dismiss(animated: true)
+                return
+            }
+            let failedMessage = L(L10n.Forward.itemsFailed, failedCount)
+            guard sentCount > 0 else {
+                Toast.error(lastError?.userMessage(fallback: failedMessage) ?? failedMessage)
+                return
+            }
+            Toast.error(failedMessage)
+            dismiss(animated: true)
         }
     }
 }

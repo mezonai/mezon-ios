@@ -3,6 +3,10 @@ import Network
 import Security
 import dnssd
 
+struct AbridgedRequestNotSent: LocalizedError {
+    var errorDescription: String? { "Abridged transport is not connected" }
+}
+
 private enum AbridgedTCPTiming {
     static func elapsedSeconds(since start: DispatchTime) -> TimeInterval {
         TimeInterval(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000_000
@@ -401,7 +405,7 @@ final class AbridgedTCPTransport {
     func send(envelopePayload: Data, completion: @escaping (Error?) -> Void) {
         queue.async { [weak self] in
             guard let self, !self.isClosed, self.connection != nil else {
-                completion(MezonError.socketError("Abridged transport is not connected"))
+                completion(AbridgedRequestNotSent())
                 return
             }
             self.sendRaw(AbridgedFrameCodec.frameEnvelope(payload: envelopePayload), completion: completion)
@@ -456,7 +460,7 @@ final class AbridgedTCPTransport {
 
     private func sendRaw(_ data: Data, completion: ((Error?) -> Void)?) {
         guard let connection else {
-            completion?(MezonError.socketError("Abridged transport is not connected"))
+            completion?(AbridgedRequestNotSent())
             return
         }
         let stallGuard = DispatchWorkItem { [weak self] in

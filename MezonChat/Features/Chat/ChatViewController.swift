@@ -5951,6 +5951,9 @@ final class ChatViewController: ViewController {
             canJoin: !streamUserIds.isEmpty,
             streamViewerCount: context.engine.clanData.streamViewerCount(clanId: clanForMembers, channelId: channel.channelID),
             streamPublisher: streamPublisher,
+            streamState: { [weak self] in
+                self?.joinStreamSheetState(clanId: clanForMembers, channelId: channel.channelID)
+            },
             onChat: { [weak self] in
                 guard let self, let nav = self.navigationController else { return }
                 self.alignContextWithVoiceChannelClan(for: channel)
@@ -5991,6 +5994,16 @@ final class ChatViewController: ViewController {
         CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
         present(sheet, animated: true)
         CATransaction.commit()
+    }
+
+    private func joinStreamSheetState(clanId: Int64, channelId: Int64) -> JoinStreamSheetState {
+        let clanData = context.engine.clanData
+        let userIds = clanData.streamMembers(clanId: clanId, channelId: channelId).map { String($0.userID) }
+        return JoinStreamSheetState(
+            canJoin: !userIds.isEmpty,
+            viewerCount: clanData.streamViewerCount(clanId: clanId, channelId: channelId),
+            publisher: userIds.first.flatMap { resolveVoiceMemberForJoinVoice(userId: $0, clanIdForMembers: clanId) }
+        )
     }
 
     private func pushStreamingRoomFromChat(channel: Mezon_Api_ChannelDescription) {
