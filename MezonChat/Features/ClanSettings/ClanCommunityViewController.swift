@@ -551,17 +551,24 @@ private final class CommunityTextField: UIStackView, UITextViewDelegate {
 
 private final class CommunityHashtagsField: UIStackView {
     var onChange: (() -> Void)?
-    var selection: [String] = [] {
-        didSet { updateSelection() }
+    var selection: [String] {
+        get { selectedTags }
+        set {
+            selectedTags = ClanCommunityHashtags.normalized(newValue)
+            updateSelection()
+        }
     }
 
-    private let tags: [String]
+    private var selectedTags: [String] = []
+    private let baseTags: [String]
+    private var tags: [String] = []
     private let titleLabel = UILabel()
     private let hashLabel = UILabel()
     private let countLabel = UILabel()
     private let badge = UIStackView()
     private let descriptionLabel = UILabel()
     private let card = UIStackView()
+    private let tagRows = UIStackView()
     private let separator = UIView()
     private let hintLabel = UILabel()
     private var dots: [UIView] = []
@@ -578,7 +585,7 @@ private final class CommunityHashtagsField: UIStackView {
     }()
 
     init(tags: [String]) {
-        self.tags = tags
+        self.baseTags = tags
         super.init(frame: .zero)
         axis = .vertical
         spacing = 12.sh
@@ -618,9 +625,32 @@ private final class CommunityHashtagsField: UIStackView {
         card.layoutMargins = UIEdgeInsets(top: 12.sh, left: 12.sw, bottom: 12.sh, right: 12.sw)
         card.layer.cornerRadius = 14.swh
         card.layer.borderWidth = 1
-        for (index, _) in tags.enumerated() {
+        tagRows.axis = .vertical
+        tagRows.spacing = 10.sh
+        card.addArrangedSubview(tagRows)
+        separator.heightAnchor.constraint(equalToConstant: 1).isActive = true
+        card.addArrangedSubview(separator)
+        hintLabel.font = .systemFont(ofSize: 12.sf)
+        hintLabel.numberOfLines = 0
+        hintLabel.textAlignment = .right
+        card.addArrangedSubview(hintLabel)
+        [header, descriptionLabel, card].forEach { addArrangedSubview($0) }
+        configure()
+    }
+
+    private func updateTagButtons() {
+        let available = ClanCommunityHashtags.normalized(baseTags + selection)
+        guard tags != available else { return }
+        tags = available
+        for row in tagRows.arrangedSubviews {
+            tagRows.removeArrangedSubview(row)
+            row.removeFromSuperview()
+        }
+        buttons.removeAll()
+        for (index, tag) in tags.enumerated() {
             let button = UIButton(type: .custom)
             button.tag = index
+            button.accessibilityIdentifier = AccessibilityID.ClanSettings.communityHashtag(tag)
             button.titleLabel?.font = .systemFont(ofSize: 14.sf, weight: .semibold)
             button.titleLabel?.numberOfLines = 2
             button.titleLabel?.textAlignment = .center
@@ -635,16 +665,8 @@ private final class CommunityHashtagsField: UIStackView {
             let row = UIStackView(arrangedSubviews: Array(buttons[index..<min(index + 2, buttons.count)]))
             row.distribution = .fillEqually
             row.spacing = 8.sw
-            card.addArrangedSubview(row)
+            tagRows.addArrangedSubview(row)
         }
-        separator.heightAnchor.constraint(equalToConstant: 1).isActive = true
-        card.addArrangedSubview(separator)
-        hintLabel.font = .systemFont(ofSize: 12.sf)
-        hintLabel.numberOfLines = 0
-        hintLabel.textAlignment = .right
-        card.addArrangedSubview(hintLabel)
-        [header, descriptionLabel, card].forEach { addArrangedSubview($0) }
-        configure()
     }
 
     required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -666,6 +688,7 @@ private final class CommunityHashtagsField: UIStackView {
     }
 
     private func updateSelection() {
+        updateTagButtons()
         let theme = UIColor.theme
         let maximum = ClanCommunityHashtags.maximumCount
         countLabel.text = "\(selection.count)/\(maximum)"
@@ -679,7 +702,7 @@ private final class CommunityHashtagsField: UIStackView {
         for (index, button) in buttons.enumerated() {
             let tag = tags[index]
             let selected = selection.contains { $0.caseInsensitiveCompare(tag) == .orderedSame }
-            let label = localizedTitle(for: tag)
+            let label = DiscoverClanHashtags.label(tag)
             let title = NSMutableAttributedString(string: "#  ", attributes: [.foregroundColor: UIColor.systemBlue])
             title.append(NSAttributedString(string: label, attributes: [.foregroundColor: theme.textStrong]))
             if selected {
@@ -702,22 +725,6 @@ private final class CommunityHashtagsField: UIStackView {
             else { button.accessibilityTraits.remove(.selected) }
             button.accessibilityHint = selected && selection.count == ClanCommunityHashtags.minimumCount
                 ? L(L10n.ClanSetting.Community.hashtagsMinimum) : nil
-        }
-    }
-
-    private func localizedTitle(for tag: String) -> String {
-        switch tag {
-        case "Gaming": return L(L10n.DiscoverDetail.hashtagGaming)
-        case "Technology": return L(L10n.DiscoverDetail.hashtagTechnology)
-        case "Education": return L(L10n.DiscoverDetail.hashtagEducation)
-        case "Entertainment": return L(L10n.DiscoverDetail.hashtagEntertainment)
-        case "Music": return L(L10n.DiscoverDetail.hashtagMusic)
-        case "Art": return L(L10n.DiscoverDetail.hashtagArt)
-        case "Crypto": return L(L10n.DiscoverDetail.hashtagCrypto)
-        case "Anime": return L(L10n.DiscoverDetail.hashtagAnime)
-        case "Sports": return L(L10n.DiscoverDetail.hashtagSports)
-        case "Community": return L(L10n.DiscoverDetail.hashtagCommunity)
-        default: return tag
         }
     }
 

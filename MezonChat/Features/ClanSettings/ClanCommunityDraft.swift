@@ -4,7 +4,7 @@ import SwiftProtobuf
 struct ClanCommunityDraft: Equatable {
     static let descriptionLimit = 300
     static let aboutLimit = 3000
-    static let vanityURLLimit = 50
+    static let vanityURLLimit = 32
     static let bannerByteLimit = 10_000_000
 
     var banner: String
@@ -114,26 +114,15 @@ enum ClanCommunityHashtags {
     ]
 
     static func parse(_ raw: String) -> [String] {
-        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let data = value.data(using: .utf8),
-           let tags = try? JSONDecoder().decode([String].self, from: data) {
-            return normalized(tags)
-        }
-        let tags = value.contains(",")
-            ? value.components(separatedBy: ",")
-            : value.components(separatedBy: .whitespacesAndNewlines)
-        return normalized(tags)
+        DiscoverClanHashtags.parse(raw)
     }
 
     static func normalized(_ tags: [String]) -> [String] {
-        tags.compactMap { value in
-            var tag = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            if tag.hasPrefix("#") { tag.removeFirst() }
-            return tag.isEmpty ? nil : tag
-        }
+        DiscoverClanHashtags.normalized(tags)
     }
 
     static func toggling(_ tag: String, in selected: [String]) -> [String] {
+        let selected = normalized(selected)
         if selected.contains(where: { $0.caseInsensitiveCompare(tag) == .orderedSame }) {
             guard selected.count > minimumCount else { return selected }
             return selected.filter { $0.caseInsensitiveCompare(tag) != .orderedSame }

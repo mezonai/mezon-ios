@@ -77,6 +77,10 @@ enum AccessibilityID {
     enum ClanSettings {
         static let screen = makeAccessibilityID("clan.settings.screen")
 
+        static func communityHashtag(_ tag: String) -> String {
+            makeAccessibilityID("clan.settings.community.hashtag", id: tag.lowercased())
+        }
+
         static func action(_ action: String) -> String {
             makeAccessibilityID("clan.settings.action", id: action)
         }
