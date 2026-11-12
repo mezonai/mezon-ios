@@ -268,7 +268,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
     }
 
     private func inviteToEvent() {
-        guard event.isPrivate, let url = eventURL else { return }
+        guard event.isExternal, let url = eventURL else { return }
         let invite = ClanInviteSheetViewController(context: context, clanId: clanId, externalEventURL: url)
         invite.modalPresentationStyle = .pageSheet
         if #available(iOS 15.0, *) {
@@ -413,7 +413,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
         stack.addArrangedSubview(actionsRow)
         actionsRow.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
 
-        if event.isPrivate, eventURL != nil,
+        if event.isExternal, eventURL != nil,
            let meeting = ExternalMeetingRoom(externalLink: event.meetRoom.externalLink, title: event.title) {
             let joinButton = actionButton(
                 L(L10n.EventMenu.joinInApp), asset: "Channel/EventJoinSpeaker", identifier: "join-in-app"
@@ -425,7 +425,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
             joinButton.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
 
-        if event.isPrivate, eventURL != nil {
+        if event.isExternal, eventURL != nil {
             let externalActions = UIStackView()
             externalActions.spacing = 8
             externalActions.distribution = .fillEqually

@@ -342,7 +342,7 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
         optionStack.axis = .vertical
         optionStack.spacing = 8
         for (type, title, subtitle) in options {
-            if let original, (type == .external) != original.isPrivate { continue }
+            if let original, (type == .external) != original.isExternal { continue }
             let selected = draft.locationType == type
             let enabled = type != .voice || !voices.isEmpty || draft.voiceChannelId != 0
             let button = EventEditorButton()

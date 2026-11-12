@@ -792,7 +792,7 @@ extension MezonEngine {
             event.endTimeSeconds = update.endTimeSeconds
             event.channelID = update.channelID
             event.repeatType = update.repeatType
-            event.isPrivate = update.isPrivate
+            event.isExternal = update.isExternal
             if update.creatorID != 0 {
                 event.creatorID = update.creatorID
             }

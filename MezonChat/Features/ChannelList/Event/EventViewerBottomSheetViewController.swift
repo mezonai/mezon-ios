@@ -86,7 +86,7 @@ enum EventDisplayHelper {
     }
 
     static func eventBadge(for event: Mezon_Api_EventManagement) -> (text: String, color: UIColor)? {
-        if event.isPrivate {
+        if event.isExternal {
             return (L(L10n.EventMenu.privateEvent), externalEventBadgeColor)
         }
         if event.channelID != 0 {
@@ -183,7 +183,7 @@ enum EventSharing {
     }
 
     static func url(for event: Mezon_Api_EventManagement, clanId: Int64) -> URL? {
-        if event.isPrivate {
+        if event.isExternal {
             return MezonConfig.externalEventURL(event.meetRoom.externalLink)
         }
         let channelId = event.channelVoiceID != 0 ? event.channelVoiceID : event.channelID
@@ -786,7 +786,7 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
         }
 
         root.addArrangedSubview(contentStack)
-        if event.isPrivate, let url = MezonConfig.externalEventURL(event.meetRoom.externalLink) {
+        if event.isExternal, let url = MezonConfig.externalEventURL(event.meetRoom.externalLink) {
             if let meeting = ExternalMeetingRoom(externalLink: event.meetRoom.externalLink, title: event.title) {
                 root.addArrangedSubview(makeJoinInAppButton(meeting))
             }
