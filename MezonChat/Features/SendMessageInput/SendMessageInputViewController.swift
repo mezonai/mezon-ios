@@ -5992,7 +5992,7 @@ final class SendMessageInputViewController: UIViewController {
         }
         refreshComposerTypingAttributesForSelection()
         placeholderLabel.font = .systemFont(ofSize: 15.sf)
-        placeholderLabel.textColor = t.textStrong
+        placeholderLabel.textColor = t.textDisabled
         attachButton.backgroundColor = t.raisedSurface
         attachButton.tintColor = t.textStrong
         advanceButton.backgroundColor = t.raisedSurface
