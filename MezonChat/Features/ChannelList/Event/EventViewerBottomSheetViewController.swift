@@ -839,7 +839,7 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
         row.distribution = .fillEqually
         row.isUserInteractionEnabled = true
         if canEditEvent {
-            let icon = EventDisplayHelper.templateIcon(named: "Channel/EventEdit", height: 18)
+            let icon = EventDisplayHelper.templateIcon(named: "Channel/EventEdit", height: 16)
             EventDisplayHelper.configureActionButton(editButton, title: L(L10n.EventEditor.edit), image: icon)
             editButton.accessibilityIdentifier = AccessibilityID.EventList.action("edit", eventId: event.id)
             editButton.action = { [weak self] in self?.onEditEvent?() }
