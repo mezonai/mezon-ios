@@ -24,7 +24,6 @@ xcuserdata/
 
 # CocoaPods
 Pods/
-Podfile.lock
 
 # Environment / Secrets
 .env

@@ -50,3 +50,19 @@ TEST_RUNNER_UITEST_CLAN_ID=
 `xcodebuild` also forwards variables prefixed with `TEST_RUNNER_` and strips that prefix. Those values override `uitest.env`. `source` is unnecessary when the file is present, because the test runner reads it.
 
 On CI, store the secrets in the CI system and export the `TEST_RUNNER_*` names before `xcodebuild`. Do not print the secrets in the log.
+
+## GitHub Actions
+
+`.github/workflows/uitests.yml` runs on demand: **Actions** → **iOS UI Tests** → **Run workflow**. It stops before building if a required value is missing, so a run never passes with every test skipped.
+
+| Name | Kind | Value |
+| --- | --- | --- |
+| `IOS_SECRETS_SWIFT_B64` | secret | `base64 -i MezonChat/Networking/Secrets.swift` |
+| `IOS_GOOGLE_SERVICE_INFO_B64` | secret | `base64 -i MezonChat/GoogleService-Info.plist` |
+| `UITEST_EMAIL` | secret | test account email |
+| `UITEST_OTP` | secret | fixed OTP of the test account |
+| `UITEST_CLAN_ID` | variable | automation clan ID |
+| `UITEST_CHANNEL_ID` | variable | optional |
+| `UITEST_CHANNEL_NAME` | variable | optional, defaults to `general` |
+
+The repository is public, so Actions logs are public. Use an account and clan that exist only for automation.
