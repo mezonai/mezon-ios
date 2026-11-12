@@ -285,6 +285,8 @@ enum FileIngestPlaylist {
 
 enum FileIngestHLSCopy {
 
+    private static let previewPartCount = 2
+
     private static let session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
@@ -346,6 +348,34 @@ enum FileIngestHLSCopy {
                     }
                     completion(.file(output ?? joined))
                 }
+            }
+        }
+    }
+
+    static func makePreviewFile(
+        attachmentURL: String,
+        shouldContinue: @escaping () -> Bool,
+        completion: @escaping (URL?) -> Void
+    ) {
+        FileIngestPlaylist.finishedParts(attachmentURL: attachmentURL) { finished in
+            guard shouldContinue(), case .parts(let parts) = finished else {
+                completion(nil)
+                return
+            }
+            let preview = temporaryFileURL()
+            guard FileManager.default.createFile(atPath: preview.path, contents: nil),
+                  let handle = try? FileHandle(forWritingTo: preview) else {
+                completion(nil)
+                return
+            }
+            append(Array(parts.prefix(previewPartCount)), from: 0, to: handle, shouldContinue: shouldContinue, progress: { _ in }) { failure in
+                try? handle.close()
+                guard failure == nil else {
+                    try? FileManager.default.removeItem(at: preview)
+                    completion(nil)
+                    return
+                }
+                completion(preview)
             }
         }
     }

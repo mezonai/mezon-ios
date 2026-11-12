@@ -1266,8 +1266,18 @@ func videoThumbnailSignal(url: String, resizeMode: ImageResizeMode = .fill, maxP
         let cancelled = Atomic<Bool>(value: false)
         let activeGenerator = Atomic<AVAssetImageGenerator?>(value: nil)
 
-        func generate(from assetURL: URL) {
-            guard !cancelled.with({ $0 }) else { return }
+        func finishWithoutFrame() {
+            let transparentImage = createTransparentImage()
+            cache.setImage(transparentImage, data: nil, forKey: cacheKey)
+            subscriber.putNext(makeTransform(for: transparentImage, resizeMode: resizeMode))
+            subscriber.putCompletion()
+        }
+
+        func generate(from assetURL: URL, previewFile: URL? = nil) {
+            guard !cancelled.with({ $0 }) else {
+                if let previewFile { try? FileManager.default.removeItem(at: previewFile) }
+                return
+            }
             let asset = AVURLAsset(url: assetURL, options: [
                 AVURLAssetPreferPreciseDurationAndTimingKey: false
             ])
@@ -1280,17 +1290,28 @@ func videoThumbnailSignal(url: String, resizeMode: ImageResizeMode = .fill, maxP
             let timeValue = NSValue(time: time)
 
             generator.generateCGImagesAsynchronously(forTimes: [timeValue]) { _, cgImage, _, _, error in
+                if let previewFile { try? FileManager.default.removeItem(at: previewFile) }
                 if let cgImage {
                     let image = UIImage(cgImage: cgImage)
                     let jpegData = image.jpegData(compressionQuality: 0.7)
                     cache.setImage(image, data: jpegData, forKey: cacheKey)
                     subscriber.putNext(makeTransform(for: image, resizeMode: resizeMode))
+                    subscriber.putCompletion()
+                } else if previewFile == nil, !videoURL.isFileURL {
+                    guard !cancelled.with({ $0 }) else { return }
+                    FileIngestHLSCopy.makePreviewFile(
+                        attachmentURL: url,
+                        shouldContinue: { !cancelled.with { $0 } }
+                    ) { preview in
+                        if let preview {
+                            generate(from: preview, previewFile: preview)
+                        } else if !cancelled.with({ $0 }) {
+                            finishWithoutFrame()
+                        }
+                    }
                 } else {
-                    let transparentImage = createTransparentImage()
-                    cache.setImage(transparentImage, data: nil, forKey: cacheKey)
-                    subscriber.putNext(makeTransform(for: transparentImage, resizeMode: resizeMode))
+                    finishWithoutFrame()
                 }
-                subscriber.putCompletion()
             }
         }
 
