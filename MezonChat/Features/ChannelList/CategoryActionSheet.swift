@@ -10,12 +10,6 @@ enum CategoryAction: CaseIterable {
         }
     }
 
-    var icon: String? {
-        switch self {
-        case .createChannel: return "ChannelSetting/CreateChannelIcon"
-        }
-    }
-
     var isDestructive: Bool { false }
 }
 
