@@ -8,8 +8,8 @@ final class MessageCallLogNode: ASDisplayNode {
     private static let containerHorizontalInset: CGFloat = 4.sw
     private static let wrapperPadding: CGFloat = 10.sw
     private static let descriptionTopSpacing: CGFloat = 6.sh
-    private static let descriptionGap: CGFloat = 4.sw
-    private static let iconSize: CGFloat = 17.sf
+    private static let iconSize: CGFloat = 16.sf
+    private static let iconSlotWidth = iconSize + 4.sw
     private static let dividerHeight: CGFloat = 1
     private static let callBackVerticalPadding: CGFloat = 8.sh
     private static let containerCornerRadius: CGFloat = 10
@@ -46,6 +46,7 @@ final class MessageCallLogNode: ASDisplayNode {
         containerNode.addSubnode(callBackButton)
 
         iconNode.contentMode = .scaleAspectFit
+        iconNode.isAccessibilityElement = false
         callBackButton.addTarget(self, action: #selector(handleCallBackTapped), forControlEvents: .touchUpInside)
     }
 
@@ -76,14 +77,9 @@ final class MessageCallLogNode: ASDisplayNode {
             titleNode.isHidden = true
         }
 
-        if let (imageName, color) = Self.iconInfo(callLog: callLog, isMe: isMe) {
-            iconNode.image = UIImage(named: imageName)?.withRenderingMode(.alwaysTemplate)
-            iconNode.tintColor = color
-            iconNode.isHidden = false
-        } else {
-            iconNode.image = nil
-            iconNode.isHidden = true
-        }
+        let icon = Self.iconInfo(for: callLog.callLogType, isMe: isMe, textColor: t.textDisabled)
+        iconNode.image = UIImage(named: icon.asset)?.withRenderingMode(.alwaysTemplate)
+        iconNode.tintColor = icon.tint
 
         let description = Self.descriptionText(callLog: callLog, contentText: contentText, isMe: isMe)
         descriptionNode.attributedText = NSAttributedString(
@@ -130,14 +126,7 @@ final class MessageCallLogNode: ASDisplayNode {
         let descIntrinsic = descriptionNode.measure(
             CGSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
         )
-        let hasIcon = !iconNode.isHidden
-        let descRowNatural: CGFloat = {
-            if hasIcon {
-                return descIntrinsic.width + Self.descriptionGap + Self.iconSize
-            }
-            return descIntrinsic.width
-        }()
-        let descRowW = min(descRowNatural, maxInner)
+        let descRowW = min(descIntrinsic.width + Self.iconSlotWidth, maxInner)
 
         let cbW: CGFloat = {
             guard showsCallBack else { return 0 }
@@ -156,17 +145,10 @@ final class MessageCallLogNode: ASDisplayNode {
             cachedTitleSize = .zero
         }
 
-        let descReserveTrailing = hasIcon ? (Self.descriptionGap + Self.iconSize) : 0
-        let descTextW = max(1, min(descIntrinsic.width, innerW - descReserveTrailing))
+        let descTextW = max(1, min(descIntrinsic.width, innerW - Self.iconSlotWidth))
         cachedDescriptionSize = descriptionNode.measure(CGSize(width: descTextW, height: .greatestFiniteMagnitude))
 
-        let descriptionRowHeight: CGFloat = {
-            if hasIcon {
-                return max(cachedDescriptionSize.height, Self.iconSize)
-            }
-            return cachedDescriptionSize.height
-        }()
-        var totalHeight = pad * 2 + descriptionRowHeight
+        var totalHeight = pad * 2 + max(Self.iconSize, cachedDescriptionSize.height)
         if hasTitle {
             totalHeight += cachedTitleSize.height + Self.descriptionTopSpacing
         }
@@ -211,23 +193,19 @@ final class MessageCallLogNode: ASDisplayNode {
             y += cachedTitleSize.height + Self.descriptionTopSpacing
         }
 
-        let descriptionRowHeight = max(cachedDescriptionSize.height, !iconNode.isHidden ? Self.iconSize : 0)
-        descriptionNode.frame = CGRect(
+        let descriptionRowHeight = max(Self.iconSize, cachedDescriptionSize.height)
+        iconNode.frame = CGRect(
             x: pad,
+            y: y + (descriptionRowHeight - Self.iconSize) / 2,
+            width: Self.iconSize,
+            height: Self.iconSize
+        )
+        descriptionNode.frame = CGRect(
+            x: pad + Self.iconSlotWidth,
             y: y + (descriptionRowHeight - cachedDescriptionSize.height) / 2,
             width: cachedDescriptionSize.width,
             height: cachedDescriptionSize.height
         )
-        if !iconNode.isHidden {
-            iconNode.frame = CGRect(
-                x: pad + cachedDescriptionSize.width + Self.descriptionGap,
-                y: y + (descriptionRowHeight - Self.iconSize) / 2,
-                width: Self.iconSize,
-                height: Self.iconSize
-            )
-        } else {
-            iconNode.frame = .zero
-        }
         y += descriptionRowHeight + pad
 
         if showsCallBack {
@@ -306,23 +284,16 @@ final class MessageCallLogNode: ASDisplayNode {
         }
     }
 
-    private static func iconInfo(callLog: CallLogData, isMe: Bool) -> (name: String, color: UIColor)? {
-        let t = UIColor.theme
-        switch callLog.callLogType {
+    private static func iconInfo(for type: CallLogType, isMe: Bool, textColor: UIColor) -> (asset: String, tint: UIColor) {
+        switch type {
         case .timeoutCall:
-            return isMe
-                ? ("CallOutGoingIcon", t.textDisabled)
-                : ("CallMissIcon", redStrong)
+            return isMe ? ("Chat/CallOutGoingIcon", textColor) : ("Chat/CallMissIcon", redStrong)
         case .rejectCall:
-            return ("CallCancelIcon", redStrong)
+            return ("Chat/CallCancelIcon", redStrong)
         case .cancelCall:
-            return isMe
-                ? ("CallCancelIcon", redStrong)
-                : ("CallMissIcon", redStrong)
+            return (isMe ? "Chat/CallCancelIcon" : "Chat/CallMissIcon", redStrong)
         case .finishCall, .startCall:
-            return isMe
-                ? ("CallOutGoingIcon", t.textDisabled)
-                : ("CallInComingIcon", t.textDisabled)
+            return (isMe ? "Chat/CallOutGoingIcon" : "Chat/CallInComingIcon", textColor)
         }
     }
 

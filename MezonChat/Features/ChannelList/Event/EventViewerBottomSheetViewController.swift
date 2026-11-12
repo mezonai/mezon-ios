@@ -122,19 +122,17 @@ enum EventDisplayHelper {
         return wrapper
     }
 
-    static func configureInterestButton(_ button: UIButton, isInterested: Bool) {
+    static func configureInterestButton(_ button: UIButton, isInterested: Bool, image: UIImage? = nil) {
         let title = isInterested ? L(L10n.EventMenu.itemUninterested) : L(L10n.EventMenu.itemInterested)
         let iconName = isInterested ? "bell.slash" : "bell"
-        configureActionButton(button, title: title, iconName: iconName)
+        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+        configureActionButton(button, title: title, image: image ?? UIImage(systemName: iconName, withConfiguration: symbolConfig))
     }
 
-    static func configureActionButton(_ button: UIButton, title: String, iconName: String) {
-        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 13, weight: .medium)
-        let image = UIImage(systemName: iconName, withConfiguration: symbolConfig)?
-            .withRenderingMode(.alwaysTemplate)
+    static func configureActionButton(_ button: UIButton, title: String, image: UIImage? = nil) {
         let textColor = UIColor.theme.textStrong
         button.setTitle(title, for: .normal)
-        button.setImage(image, for: .normal)
+        button.setImage(image?.withRenderingMode(.alwaysTemplate), for: .normal)
         button.titleLabel?.font = .systemFont(ofSize: 13, weight: .medium)
         button.tintColor = textColor
         button.setTitleColor(textColor, for: .normal)
@@ -143,12 +141,12 @@ enum EventDisplayHelper {
         button.layer.borderWidth = 1
         button.layer.borderColor = UIColor.theme.border.withAlphaComponent(0.4).cgColor
         button.contentEdgeInsets = UIEdgeInsets(top: 8, left: 10, bottom: 8, right: 10)
-        button.imageEdgeInsets = UIEdgeInsets(top: 0, left: -2, bottom: 0, right: 2)
-        button.titleEdgeInsets = UIEdgeInsets(top: 0, left: 2, bottom: 0, right: -2)
+        button.imageEdgeInsets = image == nil ? .zero : UIEdgeInsets(top: 0, left: -2, bottom: 0, right: 2)
+        button.titleEdgeInsets = image == nil ? .zero : UIEdgeInsets(top: 0, left: 2, bottom: 0, right: -2)
     }
 
-    static func applyJoinInAppStyle(_ button: UIButton, iconHeight: CGFloat = 14) {
-        button.setImage(voiceIcon(height: iconHeight), for: .normal)
+    static func applyJoinInAppStyle(_ button: UIButton, iconHeight: CGFloat = 14, image: UIImage? = nil) {
+        button.setImage(image ?? voiceIcon(height: iconHeight), for: .normal)
         button.tintColor = .white
         button.setTitleColor(.white, for: .normal)
         button.backgroundColor = joinInAppColor
@@ -156,10 +154,13 @@ enum EventDisplayHelper {
     }
 
     static func voiceIcon(height: CGFloat) -> UIImage? {
-        guard let source = UIImage(named: "Chat/SpeakerIcon"), source.size.height > 0 else {
-            return UIImage(systemName: "speaker.wave.2.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: height, weight: .medium))?
+        templateIcon(named: "Chat/SpeakerIcon", height: height)
+            ?? UIImage(systemName: "speaker.wave.2.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: height, weight: .medium))?
                 .withRenderingMode(.alwaysTemplate)
-        }
+    }
+
+    static func templateIcon(named name: String, height: CGFloat) -> UIImage? {
+        guard let source = UIImage(named: name), source.size.height > 0 else { return nil }
         let size = CGSize(width: (source.size.width * height / source.size.height).rounded(.up), height: height)
         return UIGraphicsImageRenderer(size: size).image { _ in
             source.draw(in: CGRect(origin: .zero, size: size))
@@ -365,6 +366,7 @@ final class EventViewerBottomSheetViewController: UIViewController {
         headerTitleLabel.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(headerTitleLabel)
         createButton.setTitle(L(L10n.EventMenu.createButton), for: .normal)
+        createButton.accessibilityIdentifier = AccessibilityID.EventList.create
         createButton.titleLabel?.font = .systemFont(ofSize: 13, weight: .bold)
         createButton.setTitleColor(.white, for: .normal)
         createButton.backgroundColor = UIColor(red: 0.39, green: 0.38, blue: 0.91, alpha: 1)
@@ -412,7 +414,7 @@ final class EventViewerBottomSheetViewController: UIViewController {
         let iconWrap = UIView()
         iconWrap.layer.cornerRadius = 28
         iconWrap.translatesAutoresizingMaskIntoConstraints = false
-        let iconView = UIImageView(image: UIImage(named: "Channel/Event"))
+        let iconView = UIImageView(image: UIImage(named: "Channel/Event")?.withRenderingMode(.alwaysTemplate))
         iconView.contentMode = .scaleAspectFit
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconWrap.addSubview(iconView)
@@ -463,6 +465,7 @@ final class EventViewerBottomSheetViewController: UIViewController {
         guard let stack = view.subviews.first as? UIStackView else { return }
         if let iconWrap = stack.arrangedSubviews.first {
             iconWrap.backgroundColor = UIColor.theme.tertiary
+            iconWrap.tintColor = .mezonIconDefault
         }
         for case let label as UILabel in stack.arrangedSubviews {
             if label.font.pointSize >= 16 {
@@ -745,6 +748,7 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
     }
 
     private func build() {
+        accessibilityIdentifier = AccessibilityID.EventList.item(event.id)
         cardView.isUserInteractionEnabled = true
         cardView.layer.cornerRadius = 15
         cardView.layer.borderWidth = 1
@@ -795,8 +799,11 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
 
     private func makeJoinInAppButton(_ meeting: ExternalMeetingRoom) -> UIView {
         let button = EventEditorButton()
-        EventDisplayHelper.configureActionButton(button, title: L(L10n.EventMenu.joinInApp), iconName: "speaker.wave.2.fill")
-        EventDisplayHelper.applyJoinInAppStyle(button)
+        let icon = UIImage(named: "Channel/EventJoinSpeaker")?.withRenderingMode(.alwaysTemplate)
+        EventDisplayHelper.configureActionButton(button, title: L(L10n.EventMenu.joinInApp), image: icon)
+        EventDisplayHelper.applyJoinInAppStyle(button, iconHeight: 16, image: icon)
+        button.tintColor = UIColor(rgb: 0xDFE0E4)
+        button.accessibilityIdentifier = AccessibilityID.EventList.action("join-in-app", eventId: event.id)
         button.action = { [weak self] in self?.onJoinExternalMeeting?(meeting) }
         return button
     }
@@ -806,17 +813,19 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
         row.axis = .horizontal
         row.spacing = 8
         row.distribution = .fillEqually
-        let actions: [(String, String, () -> Void)] = [
-            (L(L10n.EventMenu.openLink), "arrow.up.right.square", { [weak self] in self?.onOpenExternalLink?(url) }),
-            (L(L10n.ClanInviteSheet.invite), "person.badge.plus", { [weak self] in self?.onInviteToExternalEvent?(url) }),
-            (L(L10n.ClanInviteSheet.copy), "link", { [weak self] in self?.onCopyExternalLink?(url) })
+        let actions: [(title: String, identifier: String, asset: String, perform: () -> Void)] = [
+            (L(L10n.EventMenu.openLink), "open-link", "Channel/EventOpenLink", { [weak self] in self?.onOpenExternalLink?(url) }),
+            (L(L10n.ClanInviteSheet.invite), "invite", "Chat/UserPlusIcon", { [weak self] in self?.onInviteToExternalEvent?(url) }),
+            (L(L10n.ClanInviteSheet.copy), "copy-link", "ChannelSetting/CopyLinkIcon", { [weak self] in self?.onCopyExternalLink?(url) })
         ]
-        for (title, icon, action) in actions {
+        for action in actions {
             let button = EventEditorButton()
-            EventDisplayHelper.configureActionButton(button, title: title, iconName: icon)
+            let icon = EventDisplayHelper.templateIcon(named: action.asset, height: 14)
+            EventDisplayHelper.configureActionButton(button, title: action.title, image: icon)
+            button.accessibilityIdentifier = AccessibilityID.EventList.action(action.identifier, eventId: event.id)
             button.titleLabel?.numberOfLines = 2
             button.titleLabel?.textAlignment = .center
-            button.action = action
+            button.action = action.perform
             row.addArrangedSubview(button)
         }
         return row
@@ -830,15 +839,22 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
         row.distribution = .fillEqually
         row.isUserInteractionEnabled = true
         if canEditEvent {
-            EventDisplayHelper.configureActionButton(editButton, title: L(L10n.EventEditor.edit), iconName: "pencil")
+            let icon = EventDisplayHelper.templateIcon(named: "Channel/EventEdit", height: 16)
+            EventDisplayHelper.configureActionButton(editButton, title: L(L10n.EventEditor.edit), image: icon)
+            editButton.accessibilityIdentifier = AccessibilityID.EventList.action("edit", eventId: event.id)
             editButton.action = { [weak self] in self?.onEditEvent?() }
             row.addArrangedSubview(editButton)
         }
         if EventDisplayHelper.resolvedStatus(for: event) != .ongoing || canEndEvent {
-            EventDisplayHelper.configureInterestButton(interestButton, isInterested: isInterested)
             if canEndEvent {
-                interestButton.setTitle(L(L10n.EventMenu.endEvent), for: .normal)
-                interestButton.setImage(UIImage(systemName: "xmark.circle"), for: .normal)
+                let icon = EventDisplayHelper.templateIcon(named: "Channel/EventEnd", height: 18)
+                EventDisplayHelper.configureActionButton(interestButton, title: L(L10n.EventMenu.endEvent), image: icon)
+                interestButton.accessibilityIdentifier = AccessibilityID.EventList.action("end", eventId: event.id)
+            } else {
+                let asset = isInterested ? "Channel/EventBellOff" : "ClanSetting/Notification"
+                let icon = EventDisplayHelper.templateIcon(named: asset, height: 18)
+                EventDisplayHelper.configureInterestButton(interestButton, isInterested: isInterested, image: icon)
+                interestButton.accessibilityIdentifier = AccessibilityID.EventList.action("interest", eventId: event.id)
             }
             interestButton.addTarget(self, action: #selector(interestTapped), for: .touchUpInside)
             interestButton.translatesAutoresizingMaskIntoConstraints = false
@@ -879,11 +895,12 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
             ))
         }
 
-        let icon = UIImageView(image: UIImage(named: "Channel/Event"))
+        let icon = UIImageView(image: UIImage(named: "Channel/Event")?.withRenderingMode(.alwaysTemplate))
+        icon.tintColor = EventDisplayHelper.statusColor(for: status)
         icon.contentMode = .scaleAspectFit
         icon.translatesAutoresizingMaskIntoConstraints = false
-        icon.widthAnchor.constraint(equalToConstant: 20).isActive = true
-        icon.heightAnchor.constraint(equalToConstant: 20).isActive = true
+        icon.widthAnchor.constraint(equalToConstant: 18).isActive = true
+        icon.heightAnchor.constraint(equalToConstant: 18).isActive = true
         icon.tag = 101
         statusStack.addArrangedSubview(icon)
 
@@ -916,8 +933,8 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
         countStack.axis = .horizontal
         countStack.spacing = 4
         countStack.alignment = .center
-        let groupIcon = UIImageView(image: UIImage(systemName: "person.2.fill"))
-        groupIcon.tintColor = UIColor.theme.text
+        let groupIcon = UIImageView(image: UIImage(named: "Channel/EventMembers")?.withRenderingMode(.alwaysTemplate))
+        groupIcon.tintColor = UIColor.theme.textStrong
         groupIcon.contentMode = .scaleAspectFit
         groupIcon.translatesAutoresizingMaskIntoConstraints = false
         groupIcon.widthAnchor.constraint(equalToConstant: 12).isActive = true
@@ -932,8 +949,9 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
         rightStack.addArrangedSubview(avatar)
         rightStack.addArrangedSubview(countStack)
         let more = EventEditorButton()
-        more.setImage(UIImage(systemName: "ellipsis"), for: .normal)
+        more.setImage(UIImage(named: "Channel/EventMore")?.withRenderingMode(.alwaysTemplate), for: .normal)
         more.tintColor = UIColor.theme.textStrong
+        more.accessibilityIdentifier = AccessibilityID.EventList.action("more", eventId: event.id)
         more.accessibilityLabel = L(L10n.EventMenu.actions)
         more.widthAnchor.constraint(equalToConstant: 44).isActive = true
         more.heightAnchor.constraint(equalToConstant: 44).isActive = true
@@ -1009,13 +1027,13 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
     private func makeLocationRow() -> UIView? {
         if !event.address.isEmpty {
             return inlineIconRow(
-                icon: UIImage(systemName: "mappin.and.ellipse"),
+                icon: UIImage(named: "Channel/Location"),
                 text: event.address
             )
         }
         let fallbackKey = event.channelVoiceID != 0 ? L10n.EventMenu.privateRoom : L10n.EventMenu.externalMeetingRoom
         let label = voiceChannelLabel ?? L(fallbackKey)
-        return inlineIconRow(icon: UIImage(systemName: "speaker.wave.2.fill"), text: label)
+        return inlineIconRow(icon: UIImage(named: "Channel/StreamSpeaker"), text: label)
     }
 
     private func inlineIconRow(icon: UIImage?, text: String) -> UIView {
@@ -1023,12 +1041,12 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
         locationStack.axis = .horizontal
         locationStack.spacing = 6
         locationStack.alignment = .center
-        let iconView = UIImageView(image: icon)
+        let iconView = UIImageView(image: icon?.withRenderingMode(.alwaysTemplate))
         iconView.tintColor = UIColor.theme.textStrong
         iconView.contentMode = .scaleAspectFit
         iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.widthAnchor.constraint(equalToConstant: 16).isActive = true
-        iconView.heightAnchor.constraint(equalToConstant: 16).isActive = true
+        iconView.widthAnchor.constraint(equalToConstant: 20).isActive = true
+        iconView.heightAnchor.constraint(equalToConstant: 20).isActive = true
         let locationLabel = UILabel()
         locationLabel.text = text
         locationLabel.font = .systemFont(ofSize: 12)

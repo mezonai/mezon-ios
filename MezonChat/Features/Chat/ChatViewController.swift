@@ -1658,6 +1658,7 @@ final class ChatViewController: ViewController {
 
     @objc private func handleThemeChange() {
         messagesNode.applyTheme()
+        emojiPicker.pickerView.applyTheme()
         refreshRemoteTypingIndicator()
         channelAppHotbar.applyTheme()
     }

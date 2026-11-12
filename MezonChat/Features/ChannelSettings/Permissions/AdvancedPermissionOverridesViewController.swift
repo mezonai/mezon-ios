@@ -59,11 +59,15 @@ final class AdvancedPermissionOverridesViewController: BaseViewController {
     }
 
     private func setupHeader() {
+        view.accessibilityIdentifier = AccessibilityID.ChannelPermissions.screen("overrides")
+        backButton.accessibilityIdentifier = AccessibilityID.ChannelPermissions.action("overrides", "back")
+        saveButton.accessibilityIdentifier = AccessibilityID.ChannelPermissions.action("overrides", "save")
+
         headerView.backgroundColor = .mezonSecondary
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
 
-        backButton.setImage(UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        backButton.setImage(UIImage(named: "Channel/ArrowLeft")?.withRenderingMode(.alwaysTemplate), for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
         backButton.addTarget(self, action: #selector(handleBack), for: .touchUpInside)
 
@@ -250,6 +254,7 @@ extension AdvancedPermissionOverridesViewController: UITableViewDataSource, UITa
         let p = permissions[indexPath.row]
         let cell = tableView.dequeueReusableCell(withIdentifier: PermissionTriToggleCell.reuseId, for: indexPath) as! PermissionTriToggleCell
         let status = currentValues[p.id] ?? .none
+        cell.accessibilityIdentifier = AccessibilityID.ChannelPermissions.item("overrides", "permission", p.id)
         cell.configure(
             title: RolePermissionLocalization.title(forSlug: p.slug, fallback: p.title),
             description: RolePermissionLocalization.description(forSlug: p.slug),
@@ -295,6 +300,7 @@ private final class PermissionTriToggleCell: UITableViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        accessibilityIdentifier = nil
         onChange = nil
     }
 
@@ -319,9 +325,13 @@ private final class PermissionTriToggleCell: UITableViewCell {
         divider1.translatesAutoresizingMaskIntoConstraints = false
         divider2.translatesAutoresizingMaskIntoConstraints = false
 
-        setupSegmentButton(denyButton, systemName: "xmark", pointSize: 12.swh)
-        setupSegmentButton(noneButton, systemName: "slash.circle", pointSize: 14.swh)
-        setupSegmentButton(allowButton, systemName: "checkmark", pointSize: 12.swh)
+        denyButton.accessibilityIdentifier = AccessibilityID.ChannelPermissions.action("override", "deny")
+        noneButton.accessibilityIdentifier = AccessibilityID.ChannelPermissions.action("override", "none")
+        allowButton.accessibilityIdentifier = AccessibilityID.ChannelPermissions.action("override", "allow")
+
+        setupSegmentButton(denyButton, assetName: "Channel/VoiceClose")
+        setupSegmentButton(noneButton, assetName: "ChannelSetting/PermissionInheritIcon")
+        setupSegmentButton(allowButton, assetName: "Channel/JoinRoleCheck")
 
         denyButton.addTarget(self, action: #selector(denyTapped), for: .touchUpInside)
         noneButton.addTarget(self, action: #selector(noneTapped), for: .touchUpInside)
@@ -376,9 +386,8 @@ private final class PermissionTriToggleCell: UITableViewCell {
         ])
     }
 
-    private func setupSegmentButton(_ b: UIButton, systemName: String, pointSize: CGFloat) {
-        let cfg = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .semibold)
-        b.setImage(UIImage(systemName: systemName, withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate), for: .normal)
+    private func setupSegmentButton(_ b: UIButton, assetName: String) {
+        b.setImage(UIImage(named: assetName)?.withRenderingMode(.alwaysTemplate), for: .normal)
         b.translatesAutoresizingMaskIntoConstraints = false
     }
 

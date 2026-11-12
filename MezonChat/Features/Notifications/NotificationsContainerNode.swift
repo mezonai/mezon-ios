@@ -869,7 +869,7 @@ final class NotificationsContainerNode: ASDisplayNode {
                     let resized = renderer.image { _ in
                         raw.draw(in: CGRect(origin: origin, size: drawSize))
                     }
-                    cfg.image = resized.withRenderingMode(.alwaysOriginal)
+                    cfg.image = resized.withRenderingMode(.alwaysTemplate)
                 }
 
                 btn.configuration = cfg
@@ -890,7 +890,7 @@ final class NotificationsContainerNode: ASDisplayNode {
                     let resized = renderer.image { _ in
                         raw.draw(in: CGRect(origin: origin, size: drawSize))
                     }
-                    btn.setImage(resized.withRenderingMode(.alwaysOriginal), for: .normal)
+                    btn.setImage(resized.withRenderingMode(.alwaysTemplate), for: .normal)
                 }
             }
             btn.clipsToBounds = false
@@ -909,28 +909,28 @@ final class NotificationsContainerNode: ASDisplayNode {
         let t = UIColor.theme
         for (i, btn) in tabButtons.enumerated() {
             let selected = i == selectedTabIndex
+            let foregroundColor = selected ? UIColor.white : t.textNormal
+            btn.tintColor = foregroundColor
 
             if #available(iOS 15.0, *) {
                 var cfg = btn.configuration
+                cfg?.baseForegroundColor = foregroundColor
                 if selected {
                     cfg?.baseBackgroundColor = t.bgViolet
-                    cfg?.baseForegroundColor = .white
                     cfg?.background.strokeWidth = 0
                 } else {
                     cfg?.baseBackgroundColor = t.secondaryLight
-                    cfg?.baseForegroundColor = t.textDisabled
                     cfg?.background.strokeColor = t.borderDim
                     cfg?.background.strokeWidth = 1
                 }
                 btn.configuration = cfg
             } else {
+                btn.setTitleColor(foregroundColor, for: .normal)
                 if selected {
                     btn.backgroundColor = t.bgViolet
-                    btn.setTitleColor(.white, for: .normal)
                     btn.layer.borderWidth = 0
                 } else {
                     btn.backgroundColor = t.secondaryLight
-                    btn.setTitleColor(t.textDisabled, for: .normal)
                     btn.layer.borderColor = t.borderDim.cgColor
                     btn.layer.borderWidth = 1
                 }

@@ -1467,6 +1467,7 @@ enum L10n {
         static let voteButton         = "poll.voteButton"
         static let removeVote         = "poll.removeVote"
         static let showResults        = "poll.showResults"
+        static let viewDetails        = "poll.viewDetails"
         static let backToVote         = "poll.backToVote"
         static let vote               = "poll.vote"
         static let votes              = "poll.votes"
@@ -2590,6 +2591,7 @@ extension L10n {
         "poll.voteButton": "Vote",
         "poll.removeVote": "Remove vote",
         "poll.showResults": "Show results",
+        "poll.viewDetails": "View details",
         "poll.backToVote": "Back to vote",
         "poll.vote": "vote",
         "poll.votes": "votes",
@@ -4111,6 +4113,7 @@ extension L10n {
         "poll.voteButton": "Bình chọn",
         "poll.removeVote": "Hủy bình chọn",
         "poll.showResults": "Xem kết quả",
+        "poll.viewDetails": "Xem chi tiết",
         "poll.backToVote": "Quay lại",
         "poll.vote": "bình chọn",
         "poll.votes": "bình chọn",

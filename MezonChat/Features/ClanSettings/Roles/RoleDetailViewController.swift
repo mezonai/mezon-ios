@@ -140,10 +140,21 @@ final class RoleDetailViewController: BaseViewController {
     // MARK: - Setup
 
     private func setupHeader() {
+        view.accessibilityIdentifier = AccessibilityID.RoleSettings.screen("detail")
+        backButton.accessibilityIdentifier = AccessibilityID.RoleSettings.action("detail", "back")
+        saveButton.accessibilityIdentifier = AccessibilityID.RoleSettings.action("detail", "save")
+        nameField.accessibilityIdentifier = AccessibilityID.RoleSettings.action("detail", "name")
+        colorRow.accessibilityIdentifier = AccessibilityID.RoleSettings.action("detail", "color")
+        iconRow.accessibilityIdentifier = AccessibilityID.RoleSettings.action("detail", "icon")
+        iconRemoveButton.accessibilityIdentifier = AccessibilityID.RoleSettings.action("detail", "remove-icon")
+        permissionsRow.accessibilityIdentifier = AccessibilityID.RoleSettings.action("detail", "permissions")
+        membersRow.accessibilityIdentifier = AccessibilityID.RoleSettings.action("detail", "members")
+        deleteButton.accessibilityIdentifier = AccessibilityID.RoleSettings.action("detail", "delete")
+
         headerView.translatesAutoresizingMaskIntoConstraints = false
 
         backButton.setImage(
-            UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate),
+            UIImage(named: "Channel/ArrowLeft")?.withRenderingMode(.alwaysTemplate),
             for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
@@ -267,12 +278,12 @@ final class RoleDetailViewController: BaseViewController {
         colorIndicator.layer.borderWidth = 1
         colorIndicator.layer.borderColor = UIColor.theme.borderDim.cgColor
 
-        colorLockIcon.image = UIImage(systemName: "lock.fill")?.withRenderingMode(.alwaysTemplate)
+        colorLockIcon.image = UIImage(named: "ClanSetting/RoleLockIcon")?.withRenderingMode(.alwaysTemplate)
         colorLockIcon.tintColor = UIColor.theme.textDisabled
         colorLockIcon.contentMode = .scaleAspectFit
         colorLockIcon.isHidden = true
 
-        let chevron = UIImageView(image: UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate))
+        let chevron = UIImageView(image: UIImage(named: "Channel/ChevronRight")?.withRenderingMode(.alwaysTemplate))
         chevron.tintColor = UIColor.theme.textDisabled
         chevron.contentMode = .scaleAspectFit
 
@@ -294,8 +305,8 @@ final class RoleDetailViewController: BaseViewController {
 
             chevron.trailingAnchor.constraint(equalTo: colorRow.trailingAnchor, constant: -12.sw),
             chevron.centerYAnchor.constraint(equalTo: colorRow.centerYAnchor),
-            chevron.widthAnchor.constraint(equalToConstant: 10.swh),
-            chevron.heightAnchor.constraint(equalToConstant: 14.swh),
+            chevron.widthAnchor.constraint(equalToConstant: 16.swh),
+            chevron.heightAnchor.constraint(equalToConstant: 16.swh),
 
             colorIndicator.trailingAnchor.constraint(equalTo: chevron.leadingAnchor, constant: -10.sw),
             colorIndicator.centerYAnchor.constraint(equalTo: colorRow.centerYAnchor),
@@ -337,16 +348,16 @@ final class RoleDetailViewController: BaseViewController {
         iconPreview.layer.borderColor = UIColor.theme.borderDim.cgColor
         iconPreview.backgroundColor = UIColor.theme.secondary
         iconPreview.tintColor = UIColor.theme.textDisabled
-        iconPreview.image = UIImage(systemName: "photo")?.withRenderingMode(.alwaysTemplate)
+        iconPreview.image = UIImage(named: "ClanSetting/RoleImageIcon")?.withRenderingMode(.alwaysTemplate)
 
         iconRemoveButton.setImage(
-            UIImage(systemName: "xmark.circle.fill")?.withRenderingMode(.alwaysTemplate),
+            UIImage(named: "Channel/StreamCloseCircle")?.withRenderingMode(.alwaysTemplate),
             for: .normal)
         iconRemoveButton.tintColor = UIColor.systemRed
         iconRemoveButton.isHidden = true
         iconRemoveButton.addTarget(self, action: #selector(removeIconTapped), for: .touchUpInside)
 
-        iconLockIcon.image = UIImage(systemName: "lock.fill")?.withRenderingMode(.alwaysTemplate)
+        iconLockIcon.image = UIImage(named: "ClanSetting/RoleLockIcon")?.withRenderingMode(.alwaysTemplate)
         iconLockIcon.tintColor = UIColor.theme.textDisabled
         iconLockIcon.contentMode = .scaleAspectFit
         iconLockIcon.isHidden = true
@@ -354,7 +365,7 @@ final class RoleDetailViewController: BaseViewController {
         iconUploadSpinner.hidesWhenStopped = true
         iconUploadSpinner.color = UIColor.theme.textDisabled
 
-        let chevron = UIImageView(image: UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate))
+        let chevron = UIImageView(image: UIImage(named: "Channel/ChevronRight")?.withRenderingMode(.alwaysTemplate))
         chevron.tintColor = UIColor.theme.textDisabled
         chevron.contentMode = .scaleAspectFit
 
@@ -376,8 +387,8 @@ final class RoleDetailViewController: BaseViewController {
 
             chevron.trailingAnchor.constraint(equalTo: iconRow.trailingAnchor, constant: -12.sw),
             chevron.centerYAnchor.constraint(equalTo: iconRow.centerYAnchor),
-            chevron.widthAnchor.constraint(equalToConstant: 10.swh),
-            chevron.heightAnchor.constraint(equalToConstant: 14.swh),
+            chevron.widthAnchor.constraint(equalToConstant: 16.swh),
+            chevron.heightAnchor.constraint(equalToConstant: 16.swh),
 
             iconPreview.trailingAnchor.constraint(equalTo: chevron.leadingAnchor, constant: -10.sw),
             iconPreview.centerYAnchor.constraint(equalTo: iconRow.centerYAnchor),
@@ -421,7 +432,7 @@ final class RoleDetailViewController: BaseViewController {
             label.textColor = .mezonTextPrimary
         }
         for lock in [permissionsLock, membersLock] {
-            lock.image = UIImage(systemName: "lock.fill")?.withRenderingMode(.alwaysTemplate)
+            lock.image = UIImage(named: "ClanSetting/RoleLockIcon")?.withRenderingMode(.alwaysTemplate)
             lock.tintColor = UIColor.theme.textDisabled
             lock.contentMode = .scaleAspectFit
             lock.isHidden = true
@@ -476,7 +487,7 @@ final class RoleDetailViewController: BaseViewController {
         row.addSubview(label)
         row.addSubview(lock)
 
-        let chevron = UIImageView(image: UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate))
+        let chevron = UIImageView(image: UIImage(named: "Channel/ChevronRight")?.withRenderingMode(.alwaysTemplate))
         chevron.tintColor = UIColor.theme.textDisabled
         chevron.contentMode = .scaleAspectFit
         chevron.translatesAutoresizingMaskIntoConstraints = false
@@ -493,8 +504,8 @@ final class RoleDetailViewController: BaseViewController {
 
             chevron.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -14.sw),
             chevron.centerYAnchor.constraint(equalTo: row.centerYAnchor),
-            chevron.widthAnchor.constraint(equalToConstant: 10.swh),
-            chevron.heightAnchor.constraint(equalToConstant: 14.swh)
+            chevron.widthAnchor.constraint(equalToConstant: 16.swh),
+            chevron.heightAnchor.constraint(equalToConstant: 16.swh)
         ])
 
         let tap = UITapGestureRecognizer(target: self, action: selector)
@@ -713,7 +724,7 @@ extension RoleDetailViewController {
         iconURL = url
         iconLoadTask?.cancel()
         if url.isEmpty {
-            iconPreview.image = UIImage(systemName: "photo")?.withRenderingMode(.alwaysTemplate)
+            iconPreview.image = UIImage(named: "ClanSetting/RoleImageIcon")?.withRenderingMode(.alwaysTemplate)
             iconPreview.tintColor = UIColor.theme.textDisabled
             return
         }

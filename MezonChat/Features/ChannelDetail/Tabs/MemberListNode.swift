@@ -630,9 +630,11 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                     type == MezonConstants.ChannelType.dm.rawValue
                     || type == MezonConstants.ChannelType.group.rawValue
                 let title = isDirectMessage ? L(L10n.ChannelDetail.addMembers) : L(L10n.ChannelDetail.inviteMembers)
-                let cell = ActionButtonCellNode(title: title, iconName: "person.badge.plus.fill")
+                let cell = ActionButtonCellNode(title: title, iconName: "Channel/InviteMemberIcon")
                 if isDirectMessage {
                     cell.accessibilityIdentifier = AccessibilityID.DirectMessage.addMember
+                } else {
+                    cell.accessibilityIdentifier = AccessibilityID.ChannelDetail.inviteMembers
                 }
                 return cell
             }
@@ -1013,10 +1015,10 @@ private final class ActionButtonCellNode: ASCellNode {
         iconBackgroundNode.clipsToBounds = true
         iconBackgroundNode.style.preferredSize = CGSize(width: iconCircle, height: iconCircle)
 
-        let config = UIImage.SymbolConfiguration(pointSize: 20.sf, weight: .semibold)
-        iconNode.image = UIImage(systemName: iconName, withConfiguration: config)?
+        iconNode.image = UIImage(named: iconName)?
             .withTintColor(.white, renderingMode: .alwaysOriginal)
         iconNode.contentMode = .scaleAspectFit
+        iconNode.style.preferredSize = CGSize(width: 20.sf, height: 20.sf)
 
         titleNode.attributedText = NSAttributedString(
             string: title,
@@ -1026,7 +1028,7 @@ private final class ActionButtonCellNode: ASCellNode {
             ]
         )
 
-        arrowNode.image = UIImage(systemName: "chevron.right")?.withTintColor(
+        arrowNode.image = UIImage(named: "Channel/ChevronRight")?.withTintColor(
             t.text.withAlphaComponent(0.55), renderingMode: .alwaysOriginal)
         arrowNode.style.preferredSize = CGSize(width: 14.sf, height: 14.sf)
     }
@@ -1085,7 +1087,7 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
     private let textAvatarNode = TextAvatarNode(size: 40.sf)
     private let avatarNode = ASNetworkImageNode()
     private let nameNode = ASTextNode2()
-    private let crownNode = ASTextNode2()
+    private let crownNode = ASImageNode()
     private let statusNode = ASImageNode()
     private let separatorNode = ASDisplayNode()
     private let inVoiceIconNode = ASImageNode()
@@ -1150,10 +1152,10 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         self.addSubnode(separatorNode)
 
         if isOwner {
-            crownNode.attributedText = NSAttributedString(
-                string: "👑",
-                attributes: [.font: UIFont.systemFont(ofSize: 14.sf)]
-            )
+            crownNode.image = UIImage(named: "ChannelSetting/PermissionOwnerIcon")?.withRenderingMode(.alwaysTemplate)
+            crownNode.tintColor = UIColor(rgb: 0xFAA61A)
+            crownNode.contentMode = .scaleAspectFit
+            crownNode.style.preferredSize = CGSize(width: 14.sf, height: 14.sf)
             self.addSubnode(crownNode)
         }
 

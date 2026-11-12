@@ -90,7 +90,8 @@ final class TextFieldComponent: Component {
 
             var leftOffset: CGFloat = 16
             if let iconName = component.leftIcon {
-                let iv = UIImageView(image: UIImage(systemName: iconName))
+                let image = (UIImage(named: iconName) ?? UIImage(systemName: iconName))?.withRenderingMode(.alwaysTemplate)
+                let iv = UIImageView(image: image)
                 iv.tintColor = component.placeholderColor
                 iv.contentMode = .scaleAspectFit
                 iv.frame = CGRect(x: 0, y: 0, width: 24, height: 24)

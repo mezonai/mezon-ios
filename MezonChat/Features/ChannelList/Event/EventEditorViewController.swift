@@ -332,16 +332,16 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
     private func buildLocation() {
         body.addArrangedSubview(label(L(L10n.EventEditor.chooseType), size: 17, weight: .bold))
         body.addArrangedSubview(label(L(L10n.EventEditor.chooseTypeSubtitle), size: 13))
-        let options: [(EventLocationType, String, String, String)] = [
-            (.voice, L10n.EventEditor.voice, L10n.EventEditor.voiceSubtitle, "speaker.wave.2.fill"),
-            (.location, L10n.EventEditor.elsewhere, L10n.EventEditor.elsewhereSubtitle, "mappin.and.ellipse"),
-            (.external, L10n.EventEditor.external, L10n.EventEditor.externalSubtitle, "lock.fill")
+        let options: [(EventLocationType, String, String)] = [
+            (.voice, L10n.EventEditor.voice, L10n.EventEditor.voiceSubtitle),
+            (.location, L10n.EventEditor.elsewhere, L10n.EventEditor.elsewhereSubtitle),
+            (.external, L10n.EventEditor.external, L10n.EventEditor.externalSubtitle)
         ]
         let voices = EventEditorAccess.voiceChannels(channels)
         let optionStack = UIStackView()
         optionStack.axis = .vertical
         optionStack.spacing = 8
-        for (type, title, subtitle, symbol) in options {
+        for (type, title, subtitle) in options {
             if let original, (type == .external) != original.isPrivate { continue }
             let selected = draft.locationType == type
             let enabled = type != .voice || !voices.isEmpty || draft.voiceChannelId != 0
@@ -352,7 +352,7 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
             button.backgroundColor = selected ? EventEditorPalette.selectedBackground(alpha: 0.08) : EventEditorPalette.field
             button.isEnabled = enabled
             button.alpha = enabled ? 1 : 0.45
-            let icon = UIImageView(image: UIImage(systemName: symbol))
+            let icon = UIImageView(image: locationIcon(for: type))
             icon.tintColor = UIColor.theme.textStrong
             icon.contentMode = .scaleAspectFit
             icon.widthAnchor.constraint(equalToConstant: 24).isActive = true
@@ -554,7 +554,7 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
             content.topAnchor.constraint(equalTo: wrapper.topAnchor), content.bottomAnchor.constraint(equalTo: wrapper.bottomAnchor),
             content.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor), content.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor)
         ])
-        content.addArrangedSubview(iconRow("calendar", text: formatted(draft.start, template: "EEE MMM d jm")))
+        content.addArrangedSubview(iconRow(UIImage(named: "Channel/Event")?.withRenderingMode(.alwaysTemplate), text: formatted(draft.start, template: "EEE MMM d jm")))
         if !draft.logoURL.isEmpty {
             let image = UIImageView()
             image.contentMode = .scaleAspectFill
@@ -578,8 +578,10 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
         case .location: location = draft.address
         default: location = L(L10n.EventMenu.externalMeetingRoom)
         }
-        content.addArrangedSubview(iconRow(draft.locationType == .location ? "mappin.and.ellipse" : (draft.locationType == .external ? "lock.fill" : "speaker.wave.2.fill"), text: location))
-        if draft.repeatType != EventRepeatType.doesNotRepeat { content.addArrangedSubview(iconRow("repeat", text: repeatLabel())) }
+        content.addArrangedSubview(iconRow(locationIcon(for: draft.locationType ?? .voice), text: location))
+        if draft.repeatType != EventRepeatType.doesNotRepeat {
+            content.addArrangedSubview(iconRow(UIImage(systemName: "repeat"), text: repeatLabel()))
+        }
         if let channel = channelLabel(draft.channelId), draft.channelId != 0 {
             content.addArrangedSubview(label(L(L10n.EventMenu.channelAudience, channel), size: 12))
         }
@@ -858,8 +860,12 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
         label.isHidden = true
     }
     private func setError(_ label: UILabel, _ text: String?) { label.text = text; label.isHidden = text == nil }
-    private func iconRow(_ symbol: String, text: String) -> UIView {
-        let icon = UIImageView(image: UIImage(systemName: symbol))
+    private func locationIcon(for type: EventLocationType) -> UIImage? {
+        UIImage(named: type == .location ? "Channel/Location" : "externalSpeaker")
+    }
+
+    private func iconRow(_ image: UIImage?, text: String) -> UIView {
+        let icon = UIImageView(image: image)
         icon.contentMode = .scaleAspectFit
         icon.tintColor = UIColor.theme.textStrong
         icon.widthAnchor.constraint(equalToConstant: 20).isActive = true

@@ -320,31 +320,28 @@ final class MessageSystemNode: ASDisplayNode {
 
     private func configureIcon(code: Int32, theme: ThemeAttributes) {
         let mc = MezonConstants.MessageCode(rawValue: code)
-        let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
 
         let iconColor: UIColor
         let iconImage: UIImage?
 
         switch mc {
         case .welcome:
-            iconImage = UIImage(named: "AuditLog")?.withRenderingMode(.alwaysTemplate)
-                ?? UIImage(systemName: "arrow.forward", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold))
+            iconImage = UIImage(named: "Chat/SystemWelcomeIcon")
             iconColor = theme.textSuccess
         case .createThread, .deleteThread:
-            iconImage = UIImage(named: "Channel/channelThread")
-                ?? UIImage(systemName: "text.bubble.fill", withConfiguration: config)
+            iconImage = UIImage(named: "ChannelSetting/ThreadIcon")
             iconColor = theme.text
         case .createPin:
-            iconImage = UIImage(systemName: "pin.fill", withConfiguration: config)
+            iconImage = UIImage(named: "Chat/DmPinIcon")
             iconColor = theme.text
         case .auditLog:
-            iconImage = UIImage(systemName: "doc.text.magnifyingglass", withConfiguration: config)
+            iconImage = UIImage(named: "ClanSetting/AuditLog")
             iconColor = theme.text
         case .upcomingEvent:
-            iconImage = UIImage(systemName: "calendar", withConfiguration: config)
+            iconImage = UIImage(named: "Chat/SystemEventIcon")
             iconColor = theme.text
         default:
-            iconImage = UIImage(systemName: "info.circle.fill", withConfiguration: config)
+            iconImage = UIImage(named: "ClanSetting/Overview")
             iconColor = theme.text
         }
 

@@ -34,14 +34,15 @@ private final class VoiceActionClosureButton: UIButton {
     }
 }
 
-private func memberProfileMakeVoiceManagePill(systemName: String, title: String, action: @escaping () -> Void) -> UIButton {
+private func memberProfileMakeVoiceManagePill(iconName: String, accessibilityID: String, title: String, action: @escaping () -> Void) -> UIButton {
     let b = VoiceActionClosureButton()
     b.translatesAutoresizingMaskIntoConstraints = false
     b.backgroundColor = UIColor.theme.primary
     b.layer.cornerRadius = 8
     b.clipsToBounds = true
     b.onTap = action
-    let iv = UIImageView(image: UIImage(systemName: systemName)?.withRenderingMode(.alwaysTemplate))
+    b.accessibilityIdentifier = accessibilityID
+    let iv = UIImageView(image: UIImage(named: iconName)?.withRenderingMode(.alwaysTemplate))
     iv.tintColor = UIColor(red: 0.92, green: 0.25, blue: 0.25, alpha: 1)
     iv.contentMode = .scaleAspectFit
     iv.translatesAutoresizingMaskIntoConstraints = false
@@ -710,9 +711,9 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
     private let usernameNode = ASTextNode2()
 
     private let actionRow = ASDisplayNode()
-    private let messageBtn = ProfileActionButton(icon: "bubble.left.fill", title: "Message")
-    private let callBtn = ProfileActionButton(icon: "phone.fill", title: "Call")
-    private let addFriendBtn = ProfileActionButton(icon: "person.badge.plus", title: "Add Friend", isGreen: true)
+    private let messageBtn = ProfileActionButton(icon: "Chat/ChatBubbleIcon", title: "Message")
+    private let callBtn = ProfileActionButton(icon: "Chat/PhoneCallIcon", title: "Call")
+    private let addFriendBtn = ProfileActionButton(icon: "Chat/UserPlusIcon", title: "Add Friend", isGreen: true)
     private let blockUserButton = ASButtonNode()
     private let transferButton = ASButtonNode()
     private let removeFromGroupButton = ASButtonNode()
@@ -867,7 +868,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
         transferButton.cornerRadius = 18.sf
         transferButton.clipsToBounds = true
         let transferIcon = UIImage(named: "Profile/TransferIcon", in: Bundle.main, compatibleWith: nil)?
-            .withRenderingMode(.alwaysOriginal)
+            .withTintColor(t.textStrong, renderingMode: .alwaysOriginal)
         transferButton.setImage(transferIcon, for: .normal)
         transferButton.imageNode.contentMode = .scaleAspectFit
         transferButton.imageNode.style.preferredSize = CGSize(width: 20.sf, height: 20.sf)
@@ -990,6 +991,10 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
     override func didLoad() {
         super.didLoad()
         view.accessibilityIdentifier = AccessibilityID.MemberProfile.sheet
+        messageBtn.view.accessibilityIdentifier = AccessibilityID.MemberProfile.message
+        callBtn.view.accessibilityIdentifier = AccessibilityID.MemberProfile.call
+        addFriendBtn.view.accessibilityIdentifier = AccessibilityID.MemberProfile.addFriend
+        transferButton.accessibilityIdentifier = AccessibilityID.MemberProfile.transfer
         loadProfileAvatar()
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(dimTapped))
@@ -1067,14 +1072,16 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
 
             if va.showMute {
                 row.addArrangedSubview(memberProfileMakeVoiceManagePill(
-                    systemName: "mic.slash.fill",
+                    iconName: "Chat/ShortProfileMicOffIcon",
+                    accessibilityID: AccessibilityID.MemberProfile.voiceMute,
                     title: NSLocalizedString(
                         "voiceChannel.shortProfile.muteVoice", tableName: nil, bundle: .main, value: "Mute", comment: ""),
                     action: { [weak self] in self?.onVoiceMuteTap() }))
             }
             if va.showKick {
                 row.addArrangedSubview(memberProfileMakeVoiceManagePill(
-                    systemName: "person.fill.badge.minus",
+                    iconName: "Profile/RemoveFriendIcon",
+                    accessibilityID: AccessibilityID.MemberProfile.voiceKick,
                     title: NSLocalizedString(
                         "voiceChannel.shortProfile.kickVoice", tableName: nil, bundle: .main, value: "Kick", comment: ""),
                     action: { [weak self] in self?.onVoiceKickTap() }))
@@ -1807,7 +1814,7 @@ private final class ProfileActionButton: ASDisplayNode {
         cornerRadius = 10.sf
 
         let color = isGreen ? UIColor(red: 0.3, green: 0.78, blue: 0.47, alpha: 1) : t.textStrong
-        iconNode.image = UIImage(systemName: icon)?.withRenderingMode(.alwaysTemplate)
+        iconNode.image = UIImage(named: icon)?.withRenderingMode(.alwaysTemplate)
         iconNode.tintColor = color
         iconNode.contentMode = .scaleAspectFit
         iconNode.style.preferredSize = CGSize(width: 24.sf, height: 24.sh)

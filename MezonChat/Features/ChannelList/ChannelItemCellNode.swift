@@ -162,8 +162,15 @@ final class ChannelItemCellNode: ASCellNode {
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         iconNode.style.preferredSize = CGSize(width: 14.swh, height: 14.swh)
-        iconImgNode.style.preferredSize = CGSize(width: 12.swh, height: 12.swh)
-        let iconChild: ASLayoutElement = iconNode.isHidden ? iconImgNode : iconNode
+        let iconSize = 16.swh
+        iconImgNode.style.preferredSize = CGSize(width: iconSize, height: iconSize)
+        // Let the padded artwork draw larger while keeping the channel name aligned.
+        let iconInset = (12.swh - iconSize) / 2
+        let iconImageSlot = ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: iconInset, left: iconInset, bottom: iconInset, right: iconInset),
+            child: iconImgNode
+        )
+        let iconChild: ASLayoutElement = iconNode.isHidden ? iconImageSlot : iconNode
 
         let badgeInset = ASInsetLayoutSpec(
             insets: UIEdgeInsets(top: 2.swh, left: 6.swh, bottom: 2.swh, right: 6.swh),

@@ -30,7 +30,7 @@ final class ChatHeaderNode: ASDisplayNode {
         automaticallyManagesSubnodes = true
 
         backButtonNode.setImage(
-            UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate),
+            UIImage(named: "Channel/ArrowLeft")?.withRenderingMode(.alwaysTemplate),
             for: .normal
         )
         backButtonNode.accessibilityIdentifier = AccessibilityID.Chat.back
@@ -39,7 +39,7 @@ final class ChatHeaderNode: ASDisplayNode {
         titleContainerNode.automaticallyManagesSubnodes = true
         titleContainerNode.addTarget(self, action: #selector(headerPressed), forControlEvents: .touchUpInside)
         callButtonNode.setImage(
-            UIImage(systemName: "phone.fill")?.withRenderingMode(.alwaysTemplate),
+            (UIImage(named: "Chat/CallIcon") ?? UIImage(systemName: "phone.fill"))?.withRenderingMode(.alwaysTemplate),
             for: .normal
         )
         callButtonNode.addTarget(self, action: #selector(callPressed), forControlEvents: .touchUpInside)
@@ -53,7 +53,7 @@ final class ChatHeaderNode: ASDisplayNode {
         videoCallButtonNode.isHidden = true
 
         searchButtonNode.setImage(
-            UIImage(systemName: "magnifyingglass")?.withRenderingMode(.alwaysTemplate),
+            (UIImage(named: "Channel/Search") ?? UIImage(systemName: "magnifyingglass"))?.withRenderingMode(.alwaysTemplate),
             for: .normal
         )
         searchButtonNode.addTarget(self, action: #selector(searchPressed), forControlEvents: .touchUpInside)

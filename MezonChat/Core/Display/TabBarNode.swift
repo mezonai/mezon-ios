@@ -1,16 +1,6 @@
 import Foundation
-import ObjectiveC
 import UIKit
 import AsyncDisplayKit
-
-private var mezonTabBarFaceAssetKey: UInt8 = 0
-
-extension UITabBarItem {
-    var mezonTabBarFaceAssetName: String? {
-        get { objc_getAssociatedObject(self, &mezonTabBarFaceAssetKey) as? String }
-        set { objc_setAssociatedObject(self, &mezonTabBarFaceAssetKey, newValue, .OBJC_ASSOCIATION_COPY_NONATOMIC) }
-    }
-}
 
 private enum TabBarLayoutScale {
     static var value: CGFloat {
@@ -21,41 +11,12 @@ private enum TabBarLayoutScale {
 }
 
 private extension AppTheme {
-    var usesLightTabBarIconColors: Bool {
-        self == .light || self == .cisher || (self == .system && effectiveInterfaceStyle == .light)
-    }
-
     var tabBarSelectedTextColor: UIColor {
         UIColor(hex: effectiveInterfaceStyle == .light ? 0x070709 : 0xDFE0E4)
     }
 
-    var tabBarSelectedIconColor: UIColor {
-        switch self {
-        case .dark, .berrynade:
-            return UIColor(hex: 0x5A62F4)
-        case .light, .cisher:
-            return UIColor(hex: 0xC0C8F2)
-        case .sunrise:
-            return UIColor(hex: 0xEC5A6B)
-        case .redDark:
-            return UIColor(hex: 0xD62940)
-        case .purpleHaze:
-            return UIColor(hex: 0xA78BFA)
-        case .abyssDark:
-            return UIColor(hex: 0x5A48FB)
-        case .sunset:
-            return UIColor(hex: 0xFF873C)
-        case .system:
-            return (effectiveInterfaceStyle == .light ? AppTheme.light : .dark).tabBarSelectedIconColor
-        }
-    }
-
     var tabBarUnselectedIconColor: UIColor {
-        usesLightTabBarIconColors ? UIColor(hex: 0xCECECE) : attributes.iconSecondary
-    }
-
-    var tabBarSelectedFaceColor: UIColor {
-        usesLightTabBarIconColors ? UIColor(hex: 0x475ED9) : tabBarSelectedTextColor
+        UIColor(hex: effectiveInterfaceStyle == .light ? 0x767676 : 0x737373)
     }
 }
 
@@ -68,9 +29,7 @@ public struct TabBarNodeItem {
 }
 
 final class TabBarItemNode: ASDisplayNode {
-    private static let imageBundle = Bundle.main
     private let primaryIconNode = ASImageNode()
-    private let faceIconNode = ASImageNode()
     private let labelNode = ASTextNode2()
     private let badgeBg = ASDisplayNode()
     private let badgeText = ASTextNode2()
@@ -87,9 +46,7 @@ final class TabBarItemNode: ASDisplayNode {
         isUserInteractionEnabled = true
 
         primaryIconNode.isUserInteractionEnabled = false
-        primaryIconNode.contentMode = .scaleAspectFit
-        faceIconNode.isUserInteractionEnabled = false
-        faceIconNode.contentMode = .scaleAspectFit
+        primaryIconNode.contentMode = .center
         badgeBg.backgroundColor = .mezonUnreadBadge
         badgeBg.cornerRadius = 9 * TabBarLayoutScale.value
         badgeBg.isUserInteractionEnabled = false
@@ -129,16 +86,12 @@ final class TabBarItemNode: ASDisplayNode {
             spring.stiffness = 200
             spring.duration = 0.18
             primaryIconNode.layer.add(spring, forKey: "selectionBounce")
-            faceIconNode.layer.add(spring, forKey: "selectionBounceFace")
         }
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         let s = TabBarLayoutScale.value
-        let iconSize: CGFloat = 22 * s
-        primaryIconNode.style.preferredSize = CGSize(width: iconSize, height: iconSize)
-        faceIconNode.style.preferredSize = CGSize(width: iconSize, height: iconSize)
-        let iconStack = ASOverlayLayoutSpec(child: primaryIconNode, overlay: faceIconNode)
+        primaryIconNode.style.preferredSize = CGSize(width: 24, height: 24)
 
         let fontSize: CGFloat = 10 * s
         let labelFont = UIFont.systemFont(ofSize: fontSize, weight: isSelected ? .semibold : .regular)
@@ -161,11 +114,11 @@ final class TabBarItemNode: ASDisplayNode {
                 child: ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: badgeText),
                 background: badgeBg
             )
-            let corner = ASCornerLayoutSpec(child: iconStack, corner: badgeStack, location: .topRight)
+            let corner = ASCornerLayoutSpec(child: primaryIconNode, corner: badgeStack, location: .topRight)
             corner.offset = CGPoint(x: 6 * s, y: -6 * s)
             iconWithBadge = corner
         } else {
-            iconWithBadge = iconStack
+            iconWithBadge = primaryIconNode
         }
 
         let stack = ASStackLayoutSpec(
@@ -186,16 +139,7 @@ final class TabBarItemNode: ASDisplayNode {
         let icon = selected ? (item.selectedImage ?? item.image) : item.image
         primaryIconNode.image = icon?.withRenderingMode(.alwaysTemplate)
         let theme = ThemeManager.shared.current
-        primaryIconNode.tintColor = selected ? theme.tabBarSelectedIconColor : theme.tabBarUnselectedIconColor
-        if let faceName = item.mezonTabBarFaceAssetName,
-           let face = UIImage(named: faceName, in: Self.imageBundle, compatibleWith: nil) {
-            faceIconNode.image = face.withRenderingMode(.alwaysTemplate)
-            faceIconNode.tintColor = selected ? theme.tabBarSelectedFaceColor : theme.attributes.borderRadio
-            faceIconNode.isHidden = false
-        } else {
-            faceIconNode.image = nil
-            faceIconNode.isHidden = true
-        }
+        primaryIconNode.tintColor = selected ? theme.tabBarSelectedTextColor : theme.tabBarUnselectedIconColor
         setNeedsLayout()
     }
 

@@ -168,12 +168,5 @@ extension Mezon_Api_ChannelDescription {
         return UIImage(named: iconName) ?? UIImage(systemName: iconName)
     }
 
-    private static let privateVoiceIcon: UIImage = {
-        let voice = UIImage(named: "Chat/SpeakerIcon")
-        return UIGraphicsImageRenderer(size: CGSize(width: 24, height: 24)).image { context in
-            voice?.draw(in: CGRect(x: 0, y: 0, width: 24, height: 24))
-            context.cgContext.clear(CGRect(x: 15, y: 0, width: 9, height: 12))
-            UIImage(systemName: "lock.fill")?.draw(in: CGRect(x: 16, y: 1, width: 7, height: 10))
-        }
-    }()
+    private static let privateVoiceIcon = UIImage(named: "Channel/VoicePrivate")
 }

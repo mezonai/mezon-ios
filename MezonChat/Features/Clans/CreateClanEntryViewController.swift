@@ -67,6 +67,8 @@ final class CreateClanEntryViewController: BaseViewController {
     required init(coder: NSCoder) { fatalError() }
 
     override func setupUI() {
+        view.accessibilityIdentifier = AccessibilityID.CreateClan.entry
+        backButton.accessibilityIdentifier = AccessibilityID.CreateClan.back
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
         headerView.addSubview(backButton)
@@ -87,7 +89,7 @@ final class CreateClanEntryViewController: BaseViewController {
         contentStack.addArrangedSubview(introLabel)
 
         let ownRow = makeSelectableRow(
-            iconName: "sparkles",
+            iconName: "ClanSetting/TemplateSparklesIcon",
             iconTint: UIColor(red: 1, green: 0.85, blue: 0.35, alpha: 1),
             title: L(L10n.Clan.createMyOwnTitle),
             tag: -1
@@ -100,7 +102,7 @@ final class CreateClanEntryViewController: BaseViewController {
 
         for t in ClanCreationTemplate.allCases {
             let row = makeSelectableRow(
-                iconName: t.iconSystemName,
+                iconName: t.iconAssetName,
                 iconTint: t.iconTint,
                 title: templateTitle(t),
                 tag: t.rawValue
@@ -156,13 +158,14 @@ final class CreateClanEntryViewController: BaseViewController {
     private func makeSelectableRow(iconName: String, iconTint: UIColor, title: String, tag: Int) -> UIControl {
         let row = UIControl()
         row.tag = tag
+        row.accessibilityIdentifier = AccessibilityID.CreateClan.template(tag == -1 ? "own" : String(tag))
         row.layer.cornerRadius = 12.swh
         row.layer.borderWidth = 1
         row.translatesAutoresizingMaskIntoConstraints = false
         row.heightAnchor.constraint(equalToConstant: 52.sh).isActive = true
         row.addTarget(self, action: #selector(rowTapped(_:)), for: .touchUpInside)
 
-        let iconView = UIImageView(image: UIImage(systemName: iconName))
+        let iconView = UIImageView(image: UIImage(named: iconName)?.withRenderingMode(.alwaysTemplate))
         iconView.tintColor = iconTint
         iconView.contentMode = .scaleAspectFit
         iconView.translatesAutoresizingMaskIntoConstraints = false

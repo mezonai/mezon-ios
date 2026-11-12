@@ -23,6 +23,7 @@ final class ProfileContainerNode: ASDisplayNode {
     var onServerTapped: (() -> Void)?
 
     private let avatarSize: CGFloat = 90.swh
+    private let statusBadgeSize: CGFloat = 16.swh
     private let sideInset: CGFloat = 16.sw
     private let cardSpacing: CGFloat = 12.sh
 
@@ -68,11 +69,12 @@ final class ProfileContainerNode: ASDisplayNode {
 
     private let micButton: UIButton = {
         let btn = UIButton(type: .custom)
-        let img = UIImage(named: "Profile/AdminSettingIcon", in: Bundle.main, compatibleWith: nil)?.withRenderingMode(.alwaysTemplate)
+        let img = ProfileContainerNode.profileImageResized(named: "AdminSettingIcon", size: 22.swh)?.withRenderingMode(.alwaysTemplate)
         btn.setImage(img, for: .normal)
         btn.tintColor = .mezonTextStrong
         btn.imageView?.contentMode = .scaleAspectFit
-        btn.contentEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+        btn.contentEdgeInsets = UIEdgeInsets(top: 7.swh, left: 7.swh, bottom: 7.swh, right: 7.swh)
+        btn.accessibilityIdentifier = AccessibilityID.Profile.settings
         btn.backgroundColor = .mezonPrimary
         return btn
     }()
@@ -201,42 +203,6 @@ final class ProfileContainerNode: ASDisplayNode {
         }.withRenderingMode(.alwaysOriginal)
     }
 
-    private static func statusBadgeAssetName(for status: User.OnlineStatus) -> String {
-        switch status {
-        case .online: return "OnlineIcon"
-        case .idle: return "IdleIcon"
-        case .doNotDisturb: return "DisturbIcon"
-        case .invisible, .offline: return "InvisibleIcon"
-        }
-    }
-
-    private static func statusBadgeDotSize(for status: User.OnlineStatus) -> CGFloat {
-        switch status {
-        case .idle, .doNotDisturb:
-            return 22.swh
-        case .online, .invisible, .offline:
-            return 16.swh
-        }
-    }
-
-    private static func statusBadgePositionCompensation(for status: User.OnlineStatus) -> CGPoint {
-        switch status {
-        case .idle, .doNotDisturb:
-            return CGPoint(x: 3, y: 3)
-        case .online, .invisible, .offline:
-            return .zero
-        }
-    }
-
-    private static func statusBadgeContentScale(for status: User.OnlineStatus) -> CGFloat {
-        switch status {
-        case .idle, .doNotDisturb:
-            return 1.22
-        case .online, .invisible, .offline:
-            return 1.0
-        }
-    }
-
     private func configureAddStatusButton(user: User?) {
         let custom = user?.customStatus?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let hasCustom = !custom.isEmpty
@@ -344,6 +310,7 @@ final class ProfileContainerNode: ASDisplayNode {
     @objc private func handleThemeOrLanguageChange() {
         applyTheme()
         updateContent()
+        updateBalanceUI()
     }
 
     private func applyTheme() {
@@ -797,13 +764,12 @@ final class ProfileContainerNode: ASDisplayNode {
 
         statusBadgeImageView.isHidden = false
         let st = user?.status ?? .offline
-        let badgeSize = Self.statusBadgeDotSize(for: st)
-        let badgeScale = Self.statusBadgeContentScale(for: st)
-        statusBadgeImageView.layer.cornerRadius = badgeSize / 2
-        statusBadgeImageView.image = Self.profileImageResized(
-            named: Self.statusBadgeAssetName(for: st),
-            size: badgeSize,
-            contentScale: badgeScale
+        statusBadgeImageView.layer.cornerRadius = statusBadgeSize / 2
+        statusBadgeImageView.image = PresenceBadge.image(
+            for: st,
+            diameter: statusBadgeSize,
+            ringWidth: 0,
+            ringColor: .clear
         )
 
         nameLabel.text = user?.displayName ?? "—"
@@ -813,21 +779,24 @@ final class ProfileContainerNode: ASDisplayNode {
         fetchWalletDetail()
         transferRow.configure(
             icon: "arrow.up.circle.fill",
-            iconImage: Self.profileImage(named: "TransferIcon"),
-            iconColor: .mezonSuccess,
+            iconImage: Self.profileImage(named: "TransferIcon")?
+                .withTintColor(.mezonIconDefault, renderingMode: .alwaysOriginal),
+            iconColor: .mezonIconDefault,
             text: L(L10n.Profile.transferFunds),
             textColor: .mezonTextStrong
         )
         historyRow.configure(
             icon: "clock.arrow.circlepath",
-            iconImage: Self.profileImage(named: "HistoryIcon"),
-            iconColor: .mezonTextSecondary,
+            iconImage: Self.profileImage(named: "HistoryIcon")?
+                .withTintColor(.mezonIconDefault, renderingMode: .alwaysOriginal),
+            iconColor: .mezonIconDefault,
             text: L(L10n.Profile.historyTransaction),
             textColor: .mezonTextStrong
         )
 
-        let editIcon = Self.profileImageResized(named: "EditIcon", size: 20)?.withRenderingMode(.alwaysOriginal)
-            ?? UIImage(systemName: "pencil", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf, weight: .semibold))
+        let editIcon = (Self.profileImageResized(named: "EditIcon", size: 20)
+            ?? UIImage(systemName: "pencil", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf, weight: .semibold)))?
+            .withTintColor(.white, renderingMode: .alwaysOriginal)
         if #available(iOS 15.0, *) {
             editProfileButton.configuration?.image = editIcon
             editProfileButton.configuration?.title = L(L10n.Profile.editProfile)
@@ -936,8 +905,9 @@ final class ProfileContainerNode: ASDisplayNode {
         let formattedBalance = BalanceFormatter.format(walletDetail?.balance)
         balanceRow.configure(
             icon: "checkmark.circle.fill",
-            iconImage: Self.profileImage(named: "BalanceIcon"),
-            iconColor: .mezonSuccess,
+            iconImage: Self.profileImage(named: "BalanceIcon")?
+                .withTintColor(.mezonIconDefault, renderingMode: .alwaysOriginal),
+            iconColor: .mezonIconDefault,
             text: "\(L(L10n.Profile.balance)): \(formattedBalance) \(L(L10n.Profile.currency))",
             textColor: .mezonTextStrong
         )
@@ -1052,15 +1022,12 @@ final class ProfileContainerNode: ASDisplayNode {
         avatarContainerView.frame = CGRect(x: side, y: y, width: avatarSize, height: avatarSize)
         avatarImageView.frame = avatarContainerView.bounds
 
-        let st = context.currentUser?.status ?? .offline
-        let dotSize = Self.statusBadgeDotSize(for: st)
-        let compensation = Self.statusBadgePositionCompensation(for: st)
-        statusBadgeImageView.layer.cornerRadius = dotSize / 2
+        statusBadgeImageView.layer.cornerRadius = statusBadgeSize / 2
         statusBadgeImageView.frame = CGRect(
-            x: avatarContainerView.frame.maxX - dotSize - 2 + compensation.x,
-            y: avatarContainerView.frame.maxY - dotSize - 2 + compensation.y,
-            width: dotSize,
-            height: dotSize
+            x: avatarContainerView.frame.maxX - statusBadgeSize - 2,
+            y: avatarContainerView.frame.maxY - statusBadgeSize - 2,
+            width: statusBadgeSize,
+            height: statusBadgeSize
         )
 
         let statusX = avatarContainerView.frame.maxX + 12.sw

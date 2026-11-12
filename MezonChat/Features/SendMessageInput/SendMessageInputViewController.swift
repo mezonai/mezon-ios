@@ -554,17 +554,9 @@ final class SendMessageInputViewController: UIViewController {
     private static let threadJoinedActiveStatus: Int32 = 1
     private static let threadActivePrivateJoinedStatus: Int32 = 3
 
-    private static func composerEmojiFaceIcon(pointSize: CGFloat) -> UIImage? {
-        let sym = UIImage.SymbolConfiguration(pointSize: pointSize)
-        return UIImage(named: "Chat/FaceIcon")
-            ?? UIImage(systemName: "face.smiling", withConfiguration: sym)
-    }
-
-    private static func composerEmojiToolbarIcon(showKeyboard: Bool, pointSize: CGFloat) -> UIImage? {
-        if showKeyboard {
-            return UIImage(systemName: "keyboard", withConfiguration: UIImage.SymbolConfiguration(pointSize: pointSize))
-        }
-        return composerEmojiFaceIcon(pointSize: pointSize)
+    private static func composerEmojiToolbarIcon(showKeyboard: Bool) -> UIImage? {
+        UIImage(named: showKeyboard ? "Chat/InputKeyboardIcon" : "Chat/InputEmojiIcon")?
+            .withRenderingMode(.alwaysTemplate)
     }
 
     private let context: AccountContext
@@ -860,8 +852,8 @@ final class SendMessageInputViewController: UIViewController {
     }()
 
     private lazy var attachButton: UIButton = {
-        let btn = UIButton(type: .system)
-        btn.setImage(UIImage(systemName: "plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)), for: .normal)
+        let btn = UIButton(type: .system).identified(by: AccessibilityID.Chat.composerAttach)
+        btn.setImage(UIImage(named: "Chat/InputPlusIcon")?.withRenderingMode(.alwaysTemplate), for: .normal)
         btn.translatesAutoresizingMaskIntoConstraints = false
         btn.layer.cornerRadius = 20.swh
         btn.clipsToBounds = true
@@ -943,8 +935,8 @@ final class SendMessageInputViewController: UIViewController {
     private var clanPreventAnonymous = false
 
     private lazy var advanceButton: UIButton = {
-        let btn = UIButton(type: .system)
-        btn.setImage(UIImage(systemName: "line.3.horizontal", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)), for: .normal)
+        let btn = UIButton(type: .system).identified(by: AccessibilityID.Chat.composerMenu)
+        btn.setImage(UIImage(named: "Chat/InputMenuIcon")?.withRenderingMode(.alwaysTemplate), for: .normal)
         btn.translatesAutoresizingMaskIntoConstraints = false
         btn.layer.cornerRadius = 20.swh
         btn.addTarget(self, action: #selector(toggleAdvancePanelAction), for: .touchUpInside)
@@ -952,8 +944,8 @@ final class SendMessageInputViewController: UIViewController {
     }()
 
     private lazy var emojiButton: UIButton = {
-        let btn = UIButton(type: .system)
-        btn.setImage(Self.composerEmojiFaceIcon(pointSize: 18.sf), for: .normal)
+        let btn = UIButton(type: .system).identified(by: AccessibilityID.Chat.composerEmoji)
+        btn.setImage(Self.composerEmojiToolbarIcon(showKeyboard: false), for: .normal)
         btn.translatesAutoresizingMaskIntoConstraints = false
         btn.addTarget(self, action: #selector(toggleEmojiPickerAction), for: .touchUpInside)
         return btn
@@ -1001,14 +993,14 @@ final class SendMessageInputViewController: UIViewController {
         let iv = UIImageView()
         iv.translatesAutoresizingMaskIntoConstraints = false
         iv.contentMode = .scaleAspectFit
-        iv.image = UIImage(named: "Chat/MicrophoneIcon")?.withRenderingMode(.alwaysOriginal)
+        iv.image = UIImage(named: "Chat/InputMicIcon")?.withRenderingMode(.alwaysTemplate)
         iv.setContentHuggingPriority(.required, for: .horizontal)
         iv.setContentHuggingPriority(.required, for: .vertical)
         return iv
     }()
 
     private lazy var voiceButton: UIView = {
-        let v = UIView()
+        let v = UIView().identified(by: AccessibilityID.Chat.composerMic)
         v.translatesAutoresizingMaskIntoConstraints = false
         v.layer.cornerRadius = 20.swh
         v.clipsToBounds = true
@@ -1285,12 +1277,11 @@ final class SendMessageInputViewController: UIViewController {
         }
         if isEmojiPickerVisible {
             isEmojiPickerVisible = false
-            emojiButton.setImage(Self.composerEmojiFaceIcon(pointSize: 18.sf), for: .normal)
+            emojiButton.setImage(Self.composerEmojiToolbarIcon(showKeyboard: false), for: .normal)
         }
         if isAdvancePanelVisible {
             isAdvancePanelVisible = false
-            let iconConfig = UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)
-            advanceButton.setImage(UIImage(systemName: "line.3.horizontal", withConfiguration: iconConfig), for: .normal)
+            advanceButton.setImage(UIImage(named: "Chat/InputMenuIcon")?.withRenderingMode(.alwaysTemplate), for: .normal)
         }
     }
 
@@ -1412,7 +1403,7 @@ final class SendMessageInputViewController: UIViewController {
             hideAdvancePanelIfNeeded()
             if isEmojiPickerVisible {
                 isEmojiPickerVisible = false
-                emojiButton.setImage(Self.composerEmojiFaceIcon(pointSize: 18.sf), for: .normal)
+                emojiButton.setImage(Self.composerEmojiToolbarIcon(showKeyboard: false), for: .normal)
                 onToggleEmojiPicker?(false, 0)
             }
             clearReplyAction()
@@ -2885,8 +2876,7 @@ final class SendMessageInputViewController: UIViewController {
             if isAdvancePanelVisible {
                 isAdvancePanelVisible = false
                 onToggleAdvancePanel?(false, 0)
-                let advIconConfig = UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)
-                advanceButton.setImage(UIImage(systemName: "line.3.horizontal", withConfiguration: advIconConfig), for: .normal)
+                advanceButton.setImage(UIImage(named: "Chat/InputMenuIcon")?.withRenderingMode(.alwaysTemplate), for: .normal)
             }
             hideEmojiSuggestions()
             hideHashtagSuggestions()
@@ -2902,7 +2892,7 @@ final class SendMessageInputViewController: UIViewController {
         }
 
         emojiButton.setImage(
-            Self.composerEmojiToolbarIcon(showKeyboard: isEmojiPickerVisible, pointSize: 18.sf),
+            Self.composerEmojiToolbarIcon(showKeyboard: isEmojiPickerVisible),
             for: .normal
         )
     }
@@ -2915,7 +2905,7 @@ final class SendMessageInputViewController: UIViewController {
             if isEmojiPickerVisible {
                 isEmojiPickerVisible = false
                 onToggleEmojiPicker?(false, 0)
-                emojiButton.setImage(Self.composerEmojiFaceIcon(pointSize: 18.sf), for: .normal)
+                emojiButton.setImage(Self.composerEmojiToolbarIcon(showKeyboard: false), for: .normal)
             }
             hideEmojiSuggestions()
             hideHashtagSuggestions()
@@ -2931,9 +2921,8 @@ final class SendMessageInputViewController: UIViewController {
             }
         }
 
-        let iconConfig = UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)
-        let iconName = isAdvancePanelVisible ? "xmark" : "line.3.horizontal"
-        advanceButton.setImage(UIImage(systemName: iconName, withConfiguration: iconConfig), for: .normal)
+        let iconName = isAdvancePanelVisible ? "Chat/DmCloseIcon" : "Chat/InputMenuIcon"
+        advanceButton.setImage(UIImage(named: iconName)?.withRenderingMode(.alwaysTemplate), for: .normal)
     }
 
     func hideAdvancePanelIfNeeded() {
@@ -2944,8 +2933,7 @@ final class SendMessageInputViewController: UIViewController {
 
     func markAdvancePanelDismissedByHost() {
         isAdvancePanelVisible = false
-        let iconConfig = UIImage.SymbolConfiguration(pointSize: 16.sf, weight: .medium)
-        advanceButton.setImage(UIImage(systemName: "line.3.horizontal", withConfiguration: iconConfig), for: .normal)
+        advanceButton.setImage(UIImage(named: "Chat/InputMenuIcon")?.withRenderingMode(.alwaysTemplate), for: .normal)
     }
 
 
@@ -3064,7 +3052,7 @@ final class SendMessageInputViewController: UIViewController {
         guard isEmojiPickerVisible else { return }
         isEmojiPickerVisible = false
         onToggleEmojiPicker?(false, 0)
-        emojiButton.setImage(Self.composerEmojiFaceIcon(pointSize: 18.sf), for: .normal)
+        emojiButton.setImage(Self.composerEmojiToolbarIcon(showKeyboard: false), for: .normal)
     }
 
     private func addPickedImage(_ image: UIImage) {
@@ -6015,7 +6003,7 @@ final class SendMessageInputViewController: UIViewController {
         voiceRecordingOverlay.applyTheme()
         chevronButton.backgroundColor = t.raisedSurface
         chevronButton.tintColor = t.textStrong
-        emojiButton.tintColor = t.textDisabled
+        emojiButton.tintColor = t.textStrong
         attachmentPreviewView.applyTheme()
         ogpPreviewView.applyTheme()
         replyBannerView.backgroundColor = t.secondary

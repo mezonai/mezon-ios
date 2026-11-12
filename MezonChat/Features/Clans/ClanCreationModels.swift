@@ -32,14 +32,14 @@ enum ClanCreationTemplate: Int, CaseIterable {
     case localCommunity = 4
     case artistsAndCreators = 5
 
-    var iconSystemName: String {
+    var iconAssetName: String {
         switch self {
-        case .gaming: return "gamecontroller.fill"
-        case .friends: return "person.2.fill"
-        case .studyGroup: return "book.fill"
-        case .schoolClub: return "ruler.fill"
-        case .localCommunity: return "bubble.left.and.bubble.right.fill"
-        case .artistsAndCreators: return "paintpalette.fill"
+        case .gaming: return "ClanSetting/TemplateGamepadIcon"
+        case .friends: return "ClanSetting/TemplateFriendsIcon"
+        case .studyGroup: return "ClanSetting/TemplateMembersIcon"
+        case .schoolClub: return "ClanSetting/TemplateSchoolIcon"
+        case .localCommunity: return "ClanSetting/TemplateCommunityIcon"
+        case .artistsAndCreators: return "ClanSetting/TemplatePaletteIcon"
         }
     }
 

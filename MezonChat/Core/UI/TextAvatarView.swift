@@ -349,33 +349,25 @@ enum PresenceBadge {
             cg.fillEllipse(in: outer)
 
             let inner = outer.insetBy(dx: ringWidth, dy: ringWidth)
-            let d = inner.width
-            cg.setFillColor(color(for: status).cgColor)
-            cg.fillEllipse(in: inner)
-
-            cg.setFillColor(ringColor.cgColor)
+            let assetName: String
             switch status {
-            case .online:
-                break
-            case .idle:
-                cg.fillEllipse(in: CGRect(
-                    x: inner.minX - d * 0.125,
-                    y: inner.minY - d * 0.125,
-                    width: d * 0.75,
-                    height: d * 0.75
-                ))
-            case .doNotDisturb:
-                let bar = CGRect(
-                    x: inner.minX + d * 0.125,
-                    y: inner.minY + d * 0.375,
-                    width: d * 0.75,
-                    height: d * 0.25
-                )
-                cg.addPath(UIBezierPath(roundedRect: bar, cornerRadius: bar.height / 2).cgPath)
-                cg.fillPath()
-            case .invisible, .offline:
-                cg.fillEllipse(in: inner.insetBy(dx: d * 0.25, dy: d * 0.25))
+            case .online: assetName = "OnlineIcon"
+            case .idle: assetName = "IdleIcon"
+            case .doNotDisturb: assetName = "DisturbIcon"
+            case .invisible, .offline: assetName = "InvisibleIcon"
             }
+            // Status PDFs use a 16-unit canvas with a 9-unit glyph. Fit that
+            // glyph to the old inner badge diameter, preserving its ring.
+            let drawSide = inner.width * 16 / 9
+            let drawRect = CGRect(
+                x: inner.midX - drawSide / 2,
+                y: inner.midY - drawSide / 2,
+                width: drawSide,
+                height: drawSide
+            )
+            UIImage(named: "Profile/\(assetName)")?
+                .withTintColor(color(for: status), renderingMode: .alwaysOriginal)
+                .draw(in: drawRect)
         }
         cache.setObject(image, forKey: key)
         return image

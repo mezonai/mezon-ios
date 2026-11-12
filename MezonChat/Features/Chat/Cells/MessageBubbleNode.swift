@@ -189,9 +189,7 @@ final class MessageBubbleNode: ASDisplayNode {
         }
         if display.showForwardHeader {
             let icon = ASImageNode()
-            let sym = UIImage(systemName: "arrowshape.turn.up.right")
-                ?? UIImage(systemName: "arrow.turn.up.right")
-            icon.image = sym?.withRenderingMode(.alwaysTemplate)
+            icon.image = UIImage(named: "Chat/IconArrowRightUp")?.withRenderingMode(.alwaysTemplate)
             icon.tintColor = UIColor.theme.textDisabled
             icon.contentMode = .scaleAspectFit
             let lbl = ASTextNode2()
@@ -2099,8 +2097,8 @@ private final class MessageShareContactNode: ASDisplayNode {
     private lazy var profileControlNode = ASDisplayNode { [weak self] in
         self?.profileControl ?? UIView()
     }
-    private let callButtonNode = MessageShareContactActionButtonNode(title: "Call", systemIcon: "phone.fill")
-    private let messageButtonNode = MessageShareContactActionButtonNode(title: "Message", systemIcon: "message.fill")
+    private let callButtonNode = MessageShareContactActionButtonNode(title: "Call", iconAssetName: "Chat/PhoneCallIcon", accessibilityIdentifier: AccessibilityID.Chat.contactAction("call"))
+    private let messageButtonNode = MessageShareContactActionButtonNode(title: "Message", iconAssetName: "Chat/ChatBubbleIcon", accessibilityIdentifier: AccessibilityID.Chat.contactAction("message"))
 
     private var data: ShareContactData?
     private var cachedNameSize: CGSize = .zero
@@ -2299,14 +2297,12 @@ private final class MessageShareContactActionButtonNode: ASDisplayNode {
     var onTapped: (() -> Void)?
     private var actionEnabled = true
 
-    init(title: String, systemIcon: String) {
+    init(title: String, iconAssetName: String, accessibilityIdentifier: String) {
         super.init()
         automaticallyManagesSubnodes = false
         addSubnode(backgroundNode)
 
-        iconNode.image = UIImage(systemName: systemIcon)?
-            .withConfiguration(UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold))
-            .withRenderingMode(.alwaysTemplate)
+        iconNode.image = UIImage(named: iconAssetName)?.withRenderingMode(.alwaysTemplate)
         iconNode.contentMode = .scaleAspectFit
         addSubnode(iconNode)
 
@@ -2321,6 +2317,7 @@ private final class MessageShareContactActionButtonNode: ASDisplayNode {
         titleNode.truncationMode = .byTruncatingTail
         addSubnode(titleNode)
 
+        control.accessibilityIdentifier = accessibilityIdentifier
         control.addTarget(self, action: #selector(tapped), for: .touchUpInside)
         addSubnode(controlNode)
         applyTheme()

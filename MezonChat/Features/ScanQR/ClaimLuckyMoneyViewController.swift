@@ -122,7 +122,6 @@ final class ClaimLuckyMoneyViewController: BaseViewController {
         errorCloseButton.heightAnchor.constraint(equalToConstant: 50).isActive = true
 
         successCheck.translatesAutoresizingMaskIntoConstraints = false
-        successCheck.image = UIImage(systemName: "checkmark.circle.fill")?.withRenderingMode(.alwaysTemplate)
         successCheck.tintColor = UIColor(red: 34/255, green: 197/255, blue: 94/255, alpha: 1)
         successCheck.contentMode = .scaleAspectFit
         successTitleLabel.font = .systemFont(ofSize: 22, weight: .bold)
@@ -253,6 +252,7 @@ final class ClaimLuckyMoneyViewController: BaseViewController {
 
         case .preview(let data):
             loadingIndicator.stopAnimating()
+            successCheck.image = UIImage(named: "Profile/LuckyMoneyGiftIcon")?.withRenderingMode(.alwaysTemplate)
             previewData = data
             successTitleLabel.text = L(L10n.QRScanner.luckyMoneyCongratulations)
             successCheck.alpha = 1
@@ -270,6 +270,7 @@ final class ClaimLuckyMoneyViewController: BaseViewController {
 
         case .claimed(let data):
             loadingIndicator.stopAnimating()
+            successCheck.image = UIImage(systemName: "checkmark.circle.fill")?.withRenderingMode(.alwaysTemplate)
             applyRewardDetails(from: data)
             successTitleLabel.text = L(L10n.QRScanner.luckyMoneyClaimSuccess)
             successCheck.alpha = 0

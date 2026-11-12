@@ -273,6 +273,10 @@ final class ClanListViewController: ViewController {
         clanListNode.updateLayout(layout: layout, transition: transition)
     }
 
+    func setDiscoverActive(_ active: Bool) {
+        clanListNode.setDiscoverActive(active)
+    }
+
     func focusDiscoverInSidebar() {
         clanListNode.focusDiscoverIfNoClans()
     }

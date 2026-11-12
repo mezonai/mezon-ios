@@ -79,6 +79,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
     }
 
     private func setupUI() {
+        view.accessibilityIdentifier = AccessibilityID.ClanSettings.screen
         scrollView.backgroundColor = .clear
         scrollView.showsVerticalScrollIndicator = false
         view.addSubview(scrollView)
@@ -125,22 +126,22 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         var settingsActions: [SettingAction] = []
         
         if canShowOverview {
-            settingsActions.append(.init(title: L(L10n.ClanSetting.overview), icon: "ClanSetting/Overview", navigate: .overview))
+            settingsActions.append(.init(title: L(L10n.ClanSetting.overview), icon: "ClanSetting/Overview", identifier: "overview", navigate: .overview))
         }
         
         if canShowAuditLog {
-            settingsActions.append(.init(title: L(L10n.ClanSetting.auditLog), icon: "ClanSetting/ActivityLogIcon", navigate: .auditLog))
+            settingsActions.append(.init(title: L(L10n.ClanSetting.auditLog), icon: "ClanSetting/ActivityLogIcon", identifier: "audit-log", navigate: .auditLog))
         }
         
         if canShowIntegrations {
-            settingsActions.append(.init(title: L(L10n.ClanSetting.integrations), icon: "ClanSetting/GamingIcon", navigate: .integrations))
+            settingsActions.append(.init(title: L(L10n.ClanSetting.integrations), icon: "ClanSetting/GamingIcon", identifier: "integrations", navigate: .integrations))
         }
         
         settingsActions.append(contentsOf: [
-            .init(title: L(L10n.ClanSetting.emoji), icon: "ClanSetting/emoji", navigate: .emojis),
-            .init(title: L(L10n.ClanSetting.sticker), icon: "ClanSetting/StickerIcon", navigate: .stickers),
-            .init(title: L(L10n.ClanSetting.soundEffect), icon: "ClanSetting/SoundEffectIcon"),
-            .init(title: L(L10n.ClanSetting.enableCommunity), icon: "ClanSetting/EnableCommunityIcon")
+            .init(title: L(L10n.ClanSetting.emoji), icon: "ClanSetting/emoji", identifier: "emoji", navigate: .emojis),
+            .init(title: L(L10n.ClanSetting.sticker), icon: "ClanSetting/StickerIcon", identifier: "sticker", navigate: .stickers),
+            .init(title: L(L10n.ClanSetting.soundEffect), icon: "ClanSetting/SoundEffectIcon", identifier: "sound-effect"),
+            .init(title: L(L10n.ClanSetting.enableCommunity), icon: "ClanSetting/EnableCommunityIcon", identifier: "enable-community")
         ])
         
         let settingsGroup = createGroup(actions: settingsActions)
@@ -152,12 +153,12 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         stackView.setCustomSpacing(10.sh, after: userMgmtHeader)
 
         var userActions: [SettingAction] = [
-            .init(title: L(L10n.Clan.members), icon: "ClanSetting/MemberIcon", navigate: .members),
+            .init(title: L(L10n.Clan.members), icon: "ClanSetting/MemberIcon", identifier: "members", navigate: .members),
         ]
         if canShowRoles {
-            userActions.append(.init(title: L(L10n.ClanSetting.roles), icon: "ClanSetting/RolesIcon", navigate: .roles))
+            userActions.append(.init(title: L(L10n.ClanSetting.roles), icon: "ClanSetting/RolesIcon", identifier: "roles", navigate: .roles))
         }
-        userActions.append(.init(title: L(L10n.ClanSetting.invites), icon: "ClanSetting/Invite", navigate: .invites))
+        userActions.append(.init(title: L(L10n.ClanSetting.invites), icon: "ClanSetting/Invite", identifier: "invites", navigate: .invites))
         let userGroup = createGroup(actions: userActions)
         stackView.addArrangedSubview(userGroup)
 
@@ -414,28 +415,14 @@ final class ClanSettingsContainerNode: ASDisplayNode {
     }
 
     private func createRow(action: SettingAction) -> UIView {
+        let iconSize: CGFloat = 24
         let v = UIView()
         v.heightAnchor.constraint(equalToConstant: 60.sh).isActive = true
 
         let iconAssetName = action.icon.split(separator: "/").last.map(String.init) ?? action.icon
-        let needsOriginalRendering = action.icon == "ClanSetting/Overview"
-            || action.icon == "ClanSetting/emoji"
-            || action.icon == "ClanSetting/Invite"
-            || action.icon == "ClanSetting/ActivityLogIcon"
-            || action.icon == "ClanSetting/GamingIcon"
-            || action.icon == "ClanSetting/StickerIcon"
-            || action.icon == "ClanSetting/SoundEffectIcon"
-            || action.icon == "ClanSetting/EnableCommunityIcon"
-            || action.icon == "ClanSetting/MemberIcon"
-            || action.icon == "ClanSetting/RolesIcon"
         let loadedImage = UIImage(named: action.icon) ?? UIImage(named: iconAssetName)
-        let iconImage = needsOriginalRendering
-            ? loadedImage?.withRenderingMode(.alwaysOriginal)
-            : loadedImage?.withRenderingMode(.alwaysTemplate)
-        let icon = UIImageView(image: iconImage)
-        if !needsOriginalRendering {
-            icon.tintColor = .mezonTextPrimary
-        }
+        let icon = UIImageView(image: loadedImage?.withRenderingMode(.alwaysTemplate))
+        icon.tintColor = .mezonIconDefault
         icon.contentMode = .scaleAspectFit
         v.addSubview(icon)
 
@@ -446,7 +433,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         v.addSubview(title)
 
         let chevron = UIImageView(
-            image: UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate))
+            image: UIImage(named: "Channel/ChevronRight")?.withRenderingMode(.alwaysTemplate))
         chevron.tintColor = UIColor.theme.textDisabled
         chevron.contentMode = .scaleAspectFit
         v.addSubview(chevron)
@@ -458,16 +445,16 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         NSLayoutConstraint.activate([
             icon.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 16.sw),
             icon.centerYAnchor.constraint(equalTo: v.centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 24.swh),
-            icon.heightAnchor.constraint(equalToConstant: 24.swh),
+            icon.widthAnchor.constraint(equalToConstant: iconSize),
+            icon.heightAnchor.constraint(equalToConstant: iconSize),
 
             title.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 12.sw),
             title.centerYAnchor.constraint(equalTo: v.centerYAnchor),
 
             chevron.trailingAnchor.constraint(equalTo: v.trailingAnchor, constant: -16.sw),
             chevron.centerYAnchor.constraint(equalTo: v.centerYAnchor),
-            chevron.widthAnchor.constraint(equalToConstant: 12.swh),
-            chevron.heightAnchor.constraint(equalToConstant: 12.swh),
+            chevron.widthAnchor.constraint(equalToConstant: 16),
+            chevron.heightAnchor.constraint(equalToConstant: 16),
         ])
 
         let btn = UIButton(type: .custom)
@@ -479,6 +466,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
             btn.leadingAnchor.constraint(equalTo: v.leadingAnchor),
             btn.trailingAnchor.constraint(equalTo: v.trailingAnchor),
         ])
+        btn.accessibilityIdentifier = AccessibilityID.ClanSettings.action(action.identifier)
         btn.tag = action.navigate?.rawValue ?? -1
         btn.addTarget(self, action: #selector(rowButtonTapped(_:)), for: .touchUpInside)
 
@@ -528,11 +516,13 @@ private enum ClanSettingsNavigateAction: Int {
 private struct SettingAction {
     let title: String
     let icon: String
+    let identifier: String
     var navigate: ClanSettingsNavigateAction?
 
-    init(title: String, icon: String, navigate: ClanSettingsNavigateAction? = nil) {
+    init(title: String, icon: String, identifier: String, navigate: ClanSettingsNavigateAction? = nil) {
         self.title = title
         self.icon = icon
+        self.identifier = identifier
         self.navigate = navigate
     }
 }

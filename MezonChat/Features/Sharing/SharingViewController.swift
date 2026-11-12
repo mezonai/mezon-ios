@@ -66,7 +66,7 @@ final class SharingViewController: UIViewController {
     }()
 
     private let searchIconView: UIImageView = {
-        let iv = UIImageView(image: UIImage(systemName: "magnifyingglass"))
+        let iv = UIImageView(image: UIImage(named: "Setting/SearchIcon")?.withRenderingMode(.alwaysTemplate))
         iv.translatesAutoresizingMaskIntoConstraints = false
         iv.contentMode = .scaleAspectFit
         return iv
@@ -74,6 +74,7 @@ final class SharingViewController: UIViewController {
 
     private lazy var searchTextField: UITextField = {
         let tf = UITextField()
+        tf.accessibilityIdentifier = AccessibilityID.Search.input("sharing")
         tf.translatesAutoresizingMaskIntoConstraints = false
         tf.font = .systemFont(ofSize: 15)
         tf.attributedPlaceholder = NSAttributedString(string: "")

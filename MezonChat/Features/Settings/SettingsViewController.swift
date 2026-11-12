@@ -11,7 +11,7 @@ final class SettingsViewController: BaseViewController {
     private let headerView = UIView()
     private let backButton: UIButton = {
         let btn = UIButton(type: .system)
-        let img = UIImage(systemName: "chevron.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium))
+        let img = UIImage(named: "Channel/ArrowLeft")?.withRenderingMode(.alwaysTemplate)
         btn.setImage(img, for: .normal)
         btn.translatesAutoresizingMaskIntoConstraints = false
         return btn
@@ -48,6 +48,8 @@ final class SettingsViewController: BaseViewController {
     }
 
     override func setupUI() {
+        view.accessibilityIdentifier = AccessibilityID.GeneralSettings.screen
+        backButton.accessibilityIdentifier = AccessibilityID.GeneralSettings.back
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
         headerView.addSubview(backButton)
@@ -97,7 +99,7 @@ final class SettingsViewController: BaseViewController {
         scrollView.backgroundColor = UIColor.theme.secondary
 
         searchBgView.backgroundColor = .mezonPrimary
-        searchIconView.tintColor = .mezonTextPrimary
+        searchIconView.tintColor = .mezonIconDefault
         searchTextField.textColor = .mezonTextStrong
         searchTextField.tintColor = .mezonTextStrong
         searchTextField.attributedPlaceholder = NSAttributedString(
@@ -120,21 +122,22 @@ final class SettingsViewController: BaseViewController {
     }
 
     private let side: CGFloat = 16.sw
+    private let rowIconSize: CGFloat = 24
     private let rowIconTitleSpacing: CGFloat = 22.sw
 
     private func allSettingsSections() -> [(header: String, rows: [SettingsRow])] {
         [
             (L(L10n.Settings.accountSettings), [
-                SettingsRow(icon: "Setting/AccountIcon", title: L(L10n.Settings.account), action: .navigate),
-                SettingsRow(icon: "Setting/ChatIcon", title: L(L10n.Settings.chat), action: .navigate),
-                SettingsRow(icon: "Setting/FriendRequestIcon", title: L(L10n.Settings.friendRequests), action: .navigate),
-                SettingsRow(icon: "Profile/ScanQR", title: L(L10n.Settings.qrScan), action: .navigate),
-                // SettingsRow(icon: "Setting/DeviceIcon", title: L(L10n.Settings.devices), action: .navigate),
+                SettingsRow(icon: "Setting/AccountIcon", identifier: "account", title: L(L10n.Settings.account), action: .navigate),
+                SettingsRow(icon: "Chat/ChatBubbleIcon", identifier: "chat", title: L(L10n.Settings.chat), action: .navigate),
+                SettingsRow(icon: "Setting/FriendRequestIcon", identifier: "friend-requests", title: L(L10n.Settings.friendRequests), action: .navigate),
+                SettingsRow(icon: "Profile/ScanQR", identifier: "scan-qr", title: L(L10n.Settings.qrScan), action: .navigate),
+                // SettingsRow(icon: "Setting/DeviceIcon", identifier: "devices", title: L(L10n.Settings.devices), action: .navigate),
             ]),
             (L(L10n.Settings.appSettings), [
-                SettingsRow(icon: "Setting/AppIcon", title: L(L10n.Settings.appVersion), action: .detail(appVersion)),
-                SettingsRow(icon: "Setting/ThemeIcon", title: L(L10n.Settings.appearance), action: .navigate),
-                SettingsRow(icon: "Setting/LanguageIcon", title: L(L10n.Settings.language), action: .detailNavigate(currentLanguageCode)),
+                SettingsRow(icon: "Setting/AppIcon", identifier: "app-version", title: L(L10n.Settings.appVersion), action: .detail(appVersion)),
+                SettingsRow(icon: "Setting/ThemeIcon", identifier: "appearance", title: L(L10n.Settings.appearance), action: .navigate),
+                SettingsRow(icon: "Setting/LanguageIcon", identifier: "language", title: L(L10n.Settings.language), action: .detailNavigate(currentLanguageCode)),
             ]),
         ]
     }
@@ -209,13 +212,16 @@ final class SettingsViewController: BaseViewController {
     }()
 
     private let searchIconView: UIImageView = {
-        let iv = UIImageView(image: UIImage(systemName: "magnifyingglass"))
+        let image = UIImage(named: "Setting/SearchIcon")?.withRenderingMode(.alwaysTemplate)
+        let iv = UIImageView(image: image)
+        iv.contentMode = .scaleAspectFit
         iv.translatesAutoresizingMaskIntoConstraints = false
         return iv
     }()
 
     private lazy var searchTextField: UITextField = {
         let tf = UITextField()
+        tf.accessibilityIdentifier = AccessibilityID.GeneralSettings.search
         tf.placeholder = L(L10n.Common.search)
         tf.font = .systemFont(ofSize: 14.sf)
         tf.autocorrectionType = .no
@@ -245,7 +251,7 @@ final class SettingsViewController: BaseViewController {
         searchBgView.backgroundColor = .mezonPrimary
         container.addSubview(searchBgView)
 
-        searchIconView.tintColor = .mezonTextPrimary
+        searchIconView.tintColor = .mezonIconDefault
         searchBgView.addSubview(searchIconView)
 
         searchTextField.textColor = .mezonTextStrong
@@ -265,8 +271,8 @@ final class SettingsViewController: BaseViewController {
 
             searchIconView.leadingAnchor.constraint(equalTo: searchBgView.leadingAnchor, constant: 14.sw),
             searchIconView.centerYAnchor.constraint(equalTo: searchBgView.centerYAnchor),
-            searchIconView.widthAnchor.constraint(equalToConstant: 20.swh),
-            searchIconView.heightAnchor.constraint(equalToConstant: 20.swh),
+            searchIconView.widthAnchor.constraint(equalToConstant: 20),
+            searchIconView.heightAnchor.constraint(equalToConstant: 20),
 
             searchTextField.leadingAnchor.constraint(equalTo: searchIconView.trailingAnchor, constant: 10.sw),
             searchTextField.trailingAnchor.constraint(equalTo: searchBgView.trailingAnchor, constant: -14.sw),
@@ -348,6 +354,7 @@ final class SettingsViewController: BaseViewController {
 
     private func makeRowView(row: SettingsRow) -> UIView {
         let container = UIView()
+        container.accessibilityIdentifier = AccessibilityID.GeneralSettings.row(row.identifier)
         container.translatesAutoresizingMaskIntoConstraints = false
         container.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
@@ -355,18 +362,8 @@ final class SettingsViewController: BaseViewController {
         iconView.contentMode = .scaleAspectFit
         iconView.clipsToBounds = true
         iconView.translatesAutoresizingMaskIntoConstraints = false
-        if let img = UIImage(named: row.icon, in: .main, compatibleWith: nil) {
-            if row.icon == "Profile/ScanQR" {
-                iconView.image = img.withRenderingMode(.alwaysTemplate)
-                if ThemeManager.shared.current.effectiveInterfaceStyle == .light {
-                    iconView.tintColor = UIColor(hexString: "#ff6b6f76")
-                } else {
-                    iconView.tintColor = UIColor(hexString: "#fefefe")
-                }
-            } else {
-                iconView.image = img.withRenderingMode(.alwaysOriginal)
-            }
-        }
+        iconView.image = UIImage(named: row.icon)?.withRenderingMode(.alwaysTemplate)
+        iconView.tintColor = .mezonIconDefault
         container.addSubview(iconView)
 
         let titleLabel = UILabel()
@@ -381,8 +378,8 @@ final class SettingsViewController: BaseViewController {
 
             iconView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16.sw),
             iconView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 20.swh),
-            iconView.heightAnchor.constraint(equalToConstant: 20.swh),
+            iconView.widthAnchor.constraint(equalToConstant: rowIconSize),
+            iconView.heightAnchor.constraint(equalToConstant: rowIconSize),
 
             titleLabel.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: rowIconTitleSpacing),
             titleLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
@@ -390,14 +387,7 @@ final class SettingsViewController: BaseViewController {
 
         switch row.action {
         case .navigate:
-            let chevron = UIImageView(image: UIImage(systemName: "chevron.right", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)))
-            chevron.tintColor = .mezonTextPrimary
-            chevron.translatesAutoresizingMaskIntoConstraints = false
-            container.addSubview(chevron)
-            NSLayoutConstraint.activate([
-                chevron.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16.sw),
-                chevron.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            ])
+            let chevron = addRowChevron(to: container)
             titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: chevron.leadingAnchor, constant: -8.sw).isActive = true
 
         case .detail(let text):
@@ -421,14 +411,8 @@ final class SettingsViewController: BaseViewController {
             detailLabel.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(detailLabel)
 
-            let chevron = UIImageView(image: UIImage(systemName: "chevron.right", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)))
-            chevron.tintColor = .mezonTextPrimary
-            chevron.translatesAutoresizingMaskIntoConstraints = false
-            container.addSubview(chevron)
-
+            let chevron = addRowChevron(to: container)
             NSLayoutConstraint.activate([
-                chevron.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16.sw),
-                chevron.centerYAnchor.constraint(equalTo: container.centerYAnchor),
                 detailLabel.trailingAnchor.constraint(equalTo: chevron.leadingAnchor, constant: -6.sw),
                 detailLabel.centerYAnchor.constraint(equalTo: container.centerYAnchor),
             ])
@@ -442,8 +426,26 @@ final class SettingsViewController: BaseViewController {
         return container
     }
 
+    private func addRowChevron(to container: UIView) -> UIImageView {
+        let image = UIImage(named: "Setting/ChevronRight")?.withRenderingMode(.alwaysTemplate)
+        let chevron = UIImageView(image: image)
+        chevron.tintColor = .mezonTextPrimary
+        chevron.contentMode = .scaleAspectFit
+        chevron.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(chevron)
+        NSLayoutConstraint.activate([
+            chevron.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16.sw),
+            chevron.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            chevron.widthAnchor.constraint(equalToConstant: 18),
+            chevron.heightAnchor.constraint(equalToConstant: 18),
+        ])
+        return chevron
+    }
+
     private func addLogoutCard() {
         let card = UIView()
+        card.accessibilityIdentifier = AccessibilityID.GeneralSettings.row("logout")
+        let logoutColor = UIColor.mezonError
         card.backgroundColor = UIColor.theme.primary
         card.layer.cornerRadius = 10.swh
         card.clipsToBounds = true
@@ -464,15 +466,14 @@ final class SettingsViewController: BaseViewController {
         iconView.contentMode = .scaleAspectFit
         iconView.clipsToBounds = true
         iconView.translatesAutoresizingMaskIntoConstraints = false
-        if let img = UIImage(named: "Setting/LogoutIcon", in: .main, compatibleWith: nil) {
-            iconView.image = img.withRenderingMode(.alwaysOriginal)
-        }
+        iconView.image = UIImage(named: "Setting/LogoutIcon")?.withRenderingMode(.alwaysTemplate)
+        iconView.tintColor = logoutColor
         card.addSubview(iconView)
 
         let label = UILabel()
         label.text = L(L10n.Settings.logout)
         label.font = .systemFont(ofSize: 15.sf, weight: .medium)
-        label.textColor = .systemRed
+        label.textColor = logoutColor
         label.translatesAutoresizingMaskIntoConstraints = false
         card.addSubview(label)
 
@@ -481,8 +482,8 @@ final class SettingsViewController: BaseViewController {
 
             iconView.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 16.sw),
             iconView.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: 20.swh),
-            iconView.heightAnchor.constraint(equalToConstant: 20.swh),
+            iconView.widthAnchor.constraint(equalToConstant: rowIconSize),
+            iconView.heightAnchor.constraint(equalToConstant: rowIconSize),
 
             label.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: rowIconTitleSpacing),
             label.centerYAnchor.constraint(equalTo: card.centerYAnchor),
@@ -551,6 +552,7 @@ final class SettingsViewController: BaseViewController {
 
 private struct SettingsRow {
     let icon: String
+    let identifier: String
     let title: String
     let action: SettingsRowAction
 }

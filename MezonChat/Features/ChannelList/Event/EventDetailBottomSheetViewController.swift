@@ -129,6 +129,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
     }
 
     private func buildContent() {
+        view.accessibilityIdentifier = AccessibilityID.EventDetail.sheet
         view.backgroundColor = UIColor.theme.primary
 
         let interestedCount = event.userIds.filter { $0 != 0 }.count
@@ -343,7 +344,8 @@ final class EventDetailBottomSheetViewController: UIViewController {
         ])
 
         let more = EventEditorButton()
-        more.setImage(UIImage(systemName: "ellipsis"), for: .normal)
+        more.setImage(UIImage(named: "Channel/EventMore")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        more.accessibilityIdentifier = AccessibilityID.EventDetail.action("more")
         more.tintColor = UIColor.theme.textStrong
         more.accessibilityLabel = L(L10n.EventMenu.actions)
         more.widthAnchor.constraint(equalToConstant: 44).isActive = true
@@ -413,10 +415,12 @@ final class EventDetailBottomSheetViewController: UIViewController {
 
         if event.isPrivate, eventURL != nil,
            let meeting = ExternalMeetingRoom(externalLink: event.meetRoom.externalLink, title: event.title) {
-            let joinButton = actionButton(L(L10n.EventMenu.joinInApp), symbol: "speaker.wave.2.fill") { [weak self] in
+            let joinButton = actionButton(
+                L(L10n.EventMenu.joinInApp), asset: "Channel/EventJoinSpeaker", identifier: "join-in-app"
+            ) { [weak self] in
                 self?.onJoinExternalMeeting?(meeting)
             }
-            EventDisplayHelper.applyJoinInAppStyle(joinButton)
+            EventDisplayHelper.applyJoinInAppStyle(joinButton, image: joinButton.image(for: .normal))
             stack.addArrangedSubview(joinButton)
             joinButton.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
@@ -425,13 +429,19 @@ final class EventDetailBottomSheetViewController: UIViewController {
             let externalActions = UIStackView()
             externalActions.spacing = 8
             externalActions.distribution = .fillEqually
-            externalActions.addArrangedSubview(actionButton(L(L10n.EventMenu.openLink), symbol: "arrow.up.right.square") { [weak self] in
+            externalActions.addArrangedSubview(actionButton(
+                L(L10n.EventMenu.openLink), asset: "Channel/EventOpenLink", identifier: "open-link"
+            ) { [weak self] in
                 self?.handleVoiceJoin()
             })
-            externalActions.addArrangedSubview(actionButton(L(L10n.ClanInviteSheet.invite), symbol: "person.badge.plus") { [weak self] in
+            externalActions.addArrangedSubview(actionButton(
+                L(L10n.ClanInviteSheet.invite), asset: "Chat/UserPlusIcon", identifier: "invite"
+            ) { [weak self] in
                 self?.inviteToEvent()
             })
-            externalActions.addArrangedSubview(actionButton(L(L10n.ClanInviteSheet.copy), symbol: "link") { [weak self] in
+            externalActions.addArrangedSubview(actionButton(
+                L(L10n.ClanInviteSheet.copy), asset: "ChannelSetting/CopyLinkIcon", identifier: "copy-link"
+            ) { [weak self] in
                 self?.copyEventLink()
             })
             stack.addArrangedSubview(externalActions)
@@ -478,7 +488,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
             emptyStack.axis = .vertical
             emptyStack.spacing = 8
             emptyStack.alignment = .center
-            let icon = UIImageView(image: UIImage(systemName: "person.2.fill"))
+            let icon = UIImageView(image: UIImage(named: "ClanSetting/Members")?.withRenderingMode(.alwaysTemplate))
             icon.tintColor = UIColor.theme.textDisabled
             icon.contentMode = .scaleAspectFit
             icon.translatesAutoresizingMaskIntoConstraints = false
@@ -528,7 +538,8 @@ final class EventDetailBottomSheetViewController: UIViewController {
                 color: UIColor(red: 0.20, green: 0.78, blue: 0.35, alpha: 1)
             ))
         }
-        let icon = UIImageView(image: UIImage(named: "Channel/Event"))
+        let icon = UIImageView(image: UIImage(named: "Channel/Event")?.withRenderingMode(.alwaysTemplate))
+        icon.tintColor = EventDisplayHelper.statusColor(for: status)
         icon.contentMode = .scaleAspectFit
         icon.translatesAutoresizingMaskIntoConstraints = false
         icon.widthAnchor.constraint(equalToConstant: 20).isActive = true
@@ -575,7 +586,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
     private func makeLocationRow() -> UIView? {
         if !event.address.isEmpty {
             return inlineRow(
-                icon: UIImage(systemName: "mappin.and.ellipse"),
+                icon: UIImage(named: "Channel/Location"),
                 text: event.address
             )
         }
@@ -598,7 +609,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
         row.translatesAutoresizingMaskIntoConstraints = false
         control.addSubview(row)
 
-        let imageView = UIImageView(image: UIImage(systemName: "speaker.wave.2.fill"))
+        let imageView = UIImageView(image: UIImage(named: "Channel/StreamSpeaker")?.withRenderingMode(.alwaysTemplate))
         imageView.tintColor = UIColor.theme.textStrong
         imageView.contentMode = .scaleAspectFit
         imageView.translatesAutoresizingMaskIntoConstraints = false
@@ -621,6 +632,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
             row.bottomAnchor.constraint(equalTo: control.bottomAnchor),
         ])
 
+        control.accessibilityIdentifier = AccessibilityID.EventDetail.action("voice-room")
         control.addTarget(self, action: #selector(voiceRowTapped), for: .touchUpInside)
         return control
     }
@@ -663,7 +675,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
         row.alignment = .fill
         row.distribution = .fillEqually
         if event.address.isEmpty, eventURL != nil {
-            let share = actionButton(L(L10n.Common.share), symbol: "square.and.arrow.up")
+            let share = actionButton(L(L10n.Common.share), asset: "Channel/EventShare", identifier: "share")
             share.action = { [weak self, weak share] in
                 guard let share else { return }
                 self?.shareEvent(from: share)
@@ -671,12 +683,18 @@ final class EventDetailBottomSheetViewController: UIViewController {
             row.addArrangedSubview(share)
         }
         if EventDisplayHelper.resolvedStatus(for: event) != .ongoing {
-            EventDisplayHelper.configureInterestButton(interestButton, isInterested: isCurrentUserInterested())
+            let isInterested = isCurrentUserInterested()
+            let asset = isInterested ? "Channel/EventBellOff" : "ClanSetting/Notification"
+            let icon = EventDisplayHelper.templateIcon(named: asset, height: 14)
+            EventDisplayHelper.configureInterestButton(interestButton, isInterested: isInterested, image: icon)
+            interestButton.accessibilityIdentifier = AccessibilityID.EventDetail.action("interest")
             interestButton.removeTarget(self, action: #selector(interestedTapped), for: .touchUpInside)
             interestButton.addTarget(self, action: #selector(interestedTapped), for: .touchUpInside)
             row.addArrangedSubview(interestButton)
         } else if EventEditorAccess.canEnd(event, context: context) {
-            row.addArrangedSubview(actionButton(L(L10n.EventMenu.endEvent), symbol: "xmark.circle") { [weak self] in
+            row.addArrangedSubview(actionButton(
+                L(L10n.EventMenu.endEvent), asset: "Channel/EventEnd", identifier: "end"
+            ) { [weak self] in
                 guard let self, EventEditorAccess.canEnd(self.event, context: self.context) else { return }
                 self.confirmDeleteEvent()
             })
@@ -685,10 +703,13 @@ final class EventDetailBottomSheetViewController: UIViewController {
         return row
     }
 
-    private func actionButton(_ title: String, symbol: String, action: (() -> Void)? = nil) -> EventEditorButton {
+    private func actionButton(
+        _ title: String, asset: String, identifier: String, action: (() -> Void)? = nil
+    ) -> EventEditorButton {
         let button = EventEditorButton()
+        button.accessibilityIdentifier = AccessibilityID.EventDetail.action(identifier)
         button.setTitle(title, for: .normal)
-        button.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 13)), for: .normal)
+        button.setImage(EventDisplayHelper.templateIcon(named: asset, height: 14), for: .normal)
         button.tintColor = UIColor.theme.textStrong
         button.setTitleColor(UIColor.theme.textStrong, for: .normal)
         button.backgroundColor = UIColor.theme.secondary
@@ -737,7 +758,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
         case 1: text = L(L10n.EventMenu.detailOnePersonInterested)
         default: text = L(L10n.EventMenu.detailPersonInterested, count)
         }
-        return inlineRow(icon: UIImage(systemName: "bell.fill"), text: text)
+        return inlineRow(icon: UIImage(named: "ClanSetting/Notification"), text: text)
     }
 
     private func makeCreatorRow() -> UIView {
@@ -812,7 +833,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
         row.axis = .horizontal
         row.spacing = 8
         row.alignment = .center
-        let imageView = UIImageView(image: icon)
+        let imageView = UIImageView(image: icon?.withRenderingMode(.alwaysTemplate))
         imageView.tintColor = UIColor.theme.text
         imageView.contentMode = .scaleAspectFit
         imageView.translatesAutoresizingMaskIntoConstraints = false

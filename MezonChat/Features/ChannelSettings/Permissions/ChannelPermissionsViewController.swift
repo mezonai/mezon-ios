@@ -92,7 +92,7 @@ final class ChannelPermissionsViewController: BaseViewController {
         descriptionLabel.textColor = UIColor.theme.textNormal
         addMemberCard.backgroundColor = UIColor.theme.primary
         addMemberTitleLabel.textColor = UIColor.theme.textStrong
-        addMemberIcon.tintColor = UIColor.theme.textStrong
+        addMemberIcon.tintColor = UIColor.theme.iconPrimary
         addMemberChevron.tintColor = UIColor.theme.textDisabled
         whoCanAccessLabel.textColor = UIColor.theme.textNormal
         listCard.backgroundColor = UIColor.theme.primary
@@ -138,11 +138,18 @@ final class ChannelPermissionsViewController: BaseViewController {
     }
 
     private func setupHeader() {
+        view.accessibilityIdentifier = AccessibilityID.ChannelPermissions.screen("main")
+        backButton.accessibilityIdentifier = AccessibilityID.ChannelPermissions.action("main", "back")
+        basicTabButton.accessibilityIdentifier = AccessibilityID.ChannelPermissions.action("main", "basic")
+        advancedTabButton.accessibilityIdentifier = AccessibilityID.ChannelPermissions.action("main", "advanced")
+        privateSwitch.accessibilityIdentifier = AccessibilityID.ChannelPermissions.action("main", "private")
+        addMemberCard.accessibilityIdentifier = AccessibilityID.ChannelPermissions.action("main", "add")
+
         headerView.backgroundColor = .mezonSecondary
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
 
-        backButton.setImage(UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        backButton.setImage(UIImage(named: "Channel/ArrowLeft")?.withRenderingMode(.alwaysTemplate), for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
 
@@ -306,8 +313,8 @@ final class ChannelPermissionsViewController: BaseViewController {
         addMemberCard.addGestureRecognizer(tap)
         addMemberCard.isUserInteractionEnabled = true
 
-        addMemberIcon.image = UIImage(systemName: "plus.circle")?.withRenderingMode(.alwaysTemplate)
-        addMemberIcon.tintColor = .mezonTextPrimary
+        addMemberIcon.image = UIImage(named: "ClanSetting/RoleAddMemberIcon")?.withRenderingMode(.alwaysTemplate)
+        addMemberIcon.tintColor = UIColor.theme.iconPrimary
         addMemberIcon.contentMode = .scaleAspectFit
         addMemberIcon.translatesAutoresizingMaskIntoConstraints = false
         addMemberCard.addSubview(addMemberIcon)
@@ -318,7 +325,7 @@ final class ChannelPermissionsViewController: BaseViewController {
         addMemberTitleLabel.translatesAutoresizingMaskIntoConstraints = false
         addMemberCard.addSubview(addMemberTitleLabel)
 
-        addMemberChevron.image = UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate)
+        addMemberChevron.image = UIImage(named: "Channel/ChevronRight")?.withRenderingMode(.alwaysTemplate)
         addMemberChevron.tintColor = UIColor.theme.textDisabled
         addMemberChevron.contentMode = .scaleAspectFit
         addMemberChevron.translatesAutoresizingMaskIntoConstraints = false
@@ -338,8 +345,8 @@ final class ChannelPermissionsViewController: BaseViewController {
 
             addMemberChevron.trailingAnchor.constraint(equalTo: addMemberCard.trailingAnchor, constant: -14.sw),
             addMemberChevron.centerYAnchor.constraint(equalTo: addMemberCard.centerYAnchor),
-            addMemberChevron.widthAnchor.constraint(equalToConstant: 12.swh),
-            addMemberChevron.heightAnchor.constraint(equalToConstant: 18.swh)
+            addMemberChevron.widthAnchor.constraint(equalToConstant: 16.swh),
+            addMemberChevron.heightAnchor.constraint(equalToConstant: 16.swh)
         ])
     }
 
@@ -731,6 +738,7 @@ final class ChannelPermissionsViewController: BaseViewController {
                 self?.openAdvancedOverrides(for: .role(id: role.id, title: role.title))
             } : nil
         )
+        row.accessibilityIdentifier = AccessibilityID.ChannelPermissions.item(advanced ? "advanced" : "basic", "role", role.id)
         return row
     }
 
@@ -757,6 +765,7 @@ final class ChannelPermissionsViewController: BaseViewController {
                 self?.openAdvancedOverrides(for: .member(id: member.userId, name: RoleMemberDisplay.displayName(member)))
             } : nil
         )
+        row.accessibilityIdentifier = AccessibilityID.ChannelPermissions.item(advanced ? "advanced" : "basic", "member", member.userId)
         return row
     }
 }

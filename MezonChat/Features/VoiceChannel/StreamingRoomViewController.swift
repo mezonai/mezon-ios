@@ -119,6 +119,14 @@ final class StreamingRoomViewController: ViewController, UIScrollViewDelegate, U
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        view.accessibilityIdentifier = AccessibilityID.StreamRoom.screen
+        minimizeButton.accessibilityIdentifier = AccessibilityID.StreamRoom.collapse
+        fullscreenButton.accessibilityIdentifier = AccessibilityID.StreamRoom.fullscreen
+        chatButton.accessibilityIdentifier = AccessibilityID.StreamRoom.chat
+        leaveButton.accessibilityIdentifier = AccessibilityID.StreamRoom.leave
+        speakerButton.accessibilityIdentifier = AccessibilityID.StreamRoom.audioOutput
+        qualityButton.accessibilityIdentifier = AccessibilityID.StreamRoom.quality
+        viewerCountLabel.accessibilityIdentifier = AccessibilityID.StreamRoom.viewers
         view.backgroundColor = .black
 
         backgroundImageView.translatesAutoresizingMaskIntoConstraints = false
@@ -132,12 +140,12 @@ final class StreamingRoomViewController: ViewController, UIScrollViewDelegate, U
         streamBannerView.clipsToBounds = true
         streamBannerView.isHidden = true
         streamBannerView.tintColor = UIColor.theme.textStrong
-        streamBannerView.image = UIImage(named: "Channel/channelStream")?.withRenderingMode(.alwaysTemplate)
+        streamBannerView.image = UIImage(named: "Channel/JoinStreamIcon")?.withRenderingMode(.alwaysTemplate)
 
         placeholderView.translatesAutoresizingMaskIntoConstraints = false
         placeholderView.contentMode = .scaleAspectFit
         placeholderView.tintColor = UIColor.theme.textStrong
-        placeholderView.image = UIImage(named: "Channel/channelStream")?.withRenderingMode(.alwaysTemplate)
+        placeholderView.image = UIImage(named: "Channel/JoinStreamIcon")?.withRenderingMode(.alwaysTemplate)
 
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
         statusLabel.font = .systemFont(ofSize: 16, weight: .medium)
@@ -169,7 +177,7 @@ final class StreamingRoomViewController: ViewController, UIScrollViewDelegate, U
         membersOverflowLabel.textColor = .white
         membersOverflowLabel.isHidden = true
 
-        styleCircleButton(minimizeButton, systemImage: "chevron.down", pointSize: 18)
+        styleCircleButton(minimizeButton, assetName: "Channel/ChevronBottom")
         minimizeButton.addTarget(self, action: #selector(minimizeTapped), for: .touchUpInside)
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -203,7 +211,7 @@ final class StreamingRoomViewController: ViewController, UIScrollViewDelegate, U
         viewerCountLabel.textColor = .white
         viewerCountLabel.setContentHuggingPriority(.required, for: .horizontal)
         headerRow.addArrangedSubview(viewerCountLabel)
-        styleCircleButton(fullscreenButton, systemImage: "arrow.up.left.and.arrow.down.right", pointSize: 16)
+        styleCircleButton(fullscreenButton, assetName: "Channel/StreamFullscreen")
         fullscreenButton.accessibilityLabel = L("streamingRoom.enterFullscreen")
         fullscreenButton.addTarget(self, action: #selector(fullscreenTapped), for: .touchUpInside)
         headerRow.addArrangedSubview(fullscreenButton)
@@ -214,14 +222,14 @@ final class StreamingRoomViewController: ViewController, UIScrollViewDelegate, U
         viewerCountLabel.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(toggleViewers)))
         headerBar.addSubview(headerRow)
 
-        styleCircleButton(chatButton, systemImage: "bubble.left.and.bubble.right.fill", pointSize: 18)
+        styleCircleButton(chatButton, assetName: "Setting/ChatIcon")
         chatButton.addTarget(self, action: #selector(chatTapped), for: .touchUpInside)
 
         leaveButton.translatesAutoresizingMaskIntoConstraints = false
         leaveButton.backgroundColor = UIColor.systemRed
         leaveButton.layer.cornerRadius = 25
         leaveButton.clipsToBounds = true
-        leaveButton.setImage(UIImage(systemName: "phone.down.fill"), for: .normal)
+        leaveButton.setImage(UIImage(named: "Channel/StreamLeave")?.withRenderingMode(.alwaysTemplate), for: .normal)
         leaveButton.tintColor = .white
         leaveButton.addTarget(self, action: #selector(leaveTapped), for: .touchUpInside)
 
@@ -229,7 +237,7 @@ final class StreamingRoomViewController: ViewController, UIScrollViewDelegate, U
         footerRow.alignment = .center
         footerRow.distribution = .equalSpacing
         footerRow.translatesAutoresizingMaskIntoConstraints = false
-        styleCircleButton(speakerButton, systemImage: "speaker.wave.2.fill", pointSize: 18)
+        styleCircleButton(speakerButton, assetName: "Channel/StreamSpeaker")
         speakerButton.setImage(nil, for: .normal)
         speakerRouteIcon.translatesAutoresizingMaskIntoConstraints = false
         speakerRouteIcon.contentMode = .scaleAspectFit
@@ -237,7 +245,7 @@ final class StreamingRoomViewController: ViewController, UIScrollViewDelegate, U
         speakerRouteIcon.isUserInteractionEnabled = false
         speakerButton.addSubview(speakerRouteIcon)
         speakerButton.addTarget(self, action: #selector(speakerTapped), for: .touchUpInside)
-        styleCircleButton(qualityButton, systemImage: "slider.horizontal.3", pointSize: 18)
+        styleCircleButton(qualityButton, assetName: "Channel/StreamSettings")
         qualityButton.addTarget(self, action: #selector(qualityTapped), for: .touchUpInside)
         outputPicker.translatesAutoresizingMaskIntoConstraints = false
         outputPicker.tintColor = .white
@@ -566,8 +574,7 @@ final class StreamingRoomViewController: ViewController, UIScrollViewDelegate, U
         isFullscreen = enabled
         updateBottomChromeBackground()
         videoScrollView.setZoomScale(1, animated: false)
-        fullscreenButton.setImage(UIImage(systemName: enabled ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
-                                          withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)), for: .normal)
+        fullscreenButton.setImage(UIImage(named: enabled ? "Channel/StreamFullscreenExit" : "Channel/StreamFullscreen")?.withRenderingMode(.alwaysTemplate), for: .normal)
         fullscreenButton.accessibilityLabel = L(enabled ? "streamingRoom.exitFullscreen" : "streamingRoom.enterFullscreen")
         setControlsVisible(!enabled)
         requestVideoOrientation(enabled: enabled)
@@ -772,7 +779,7 @@ final class StreamingRoomViewController: ViewController, UIScrollViewDelegate, U
             displayedViewerCount = viewerCount
             let count = NSMutableAttributedString(attachment: {
                 let attachment = NSTextAttachment()
-                attachment.image = UIImage(systemName: "eye")?.withTintColor(.white)
+                attachment.image = UIImage(named: "Channel/StreamEye")?.withTintColor(.white, renderingMode: .alwaysOriginal)
                 attachment.bounds = CGRect(x: 0, y: -2, width: 16, height: 12)
                 return attachment
             }())
@@ -829,20 +836,19 @@ final class StreamingRoomViewController: ViewController, UIScrollViewDelegate, U
         let name: String
         switch port?.portType {
         case .builtInSpeaker:
-            image = UIImage(named: "externalSpeaker")?.withRenderingMode(.alwaysTemplate)
+            image = UIImage(named: "Channel/StreamSpeaker")?.withRenderingMode(.alwaysTemplate)
             name = NSLocalizedString("streamingRoom.speaker", tableName: nil, bundle: .main,
                                      value: "Speaker", comment: "")
         case .builtInReceiver:
-            image = UIImage(named: "internalSpeaker")?.withRenderingMode(.alwaysTemplate)
+            image = UIImage(named: "Channel/StreamSpeakerLow")?.withRenderingMode(.alwaysTemplate)
             name = NSLocalizedString("streamingRoom.receiver", tableName: nil, bundle: .main,
                                      value: "Receiver", comment: "")
         case .headphones, .headsetMic, .bluetoothA2DP, .bluetoothHFP, .bluetoothLE:
-            image = UIImage(systemName: "headphones", withConfiguration:
-                UIImage.SymbolConfiguration(pointSize: 12, weight: .medium))?.withRenderingMode(.alwaysTemplate)
+            image = UIImage(named: "Chat/HeadphonesIcon")?.withRenderingMode(.alwaysTemplate)
             name = port?.portName ?? ""
         default:
             image = port == nil
-                ? UIImage(named: "internalSpeaker")?.withRenderingMode(.alwaysTemplate)
+                ? UIImage(named: "Channel/StreamSpeakerLow")?.withRenderingMode(.alwaysTemplate)
                 : UIImage(systemName: "airplayaudio", withConfiguration:
                     UIImage.SymbolConfiguration(pointSize: 12, weight: .medium))?.withRenderingMode(.alwaysTemplate)
             name = port?.portName ?? NSLocalizedString(
@@ -882,14 +888,13 @@ final class StreamingRoomViewController: ViewController, UIScrollViewDelegate, U
         refreshMembersRow()
     }
 
-    private func styleCircleButton(_ button: UIButton, systemImage: String, pointSize: CGFloat) {
+    private func styleCircleButton(_ button: UIButton, assetName: String) {
         button.translatesAutoresizingMaskIntoConstraints = false
         button.backgroundColor = UIColor.black.withAlphaComponent(0.45)
         button.layer.cornerRadius = 22
         button.clipsToBounds = true
         button.tintColor = .white
-        let config = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .semibold)
-        button.setImage(UIImage(systemName: systemImage, withConfiguration: config), for: .normal)
+        button.setImage(UIImage(named: assetName)?.withRenderingMode(.alwaysTemplate), for: .normal)
     }
 
     private func showPiP() {
@@ -1141,7 +1146,8 @@ private final class StreamingQualitySheetController: UIViewController, UIGesture
         heading.translatesAutoresizingMaskIntoConstraints = false
         header.addSubview(heading)
         let close = UIButton(type: .system)
-        close.setImage(UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)), for: .normal)
+        close.accessibilityIdentifier = AccessibilityID.StreamRoom.qualityClose
+        close.setImage(UIImage(named: "Channel/VoiceClose")?.withRenderingMode(.alwaysTemplate), for: .normal)
         close.tintColor = UIColor.white.withAlphaComponent(0.7)
         close.backgroundColor = UIColor.white.withAlphaComponent(0.06)
         close.layer.cornerRadius = 18
@@ -1257,6 +1263,7 @@ private final class StreamingQualitySheetController: UIViewController, UIGesture
     private func makeDefaultRow() -> UIControl {
         let isDefault = selectedQuality == defaultQuality
         let row = UIControl()
+        row.accessibilityIdentifier = AccessibilityID.StreamRoom.qualityDefault
         row.backgroundColor = UIColor.white.withAlphaComponent(0.04)
         row.layer.cornerRadius = 14
         row.isEnabled = !isDefault
@@ -1279,7 +1286,7 @@ private final class StreamingQualitySheetController: UIViewController, UIGesture
         labels.spacing = 3
         labels.isUserInteractionEnabled = false
         labels.translatesAutoresizingMaskIntoConstraints = false
-        let icon = UIImageView(image: UIImage(systemName: isDefault ? "checkmark.circle.fill" : "arrow.down.to.line"))
+        let icon = UIImageView(image: UIImage(named: isDefault ? "Channel/StreamCheckCircle" : "Chat/IconDownload")?.withRenderingMode(.alwaysTemplate))
         icon.tintColor = isDefault ? Self.accent : UIColor.white.withAlphaComponent(0.6)
         icon.contentMode = .scaleAspectFit
         icon.translatesAutoresizingMaskIntoConstraints = false
@@ -1400,7 +1407,8 @@ private final class StreamingQualityOptionRow: UIControl {
         labels.spacing = 3
         labels.isUserInteractionEnabled = false
         labels.translatesAutoresizingMaskIntoConstraints = false
-        let check = UIImageView(image: UIImage(systemName: selected ? "checkmark.circle.fill" : "circle"))
+        let check = UIImageView(image: UIImage(named: selected ? "Channel/StreamCheckCircle" : "Channel/StreamCircle")?.withRenderingMode(.alwaysTemplate))
+        accessibilityIdentifier = AccessibilityID.StreamRoom.qualityOption(quality.rawValue)
         check.tintColor = selected ? accent : UIColor.white.withAlphaComponent(0.18)
         check.contentMode = .scaleAspectFit
         check.translatesAutoresizingMaskIntoConstraints = false

@@ -34,6 +34,7 @@ final class TransferSuccessViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        view.accessibilityIdentifier = AccessibilityID.TransferSuccess.screen
         view.backgroundColor = .mezonPrimary
         setupUI()
     }
@@ -65,7 +66,7 @@ final class TransferSuccessViewController: UIViewController {
         checkBg.layer.cornerRadius = checkSize / 2
 
         let checkIcon = UIImageView(
-            image: UIImage(systemName: "checkmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 22, weight: .bold))
+            image: UIImage(named: "Profile/TransferSuccessCheckIcon")?.withRenderingMode(.alwaysTemplate)
         )
         checkIcon.translatesAutoresizingMaskIntoConstraints = false
         checkIcon.tintColor = .white
@@ -107,19 +108,21 @@ final class TransferSuccessViewController: UIViewController {
         actionsRow.alignment = .center
 
         let shareWrap = makeActionPill(
-            symbolName: "square.and.arrow.up",
+            assetName: "Invite/ShareIcon",
             title: L(L10n.Common.share),
             action: #selector(handleShare)
         )
         let newWrap = makeActionPill(
-            symbolName: "arrow.left.arrow.right",
+            assetName: "Profile/TransferSwapIcon",
             title: L(L10n.Profile.sendTokenSendNew),
             action: #selector(handleSendNew)
         )
+        shareWrap.accessibilityIdentifier = AccessibilityID.TransferSuccess.share
+        newWrap.accessibilityIdentifier = AccessibilityID.TransferSuccess.newTransfer
         actionsRow.addArrangedSubview(shareWrap)
         actionsRow.addArrangedSubview(newWrap)
 
-        let doneButton = UIButton(type: .system)
+        let doneButton = UIButton(type: .system).identified(by: AccessibilityID.TransferSuccess.done)
         doneButton.translatesAutoresizingMaskIntoConstraints = false
         doneButton.setTitle(L(L10n.Profile.sendTokenComplete), for: .normal)
         doneButton.setTitleColor(.mezonPrimary, for: .normal)
@@ -196,12 +199,11 @@ final class TransferSuccessViewController: UIViewController {
         view.bringSubviewToFront(bottomBar)
     }
 
-    private func makeActionPill(symbolName: String, title: String, action: Selector) -> UIView {
+    private func makeActionPill(assetName: String, title: String, action: Selector) -> UIView {
         let wrap = UIView()
         wrap.translatesAutoresizingMaskIntoConstraints = false
         let tint = UIColor.mezonTextPrimary
-        let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-        let iv = UIImageView(image: UIImage(systemName: symbolName, withConfiguration: cfg))
+        let iv = UIImageView(image: UIImage(named: assetName)?.withRenderingMode(.alwaysTemplate))
         iv.translatesAutoresizingMaskIntoConstraints = false
         iv.tintColor = tint
         iv.contentMode = .scaleAspectFit

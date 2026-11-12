@@ -140,7 +140,7 @@ final class TransferOwnershipViewController: BaseViewController {
         targetAvatar.translatesAutoresizingMaskIntoConstraints = false
         targetContainer.addSubview(targetAvatar)
 
-        let crownView = UIImageView(image: UIImage(systemName: "crown.fill")?.withRenderingMode(.alwaysTemplate))
+        let crownView = UIImageView(image: UIImage(named: "ClanSetting/OwnerIcon")?.withRenderingMode(.alwaysTemplate))
         crownView.tintColor = UIColor.systemYellow
         crownView.contentMode = .scaleAspectFit
         crownView.translatesAutoresizingMaskIntoConstraints = false

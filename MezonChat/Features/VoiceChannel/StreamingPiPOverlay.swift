@@ -53,12 +53,12 @@ final class StreamingPiPOverlay: NSObject, UIGestureRecognizerDelegate {
         streamBannerView.clipsToBounds = true
         streamBannerView.isUserInteractionEnabled = false
         streamBannerView.isHidden = true
-        streamBannerView.image = UIImage(named: "Channel/channelStream")?.withRenderingMode(.alwaysTemplate)
+        streamBannerView.image = UIImage(named: "Channel/JoinStreamIcon")?.withRenderingMode(.alwaysTemplate)
         streamBannerView.tintColor = UIColor.theme.textStrong
 
         placeholderView.translatesAutoresizingMaskIntoConstraints = false
         placeholderView.contentMode = .scaleAspectFit
-        placeholderView.image = UIImage(named: "Channel/channelStream")?.withRenderingMode(.alwaysTemplate)
+        placeholderView.image = UIImage(named: "Channel/JoinStreamIcon")?.withRenderingMode(.alwaysTemplate)
         placeholderView.tintColor = UIColor.theme.textStrong
         placeholderView.isUserInteractionEnabled = false
 
@@ -69,7 +69,7 @@ final class StreamingPiPOverlay: NSObject, UIGestureRecognizerDelegate {
 
         badgeIcon.translatesAutoresizingMaskIntoConstraints = false
         badgeIcon.contentMode = .scaleAspectFit
-        badgeIcon.image = UIImage(named: "Channel/channelStream")?.withRenderingMode(.alwaysTemplate)
+        badgeIcon.image = UIImage(named: "Channel/JoinStreamIcon")?.withRenderingMode(.alwaysTemplate)
         badgeIcon.tintColor = .white
 
         badgeLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -94,7 +94,8 @@ final class StreamingPiPOverlay: NSObject, UIGestureRecognizerDelegate {
         bufferingIndicator.hidesWhenStopped = true
         pipView.addSubview(bufferingIndicator)
         closeButton.translatesAutoresizingMaskIntoConstraints = false
-        closeButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
+        closeButton.accessibilityIdentifier = AccessibilityID.StreamRoom.pipClose
+        closeButton.setImage(UIImage(named: "Channel/StreamCloseCircle")?.withRenderingMode(.alwaysTemplate), for: .normal)
         closeButton.tintColor = .white
         closeButton.accessibilityLabel = NSLocalizedString(
             "streamingRoom.leave", tableName: nil, bundle: .main, value: "Leave stream", comment: "")
@@ -281,7 +282,7 @@ final class StreamingPiPOverlay: NSObject, UIGestureRecognizerDelegate {
             let clanId = channel.clanID != 0 ? channel.clanID : context.currentClanId
             let count = context.engine.clanData.streamViewerCount(clanId: clanId, channelId: channel.channelID)
             badgeLabel.text = channel.channelLabel + " · " + String(count)
-            badgeIcon.image = UIImage(systemName: "eye")
+            badgeIcon.image = UIImage(named: "Channel/StreamEye")?.withRenderingMode(.alwaysTemplate)
         }
         backgroundImageView.isHidden = session.hasVideoFrames
         streamBannerView.isHidden = true

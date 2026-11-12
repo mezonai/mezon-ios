@@ -278,9 +278,7 @@ final class ChatContainerNode: ASDisplayNode {
         listView.backgroundColor = .clear
 
         jumpToPresentNode.setImage(
-            UIImage(systemName: "chevron.down")?.withConfiguration(
-                UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
-            ).withTintColor(.white, renderingMode: .alwaysOriginal),
+            UIImage(named: "Channel/ChevronBottom")?.withTintColor(.white, renderingMode: .alwaysOriginal),
             for: .normal
         )
         jumpToPresentNode.backgroundColor = UIColor.theme.textDisabled.withAlphaComponent(0.85)

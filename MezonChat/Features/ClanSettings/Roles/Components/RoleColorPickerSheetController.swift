@@ -40,6 +40,11 @@ final class RoleColorPickerSheetController: UIViewController {
     }
 
     private func setupHeader() {
+        view.accessibilityIdentifier = AccessibilityID.RoleSettings.screen("color")
+        cancelButton.accessibilityIdentifier = AccessibilityID.RoleSettings.action("color", "cancel")
+        saveButton.accessibilityIdentifier = AccessibilityID.RoleSettings.action("color", "save")
+        resetButton.accessibilityIdentifier = AccessibilityID.RoleSettings.action("color", "reset")
+
         titleLabel.text = L(L10n.ClanRoles.colorPickerTitle)
         titleLabel.font = .systemFont(ofSize: 16.sf, weight: .semibold)
         titleLabel.textColor = .mezonTextPrimary
@@ -123,8 +128,7 @@ final class RoleColorPickerSheetController: UIViewController {
     }
 
     private func swatchCheckmarkImage() -> UIImage? {
-        UIImage(systemName: "checkmark")?
-            .withConfiguration(UIImage.SymbolConfiguration(pointSize: 14.sf, weight: .bold))
+        UIImage(named: "Channel/JoinRoleCheck")?
             .withRenderingMode(.alwaysTemplate)
     }
 
@@ -148,6 +152,7 @@ final class RoleColorPickerSheetController: UIViewController {
         swatch.translatesAutoresizingMaskIntoConstraints = false
         swatch.widthAnchor.constraint(equalToConstant: size).isActive = true
         swatch.heightAnchor.constraint(equalToConstant: size).isActive = true
+        swatch.accessibilityIdentifier = AccessibilityID.RoleSettings.action("color", hex)
         swatch.accessibilityLabel = hex
         applySwatchSelection(swatch, hex: hex)
         swatch.addTarget(self, action: #selector(swatchTapped(_:)), for: .touchUpInside)

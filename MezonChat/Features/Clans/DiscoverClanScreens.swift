@@ -201,7 +201,7 @@ private final class DiscoverClanVerifiedBadge: UILabel {
         let badgeFont = font ?? UIFont.systemFont(ofSize: 10.sf, weight: .semibold)
         let iconSize = 12.swh
         let icon = NSTextAttachment()
-        icon.image = UIImage(systemName: "checkmark.seal.fill")?.withTintColor(.white, renderingMode: .alwaysOriginal)
+        icon.image = UIImage(named: "ClanSetting/DiscoverVerifiedIcon")?.withTintColor(.white, renderingMode: .alwaysOriginal)
         icon.bounds = CGRect(x: 0, y: (badgeFont.capHeight - iconSize) / 2, width: iconSize, height: iconSize)
         let text = NSMutableAttributedString(attachment: icon)
         text.append(NSAttributedString(string: " \(title)", attributes: [.font: badgeFont, .foregroundColor: UIColor.white]))
@@ -332,6 +332,7 @@ private final class DiscoverClanListCell: UITableViewCell {
     }
 
     func configure(_ item: Mezon_Api_ClanDiscover) {
+        accessibilityIdentifier = AccessibilityID.Discover.clan(item.clanID)
         nameLabel.textColor = UIColor.theme.textStrong
         descLabel.textColor = UIColor.theme.textDisabled
         membersLabel.textColor = UIColor.theme.textDisabled
@@ -390,7 +391,7 @@ final class DiscoverClanEmptyStateViewController: UIViewController {
         let btn = UIButton(type: .system)
         btn.setImage(
             UIImage(named: "Notifications/AddFriendIcon", in: Bundle.main, compatibleWith: nil)?
-                .withRenderingMode(.alwaysOriginal),
+                .withRenderingMode(.alwaysTemplate),
             for: .normal
         )
         btn.layer.cornerRadius = 16
@@ -470,6 +471,10 @@ final class DiscoverClanEmptyStateViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        view.accessibilityIdentifier = AccessibilityID.Discover.list
+        searchField.accessibilityIdentifier = AccessibilityID.Discover.search
+        qrHeaderButton.accessibilityIdentifier = AccessibilityID.Discover.scanQR
+        addFriendHeaderButton.accessibilityIdentifier = AccessibilityID.Discover.addFriend
         gradientLayer.startPoint = CGPoint(x: 1, y: 0)
         gradientLayer.endPoint = CGPoint(x: 0, y: 0)
         view.layer.insertSublayer(gradientLayer, at: 0)
@@ -589,12 +594,9 @@ final class DiscoverClanEmptyStateViewController: UIViewController {
         qrHeaderButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
         
         qrHeaderButton.setImage(UIImage(named: "Profile/ScanQR")?.withRenderingMode(.alwaysTemplate), for: .normal)
-        if ThemeManager.shared.current.effectiveInterfaceStyle == .light {
-            qrHeaderButton.tintColor = UIColor(hexString: "#ff6b6f76")
-        } else {
-            qrHeaderButton.tintColor = UIColor(hexString: "#fefefe")
-        }
+        qrHeaderButton.tintColor = .mezonIconDefault
         
+        addFriendHeaderButton.tintColor = .mezonIconDefault
         addFriendHeaderButton.backgroundColor = t.raisedSurface
         addFriendHeaderButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
         statusLabel.textColor = t.textDisabled
@@ -824,6 +826,9 @@ final class DiscoverClanDetailViewController: BaseViewController {
     required init(coder: NSCoder) { fatalError() }
 
     override func setupUI() {
+        view.accessibilityIdentifier = AccessibilityID.Discover.detail
+        backButton.accessibilityIdentifier = AccessibilityID.Discover.back
+        joinButton.accessibilityIdentifier = AccessibilityID.Discover.join
         view.backgroundColor = UIColor.theme.primary
         scrollView.alwaysBounceVertical = true
         scrollView.showsVerticalScrollIndicator = true
@@ -894,13 +899,13 @@ final class DiscoverClanDetailViewController: BaseViewController {
             ? L(L10n.DiscoverDetail.communityVerified)
             : L(L10n.DiscoverDetail.communityFallback)
         infoStack.addArrangedSubview(
-            discoverDetailInfoRow(iconName: "bubble.left.and.bubble.right", title: L(L10n.DiscoverDetail.howChatty), subtitle: discoverDetailChattySubtitle(online: item.onlineMembers, total: item.totalMembers)))
+            discoverDetailInfoRow(iconName: "Chat/MessageAdd", title: L(L10n.DiscoverDetail.howChatty), subtitle: discoverDetailChattySubtitle(online: item.onlineMembers, total: item.totalMembers)))
         infoStack.addArrangedSubview(
-            discoverDetailInfoRow(iconName: "calendar", title: L(L10n.DiscoverDetail.clanCreated), subtitle: discoverDetailFormatCreated(seconds: item.createTimeSeconds)))
+            discoverDetailInfoRow(iconName: "ClanSetting/DiscoverCalendarIcon", title: L(L10n.DiscoverDetail.clanCreated), subtitle: discoverDetailFormatCreated(seconds: item.createTimeSeconds)))
         infoStack.addArrangedSubview(
-            discoverDetailInfoRow(iconName: "sparkles", title: L(L10n.DiscoverDetail.feature), subtitle: featureSubtitle))
+            discoverDetailInfoRow(iconName: "Chat/IconStar", title: L(L10n.DiscoverDetail.feature), subtitle: featureSubtitle))
         infoStack.addArrangedSubview(
-            discoverDetailInfoRow(iconName: "person.3.fill", title: L(L10n.DiscoverDetail.communityRow), subtitle: communitySubtitle))
+            discoverDetailInfoRow(iconName: "ClanSetting/Members", title: L(L10n.DiscoverDetail.communityRow), subtitle: communitySubtitle))
         innerStack.addArrangedSubview(nameLabel)
         innerStack.addArrangedSubview(descLabel)
         innerStack.addArrangedSubview(membersWrap)
@@ -938,8 +943,7 @@ final class DiscoverClanDetailViewController: BaseViewController {
         cardView.addSubview(innerStack)
         contentView.bringSubviewToFront(logoView)
         view.bringSubviewToFront(backButton)
-        let sym = UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)
-        backButton.setImage(UIImage(systemName: "chevron.left", withConfiguration: sym), for: .normal)
+        backButton.setImage(UIImage(named: "ClanSetting/DiscoverBackIcon")?.withRenderingMode(.alwaysTemplate), for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
         backButton.backgroundColor = UIColor.theme.primary.withAlphaComponent(0.45)
         backButton.layer.cornerRadius = 20.swh
@@ -996,8 +1000,7 @@ final class DiscoverClanDetailViewController: BaseViewController {
         iconBg.layer.cornerRadius = 18.swh
         iconBg.backgroundColor = UIColor.theme.borderDim
         let iconView = UIImageView()
-        let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-        iconView.image = UIImage(systemName: iconName, withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate)
+        iconView.image = UIImage(named: iconName)?.withRenderingMode(.alwaysTemplate)
         iconView.tintColor = UIColor.theme.textDisabled
         iconView.contentMode = .scaleAspectFit
         iconView.translatesAutoresizingMaskIntoConstraints = false

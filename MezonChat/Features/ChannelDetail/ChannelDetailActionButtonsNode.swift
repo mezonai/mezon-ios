@@ -58,11 +58,15 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
         super.init()
         automaticallyManagesSubnodes = true
 
+        searchButtonNode.accessibilityIdentifier = AccessibilityID.ChannelDetail.action("search")
+        customizeGroupButtonNode.accessibilityIdentifier = AccessibilityID.ChannelDetail.action("customize-group")
+        muteButtonNode.accessibilityIdentifier = AccessibilityID.ChannelDetail.action("mute")
+
         setupButton(
             searchButtonNode, icon: "magnifyingglass", assetName: "Channel/Search", label: searchLabel,
             text: L(L10n.Common.search))
         setupButton(
-            customizeGroupButtonNode, icon: "pencil", assetName: "Channel/Pencil", label: customizeGroupLabel,
+            customizeGroupButtonNode, icon: "pencil", assetName: "Channel/EventEdit", label: customizeGroupLabel,
             text: L(L10n.ChannelDetail.customizeGroup))
         setupButton(
             threadsButtonNode, icon: "text.bubble", assetName: "Channel/channelThread", label: threadsLabel,
@@ -135,7 +139,7 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
             actionIconImage(
                 assetName: assetName,
                 fallbackSystemName: icon,
-                fallbackTintColor: t.textStrong
+                tintColor: t.textStrong
             ),
             for: .normal
         )
@@ -215,7 +219,7 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
             actionIconImage(
                 assetName: assetName,
                 fallbackSystemName: fallbackSystemName,
-                fallbackTintColor: t.textStrong
+                tintColor: t.textStrong
             ),
             for: .normal
         )
@@ -238,7 +242,7 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
         let t = UIColor.theme
         let pairs: [(ASButtonNode, ASTextNode2, String, String?)] = [
             (searchButtonNode, searchLabel, "magnifyingglass", "Channel/Search"),
-            (customizeGroupButtonNode, customizeGroupLabel, "pencil", "Channel/Pencil"),
+            (customizeGroupButtonNode, customizeGroupLabel, "pencil", "Channel/EventEdit"),
             (threadsButtonNode, threadsLabel, "text.bubble", "Channel/channelThread"),
             (settingsButtonNode, settingsLabel, "gearshape.fill", "Profile/SettingIcon"),
         ]
@@ -250,7 +254,7 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
                 actionIconImage(
                     assetName: assetName,
                     fallbackSystemName: iconName,
-                    fallbackTintColor: t.textStrong
+                    tintColor: t.textStrong
                 ),
                 for: .normal
             )
@@ -267,18 +271,16 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
         updateMuteButtonState()
     }
 
-    private func actionIconImage(assetName: String?, fallbackSystemName: String, fallbackTintColor: UIColor)
+    private func actionIconImage(assetName: String?, fallbackSystemName: String, tintColor: UIColor)
         -> UIImage?
     {
         if let assetName, let assetImage = UIImage(named: assetName) {
-            if assetName.hasPrefix("ChannelSetting/") {
-                return assetImage.withRenderingMode(.alwaysOriginal)
-            }
-            return resizedOriginalIcon(assetImage)
+            let image = assetName.hasPrefix("ChannelSetting/") ? assetImage : resizedOriginalIcon(assetImage)
+            return image.withTintColor(tintColor, renderingMode: .alwaysOriginal)
         }
         let baseConfig = UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)
         let symbolImage = UIImage(systemName: fallbackSystemName, withConfiguration: baseConfig)
-        return symbolImage?.withTintColor(fallbackTintColor, renderingMode: .alwaysOriginal)
+        return symbolImage?.withTintColor(tintColor, renderingMode: .alwaysOriginal)
     }
 
     private func resizedOriginalIcon(_ image: UIImage) -> UIImage {

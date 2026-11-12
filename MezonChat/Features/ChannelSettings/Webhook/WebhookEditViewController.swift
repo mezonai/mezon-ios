@@ -102,10 +102,19 @@ final class WebhookEditViewController: BaseViewController {
     }
 
     private func setupHeader() {
+        view.accessibilityIdentifier = AccessibilityID.ChannelSettings.screen("webhook-edit")
+        backButton.accessibilityIdentifier = AccessibilityID.ChannelSettings.action("webhook-edit", "back")
+        saveButton.accessibilityIdentifier = AccessibilityID.ChannelSettings.action("webhook-edit", "save")
+        nameField.accessibilityIdentifier = AccessibilityID.ChannelSettings.action("webhook-edit", "name")
+        avatarContainer.accessibilityIdentifier = AccessibilityID.ChannelSettings.action("webhook-edit", "avatar")
+        copyButton.accessibilityIdentifier = AccessibilityID.ChannelSettings.action("webhook-edit", "copy-url")
+        resetTokenButton.accessibilityIdentifier = AccessibilityID.ChannelSettings.action("webhook-edit", "reset-token")
+        deleteButton.accessibilityIdentifier = AccessibilityID.ChannelSettings.action("webhook-edit", "delete")
+
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
 
-        backButton.setImage(UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        backButton.setImage(UIImage(named: "Channel/ArrowLeft")?.withRenderingMode(.alwaysTemplate), for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
 
@@ -272,7 +281,7 @@ final class WebhookEditViewController: BaseViewController {
         channelRow.translatesAutoresizingMaskIntoConstraints = false
         channelRow.addTarget(self, action: #selector(channelTapped), for: .touchUpInside)
 
-        channelIconView.image = UIImage(systemName: "number")?.withRenderingMode(.alwaysTemplate)
+        channelIconView.image = UIImage(named: "ChannelSetting/WebhookChannelIcon")?.withRenderingMode(.alwaysTemplate)
         channelIconView.tintColor = UIColor.theme.textDisabled
         channelIconView.contentMode = .scaleAspectFit
         channelIconView.translatesAutoresizingMaskIntoConstraints = false
@@ -284,7 +293,6 @@ final class WebhookEditViewController: BaseViewController {
         channelLabel.isUserInteractionEnabled = false
         
         let arrowImage = UIImage(named: "Channel/ChevronRight")?.withRenderingMode(.alwaysTemplate)
-            ?? UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate)
         let arrowIcon = UIImageView(image: arrowImage)
         arrowIcon.tintColor = UIColor.theme.textStrong
         arrowIcon.contentMode = .scaleAspectFit
@@ -307,8 +315,8 @@ final class WebhookEditViewController: BaseViewController {
             
             arrowIcon.trailingAnchor.constraint(equalTo: channelRow.trailingAnchor, constant: -12.sw),
             arrowIcon.centerYAnchor.constraint(equalTo: channelRow.centerYAnchor),
-            arrowIcon.widthAnchor.constraint(equalToConstant: 14.swh),
-            arrowIcon.heightAnchor.constraint(equalToConstant: 14.swh)
+            arrowIcon.widthAnchor.constraint(equalToConstant: 16.swh),
+            arrowIcon.heightAnchor.constraint(equalToConstant: 16.swh)
         ])
 
         section.addArrangedSubview(channelRow)
@@ -414,10 +422,10 @@ final class WebhookEditViewController: BaseViewController {
         ) {
             channelLabel.text = ch.channelLabel
             let iconName = ch.channelListIconAssetName()
-            channelIconView.image = (UIImage(named: iconName) ?? UIImage(systemName: iconName))?.withRenderingMode(.alwaysTemplate)
+            channelIconView.image = (UIImage(named: iconName) ?? UIImage(named: "ChannelSetting/WebhookChannelIcon"))?.withRenderingMode(.alwaysTemplate)
         } else {
             channelLabel.text = "#\(selectedChannelId)"
-            channelIconView.image = UIImage(systemName: "number")?.withRenderingMode(.alwaysTemplate)
+            channelIconView.image = UIImage(named: "ChannelSetting/WebhookChannelIcon")?.withRenderingMode(.alwaysTemplate)
         }
 
         urlLabel.text = webhook.url.isEmpty ? "No URL" : webhook.url
@@ -496,7 +504,7 @@ final class WebhookEditViewController: BaseViewController {
             self?.selectedChannelId = selectedChannel.channelID
             self?.channelLabel.text = selectedChannel.channelLabel
             let iconName = selectedChannel.channelListIconAssetName()
-            self?.channelIconView.image = (UIImage(named: iconName) ?? UIImage(systemName: iconName))?.withRenderingMode(.alwaysTemplate)
+            self?.channelIconView.image = (UIImage(named: iconName) ?? UIImage(named: "ChannelSetting/WebhookChannelIcon"))?.withRenderingMode(.alwaysTemplate)
             self?.updateSaveButtonVisibility()
         }
         vc.modalPresentationStyle = .pageSheet

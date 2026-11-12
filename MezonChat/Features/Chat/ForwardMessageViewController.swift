@@ -558,7 +558,8 @@ final class ForwardMessageViewController: UIViewController {
         titleLbl.textAlignment = .center
 
         searchWrap.layer.cornerRadius = 20
-        searchIcon.image = UIImage(systemName: "magnifyingglass")
+        searchIcon.image = UIImage(named: "Setting/SearchIcon")?.withRenderingMode(.alwaysTemplate)
+        searchField.accessibilityIdentifier = AccessibilityID.Search.input("forward-message")
         searchField.borderStyle = .none
         searchField.backgroundColor = .clear
         searchField.font = .systemFont(ofSize: 15)
