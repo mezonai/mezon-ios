@@ -67,7 +67,7 @@ final class VoiceBreakoutInviteController: UIViewController {
         card.layer.shadowOffset = CGSize(width: 0, height: 12)
         view.addSubview(card)
 
-        let symbol = UIImageView(image: UIImage(systemName: "square.split.2x2"))
+        let symbol = UIImageView(image: UIImage(named: "Channel/VoiceBreakout")?.withRenderingMode(.alwaysTemplate))
         symbol.tintColor = Self.secondaryText
         symbol.contentMode = .scaleAspectFit
         symbol.isAccessibilityElement = false
@@ -239,7 +239,7 @@ final class VoiceBreakoutInviteController: UIViewController {
         row.layer.cornerRadius = 8
         row.layer.borderWidth = 1
         row.layer.borderColor = Self.border.cgColor
-        let icon = UIImageView(image: UIImage(systemName: "speaker.wave.2.fill"))
+        let icon = UIImageView(image: UIImage(named: "Channel/VoiceBreakout")?.withRenderingMode(.alwaysTemplate))
         icon.tintColor = Self.accent
         icon.contentMode = .scaleAspectFit
         icon.widthAnchor.constraint(equalToConstant: 18).isActive = true

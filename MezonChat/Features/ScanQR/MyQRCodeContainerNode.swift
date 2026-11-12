@@ -82,6 +82,7 @@ final class MyQRCodeContainerNode: ASDisplayNode, ASNetworkImageNodeDelegate {
 
     override func didLoad() {
         super.didLoad()
+        view.accessibilityIdentifier = AccessibilityID.QRCode.myScreen
 
         cardGradientLayer.colors = Style.gradientColors
         cardGradientLayer.startPoint = CGPoint(x: 0, y: 0)
@@ -96,6 +97,12 @@ final class MyQRCodeContainerNode: ASDisplayNode, ASNetworkImageNodeDelegate {
     }
 
     private func setupNodes() {
+        backButton.accessibilityIdentifier = AccessibilityID.QRCode.myBack
+        profileTabButton.accessibilityIdentifier = AccessibilityID.QRCode.profileTab
+        transferTabButton.accessibilityIdentifier = AccessibilityID.QRCode.transferTab
+        editCenterImageButton.accessibilityIdentifier = AccessibilityID.QRCode.editCenterImage
+        downloadButton.accessibilityIdentifier = AccessibilityID.QRCode.myDownload
+        shareButton.accessibilityIdentifier = AccessibilityID.QRCode.myShare
         backButton.setImage(
             UIImage(named: "Channel/ArrowLeft")?.withRenderingMode(.alwaysTemplate),
             for: .normal)
@@ -136,7 +143,7 @@ final class MyQRCodeContainerNode: ASDisplayNode, ASNetworkImageNodeDelegate {
         cardNode.shadowOpacity = 1
 
         editCenterImageButton.setImage(
-            UIImage(systemName: "pencil")?.withRenderingMode(.alwaysTemplate), for: .normal)
+            UIImage(named: "Profile/QREditIcon")?.withRenderingMode(.alwaysTemplate), for: .normal)
         editCenterImageButton.backgroundColor = .white
         editCenterImageButton.cornerRadius = 20.swh
         editCenterImageButton.tintColor = Style.actionBlue
@@ -187,7 +194,7 @@ final class MyQRCodeContainerNode: ASDisplayNode, ASNetworkImageNodeDelegate {
         qrLogoNode.delegate = self
         qrLogoFallbackNode.cornerRadius = 8.swh
 
-        verifiedIconNode.image = UIImage(systemName: "checkmark.seal.fill")?
+        verifiedIconNode.image = UIImage(named: "ClanSetting/DiscoverVerifiedIcon")?
             .withRenderingMode(.alwaysTemplate)
         verifiedIconNode.tintColor = Style.actionBlue
         verifiedIconNode.contentMode = .scaleAspectFit
@@ -195,8 +202,8 @@ final class MyQRCodeContainerNode: ASDisplayNode, ASNetworkImageNodeDelegate {
         verifiedBackgroundNode.backgroundColor = Style.badgeBackground
         verifiedBackgroundNode.cornerRadius = 10.swh
 
-        configureActionButton(downloadButton, systemName: "square.and.arrow.down")
-        configureActionButton(shareButton, systemName: "square.and.arrow.up")
+        configureActionButton(downloadButton, assetName: "Invite/DownloadIcon")
+        configureActionButton(shareButton, assetName: "Invite/ShareIcon")
         downloadButton.accessibilityLabel = L(L10n.Common.download)
         shareButton.accessibilityLabel = L(L10n.Common.share)
         downloadButton.addTarget(
@@ -216,9 +223,9 @@ final class MyQRCodeContainerNode: ASDisplayNode, ASNetworkImageNodeDelegate {
         ].forEach { addSubnode($0) }
     }
 
-    private func configureActionButton(_ button: ASButtonNode, systemName: String) {
+    private func configureActionButton(_ button: ASButtonNode, assetName: String) {
         button.setImage(
-            UIImage(systemName: systemName)?.withRenderingMode(.alwaysTemplate), for: .normal)
+            UIImage(named: assetName)?.withRenderingMode(.alwaysTemplate), for: .normal)
         button.backgroundColor = .white
         button.cornerRadius = 8.swh
         button.tintColor = Style.actionBlue

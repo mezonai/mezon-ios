@@ -5,6 +5,40 @@ import UIKit
 @MainActor
 final class PeerCallViewController: ViewController {
 
+    static func startAudioCall(
+        context: AccountContext,
+        channel: Mezon_Api_ChannelDescription,
+        user: Mezon_Api_User,
+        from controller: UIViewController
+    ) {
+        guard user.id != (Int64(context.currentUser?.id ?? "") ?? 0) else {
+            Toast.error(L(L10n.QRScanner.cannotCallYourself))
+            return
+        }
+
+        PeerCallLogMessage.sendStartCallLog(
+            context: context,
+            channel: channel,
+            isVideoCall: false
+        )
+
+        let displayName = user.displayName.isEmpty ? (channel.channelLabel.isEmpty ? user.username : channel.channelLabel) : user.displayName
+        let avatarURL = user.avatarURL.isEmpty ? channel.avatars.first : user.avatarURL
+        let callVC = PeerCallViewController(
+            context: context,
+            remoteUserName: displayName,
+            remoteAvatarURL: avatarURL,
+            remoteUserId: user.id,
+            channelId: channel.channelID,
+            isVideo: false
+        )
+        if let nav = controller.navigationController {
+            nav.pushViewController(callVC, animated: true)
+        } else {
+            controller.present(callVC, animated: true)
+        }
+    }
+
     private enum Entry {
         case outgoing(isVideo: Bool, remoteUserName: String, remoteAvatarURL: String?, remoteUserId: Int64, channelId: Int64)
         case incoming(payload: IncomingPeerCallPayload, remoteDisplayName: String, remoteAvatarURL: String?)
@@ -148,6 +182,15 @@ final class PeerCallViewController: ViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        view.accessibilityIdentifier = AccessibilityID.PeerCall.screen
+        closeHeaderButton.accessibilityIdentifier = AccessibilityID.PeerCall.close
+        flipCameraButton.accessibilityIdentifier = AccessibilityID.PeerCall.switchCamera
+        headerVideoButton.accessibilityIdentifier = AccessibilityID.PeerCall.video
+        speakerButton.accessibilityIdentifier = AccessibilityID.PeerCall.speaker
+        micButton.accessibilityIdentifier = AccessibilityID.PeerCall.microphone
+        endButton.accessibilityIdentifier = AccessibilityID.PeerCall.end
+        answerButton.accessibilityIdentifier = AccessibilityID.PeerCall.answer
+        declineButton.accessibilityIdentifier = AccessibilityID.PeerCall.decline
         if case .incoming(let payload, _, _) = entry {
             guard payload.channelId != 0, payload.callerId != 0 else {
                 DispatchQueue.main.async { [weak self] in
@@ -190,7 +233,7 @@ final class PeerCallViewController: ViewController {
         headerBar.translatesAutoresizingMaskIntoConstraints = false
         headerBar.backgroundColor = .clear
 
-        styleHeaderCircle(closeHeaderButton, symbol: "xmark")
+        styleHeaderCircle(closeHeaderButton, assetName: "Profile/CloseDMIcon")
         closeHeaderButton.addTarget(self, action: #selector(closeHeaderTapped), for: .touchUpInside)
 
         headerRightStack.axis = .horizontal
@@ -198,11 +241,11 @@ final class PeerCallViewController: ViewController {
         headerRightStack.alignment = .center
         headerRightStack.translatesAutoresizingMaskIntoConstraints = false
 
-        styleHeaderCircle(flipCameraButton, symbol: "camera.rotate.fill")
+        styleHeaderCircle(flipCameraButton, assetName: "Chat/CameraSwitchIcon")
         flipCameraButton.addTarget(self, action: #selector(flipCameraTapped), for: .touchUpInside)
         flipCameraButton.isHidden = true
 
-        styleHeaderCircle(headerVideoButton, symbol: "video.slash.fill")
+        styleHeaderCircle(headerVideoButton, assetName: "Chat/VideoOffIcon")
         headerVideoButton.addTarget(self, action: #selector(headerVideoTapped), for: .touchUpInside)
 
         headerRightStack.addArrangedSubview(flipCameraButton)
@@ -245,7 +288,7 @@ final class PeerCallViewController: ViewController {
         remoteMutedBanner.setContentHuggingPriority(.required, for: .horizontal)
         remoteMutedBanner.setContentCompressionResistancePriority(.required, for: .vertical)
 
-        remoteMutedIcon.image = UIImage(systemName: "mic.slash.fill")
+        remoteMutedIcon.image = UIImage(named: "Chat/MicrophoneOffIcon")?.withRenderingMode(.alwaysTemplate)
         remoteMutedIcon.contentMode = .scaleAspectFit
         remoteMutedIcon.setContentHuggingPriority(.required, for: .horizontal)
 
@@ -286,7 +329,7 @@ final class PeerCallViewController: ViewController {
         speakerCaption.font = .systemFont(ofSize: 12, weight: .semibold)
 
         configureFooterCircle(endButton, side: 54)
-        endButton.setImage(UIImage(systemName: "phone.down.fill"), for: .normal)
+        endButton.setImage(UIImage(named: "Chat/CallEndIcon")?.withRenderingMode(.alwaysTemplate), for: .normal)
         endButton.addTarget(self, action: #selector(endTapped), for: .touchUpInside)
 
         endCaption.font = .systemFont(ofSize: 12, weight: .semibold)
@@ -325,8 +368,8 @@ final class PeerCallViewController: ViewController {
         incomingFooterStack.alignment = .center
         incomingFooterStack.translatesAutoresizingMaskIntoConstraints = false
 
-        styleCircleButton(answerButton, tint: UIColor.theme.textSuccess, systemImage: "phone.fill", diameter: 56)
-        styleCircleButton(declineButton, tint: UIColor.mezonError, systemImage: "phone.down.fill", diameter: 56)
+        styleCircleButton(answerButton, tint: UIColor.theme.textSuccess, assetName: "Chat/CallAnswerIcon", diameter: 56)
+        styleCircleButton(declineButton, tint: UIColor.mezonError, assetName: "Chat/CallEndIcon", diameter: 56)
         answerButton.addTarget(self, action: #selector(answerTapped), for: .touchUpInside)
         declineButton.addTarget(self, action: #selector(declineTapped), for: .touchUpInside)
 
@@ -598,9 +641,9 @@ final class PeerCallViewController: ViewController {
         for ring in ringViews {
             ring.layer.borderColor = theme.border.cgColor
         }
-        styleHeaderCircle(closeHeaderButton, symbol: "xmark")
-        styleHeaderCircle(flipCameraButton, symbol: "camera.rotate.fill")
-        styleHeaderCircle(headerVideoButton, symbol: localCameraOn ? "video.fill" : "video.slash.fill")
+        styleHeaderCircle(closeHeaderButton, assetName: "Profile/CloseDMIcon")
+        styleHeaderCircle(flipCameraButton, assetName: "Chat/CameraSwitchIcon")
+        styleHeaderCircle(headerVideoButton, assetName: localCameraOn ? "Chat/VideoIcon" : "Chat/VideoOffIcon")
     }
 
     private static let peerCallSuccessAccent = UIColor(red: 76 / 255, green: 175 / 255, blue: 80 / 255, alpha: 1)
@@ -1315,14 +1358,14 @@ final class PeerCallViewController: ViewController {
         if let port = av.currentRoute.outputs.first?.portType {
             switch port {
             case .headphones, .headsetMic:
-                spkName = "headphones"
+                spkName = "Chat/HeadphonesIcon"
             default:
-                spkName = Self.peerCallFooterSpeakerSymbol(speakerRouteOn: speakerRouteOn, session: av)
+                spkName = Self.peerCallFooterSpeakerAsset(speakerRouteOn: speakerRouteOn, session: av)
             }
         } else {
-            spkName = Self.peerCallFooterSpeakerSymbol(speakerRouteOn: speakerRouteOn, session: av)
+            spkName = Self.peerCallFooterSpeakerAsset(speakerRouteOn: speakerRouteOn, session: av)
         }
-        speakerButton.setImage(UIImage(systemName: spkName), for: .normal)
+        speakerButton.setImage(UIImage(named: spkName)?.withRenderingMode(.alwaysTemplate), for: .normal)
         let spkrTitle = PeerCallLocalizedStrings.actionSpeaker
         speakerCaption.text = spkrTitle
         speakerButton.accessibilityLabel = spkrTitle
@@ -1337,19 +1380,19 @@ final class PeerCallViewController: ViewController {
             micButton.backgroundColor = dimFill
             micButton.tintColor = inactiveTint
         }
-        micButton.setImage(UIImage(systemName: localMicOn ? "mic.fill" : "mic.slash.fill"), for: .normal)
+        micButton.setImage(UIImage(named: localMicOn ? "Chat/MicrophoneIcon" : "Chat/MicrophoneOffIcon")?.withRenderingMode(.alwaysTemplate), for: .normal)
     }
 
     private static let peerCallEndAccent = UIColor(red: 220 / 255, green: 38 / 255, blue: 38 / 255, alpha: 1)
 
-    private static func peerCallFooterSpeakerSymbol(speakerRouteOn: Bool, session: AVAudioSession) -> String {
+    private static func peerCallFooterSpeakerAsset(speakerRouteOn: Bool, session: AVAudioSession) -> String {
         if Self.peerCallAudioRouteHasBluetooth(session), !speakerRouteOn {
-            return "headphones"
+            return "Chat/HeadphonesIcon"
         }
         if speakerRouteOn {
-            return "speaker.wave.2.fill"
+            return "Chat/SpeakerIcon"
         }
-        return "iphone.radiowaves.left.and.right"
+        return "Chat/SpeakerLowIcon"
     }
 
     private static func peerCallAudioRouteHasBluetooth(_ session: AVAudioSession) -> Bool {
@@ -1382,7 +1425,7 @@ final class PeerCallViewController: ViewController {
             headerVideoButton.backgroundColor = dimFill
             headerVideoButton.tintColor = theme.text
         }
-        let img = localCameraOn ? UIImage(systemName: "video.fill") : UIImage(systemName: "video.slash.fill")
+        let img = UIImage(named: localCameraOn ? "Chat/VideoIcon" : "Chat/VideoOffIcon")?.withRenderingMode(.alwaysTemplate)
         headerVideoButton.setImage(img, for: .normal)
     }
 
@@ -1397,31 +1440,28 @@ final class PeerCallViewController: ViewController {
         localVideoView.isMirrored = session?.isUsingFrontCamera ?? true
     }
 
-    private func styleHeaderCircle(_ b: UIButton, symbol: String) {
+    private func styleHeaderCircle(_ b: UIButton, assetName: String) {
         b.translatesAutoresizingMaskIntoConstraints = false
         b.backgroundColor = UIColor.theme.secondaryWeight
         b.tintColor = UIColor.theme.text
         b.layer.cornerRadius = 24
         b.clipsToBounds = true
-        b.setImage(UIImage(systemName: symbol), for: .normal)
-        b.imageView?.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
+        b.setImage(UIImage(named: assetName)?.withRenderingMode(.alwaysTemplate), for: .normal)
     }
 
     private func configureFooterCircle(_ b: UIButton, side: CGFloat) {
         b.translatesAutoresizingMaskIntoConstraints = false
         b.layer.cornerRadius = side / 2
         b.clipsToBounds = true
-        b.imageView?.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 21, weight: .semibold)
     }
 
-    private func styleCircleButton(_ b: UIButton, tint: UIColor, systemImage: String, diameter: CGFloat = 56) {
+    private func styleCircleButton(_ b: UIButton, tint: UIColor, assetName: String, diameter: CGFloat = 56) {
         b.translatesAutoresizingMaskIntoConstraints = false
         b.backgroundColor = .clear
         b.tintColor = tint
         b.layer.cornerRadius = diameter / 2
-        let img = UIImage(systemName: systemImage)
+        let img = UIImage(named: assetName)?.withRenderingMode(.alwaysTemplate)
         b.setImage(img, for: .normal)
-        b.imageView?.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 20, weight: .semibold)
     }
 }
 

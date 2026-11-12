@@ -3466,6 +3466,9 @@ struct Mezon_Realtime_ClanUpdatedEvent: Sendable {
   /// community vanity short url (clan_discover)
   var shortURL: String = String()
 
+  /// Pro plan
+  var proPlan: Bool = false
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   init() {}
@@ -3520,6 +3523,12 @@ struct Mezon_Realtime_UserProfileUpdatedEvent: Sendable {
 
   /// the encrypt_private_key
   var encryptPrivateKey: String = String()
+
+  /// profile banner url
+  var banner: String = String()
+
+  /// Pro plan
+  var proPlan: Bool = false
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -10190,7 +10199,7 @@ extension Mezon_Realtime_ClanCreatedEvent: SwiftProtobuf.Message, SwiftProtobuf.
 
 extension Mezon_Realtime_ClanUpdatedEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".ClanUpdatedEvent"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}clan_id\0\u{3}clan_name\0\u{1}logo\0\u{1}banner\0\u{1}status\0\u{3}is_onboarding\0\u{3}welcome_channel_id\0\u{3}onboarding_banner\0\u{3}community_banner\0\u{3}is_community\0\u{1}about\0\u{1}description\0\u{3}prevent_anonymous\0\u{1}hashtags\0\u{3}short_url\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}clan_id\0\u{3}clan_name\0\u{1}logo\0\u{1}banner\0\u{1}status\0\u{3}is_onboarding\0\u{3}welcome_channel_id\0\u{3}onboarding_banner\0\u{3}community_banner\0\u{3}is_community\0\u{1}about\0\u{1}description\0\u{3}prevent_anonymous\0\u{1}hashtags\0\u{3}short_url\0\u{3}pro_plan\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -10213,6 +10222,7 @@ extension Mezon_Realtime_ClanUpdatedEvent: SwiftProtobuf.Message, SwiftProtobuf.
       case 13: try { try decoder.decodeSingularBoolField(value: &self.preventAnonymous) }()
       case 14: try { try decoder.decodeSingularStringField(value: &self.hashtags) }()
       case 15: try { try decoder.decodeSingularStringField(value: &self.shortURL) }()
+      case 16: try { try decoder.decodeSingularBoolField(value: &self.proPlan) }()
       default: break
       }
     }
@@ -10264,6 +10274,9 @@ extension Mezon_Realtime_ClanUpdatedEvent: SwiftProtobuf.Message, SwiftProtobuf.
     if !self.shortURL.isEmpty {
       try visitor.visitSingularStringField(value: self.shortURL, fieldNumber: 15)
     }
+    if self.proPlan != false {
+      try visitor.visitSingularBoolField(value: self.proPlan, fieldNumber: 16)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -10283,6 +10296,7 @@ extension Mezon_Realtime_ClanUpdatedEvent: SwiftProtobuf.Message, SwiftProtobuf.
     if lhs.preventAnonymous != rhs.preventAnonymous {return false}
     if lhs.hashtags != rhs.hashtags {return false}
     if lhs.shortURL != rhs.shortURL {return false}
+    if lhs.proPlan != rhs.proPlan {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -10335,7 +10349,7 @@ extension Mezon_Realtime_ClanProfileUpdatedEvent: SwiftProtobuf.Message, SwiftPr
 
 extension Mezon_Realtime_UserProfileUpdatedEvent: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".UserProfileUpdatedEvent"
-  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}user_id\0\u{3}display_name\0\u{1}avatar\0\u{3}about_me\0\u{3}channel_id\0\u{3}clan_id\0\u{3}encrypt_private_key\0")
+  static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}user_id\0\u{3}display_name\0\u{1}avatar\0\u{3}about_me\0\u{3}channel_id\0\u{3}clan_id\0\u{3}encrypt_private_key\0\u{1}banner\0\u{3}pro_plan\0")
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -10350,6 +10364,8 @@ extension Mezon_Realtime_UserProfileUpdatedEvent: SwiftProtobuf.Message, SwiftPr
       case 5: try { try decoder.decodeSingularInt64Field(value: &self.channelID) }()
       case 6: try { try decoder.decodeSingularInt64Field(value: &self.clanID) }()
       case 7: try { try decoder.decodeSingularStringField(value: &self.encryptPrivateKey) }()
+      case 8: try { try decoder.decodeSingularStringField(value: &self.banner) }()
+      case 9: try { try decoder.decodeSingularBoolField(value: &self.proPlan) }()
       default: break
       }
     }
@@ -10377,6 +10393,12 @@ extension Mezon_Realtime_UserProfileUpdatedEvent: SwiftProtobuf.Message, SwiftPr
     if !self.encryptPrivateKey.isEmpty {
       try visitor.visitSingularStringField(value: self.encryptPrivateKey, fieldNumber: 7)
     }
+    if !self.banner.isEmpty {
+      try visitor.visitSingularStringField(value: self.banner, fieldNumber: 8)
+    }
+    if self.proPlan != false {
+      try visitor.visitSingularBoolField(value: self.proPlan, fieldNumber: 9)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -10388,6 +10410,8 @@ extension Mezon_Realtime_UserProfileUpdatedEvent: SwiftProtobuf.Message, SwiftPr
     if lhs.channelID != rhs.channelID {return false}
     if lhs.clanID != rhs.clanID {return false}
     if lhs.encryptPrivateKey != rhs.encryptPrivateKey {return false}
+    if lhs.banner != rhs.banner {return false}
+    if lhs.proPlan != rhs.proPlan {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

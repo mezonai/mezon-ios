@@ -124,6 +124,9 @@ final class AccountContextImpl: AccountContext {
         req.minutes = 0
         req.untilTurnOn = true
         try await account.network.updateUserStatus(req, token: token)
+        if let myId = currentUserNumericId() {
+            engine.clanData.setPresence(userId: myId, status: status)
+        }
         if var u = currentUser {
             u.status = status
             applyCurrentUser(u)
@@ -146,6 +149,9 @@ final class AccountContextImpl: AccountContext {
         req.minutes = minutes
         req.untilTurnOn = noClear
         try await account.network.updateUserCustomStatus(req, token: token)
+        if let myId = currentUserNumericId() {
+            engine.clanData.setCustomStatus(userId: myId, text: trimmed)
+        }
 
         if var u = currentUser {
             if trimmed.isEmpty {
@@ -383,6 +389,7 @@ final class AccountContextImpl: AccountContext {
         SessionRefreshManager.shared.reset()
         DirectMessageListGate.reset()
         DmBadgeMessageDedup.reset()
+        DmReadFloor.reset()
         buzz.reset()
         account.network.resetProtoBaseURLToDefault()
         session = nil
@@ -868,13 +875,29 @@ final class AccountContextImpl: AccountContext {
         }
         if cachedClanId != 0 {
             currentClanId = cachedClanId
+            let epoch = sessionEpoch
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 await ClanChannelDescsGate.ensureFetchedBeforeJoin(context: self, clanId: cachedClanId, force: true)
-                self.account.socket.joinClanChat(clanId: cachedClanId)
-                guard let token = await self.getTokenPreferringCachedSkipSessionReadyWait(),
-                      self.currentClanId == cachedClanId else { return }
-                await self.engine.clanData.refetchVoiceChannelUsersAfterClanJoin(clanId: cachedClanId, token: token)
+                guard self.isStillCurrentSession(epoch: epoch), self.currentClanId == cachedClanId else { return }
+                async let clanJoin: Void = self.account.socket.joinClanChatAwait(clanId: cachedClanId)
+                let token = await self.getTokenPreferringCachedSkipSessionReadyWait()
+                guard self.isStillCurrentSession(epoch: epoch), self.currentClanId == cachedClanId,
+                      self.account.socket.isConnected else { return }
+                guard let token else {
+                    _ = try? await clanJoin
+                    return
+                }
+                async let voiceResult: Void = self.engine.clanData.refetchVoiceChannelUsersAfterClanJoin(clanId: cachedClanId, token: token)
+               
+                do {
+                    try await clanJoin
+                    if self.isStillCurrentSession(epoch: epoch), self.currentClanId == cachedClanId,
+                       self.account.socket.isConnected {
+                        await self.engine.clanData.refetchEvents(clanId: cachedClanId, token: token)
+                    }
+                } catch {}
+                await voiceResult
             }
         }
     }
@@ -1171,7 +1194,7 @@ final class AccountContextImpl: AccountContext {
                 NotificationCenter.default.post(
                     name: Notification.Name("MezonChannelMessageDeleted"),
                     object: nil,
-                    userInfo: ["channelId": channelId, "clanId": clanId]
+                    userInfo: ["channelId": channelId, "clanId": clanId, "messageId": apiMessage.messageID]
                 )
                 return
             }
@@ -1270,6 +1293,7 @@ final class AccountContextImpl: AccountContext {
                 ) && DmBadgeMessageDedup.markCounted(messageCopy.messageID)
                 var userInfo: [String: Any] = [
                     "channelId": channelId, "clanId": clanId,
+                    "messageId": messageCopy.messageID,
                     "senderId": String(messageCopy.senderID), "mode": messageCopy.mode,
                     "timestampSeconds": messageCopy.createTimeSeconds,
                     "messageCode": messageCopy.code,
@@ -1339,7 +1363,7 @@ final class AccountContextImpl: AccountContext {
             NotificationCenter.default.post(
                 name: Notification.Name("MezonChannelMessageDeleted"),
                 object: nil,
-                userInfo: ["channelId": removed.channelID, "clanId": removed.clanID]
+                userInfo: ["channelId": removed.channelID, "clanId": removed.clanID, "messageId": removed.messageID]
             )
 
         case .lastSeen(let e):
@@ -1455,12 +1479,15 @@ final class AccountContextImpl: AccountContext {
 
         case .customStatus(let e):
             applyIncomingCustomStatusEvent(e)
+            engine.clanData.applyCustomStatus(e)
 
         case .userStatus(let e):
             applyIncomingUserStatusEvent(e)
+            engine.clanData.applyUserStatus(e)
 
         case .statusPresence(let e):
             applyIncomingStatusPresenceEvent(e)
+            engine.clanData.applyStatusPresence(e)
 
         case .lastPin(let e):
             ChannelPinnedStatePersistence.applyPinMessage(

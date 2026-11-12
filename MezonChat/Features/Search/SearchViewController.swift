@@ -76,8 +76,8 @@ enum SearchFilterOption {
 
     var iconName: String {
         switch self {
-        case .from:     return "person"
-        case .mentions: return "at"
+        case .from:     return "TabBar/ProfileIcon"
+        case .mentions: return "Notifications/mentions"
         }
     }
 }
@@ -1446,6 +1446,9 @@ final class SearchViewController: ViewController {
             canJoin: !streamUserIds.isEmpty,
             streamViewerCount: context.engine.clanData.streamViewerCount(clanId: clanIdForChannel, channelId: channel.channelID),
             streamPublisher: streamPublisher,
+            streamState: { [weak self] in
+                self?.joinStreamSheetState(clanId: clanIdForChannel, channelId: channel.channelID)
+            },
             onChat: { [weak self] in self?.pushChatFromVoiceSheet(for: channel) },
             onJoinVoice: { [weak self] _ in self?.pushStreamingRoom(for: channel) },
             onInvite: {}
@@ -1475,6 +1478,16 @@ final class SearchViewController: ViewController {
         CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
         present(sheet, animated: true)
         CATransaction.commit()
+    }
+
+    private func joinStreamSheetState(clanId: Int64, channelId: Int64) -> JoinStreamSheetState {
+        let clanData = context.engine.clanData
+        let userIds = clanData.streamMembers(clanId: clanId, channelId: channelId).map { String($0.userID) }
+        return JoinStreamSheetState(
+            canJoin: !userIds.isEmpty,
+            viewerCount: clanData.streamViewerCount(clanId: clanId, channelId: channelId),
+            publisher: userIds.first.flatMap { resolveVoiceMember(uid: $0, clanIdForChannel: clanId) }
+        )
     }
 
     private func pushStreamingRoom(for channel: Mezon_Api_ChannelDescription) {
@@ -1721,7 +1734,7 @@ extension SearchViewController: ASTableDataSource, ASTableDelegate {
 
     private static func typeToSearchEmptyCell() -> SearchEmptyCellNode {
         SearchEmptyCellNode(
-            icon: "magnifyingglass",
+            iconAssetName: "Setting/SearchIcon",
             title: "Search Mezon",
             subtitle: "Type something to find\nmembers and channels"
         )
@@ -1957,7 +1970,7 @@ final class SearchInputNode: ASDisplayNode {
         self.showFilterButton = showFilterButton
         super.init()
 
-        iconNode.image = UIImage(systemName: "magnifyingglass")?.withRenderingMode(.alwaysTemplate)
+        iconNode.image = UIImage(named: "Setting/SearchIcon")?.withRenderingMode(.alwaysTemplate)
         iconNode.contentMode = .scaleAspectFit
         addSubnode(iconNode)
     }
@@ -1965,6 +1978,7 @@ final class SearchInputNode: ASDisplayNode {
     override func didLoad() {
         super.didLoad()
         let t = UIColor.theme
+        textField.accessibilityIdentifier = AccessibilityID.Search.input("global")
         textField.font = .systemFont(ofSize: 14)
         textField.textColor = t.textStrong
         textField.attributedPlaceholder = NSAttributedString(
@@ -2294,7 +2308,7 @@ final class SearchEmptyCellNode: ASCellNode {
         addSubnode(textNode)
     }
 
-    init(icon: String, title: String, subtitle: String) {
+    init(iconAssetName: String, title: String, subtitle: String) {
         hasHero = true
         super.init()
         selectionStyle = .none
@@ -2304,9 +2318,12 @@ final class SearchEmptyCellNode: ASCellNode {
         iconBackplate.backgroundColor = t.secondary
         iconBackplate.cornerRadius = 32.sf
 
-        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 26.sf, weight: .medium)
-        iconNode.image = UIImage(systemName: icon, withConfiguration: symbolConfig)?
-            .withTintColor(t.iconSecondary, renderingMode: .alwaysOriginal)
+        let iconSize = CGSize(width: 26.sf, height: 26.sf)
+        iconNode.image = UIImage(named: iconAssetName).map { image in
+            UIGraphicsImageRenderer(size: iconSize).image { _ in
+                image.draw(in: CGRect(origin: .zero, size: iconSize))
+            }.withTintColor(t.iconSecondary, renderingMode: .alwaysOriginal)
+        }
         iconNode.contentMode = .center
 
         titleNode.attributedText = NSAttributedString(
@@ -2940,8 +2957,10 @@ final class SearchFilterTooltipView: UIView {
     private func createOptionRow(option: SearchFilterOption, y: CGFloat) -> UIView {
         let t = UIColor.theme
         let container = UIView(frame: CGRect(x: 0, y: y, width: 220, height: 48))
+        container.accessibilityIdentifier = option == .from
+            ? AccessibilityID.Search.filterFrom : AccessibilityID.Search.filterMentions
 
-        let icon = UIImageView(image: UIImage(systemName: option.iconName)?.withRenderingMode(.alwaysTemplate))
+        let icon = UIImageView(image: UIImage(named: option.iconName)?.withRenderingMode(.alwaysTemplate))
         icon.tintColor = t.textDisabled
         icon.contentMode = .scaleAspectFit
         icon.frame = CGRect(x: 190, y: 14, width: 20, height: 20)

@@ -6,6 +6,12 @@ enum JoinChannelSheetKind {
     case streaming
 }
 
+struct JoinStreamSheetState: Equatable {
+    let canJoin: Bool
+    let viewerCount: Int?
+    let publisher: VoiceMemberDisplay?
+}
+
 final class JoinVoiceChannelSheetViewController: UIViewController {
 
     static let sheetTransitionDuration: CFTimeInterval = 0.22
@@ -31,9 +37,11 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
     private let chatUnreadCount: Int
     private let members: [VoiceMemberDisplay]
     private let kind: JoinChannelSheetKind
-    private let canJoin: Bool
-    private let streamViewerCount: Int?
-    private let streamPublisher: VoiceMemberDisplay?
+    private var canJoin: Bool
+    private var streamViewerCount: Int?
+    private var streamPublisher: VoiceMemberDisplay?
+    private let streamState: (() -> JoinStreamSheetState?)?
+    private var presenceObserver: NSObjectProtocol?
     private let onChat: () -> Void
     private let onJoinVoice: (SfuRole) -> Void
     private let onInvite: () -> Void
@@ -73,6 +81,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         canJoin: Bool = true,
         streamViewerCount: Int? = nil,
         streamPublisher: VoiceMemberDisplay? = nil,
+        streamState: (() -> JoinStreamSheetState?)? = nil,
         onChat: @escaping () -> Void,
         onJoinVoice: @escaping (SfuRole) -> Void,
         onInvite: @escaping () -> Void = {}
@@ -84,6 +93,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         self.canJoin = canJoin
         self.streamViewerCount = streamViewerCount
         self.streamPublisher = streamPublisher
+        self.streamState = streamState
         self.onChat = onChat
         self.onJoinVoice = onJoinVoice
         self.onInvite = onInvite
@@ -94,11 +104,18 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        view.accessibilityIdentifier = kind == .voice
+            ? AccessibilityID.JoinChannel.voiceSheet : AccessibilityID.JoinChannel.streamSheet
+        dismissButton.accessibilityIdentifier = AccessibilityID.JoinChannel.close
+        inviteButton.accessibilityIdentifier = AccessibilityID.JoinChannel.invite
+        joinButton.accessibilityIdentifier = AccessibilityID.JoinChannel.join
+        chatButton.accessibilityIdentifier = AccessibilityID.JoinChannel.chat
+        roleDropdownButton.accessibilityIdentifier = AccessibilityID.JoinChannel.roleDropdown
         view.layer.cornerRadius = 16
         view.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         view.clipsToBounds = true
 
-        grabber.backgroundColor = UIColor.theme.textDisabled.withAlphaComponent(0.5)
+        grabber.backgroundColor = UIColor.theme.borderPrimary
         grabber.layer.cornerRadius = 2.5
         grabber.translatesAutoresizingMaskIntoConstraints = false
 
@@ -107,7 +124,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         headerLeft.spacing = 10
         headerLeft.translatesAutoresizingMaskIntoConstraints = false
 
-        styleTertiaryCircleButton(dismissButton, systemImage: "chevron.down", pointSize: 18)
+        styleTertiaryCircleButton(dismissButton, assetName: "Channel/JoinChevronDown")
         dismissButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -121,7 +138,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         headerLeft.addArrangedSubview(dismissButton)
         headerLeft.addArrangedSubview(titleLabel)
 
-        styleTertiaryCircleButton(inviteButton, systemImage: "person.badge.plus", pointSize: 18)
+        styleTertiaryCircleButton(inviteButton, assetName: "Chat/UserPlusIcon")
         inviteButton.addTarget(self, action: #selector(inviteTapped), for: .touchUpInside)
         inviteButton.isHidden = kind == .streaming
 
@@ -134,17 +151,16 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         headerRow.addArrangedSubview(inviteButton)
 
         iconOuter.translatesAutoresizingMaskIntoConstraints = false
-        iconOuter.backgroundColor = UIColor.theme.tertiary
+        iconOuter.backgroundColor = UIColor.theme.secondary
         iconOuter.layer.cornerRadius = 999
+        iconOuter.layer.borderWidth = 1
+        iconOuter.layer.borderColor = UIColor.theme.borderPrimary.cgColor
 
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.contentMode = .scaleAspectFit
         iconView.isUserInteractionEnabled = false
-        iconView.image = kind == .streaming
-            ? (UIImage(named: "Channel/channelStream") ?? UIImage(systemName: "dot.radiowaves.left.and.right"))?
-                .withRenderingMode(.alwaysTemplate)
-            : (UIImage(named: "Chat/SpeakerIcon") ?? UIImage(systemName: "speaker.wave.2.fill"))?
-                .withRenderingMode(.alwaysTemplate)
+        iconView.image = UIImage(named: kind == .streaming ? "Channel/JoinStreamIcon" : "Channel/JoinVoiceIcon")?
+            .withRenderingMode(.alwaysTemplate)
         iconView.tintColor = UIColor.theme.textStrong
 
         iconOuter.addSubview(iconView)
@@ -164,51 +180,16 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         voiceTitleLabel.textColor = UIColor.theme.textStrong
         voiceTitleLabel.textAlignment = .center
         voiceTitleLabel.isUserInteractionEnabled = false
-        voiceTitleLabel.text = kind == .streaming
-            ? NSLocalizedString(
-                "streamingRoom.joinSheet.stream", tableName: nil, bundle: .main, value: "Stream", comment: "")
-            : NSLocalizedString(
-                "voiceChannel.joinSheet.voiceRoom", tableName: nil, bundle: .main, value: "Voice Room", comment: "")
-
-        if let publisher = streamPublisher {
-            let title = NSMutableAttributedString(string: publisher.name + "  ", attributes: [
-                .font: UIFont.systemFont(ofSize: 20, weight: .semibold),
-            ])
-            title.append(NSAttributedString(string: "LIVE", attributes: [
-                .font: UIFont.systemFont(ofSize: 12, weight: .bold), .foregroundColor: UIColor.systemRed,
-            ]))
-            voiceTitleLabel.attributedText = title
-        }
+        updateVoiceTitle()
 
         statusLabel.font = .systemFont(ofSize: 16, weight: .regular)
-        statusLabel.textColor = UIColor.theme.textDisabled
+        statusLabel.textColor = UIColor.theme.textNormal
         statusLabel.textAlignment = .center
         statusLabel.numberOfLines = 2
         statusLabel.lineBreakMode = .byTruncatingTail
         statusLabel.isUserInteractionEnabled = false
         statusLabel.setContentCompressionResistancePriority(.required, for: .vertical)
-        let hasActiveStream = kind == .streaming && canJoin
-        if members.isEmpty && !hasActiveStream {
-            statusLabel.text = NSLocalizedString(
-                kind == .streaming ? "streamingRoom.joinSheet.emptyStream" : "voiceChannel.joinSheet.emptyRoom",
-                tableName: nil,
-                bundle: .main,
-                value: kind == .streaming ? "No one is currently in stream" : "No one is currently in room",
-                comment: "")
-        } else {
-            statusLabel.text = NSLocalizedString(
-                "voiceChannel.joinSheet.waiting", tableName: nil, bundle: .main,
-                value: "Everyone is waiting for you inside", comment: "")
-        }
-        if let publisher = streamPublisher {
-            statusLabel.text = String(format: NSLocalizedString(
-                "streamingRoom.isLive", tableName: nil, bundle: .main, value: "%@ is live", comment: ""), publisher.name)
-        }
-        if kind == .streaming, canJoin, let streamViewerCount {
-            let count = String(format: NSLocalizedString(
-                "streamingRoom.viewerCount", tableName: nil, bundle: .main, value: "%d viewers", comment: ""), streamViewerCount)
-            statusLabel.text = [statusLabel.text, count].compactMap { $0 }.joined(separator: "\n")
-        }
+        updateStatusText()
 
         buildMembersRow()
 
@@ -274,7 +255,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
             chatWrap.widthAnchor.constraint(equalToConstant: 50),
             chatWrap.heightAnchor.constraint(equalToConstant: 50),
         ])
-        styleTertiaryCircleButton(chatButton, systemImage: "bubble.left.and.bubble.right.fill", pointSize: 18)
+        styleTertiaryCircleButton(chatButton, assetName: "Chat/ChatBubbleIcon")
         chatButton.addTarget(self, action: #selector(chatTapped), for: .touchUpInside)
         chatWrap.addSubview(chatButton)
         NSLayoutConstraint.activate([
@@ -371,10 +352,20 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
 
         NotificationCenter.default.addObserver(
             self, selector: #selector(applyTheme), name: ThemeManager.didChangeNotification, object: nil)
+        if kind == .streaming, streamState != nil {
+            presenceObserver = NotificationCenter.default.addObserver(
+                forName: .mezonVoicePresenceChanged, object: nil, queue: .main
+            ) { [weak self] _ in
+                self?.refreshStreamState()
+            }
+        }
     }
 
     deinit {
         NotificationCenter.default.removeObserver(self, name: ThemeManager.didChangeNotification, object: nil)
+        if let presenceObserver {
+            NotificationCenter.default.removeObserver(presenceObserver)
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -391,8 +382,65 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         }
     }
 
+    private func refreshStreamState() {
+        guard let state = streamState?() else { return }
+        let current = JoinStreamSheetState(canJoin: canJoin, viewerCount: streamViewerCount, publisher: streamPublisher)
+        guard state != current else { return }
+        canJoin = state.canJoin
+        streamViewerCount = state.viewerCount
+        streamPublisher = state.publisher
+        joinButton.isEnabled = isJoinActionEnabled
+        updateVoiceTitle()
+        updateStatusText()
+        applyTheme()
+    }
+
+    private func updateVoiceTitle() {
+        voiceTitleLabel.text = kind == .streaming
+            ? NSLocalizedString(
+                "streamingRoom.joinSheet.stream", tableName: nil, bundle: .main, value: "Stream", comment: "")
+            : NSLocalizedString(
+                "voiceChannel.joinSheet.voiceRoom", tableName: nil, bundle: .main, value: "Voice Room", comment: "")
+
+        if let publisher = streamPublisher {
+            let title = NSMutableAttributedString(string: publisher.name + "  ", attributes: [
+                .font: UIFont.systemFont(ofSize: 20, weight: .semibold),
+            ])
+            title.append(NSAttributedString(string: "LIVE", attributes: [
+                .font: UIFont.systemFont(ofSize: 12, weight: .bold), .foregroundColor: UIColor.systemRed,
+            ]))
+            voiceTitleLabel.attributedText = title
+        }
+    }
+
+    private func updateStatusText() {
+        let hasActiveStream = kind == .streaming && canJoin
+        if members.isEmpty && !hasActiveStream {
+            statusLabel.text = NSLocalizedString(
+                kind == .streaming ? "streamingRoom.joinSheet.emptyStream" : "voiceChannel.joinSheet.emptyRoom",
+                tableName: nil,
+                bundle: .main,
+                value: kind == .streaming ? "No one is currently in stream" : "No one is currently in room",
+                comment: "")
+        } else {
+            statusLabel.text = NSLocalizedString(
+                "voiceChannel.joinSheet.waiting", tableName: nil, bundle: .main,
+                value: "Everyone is waiting for you inside", comment: "")
+        }
+        if let publisher = streamPublisher {
+            statusLabel.text = String(format: NSLocalizedString(
+                "streamingRoom.isLive", tableName: nil, bundle: .main, value: "%@ is live", comment: ""), publisher.name)
+        }
+        if kind == .streaming, canJoin, let streamViewerCount {
+            let count = String(format: NSLocalizedString(
+                "streamingRoom.viewerCount", tableName: nil, bundle: .main, value: "%d viewers", comment: ""), streamViewerCount)
+            statusLabel.text = [statusLabel.text, count].compactMap { $0 }.joined(separator: "\n")
+        }
+    }
+
     private func updateJoinButtonAppearance() {
-        let background = joinButton.isEnabled ? Self.joinVoiceGreen : UIColor.theme.textDisabled
+        let theme = UIColor.theme
+        let background = joinButton.isEnabled ? theme.statusOnline : theme.textDisabled
         let alpha: CGFloat = joinButton.isEnabled ? 1 : 0.72
         if kind == .voice {
             splitJoinContainer.backgroundColor = background
@@ -414,9 +462,8 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         splitJoinDivider.backgroundColor = UIColor.black.withAlphaComponent(0.2)
 
         roleDropdownButton.translatesAutoresizingMaskIntoConstraints = false
-        let chevronCfg = UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
         roleDropdownButton.setImage(
-            UIImage(systemName: "chevron.down", withConfiguration: chevronCfg)?.withRenderingMode(.alwaysTemplate),
+            UIImage(named: "Channel/JoinChevronDown")?.withRenderingMode(.alwaysTemplate),
             for: .normal)
         roleDropdownButton.tintColor = .white
         roleDropdownButton.addTarget(self, action: #selector(roleDropdownTapped), for: .touchUpInside)
@@ -475,7 +522,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
 
         let panel = UIView()
         panel.translatesAutoresizingMaskIntoConstraints = false
-        panel.backgroundColor = UIColor.theme.tertiary
+        panel.backgroundColor = UIColor.theme.primary
         panel.layer.cornerRadius = 14
         panel.layer.cornerCurve = .continuous
         panel.layer.borderWidth = 1
@@ -554,6 +601,8 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         row.translatesAutoresizingMaskIntoConstraints = false
         row.heightAnchor.constraint(equalToConstant: 46).isActive = true
         row.tag = role == .audience ? 1 : 0
+        row.accessibilityIdentifier = role == .audience
+            ? AccessibilityID.JoinChannel.audienceRole : AccessibilityID.JoinChannel.speakerRole
         row.addTarget(self, action: #selector(roleMenuRowTapped(_:)), for: .touchUpInside)
 
         let selected = selectedRole == role
@@ -567,9 +616,8 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
 
         let check = UIImageView()
         check.translatesAutoresizingMaskIntoConstraints = false
-        let checkCfg = UIImage.SymbolConfiguration(pointSize: 13, weight: .bold)
-        check.image = UIImage(systemName: "checkmark", withConfiguration: checkCfg)?.withRenderingMode(.alwaysTemplate)
-        check.tintColor = Self.joinVoiceGreen
+        check.image = UIImage(named: "Channel/JoinRoleCheck")?.withRenderingMode(.alwaysTemplate)
+        check.tintColor = UIColor.theme.statusOnline
         check.isHidden = !selected
         check.isUserInteractionEnabled = false
 
@@ -613,13 +661,13 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
                 "voiceChannel.joinSheet.joinAsAudienceTitle", tableName: nil, bundle: .main, value: "Join as Audience", comment: "")
     }
 
-    private static let joinVoiceGreen = UIColor(red: 0.133, green: 0.694, blue: 0.298, alpha: 1)
-
-    private func styleTertiaryCircleButton(_ button: UIButton, systemImage: String, pointSize: CGFloat) {
+    private func styleTertiaryCircleButton(_ button: UIButton, assetName: String) {
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.backgroundColor = UIColor.theme.tertiary
+        button.backgroundColor = UIColor.theme.secondary
         button.layer.cornerRadius = 22
-        let img = UIImage(systemName: systemImage, withConfiguration: UIImage.SymbolConfiguration(pointSize: pointSize, weight: .medium))
+        button.layer.borderWidth = 1
+        button.layer.borderColor = UIColor.theme.borderPrimary.cgColor
+        let img = UIImage(named: assetName)
         button.setImage(img?.withRenderingMode(.alwaysTemplate), for: .normal)
         button.tintColor = UIColor.theme.textStrong
         button.imageView?.contentMode = .scaleAspectFit
@@ -653,7 +701,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
             let container = TextAvatarView(size: avatarSize)
             container.translatesAutoresizingMaskIntoConstraints = false
             container.layer.borderWidth = 2
-            container.layer.borderColor = UIColor.theme.secondary.cgColor
+            container.layer.borderColor = UIColor.theme.primary.cgColor
 
             let imageView = UIImageView()
             imageView.translatesAutoresizingMaskIntoConstraints = false
@@ -700,9 +748,9 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
             badge.translatesAutoresizingMaskIntoConstraints = false
             badge.layer.cornerRadius = avatarSize / 2
             badge.clipsToBounds = true
-            badge.backgroundColor = UIColor.theme.tertiary
+            badge.backgroundColor = UIColor.theme.secondary
             badge.layer.borderWidth = 2
-            badge.layer.borderColor = UIColor.theme.secondary.cgColor
+            badge.layer.borderColor = UIColor.theme.primary.cgColor
 
             let badgeLabel = UILabel()
             badgeLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -727,17 +775,22 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
     }
 
     @objc private func applyTheme() {
-        view.backgroundColor = UIColor.theme.secondary
+        view.backgroundColor = UIColor.theme.primary
+        grabber.backgroundColor = UIColor.theme.borderPrimary
+        iconOuter.layer.borderColor = UIColor.theme.borderPrimary.cgColor
+        for button in [dismissButton, inviteButton, chatButton] {
+            button.layer.borderColor = UIColor.theme.borderPrimary.cgColor
+        }
         titleLabel.textColor = UIColor.theme.textStrong
         voiceTitleLabel.textColor = UIColor.theme.textStrong
-        statusLabel.textColor = UIColor.theme.textDisabled
-        iconOuter.backgroundColor = UIColor.theme.tertiary
+        statusLabel.textColor = UIColor.theme.textNormal
+        iconOuter.backgroundColor = UIColor.theme.secondary
         iconView.tintColor = UIColor.theme.textStrong
-        dismissButton.backgroundColor = UIColor.theme.tertiary
+        dismissButton.backgroundColor = UIColor.theme.secondary
         dismissButton.tintColor = UIColor.theme.textStrong
-        inviteButton.backgroundColor = UIColor.theme.tertiary
+        inviteButton.backgroundColor = UIColor.theme.secondary
         inviteButton.tintColor = UIColor.theme.textStrong
-        chatButton.backgroundColor = UIColor.theme.tertiary
+        chatButton.backgroundColor = UIColor.theme.secondary
         chatButton.tintColor = UIColor.theme.textStrong
         joinButton.setTitleColor(.white, for: .normal)
         joinButton.setTitleColor(.white, for: .highlighted)
@@ -882,8 +935,12 @@ final class ExternalMeetingLinkSheetViewController: UIViewController {
 
         dismissButton.translatesAutoresizingMaskIntoConstraints = false
         dismissButton.layer.cornerRadius = 22
+        view.accessibilityIdentifier = AccessibilityID.JoinChannel.externalSheet
+        dismissButton.accessibilityIdentifier = AccessibilityID.JoinChannel.close
+        joinButton.accessibilityIdentifier = AccessibilityID.JoinChannel.externalJoin
+        browserButton.accessibilityIdentifier = AccessibilityID.JoinChannel.externalBrowser
         dismissButton.setImage(
-            UIImage(systemName: "chevron.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium))?
+            UIImage(named: "Channel/JoinChevronDown")?
                 .withRenderingMode(.alwaysTemplate),
             for: .normal)
         dismissButton.imageView?.contentMode = .scaleAspectFit
@@ -908,7 +965,7 @@ final class ExternalMeetingLinkSheetViewController: UIViewController {
         iconOuter.layer.cornerRadius = Self.iconOuterSize / 2
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.contentMode = .scaleAspectFit
-        iconView.image = (UIImage(named: "Chat/SpeakerIcon") ?? UIImage(systemName: "speaker.wave.2.fill"))?
+        iconView.image = UIImage(named: "Channel/JoinVoiceIcon")?
             .withRenderingMode(.alwaysTemplate)
         iconOuter.addSubview(iconView)
 
@@ -934,9 +991,9 @@ final class ExternalMeetingLinkSheetViewController: UIViewController {
         centerStack.addArrangedSubview(promptLabel)
         centerStack.setCustomSpacing(12, after: iconOuter)
 
-        styleActionButton(joinButton, title: L(L10n.EventMenu.joinInApp), systemImage: "speaker.wave.2.fill")
+        styleActionButton(joinButton, title: L(L10n.EventMenu.joinInApp), assetName: "Channel/StreamSpeaker")
         joinButton.addTarget(self, action: #selector(joinTapped), for: .touchUpInside)
-        styleActionButton(browserButton, title: L(L10n.EventMenu.openInBrowser), systemImage: "safari")
+        styleActionButton(browserButton, title: L(L10n.EventMenu.openInBrowser), assetName: "Channel/EventOpenLink")
         browserButton.addTarget(self, action: #selector(openInBrowserTapped), for: .touchUpInside)
 
         actionStack.axis = .vertical
@@ -992,13 +1049,13 @@ final class ExternalMeetingLinkSheetViewController: UIViewController {
         applyTheme()
     }
 
-    private func styleActionButton(_ button: UIButton, title: String, systemImage: String) {
+    private func styleActionButton(_ button: UIButton, title: String, assetName: String) {
         button.translatesAutoresizingMaskIntoConstraints = false
         button.setTitle(title, for: .normal)
         button.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
         button.titleLabel?.lineBreakMode = .byTruncatingTail
         button.setImage(
-            UIImage(systemName: systemImage, withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold))?
+            UIImage(named: assetName)?
                 .withRenderingMode(.alwaysTemplate),
             for: .normal)
         button.contentEdgeInsets = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
@@ -1013,16 +1070,16 @@ final class ExternalMeetingLinkSheetViewController: UIViewController {
     @objc private func applyTheme() {
         view.backgroundColor = UIColor.theme.secondary
         grabber.backgroundColor = UIColor.theme.textDisabled.withAlphaComponent(0.5)
-        dismissButton.backgroundColor = UIColor.theme.tertiary
+        dismissButton.backgroundColor = UIColor.theme.raisedSurface
         dismissButton.tintColor = UIColor.theme.textStrong
         titleLabel.textColor = UIColor.theme.textStrong
         iconOuter.backgroundColor = EventDisplayHelper.externalEventBadgeColor.withAlphaComponent(0.16)
         iconView.tintColor = EventDisplayHelper.externalEventBadgeColor
         linkLabel.textColor = UIColor.theme.textStrong
         promptLabel.textColor = UIColor.theme.textDisabled
-        EventDisplayHelper.applyJoinInAppStyle(joinButton, iconHeight: 16)
+        EventDisplayHelper.applyJoinInAppStyle(joinButton, iconHeight: 16, image: joinButton.image(for: .normal))
         joinButton.setTitleColor(.white, for: .highlighted)
-        browserButton.backgroundColor = UIColor.theme.tertiary
+        browserButton.backgroundColor = UIColor.theme.raisedSurface
         browserButton.tintColor = UIColor.theme.textStrong
         browserButton.setTitleColor(UIColor.theme.textStrong, for: .normal)
         browserButton.setTitleColor(UIColor.theme.textStrong, for: .highlighted)

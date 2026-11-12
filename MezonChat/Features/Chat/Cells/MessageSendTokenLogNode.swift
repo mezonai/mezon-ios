@@ -8,7 +8,7 @@ final class MessageSendTokenLogNode: ASDisplayNode {
     private let iconNode = ASImageNode()
     private let titleNode = ASTextNode2()
     private let detailNode = ASTextNode2()
-    private let separatorNode = ASDisplayNode()
+    private let footerBackgroundNode = ASDisplayNode()
     private let buttonNode = ASButtonNode()
 
     private var cachedTitleSize: CGSize = .zero
@@ -20,29 +20,29 @@ final class MessageSendTokenLogNode: ASDisplayNode {
     private static let iconBoxSize: CGFloat = 40
     private static let iconImageSize: CGFloat = 22
     private static let iconGap: CGFloat = 8
-    private static let separatorHeight: CGFloat = 1
+    private static let transactionColor = UIColor(hex: 0x16A34A)
+    private static let actionColor = UIColor(hex: 0x3B82F6)
     private static let titleDetailSpacing: CGFloat = 4
-    private static let aboveSeparatorSpacing: CGFloat = 10
-    private static let belowSeparatorSpacing: CGFloat = 10
+    private static let aboveFooterSpacing: CGFloat = 10
+    private static let footerTopPadding: CGFloat = 10
 
     var onTransactionTapped: (() -> Void)?
 
     func configure(messageContent: String) {
         let t = UIColor.theme
 
-        containerNode.backgroundColor = t.border
+        containerNode.backgroundColor = t.themeSettingPrimary
         containerNode.cornerRadius = 12
         containerNode.clipsToBounds = true
+        containerNode.borderWidth = 1
+        containerNode.borderColor = t.borderPrimary.cgColor
 
-        iconBgNode.backgroundColor = UIColor.systemGreen
+        iconBgNode.backgroundColor = .clear
         iconBgNode.cornerRadius = Self.iconBoxSize / 2
         iconBgNode.clipsToBounds = true
 
-        let symbol = UIImage(systemName: "arrow.left.arrow.right")?
-            .withConfiguration(UIImage.SymbolConfiguration(pointSize: Self.iconImageSize, weight: .semibold))
-            .withRenderingMode(.alwaysTemplate)
-        iconNode.image = symbol
-        iconNode.tintColor = .white
+        iconNode.image = UIImage(named: "Chat/TransactionIcon")?.withRenderingMode(.alwaysTemplate)
+        iconNode.tintColor = Self.transactionColor
         iconNode.contentMode = .scaleAspectFit
 
         let parts = messageContent.components(separatedBy: " | ")
@@ -55,7 +55,7 @@ final class MessageSendTokenLogNode: ASDisplayNode {
             string: title,
             attributes: [
                 .font: UIFont.systemFont(ofSize: 14.sf, weight: .bold),
-                .foregroundColor: t.textStrong,
+                .foregroundColor: t.textThemePrimary,
             ]
         )
         titleNode.maximumNumberOfLines = 2
@@ -65,7 +65,7 @@ final class MessageSendTokenLogNode: ASDisplayNode {
             string: detailLabelString,
             attributes: [
                 .font: UIFont.systemFont(ofSize: 12.sf, weight: .semibold),
-                .foregroundColor: t.textRoleLink,
+                .foregroundColor: Self.actionColor,
             ]
         )
         if !description.isEmpty {
@@ -73,19 +73,20 @@ final class MessageSendTokenLogNode: ASDisplayNode {
                 string: description,
                 attributes: [
                     .font: UIFont.systemFont(ofSize: 12.sf),
-                    .foregroundColor: t.text,
+                    .foregroundColor: t.textThemePrimary,
                 ]
             ))
         }
         detailNode.attributedText = detailString
         detailNode.maximumNumberOfLines = 0
 
-        separatorNode.backgroundColor = t.borderDim
+        footerBackgroundNode.backgroundColor = t.themeSettingNav
+        footerBackgroundNode.isUserInteractionEnabled = false
 
         buttonNode.setTitle(
             L(L10n.Profile.mezonTransfer),
             with: UIFont.systemFont(ofSize: 14.sf, weight: .bold),
-            with: t.textRoleLink,
+            with: Self.actionColor,
             for: .normal
         )
         buttonNode.contentHorizontalAlignment = .middle
@@ -96,7 +97,7 @@ final class MessageSendTokenLogNode: ASDisplayNode {
         iconBgNode.addSubnode(iconNode)
         containerNode.addSubnode(titleNode)
         containerNode.addSubnode(detailNode)
-        containerNode.addSubnode(separatorNode)
+        containerNode.addSubnode(footerBackgroundNode)
         containerNode.addSubnode(buttonNode)
     }
 
@@ -121,9 +122,8 @@ final class MessageSendTokenLogNode: ASDisplayNode {
 
         let totalH = pad
             + topRowHeight
-            + Self.aboveSeparatorSpacing
-            + Self.separatorHeight
-            + Self.belowSeparatorSpacing
+            + Self.aboveFooterSpacing
+            + Self.footerTopPadding
             + max(cachedButtonSize.height, 22.sh)
             + pad
 
@@ -169,9 +169,9 @@ final class MessageSendTokenLogNode: ASDisplayNode {
             height: cachedDetailSize.height
         )
 
-        y += topRowHeight + Self.aboveSeparatorSpacing
-        separatorNode.frame = CGRect(x: pad, y: y, width: contentWidth, height: Self.separatorHeight)
-        y += Self.separatorHeight + Self.belowSeparatorSpacing
+        y += topRowHeight + Self.aboveFooterSpacing
+        footerBackgroundNode.frame = CGRect(x: 0, y: y, width: width, height: bounds.height - y)
+        y += Self.footerTopPadding
 
         let btnH = max(cachedButtonSize.height, 22.sh)
         buttonNode.frame = CGRect(x: pad, y: y, width: contentWidth, height: btnH)

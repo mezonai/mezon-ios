@@ -71,6 +71,7 @@ final class WelcomeContainerNode: ASDisplayNode {
         imageNode.image = UIImage(named: "Auth/welcomeMezon")?.withRenderingMode(.alwaysOriginal)
         imageNode.contentMode = .scaleAspectFit
 
+        startButton.accessibilityIdentifier = AccessibilityID.Auth.welcomeStart
         startButton.backgroundColor = .clear
         startButton.cornerRadius = 25
         startButton.clipsToBounds = true

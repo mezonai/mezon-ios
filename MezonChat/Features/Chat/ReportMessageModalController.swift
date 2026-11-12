@@ -86,7 +86,7 @@ final class ReportMessageModalController: ViewController {
                 Toast.success(L(L10n.ReportMessage.submitted))
                 self.animateDismiss(completion: nil)
             } catch {
-                Toast.error(error.localizedDescription.isEmpty ? L(L10n.ReportMessage.failed) : error.localizedDescription)
+                Toast.error(error.userMessage(fallback: L(L10n.ReportMessage.failed)))
             }
         }
     }
@@ -122,7 +122,7 @@ private final class ReportMessageModalNode: ASDisplayNode {
         dimmingNode.backgroundColor = UIColor.black.withAlphaComponent(0.4)
         dimmingNode.alpha = 0
         let t = UIColor.theme
-        containerNode.backgroundColor = t.primary
+        containerNode.backgroundColor = t.themeSettingPrimary
         containerNode.cornerRadius = 14
         containerNode.clipsToBounds = true
         handleNode.backgroundColor = t.textDisabled
@@ -253,7 +253,7 @@ private final class ReportMessageModalNode: ASDisplayNode {
 
             let pill = UIView()
             pill.translatesAutoresizingMaskIntoConstraints = false
-            pill.backgroundColor = t.secondary
+            pill.backgroundColor = t.themeSettingNav
             pill.layer.cornerRadius = 8
             let dot = UIView()
             dot.translatesAutoresizingMaskIntoConstraints = false
@@ -381,7 +381,7 @@ private final class ReportMessageModalNode: ASDisplayNode {
             stack.spacing = 0
             stack.layer.cornerRadius = 10
             stack.clipsToBounds = true
-            stack.backgroundColor = t.secondary
+            stack.backgroundColor = t.themeSettingNav
             root.addSubview(stack)
 
             NSLayoutConstraint.activate([

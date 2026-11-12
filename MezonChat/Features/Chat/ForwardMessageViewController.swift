@@ -48,6 +48,7 @@ private enum ForwardOutgoing {
             if let w = p.width { att.width = Int32(w) }
             if let h = p.height { att.height = Int32(h) }
             if let d = p.durationSeconds { att.duration = Int32(d) }
+            att.size = p.size
             return att
         }
     }
@@ -226,7 +227,8 @@ private enum ForwardOutgoing {
             filetype: att.filetype,
             width: att.width != 0 ? Int(att.width) : nil,
             height: att.height != 0 ? Int(att.height) : nil,
-            durationSeconds: att.duration > 0 ? Int(att.duration) : nil
+            durationSeconds: att.duration > 0 ? Int(att.duration) : nil,
+            size: att.size
         )
     }
 
@@ -237,7 +239,8 @@ private enum ForwardOutgoing {
             filetype: att.filetype,
             width: att.width == 0 ? nil : Int(att.width),
             height: att.height == 0 ? nil : Int(att.height),
-            durationSeconds: nil
+            durationSeconds: nil,
+            size: Int32(clamping: Int64(att.filesize.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0)
         )
     }
 
@@ -250,7 +253,8 @@ private enum ForwardOutgoing {
             filetype: att.fileType,
             width: att.width == 0 ? nil : Int(att.width),
             height: att.height == 0 ? nil : Int(att.height),
-            durationSeconds: att.duration > 0 ? Int(att.duration) : nil
+            durationSeconds: att.duration > 0 ? Int(att.duration) : nil,
+            size: Int32(clamping: att.fileSize)
         )
     }
 
@@ -266,6 +270,16 @@ private enum ForwardOutgoing {
             if let s = item["duration"] as? String, let n = Int(s) { return n > 0 ? n : nil }
             return nil
         }()
+        let size: Int32 = {
+            for key in ["size", "filesize", "file_size", "fileSize"] {
+                if let n = item[key] as? NSNumber { return Int32(clamping: n.int64Value) }
+                if let s = item[key] as? String,
+                   let n = Int64(s.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                    return Int32(clamping: n)
+                }
+            }
+            return 0
+        }()
         let ftRaw = (item["filetype"] as? String
             ?? item["file_type"] as? String
             ?? item["fileType"] as? String
@@ -276,7 +290,8 @@ private enum ForwardOutgoing {
             filetype: ftRaw,
             width: w,
             height: h,
-            durationSeconds: d
+            durationSeconds: d,
+            size: size
         )
     }
 
@@ -395,7 +410,19 @@ final class ForwardMessageViewController: UIViewController {
     private var awaitingSearchResults = false
     private var isLoadingDestinations = false
     private var searchDebounceTimer: Foundation.Timer?
-    private var isSending = false
+    private var isSending = false {
+        didSet {
+            commentField.isEnabled = !isSending
+            searchField.isEnabled = !isSending
+            tableView.allowsSelection = !isSending
+            refreshSendButtonVisual()
+            if isSending {
+                sendIndicator.startAnimating()
+            } else {
+                sendIndicator.stopAnimating()
+            }
+        }
+    }
 
     private lazy var closeButton = UIButton(type: .system)
     private lazy var titleLbl = UILabel()
@@ -431,6 +458,19 @@ final class ForwardMessageViewController: UIViewController {
     private lazy var inputBg = UIView()
     private lazy var commentField = UITextField()
     private lazy var sendBtn = UIButton(type: .system)
+    private lazy var sendIcon: UIImage? = {
+        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+        return UIImage(named: "Chat/SendMessageIcon")?.withRenderingMode(.alwaysTemplate)
+            ?? UIImage(systemName: "paperplane.fill", withConfiguration: config)
+    }()
+    private let sendIndicator: UIActivityIndicatorView = {
+        let indicator = UIActivityIndicatorView(style: .medium)
+        indicator.color = .white
+        indicator.hidesWhenStopped = true
+        indicator.isUserInteractionEnabled = false
+        indicator.translatesAutoresizingMaskIntoConstraints = false
+        return indicator
+    }()
     private let bottomBar = UIView()
 
     private var bottomLiftConstraint: NSLayoutConstraint?
@@ -489,6 +529,8 @@ final class ForwardMessageViewController: UIViewController {
             string: L(L10n.Sharing.commentPlaceholder),
             attributes: [.foregroundColor: UIColor.theme.textDisabled.withAlphaComponent(0.85)]
         )
+        sendBtn.accessibilityLabel = L(L10n.MessageAction.forwardMessage)
+        sendBtn.accessibilityValue = isSending ? L(L10n.Common.loading) : nil
         updatePreviewLabel()
         updatePlaceholderState()
         tableView.reloadData()
@@ -531,7 +573,8 @@ final class ForwardMessageViewController: UIViewController {
         titleLbl.textAlignment = .center
 
         searchWrap.layer.cornerRadius = 20
-        searchIcon.image = UIImage(systemName: "magnifyingglass")
+        searchIcon.image = UIImage(named: "Setting/SearchIcon")?.withRenderingMode(.alwaysTemplate)
+        searchField.accessibilityIdentifier = AccessibilityID.Search.input("forward-message")
         searchField.borderStyle = .none
         searchField.backgroundColor = .clear
         searchField.font = .systemFont(ofSize: 15)
@@ -557,14 +600,8 @@ final class ForwardMessageViewController: UIViewController {
 
         sendBtn.layer.cornerRadius = 20
         sendBtn.clipsToBounds = true
-        let sendCfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-        let sendImg = UIImage(named: "Chat/SendMessageIcon")?.withRenderingMode(.alwaysTemplate)
-            ?? UIImage(systemName: "paperplane.fill", withConfiguration: sendCfg)
-        sendBtn.setImage(sendImg, for: .normal)
-        sendBtn.imageView?.contentMode = .scaleAspectFit
         let iconInset: CGFloat = 9
         sendBtn.imageEdgeInsets = UIEdgeInsets(top: iconInset, left: iconInset, bottom: iconInset, right: iconInset)
-        sendBtn.isEnabled = false
         sendBtn.addTarget(self, action: #selector(sendTapped), for: .touchUpInside)
 
         closeButton.translatesAutoresizingMaskIntoConstraints = false
@@ -598,6 +635,7 @@ final class ForwardMessageViewController: UIViewController {
         bottomBar.addSubview(inputBg)
         bottomBar.addSubview(sendBtn)
         inputBg.addSubview(commentField)
+        sendBtn.addSubview(sendIndicator)
 
         let safe = view.safeAreaLayoutGuide
         let lift = bottomBar.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: 0)
@@ -667,6 +705,8 @@ final class ForwardMessageViewController: UIViewController {
             sendBtn.centerYAnchor.constraint(equalTo: inputBg.centerYAnchor),
             sendBtn.widthAnchor.constraint(equalToConstant: 40),
             sendBtn.heightAnchor.constraint(equalToConstant: 40),
+            sendIndicator.centerXAnchor.constraint(equalTo: sendBtn.centerXAnchor),
+            sendIndicator.centerYAnchor.constraint(equalTo: sendBtn.centerYAnchor),
 
             composerPad,
         ])
@@ -692,8 +732,12 @@ final class ForwardMessageViewController: UIViewController {
     private func refreshSendButtonVisual() {
         let t = UIColor.theme
         let sendBlue = UIColor(red: 0.34, green: 0.54, blue: 0.95, alpha: 1)
+        sendBtn.isEnabled = !isSending && !selectedItems.isEmpty
+        sendBtn.setImage(isSending ? nil : sendIcon, for: .normal)
+        sendBtn.imageView?.contentMode = .scaleAspectFit
+        sendBtn.accessibilityValue = isSending ? L(L10n.Common.loading) : nil
         sendBtn.alpha = 1
-        guard sendBtn.isEnabled else {
+        guard sendBtn.isEnabled || isSending else {
             sendBtn.backgroundColor = t.borderDim
             sendBtn.tintColor = t.textDisabled
             return
@@ -1153,15 +1197,20 @@ final class ForwardMessageViewController: UIViewController {
     private func resolveDestinations(
         for items: [SharingSuggestionItem],
         token: String
-    ) async throws -> [Mezon_Api_ChannelDescription] {
+    ) async -> (channels: [Mezon_Api_ChannelDescription], errors: [Error]) {
         var destinations: [Mezon_Api_ChannelDescription] = []
+        var errors: [Error] = []
         var seenChannelIDs = Set<Int64>()
         for item in items {
-            guard let channel = try await resolveDestination(for: item, token: token),
-                  seenChannelIDs.insert(channel.channelID).inserted else { continue }
-            destinations.append(channel)
+            do {
+                guard let channel = try await resolveDestination(for: item, token: token),
+                      seenChannelIDs.insert(channel.channelID).inserted else { continue }
+                destinations.append(channel)
+            } catch {
+                errors.append(error)
+            }
         }
-        return destinations
+        return (channels: destinations, errors: errors)
     }
 
     private func resolveDestination(
@@ -1181,7 +1230,7 @@ final class ForwardMessageViewController: UIViewController {
         _ attachments: [Mezon_Api_MessageAttachment],
         into channelID: Int64,
         token: String
-    ) async -> [Mezon_Api_MessageAttachment] {
+    ) async -> (attachments: [Mezon_Api_MessageAttachment], failedCount: Int) {
         let network = context.account.network
         return await withTaskGroup(of: (Int, String?).self) { group in
             for (index, attachment) in attachments.enumerated() {
@@ -1196,12 +1245,16 @@ final class ForwardMessageViewController: UIViewController {
                 }
             }
             var linked = attachments
+            var failedIndexes = Set<Int>()
             for await (index, url) in group {
                 if let url {
                     linked[index].url = url
+                } else {
+                    failedIndexes.insert(index)
                 }
             }
-            return linked
+            let kept = linked.indices.filter { !failedIndexes.contains($0) }.map { linked[$0] }
+            return (attachments: kept, failedCount: failedIndexes.count)
         }
     }
 
@@ -1213,6 +1266,7 @@ final class ForwardMessageViewController: UIViewController {
             return
         }
         let pendingItems = selectedItems
+        view.endEditing(true)
         isSending = true
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -1221,29 +1275,35 @@ final class ForwardMessageViewController: UIViewController {
                 Toast.error(L(L10n.Sharing.sessionExpired))
                 return
             }
-            do {
-                let selectedChannels = try await resolveDestinations(for: pendingItems, token: tok)
-                if selectedChannels.isEmpty {
-                    Toast.error(L(L10n.Sharing.targetUnavailable))
-                    return
-                }
-                for dest in selectedChannels {
-                    let cid = forwardClanId(for: dest)
-                    let mid = forwardingMode(for: dest)
-                    let pub = isPublicDestination(dest)
-                    let avatar = context.currentUser?.avatarURL?.absoluteString ?? ""
-                    for msg in messagesToForward {
-                        let contentStr = ForwardOutgoing.contentJSONString(for: msg)
-                        let mentions = ForwardOutgoing.mentions(
-                            record: msg,
-                            destinationChannelID: dest.channelID,
-                            forwardFromChannelID: forwardFromChannelID
-                        )
-                        let atts = await linkedAttachments(
-                            ForwardOutgoing.attachments(for: msg, fallback: attachmentHints[msg.id] ?? []),
-                            into: dest.channelID,
-                            token: tok
-                        )
+            let resolved = await resolveDestinations(for: pendingItems, token: tok)
+            let selectedChannels = resolved.channels
+            var lastError = resolved.errors.last
+            var failedCount = resolved.errors.count
+            var sentCount = 0
+            if selectedChannels.isEmpty {
+                let unavailable = L(L10n.Sharing.targetUnavailable)
+                Toast.error(lastError?.userMessage(fallback: unavailable) ?? unavailable)
+                return
+            }
+            for dest in selectedChannels {
+                let cid = forwardClanId(for: dest)
+                let mid = forwardingMode(for: dest)
+                let pub = isPublicDestination(dest)
+                let avatar = context.currentUser?.avatarURL?.absoluteString ?? ""
+                for msg in messagesToForward {
+                    let contentStr = ForwardOutgoing.contentJSONString(for: msg)
+                    let mentions = ForwardOutgoing.mentions(
+                        record: msg,
+                        destinationChannelID: dest.channelID,
+                        forwardFromChannelID: forwardFromChannelID
+                    )
+                    let sourceAtts = ForwardOutgoing.attachments(for: msg, fallback: attachmentHints[msg.id] ?? [])
+                    let linked = await linkedAttachments(sourceAtts, into: dest.channelID, token: tok)
+                    failedCount += linked.failedCount
+                    if !sourceAtts.isEmpty, linked.attachments.isEmpty, Self.previewPlainText(for: msg).isEmpty {
+                        continue
+                    }
+                    do {
                         _ = try await context.account.network.sendChannelMessage(
                             clanId: cid,
                             channelId: dest.channelID,
@@ -1251,7 +1311,7 @@ final class ForwardMessageViewController: UIViewController {
                             isPublic: pub,
                             content: contentStr,
                             mentions: mentions,
-                            attachments: atts,
+                            attachments: linked.attachments,
                             references: [],
                             anonymous: false,
                             mentionEveryone: false,
@@ -1260,8 +1320,14 @@ final class ForwardMessageViewController: UIViewController {
                             code: msg.code == MezonConstants.MessageCode.buzz.rawValue ? 0 : msg.code,
                             token: tok
                         )
+                        sentCount += 1
+                    } catch {
+                        failedCount += 1
+                        lastError = error
                     }
-                    if let cJSON = ForwardOutgoing.commentContentJSON(trimmed: extraRaw), !extraRaw.isEmpty {
+                }
+                if let cJSON = ForwardOutgoing.commentContentJSON(trimmed: extraRaw), !extraRaw.isEmpty {
+                    do {
                         _ = try await context.account.network.sendChannelMessage(
                             clanId: cid,
                             channelId: dest.channelID,
@@ -1278,18 +1344,34 @@ final class ForwardMessageViewController: UIViewController {
                             code: 0,
                             token: tok
                         )
+                        sentCount += 1
+                    } catch {
+                        failedCount += 1
+                        lastError = error
                     }
                 }
-                Toast.success(L(L10n.Forward.success))
-                dismiss(animated: true)
-            } catch {
-                SentryLogger.capture(error, extras: [
+            }
+            if let lastError {
+                SentryLogger.capture(lastError, extras: [
                     "where": "ForwardMessage",
                     "messageCount": messagesToForward.count,
                     "destinationCount": pendingItems.count,
+                    "failedCount": failedCount,
+                    "sentCount": sentCount,
                 ])
-                Toast.error(L(L10n.Sharing.errorTitle))
             }
+            guard failedCount > 0 else {
+                Toast.success(L(L10n.Forward.success))
+                dismiss(animated: true)
+                return
+            }
+            let failedMessage = L(L10n.Forward.itemsFailed, failedCount)
+            guard sentCount > 0 else {
+                Toast.error(lastError?.userMessage(fallback: failedMessage) ?? failedMessage)
+                return
+            }
+            Toast.error(failedMessage)
+            dismiss(animated: true)
         }
     }
 }
@@ -1320,7 +1402,6 @@ extension ForwardMessageViewController: UITableViewDelegate, UITableViewDataSour
         } else {
             selectedItems.append(item)
         }
-        sendBtn.isEnabled = !selectedItems.isEmpty
         refreshSendButtonVisual()
         tableView.reloadRows(at: [indexPath], with: .none)
     }

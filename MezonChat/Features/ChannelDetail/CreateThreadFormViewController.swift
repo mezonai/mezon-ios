@@ -775,6 +775,7 @@ final class CreateThreadFormViewController: UIViewController {
         let items = AdvancedFunctionPanelView.defaultActionItems(
             anonymousOn: on,
             includeAnonymous: clanId != 0,
+            includeCreatePoll: false,
             includeCreateThread: false
         )
         advancePanelView.setActions(items)
@@ -868,7 +869,8 @@ final class CreateThreadFormViewController: UIViewController {
         case "share_contact":
             navigateToShareContactForThreadForm()
         default:
-            Toast.comingSoonLine(item.label.replacingOccurrences(of: "\n", with: " "))
+            // Toast.comingSoonLine(item.label.replacingOccurrences(of: "\n", with: " "))
+            break
         }
     }
 

@@ -46,7 +46,9 @@ enum RichTextBuilder {
         let roleMentionColor: UIColor
         let roleMentionBgColor: UIColor
         let linkColor: UIColor
-        let codeBgColor: UIColor
+        let inlineCodeColor: UIColor
+        let inlineCodeBgColor: UIColor
+        let codeBlockBgColor: UIColor
         let codeFont: UIFont
         let boldFont: UIFont
 
@@ -80,7 +82,9 @@ enum RichTextBuilder {
                 roleMentionColor: red,
                 roleMentionBgColor: mentionBg,
                 linkColor: red,
-                codeBgColor: base.codeBgColor,
+                inlineCodeColor: red,
+                inlineCodeBgColor: base.inlineCodeBgColor,
+                codeBlockBgColor: base.codeBlockBgColor,
                 codeFont: codeBuzz,
                 boldFont: bf,
                 headingFonts: base.headingFonts,
@@ -95,14 +99,16 @@ enum RichTextBuilder {
             let bodyBold = UIFont.systemFont(ofSize: 14.sf, weight: .bold)
             return Style(
                 bodyFont: body,
-                bodyColor: t.textStrong,
+                bodyColor: t.textThemeMessage,
                 mentionFont: .systemFont(ofSize: 14.sf, weight: .semibold),
-                mentionColor: t.textLink,
-                mentionBgColor: t.midnightBlue,
-                roleMentionColor: t.textRoleLink,
-                roleMentionBgColor: t.darkMossGreen,
-                linkColor: t.textLink,
-                codeBgColor: t.tertiary,
+                mentionColor: t.desktop[.mentionColor],
+                mentionBgColor: t.desktop[.mentionPrimary],
+                roleMentionColor: t.desktop[.colorMentionEvryone],
+                roleMentionBgColor: t.desktop[.bgMentionEvryone],
+                linkColor: t.desktop[.mentionColor],
+                inlineCodeColor: t.desktop[.textSecondary],
+                inlineCodeBgColor: t.desktop[.bgActiveMemberChannel],
+                codeBlockBgColor: t.desktop[.bgMarkdownCode],
                 codeFont: body,
                 boldFont: bodyBold,
                 headingFonts: defaultHeadingFonts(),
@@ -125,7 +131,8 @@ enum RichTextBuilder {
                 mentionFont: s.mentionFont, mentionColor: s.mentionColor,
                 mentionBgColor: s.mentionBgColor, roleMentionColor: s.roleMentionColor,
                 roleMentionBgColor: s.roleMentionBgColor, linkColor: s.linkColor,
-                codeBgColor: s.codeBgColor, codeFont: s.codeFont, boldFont: s.boldFont,
+                inlineCodeColor: s.inlineCodeColor, inlineCodeBgColor: s.inlineCodeBgColor,
+                codeBlockBgColor: s.codeBlockBgColor, codeFont: s.codeFont, boldFont: s.boldFont,
                 headingFonts: s.headingFonts,
                 emojiSize: 48.sf,
                 emojiImgproxyFitSide: 100
@@ -140,29 +147,207 @@ enum RichTextBuilder {
             return NSAttributedString()
         }
 
-        guard !content.tokens.isEmpty else {
-            return attributedPlainTextWithMarkdownHeadings(text, style: s)
+        let extracted = extractingNamedLinks(text: text, tokens: content.tokens)
+        guard !extracted.tokens.isEmpty else {
+            return applyingMarkdownBlocks(attributedPlainTextWithMarkdownHeadings(text, style: s), style: s)
         }
 
         let utf16Len = text.utf16.count
-        let sortedTokens = content.tokens.sorted(by: { $0.start < $1.start })
+        let inlineStyles = extracted.tokens.filter { $0.kind.isInlineStyle }
+        let sortedTokens = extracted.tokens
+            .filter { !$0.kind.isInlineStyle }
+            .sorted(by: { $0.start < $1.start })
         let hasCodeBlock = sortedTokens.contains {
             if case .codeBlock = $0.kind { return true }
             return false
         }
         if hasCodeBlock {
-            return buildAttributedStringTokenWalk(
+            return applyingMarkdownBlocks(buildAttributedStringTokenWalk(
                 text: text, sortedTokens: sortedTokens, utf16Len: utf16Len, style: s,
                 lineHeadingLevel: nil, lineBodyFont: nil, lineMentionFont: nil,
+                inlineStyles: inlineStyles,
+                namedLinks: extracted.links,
                 hashtagChannelAccess: hashtagChannelAccess,
                 buzzStyled: buzzStyled
-            )
+            ), style: s)
         }
-        return buildAttributedStringWithLineWiseHeadings(
+        return applyingMarkdownBlocks(buildAttributedStringWithLineWiseHeadings(
             text: text, sortedTokens: sortedTokens, utf16Len: utf16Len, style: s,
+            inlineStyles: inlineStyles,
+            namedLinks: extracted.links,
             hashtagChannelAccess: hashtagChannelAccess,
             buzzStyled: buzzStyled
-        )
+        ), style: s)
+    }
+
+    private struct NamedLink {
+        let labelStart: Int
+        let labelEnd: Int
+        let url: String
+    }
+
+    private static let namedLinkRegex = try? NSRegularExpression(
+        pattern: #"\[([^\[\]\n]+)\]\((https?://[^\s()]+)\)"#,
+        options: [.caseInsensitive]
+    )
+
+    private static func extractingNamedLinks(
+        text: String,
+        tokens: [ContentToken]
+    ) -> (tokens: [ContentToken], links: [Int: NamedLink]) {
+        guard text.contains("]("), let regex = namedLinkRegex else { return (tokens, [:]) }
+        let ns = text as NSString
+        var result = tokens
+        var links: [Int: NamedLink] = [:]
+        for match in regex.matches(in: text, options: [], range: NSRange(location: 0, length: ns.length)) {
+            let start = match.range.location
+            let end = NSMaxRange(match.range)
+            let label = match.range(at: 1)
+            let url = match.range(at: 2)
+            let overlaps: (ContentToken) -> Bool = { !$0.kind.isInlineStyle && $0.start < end && $0.end > start }
+            let blocked = result.contains { token in
+                guard overlaps(token) else { return false }
+                switch token.kind {
+                case .link, .mezonChannelLink:
+                    return token.start < url.location
+                default:
+                    return true
+                }
+            }
+            if blocked { continue }
+            result.removeAll(where: overlaps)
+            result.append(ContentToken(start: start, end: end, kind: .link))
+            links[start] = NamedLink(labelStart: label.location, labelEnd: NSMaxRange(label), url: ns.substring(with: url))
+        }
+        return (result, links)
+    }
+
+    private enum MarkdownBlock {
+        case bullet(level: Int)
+        case ordered(level: Int, number: String)
+        case quote
+    }
+
+    private static let maxListLevel = 4
+    private static let quoteBar = "\u{258E}"
+
+    private static func isBlank(_ unit: unichar) -> Bool {
+        unit == 0x20 || unit == 0x09
+    }
+
+    private static func markdownBlock(in line: NSString) -> (block: MarkdownBlock, prefixLength: Int)? {
+        var i = 0
+        var indent = 0
+        while i < line.length, isBlank(line.character(at: i)) {
+            indent += line.character(at: i) == 0x09 ? 4 : 1
+            i += 1
+        }
+        guard i < line.length else { return nil }
+        let marker = line.character(at: i)
+        let level = min(indent / 2, maxListLevel)
+        var j = i
+        let block: MarkdownBlock
+        switch marker {
+        case 0x3E:
+            guard indent <= 3 else { return nil }
+            j += 1
+            block = .quote
+        case 0x2D, 0x2A:
+            j += 1
+            block = .bullet(level: level)
+        case 0x30...0x39:
+            while j < line.length, j - i < 9, (0x30...0x39).contains(line.character(at: j)) {
+                j += 1
+            }
+            guard j < line.length, line.character(at: j) == 0x2E else { return nil }
+            block = .ordered(level: level, number: line.substring(with: NSRange(location: i, length: j - i)))
+            j += 1
+        default:
+            return nil
+        }
+        guard j < line.length, isBlank(line.character(at: j)) else { return nil }
+        while j < line.length, isBlank(line.character(at: j)) {
+            j += 1
+        }
+        guard j < line.length else { return nil }
+        return (block, j)
+    }
+
+    private static let blockBlockingKeys: [NSAttributedString.Key] = [
+        .backgroundColor, .attachment, .mezonLink, .mezonMention, .mezonRoleMention, .mezonHashtag,
+    ]
+
+    private static func rangeCarriesToken(_ attributed: NSAttributedString, _ range: NSRange) -> Bool {
+        var found = false
+        attributed.enumerateAttributes(in: range, options: []) { attrs, _, stop in
+            if blockBlockingKeys.contains(where: { attrs[$0] != nil }) {
+                found = true
+                stop.pointee = true
+            }
+        }
+        return found
+    }
+
+    private static func applyingMarkdownBlocks(_ built: NSAttributedString, style s: Style) -> NSAttributedString {
+        let string = built.string as NSString
+        guard string.length > 0 else { return built }
+        var matches: [(line: NSRange, block: MarkdownBlock, prefixLength: Int)] = []
+        var lineStart = 0
+        while lineStart < string.length {
+            let newline = string.range(of: "\n", options: [], range: NSRange(location: lineStart, length: string.length - lineStart))
+            let lineEnd = newline.location == NSNotFound ? string.length : newline.location
+            let line = NSRange(location: lineStart, length: lineEnd - lineStart)
+            if line.length > 0, let found = markdownBlock(in: string.substring(with: line) as NSString),
+               !rangeCarriesToken(built, NSRange(location: lineStart, length: found.prefixLength)) {
+                matches.append((line, found.block, found.prefixLength))
+            }
+            lineStart = lineEnd + 1
+        }
+        guard !matches.isEmpty else { return built }
+
+        let out = NSMutableAttributedString(attributedString: built)
+        let indentStep = ceil(s.bodyFont.pointSize * 1.25)
+        for match in matches.reversed() {
+            let contentLocation = match.line.location + match.prefixLength
+            let font = (out.attribute(.font, at: contentLocation, effectiveRange: nil) as? UIFont) ?? s.bodyFont
+            let markerText: String
+            var markerAttrs = bodyAttributes(s)
+            markerAttrs[.font] = font
+            let level: Int
+            switch match.block {
+            case .bullet(let l):
+                level = l
+                markerText = (l % 2 == 0 ? "\u{2022}" : "\u{25E6}") + " "
+            case .ordered(let l, let number):
+                level = l
+                markerText = number + ". "
+            case .quote:
+                level = 0
+                markerText = quoteBar + " "
+                markerAttrs[.foregroundColor] = UIColor.theme.textDisabled
+            }
+            let marker = NSAttributedString(string: markerText, attributes: markerAttrs)
+            out.replaceCharacters(in: NSRange(location: match.line.location, length: match.prefixLength), with: marker)
+
+            let firstIndent = CGFloat(level) * indentStep
+            let markerWidth = ceil((markerText as NSString).size(withAttributes: [.font: font]).width)
+            var paragraphLength = match.line.length - match.prefixLength + marker.length
+            if match.line.location + paragraphLength < out.length {
+                paragraphLength += 1
+            }
+            let paragraph = NSRange(location: match.line.location, length: paragraphLength)
+            var runs: [(NSRange, NSParagraphStyle?)] = []
+            out.enumerateAttribute(.paragraphStyle, in: paragraph, options: []) { value, range, _ in
+                runs.append((range, value as? NSParagraphStyle))
+            }
+            for (range, existing) in runs {
+                let ps = ((existing ?? bodyParagraphStyle()).mutableCopy() as? NSMutableParagraphStyle) ?? NSMutableParagraphStyle()
+                ps.firstLineHeadIndent = firstIndent
+                ps.headIndent = firstIndent + markerWidth
+                out.addAttribute(.paragraphStyle, value: ps, range: range)
+            }
+        }
+        return out
     }
 
     private static func buildAttributedStringWithLineWiseHeadings(
@@ -170,6 +355,8 @@ enum RichTextBuilder {
         sortedTokens: [ContentToken],
         utf16Len: Int,
         style s: Style,
+        inlineStyles: [ContentToken],
+        namedLinks: [Int: NamedLink],
         hashtagChannelAccess: ((String, String?) -> Bool)?,
         buzzStyled: Bool
     ) -> NSAttributedString {
@@ -195,6 +382,8 @@ enum RichTextBuilder {
                 lineHeadingLevel: heading?.level,
                 lineBodyFont: lineBodyFont,
                 lineMentionFont: lineMentionFont,
+                inlineStyles: inlineStyles,
+                namedLinks: namedLinks,
                 segmentStartUTF16: contentStart,
                 segmentEndUTF16: lineEnd,
                 hashtagChannelAccess: hashtagChannelAccess,
@@ -244,31 +433,48 @@ enum RichTextBuilder {
         lineHeadingLevel: Int?,
         lineBodyFont: UIFont?,
         lineMentionFont: UIFont?,
+        inlineStyles: [ContentToken] = [],
+        namedLinks: [Int: NamedLink] = [:],
         segmentStartUTF16: Int = 0,
         segmentEndUTF16: Int? = nil,
         hashtagChannelAccess: ((String, String?) -> Bool)? = nil,
         buzzStyled: Bool = false
     ) -> NSAttributedString {
         let endCap = segmentEndUTF16 ?? utf16Len
-        let tokensInSegment = sortedTokens.filter { $0.start >= segmentStartUTF16 && $0.end <= endCap && $0.start < endCap }
+        let tokensInSegment = sortedTokens.filter {
+            !$0.kind.isInlineStyle && $0.start >= segmentStartUTF16 && $0.end <= endCap && $0.start < endCap
+        }
         let result = NSMutableAttributedString()
         var lastUTF16 = segmentStartUTF16
+
+        func appendPlainRange(from start: Int, to end: Int) {
+            guard start < end else { return }
+            let segments = inlineStyleSegments(inlineStyles, from: start, to: end)
+            if segments.allSatisfy({ $0.style.isPlain }) {
+                let plainText = text.mezon_utf16Substring(from: start, to: end)
+                guard !plainText.isEmpty else { return }
+                if lineHeadingLevel != nil {
+                    var attrs = bodyAttributes(s)
+                    attrs[.font] = lineBodyFont ?? s.bodyFont
+                    result.append(NSAttributedString(string: plainText, attributes: attrs))
+                } else {
+                    result.append(attributedPlainTextWithMarkdownHeadings(plainText, style: s))
+                }
+                return
+            }
+            for segment in segments {
+                let piece = text.mezon_utf16Substring(from: segment.start, to: segment.end)
+                guard !piece.isEmpty else { continue }
+                let attrs = inlineStyledAttributes(
+                    segment.style, style: s, lineBodyFont: lineBodyFont, isHeadingLine: lineHeadingLevel != nil)
+                result.append(NSAttributedString(string: piece, attributes: attrs))
+            }
+        }
 
         for token in tokensInSegment.sorted(by: { $0.start < $1.start }) {
             guard token.start >= 0, token.end <= utf16Len, token.start < token.end else { continue }
 
-            if lastUTF16 < token.start {
-                let plainText = text.mezon_utf16Substring(from: lastUTF16, to: token.start)
-                if !plainText.isEmpty {
-                    if lineHeadingLevel != nil {
-                        var attrs = bodyAttributes(s)
-                        attrs[.font] = lineBodyFont ?? s.bodyFont
-                        result.append(NSAttributedString(string: plainText, attributes: attrs))
-                    } else {
-                        result.append(attributedPlainTextWithMarkdownHeadings(plainText, style: s))
-                    }
-                }
-            }
+            appendPlainRange(from: lastUTF16, to: token.start)
 
             let rawText = text.mezon_utf16Substring(from: token.start, to: token.end)
 
@@ -338,7 +544,7 @@ enum RichTextBuilder {
                 let tagFont = lineMentionFont ?? s.mentionFont
                 let t = UIColor.theme
                 let inaccessibleFg: UIColor = buzzStyled ? s.bodyColor.withAlphaComponent(0.55) : t.textDisabled
-                let inaccessibleBg: UIColor = buzzStyled ? s.codeBgColor.withAlphaComponent(0.45) : t.tertiary
+                let inaccessibleBg: UIColor = buzzStyled ? t.tertiary.withAlphaComponent(0.45) : t.tertiary
                 let fg = accessible ? s.mentionColor : inaccessibleFg
                 let bg = accessible ? s.mentionBgColor : inaccessibleBg
                 var tagAttrs = bodyAttributes(s)
@@ -382,7 +588,7 @@ enum RichTextBuilder {
                 let tagFont = lineMentionFont ?? s.mentionFont
                 let t = UIColor.theme
                 let inaccessibleFg: UIColor = buzzStyled ? s.bodyColor.withAlphaComponent(0.55) : t.textDisabled
-                let inaccessibleBg: UIColor = buzzStyled ? s.codeBgColor.withAlphaComponent(0.45) : t.tertiary
+                let inaccessibleBg: UIColor = buzzStyled ? t.tertiary.withAlphaComponent(0.45) : t.tertiary
                 let fg = accessible ? s.mentionColor : inaccessibleFg
                 let bg = accessible ? s.mentionBgColor : inaccessibleBg
                 var tagAttrs = bodyAttributes(s)
@@ -408,7 +614,8 @@ enum RichTextBuilder {
             case .inlineCode:
                 var attrs = bodyAttributes(s)
                 attrs[.font] = s.codeFont
-                attrs[.backgroundColor] = s.codeBgColor
+                attrs[.foregroundColor] = s.inlineCodeColor
+                attrs[.backgroundColor] = s.inlineCodeBgColor
                 let paraStyle = NSMutableParagraphStyle()
                 paraStyle.lineHeightMultiple = 1.4
                 attrs[.paragraphStyle] = paraStyle
@@ -423,7 +630,7 @@ enum RichTextBuilder {
             case .codeBlock:
                 var attrs = bodyAttributes(s)
                 attrs[.font] = s.codeFont
-                attrs[.backgroundColor] = s.codeBgColor
+                attrs[.backgroundColor] = s.codeBlockBgColor
                 var displayText = rawText
                 if displayText.hasPrefix("```") && displayText.hasSuffix("```") {
                     displayText = String(displayText.dropFirst(3).dropLast(3))
@@ -435,40 +642,94 @@ enum RichTextBuilder {
                 result.append(NSAttributedString(string: displayText, attributes: attrs))
                 result.append(NSAttributedString(string: "\n", attributes: bodyAttributes(s)))
 
-            case .bold:
-                var attrs = bodyAttributes(s)
-                attrs[.font] = s.boldFont
-                result.append(NSAttributedString(string: rawText, attributes: attrs))
-
-            case .strikethrough:
-                var attrs = bodyAttributes(s)
-                attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
-                result.append(NSAttributedString(string: rawText, attributes: attrs))
+            case .bold, .italic, .strikethrough:
+                break
 
             case .link:
                 var attrs = bodyAttributes(s)
                 attrs[.foregroundColor] = s.linkColor
-                attrs[.mezonLink] = rawText as NSString
-                result.append(NSAttributedString(string: rawText, attributes: attrs))
+                if let named = namedLinks[token.start] {
+                    attrs[.mezonLink] = named.url as NSString
+                    let label = text.mezon_utf16Substring(from: named.labelStart, to: named.labelEnd)
+                    result.append(NSAttributedString(string: label, attributes: attrs))
+                } else {
+                    attrs[.mezonLink] = rawText as NSString
+                    result.append(NSAttributedString(string: rawText, attributes: attrs))
+                }
             }
 
             lastUTF16 = token.end
         }
 
-        if lastUTF16 < endCap {
-            let remaining = text.mezon_utf16Substring(from: lastUTF16, to: endCap)
-            if !remaining.isEmpty {
-                if lineHeadingLevel != nil {
-                    var attrs = bodyAttributes(s)
-                    attrs[.font] = lineBodyFont ?? s.bodyFont
-                    result.append(NSAttributedString(string: remaining, attributes: attrs))
-                } else {
-                    result.append(attributedPlainTextWithMarkdownHeadings(remaining, style: s))
-                }
-            }
-        }
+        appendPlainRange(from: lastUTF16, to: endCap)
 
         return result
+    }
+
+    private struct InlineStyle: Equatable {
+        var bold = false
+        var italic = false
+        var strike = false
+
+        var isPlain: Bool { !bold && !italic && !strike }
+    }
+
+    private struct InlineStyleSegment {
+        let start: Int
+        var end: Int
+        let style: InlineStyle
+    }
+
+    private static func inlineStyleSegments(_ styles: [ContentToken], from start: Int, to end: Int) -> [InlineStyleSegment] {
+        guard start < end else { return [] }
+        var pointSet: Set<Int> = [start, end]
+        for token in styles {
+            if token.start > start && token.start < end { pointSet.insert(token.start) }
+            if token.end > start && token.end < end { pointSet.insert(token.end) }
+        }
+        let points = pointSet.sorted()
+        var out: [InlineStyleSegment] = []
+        for index in 0..<(points.count - 1) {
+            let segStart = points[index]
+            let segEnd = points[index + 1]
+            var style = InlineStyle()
+            for token in styles where token.start <= segStart && token.end >= segEnd {
+                switch token.kind {
+                case .bold: style.bold = true
+                case .italic: style.italic = true
+                case .strikethrough: style.strike = true
+                default: break
+                }
+            }
+            if let last = out.last, last.style == style, last.end == segStart {
+                out[out.count - 1].end = segEnd
+            } else {
+                out.append(InlineStyleSegment(start: segStart, end: segEnd, style: style))
+            }
+        }
+        return out
+    }
+
+    private static func inlineStyledAttributes(
+        _ inline: InlineStyle,
+        style s: Style,
+        lineBodyFont: UIFont?,
+        isHeadingLine: Bool
+    ) -> [NSAttributedString.Key: Any] {
+        var attrs = bodyAttributes(s)
+        var font = inline.bold && !isHeadingLine ? s.boldFont : (lineBodyFont ?? s.bodyFont)
+        if inline.italic,
+           let descriptor = font.fontDescriptor.withSymbolicTraits(font.fontDescriptor.symbolicTraits.union(.traitItalic)) {
+            font = UIFont(descriptor: descriptor, size: font.pointSize)
+        }
+        attrs[.font] = font
+        if inline.strike {
+            attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+            let decoration = ASTextDecoration()
+            decoration.color = s.bodyColor
+            attrs[NSAttributedString.Key(ASTextStrikethroughAttributeName)] = decoration
+        }
+        return attrs
     }
 
     static func buildSegments(
@@ -545,6 +806,12 @@ enum RichTextBuilder {
 
         let slicedTokens = content.tokens.compactMap { token -> ContentToken? in
             if case .codeBlock = token.kind { return nil }
+            if token.kind.isInlineStyle {
+                let start = max(token.start, clampedFrom)
+                let end = min(token.end, clampedTo)
+                guard start < end else { return nil }
+                return ContentToken(start: start - clampedFrom, end: end - clampedFrom, kind: token.kind)
+            }
             guard token.start >= clampedFrom && token.end <= clampedTo else { return nil }
             return ContentToken(start: token.start - clampedFrom, end: token.end - clampedFrom, kind: token.kind,
                                 channelIsAccessible: token.channelIsAccessible)
@@ -745,8 +1012,8 @@ extension RichTextBuilder {
                 attributes[.font] = headingFont(level: heading.level, fonts: headingFonts, fallback: font)
             }
             let lineText = NSMutableAttributedString(string: content, attributes: attributes)
-            applyEmbedInlineMarkdown(to: lineText, codeBackground: theme.tertiary)
-            applyEmbedLinks(to: lineText, linkColor: theme.textLink)
+            applyEmbedInlineMarkdown(to: lineText, codeBackground: theme.desktop[.bgMarkdownCode])
+            applyEmbedLinks(to: lineText, linkColor: theme.desktop[.mentionColor])
             result.append(lineText)
             if index < lines.count - 1 {
                 result.append(NSAttributedString(string: "\n", attributes: baseAttributes))

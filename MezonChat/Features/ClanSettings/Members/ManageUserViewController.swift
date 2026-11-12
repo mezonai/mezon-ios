@@ -41,14 +41,8 @@ final class ManageUserViewController: BaseViewController {
     }
 
     private var boxBackgroundColor: UIColor {
-        let theme = ThemeManager.shared.current
-        if theme == .light || theme == .sunrise {
-            return UIColor.theme.secondary
-        } else if theme == .system {
-            return UIScreen.main.traitCollection.userInterfaceStyle == .light ? UIColor.theme.secondary : UIColor.theme.tertiary
-        } else {
-            return UIColor.theme.tertiary
-        }
+        ThemeManager.shared.current.effectiveInterfaceStyle == .light
+            ? UIColor.theme.secondary : UIColor.theme.tertiary
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -418,7 +412,7 @@ final class ManageUserViewController: BaseViewController {
             ),
             (
                 title: L(L10n.ClanSetting.Members.kick),
-                icon: "ClanSetting/KickIcon",
+                icon: "Profile/RemoveFriendIcon",
                 action: #selector(kickTapped),
                 show: !isItMe && (isClanOwner || (hasAdmin && !isThatClanOwner))
             )
@@ -579,7 +573,7 @@ final class ManageUserViewController: BaseViewController {
                     } else {
                         self.selectedRoleIds.remove(roleId)
                     }
-                    Toast.error(error.localizedDescription)
+                    Toast.error(error.userMessage)
                     self.buildContent()
                 }
             }

@@ -121,7 +121,7 @@ final class CanvasWebViewController: ViewController, WKNavigationDelegate {
         guard let context = accountContext else { return }
         await context.waitForSessionReady()
         guard let session = context.session else {
-            Toast.error("Session unavailable")
+            Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
             navigationController?.popViewController(animated: true)
             return
         }
@@ -162,17 +162,7 @@ final class CanvasWebViewController: ViewController, WKNavigationDelegate {
     }
 
     private static func webThemeToken() -> String {
-        let c = ThemeManager.shared.current
-        switch c {
-        case .light: return "light"
-        case .system:
-            if #available(iOS 13.0, *), UIScreen.main.traitCollection.userInterfaceStyle == .dark {
-                return "dark"
-            }
-            return "light"
-        default:
-            return "dark"
-        }
+        ThemeManager.shared.current.effectiveInterfaceStyle == .light ? "light" : "dark"
     }
 
     private static func escapeForSingleQuotedJS(_ s: String) -> String {

@@ -336,7 +336,7 @@ final class RolesRepository {
     }
 }
 
-enum RolesRepositoryError: LocalizedError {
+enum RolesRepositoryError: UserFacingError {
     case notAuthenticated
 
     var errorDescription: String? {

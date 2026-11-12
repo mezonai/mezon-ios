@@ -6,8 +6,11 @@ final class ChatVideoGalleryItemNode: GalleryItemNode {
 
     private var playerNode: UniversalVideoPlayerNode?
     private let previewNode = ASImageNode()
+    private static let neighborPrefetchDelay: TimeInterval = 2
+
     private var videoURL: URL?
     private var posterURL: String?
+    private var didScheduleNeighborPrefetch = false
     var isPlaying: Bool { playerNode?.isPlaying == true }
     var controlsBottomInset: CGFloat = 0 {
         didSet { playerNode?.controlsBottomInset = controlsBottomInset }
@@ -15,6 +18,7 @@ final class ChatVideoGalleryItemNode: GalleryItemNode {
 
     override init() {
         super.init()
+        accessibilityElementsHidden = true
         previewNode.contentMode = .scaleAspectFit
         addSubnode(previewNode)
     }
@@ -25,8 +29,8 @@ final class ChatVideoGalleryItemNode: GalleryItemNode {
         playerNode = nil
         videoURL = URL(string: info.url)
         posterURL = info.url
+        didScheduleNeighborPrefetch = false
         previewNode.image = ImageCache.shared.memoryImage(forKey: "video_thumb_\(info.url)")
-        previewNode.isHidden = false
     }
 
     private func makePlayerIfNeeded() {
@@ -42,14 +46,25 @@ final class ChatVideoGalleryItemNode: GalleryItemNode {
         self.playerNode = node
         self.addSubnode(node)
         node.frame = bounds
-        previewNode.isHidden = true
     }
 
     override func centralityUpdated(isCentral: Bool) {
+        accessibilityElementsHidden = !isCentral
         if isCentral {
             play()
         } else {
             playerNode?.pause()
+            scheduleNeighborPrefetch()
+        }
+    }
+
+    private func scheduleNeighborPrefetch() {
+        guard !didScheduleNeighborPrefetch, playerNode == nil, let url = videoURL else { return }
+        didScheduleNeighborPrefetch = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.neighborPrefetchDelay) { [weak self] in
+            guard let self, self.playerNode == nil, self.videoURL == url,
+                  self.isNodeLoaded, self.view.window != nil else { return }
+            VideoRangePrefetcher.shared.prefetch(url, allowsExpensiveNetwork: true)
         }
     }
 

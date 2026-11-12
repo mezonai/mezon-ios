@@ -47,12 +47,27 @@ final class AdvancedPermissionOverridesViewController: BaseViewController {
         setupBody()
     }
 
+    override func applyTheme() {
+        view.backgroundColor = .mezonSecondary
+        headerView.backgroundColor = .mezonSecondary
+        backButton.tintColor = UIColor.theme.textStrong
+        titleLabel.textColor = UIColor.theme.textStrong
+        saveButton.setTitleColor(UIColor.theme.iconPrimary, for: .normal)
+        sectionLabel.textColor = UIColor.theme.textNormal
+        tableView.backgroundColor = .mezonSecondary
+        tableView.reloadData()
+    }
+
     private func setupHeader() {
+        view.accessibilityIdentifier = AccessibilityID.ChannelPermissions.screen("overrides")
+        backButton.accessibilityIdentifier = AccessibilityID.ChannelPermissions.action("overrides", "back")
+        saveButton.accessibilityIdentifier = AccessibilityID.ChannelPermissions.action("overrides", "save")
+
         headerView.backgroundColor = .mezonSecondary
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
 
-        backButton.setImage(UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        backButton.setImage(UIImage(named: "Channel/ArrowLeft")?.withRenderingMode(.alwaysTemplate), for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
         backButton.addTarget(self, action: #selector(handleBack), for: .touchUpInside)
 
@@ -63,7 +78,7 @@ final class AdvancedPermissionOverridesViewController: BaseViewController {
 
         saveButton.setTitle(L(L10n.ChannelPermission.save), for: .normal)
         saveButton.titleLabel?.font = .systemFont(ofSize: 14.sf, weight: .semibold)
-        saveButton.setTitleColor(UIColor.theme.bgViolet, for: .normal)
+        saveButton.setTitleColor(UIColor.theme.iconPrimary, for: .normal)
         saveButton.addTarget(self, action: #selector(handleSave), for: .touchUpInside)
         saveButton.isHidden = true
 
@@ -239,6 +254,7 @@ extension AdvancedPermissionOverridesViewController: UITableViewDataSource, UITa
         let p = permissions[indexPath.row]
         let cell = tableView.dequeueReusableCell(withIdentifier: PermissionTriToggleCell.reuseId, for: indexPath) as! PermissionTriToggleCell
         let status = currentValues[p.id] ?? .none
+        cell.accessibilityIdentifier = AccessibilityID.ChannelPermissions.item("overrides", "permission", p.id)
         cell.configure(
             title: RolePermissionLocalization.title(forSlug: p.slug, fallback: p.title),
             description: RolePermissionLocalization.description(forSlug: p.slug),
@@ -274,7 +290,7 @@ private final class PermissionTriToggleCell: UITableViewCell {
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: .default, reuseIdentifier: reuseIdentifier)
-        backgroundColor = .clear
+        backgroundColor = UIColor.theme.primary
         contentView.backgroundColor = .clear
         selectionStyle = .none
         setupViews()
@@ -284,6 +300,7 @@ private final class PermissionTriToggleCell: UITableViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        accessibilityIdentifier = nil
         onChange = nil
     }
 
@@ -294,7 +311,7 @@ private final class PermissionTriToggleCell: UITableViewCell {
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
         descriptionLabel.font = .systemFont(ofSize: 10.sf, weight: .regular)
-        descriptionLabel.textColor = UIColor.theme.textDisabled
+        descriptionLabel.textColor = UIColor.theme.textNormal
         descriptionLabel.numberOfLines = 0
 
         segmentOuter.layer.borderWidth = 1 / max(UIScreen.main.scale, 1)
@@ -308,9 +325,13 @@ private final class PermissionTriToggleCell: UITableViewCell {
         divider1.translatesAutoresizingMaskIntoConstraints = false
         divider2.translatesAutoresizingMaskIntoConstraints = false
 
-        setupSegmentButton(denyButton, systemName: "xmark", pointSize: 12.swh)
-        setupSegmentButton(noneButton, systemName: "slash.circle", pointSize: 14.swh)
-        setupSegmentButton(allowButton, systemName: "checkmark", pointSize: 12.swh)
+        denyButton.accessibilityIdentifier = AccessibilityID.ChannelPermissions.action("override", "deny")
+        noneButton.accessibilityIdentifier = AccessibilityID.ChannelPermissions.action("override", "none")
+        allowButton.accessibilityIdentifier = AccessibilityID.ChannelPermissions.action("override", "allow")
+
+        setupSegmentButton(denyButton, assetName: "Channel/VoiceClose")
+        setupSegmentButton(noneButton, assetName: "ChannelSetting/PermissionInheritIcon")
+        setupSegmentButton(allowButton, assetName: "Channel/JoinRoleCheck")
 
         denyButton.addTarget(self, action: #selector(denyTapped), for: .touchUpInside)
         noneButton.addTarget(self, action: #selector(noneTapped), for: .touchUpInside)
@@ -365,9 +386,8 @@ private final class PermissionTriToggleCell: UITableViewCell {
         ])
     }
 
-    private func setupSegmentButton(_ b: UIButton, systemName: String, pointSize: CGFloat) {
-        let cfg = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .semibold)
-        b.setImage(UIImage(systemName: systemName, withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate), for: .normal)
+    private func setupSegmentButton(_ b: UIButton, assetName: String) {
+        b.setImage(UIImage(named: assetName)?.withRenderingMode(.alwaysTemplate), for: .normal)
         b.translatesAutoresizingMaskIntoConstraints = false
     }
 
@@ -379,14 +399,20 @@ private final class PermissionTriToggleCell: UITableViewCell {
         titleLabel.text = title
         descriptionLabel.text = description
         current = status
+        backgroundColor = UIColor.theme.primary
+        titleLabel.textColor = UIColor.theme.textStrong
+        descriptionLabel.textColor = UIColor.theme.textNormal
+        segmentOuter.layer.borderColor = UIColor.theme.borderPrimary.cgColor
+        divider1.backgroundColor = UIColor.theme.borderPrimary
+        divider2.backgroundColor = UIColor.theme.borderPrimary
         applyStatus(status)
     }
 
     private func applyStatus(_ status: ChannelPermissionsRepository.PermissionStatus) {
         let inactiveFill = UIColor.mezonSecondary
-        let red = UIColor.systemRed
-        let green = UIColor.systemGreen
-        let noneTintInactive = Self.noneAccent
+        let red = UIColor(rgb: 0xC61E1B)
+        let green = UIColor.theme.statusOnline
+        let noneTintInactive = UIColor.theme.textNormal
 
         denyButton.backgroundColor = status == .deny ? red : inactiveFill
         denyButton.tintColor = status == .deny ? .white : red

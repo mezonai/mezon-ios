@@ -16,7 +16,7 @@ enum LuckyMoneyQRParse {
     }
 }
 
-enum MmnRedEnvelopeError: Error, LocalizedError {
+enum MmnRedEnvelopeError: UserFacingError {
     case serviceNotConfigured
     case walletNotReady
     case httpStatus(Int, String?)
@@ -28,9 +28,8 @@ enum MmnRedEnvelopeError: Error, LocalizedError {
             return L(L10n.QRScanner.luckyMoneyServiceNotConfigured)
         case .walletNotReady:
             return L(L10n.QRScanner.luckyMoneyWalletNotReady)
-        case .httpStatus(let code, let body):
-            let fallback = code > 0 ? "HTTP \(code)" : L(L10n.QRScanner.luckyMoneyClaimFailed)
-            return DongAPIErrorFormat.userMessage(from: body, fallback: fallback)
+        case .httpStatus(_, let body):
+            return DongAPIErrorFormat.userMessage(from: body, fallback: L(L10n.QRScanner.luckyMoneyClaimFailed))
         case .invalidPayload:
             return L(L10n.QRScanner.luckyMoneyInvalidPayload)
         }
@@ -70,7 +69,7 @@ private struct DongEnvelope<T: Decodable>: Decodable {
 
 private enum DongAPIErrorFormat {
     static func userMessage(from raw: String?, fallback: String) -> String {
-        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { return fallback }
+        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty, !raw.hasPrefix("<") else { return fallback }
         guard let data = raw.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return raw

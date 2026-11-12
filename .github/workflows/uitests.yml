@@ -1,0 +1,100 @@
+name: iOS UI Tests
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-ui-tests
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  ui-tests:
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+      DESTINATION: platform=iOS Simulator,name=iPhone 16,OS=26.2
+      DERIVED_DATA: ${{ github.workspace }}/build/DerivedData
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check required secrets
+        env:
+          IOS_SECRETS_SWIFT_B64: ${{ secrets.IOS_SECRETS_SWIFT_B64 }}
+          IOS_GOOGLE_SERVICE_INFO_B64: ${{ secrets.IOS_GOOGLE_SERVICE_INFO_B64 }}
+          UITEST_EMAIL: ${{ secrets.UITEST_EMAIL }}
+          UITEST_OTP: ${{ secrets.UITEST_OTP }}
+          UITEST_CLAN_ID: ${{ vars.UITEST_CLAN_ID }}
+        run: |
+          missing=()
+          for name in IOS_SECRETS_SWIFT_B64 IOS_GOOGLE_SERVICE_INFO_B64 UITEST_EMAIL UITEST_OTP UITEST_CLAN_ID; do
+            [ -n "${!name}" ] || missing+=("$name")
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::Missing repository secrets or variables: ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Write app secrets
+        env:
+          IOS_SECRETS_SWIFT_B64: ${{ secrets.IOS_SECRETS_SWIFT_B64 }}
+          IOS_GOOGLE_SERVICE_INFO_B64: ${{ secrets.IOS_GOOGLE_SERVICE_INFO_B64 }}
+        run: |
+          printf '%s' "$IOS_SECRETS_SWIFT_B64" | base64 --decode > MezonChat/Networking/Secrets.swift
+          printf '%s' "$IOS_GOOGLE_SERVICE_INFO_B64" | base64 --decode > MezonChat/GoogleService-Info.plist
+
+      - name: Check Xcode and simulators
+        run: |
+          xcodebuild -version
+          xcrun simctl list devices available
+
+      - name: Generate Xcode project
+        env:
+          XCODEGEN_VERSION: 2.44.1
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" \
+            "https://github.com/yonaskolb/XcodeGen/releases/download/${XCODEGEN_VERSION}/xcodegen.zip"
+          unzip -q -o "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP"
+          "$RUNNER_TEMP/xcodegen/bin/xcodegen" --version
+          "$RUNNER_TEMP/xcodegen/bin/xcodegen" generate
+
+      - name: Install CocoaPods dependencies
+        run: |
+          if ! gem list --installed cocoapods --version 1.16.2; then
+            gem install --user-install cocoapods --version 1.16.2 --no-document
+          fi
+          export PATH="$(ruby -r rubygems -e 'puts Gem.user_dir')/bin:$PATH"
+          pod _1.16.2_ install --deployment
+
+      - name: Build for testing
+        run: |
+          xcodebuild build-for-testing \
+            -workspace MezonChat.xcworkspace \
+            -scheme MezonChat \
+            -destination "$DESTINATION" \
+            -derivedDataPath "$DERIVED_DATA" \
+            | xcbeautify --renderer github-actions
+
+      - name: Run UI tests
+        env:
+          TEST_RUNNER_UITEST_EMAIL: ${{ secrets.UITEST_EMAIL }}
+          TEST_RUNNER_UITEST_OTP: ${{ secrets.UITEST_OTP }}
+          TEST_RUNNER_UITEST_CLAN_ID: ${{ vars.UITEST_CLAN_ID }}
+          TEST_RUNNER_UITEST_CHANNEL_ID: ${{ vars.UITEST_CHANNEL_ID }}
+          TEST_RUNNER_UITEST_CHANNEL_NAME: ${{ vars.UITEST_CHANNEL_NAME }}
+        run: |
+          xcodebuild test-without-building \
+            -workspace MezonChat.xcworkspace \
+            -scheme MezonChat \
+            -destination "$DESTINATION" \
+            -derivedDataPath "$DERIVED_DATA" \
+            -only-testing:MezonChatUITests \
+            | xcbeautify --renderer github-actions

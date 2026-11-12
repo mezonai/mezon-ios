@@ -1,22 +1,22 @@
 import Foundation
-import ObjectiveC
 import UIKit
 import AsyncDisplayKit
-
-private var mezonTabBarFaceAssetKey: UInt8 = 0
-
-extension UITabBarItem {
-    var mezonTabBarFaceAssetName: String? {
-        get { objc_getAssociatedObject(self, &mezonTabBarFaceAssetKey) as? String }
-        set { objc_setAssociatedObject(self, &mezonTabBarFaceAssetKey, newValue, .OBJC_ASSOCIATION_COPY_NONATOMIC) }
-    }
-}
 
 private enum TabBarLayoutScale {
     static var value: CGFloat {
         let size = UIScreen.main.bounds.size
         let w = min(size.width, size.height)
         return min(max(w / 375, 1), 1.25)
+    }
+}
+
+private extension AppTheme {
+    var tabBarSelectedTextColor: UIColor {
+        UIColor(hex: effectiveInterfaceStyle == .light ? 0x070709 : 0xDFE0E4)
+    }
+
+    var tabBarUnselectedIconColor: UIColor {
+        UIColor(hex: effectiveInterfaceStyle == .light ? 0x767676 : 0x737373)
     }
 }
 
@@ -29,9 +29,7 @@ public struct TabBarNodeItem {
 }
 
 final class TabBarItemNode: ASDisplayNode {
-    private static let imageBundle = Bundle.main
     private let primaryIconNode = ASImageNode()
-    private let faceIconNode = ASImageNode()
     private let labelNode = ASTextNode2()
     private let badgeBg = ASDisplayNode()
     private let badgeText = ASTextNode2()
@@ -48,9 +46,7 @@ final class TabBarItemNode: ASDisplayNode {
         isUserInteractionEnabled = true
 
         primaryIconNode.isUserInteractionEnabled = false
-        primaryIconNode.contentMode = .scaleAspectFit
-        faceIconNode.isUserInteractionEnabled = false
-        faceIconNode.contentMode = .scaleAspectFit
+        primaryIconNode.contentMode = .center
         badgeBg.backgroundColor = .mezonUnreadBadge
         badgeBg.cornerRadius = 9 * TabBarLayoutScale.value
         badgeBg.isUserInteractionEnabled = false
@@ -90,20 +86,17 @@ final class TabBarItemNode: ASDisplayNode {
             spring.stiffness = 200
             spring.duration = 0.18
             primaryIconNode.layer.add(spring, forKey: "selectionBounce")
-            faceIconNode.layer.add(spring, forKey: "selectionBounceFace")
         }
     }
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         let s = TabBarLayoutScale.value
-        let iconSize: CGFloat = 22 * s
-        primaryIconNode.style.preferredSize = CGSize(width: iconSize, height: iconSize)
-        faceIconNode.style.preferredSize = CGSize(width: iconSize, height: iconSize)
-        let iconStack = ASOverlayLayoutSpec(child: primaryIconNode, overlay: faceIconNode)
+        primaryIconNode.style.preferredSize = CGSize(width: 24, height: 24)
 
         let fontSize: CGFloat = 10 * s
         let labelFont = UIFont.systemFont(ofSize: fontSize, weight: isSelected ? .semibold : .regular)
-        let labelColor = isSelected ? UIColor.theme.textStrong : UIColor.theme.channelNormal
+        let theme = ThemeManager.shared.current
+        let labelColor = isSelected ? theme.tabBarSelectedTextColor : theme.attributes.channelNormal
         labelNode.attributedText = NSAttributedString(
             string: item.title ?? "",
             attributes: [.font: labelFont, .foregroundColor: labelColor]
@@ -121,11 +114,11 @@ final class TabBarItemNode: ASDisplayNode {
                 child: ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: [], child: badgeText),
                 background: badgeBg
             )
-            let corner = ASCornerLayoutSpec(child: iconStack, corner: badgeStack, location: .topRight)
+            let corner = ASCornerLayoutSpec(child: primaryIconNode, corner: badgeStack, location: .topRight)
             corner.offset = CGPoint(x: 6 * s, y: -6 * s)
             iconWithBadge = corner
         } else {
-            iconWithBadge = iconStack
+            iconWithBadge = primaryIconNode
         }
 
         let stack = ASStackLayoutSpec(
@@ -145,31 +138,8 @@ final class TabBarItemNode: ASDisplayNode {
     private func applyStyle(selected: Bool) {
         let icon = selected ? (item.selectedImage ?? item.image) : item.image
         primaryIconNode.image = icon?.withRenderingMode(.alwaysTemplate)
-        let currentTheme = ThemeManager.shared.current
-        let isWhiteTheme = currentTheme == .light
-            || (currentTheme == .system && UITraitCollection.current.userInterfaceStyle == .light)
-        let primaryTint: UIColor
-        if isWhiteTheme {
-            primaryTint = selected ? UIColor(hex: 0xC0C8F2) : UIColor(hex: 0xCECECE)
-        } else {
-            primaryTint = selected ? UIColor.theme.iconPrimary : UIColor.theme.iconSecondary
-        }
-        let faceTint: UIColor
-        if isWhiteTheme {
-            faceTint = selected ? UIColor(hex: 0x475ED9) : UIColor.theme.borderRadio
-        } else {
-            faceTint = selected ? UIColor.theme.textStrong : UIColor.theme.borderRadio
-        }
-        primaryIconNode.tintColor = primaryTint
-        if let faceName = item.mezonTabBarFaceAssetName,
-           let face = UIImage(named: faceName, in: Self.imageBundle, compatibleWith: nil) {
-            faceIconNode.image = face.withRenderingMode(.alwaysTemplate)
-            faceIconNode.tintColor = faceTint
-            faceIconNode.isHidden = false
-        } else {
-            faceIconNode.image = nil
-            faceIconNode.isHidden = true
-        }
+        let theme = ThemeManager.shared.current
+        primaryIconNode.tintColor = selected ? theme.tabBarSelectedTextColor : theme.tabBarUnselectedIconColor
         setNeedsLayout()
     }
 
@@ -202,14 +172,10 @@ public final class TabBarNode: ASDisplayNode {
 
     var onSelect: ((Int, Bool) -> Void)?
 
-    private static var shouldEnableBackgroundBlurForCurrentTheme: Bool {
-        !ThemeManager.shared.current.usesLightStatusBarContent
-    }
-
     override public init() {
         backgroundNode = NavigationBackgroundNode(
-            color: UIColor.theme.secondaryLight,
-            enableBlur: Self.shouldEnableBackgroundBlurForCurrentTheme
+            color: UIColor.theme.primary,
+            enableBlur: false
         )
         super.init()
         automaticallyManagesSubnodes = false
@@ -257,8 +223,8 @@ public final class TabBarNode: ASDisplayNode {
 
         transition.updateFrame(node: backgroundNode, frame: CGRect(origin: .zero, size: CGSize(width: size.width, height: totalHeight)))
         backgroundNode.updateColor(
-            color: UIColor.theme.secondaryLight,
-            enableBlur: Self.shouldEnableBackgroundBlurForCurrentTheme,
+            color: UIColor.theme.primary,
+            enableBlur: false,
             transition: transition
         )
         backgroundNode.update(size: CGSize(width: size.width, height: totalHeight), cornerRadius: 0, transition: transition)

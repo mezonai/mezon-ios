@@ -160,11 +160,12 @@ final class FriendListContainerNode: ASDisplayNode {
         searchContainerNode.cornerRadius = 28.sf
         searchContainerNode.clipsToBounds = true
 
-        let searchImg = makeSymbolImage(name: "magnifyingglass", pointSize: 14.sf)
+        let searchImg = UIImage(named: "Setting/SearchIcon")?.withRenderingMode(.alwaysTemplate)
         searchIconNode.image = searchImg
         searchIconNode.tintColor = t.textDisabled
         searchIconNode.contentMode = .scaleAspectFit
 
+        searchTextField.accessibilityIdentifier = AccessibilityID.Search.input("friends")
         searchTextField.placeholder = L(L10n.FriendList.searchPlaceholder)
         searchTextField.font = .systemFont(ofSize: 14.sf)
         searchTextField.textColor = t.textStrong
@@ -189,8 +190,7 @@ final class FriendListContainerNode: ASDisplayNode {
         requestPillNode.cornerRadius = 12.sf
         requestPillNode.clipsToBounds = true
 
-        let paperPlaneImg = makeSymbolImage(name: "paperplane.fill", pointSize: 20.sf)
-        requestIconNode.image = paperPlaneImg
+        requestIconNode.image = UIImage(named: "Chat/SendMessageIcon")?.withRenderingMode(.alwaysTemplate)
         requestIconNode.tintColor = t.textStrong
         requestIconNode.contentMode = .scaleAspectFit
 
@@ -428,13 +428,12 @@ final class FriendListContainerNode: ASDisplayNode {
             ]
         )
         searchContainerNode.backgroundColor = t.secondary
-        searchIconNode.image = makeSymbolImage(name: "magnifyingglass", pointSize: 14.sf)
+        searchIconNode.image = UIImage(named: "Setting/SearchIcon")?.withRenderingMode(.alwaysTemplate)
         searchIconNode.tintColor = t.textDisabled
         searchTextField.textColor = t.textStrong
         requestPillNode.backgroundColor = t.secondary
         requestBadgeLabel.backgroundColor = .mezonUnreadBadge
         requestBadgeLabel.textColor = .white
-        requestIconNode.image = makeSymbolImage(name: "paperplane.fill", pointSize: 20.sf)
         requestIconNode.tintColor = t.textStrong
         requestChevronNode.image = makeSymbolImage(name: "chevron.right", pointSize: 12.sf, weight: .medium)
         requestChevronNode.tintColor = t.textDisabled
@@ -547,6 +546,7 @@ final class FriendListItemNode: ASCellNode, ASNetworkImageNodeDelegate {
     private let avatarNode: ASNetworkImageNode
     private let textAvatarNode: TextAvatarNode
     private let onlineIndicatorNode: ASImageNode
+    private let statusBadgeSize: CGFloat = 16.swh
     private let displayNameNode: ASTextNode
     private let callButtonNode: ASButtonNode
     private let messageButtonNode: ASButtonNode
@@ -623,20 +623,23 @@ final class FriendListItemNode: ASCellNode, ASNetworkImageNodeDelegate {
             textAvatarNode.showPlaceholder()
         }
 
-        let dotSize: CGFloat = 14.swh
-        let statusIconName: String
+        let presence: User.OnlineStatus
         switch user.status {
         case "online":
-            statusIconName = "OnlineIcon"
+            presence = .online
         case "idle":
-            statusIconName = "IdleIcon"
+            presence = .idle
         case "dnd":
-            statusIconName = "DisturbIcon"
+            presence = .doNotDisturb
         default:
-            statusIconName = user.online ? "OnlineIcon" : "InvisibleIcon"
+            presence = user.online ? .online : .invisible
         }
-        onlineIndicatorNode.image = UIImage(named: "Profile/\(statusIconName)", in: Bundle.main, compatibleWith: nil)?
-            .withRenderingMode(.alwaysOriginal)
+        onlineIndicatorNode.image = PresenceBadge.image(
+            for: presence,
+            diameter: statusBadgeSize,
+            ringWidth: 2.5.swh,
+            ringColor: t.secondary
+        )
         onlineIndicatorNode.contentMode = .scaleAspectFit
 
         displayNameNode.attributedText = NSAttributedString(
@@ -679,8 +682,7 @@ final class FriendListItemNode: ASCellNode, ASNetworkImageNodeDelegate {
         )
         avatarOverlay.style.flexShrink = 0
 
-        let dotSize: CGFloat = 12.swh
-        onlineIndicatorNode.style.preferredSize = CGSize(width: dotSize, height: dotSize)
+        onlineIndicatorNode.style.preferredSize = CGSize(width: statusBadgeSize, height: statusBadgeSize)
 
         let avatarWithDot = ASCornerLayoutSpec(
             child: avatarOverlay,
@@ -734,7 +736,7 @@ final class FriendListItemNode: ASCellNode, ASNetworkImageNodeDelegate {
     }
 
     @objc private func callTapped() {
-        Toast.comingSoonLine(L(L10n.Common.comingSoon))
+        interaction.onCallFriend(friend)
     }
 
     @objc private func messageTapped() {

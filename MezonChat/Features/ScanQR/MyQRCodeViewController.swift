@@ -207,13 +207,12 @@ final class MyQRCodeViewController: ViewController {
             case .authorized:
                 PHPhotoLibrary.shared().performChanges({
                     PHAssetChangeRequest.creationRequestForAsset(from: image)
-                }, completionHandler: { success, error in
+                }, completionHandler: { success, _ in
                     DispatchQueue.main.async {
                         if success {
                             Toast.success(L(L10n.Gallery.imageSaved))
                         } else {
-                            Toast.error(
-                                error?.localizedDescription ?? L(L10n.Gallery.imageSaveFailed))
+                            Toast.error(L(L10n.Gallery.imageSaveFailed))
                         }
                     }
                 })

@@ -79,6 +79,14 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        view.accessibilityIdentifier = AccessibilityID.VoiceRoom.expandedScreen
+        dismissDetailButton.accessibilityIdentifier = AccessibilityID.VoiceRoom.expandedClose
+        cameraButton.accessibilityIdentifier = AccessibilityID.VoiceRoom.camera
+        microphoneButton.accessibilityIdentifier = AccessibilityID.VoiceRoom.microphone
+        chatButton.accessibilityIdentifier = AccessibilityID.VoiceRoom.chat
+        handButton.accessibilityIdentifier = AccessibilityID.VoiceRoom.raiseHand
+        leaveButton.accessibilityIdentifier = AccessibilityID.VoiceRoom.end
+        pttPill.accessibilityIdentifier = AccessibilityID.VoiceRoom.pushToTalk
         view.backgroundColor = .black
 
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -120,9 +128,8 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
             videoView.bottomAnchor.constraint(equalTo: videoContainer.bottomAnchor),
         ])
 
-        let dismissCfg = UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold)
         dismissDetailButton.translatesAutoresizingMaskIntoConstraints = false
-        dismissDetailButton.setImage(UIImage(systemName: "xmark.circle.fill", withConfiguration: dismissCfg), for: .normal)
+        dismissDetailButton.setImage(UIImage(named: "Profile/CloseDMIcon")?.withRenderingMode(.alwaysTemplate), for: .normal)
         dismissDetailButton.tintColor = .white
         dismissDetailButton.backgroundColor = UIColor.black.withAlphaComponent(0.55)
         dismissDetailButton.layer.cornerRadius = 22
@@ -208,18 +215,17 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
         callControls.layer.cornerRadius = 35
 
         let controls: [(UIButton, String, String, String, Selector)] = [
-            (cameraButton, "video.slash.fill", "voiceChannel.cameraPermissionTitle", "Camera", #selector(cameraTapped)),
-            (microphoneButton, "mic.slash.fill", "voiceChannel.micPermissionTitle", "Microphone", #selector(microphoneTapped)),
-            (chatButton, "bubble.left.and.bubble.right.fill", "voiceChannel.openChat", "Open chat", #selector(chatTapped)),
-            (handButton, "hand.raised.fill", "voiceChannel.raiseHand", "Raise hand", #selector(handTapped)),
-            (leaveButton, "phone.down.fill", "voiceChannel.leaveCall", "Leave call", #selector(leaveTapped)),
+            (cameraButton, "Channel/VoiceVideoOff", "voiceChannel.cameraPermissionTitle", "Camera", #selector(cameraTapped)),
+            (microphoneButton, "Chat/MicrophoneOffIcon", "voiceChannel.micPermissionTitle", "Microphone", #selector(microphoneTapped)),
+            (chatButton, "Chat/ChatBubbleIcon", "voiceChannel.openChat", "Open chat", #selector(chatTapped)),
+            (handButton, "Channel/VoiceRaiseHand", "voiceChannel.raiseHand", "Raise hand", #selector(handTapped)),
+            (leaveButton, "Chat/CallEndIcon", "voiceChannel.leaveCall", "Leave call", #selector(leaveTapped)),
         ]
-        let config = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
-        for (button, symbol, key, label, action) in controls {
+        for (button, assetName, key, label, action) in controls {
             button.translatesAutoresizingMaskIntoConstraints = false
-            button.setImage(UIImage(systemName: symbol, withConfiguration: config), for: .normal)
+            button.setImage(UIImage(named: assetName)?.withRenderingMode(.alwaysTemplate), for: .normal)
             button.tintColor = UIColor.theme.textStrong
-            button.backgroundColor = UIColor.theme.tertiary
+            button.backgroundColor = UIColor.theme.raisedSurface
             button.layer.cornerRadius = 25
             button.layer.borderWidth = 0.5
             button.layer.borderColor = UIColor.theme.textDisabled.withAlphaComponent(0.6).cgColor
@@ -252,14 +258,13 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
 
     func updateCallControls(cameraOn: Bool, microphoneOn: Bool, handRaised: Bool, connected: Bool) {
         loadViewIfNeeded()
-        let config = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
-        cameraButton.setImage(UIImage(systemName: cameraOn ? "video.fill" : "video.slash.fill", withConfiguration: config), for: .normal)
-        microphoneButton.setImage(UIImage(systemName: microphoneOn ? "mic.fill" : "mic.slash.fill", withConfiguration: config), for: .normal)
+        cameraButton.setImage(UIImage(named: cameraOn ? "Channel/VoiceVideo" : "Channel/VoiceVideoOff")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        microphoneButton.setImage(UIImage(named: microphoneOn ? "Chat/MicrophoneIcon" : "Chat/MicrophoneOffIcon")?.withRenderingMode(.alwaysTemplate), for: .normal)
         cameraButton.isSelected = cameraOn
         microphoneButton.isSelected = microphoneOn
         handButton.isSelected = handRaised
-        handButton.tintColor = handRaised ? UIColor.theme.textLink : UIColor.theme.textStrong
-        handButton.backgroundColor = handRaised ? UIColor.theme.textLink.withAlphaComponent(0.22) : UIColor.theme.tertiary
+        handButton.tintColor = handRaised ? UIColor.mezonRaiseHandActive : UIColor.theme.textStrong
+        handButton.backgroundColor = handRaised ? UIColor.theme.textLink.withAlphaComponent(0.22) : UIColor.theme.raisedSurface
         handButton.accessibilityLabel = handRaised
             ? NSLocalizedString("voiceChannel.lowerHand", tableName: nil, bundle: .main, value: "Lower hand", comment: "")
             : NSLocalizedString("voiceChannel.raiseHand", tableName: nil, bundle: .main, value: "Raise hand", comment: "")
@@ -304,8 +309,7 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
 
         pttIcon.translatesAutoresizingMaskIntoConstraints = false
         pttIcon.contentMode = .scaleAspectFit
-        let iconCfg = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
-        pttIcon.image = UIImage(systemName: "mic.slash.fill", withConfiguration: iconCfg)?.withRenderingMode(.alwaysTemplate)
+        pttIcon.image = UIImage(named: "Chat/MicrophoneOffIcon")?.withRenderingMode(.alwaysTemplate)
         pttIcon.tintColor = .white
         pttIcon.isUserInteractionEnabled = false
 
@@ -417,12 +421,11 @@ final class ScreenShareExpandedViewController: AVPictureInPictureVideoCallViewCo
         let state = pttHoldTriggered && showsPttControl && pttControlEnabled ? pttFeedbackState : .idle
         let ready = state == .ready
         let loading = state == .waiting || state == .preparing
-        let iconCfg = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
         let tint = loading ? UIColor.theme.textWarning : UIColor.white
         pttTint.backgroundColor = ready ? UIColor.theme.bgViolet.withAlphaComponent(0.9) : .clear
         pttPill.layer.borderWidth = loading ? 1 : 0
         pttPill.layer.borderColor = tint.cgColor
-        pttIcon.image = UIImage(systemName: ready ? "mic.fill" : "mic.slash.fill", withConfiguration: iconCfg)?.withRenderingMode(.alwaysTemplate)
+        pttIcon.image = UIImage(named: ready ? "Chat/MicrophoneIcon" : "Chat/MicrophoneOffIcon")?.withRenderingMode(.alwaysTemplate)
         pttIcon.tintColor = tint
         pttIcon.isHidden = loading
         pttProgress.color = tint

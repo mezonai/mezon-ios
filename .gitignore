@@ -24,11 +24,11 @@ xcuserdata/
 
 # CocoaPods
 Pods/
-Podfile.lock
 
 # Environment / Secrets
 .env
 .env.local
+*/_Tests/uitest.env
 *.xcconfig.local
 **/Secrets.swift
 **/GoogleService-Info.plist

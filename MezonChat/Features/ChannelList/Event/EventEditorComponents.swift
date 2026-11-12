@@ -1,9 +1,19 @@
 import UIKit
 
 enum EventEditorPalette {
-    static var surface: UIColor { UIColor.theme.secondaryLight }
-    static var field: UIColor { UIColor.theme.tertiary }
-    static var border: UIColor { UIColor.theme.textDisabled.withAlphaComponent(0.45) }
+    static var surface: UIColor { UIColor.theme.primary }
+    static var field: UIColor { UIColor.theme.secondaryLight }
+    static var border: UIColor { UIColor.theme.borderPrimary }
+    static var accent: UIColor { UIColor.theme.iconPrimary }
+    static var secondaryText: UIColor { UIColor.theme.textNormal }
+    static var inputPlaceholder: UIColor { secondaryText.withAlphaComponent(0.5) }
+    static var disabledButton: UIColor { UIColor.theme.tertiary }
+    static var error: UIColor { UIColor.theme.desktop.semantic.mentionBadge }
+    static var destructive: UIColor { UIColor(rgb: 0xD30E0E) }
+
+    static func selectedBackground(alpha: CGFloat) -> UIColor {
+        surface.mixedWith(accent, alpha: alpha)
+    }
 }
 
 final class EventEditorButton: UIButton {
@@ -28,7 +38,7 @@ final class EventEditorFieldButton: UIControl {
         layer.borderColor = EventEditorPalette.border.cgColor
         captionLabel.text = caption
         captionLabel.font = .systemFont(ofSize: 12)
-        captionLabel.textColor = UIColor.theme.text
+        captionLabel.textColor = EventEditorPalette.secondaryText
         captionLabel.numberOfLines = 0
         valueLabel.font = .systemFont(ofSize: 14)
         valueLabel.textColor = UIColor.theme.textStrong
@@ -59,8 +69,9 @@ final class EventEditorFieldButton: UIControl {
     }
     required init?(coder: NSCoder) { fatalError() }
     @objc private func tapped() { action?() }
-    func setValue(_ value: String) {
+    func setValue(_ value: String, isPlaceholder: Bool = false) {
         valueLabel.text = value
+        valueLabel.textColor = isPlaceholder ? EventEditorPalette.secondaryText : UIColor.theme.textStrong
         accessibilityValue = value
     }
 }
@@ -69,7 +80,7 @@ final class EventEditorChoiceViewController: UIViewController, UITableViewDataSo
     struct Choice {
         let id: Int64
         let title: String
-        let icon: String?
+        let icon: UIImage?
     }
     private let choices: [Choice]
     private var filtered: [Choice]
@@ -79,6 +90,9 @@ final class EventEditorChoiceViewController: UIViewController, UITableViewDataSo
     private let table = UITableView(frame: .zero, style: .plain)
     private let searchContainer = UIView()
     private let searchField = UITextField()
+    private let titleLabel = UILabel()
+    private let close = EventEditorButton()
+    private let searchIcon = UIImageView(image: UIImage(named: "Setting/SearchIcon")?.withRenderingMode(.alwaysTemplate))
     private var searchWorkItem: DispatchWorkItem?
 
     init(title: String, choices: [Choice], selectedId: Int64?, allowsSearch: Bool = true, onSelect: @escaping (Int64) -> Void) {
@@ -93,7 +107,10 @@ final class EventEditorChoiceViewController: UIViewController, UITableViewDataSo
     }
     required init?(coder: NSCoder) { fatalError() }
 
-    deinit { searchWorkItem?.cancel() }
+    deinit {
+        searchWorkItem?.cancel()
+        NotificationCenter.default.removeObserver(self)
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -101,14 +118,11 @@ final class EventEditorChoiceViewController: UIViewController, UITableViewDataSo
         if #available(iOS 15.0, *) {
             sheetPresentationController?.detents = [.medium(), .large()]
         }
-        let titleLabel = UILabel()
         titleLabel.text = title
         titleLabel.font = .systemFont(ofSize: 20, weight: .bold)
         titleLabel.textColor = UIColor.theme.textStrong
         titleLabel.numberOfLines = 0
-        let close = EventEditorButton()
         close.setImage(UIImage(systemName: "xmark"), for: .normal)
-        close.tintColor = UIColor.theme.text
         close.accessibilityLabel = L(L10n.EventEditor.close)
         close.widthAnchor.constraint(equalToConstant: 44).isActive = true
         close.heightAnchor.constraint(equalToConstant: 44).isActive = true
@@ -118,21 +132,13 @@ final class EventEditorChoiceViewController: UIViewController, UITableViewDataSo
         searchContainer.backgroundColor = EventEditorPalette.field
         searchContainer.layer.cornerRadius = 12
         searchContainer.layer.borderWidth = 1
-        searchContainer.layer.borderColor = EventEditorPalette.border.cgColor
         searchContainer.isHidden = !allowsSearch
 
-        let searchIcon = UIImageView(image: UIImage(systemName: "magnifyingglass"))
-        searchIcon.tintColor = UIColor.theme.text
         searchIcon.contentMode = .scaleAspectFit
         searchIcon.translatesAutoresizingMaskIntoConstraints = false
 
+        searchField.accessibilityIdentifier = AccessibilityID.Search.input("event-channel-picker")
         searchField.font = .systemFont(ofSize: 16)
-        searchField.textColor = UIColor.theme.textStrong
-        searchField.tintColor = UIColor.theme.textStrong
-        searchField.attributedPlaceholder = NSAttributedString(
-            string: L(L10n.EventEditor.search),
-            attributes: [.foregroundColor: UIColor.theme.text]
-        )
         searchField.returnKeyType = .search
         searchField.autocorrectionType = .no
         searchField.autocapitalizationType = .none
@@ -172,8 +178,27 @@ final class EventEditorChoiceViewController: UIViewController, UITableViewDataSo
         table.keyboardDismissMode = .onDrag
         table.rowHeight = UITableView.automaticDimension
         table.estimatedRowHeight = 60
+        applyTheme()
+        NotificationCenter.default.addObserver(self, selector: #selector(applyTheme), name: ThemeManager.didChangeNotification, object: nil)
+    }
+
+    @objc private func applyTheme() {
+        view.backgroundColor = EventEditorPalette.surface
+        titleLabel.textColor = UIColor.theme.textStrong
+        close.tintColor = EventEditorPalette.secondaryText
+        searchContainer.backgroundColor = EventEditorPalette.field
+        searchContainer.layer.borderColor = EventEditorPalette.border.cgColor
+        searchIcon.tintColor = EventEditorPalette.secondaryText
+        searchField.textColor = UIColor.theme.textStrong
+        searchField.tintColor = EventEditorPalette.accent
+        searchField.attributedPlaceholder = NSAttributedString(
+            string: L(L10n.EventEditor.search),
+            attributes: [.foregroundColor: EventEditorPalette.secondaryText]
+        )
+        table.reloadData()
         updateEmptyState()
     }
+
     func numberOfSections(in tableView: UITableView) -> Int { filtered.count }
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { 1 }
     func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat { 8 }
@@ -182,25 +207,27 @@ final class EventEditorChoiceViewController: UIViewController, UITableViewDataSo
         let choice = filtered[indexPath.section]
         let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
         let selected = choice.id == selectedId
-        cell.backgroundColor = EventEditorPalette.field
-        cell.selectionStyle = .none
+        let theme = UIColor.theme
+        cell.backgroundColor = allowsSearch
+            ? (selected ? EventEditorPalette.selectedBackground(alpha: 0.10) : EventEditorPalette.field)
+            : .clear
         cell.layer.cornerRadius = 12
-        cell.layer.borderWidth = selected ? 1 : 0
-        cell.layer.borderColor = selected ? UIColor.theme.bgViolet.cgColor : UIColor.clear.cgColor
+        cell.layer.borderWidth = allowsSearch && selected ? 1 : 0
+        cell.layer.borderColor = EventEditorPalette.accent.cgColor
+        cell.selectionStyle = .none
         let title = UILabel()
         title.text = choice.title
         title.font = .systemFont(ofSize: 16)
-        title.textColor = UIColor.theme.textStrong
+        title.textColor = allowsSearch && selected ? EventEditorPalette.accent : theme.textStrong
         title.numberOfLines = allowsSearch ? 1 : 0
         title.lineBreakMode = allowsSearch ? .byTruncatingTail : .byWordWrapping
         title.setContentCompressionResistancePriority(.required, for: .vertical)
         let row = UIStackView()
         row.alignment = .center
         row.spacing = 12
-        if let iconName = choice.icon {
-            let image = UIImage(named: iconName) ?? UIImage(systemName: iconName)
-            let icon = UIImageView(image: image?.withRenderingMode(.alwaysTemplate))
-            icon.tintColor = UIColor.theme.textStrong
+        if let image = choice.icon {
+            let icon = UIImageView(image: image.withRenderingMode(.alwaysTemplate))
+            icon.tintColor = EventEditorPalette.secondaryText
             icon.contentMode = .scaleAspectFit
             icon.widthAnchor.constraint(equalToConstant: 24).isActive = true
             icon.heightAnchor.constraint(equalToConstant: 24).isActive = true
@@ -208,6 +235,11 @@ final class EventEditorChoiceViewController: UIViewController, UITableViewDataSo
         }
         row.addArrangedSubview(title)
         if selected {
+            let check = UIImageView(image: UIImage(systemName: "checkmark"))
+            check.tintColor = EventEditorPalette.accent
+            check.contentMode = .scaleAspectFit
+            check.widthAnchor.constraint(equalToConstant: 20).isActive = true
+            row.addArrangedSubview(check)
             cell.accessibilityTraits.insert(.selected)
         }
         row.translatesAutoresizingMaskIntoConstraints = false
@@ -250,6 +282,8 @@ final class EventEditorChoiceViewController: UIViewController, UITableViewDataSo
 
 final class EventEditorDateViewController: UIViewController {
     private let picker = UIDatePicker()
+    private let titleLabel = UILabel()
+    private let done = EventEditorButton()
     private let date: Date
     private let mode: UIDatePicker.Mode
     private let minimum: Date?
@@ -264,20 +298,20 @@ final class EventEditorDateViewController: UIViewController {
         modalPresentationStyle = .pageSheet
     }
     required init?(coder: NSCoder) { fatalError() }
+    deinit { NotificationCenter.default.removeObserver(self) }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = EventEditorPalette.surface
         if #available(iOS 15.0, *) {
             sheetPresentationController?.detents = [.medium()]
         }
-        let titleLabel = UILabel()
         titleLabel.text = title
         titleLabel.textColor = UIColor.theme.textStrong
         titleLabel.font = .systemFont(ofSize: 18, weight: .bold)
         titleLabel.numberOfLines = 0
-        let done = EventEditorButton()
         done.setTitle(L(L10n.EventEditor.done), for: .normal)
-        done.setTitleColor(UIColor(red: 0.39, green: 0.38, blue: 0.91, alpha: 1), for: .normal)
+        done.setTitleColor(EventEditorPalette.accent, for: .normal)
         done.widthAnchor.constraint(greaterThanOrEqualToConstant: 60).isActive = true
         done.heightAnchor.constraint(equalToConstant: 44).isActive = true
         done.action = { [weak self] in
@@ -290,11 +324,6 @@ final class EventEditorDateViewController: UIViewController {
         picker.datePickerMode = mode
         picker.locale = LanguageManager.shared.current.locale
         if #available(iOS 13.4, *) { picker.preferredDatePickerStyle = .wheels }
-        let currentTheme = ThemeManager.shared.current
-        let effectiveTheme = currentTheme == .system
-            ? (traitCollection.userInterfaceStyle == .dark ? AppTheme.dark : AppTheme.light)
-            : currentTheme
-        picker.overrideUserInterfaceStyle = (effectiveTheme == .light || effectiveTheme == .sunrise) ? .light : .dark
         picker.minimumDate = minimum
         picker.date = date
         let stack = UIStackView(arrangedSubviews: [header, picker])
@@ -308,5 +337,15 @@ final class EventEditorDateViewController: UIViewController {
             stack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -20),
             stack.bottomAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12)
         ])
+        applyTheme()
+        NotificationCenter.default.addObserver(self, selector: #selector(applyTheme), name: ThemeManager.didChangeNotification, object: nil)
+    }
+
+    @objc private func applyTheme() {
+        view.backgroundColor = EventEditorPalette.surface
+        titleLabel.textColor = UIColor.theme.textStrong
+        done.setTitleColor(EventEditorPalette.accent, for: .normal)
+        picker.tintColor = EventEditorPalette.accent
+        picker.overrideUserInterfaceStyle = ThemeManager.shared.current.effectiveInterfaceStyle
     }
 }

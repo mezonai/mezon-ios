@@ -37,6 +37,16 @@
          </BuildableReference>
       </MacroExpansion>
       <Testables>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "2B65049FD34D64C1135CCA8A"
+               BuildableName = "MezonChatUITests.xctest"
+               BlueprintName = "MezonChatUITests"
+               ReferencedContainer = "container:MezonChat.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction

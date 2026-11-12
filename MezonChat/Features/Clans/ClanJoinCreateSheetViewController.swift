@@ -169,7 +169,7 @@ final class JoinClanSheetViewController: UIViewController {
                     )
                 }
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
                 primaryButton.isEnabled = true
                 textField.isEnabled = true
                 activity.stopAnimating()

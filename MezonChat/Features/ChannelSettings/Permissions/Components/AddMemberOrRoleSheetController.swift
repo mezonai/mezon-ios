@@ -22,6 +22,7 @@ final class AddMemberOrRoleSheetController: UIViewController {
     private let addButton = UIButton(type: .system)
     private let searchContainer = UIView()
     private let searchField = UITextField()
+    private let searchIcon = UIImageView(image: UIImage(named: "Setting/SearchIcon")?.withRenderingMode(.alwaysTemplate))
     private let tableView = UITableView(frame: .zero, style: .plain)
 
     init(
@@ -50,21 +51,46 @@ final class AddMemberOrRoleSheetController: UIViewController {
         setupSearch()
         setupTable()
         refreshAddButton()
+        applyTheme()
+        NotificationCenter.default.addObserver(self, selector: #selector(applyTheme), name: ThemeManager.didChangeNotification, object: nil)
+    }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    @objc private func applyTheme() {
+        view.backgroundColor = .mezonSecondary
+        titleLabel.textColor = UIColor.theme.textStrong
+        cancelButton.setTitleColor(UIColor.theme.textNormal, for: .normal)
+        addButton.setTitleColor(UIColor.theme.iconPrimary, for: .normal)
+        searchContainer.backgroundColor = UIColor.theme.primary
+        searchField.textColor = UIColor.theme.textStrong
+        searchField.tintColor = UIColor.theme.iconPrimary
+        searchIcon.tintColor = UIColor.theme.textNormal
+        searchField.attributedPlaceholder = NSAttributedString(
+            string: L(L10n.ChannelPermission.searchPlaceholder),
+            attributes: [.foregroundColor: UIColor.theme.textNormal]
+        )
+        tableView.reloadData()
     }
 
     private func setupHeader() {
+        view.accessibilityIdentifier = AccessibilityID.ChannelPermissions.screen("picker")
+        cancelButton.accessibilityIdentifier = AccessibilityID.ChannelPermissions.action("picker", "cancel")
+        addButton.accessibilityIdentifier = AccessibilityID.ChannelPermissions.action("picker", "add")
+        searchField.accessibilityIdentifier = AccessibilityID.ChannelPermissions.action("picker", "search")
+
         titleLabel.text = L(L10n.ChannelPermission.bsAddMembersOrRoles)
         titleLabel.font = .systemFont(ofSize: 16.sf, weight: .semibold)
         titleLabel.textColor = .mezonTextPrimary
         titleLabel.textAlignment = .center
 
         cancelButton.setTitle(L(L10n.Common.cancel), for: .normal)
-        cancelButton.setTitleColor(UIColor.theme.textDisabled, for: .normal)
+        cancelButton.setTitleColor(UIColor.theme.textNormal, for: .normal)
         cancelButton.titleLabel?.font = .systemFont(ofSize: 14.sf, weight: .regular)
         cancelButton.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
 
         addButton.setTitle(L(L10n.ChannelPermission.bsAdd), for: .normal)
-        addButton.setTitleColor(UIColor.theme.bgViolet, for: .normal)
+        addButton.setTitleColor(UIColor.theme.iconPrimary, for: .normal)
         addButton.titleLabel?.font = .systemFont(ofSize: 14.sf, weight: .semibold)
         addButton.addTarget(self, action: #selector(addTapped), for: .touchUpInside)
 
@@ -86,16 +112,15 @@ final class AddMemberOrRoleSheetController: UIViewController {
     }
 
     private func setupSearch() {
-        searchContainer.backgroundColor = UIColor.theme.tertiary
+        searchContainer.backgroundColor = UIColor.theme.primary
         searchContainer.layer.cornerRadius = 10.swh
         searchContainer.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(searchContainer)
 
-        let icon = UIImageView(image: UIImage(systemName: "magnifyingglass")?.withRenderingMode(.alwaysTemplate))
-        icon.tintColor = UIColor.theme.textDisabled
-        icon.contentMode = .scaleAspectFit
-        icon.translatesAutoresizingMaskIntoConstraints = false
-        searchContainer.addSubview(icon)
+        searchIcon.tintColor = UIColor.theme.textDisabled
+        searchIcon.contentMode = .scaleAspectFit
+        searchIcon.translatesAutoresizingMaskIntoConstraints = false
+        searchContainer.addSubview(searchIcon)
 
         searchField.attributedPlaceholder = NSAttributedString(
             string: L(L10n.ChannelPermission.searchPlaceholder),
@@ -113,12 +138,12 @@ final class AddMemberOrRoleSheetController: UIViewController {
             searchContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16.sw),
             searchContainer.heightAnchor.constraint(equalToConstant: 40.sh),
 
-            icon.leadingAnchor.constraint(equalTo: searchContainer.leadingAnchor, constant: 10.sw),
-            icon.centerYAnchor.constraint(equalTo: searchContainer.centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 16.swh),
-            icon.heightAnchor.constraint(equalToConstant: 16.swh),
+            searchIcon.leadingAnchor.constraint(equalTo: searchContainer.leadingAnchor, constant: 10.sw),
+            searchIcon.centerYAnchor.constraint(equalTo: searchContainer.centerYAnchor),
+            searchIcon.widthAnchor.constraint(equalToConstant: 16.swh),
+            searchIcon.heightAnchor.constraint(equalToConstant: 16.swh),
 
-            searchField.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8.sw),
+            searchField.leadingAnchor.constraint(equalTo: searchIcon.trailingAnchor, constant: 8.sw),
             searchField.trailingAnchor.constraint(equalTo: searchContainer.trailingAnchor, constant: -10.sw),
             searchField.topAnchor.constraint(equalTo: searchContainer.topAnchor),
             searchField.bottomAnchor.constraint(equalTo: searchContainer.bottomAnchor)
@@ -222,6 +247,7 @@ extension AddMemberOrRoleSheetController: UITableViewDataSource, UITableViewDele
             return c
         case .role(let role):
             let cell = tableView.dequeueReusableCell(withIdentifier: ChannelPermissionRowCell.reuseId, for: indexPath) as! ChannelPermissionRowCell
+            cell.accessibilityIdentifier = AccessibilityID.ChannelPermissions.item("picker", "role", role.id)
             cell.configureRole(
                 title: role.title,
                 color: RoleColors.uiColor(forRole: role),
@@ -231,6 +257,7 @@ extension AddMemberOrRoleSheetController: UITableViewDataSource, UITableViewDele
             return cell
         case .member(let member):
             let cell = tableView.dequeueReusableCell(withIdentifier: ChannelPermissionRowCell.reuseId, for: indexPath) as! ChannelPermissionRowCell
+            cell.accessibilityIdentifier = AccessibilityID.ChannelPermissions.item("picker", "member", member.userId)
             cell.configureMember(
                 name: RoleMemberDisplay.displayName(member),
                 subtitle: member.username,

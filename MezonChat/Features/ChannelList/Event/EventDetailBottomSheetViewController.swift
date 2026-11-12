@@ -24,7 +24,7 @@ enum EventDeleteConfirmation {
                     Toast.success(L(L10n.EventMenu.deleted))
                     onDeleted?()
                 } catch {
-                    Toast.error(error.localizedDescription)
+                    Toast.error(error.userMessage)
                 }
             }
         })
@@ -38,7 +38,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
     private let clanId: Int64
     private let clanName: String
     private let clanLogoURL: String
-    private let channels: [Mezon_Api_ChannelDescription]
+    private var channels: [Mezon_Api_ChannelDescription]
     private var event: Mezon_Api_EventManagement
     private let onOpenChannel: ((Mezon_Api_ChannelDescription) -> Void)?
     private let onPresentJoinVoice: ((Mezon_Api_ChannelDescription) -> Void)?
@@ -49,6 +49,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
     private let contentStack = UIStackView()
     private let interestButton = UIButton(type: .custom)
     private var eventsDisposable: Disposable?
+    private var audienceRefreshChannelId: Int64?
 
     init(
         context: AccountContext,
@@ -78,6 +79,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        view.accessibilityIdentifier = AccessibilityID.Event.detail
         configureSheet()
         buildContent()
         applyTheme()
@@ -85,15 +87,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
         eventsDisposable = context.engine.clanData.clanEventsUpdated.signal().start(next: { [weak self] updatedClanId in
             guard let self, updatedClanId == self.clanId else { return }
             DispatchQueue.main.async { [weak self] in
-                guard let self,
-                      let events = self.context.engine.clanData.getClanEvents(clanId: self.clanId)?.events else { return }
-                guard let updated = events.first(where: { $0.id == self.event.id }) else {
-                    self.dismissDetail()
-                    return
-                }
-                self.event = updated
-                self.updateInterestedSegmentTitle()
-                self.rebuildContent()
+                self?.rebuildContent()
             }
         })
         NotificationCenter.default.addObserver(
@@ -107,6 +101,16 @@ final class EventDetailBottomSheetViewController: UIViewController {
     deinit {
         eventsDisposable?.dispose()
         NotificationCenter.default.removeObserver(self)
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        rebuildContent()
+    }
+
+    func updateChannels(_ channels: [Mezon_Api_ChannelDescription], removedChannelIds: Set<Int64>) {
+        self.channels = channels
+        if isViewLoaded { rebuildContent(removedChannelIds: removedChannelIds) }
     }
 
     @objc private func themeDidChange() {
@@ -125,6 +129,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
     }
 
     private func buildContent() {
+        view.accessibilityIdentifier = AccessibilityID.EventDetail.sheet
         view.backgroundColor = UIColor.theme.primary
 
         let interestedCount = event.userIds.filter { $0 != 0 }.count
@@ -170,7 +175,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
     private func applyTheme() {
         view.backgroundColor = UIColor.theme.primary
         if #available(iOS 13.0, *) {
-            segmentedControl.selectedSegmentTintColor = UIColor.theme.tertiary
+            segmentedControl.selectedSegmentTintColor = UIColor.theme.raisedSurface
             segmentedControl.backgroundColor = UIColor.theme.secondary
         }
         let font = UIFont.systemFont(ofSize: 13, weight: .medium)
@@ -203,11 +208,8 @@ final class EventDetailBottomSheetViewController: UIViewController {
     private func editEvent() {
         guard EventEditorAccess.canEdit(event, context: context) else { return }
         let editor = EventEditorViewController(context: context, clanId: clanId, channels: channels, event: event)
-        editor.onSaved = { [weak self] updated in
-            guard let self, let updated else { return }
-            self.event = updated
-            self.updateInterestedSegmentTitle()
-            self.rebuildContent()
+        editor.onSaved = { [weak self] _ in
+            self?.rebuildContent()
         }
         present(editor, animated: true)
     }
@@ -266,7 +268,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
     }
 
     private func inviteToEvent() {
-        guard event.isPrivate, let url = eventURL else { return }
+        guard event.isExternal, let url = eventURL else { return }
         let invite = ClanInviteSheetViewController(context: context, clanId: clanId, externalEventURL: url)
         invite.modalPresentationStyle = .pageSheet
         if #available(iOS 15.0, *) {
@@ -276,8 +278,43 @@ final class EventDetailBottomSheetViewController: UIViewController {
         present(invite, animated: true)
     }
 
-    private func rebuildContent() {
+    private func rebuildContent(removedChannelIds: Set<Int64> = []) {
+        let events = context.engine.clanData.getClanEvents(clanId: clanId)?.events ?? [event]
+        guard let updated = events.first(where: { $0.id == event.id }),
+              EventListFilter.isActive(updated),
+              !removedChannelIds.contains(updated.channelID) else {
+            dismissDetail()
+            return
+        }
+
+        if updated.channelID != 0, !channels.contains(where: { $0.channelID == updated.channelID }) {
+            // The channel snapshot can be partial. ListEvents also checks audience access.
+            guard !removedChannelIds.contains(event.channelID) else {
+                dismissDetail()
+                return
+            }
+            refreshEventsForMissingAudience(updated.channelID)
+            // Keep the last visible event if a socket update moves it to an unknown audience.
+            guard updated.channelID == event.channelID else { return }
+        } else {
+            audienceRefreshChannelId = nil
+        }
+        event = updated
+        updateInterestedSegmentTitle()
         showTab(segmentedControl.selectedSegmentIndex)
+    }
+
+    private func refreshEventsForMissingAudience(_ channelId: Int64) {
+        guard audienceRefreshChannelId != channelId, NetworkMonitor.shared.isConnected else { return }
+        audienceRefreshChannelId = channelId
+        let epoch = context.sessionEpoch
+        Task { @MainActor [weak self] in
+            guard let self,
+                  let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait(),
+                  self.context.isStillCurrentSession(epoch: epoch),
+                  self.audienceRefreshChannelId == channelId else { return }
+            await self.context.engine.clanData.refetchEvents(clanId: self.clanId, token: token)
+        }
     }
 
     private func makeDetailCard() -> UIView {
@@ -307,7 +344,8 @@ final class EventDetailBottomSheetViewController: UIViewController {
         ])
 
         let more = EventEditorButton()
-        more.setImage(UIImage(systemName: "ellipsis"), for: .normal)
+        more.setImage(UIImage(named: "Channel/EventMore")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        more.accessibilityIdentifier = AccessibilityID.EventDetail.action("more")
         more.tintColor = UIColor.theme.textStrong
         more.accessibilityLabel = L(L10n.EventMenu.actions)
         more.widthAnchor.constraint(equalToConstant: 44).isActive = true
@@ -375,27 +413,35 @@ final class EventDetailBottomSheetViewController: UIViewController {
         stack.addArrangedSubview(actionsRow)
         actionsRow.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
 
-        if event.isPrivate, eventURL != nil,
+        if event.isExternal, eventURL != nil,
            let meeting = ExternalMeetingRoom(externalLink: event.meetRoom.externalLink, title: event.title) {
-            let joinButton = actionButton(L(L10n.EventMenu.joinInApp), symbol: "speaker.wave.2.fill") { [weak self] in
+            let joinButton = actionButton(
+                L(L10n.EventMenu.joinInApp), asset: "Channel/EventJoinSpeaker", identifier: "join-in-app"
+            ) { [weak self] in
                 self?.onJoinExternalMeeting?(meeting)
             }
-            EventDisplayHelper.applyJoinInAppStyle(joinButton)
+            EventDisplayHelper.applyJoinInAppStyle(joinButton, image: joinButton.image(for: .normal))
             stack.addArrangedSubview(joinButton)
             joinButton.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
 
-        if event.isPrivate, eventURL != nil {
+        if event.isExternal, eventURL != nil {
             let externalActions = UIStackView()
             externalActions.spacing = 8
             externalActions.distribution = .fillEqually
-            externalActions.addArrangedSubview(actionButton(L(L10n.EventMenu.openLink), symbol: "arrow.up.right.square") { [weak self] in
+            externalActions.addArrangedSubview(actionButton(
+                L(L10n.EventMenu.openLink), asset: "Channel/EventOpenLink", identifier: "open-link"
+            ) { [weak self] in
                 self?.handleVoiceJoin()
             })
-            externalActions.addArrangedSubview(actionButton(L(L10n.ClanInviteSheet.invite), symbol: "person.badge.plus") { [weak self] in
+            externalActions.addArrangedSubview(actionButton(
+                L(L10n.ClanInviteSheet.invite), asset: "Chat/UserPlusIcon", identifier: "invite"
+            ) { [weak self] in
                 self?.inviteToEvent()
             })
-            externalActions.addArrangedSubview(actionButton(L(L10n.ClanInviteSheet.copy), symbol: "link") { [weak self] in
+            externalActions.addArrangedSubview(actionButton(
+                L(L10n.ClanInviteSheet.copy), asset: "ChannelSetting/CopyLinkIcon", identifier: "copy-link"
+            ) { [weak self] in
                 self?.copyEventLink()
             })
             stack.addArrangedSubview(externalActions)
@@ -442,7 +488,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
             emptyStack.axis = .vertical
             emptyStack.spacing = 8
             emptyStack.alignment = .center
-            let icon = UIImageView(image: UIImage(systemName: "person.2.fill"))
+            let icon = UIImageView(image: UIImage(named: "ClanSetting/Members")?.withRenderingMode(.alwaysTemplate))
             icon.tintColor = UIColor.theme.textDisabled
             icon.contentMode = .scaleAspectFit
             icon.translatesAutoresizingMaskIntoConstraints = false
@@ -492,7 +538,8 @@ final class EventDetailBottomSheetViewController: UIViewController {
                 color: UIColor(red: 0.20, green: 0.78, blue: 0.35, alpha: 1)
             ))
         }
-        let icon = UIImageView(image: UIImage(named: "Channel/Event"))
+        let icon = UIImageView(image: UIImage(named: "Channel/Event")?.withRenderingMode(.alwaysTemplate))
+        icon.tintColor = EventDisplayHelper.statusColor(for: status)
         icon.contentMode = .scaleAspectFit
         icon.translatesAutoresizingMaskIntoConstraints = false
         icon.widthAnchor.constraint(equalToConstant: 20).isActive = true
@@ -539,12 +586,16 @@ final class EventDetailBottomSheetViewController: UIViewController {
     private func makeLocationRow() -> UIView? {
         if !event.address.isEmpty {
             return inlineRow(
-                icon: UIImage(systemName: "mappin.and.ellipse"),
+                icon: UIImage(named: "Channel/Location"),
                 text: event.address
             )
         }
-        let voiceChannel = channels.first(where: { $0.channelID == event.channelVoiceID })
-        let voiceLabel = voiceChannel?.channelLabel ?? L(L10n.EventMenu.privateRoom)
+        let voiceChannel = resolveVoiceChannel()
+        let fallbackKey = event.channelVoiceID != 0 ? L10n.EventMenu.privateRoom : L10n.EventMenu.externalMeetingRoom
+        let voiceLabel = voiceChannel?.channelLabel ?? L(fallbackKey)
+        if event.channelVoiceID != 0 && voiceChannel == nil {
+            return inlineRow(icon: UIImage(systemName: "speaker.wave.2.fill"), text: voiceLabel)
+        }
         return makeTappableVoiceRow(label: voiceLabel)
     }
 
@@ -558,7 +609,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
         row.translatesAutoresizingMaskIntoConstraints = false
         control.addSubview(row)
 
-        let imageView = UIImageView(image: UIImage(systemName: "speaker.wave.2.fill"))
+        let imageView = UIImageView(image: UIImage(named: "Channel/StreamSpeaker")?.withRenderingMode(.alwaysTemplate))
         imageView.tintColor = UIColor.theme.textStrong
         imageView.contentMode = .scaleAspectFit
         imageView.translatesAutoresizingMaskIntoConstraints = false
@@ -581,6 +632,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
             row.bottomAnchor.constraint(equalTo: control.bottomAnchor),
         ])
 
+        control.accessibilityIdentifier = AccessibilityID.EventDetail.action("voice-room")
         control.addTarget(self, action: #selector(voiceRowTapped), for: .touchUpInside)
         return control
     }
@@ -591,25 +643,17 @@ final class EventDetailBottomSheetViewController: UIViewController {
 
     private func handleVoiceJoin() {
         guard event.address.isEmpty else { return }
-        if let voiceChannel = resolveVoiceChannel() {
+        if event.channelVoiceID != 0 {
+            guard let voiceChannel = resolveVoiceChannel() else { return }
             onPresentJoinVoice?(voiceChannel)
-            return
-        }
-        if let url = MezonConfig.externalEventURL(event.meetRoom.externalLink) {
+        } else if let url = MezonConfig.externalEventURL(event.meetRoom.externalLink) {
             UIApplication.shared.open(url)
         }
     }
 
     private func resolveVoiceChannel() -> Mezon_Api_ChannelDescription? {
         guard event.channelVoiceID != 0 else { return nil }
-        if let channel = channels.first(where: { $0.channelID == event.channelVoiceID }) {
-            return channel
-        }
-        var channel = Mezon_Api_ChannelDescription()
-        channel.channelID = event.channelVoiceID
-        channel.clanID = clanId
-        channel.type = MezonConstants.ChannelType.mezonVoice.rawValue
-        return channel
+        return channels.first(where: { $0.channelID == event.channelVoiceID })
     }
 
     private func currentUserId() -> Int64 {
@@ -631,7 +675,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
         row.alignment = .fill
         row.distribution = .fillEqually
         if event.address.isEmpty, eventURL != nil {
-            let share = actionButton(L(L10n.Common.share), symbol: "square.and.arrow.up")
+            let share = actionButton(L(L10n.Common.share), asset: "Channel/EventShare", identifier: "share")
             share.action = { [weak self, weak share] in
                 guard let share else { return }
                 self?.shareEvent(from: share)
@@ -639,12 +683,18 @@ final class EventDetailBottomSheetViewController: UIViewController {
             row.addArrangedSubview(share)
         }
         if EventDisplayHelper.resolvedStatus(for: event) != .ongoing {
-            EventDisplayHelper.configureInterestButton(interestButton, isInterested: isCurrentUserInterested())
+            let isInterested = isCurrentUserInterested()
+            let asset = isInterested ? "Channel/EventBellOff" : "ClanSetting/Notification"
+            let icon = EventDisplayHelper.templateIcon(named: asset, height: 14)
+            EventDisplayHelper.configureInterestButton(interestButton, isInterested: isInterested, image: icon)
+            interestButton.accessibilityIdentifier = AccessibilityID.EventDetail.action("interest")
             interestButton.removeTarget(self, action: #selector(interestedTapped), for: .touchUpInside)
             interestButton.addTarget(self, action: #selector(interestedTapped), for: .touchUpInside)
             row.addArrangedSubview(interestButton)
         } else if EventEditorAccess.canEnd(event, context: context) {
-            row.addArrangedSubview(actionButton(L(L10n.EventMenu.endEvent), symbol: "xmark.circle") { [weak self] in
+            row.addArrangedSubview(actionButton(
+                L(L10n.EventMenu.endEvent), asset: "Channel/EventEnd", identifier: "end"
+            ) { [weak self] in
                 guard let self, EventEditorAccess.canEnd(self.event, context: self.context) else { return }
                 self.confirmDeleteEvent()
             })
@@ -653,10 +703,13 @@ final class EventDetailBottomSheetViewController: UIViewController {
         return row
     }
 
-    private func actionButton(_ title: String, symbol: String, action: (() -> Void)? = nil) -> EventEditorButton {
+    private func actionButton(
+        _ title: String, asset: String, identifier: String, action: (() -> Void)? = nil
+    ) -> EventEditorButton {
         let button = EventEditorButton()
+        button.accessibilityIdentifier = AccessibilityID.EventDetail.action(identifier)
         button.setTitle(title, for: .normal)
-        button.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 13)), for: .normal)
+        button.setImage(EventDisplayHelper.templateIcon(named: asset, height: 14), for: .normal)
         button.tintColor = UIColor.theme.textStrong
         button.setTitleColor(UIColor.theme.textStrong, for: .normal)
         button.backgroundColor = UIColor.theme.secondary
@@ -685,10 +738,6 @@ final class EventDetailBottomSheetViewController: UIViewController {
                 interested: interested,
                 token: token
             )
-            if let updated = context.engine.clanData.getClanEvents(clanId: clanId)?.events.first(where: { $0.id == event.id }) {
-                event = updated
-            }
-            updateInterestedSegmentTitle()
             rebuildContent()
         }
     }
@@ -709,7 +758,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
         case 1: text = L(L10n.EventMenu.detailOnePersonInterested)
         default: text = L(L10n.EventMenu.detailPersonInterested, count)
         }
-        return inlineRow(icon: UIImage(systemName: "bell.fill"), text: text)
+        return inlineRow(icon: UIImage(named: "ClanSetting/Notification"), text: text)
     }
 
     private func makeCreatorRow() -> UIView {
@@ -784,7 +833,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
         row.axis = .horizontal
         row.spacing = 8
         row.alignment = .center
-        let imageView = UIImageView(image: icon)
+        let imageView = UIImageView(image: icon?.withRenderingMode(.alwaysTemplate))
         imageView.tintColor = UIColor.theme.text
         imageView.contentMode = .scaleAspectFit
         imageView.translatesAutoresizingMaskIntoConstraints = false

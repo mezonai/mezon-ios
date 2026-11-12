@@ -1,18 +1,18 @@
 import UIKit
 import AsyncDisplayKit
 
-enum ChannelAction: CaseIterable {
-    case markAsRead
-    case markFavorite
-    case unmarkFavorite
-    case copyLink
+enum ChannelAction: String, CaseIterable {
+    case markAsRead = "mark-as-read"
+    case markFavorite = "mark-favorite"
+    case unmarkFavorite = "unmark-favorite"
+    case copyLink = "copy-link"
     case mute
     case unmute
-    case notificationSettings
+    case notificationSettings = "notification-settings"
     case threads
-    case editChannel
-    case deleteChannel
-    case leaveThread
+    case editChannel = "edit-channel"
+    case deleteChannel = "delete-channel"
+    case leaveThread = "leave-thread"
 
     var title: String {
         switch self {
@@ -32,16 +32,15 @@ enum ChannelAction: CaseIterable {
 
     var icon: String? {
         switch self {
-        case .markAsRead: return "ChannelSetting/MarkAsRead"
+        case .markAsRead: return "ChannelSetting/EyeIcon"
         case .markFavorite, .unmarkFavorite: return "ChannelSetting/Favorite"
-        case .copyLink: return "ClanSetting/Invite"
+        case .copyLink: return "ChannelSetting/CopyLinkIcon"
         case .mute: return "ChannelSetting/MuteChannel"
-        case .unmute: return "ChannelSetting/UmuteChannelIcon"
-        case .notificationSettings: return "ChannelSetting/NotificationSettings"
-        case .threads: return "Channel/channelThread"
-        case .editChannel: return "Profile/SettingIcon"
-        case .deleteChannel: return "ChannelSetting/DeleteIcon"
-        case .leaveThread: return "Profile/RemoveFriendIcon"
+        case .unmute, .notificationSettings: return "ChannelSetting/BellIcon"
+        case .threads: return "ChannelSetting/ThreadIcon"
+        case .editChannel: return "Profile/AdminSettingIcon"
+        case .deleteChannel: return "Channel/VoiceClose"
+        case .leaveThread: return "ChannelSetting/LeaveIcon"
         }
     }
 
@@ -244,6 +243,7 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
 
     override func didLoad() {
         super.didLoad()
+        view.accessibilityIdentifier = AccessibilityID.ChannelList.actionSheet
         let tap = UITapGestureRecognizer(target: self, action: #selector(handleDimTap))
         dimNode.view.addGestureRecognizer(tap)
 
@@ -456,13 +456,8 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
         let icon = UIImageView()
         if let iconName = action.icon {
             guard let base = ChannelActionAssetCache.image(named: iconName) else { return v }
-            if action.isDestructive {
-                icon.image = base.withRenderingMode(.alwaysTemplate)
-                icon.tintColor = .mezonError
-            } else {
-                icon.image = base.withRenderingMode(.alwaysOriginal)
-                icon.tintColor = nil
-            }
+            icon.image = base.withRenderingMode(.alwaysTemplate)
+            icon.tintColor = action.isDestructive ? .mezonError : .mezonIconDefault
         }
         icon.contentMode = .scaleAspectFit
         v.addSubview(icon)
@@ -470,8 +465,8 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
         NSLayoutConstraint.activate([
             icon.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 16.sw),
             icon.centerYAnchor.constraint(equalTo: v.centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 24.swh),
-            icon.heightAnchor.constraint(equalToConstant: 24.swh),
+            icon.widthAnchor.constraint(equalToConstant: 24),
+            icon.heightAnchor.constraint(equalToConstant: 24),
         ])
 
         let l = UILabel()
@@ -502,6 +497,8 @@ private final class ChannelActionSheetNode: ASDisplayNode, UIGestureRecognizerDe
 
         v.heightAnchor.constraint(equalToConstant: 56.sh).isActive = true
         let wrapper = ChannelActionButton(type: .custom)
+        wrapper.accessibilityIdentifier = AccessibilityID.ChannelList.actionSheetAction(action.rawValue)
+        wrapper.accessibilityLabel = actionTitle
         wrapper.actionHandler = { [weak self] in self?.onAction(action) }
         wrapper.addTarget(wrapper, action: #selector(ChannelActionButton.performAction), for: .touchUpInside)
         v.addSubview(wrapper)

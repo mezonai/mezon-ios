@@ -17,20 +17,19 @@ final class ChannelItemCellNode: ASCellNode {
     var onLongPress: (() -> Void)?
 
     private let channel: Mezon_Api_ChannelDescription
-    private let cellSelected: Bool
     private let isVoiceActive: Bool
 
     init(channel: Mezon_Api_ChannelDescription, isSelected: Bool, isVoiceActive: Bool = false, hasBuzz: Bool = false, viewerCount: Int? = nil) {
         self.channel = channel
-        self.cellSelected = isSelected
         self.isVoiceActive = isVoiceActive
         self.viewerCount = channel.type == MezonConstants.ChannelType.streaming.rawValue ? viewerCount : nil
         super.init()
+        nameNode.accessibilityIdentifier = AccessibilityID.Chat.channelRow(String(channel.channelID))
         automaticallyManagesSubnodes = true
         neverShowPlaceholders = true
         selectionStyle = .none
         clipsToBounds = true
-        setupContent()
+        setupContent(isSelected: isSelected)
         buzzBadge.isHidden = !hasBuzz
     }
 
@@ -40,25 +39,11 @@ final class ChannelItemCellNode: ASCellNode {
         MezonConstants.ChannelType.app.rawValue,
     ]
 
-    private func setupContent() {
+    private func setupContent(isSelected: Bool) {
         let t = UIColor.theme
         let chType = ChannelType(rawValue: channel.type) ?? .unknown
-        let isVoiceType = Self.voiceTypes.contains(channel.type)
-        let isUnread = !isVoiceType && (
-            channel.countMessUnread > 0
-            || (channel.hasLastSentMessage
-                && channel.lastSeenMessage.timestampSeconds
-                    < channel.lastSentMessage.timestampSeconds))
-        let unread = isVoiceType ? 0 : channel.countMessUnread
+        let unread = Self.voiceTypes.contains(channel.type) ? 0 : channel.countMessUnread
 
-        let iconColor: UIColor
-        if isVoiceActive {
-            iconColor = .mezonVoiceActive
-        } else if isUnread {
-            iconColor = t.channelUnread
-        } else {
-            iconColor = t.channelNormal
-        }
         if chType.isSystemImage {
             var iconName = chType.icon
             if chType == .voice && isVoiceActive {
@@ -71,35 +56,18 @@ final class ChannelItemCellNode: ASCellNode {
                 iconName = "Channel/channelWarning"
             }
             let displayImage = chType == .voice && channel.channelPrivate != 0
-                ? Self.privateVoiceIcon
+                ? channel.channelListIconImage()
                 : (UIImage(named: iconName) ?? UIImage(systemName: iconName))
             iconImgNode.image = displayImage?.withRenderingMode(.alwaysTemplate)
-            iconImgNode.tintColor = iconColor
             iconImgNode.isHidden = false
             iconNode.isHidden = true
         } else {
-            iconNode.attributedText = NSAttributedString(
-                string: chType.icon,
-                attributes: [
-                    .font: UIFont.systemFont(ofSize: 14.sf, weight: .regular),
-                    .foregroundColor: iconColor,
-                ])
             iconNode.isHidden = false
             iconImgNode.isHidden = true
         }
 
-        let nameStr = channel.channelLabel.isEmpty ? "channel" : channel.channelLabel
-        let nameColor =
-            isUnread ? t.channelUnread : t.channelNormal
-        let nameWeight: UIFont.Weight = isUnread ? .semibold : .medium
         nameNode.maximumNumberOfLines = 1
         nameNode.truncationMode = .byTruncatingTail
-        nameNode.attributedText = NSAttributedString(
-            string: nameStr,
-            attributes: [
-                .font: UIFont.systemFont(ofSize: 14.sf, weight: nameWeight),
-                .foregroundColor: nameColor,
-            ])
 
         if let viewerCount {
             viewerCountNode.maximumNumberOfLines = 1
@@ -120,7 +88,7 @@ final class ChannelItemCellNode: ASCellNode {
                     .foregroundColor: UIColor.white,
                     .paragraphStyle: para,
                 ])
-            badgeBackground.backgroundColor = .mezonUnreadBadge
+            badgeBackground.backgroundColor = UIColor.theme.desktop.semantic.mentionBadge
             badgeBackground.clipsToBounds = true
             badgeBackground.isHidden = false
             badgeNode.isHidden = false
@@ -129,49 +97,49 @@ final class ChannelItemCellNode: ASCellNode {
             badgeNode.isHidden = true
         }
 
-        unreadDot.backgroundColor = .white
         unreadDot.cornerRadius = 3.swh
-        unreadDot.isHidden = !(isUnread && !cellSelected)
-
-        selectionNode.isHidden = !cellSelected
-        let theme = ThemeManager.shared.current
-        let isLight =
-            theme == .light
-            || (theme == .system && UIScreen.main.traitCollection.userInterfaceStyle != .dark)
-        selectionNode.backgroundColor =
-            cellSelected ? (isLight ? t.secondaryWeight : t.secondaryLight) : .clear
         selectionNode.cornerRadius = 16.swh
         backgroundColor = .clear
-
+        applyListSelectionState(selected: isSelected)
         isUserInteractionEnabled = true
     }
 
-    private static let privateVoiceIcon: UIImage = {
-        let voice = UIImage(named: "Chat/SpeakerIcon") ?? UIImage(systemName: "Chat/SpeakerIcon")
-        return UIGraphicsImageRenderer(size: CGSize(width: 24, height: 24)).image { context in
-            voice?.draw(in: CGRect(x: 0, y: 0, width: 24, height: 24))
-            context.cgContext.clear(CGRect(x: 15, y: 0, width: 9, height: 12))
-            UIImage(systemName: "lock.fill")?.draw(in: CGRect(x: 16, y: 1, width: 7, height: 10))
-        }
-    }()
-
     func applyListSelectionState(selected: Bool) {
-        let t = UIColor.theme
-        let isVoiceType = Self.voiceTypes.contains(channel.type)
-        let isUnread = !isVoiceType && (
+        let theme = UIColor.theme
+        let supportsUnread = !Self.voiceTypes.contains(channel.type)
+        let isUnread = supportsUnread && (
             channel.countMessUnread > 0
                 || (channel.hasLastSentMessage
                     && channel.lastSeenMessage.timestampSeconds
                         < channel.lastSentMessage.timestampSeconds))
+        let isHighlighted = selected || isUnread
+        let activeTextColor = theme.desktop[.textSecondary]
+        let nameWeight: UIFont.Weight = isHighlighted && supportsUnread ? .semibold : .medium
+        nameNode.attributedText = NSAttributedString(
+            string: channel.channelLabel.isEmpty ? "channel" : channel.channelLabel,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 14.sf, weight: nameWeight),
+                .foregroundColor: isHighlighted ? activeTextColor : theme.textThemePrimary,
+            ])
+
+        let iconColor = isVoiceActive ? UIColor.mezonVoiceActive
+            : theme.desktop[isHighlighted ? .bgIconThemeActive : .bgIconTheme]
+        if iconNode.isHidden {
+            iconImgNode.tintColor = iconColor
+        } else {
+            let channelType = ChannelType(rawValue: channel.type) ?? .unknown
+            iconNode.attributedText = NSAttributedString(
+                string: channelType.icon,
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 14.sf, weight: .regular),
+                    .foregroundColor: iconColor,
+                ])
+        }
+
+        unreadDot.backgroundColor = activeTextColor
         unreadDot.isHidden = !(isUnread && !selected)
         selectionNode.isHidden = !selected
-        let theme = ThemeManager.shared.current
-        let isLight =
-            theme == .light
-            || (theme == .system && UIScreen.main.traitCollection.userInterfaceStyle != .dark)
-        selectionNode.backgroundColor =
-            selected ? (isLight ? t.secondaryWeight : t.secondaryLight) : .clear
-        selectionNode.cornerRadius = 16.swh
+        selectionNode.backgroundColor = selected ? theme.desktop[.bgActiveMemberChannel] : .clear
         setNeedsLayout()
     }
 
@@ -194,8 +162,15 @@ final class ChannelItemCellNode: ASCellNode {
 
     override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
         iconNode.style.preferredSize = CGSize(width: 14.swh, height: 14.swh)
-        iconImgNode.style.preferredSize = CGSize(width: 12.swh, height: 12.swh)
-        let iconChild: ASLayoutElement = iconNode.isHidden ? iconImgNode : iconNode
+        let iconSize = 16.swh
+        iconImgNode.style.preferredSize = CGSize(width: iconSize, height: iconSize)
+        // Let the padded artwork draw larger while keeping the channel name aligned.
+        let iconInset = (12.swh - iconSize) / 2
+        let iconImageSlot = ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: iconInset, left: iconInset, bottom: iconInset, right: iconInset),
+            child: iconImgNode
+        )
+        let iconChild: ASLayoutElement = iconNode.isHidden ? iconImageSlot : iconNode
 
         let badgeInset = ASInsetLayoutSpec(
             insets: UIEdgeInsets(top: 2.swh, left: 6.swh, bottom: 2.swh, right: 6.swh),

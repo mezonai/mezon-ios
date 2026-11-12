@@ -19,6 +19,10 @@ extension UIColor {
     static var mezonTextSecondary:       UIColor { theme.textNormal }
     static var mezonTextMuted:           UIColor { theme.textDisabled }
 
+    static var mezonIconDefault: UIColor {
+        UIColor(hex: ThemeManager.shared.current.effectiveInterfaceStyle == .light ? 0x070709 : 0xDFE0E4)
+    }
+
     static var mezonIconPrimary:         UIColor { theme.iconPrimary }
     static var mezonIconSecondary:       UIColor { theme.iconSecondary }
     static var mezonIconTertiary:        UIColor { theme.iconTertiary }
@@ -42,9 +46,10 @@ extension UIColor {
     static var mezonError:               UIColor { .systemRed }
     static var mezonSuccess:             UIColor { theme.textSuccess }
     static var mezonVoiceActive:         UIColor { UIColor(red: 22/255, green: 163/255, blue: 74/255, alpha: 1) }
+    static let mezonRaiseHandActive = UIColor(rgb: 0xEFBC39)
     static var mezonWarning:             UIColor { theme.textWarning }
 
-    static var mezonUnreadBadge:         UIColor { UIColor(hex: 0xEA2420) }
+    static var mezonUnreadBadge:         UIColor { theme.desktop.semantic.mentionBadge }
     static var mezonMention:             UIColor { theme.textWarning.withAlphaComponent(0.3) }
     static var groupDMDefaultAvatar:     UIColor { UIColor(red: 249/255, green: 115/255, blue: 22/255, alpha: 1) }
 

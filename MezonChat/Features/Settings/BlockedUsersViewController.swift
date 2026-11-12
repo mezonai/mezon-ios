@@ -5,7 +5,7 @@ final class BlockedUsersViewController: BaseViewController {
 
     private let context: AccountContext
     private var blockedUsers: [Mezon_Api_Friend] = []
-    private var inProgressUnblockIds: Set<Int64> = []
+    private var isUnblockingUser = false
 
     private let headerView = UIView()
     private let backButton = UIButton(type: .system)
@@ -25,6 +25,7 @@ final class BlockedUsersViewController: BaseViewController {
 
     override func setupUI() {
         view.backgroundColor = UIColor.theme.primary
+        view.accessibilityIdentifier = AccessibilityID.BlockedUsers.screen
         setupHeader()
         setupTableView()
         setupEmptyView()
@@ -45,6 +46,7 @@ final class BlockedUsersViewController: BaseViewController {
         titleLabel.textColor = UIColor.theme.textStrong
         backButton.tintColor = UIColor.theme.textStrong
         emptyLabel.textColor = UIColor.theme.textDisabled
+        tableView.backgroundColor = UIColor.theme.secondary
         tableView.reloadData()
     }
 
@@ -53,6 +55,8 @@ final class BlockedUsersViewController: BaseViewController {
         view.addSubview(headerView)
 
         backButton.setImage(UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        backButton.accessibilityIdentifier = AccessibilityID.BlockedUsers.back
+        backButton.accessibilityLabel = L(L10n.Common.goBack)
         backButton.tintColor = UIColor.theme.textStrong
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
         
@@ -83,6 +87,7 @@ final class BlockedUsersViewController: BaseViewController {
     }
 
     private func setupTableView() {
+        tableView.accessibilityIdentifier = AccessibilityID.BlockedUsers.list
         tableView.backgroundColor = UIColor.theme.secondary
         tableView.layer.cornerRadius = 12
         tableView.clipsToBounds = true
@@ -108,6 +113,7 @@ final class BlockedUsersViewController: BaseViewController {
         view.addSubview(emptyView)
 
         emptyLabel.text = L(L10n.AccountSetting.noBlockedUsers)
+        emptyLabel.accessibilityIdentifier = AccessibilityID.BlockedUsers.empty
         emptyLabel.font = .systemFont(ofSize: 16.sf, weight: .medium)
         emptyLabel.textColor = UIColor.theme.textDisabled
         emptyLabel.textAlignment = .center
@@ -133,22 +139,23 @@ final class BlockedUsersViewController: BaseViewController {
     private func fetchBlockedUsers() {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            guard let token = await self.context.getToken() else {
+            let epoch = self.context.sessionEpoch
+            guard let currentUserId = self.context.currentUserNumericID, currentUserId != 0,
+                  let token = await self.context.getToken() else {
                 Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
                 return
             }
             do {
-                let response = try await MezonHTTPClient.shared.listFriends(token: token, limit: 100, state: 0)
-                let currentUserId = Int64(self.context.currentUser?.id ?? "") ?? 0
-                
+                guard self.context.isStillCurrentSession(epoch: epoch) else { return }
+                let response = try await self.context.account.network.listFriends(token: token, limit: 0, state: 0)
+                guard self.context.isStillCurrentSession(epoch: epoch) else { return }
                 self.blockedUsers = response.friends.filter { friend in
-                    let isBlocked = friend.state == 3
-                    let isSource = friend.sourceID == currentUserId
-                    return isBlocked && isSource
+                    friend.state == EStateFriend.block.rawValue && friend.sourceID == currentUserId
+                        && friend.hasUser && friend.user.id != 0 && friend.user.id != currentUserId
                 }
                 self.reloadUI()
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -160,34 +167,17 @@ final class BlockedUsersViewController: BaseViewController {
     }
 
     private func unblockUser(_ user: Mezon_Api_Friend) {
-        let userId = user.user.id
-        guard !inProgressUnblockIds.contains(userId) else { return }
-        inProgressUnblockIds.insert(userId)
-        
+        guard !isUnblockingUser else { return }
+        isUnblockingUser = true
+        let loadingOverlay = showBlockingSpinner(accessibilityIdentifier: AccessibilityID.BlockedUsers.unblockLoading)
         Task { @MainActor [weak self] in
-            guard let self else { return }
             defer {
-                self.inProgressUnblockIds.remove(userId)
+                loadingOverlay.removeFromSuperview()
+                self?.isUnblockingUser = false
             }
-            guard let token = await self.context.getToken() else {
-                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
-                return
-            }
+            guard let self else { return }
             do {
-                if user.user.id != 0 {
-                    try await self.context.account.network.unblockFriends(ids: [user.user.id], token: token)
-                } else if !user.user.username.isEmpty {
-                    try await self.context.account.network.unblockFriends(usernames: [user.user.username], token: token)
-                } else {
-                    return
-                }
-                self.context.engine.friendsData.applyLocalBlockState(userId: user.user.id, blocked: false)
-                
-                let friendsData = self.context.engine.friendsData
-                Task {
-                    await friendsData.refreshFromNetwork(token: token, force: true)
-                }
-                
+                try await self.context.setUserBlocked(user.user, blocked: false)
                 Toast.success(L(L10n.DmMenu.unblockUserSuccess))
                 
                 if let index = self.blockedUsers.firstIndex(where: { $0.user.id == user.user.id }) {
@@ -196,6 +186,8 @@ final class BlockedUsersViewController: BaseViewController {
                     self.emptyView.isHidden = !self.blockedUsers.isEmpty
                     self.tableView.isHidden = self.blockedUsers.isEmpty
                 }
+            } catch is CancellationError {
+                return
             } catch {
                 Toast.error(L(L10n.DmMenu.unblockUserError))
             }
@@ -264,15 +256,12 @@ final class BlockedUserItemCell: UITableViewCell {
         contentView.addSubview(avatarImageView)
 
         nameLabel.font = .systemFont(ofSize: 15.sf, weight: .semibold)
-        nameLabel.textColor = UIColor.theme.textStrong
         nameLabel.translatesAutoresizingMaskIntoConstraints = false
         nameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         contentView.addSubview(nameLabel)
 
         unblockButton.setTitle(L(L10n.AccountSetting.unblock), for: .normal)
         unblockButton.titleLabel?.font = .systemFont(ofSize: 13.sf, weight: .semibold)
-        unblockButton.setTitleColor(UIColor.theme.textStrong, for: .normal)
-        unblockButton.backgroundColor = UIColor.theme.border
         unblockButton.layer.cornerRadius = 6.swh
         unblockButton.translatesAutoresizingMaskIntoConstraints = false
         unblockButton.addTarget(self, action: #selector(unblockTapped), for: .touchUpInside)
@@ -280,7 +269,6 @@ final class BlockedUserItemCell: UITableViewCell {
         unblockButton.setContentCompressionResistancePriority(.required, for: .horizontal)
         contentView.addSubview(unblockButton)
 
-        separatorView.backgroundColor = UIColor.theme.border
         separatorView.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(separatorView)
 
@@ -307,11 +295,23 @@ final class BlockedUserItemCell: UITableViewCell {
             separatorView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
             separatorView.heightAnchor.constraint(equalToConstant: 1.0 / UIScreen.main.scale)
         ])
+        applyTheme()
+    }
+
+    private func applyTheme() {
+        let t = UIColor.theme
+        nameLabel.textColor = t.textStrong
+        unblockButton.setTitleColor(t.textStrong, for: .normal)
+        unblockButton.backgroundColor = t.primary
+        separatorView.backgroundColor = t.border
     }
 
     func configure(with friend: Mezon_Api_Friend, isLast: Bool) {
+        applyTheme()
         let displayName = friend.user.displayName.isEmpty ? friend.user.username : friend.user.displayName
-        nameLabel.text = displayName
+        nameLabel.text = displayName.isEmpty ? String(friend.user.id) : displayName
+        nameLabel.accessibilityIdentifier = AccessibilityID.BlockedUsers.user(friend.user.id)
+        unblockButton.accessibilityIdentifier = AccessibilityID.BlockedUsers.unblock(friend.user.id)
         separatorView.isHidden = isLast
 
         let targetUrl = friend.user.avatarURL
@@ -343,6 +343,8 @@ final class BlockedUserItemCell: UITableViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        nameLabel.accessibilityIdentifier = nil
+        unblockButton.accessibilityIdentifier = nil
         currentAvatarUrl = nil
         avatarImageView.image = nil
         avatarImageView.isHidden = true

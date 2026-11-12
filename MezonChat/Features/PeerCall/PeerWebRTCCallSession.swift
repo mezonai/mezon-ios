@@ -70,12 +70,13 @@ final class PeerWebRTCCallSession: NSObject {
     private var pendingOutgoingIce: [RTCIceCandidate] = []
     private var pendingRemoteIce: [RTCIceCandidate] = []
     private var pendingRemoteIceJsonBeforePc: [String] = []
+    private var didSendInitialSDP = false
 
     private var pendingOfferCompressed: String?
 
     private var outgoingRingTimer: DispatchWorkItem?
     private var incomingRingTimer: DispatchWorkItem?
-    private var outgoingConnectTimeoutTimer: DispatchWorkItem?
+    private var connectTimeoutTimer: DispatchWorkItem?
     private var disconnectRecoveryTask: Task<Void, Never>?
     private var deferredRemoteVideoScanTask: Task<Void, Never>?
     private var rescanRemoteVideoDebounceTask: Task<Void, Never>?
@@ -283,6 +284,21 @@ final class PeerWebRTCCallSession: NSObject {
         )
     }
 
+    @discardableResult
+    private func sendInitialSDP(dataType: Int32, jsonData: String) async throws -> Bool {
+        try ensureCallStillActive()
+        let sentOverSocket = try await MezonSocket.shared.sendPeerCallSDP(
+            receiverId: peerUserId,
+            dataType: dataType,
+            jsonData: jsonData,
+            channelId: channelId,
+            callerId: myUserId
+        ) { !self.ended }
+        try ensureCallStillActive()
+        didSendInitialSDP = true
+        return sentOverSocket
+    }
+
     private func flushDeferredOutgoingSignaling() {
         let queued = deferredOutgoingSignaling
         deferredOutgoingSignaling.removeAll()
@@ -311,8 +327,6 @@ final class PeerWebRTCCallSession: NSObject {
             do {
                 try ensureCallStillActive()
                 try await startOutgoingPeerConnection()
-                try ensureCallStillActive()
-                scheduleOutgoingRingTimeout()
             } catch {
                 guard !Task.isCancelled, !ended else { return }
                 onStatusLabel?(PeerCallLocalizedStrings.errorCouldNotStartCall)
@@ -422,6 +436,7 @@ final class PeerWebRTCCallSession: NSObject {
         cancelIncomingRingTimer()
         PeerCallSoundPlayer.shared.stopRinging()
         onStatusLabel?(PeerCallLocalizedStrings.statusConnecting)
+        scheduleConnectTimeout(after: 30)
         answerIncomingCallTask?.cancel()
         answerIncomingCallTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -444,7 +459,7 @@ final class PeerWebRTCCallSession: NSObject {
                     resetAfterFailedPreWarm()
                 }
                 if isAnswerPrepared, peerConnection != nil {
-                    try sendPreparedAnswerAndGoActive()
+                    try await sendPreparedAnswerAndGoActive()
                 } else {
                     try await buildIncomingPeerConnectionAndAnswer()
                 }
@@ -556,7 +571,7 @@ final class PeerWebRTCCallSession: NSObject {
         pendingCameraRenegotiation = false
     }
 
-    private func sendPreparedAnswerAndGoActive() throws {
+    private func sendPreparedAnswerAndGoActive() async throws {
         try ensureCallStillActive()
         guard let pc = peerConnection else {
             throw PeerWebRTCCallSessionError.peerConnectionCreateFailed
@@ -569,8 +584,7 @@ final class PeerWebRTCCallSession: NSObject {
         preparedAnswerCompressed = nil
         isAnswerPrepared = false
 
-        sendRealtimePeerSignaling(
-            receiverId: peerUserId,
+        try await sendInitialSDP(
             dataType: WebRTCSignalingDataType.sdpAnswer,
             jsonData: compressedAnswer
         )
@@ -892,7 +906,7 @@ final class PeerWebRTCCallSession: NSObject {
         PeerCallSoundPlayer.shared.stopAll()
         cancelOutgoingRingTimer()
         cancelIncomingRingTimer()
-        cancelOutgoingConnectTimeout()
+        cancelConnectTimeout()
         disconnectRecoveryTask?.cancel()
         disconnectRecoveryTask = nil
         beginOutgoingCallTask?.cancel()
@@ -1109,6 +1123,7 @@ final class PeerWebRTCCallSession: NSObject {
 
     private func scheduleOutgoingRingTimeout() {
         cancelOutgoingRingTimer()
+        guard !didEstablishMediaConnection else { return }
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             guard !self.ended, !self.didEstablishMediaConnection else { return }
@@ -1118,7 +1133,7 @@ final class PeerWebRTCCallSession: NSObject {
         }
         outgoingRingTimer = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: work)
-        scheduleOutgoingConnectTimeout()
+        scheduleConnectTimeout(after: 22)
     }
 
     private func cancelOutgoingRingTimer() {
@@ -1126,8 +1141,8 @@ final class PeerWebRTCCallSession: NSObject {
         outgoingRingTimer = nil
     }
 
-    private func scheduleOutgoingConnectTimeout() {
-        cancelOutgoingConnectTimeout()
+    private func scheduleConnectTimeout(after delay: TimeInterval) {
+        cancelConnectTimeout()
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             guard !self.ended, !self.didEstablishMediaConnection else { return }
@@ -1135,13 +1150,13 @@ final class PeerWebRTCCallSession: NSObject {
             self.onStatusLabel?(PeerCallLocalizedStrings.statusCouldNotConnect)
             self.finishCall(sendQuit: true)
         }
-        outgoingConnectTimeoutTimer = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 22, execute: work)
+        connectTimeoutTimer = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
-    private func cancelOutgoingConnectTimeout() {
-        outgoingConnectTimeoutTimer?.cancel()
-        outgoingConnectTimeoutTimer = nil
+    private func cancelConnectTimeout() {
+        connectTimeoutTimer?.cancel()
+        connectTimeoutTimer = nil
     }
 
     private func cancelIncomingRingTimer() {
@@ -1419,12 +1434,6 @@ final class PeerWebRTCCallSession: NSObject {
         let json = try offerJSONString(from: localSDP)
         let compressed = try PeerWebRTCStringCompression.gzipCompressUtf8(json)
 
-        sendRealtimePeerSignaling(
-            receiverId: peerUserId,
-            dataType: WebRTCSignalingDataType.sdpOffer,
-            jsonData: compressed
-        )
-
         let pushBody = MakeCallPushBody(
             offer: compressed,
             callerName: callerDisplayNameForPush,
@@ -1438,12 +1447,11 @@ final class PeerWebRTCCallSession: NSObject {
             throw PeerWebRTCCallSessionError.encodingFailed
         }
 
-        MezonSocket.shared.makeCallPush(
-            receiverId: peerUserId,
-            jsonData: pushJson,
-            channelId: channelId,
-            callerId: myUserId
+        let sentOverSocket = try await sendInitialSDP(
+            dataType: WebRTCSignalingDataType.sdpOffer,
+            jsonData: compressed
         )
+        scheduleOutgoingRingTimeout()
 
         if wantsVideo, localVideoTrack != nil {
             forwardLocalMediaStatus()
@@ -1458,6 +1466,19 @@ final class PeerWebRTCCallSession: NSObject {
         scanTransceiversForRemoteVideo()
         scheduleDeferredRemoteVideoScan()
         scheduleRemoteVideoPostConnectWork()
+
+        guard sentOverSocket else { return }
+        do {
+            try await MezonSocket.shared.sendPeerCallOfferPush(
+                receiverId: peerUserId,
+                jsonData: pushJson,
+                channelId: channelId,
+                callerId: myUserId
+            ) { !self.didEstablishMediaConnection }
+        } catch {
+            try ensureCallStillActive()
+            SentryLogger.addBreadcrumb(category: "peer_call", message: "Could not send call push", level: .warning)
+        }
     }
 
     private func buildIncomingPeerConnectionAndAnswer() async throws {
@@ -1522,8 +1543,7 @@ final class PeerWebRTCCallSession: NSObject {
         let answerJson = try answerJSONString(from: localSDP)
         let compressedAnswer = try PeerWebRTCStringCompression.gzipCompressUtf8(answerJson)
 
-        sendRealtimePeerSignaling(
-            receiverId: peerUserId,
+        try await sendInitialSDP(
             dataType: WebRTCSignalingDataType.sdpAnswer,
             jsonData: compressedAnswer
         )
@@ -1732,7 +1752,7 @@ final class PeerWebRTCCallSession: NSObject {
     }
 
     private func flushPendingOutgoingIceIfPossible() {
-        guard let pc = peerConnection, pc.remoteDescription != nil else { return }
+        guard didSendInitialSDP, let pc = peerConnection, pc.remoteDescription != nil else { return }
         let batch = pendingOutgoingIce
         pendingOutgoingIce.removeAll()
         guard !batch.isEmpty else { return }
@@ -2192,7 +2212,7 @@ extension PeerWebRTCCallSession: RTCPeerConnectionDelegate {
                 disconnectRecoveryTask?.cancel()
                 disconnectRecoveryTask = nil
                 cancelOutgoingRingTimer()
-                cancelOutgoingConnectTimeout()
+                cancelConnectTimeout()
                 PeerCallSoundPlayer.shared.stopDialTone()
                 if !didEstablishMediaConnection {
                     mediaConnectedAt = Date()
@@ -2245,7 +2265,7 @@ extension PeerWebRTCCallSession: RTCPeerConnectionDelegate {
         }
         Task { @MainActor in
             guard let pc = peerConnection else { return }
-            if pc.remoteDescription == nil {
+            if !didSendInitialSDP || pc.remoteDescription == nil {
                 pendingOutgoingIce.append(candidate)
             } else {
                 guard let data = try? iceCandidateJSONData(candidate),

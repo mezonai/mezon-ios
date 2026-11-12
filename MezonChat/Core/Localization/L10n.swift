@@ -161,6 +161,13 @@ enum L10n {
         static let linkEmail      = "common.linkEmail"
         static let linkPhoneNumber = "common.linkPhoneNumber"
         static let detail         = "common.detail"
+        static let actionFailed   = "common.actionFailed"
+        static let networkError   = "common.networkError"
+        static let recordFailed   = "common.recordFailed"
+        static let notInAnyClan   = "common.notInAnyClan"
+        static let roleRemoved    = "common.roleRemoved"
+        static let attachmentLimit = "common.attachmentLimit"
+        static let loginRequired  = "common.loginRequired"
     }
 
     enum ImageEditor {
@@ -173,9 +180,12 @@ enum L10n {
     }
 
     enum MediaPicker {
+        static let uploadFile = "mediaPicker.uploadFile"
         static let edit      = "mediaPicker.edit"
         static let doneCount = "mediaPicker.doneCount"
         static let sizeLimit = "mediaPicker.sizeLimit"
+        static let selectLimitOne = "mediaPicker.selectLimitOne"
+        static let selectLimit = "mediaPicker.selectLimit"
     }
 
     enum AccountSetting {
@@ -277,6 +287,10 @@ enum L10n {
         static let devices           = "settings.devices"
         static let appVersion        = "settings.appVersion"
         static let appearance        = "settings.appearance"
+        static let chat              = "settings.chat"
+        static let onlyFriendsDmTitle = "settings.chat.onlyFriendsDm.title"
+        static let onlyFriendsDmDescription = "settings.chat.onlyFriendsDm.description"
+        static let onlyFriendsDmUpdateFailed = "settings.chat.onlyFriendsDm.updateFailed"
         static let logout            = "settings.logout"
         static let noSearchResults   = "settings.noSearchResults"
     }
@@ -351,6 +365,8 @@ enum L10n {
         static let purpleHaze     = "theme.purpleHaze"
         static let abyssDark      = "theme.abyssDark"
         static let sunset        = "theme.sunset"
+        static let cisher        = "theme.cisher"
+        static let berrynade     = "theme.berrynade"
         static let system        = "theme.system"
     }
 
@@ -846,6 +862,7 @@ enum L10n {
         static let blockedYou            = "forward.blockedYou"
         static let cannotMessage         = "forward.cannotMessage"
         static let toastCannotForward    = "forward.toastCannotForward"
+        static let itemsFailed           = "forward.itemsFailed"
     }
 
     enum Sharing {
@@ -872,6 +889,7 @@ enum L10n {
         static let launchApp = "channelApp.launchApp"
         static let help = "channelApp.help"
         static let unavailable = "channelApp.unavailable"
+        static let installed = "channelApp.installed"
     }
 
     enum ClanInviteSheet {
@@ -915,6 +933,7 @@ enum L10n {
         static let chooseTypeSubtitle = "eventEditor.chooseTypeSubtitle"
         static let voice = "eventEditor.voice"
         static let voiceSubtitle = "eventEditor.voiceSubtitle"
+        static let privateVoiceChannelTip = "eventEditor.privateVoiceChannelTip"
         static let elsewhere = "eventEditor.elsewhere"
         static let elsewhereSubtitle = "eventEditor.elsewhereSubtitle"
         static let external = "eventEditor.external"
@@ -976,6 +995,7 @@ enum L10n {
         static let tenMinutesLeft     = "eventMenu.eventDetail.tenMinutesLeft"
         static let newEvent           = "eventMenu.eventDetail.newEvent"
         static let privateRoom        = "eventMenu.eventDetail.privateRoom"
+        static let externalMeetingRoom = "eventMenu.eventDetail.externalMeetingRoom"
         static let channelAudience    = "eventMenu.eventDetail.channelAudience"
         static let detailEventInfo    = "eventMenu.detail.eventInfo"
         static let detailInterested   = "eventMenu.detail.interested"
@@ -1056,6 +1076,7 @@ enum L10n {
     enum ChatSystem {
         static let pinMessageAnchor = "chat.system.pinMessageAnchor"
         static let allThreadsAnchor = "chat.system.allThreadsAnchor"
+        static let allPinnedAnchor = "chat.system.allPinnedAnchor"
         static let startedThread = "chat.system.startedThread"
         static let deletedThread = "chat.system.deletedThread"
         static let seeAllThreads = "chat.system.seeAllThreads"
@@ -1204,6 +1225,8 @@ enum L10n {
         static let userIsTyping        = "channelMessages.userIsTyping"
         static let usersAreTyping      = "channelMessages.usersAreTyping"
         static let severalPeopleTyping = "channelMessages.severalPeopleTyping"
+        static let jumpToPresent = "channelMessages.jumpToPresent"
+        static let unreadIncomingCount = "channelMessages.unreadIncomingCount"
         static let voiceMessageA11y      = "channelMessages.voiceMessageA11y"
         static let yourLocation          = "channelMessages.yourLocation"
         static let locationOf            = "channelMessages.locationOf"
@@ -1227,6 +1250,8 @@ enum L10n {
         static let noFriends = "directMessage.noFriends"
         static let memberLimitReached = "directMessage.memberLimitReached"
         static let createFailed = "directMessage.createFailed"
+        static let groupAlreadyExists = "directMessage.groupAlreadyExists"
+        static let onlyFriendsDenied = "directMessage.onlyFriendsDenied"
 
         static let groupCreated   = "directMessage.groupCreated"
         static let previewAttachment = "directMessage.previewAttachment"
@@ -1302,6 +1327,9 @@ enum L10n {
         static let videoDownloading = "gallery.videoDownloading"
         static let videoPreparingForShare = "gallery.videoPreparingForShare"
         static let videoShareFailed = "gallery.videoShareFailed"
+        static let videoStillUploading = "gallery.videoStillUploading"
+        static let videoDownloadNetworkFailed = "gallery.videoDownloadNetworkFailed"
+        static let videoSaveNoSpace = "gallery.videoSaveNoSpace"
         static let videoSaving = "gallery.videoSaving"
         static let imageLoadFailed = "gallery.imageLoadFailed"
         static let photoPermissionDenied = "gallery.photoPermissionDenied"
@@ -1427,6 +1455,8 @@ enum L10n {
         static let sent               = "friendRequest.sent"
         static let emptyReceivedTitle = "friendRequest.emptyReceivedTitle"
         static let emptyReceivedDesc  = "friendRequest.emptyReceivedDesc"
+        static let emptySentTitle     = "friendRequest.emptySentTitle"
+        static let emptySentDesc      = "friendRequest.emptySentDesc"
         static let addByTitle         = "friendRequest.addByTitle"
         static let addByQuestion      = "friendRequest.addByQuestion"
         static let addByPlaceholder   = "friendRequest.addByPlaceholder"
@@ -1460,6 +1490,7 @@ enum L10n {
         static let voteButton         = "poll.voteButton"
         static let removeVote         = "poll.removeVote"
         static let showResults        = "poll.showResults"
+        static let viewDetails        = "poll.viewDetails"
         static let backToVote         = "poll.backToVote"
         static let vote               = "poll.vote"
         static let votes              = "poll.votes"
@@ -1600,6 +1631,13 @@ enum L10n {
         static let externalLinkInvalid = "voiceChannel.externalLinkInvalid"
         static let externalLinkPrompt = "voiceChannel.externalLinkPrompt"
         static let externalGuest = "voiceChannel.externalGuest"
+        static let mutedByModerator = "voiceChannel.mutedByModerator"
+        static let cameraLimitReached = "voiceChannel.cameraLimitReached"
+        static let cameraUpdateFailed = "voiceChannel.cameraUpdateFailed"
+        static let screenShareLimitReached = "voiceChannel.screenShareLimitReached"
+        static let screenShareNotAllowed = "voiceChannel.screenShareNotAllowed"
+        static let screenShareUpdateFailed = "voiceChannel.screenShareUpdateFailed"
+        static let kickedFromChannel = "voiceChannel.kickedFromChannel"
     }
 }
 
@@ -1674,6 +1712,8 @@ extension L10n {
         "streamingRoom.showControls": "Show stream controls",
         "streamingRoom.resetZoom": "Reset zoom",
         "streamingRoom.video": "Stream video",
+        "streamingRoom.audioRouteFailed": "Couldn't switch the audio output. Please try again.",
+        "streamingRoom.noDisplay": "This stream isn't available right now.",
         "tab.clans":            "Clans",
         "tab.messages":         "Messages",
         "tab.notifications":    "Notifications",
@@ -1709,6 +1749,13 @@ extension L10n {
         "common.linkEmail":     "Add email",
         "common.linkPhoneNumber": "Add phone number",
         "common.detail":        "Detail",
+        "common.actionFailed":  "Couldn't complete this action. Please try again.",
+        "common.networkError":  "Connection problem. Please check your network and try again.",
+        "common.recordFailed":  "Couldn't record audio. Please try again.",
+        "common.notInAnyClan":  "You are not a member of any clan.",
+        "common.roleRemoved":   "Role removed.",
+        "common.attachmentLimit": "You can attach up to %d items per message.",
+        "common.loginRequired": "Please log in to Mezon first.",
 
         "imageEditor.send":   "Send",
         "imageEditor.draw":   "Draw",
@@ -1717,9 +1764,12 @@ extension L10n {
         "imageEditor.rotate": "Rotate",
         "imageEditor.done":   "Done",
 
+        "mediaPicker.uploadFile": "Upload a file",
         "mediaPicker.edit":      "Edit",
         "mediaPicker.doneCount": "Done (%d)",
         "mediaPicker.sizeLimit": "You can select up to %dGB in total.",
+        "mediaPicker.selectLimitOne": "You can select only 1 item.",
+        "mediaPicker.selectLimit": "You can select up to %d items.",
 
         "updateGate.outOfDateVersion": "New Version Ready",
         "updateGate.updateExperience": "A quick update is needed to continue using our latest family features.",
@@ -1808,6 +1858,10 @@ extension L10n {
         "settings.devices":         "Devices",
         "settings.appVersion":      "App Version",
         "settings.appearance":      "Appearance",
+        "settings.chat":            "Chat",
+        "settings.chat.onlyFriendsDm.title": "Don't receive messages from strangers",
+        "settings.chat.onlyFriendsDm.description": "When on, only people who are your friends can start a conversation with you.",
+        "settings.chat.onlyFriendsDm.updateFailed": "Could not update this setting. Please try again.",
         "settings.logout":          "Logout",
         "settings.noSearchResults": "No search results found",
 
@@ -1823,6 +1877,8 @@ extension L10n {
         "theme.purpleHaze":       "Purple Haze",
         "theme.abyssDark":        "Abyss Dark",
         "theme.sunset":           "Sunset",
+        "theme.cisher":           "Cisher",
+        "theme.berrynade":        "Berrynade",
         "theme.system":           "System",
 
         "login.welcomeBack":    "WELCOME BACK",
@@ -1988,6 +2044,7 @@ extension L10n {
         "eventEditor.chooseTypeSubtitle": "Choose how members will join your event.",
         "eventEditor.voice": "Voice Channel",
         "eventEditor.voiceSubtitle": "Host the event in a voice channel",
+        "eventEditor.privateVoiceChannelTip": "Tip: Make sure everyone can join the event by adding them to %@.",
         "eventEditor.elsewhere": "Somewhere else",
         "eventEditor.elsewhereSubtitle": "Meet at an offline location",
         "eventEditor.external": "Create External Event",
@@ -2046,7 +2103,8 @@ extension L10n {
         "eventMenu.eventDetail.eventIsTaking":    "Event is taking place!",
         "eventMenu.eventDetail.tenMinutesLeft":   "%d minutes left. Join in!",
         "eventMenu.eventDetail.newEvent":         "New",
-        "eventMenu.eventDetail.privateRoom":      "Private room",
+        "eventMenu.eventDetail.privateRoom":      "Private Voice Room",
+        "eventMenu.eventDetail.externalMeetingRoom": "External Meeting Room",
         "eventMenu.eventDetail.channelAudience":  "The audience consists of members from channel: %@",
         "eventMenu.detail.eventInfo":             "Event Info",
         "eventMenu.detail.interested":            "Interested",
@@ -2313,6 +2371,7 @@ extension L10n {
         "forward.blockedYou": "This user blocked you",
         "forward.cannotMessage": "You can't message each other",
         "forward.toastCannotForward": "You can't forward messages to this conversation",
+        "forward.itemsFailed": "%d item(s) couldn't be forwarded",
 
         "sharing.title":                    "Share",
         "sharing.suggestionsSection":       "Suggestions",
@@ -2406,6 +2465,7 @@ extension L10n {
         "channel.thread": "Threads",
         "chat.system.pinMessageAnchor": "a message",
         "chat.system.allThreadsAnchor": "all threads",
+        "chat.system.allPinnedAnchor": "all pinned",
         "chat.system.startedThread": "started a thread:",
         "chat.system.deletedThread": "deleted a thread:",
         "chat.system.seeAllThreads": "See",
@@ -2541,6 +2601,8 @@ extension L10n {
         "channelPermission.warningChangeSettingModal.cancel":  "Discard",
 
         "channelMessages.emptyMessages": "No messages yet",
+        "channelMessages.jumpToPresent": "Go to latest message",
+        "channelMessages.unreadIncomingCount": "%@ unread",
         "channelMessages.todayAt": "Today at %@",
         "channelMessages.yesterdayAt": "Yesterday at %@",
         "channelMessages.writeMessage": "Write message...",
@@ -2565,12 +2627,14 @@ extension L10n {
         "channelApp.launchApp": "Launch App",
         "channelApp.help": "Help",
         "channelApp.unavailable": "App unavailable",
+        "channelApp.installed": "App installed successfully.",
 
         "poll.selectOne": "Select one option",
         "poll.selectOneOrMore": "Select one or more options",
         "poll.voteButton": "Vote",
         "poll.removeVote": "Remove vote",
         "poll.showResults": "Show results",
+        "poll.viewDetails": "View details",
         "poll.backToVote": "Back to vote",
         "poll.vote": "vote",
         "poll.votes": "votes",
@@ -2619,6 +2683,8 @@ extension L10n {
         "directMessage.noFriends": "No friends available",
         "directMessage.memberLimitReached": "Group chats can have up to 20 members.",
         "directMessage.createFailed": "Could not create group.",
+        "directMessage.groupAlreadyExists": "A group with these members already exists.",
+        "directMessage.onlyFriendsDenied": "This user only accepts messages from friends.",
         "directMessage.groupCreated": "Group created",
         "directMessage.previewAttachment": "Attachment",
         "directMessage.previewLink": "Link",
@@ -2631,6 +2697,8 @@ extension L10n {
         "friendRequest.sent": "Sent",
         "friendRequest.emptyReceivedTitle": "No incoming friend requests",
         "friendRequest.emptyReceivedDesc": "Here you will see all the friend requests that people send to you.",
+        "friendRequest.emptySentTitle": "No sent friend requests",
+        "friendRequest.emptySentDesc": "Requests you send will appear here.",
         "friendRequest.addByTitle": "Add by username or phone number",
         "friendRequest.addByQuestion": "Who would you like to add as a friend?",
         "friendRequest.addByPlaceholder": "Enter username or phone number",
@@ -2662,6 +2730,9 @@ extension L10n {
         "gallery.videoDownloading": "Downloading video...",
         "gallery.videoPreparingForShare": "Preparing video...",
         "gallery.videoShareFailed": "Could not prepare video for sharing",
+        "gallery.videoStillUploading": "This video is still uploading. Try again in a few minutes",
+        "gallery.videoDownloadNetworkFailed": "Couldn't download the video. Check your connection and try again",
+        "gallery.videoSaveNoSpace": "Not enough storage to save this video",
         "gallery.videoSaving": "Saving video...",
         "gallery.imageLoadFailed": "Could not load image",
         "gallery.photoPermissionDenied": "Allow photo access to save images",
@@ -3141,6 +3212,13 @@ extension L10n {
         "mediaPanel.emptyGifs": "GIFs will appear here",
 
         "voiceChannel.disconnectedAlone": "You were disconnected from the voice channel because you were alone in it for too long.",
+        "voiceChannel.mutedByModerator": "You have been muted by a channel moderator.",
+        "voiceChannel.cameraLimitReached": "This voice channel has reached its camera limit. Try again when someone turns their camera off.",
+        "voiceChannel.cameraUpdateFailed": "Couldn't turn your camera on or off. Please try again.",
+        "voiceChannel.screenShareLimitReached": "This voice channel has reached its screen share limit. Try again when someone stops sharing.",
+        "voiceChannel.screenShareNotAllowed": "Only speakers can share their screen in this voice channel.",
+        "voiceChannel.screenShareUpdateFailed": "Couldn't start or stop screen sharing. Please try again.",
+        "voiceChannel.kickedFromChannel": "You have been removed from the voice channel.",
         "voiceChannel.disconnectedOtherDevice": "You joined the voice channel on another device, so this session was disconnected.",
         "voiceChannel.disconnectedRejoin": "You were disconnected from the voice channel.",
         "voiceChannel.rejoinTitle": "Unable to connect to voice",
@@ -3175,6 +3253,8 @@ extension L10n {
         "streamingRoom.showControls": "Hiện điều khiển stream",
         "streamingRoom.resetZoom": "Đặt lại mức thu phóng",
         "streamingRoom.video": "Video của kênh stream",
+        "streamingRoom.audioRouteFailed": "Không thể chuyển thiết bị phát âm thanh. Vui lòng thử lại.",
+        "streamingRoom.noDisplay": "Buổi stream hiện không khả dụng.",
         "tab.clans":            "Kênh",
         "tab.messages":         "Tin nhắn",
         "tab.notifications":    "Thông báo",
@@ -3210,6 +3290,13 @@ extension L10n {
         "common.linkEmail":     "Thêm email",
         "common.linkPhoneNumber": "Thêm số điện thoại",
         "common.detail":        "Chi tiết",
+        "common.actionFailed":  "Không thể thực hiện thao tác. Vui lòng thử lại.",
+        "common.networkError":  "Kết nối mạng không ổn định. Vui lòng kiểm tra mạng và thử lại.",
+        "common.recordFailed":  "Không thể ghi âm. Vui lòng thử lại.",
+        "common.notInAnyClan":  "Bạn chưa tham gia clan nào.",
+        "common.roleRemoved":   "Đã gỡ vai trò.",
+        "common.attachmentLimit": "Mỗi tin nhắn chỉ đính kèm được tối đa %d mục.",
+        "common.loginRequired": "Vui lòng đăng nhập Mezon trước.",
 
         "imageEditor.send":   "Gửi",
         "imageEditor.draw":   "Vẽ",
@@ -3218,9 +3305,12 @@ extension L10n {
         "imageEditor.rotate": "Xoay",
         "imageEditor.done":   "Xong",
 
+        "mediaPicker.uploadFile": "Tải tệp lên",
         "mediaPicker.edit":      "Chỉnh sửa",
         "mediaPicker.doneCount": "Xong (%d)",
         "mediaPicker.sizeLimit": "Bạn chỉ có thể chọn tối đa %dGB.",
+        "mediaPicker.selectLimitOne": "Bạn chỉ có thể chọn 1 mục.",
+        "mediaPicker.selectLimit": "Bạn chỉ có thể chọn tối đa %d mục.",
 
         "updateGate.outOfDateVersion": "Phiên Bản Mới Đã Sẵn Sàng",
         "updateGate.updateExperience": "Cần cập nhật nhanh để tiếp tục sử dụng các tính năng gia đình mới nhất của chúng tôi.",
@@ -3309,6 +3399,10 @@ extension L10n {
         "settings.devices":         "Thiết bị",
         "settings.appVersion":      "Phiên bản ứng dụng",
         "settings.appearance":      "Giao diện",
+        "settings.chat":            "Trò chuyện",
+        "settings.chat.onlyFriendsDm.title": "Không nhận tin nhắn từ người lạ",
+        "settings.chat.onlyFriendsDm.description": "Khi bật, chỉ những người đã là bạn bè của bạn mới có thể bắt đầu cuộc trò chuyện với bạn.",
+        "settings.chat.onlyFriendsDm.updateFailed": "Không thể cập nhật cài đặt này. Vui lòng thử lại.",
         "settings.logout":          "Đăng xuất",
         "settings.noSearchResults": "Không tìm thấy kết quả",
 
@@ -3324,6 +3418,8 @@ extension L10n {
         "theme.purpleHaze":       "Tím mộng mơ",
         "theme.abyssDark":        "Vực thẳm tối",
         "theme.sunset":           "Hoàng hôn",
+        "theme.cisher":           "Cisher",
+        "theme.berrynade":        "Berrynade",
         "theme.system":           "Hệ thống",
 
         "login.welcomeBack":    "CHÀO MỪNG TRỞ LẠI",
@@ -3489,6 +3585,7 @@ extension L10n {
         "eventEditor.chooseTypeSubtitle": "Chọn cách thành viên tham gia sự kiện.",
         "eventEditor.voice": "Kênh thoại",
         "eventEditor.voiceSubtitle": "Tổ chức sự kiện trong kênh thoại",
+        "eventEditor.privateVoiceChannelTip": "Tip: Đảm bảo tất cả khán giả đều có thể tham gia được sự kiện, hãy thêm họ vào %@.",
         "eventEditor.elsewhere": "Địa điểm khác",
         "eventEditor.elsewhereSubtitle": "Gặp mặt tại một địa điểm trực tiếp",
         "eventEditor.external": "Tạo sự kiện bên ngoài",
@@ -3547,7 +3644,8 @@ extension L10n {
         "eventMenu.eventDetail.eventIsTaking":    "Sự kiện đang diễn ra!",
         "eventMenu.eventDetail.tenMinutesLeft":   "Còn %d phút. Tham gia ngay!",
         "eventMenu.eventDetail.newEvent":         "Mới",
-        "eventMenu.eventDetail.privateRoom":      "Phòng riêng",
+        "eventMenu.eventDetail.privateRoom":      "Phòng thoại riêng tư",
+        "eventMenu.eventDetail.externalMeetingRoom": "Phòng họp bên ngoài",
         "eventMenu.eventDetail.channelAudience":  "Đối tượng là thành viên từ kênh: %@",
         "eventMenu.detail.eventInfo":             "Thông tin sự kiện",
         "eventMenu.detail.interested":            "Quan tâm",
@@ -3815,6 +3913,7 @@ extension L10n {
         "forward.blockedYou": "Người dùng này đã chặn bạn",
         "forward.cannotMessage": "Không thể nhắn tin cho nhau",
         "forward.toastCannotForward": "Không thể chuyển tiếp tin nhắn tới cuộc trò chuyện này",
+        "forward.itemsFailed": "Không chuyển tiếp được %d mục",
 
         "sharing.title":                    "Chia sẻ",
         "sharing.suggestionsSection":       "Gợi ý",
@@ -3907,6 +4006,7 @@ extension L10n {
         "channel.thread": "Chủ đề",
         "chat.system.pinMessageAnchor": "một tin nhắn",
         "chat.system.allThreadsAnchor": "tất cả chủ đề",
+        "chat.system.allPinnedAnchor": "tất cả tin nhắn",
         "chat.system.startedThread": "đã tạo một chủ đề:",
         "chat.system.deletedThread": "đã xóa chủ đề:",
         "chat.system.seeAllThreads": "Xem",
@@ -4043,6 +4143,8 @@ extension L10n {
         "channelPermission.warningChangeSettingModal.cancel":  "Bỏ qua",
 
         "channelMessages.emptyMessages": "Chưa có tin nhắn",
+        "channelMessages.jumpToPresent": "Đến tin nhắn mới nhất",
+        "channelMessages.unreadIncomingCount": "%@ tin chưa đọc",
         "channelMessages.todayAt": "Hôm nay lúc %@",
         "channelMessages.yesterdayAt": "Hôm qua lúc %@",
         "channelMessages.writeMessage": "Nhập tin nhắn...",
@@ -4067,12 +4169,14 @@ extension L10n {
         "channelApp.launchApp": "Mở app",
         "channelApp.help": "Trợ giúp",
         "channelApp.unavailable": "Không mở được app.",
+        "channelApp.installed": "Đã cài đặt app.",
 
         "poll.selectOne": "Chọn một tùy chọn",
         "poll.selectOneOrMore": "Chọn một hoặc nhiều tùy chọn",
         "poll.voteButton": "Bình chọn",
         "poll.removeVote": "Hủy bình chọn",
         "poll.showResults": "Xem kết quả",
+        "poll.viewDetails": "Xem chi tiết",
         "poll.backToVote": "Quay lại",
         "poll.vote": "bình chọn",
         "poll.votes": "bình chọn",
@@ -4121,6 +4225,8 @@ extension L10n {
         "directMessage.noFriends": "Chưa có bạn bè để chọn",
         "directMessage.memberLimitReached": "Nhóm chat chỉ có tối đa 20 thành viên.",
         "directMessage.createFailed": "Không thể tạo nhóm.",
+        "directMessage.groupAlreadyExists": "Đã có nhóm gồm đúng những thành viên này.",
+        "directMessage.onlyFriendsDenied": "Chỉ bạn bè mới có thể gửi tin nhắn cho người dùng này.",
         "directMessage.groupCreated": "Nhóm đã được tạo",
         "directMessage.previewAttachment": "Đính kèm",
         "directMessage.previewLink": "Liên kết",
@@ -4133,6 +4239,8 @@ extension L10n {
         "friendRequest.sent": "Đã gửi",
         "friendRequest.emptyReceivedTitle": "Không có yêu cầu kết bạn đến",
         "friendRequest.emptyReceivedDesc": "Tại đây bạn sẽ thấy tất cả các yêu cầu kết bạn mà mọi người gửi cho bạn.",
+        "friendRequest.emptySentTitle": "Chưa gửi yêu cầu kết bạn nào",
+        "friendRequest.emptySentDesc": "Các yêu cầu bạn gửi sẽ xuất hiện tại đây.",
         "friendRequest.addByTitle": "Thêm bằng tên người dùng hoặc số điện thoại",
         "friendRequest.addByQuestion": "Bạn muốn thêm ai làm bạn bè?",
         "friendRequest.addByPlaceholder": "Nhập tên người dùng hoặc số điện thoại",
@@ -4186,6 +4294,9 @@ extension L10n {
         "gallery.videoDownloading": "Đang tải video...",
         "gallery.videoPreparingForShare": "Đang chuẩn bị video...",
         "gallery.videoShareFailed": "Không thể chuẩn bị video để chia sẻ",
+        "gallery.videoStillUploading": "Video đang được tải lên. Hãy thử lại sau ít phút",
+        "gallery.videoDownloadNetworkFailed": "Không tải được video. Kiểm tra kết nối mạng rồi thử lại",
+        "gallery.videoSaveNoSpace": "Không đủ dung lượng để lưu video",
         "gallery.videoSaving": "Đang lưu video...",
         "gallery.imageLoadFailed": "Không thể tải ảnh",
         "gallery.photoPermissionDenied": "Vui lòng cấp quyền ảnh để lưu ảnh",
@@ -4644,6 +4755,13 @@ extension L10n {
         "mediaPanel.emptyGifs": "GIF sẽ xuất hiện ở đây",
 
         "voiceChannel.disconnectedAlone": "Bạn đã bị ngắt khỏi kênh thoại vì ở một mình quá lâu.",
+        "voiceChannel.mutedByModerator": "Bạn đã bị quản trị viên tắt micro.",
+        "voiceChannel.cameraLimitReached": "Kênh thoại đã đủ số người bật camera. Hãy thử lại khi có người tắt camera.",
+        "voiceChannel.cameraUpdateFailed": "Không thể bật hoặc tắt camera. Vui lòng thử lại.",
+        "voiceChannel.screenShareLimitReached": "Kênh thoại đã đủ số người chia sẻ màn hình. Hãy thử lại khi có người dừng chia sẻ.",
+        "voiceChannel.screenShareNotAllowed": "Chỉ người nói mới được chia sẻ màn hình trong kênh thoại này.",
+        "voiceChannel.screenShareUpdateFailed": "Không thể bắt đầu hoặc dừng chia sẻ màn hình. Vui lòng thử lại.",
+        "voiceChannel.kickedFromChannel": "Bạn đã bị mời ra khỏi kênh thoại.",
         "voiceChannel.disconnectedOtherDevice": "Bạn đã tham gia kênh thoại trên thiết bị khác nên phiên này bị ngắt kết nối.",
         "voiceChannel.disconnectedRejoin": "Bạn đã bị ngắt khỏi kênh thoại.",
         "voiceChannel.rejoinTitle": "Không thể kết nối thoại",

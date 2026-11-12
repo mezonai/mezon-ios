@@ -92,7 +92,7 @@ final class CreateChannelViewController: BaseViewController {
             } catch {
                 await MainActor.run {
                     self.createNode.setLoading(false)
-                    Toast.error(error.localizedDescription)
+                    Toast.error(error.userMessage)
                 }
             }
         }

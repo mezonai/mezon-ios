@@ -463,22 +463,22 @@ final class WalletTransferViewController: BaseViewController, UIGestureRecognize
 
         recipientLabel.text = (payload.walletAddress?.isEmpty == false) ? L(L10n.Profile.sendTokenSendToAddress) : L(L10n.Profile.sendTokenSendTo)
         recipientLabel.textColor = .mezonTextPrimary
-        recipientField.backgroundColor = .loginInputBg
-        recipientField.layer.borderColor = UIColor.loginInputBorder.cgColor
+        recipientField.backgroundColor = .mezonSecondaryBackground
+        recipientField.layer.borderColor = UIColor.mezonBorder.cgColor
         recipientValueLabel.textColor = .mezonTextStrong
         copyButton.tintColor = .mezonTextStrong
         recipientChevron.tintColor = .mezonTextStrong
 
         amountLabel.text = L(L10n.Profile.sendTokenToken)
         amountLabel.textColor = .mezonTextPrimary
-        amountFieldContainer.backgroundColor = .loginInputBg
-        amountFieldContainer.layer.borderColor = UIColor.loginInputBorder.cgColor
+        amountFieldContainer.backgroundColor = .mezonSecondaryBackground
+        amountFieldContainer.layer.borderColor = UIColor.mezonBorder.cgColor
         amountField.textColor = .mezonTextStrong
 
         noteLabel.text = L(L10n.Profile.sendTokenNote)
         noteLabel.textColor = .mezonTextPrimary
-        noteContainer.backgroundColor = .loginInputBg
-        noteContainer.layer.borderColor = UIColor.loginInputBorder.cgColor
+        noteContainer.backgroundColor = .mezonSecondaryBackground
+        noteContainer.layer.borderColor = UIColor.mezonBorder.cgColor
         noteField.textColor = .mezonTextStrong
         noteCounterLabel.textColor = .mezonTextMuted
         notePlaceholder.textColor = .mezonTextMuted
@@ -682,7 +682,7 @@ final class WalletTransferViewController: BaseViewController, UIGestureRecognize
                     if nsErr.code == 401 {
                         self.showSessionExpired()
                     } else {
-                        self.showFailure(message: nsErr.localizedDescription)
+                        self.showFailure(message: nsErr.userMessage(fallback: L(L10n.Profile.sendTokenErrSendFailed)))
                     }
                 }
             }
@@ -921,12 +921,13 @@ private final class TransferRecipientPickerViewController: UIViewController, UIT
         searchContainer.layer.borderColor = UIColor.mezonTextMuted.cgColor
 
         searchIcon.translatesAutoresizingMaskIntoConstraints = false
-        let mag = UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium))?
+        let mag = UIImage(named: "Setting/SearchIcon")?
             .withRenderingMode(.alwaysTemplate)
         searchIcon.image = mag
         searchIcon.tintColor = .mezonTextPrimary
         searchIcon.contentMode = .scaleAspectFit
 
+        searchField.accessibilityIdentifier = AccessibilityID.Search.input("transfer-recipient")
         searchField.translatesAutoresizingMaskIntoConstraints = false
         searchField.font = .systemFont(ofSize: 14)
         searchField.textColor = .mezonTextPrimary

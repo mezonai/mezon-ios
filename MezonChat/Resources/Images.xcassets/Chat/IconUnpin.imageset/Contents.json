@@ -1,16 +1,16 @@
 {
-  "images" : [
+  "images": [
     {
-      "idiom" : "universal",
-      "filename" : "IconUnpin.png",
-      "scale" : "3x"
+      "idiom": "universal",
+      "filename": "IconUnpin.pdf"
     }
   ],
-  "info" : {
-    "author" : "xcode",
-    "version" : 1
+  "info": {
+    "author": "xcode",
+    "version": 1
   },
-  "properties" : {
-    "template-rendering-intent" : "template"
+  "properties": {
+    "template-rendering-intent": "template",
+    "preserves-vector-representation": true
   }
 }

@@ -35,7 +35,7 @@ struct EventEditorDraft {
             ? nextHour
             : calendar.date(bySettingHour: 23, minute: 59, second: 0, of: start) ?? start
         if let event {
-            locationType = event.channelVoiceID != 0 ? .voice : (!event.address.isEmpty ? .location : (event.isPrivate ? .external : .voice))
+            locationType = event.channelVoiceID != 0 ? .voice : (!event.address.isEmpty ? .location : (event.isExternal ? .external : .voice))
             voiceChannelId = event.channelVoiceID
             announcementChannelId = event.channelID
             address = event.address
@@ -129,7 +129,7 @@ struct EventEditorDraft {
         request.startTimeSeconds = startSeconds
         request.endTimeSeconds = endSeconds
         request.repeatType = repeatType
-        request.isPrivate = locationType == .external
+        request.isExternal = locationType == .external
         return request
     }
 

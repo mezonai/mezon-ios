@@ -75,6 +75,11 @@ final class AddMembersSheetController: UIViewController {
     }
 
     private func setupHeader() {
+        view.accessibilityIdentifier = AccessibilityID.RoleSettings.screen("add-members")
+        cancelButton.accessibilityIdentifier = AccessibilityID.RoleSettings.action("add-members", "cancel")
+        doneButton.accessibilityIdentifier = AccessibilityID.RoleSettings.action("add-members", "done")
+        searchField.accessibilityIdentifier = AccessibilityID.RoleSettings.action("add-members", "search")
+
         titleLabel.text = L(L10n.ClanRoles.membersAdd)
         titleLabel.font = .systemFont(ofSize: 16.sf, weight: .semibold)
         titleLabel.textColor = .mezonTextPrimary
@@ -113,7 +118,7 @@ final class AddMembersSheetController: UIViewController {
         searchContainer.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(searchContainer)
 
-        let icon = UIImageView(image: UIImage(systemName: "magnifyingglass")?.withRenderingMode(.alwaysTemplate))
+        let icon = UIImageView(image: UIImage(named: "Setting/SearchIcon")?.withRenderingMode(.alwaysTemplate))
         icon.tintColor = UIColor.theme.textDisabled
         icon.contentMode = .scaleAspectFit
         icon.translatesAutoresizingMaskIntoConstraints = false
@@ -212,6 +217,7 @@ extension AddMembersSheetController: UITableViewDataSource, UITableViewDelegate 
         }
         let cell = tableView.dequeueReusableCell(withIdentifier: MemberRowCell.reuseId, for: indexPath) as! MemberRowCell
         let member = filtered[indexPath.row]
+        cell.accessibilityIdentifier = AccessibilityID.RoleSettings.action("add-members", "member-\(member.userId)")
         cell.configure(
             name: RoleMemberDisplay.displayName(member),
             subtitle: member.username,

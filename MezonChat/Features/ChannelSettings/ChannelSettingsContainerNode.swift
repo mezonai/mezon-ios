@@ -64,7 +64,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         self.showQuickActionButton = showQuickActionButton
         self.showBanListButton = showBanListButton
         super.init()
-        backgroundColor = UIColor.theme.primary
+        backgroundColor = UIColor.theme.secondary
 
         nameField.text = channelName
         topicView.text = channelTopic
@@ -84,6 +84,9 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
     }
 
     private func setupUI() {
+        view.accessibilityIdentifier = AccessibilityID.ChannelSettings.screen("main")
+        nameField.accessibilityIdentifier = AccessibilityID.ChannelSettings.action("main", "name")
+        topicView.accessibilityIdentifier = AccessibilityID.ChannelSettings.action("main", "topic")
         let t = UIColor.theme
 
 
@@ -98,7 +101,8 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         ])
 
         let closeBtn = UIButton(type: .system)
-        closeBtn.setImage(UIImage(systemName: "xmark")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        closeBtn.accessibilityIdentifier = AccessibilityID.ChannelSettings.action("main", "close")
+        closeBtn.setImage(UIImage(named: "Profile/CloseDMIcon")?.withRenderingMode(.alwaysTemplate), for: .normal)
         closeBtn.tintColor = t.textStrong
         closeBtn.addTarget(self, action: #selector(handleClose), for: .touchUpInside)
         header.addSubview(closeBtn)
@@ -122,6 +126,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         ])
 
         saveBtn = UIButton(type: .system)
+        saveBtn.accessibilityIdentifier = AccessibilityID.ChannelSettings.action("main", "save")
         saveBtn.setTitle("Save", for: .normal)
         saveBtn.titleLabel?.font = .systemFont(ofSize: 17.sf, weight: .medium)
         saveBtn.addTarget(self, action: #selector(handleSave), for: .touchUpInside)
@@ -170,25 +175,25 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         var group1Actions: [SettingAction] = []
         
         if showChangeCategoryButton {
-            group1Actions.append(.init(title: L(L10n.ChannelSetting.changeCategory), icon: "ClanSetting/AuditLog", action: { [weak self] in
+            group1Actions.append(.init(identifier: "change-category", title: L(L10n.ChannelSetting.changeCategory), icon: "ChannelSetting/ChangeCategoryIcon", action: { [weak self] in
                 self?.onChangeCategoryTap?()
             }))
         }
         
         if showPermissionsButton {
-            group1Actions.append(.init(title: L(L10n.ChannelSetting.permissions), icon: "ChannelSetting/ChannelPermission", action: { [weak self] in
+            group1Actions.append(.init(identifier: "permissions", title: L(L10n.ChannelSetting.permissions), icon: "ClanSetting/Roles", action: { [weak self] in
                 self?.onPermissionsTap?()
             }))
         }
         
         if showQuickActionButton {
-            group1Actions.append(.init(title: L(L10n.ChannelSetting.quickAction), icon: "ChannelSetting/QuickActionIcon", action: { [weak self] in
+            group1Actions.append(.init(identifier: "quick-action", title: L(L10n.ChannelSetting.quickAction), icon: "ChannelSetting/QuickActionSettingsIcon", action: { [weak self] in
                 self?.onQuickActionTap?()
             }))
         }
         
         if showBanListButton {
-            group1Actions.append(.init(title: L(L10n.ChannelSetting.banList), icon: "ChannelSetting/BanIcon", action: nil))
+            group1Actions.append(.init(identifier: "ban-list", title: L(L10n.ChannelSetting.banList), icon: "ChannelSetting/BanIcon", action: nil))
         }
         
         let group1 = createGroup(actions: group1Actions)
@@ -204,7 +209,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
 
         if showWebhookButton {
             let group2 = createGroup(actions: [
-                .init(title: L(L10n.ChannelSetting.webhook), icon: "ChannelSetting/WebhookIcon", action: { [weak self] in
+                .init(identifier: "webhook", title: L(L10n.ChannelSetting.webhook), icon: "ChannelSetting/WebhookIcon", action: { [weak self] in
                     self?.onWebhookTap?()
                 }),
             ])
@@ -214,10 +219,10 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
 
         if showDeleteButton {
             let delTitle = isThread ? L(L10n.ChannelAction.deleteThread) : L(L10n.Channel.delete)
-            let btn = createActionRow(title: delTitle, icon: "ChannelSetting/DeleteIcon", isDestructive: true, tapHandler: { [weak self] in
+            let btn = createActionRow(identifier: "delete", title: delTitle, icon: "ChannelSetting/DeleteIcon", isDestructive: true, tapHandler: { [weak self] in
                 self?.onDeleteTap?()
             })
-            btn.backgroundColor = UIColor.theme.secondary
+            btn.backgroundColor = UIColor.theme.primary
             btn.layer.cornerRadius = 12
             stackView.addArrangedSubview(btn)
             deleteBtn = btn
@@ -241,19 +246,17 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         label.textColor = UIColor.theme.textStrong
         v.addArrangedSubview(label)
 
-        input.backgroundColor = UIColor.theme.secondary
         input.layer.cornerRadius = 12
+        input.layer.borderWidth = 1
         if let tf = input as? UITextField {
             tf.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 12.sw, height: 1))
             tf.leftViewMode = .always
             tf.rightView = UIView(frame: CGRect(x: 0, y: 0, width: 12.sw, height: 1))
             tf.rightViewMode = .always
-            tf.textColor = UIColor.theme.textStrong
             tf.font = .systemFont(ofSize: 16.sf)
             tf.heightAnchor.constraint(equalToConstant: 48.sh).isActive = true
         } else if let tv = input as? UITextView {
             tv.textContainerInset = UIEdgeInsets(top: 12.sh, left: 12.sw, bottom: 12.sh, right: 12.sw)
-            tv.textColor = UIColor.theme.textStrong
             tv.font = .systemFont(ofSize: 16.sf)
             tv.heightAnchor.constraint(equalToConstant: 150.sh).isActive = true
             tv.isScrollEnabled = false
@@ -303,7 +306,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
 
     private func createGroup(actions: [SettingAction]) -> UIView {
         let v = UIView()
-        v.backgroundColor = UIColor.theme.secondary
+        v.backgroundColor = UIColor.theme.primary
         v.layer.cornerRadius = 12
         v.clipsToBounds = true
 
@@ -320,7 +323,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         ])
 
         for (idx, action) in actions.enumerated() {
-            let row = createActionRow(title: action.title, icon: action.icon, tapHandler: action.action)
+            let row = createActionRow(identifier: action.identifier, title: action.title, icon: action.icon, tapHandler: action.action)
             stack.addArrangedSubview(row)
             if idx < actions.count - 1 {
                 let sep = UIView()
@@ -332,9 +335,16 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         return v
     }
 
-    private func createActionRow(title: String, icon: String, isDestructive: Bool = false, tapHandler: (() -> Void)? = nil) -> UIView {
+    private func createActionRow(
+        identifier: String,
+        title: String,
+        icon: String,
+        isDestructive: Bool = false,
+        tapHandler: (() -> Void)? = nil
+    ) -> UIView {
         let v = ActionRowButton(type: .system)
         v.backgroundColor = .clear
+        v.accessibilityIdentifier = AccessibilityID.ChannelSettings.action("main", identifier)
         v.tapHandler = tapHandler
         v.addTarget(v, action: #selector(ActionRowButton.handleTap), for: .touchUpInside)
 
@@ -369,7 +379,6 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         if !isDestructive {
             let arrowImage =
                 UIImage(named: "Channel/ChevronRight")?.withRenderingMode(.alwaysTemplate)
-                ?? UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate)
             let arrow = UIImageView(image: arrowImage)
             arrow.tintColor = UIColor.theme.textStrong
             v.addSubview(arrow)
@@ -394,10 +403,20 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
     }
 
     func applyTheme() {
-        backgroundColor = UIColor.theme.primary
+        let theme = UIColor.theme
+        backgroundColor = theme.secondary
+        let inputBackground = theme.primary
+        let inputBorder = theme.border.cgColor
+        nameField.backgroundColor = inputBackground
+        nameField.layer.borderColor = inputBorder
+        nameField.textColor = theme.textStrong
+        topicView.backgroundColor = inputBackground
+        topicView.layer.borderColor = inputBorder
+        topicView.textColor = theme.textStrong
     }
 
     private struct SettingAction {
+        let identifier: String
         let title: String
         let icon: String
         let action: (() -> Void)?

@@ -34,12 +34,9 @@ final class VoiceNetworkWarningHintView: UIView {
         iconBadge.layer.cornerRadius = 16
 
         iconView.translatesAutoresizingMaskIntoConstraints = false
-        iconView.image = UIImage(
-            systemName: "exclamationmark.triangle.fill",
-            withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)
-        )
+        iconView.image = UIImage(named: "Channel/VoiceWarning")?.withRenderingMode(.alwaysTemplate)
         iconView.tintColor = Self.iconColor
-        iconView.contentMode = .center
+        iconView.contentMode = .scaleAspectFit
 
         titleLabel.numberOfLines = 0
         titleLabel.lineBreakMode = .byWordWrapping
@@ -62,8 +59,9 @@ final class VoiceNetworkWarningHintView: UIView {
         textStack.spacing = 2
 
         closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.accessibilityIdentifier = AccessibilityID.VoiceRoom.networkWarningClose
         closeButton.setImage(
-            UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 12, weight: .semibold)),
+            UIImage(named: "Channel/VoiceClose")?.withRenderingMode(.alwaysTemplate),
             for: .normal
         )
         closeButton.tintColor = Self.textColor.withAlphaComponent(0.7)
@@ -94,6 +92,8 @@ final class VoiceNetworkWarningHintView: UIView {
             iconBadge.heightAnchor.constraint(equalToConstant: 32),
             iconView.centerXAnchor.constraint(equalTo: iconBadge.centerXAnchor),
             iconView.centerYAnchor.constraint(equalTo: iconBadge.centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 18),
+            iconView.heightAnchor.constraint(equalToConstant: 18),
             textStack.topAnchor.constraint(equalTo: bubble.topAnchor, constant: 12),
             textStack.bottomAnchor.constraint(equalTo: bubble.bottomAnchor, constant: -12),
             textStack.leadingAnchor.constraint(equalTo: iconBadge.trailingAnchor, constant: 12),

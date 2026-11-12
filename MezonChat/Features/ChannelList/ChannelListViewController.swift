@@ -756,6 +756,8 @@ final class ChannelListViewController: ViewController {
     private let fetchDisposable = MetaDisposable()
     private let dataDisposable = MetaDisposable()
     private let clanUsersDisposable = MetaDisposable()
+    private let clanEventsDisposable = MetaDisposable()
+    private weak var eventViewer: EventViewerBottomSheetViewController?
     private var processedBadgeKeys = Set<String>()
     private var pendingMentionUnreadFloorByClanId: [Int64: [Int64: Int32]] = [:]
     private var badgeReadMessageIds: [Int64: Int64] = [:]
@@ -1002,6 +1004,7 @@ final class ChannelListViewController: ViewController {
         fetchDisposable.dispose()
         dataDisposable.dispose()
         clanUsersDisposable.dispose()
+        clanEventsDisposable.dispose()
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -1150,6 +1153,7 @@ final class ChannelListViewController: ViewController {
         invalidateVoiceMemberCache()
         refreshShowEmptyCategoriesPreferenceFromCache()
         reconcileChannelListDataIfNeeded()
+        context.engine.clanData.refreshEventExpiry(clanId: clanId)
         channelListNode.reloadVoiceMemberRows()
     }
 
@@ -1203,6 +1207,13 @@ final class ChannelListViewController: ViewController {
                 self.scheduleCoalescedClanUsersReload()
             })
         )
+        clanEventsDisposable.set(
+            (context.engine.clanData.clanEventsUpdated.signal() |> deliverOnMainQueue).start(next: { [weak self] updatedClanId in
+                guard let self, updatedClanId == self.clanId else { return }
+                self.refreshEventBadge()
+            })
+        )
+        refreshEventBadge()
     }
 
     @objc private func handleAccountCurrentUserDidChangeForOnboarding(_ notification: Notification) {
@@ -1226,6 +1237,7 @@ final class ChannelListViewController: ViewController {
            let data = context.account.postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId)),
            let updated = decodeChannelList(data).first(where: { $0.channelID == channelId }) {
             allChannels[idx] = updated
+            eventViewer?.updateChannels(allChannels, clanId: clanId)
             let cats = applyCategoriesAfterFetch(
                 mergedChannels: allChannels,
                 categoryDescs: channelListCategoryDescs,
@@ -1254,7 +1266,7 @@ final class ChannelListViewController: ViewController {
             notification.userInfo?["channelType"] as? Int32 == MezonConstants.ChannelType.mezonVoice.rawValue
         if isVoice {
             channelListFavoriteIds.subtract(removedIds)
-            allChannels = channelsIncludingCachedVoiceUpdateBase()
+            replaceAllChannels(channelsIncludingCachedVoiceUpdateBase())
         }
         removeChannelLocally(channelIds: removedIds, pruneMissingChannels: !isVoice)
     }
@@ -1310,7 +1322,7 @@ final class ChannelListViewController: ViewController {
             } else {
                 merged.append(ch)
             }
-            allChannels = preservePendingMentionUnread(in: merged, clanId: clanId)
+            replaceAllChannels(preservePendingMentionUnread(in: merged, clanId: clanId))
             let cats = applyCategoriesAfterFetch(
                 mergedChannels: allChannels,
                 categoryDescs: channelListCategoryDescs,
@@ -1421,6 +1433,7 @@ final class ChannelListViewController: ViewController {
 
     @objc private func handleWillEnterForegroundForChannelBadges() {
         guard clanId != 0 else { return }
+        context.engine.clanData.refreshEventExpiry(clanId: clanId)
         if allChannels.isEmpty {
             if NetworkMonitor.shared.isConnected {
                 scheduleChannelListNetworkFetch(allowEmptyChannelAppsOverwrite: false)
@@ -1570,7 +1583,7 @@ final class ChannelListViewController: ViewController {
             )
             return
         }
-        allChannels = updated
+        replaceAllChannels(updated)
         let cats = applyCategoriesAfterFetch(
             mergedChannels: updated,
             categoryDescs: channelListCategoryDescs,
@@ -1765,10 +1778,7 @@ final class ChannelListViewController: ViewController {
         Task { @MainActor [weak self] in
             defer { self?.onboardingMemberFetchInFlight = false }
             guard let self else { return }
-            guard let token = await self.context.getToken() else {
-                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
-                return
-            }
+            guard let token = await self.context.getToken() else { return }
             do {
                 let response = try await self.context.account.network.listClanUsers(
                     clanId: self.clanId,
@@ -2054,6 +2064,16 @@ final class ChannelListViewController: ViewController {
         homeViewController()?.clanListVC.removeClanAndSelectNext(removedClanId: removedClanId)
     }
 
+    private func refreshEventBadge() {
+        guard isNodeLoaded else { return }
+        let events = clanId != 0 ? context.engine.clanData.getClanEvents(clanId: clanId)?.events ?? [] : []
+        let count = EventListFilter.visibleEvents(
+            from: events,
+            channels: allChannels
+        ).count
+        channelListNode.updateEventCount(count)
+    }
+
     private func presentEventBottomSheet() {
         guard clanId != 0 else { return }
         let vc = EventViewerBottomSheetViewController(
@@ -2063,21 +2083,20 @@ final class ChannelListViewController: ViewController {
             clanLogoURL: clanLogoURL,
             channels: allChannels
         )
-        vc.onOpenChannel = { [weak self] channel in
-            self?.dismissEventBottomSheets(animated: false) {
-                self?.select(channel: channel)
+        let openChannel: (Mezon_Api_ChannelDescription) -> Void = { [weak self] channel in
+            self?.dismissEventBottomSheets(animated: false) { [weak self] in
+                guard let self,
+                      let currentChannel = self.allChannels.first(where: { $0.channelID == channel.channelID }) else { return }
+                self.select(channel: currentChannel)
             }
         }
+        vc.onOpenChannel = openChannel
         vc.onPresentJoinVoice = { [weak self] channel in
             guard let self, let presenter = self.topModalPresenter() else { return }
             self.presentJoinVoiceSheet(
                 for: channel,
                 from: presenter,
-                onChat: { [weak self] in
-                    self?.dismissEventBottomSheets(animated: false) {
-                        self?.select(channel: channel)
-                    }
-                },
+                onChat: { openChannel(channel) },
                 onJoinVoice: { [weak self] role in
                     self?.dismissEventBottomSheets(animated: false) {
                         self?.pushVoiceChannelRoom(for: channel, role: role)
@@ -2090,6 +2109,7 @@ final class ChannelListViewController: ViewController {
                 self?.pushExternalMeetingRoom(meeting)
             }
         }
+        eventViewer = vc
         present(vc, animated: true)
     }
 
@@ -2304,7 +2324,7 @@ final class ChannelListViewController: ViewController {
                     userInfo: ["channelId": channel.channelID, "clanId": channel.clanID]
                 )
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -2322,7 +2342,7 @@ final class ChannelListViewController: ViewController {
                     userInfo: ["clanId": clanId, "categoryId": Int64(0)]
                 )
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -2346,7 +2366,7 @@ final class ChannelListViewController: ViewController {
                 persistFullChannelListCache(clanId: clanId, channels: allChannels, categoryDescs: channelListCategoryDescs, favoriteIds: channelListFavoriteIds, categories: cats)
                 needsReloadPipe.putNext(())
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -2370,7 +2390,7 @@ final class ChannelListViewController: ViewController {
                 persistFullChannelListCache(clanId: clanId, channels: allChannels, categoryDescs: channelListCategoryDescs, favoriteIds: channelListFavoriteIds, categories: cats)
                 needsReloadPipe.putNext(())
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -2495,7 +2515,13 @@ final class ChannelListViewController: ViewController {
         for channelId in channelIds {
             clearPendingMentionUnreadFloor(clanId: clanId, channelId: channelId)
         }
-        allChannels.removeAll { channelIds.contains($0.channelID) || channelIds.contains($0.parentID) }
+        let removedChannelIds = channelIds.union(allChannels.lazy
+            .filter { channelIds.contains($0.parentID) }
+            .map(\.channelID))
+        replaceAllChannels(
+            allChannels.filter { !removedChannelIds.contains($0.channelID) },
+            removedChannelIds: removedChannelIds
+        )
         channelListFavoriteIds.subtract(channelIds)
         if let selectedChannelId, channelIds.contains(selectedChannelId) {
             setSelectedChannelId(nil)
@@ -2521,7 +2547,7 @@ final class ChannelListViewController: ViewController {
                 try await MezonHTTPClient.shared.deleteChannelDesc(channelId: channel.channelID, clanId: channel.clanID, token: token)
                 context.engine.clanData.removeChannelLocally(clanId: channel.clanID, channelId: channel.channelID, channelType: channel.type)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -2533,7 +2559,7 @@ final class ChannelListViewController: ViewController {
                 try await MezonHTTPClient.shared.leaveThread(clanId: channel.clanID, channelId: channel.channelID, token: token)
                 context.engine.clanData.removeChannelLocally(clanId: channel.clanID, channelId: channel.channelID)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -2566,6 +2592,7 @@ final class ChannelListViewController: ViewController {
         needsReloadPipe.putNext(())
         lastChannelFetchAtByClanId.removeValue(forKey: clanId)
         lastBadgeCountFetchAtByClanId.removeValue(forKey: clanId)
+        lastChannelAppsFetchAtByClanId.removeValue(forKey: clanId)
         fetchChannelsWithoutLoadingSignal(allowEmptyChannelAppsOverwrite: true, force: true)
     }
 
@@ -2821,7 +2848,7 @@ final class ChannelListViewController: ViewController {
         let accessibleChannels = channels.filter { !context.engine.channels.isAccessRevoked(channelId: $0.channelID) }
         var immediate = preservePendingMentionUnread(in: accessibleChannels, clanId: clanId)
         immediate = mergeCachedUnreadCounts(into: immediate, cached: previousChannels)
-        allChannels = immediate
+        replaceAllChannels(immediate)
         emptyChannelRetryCountByClanId[clanId] = 0
         let cats = applyCategoriesAfterFetch(
             mergedChannels: immediate,
@@ -3095,7 +3122,7 @@ final class ChannelListViewController: ViewController {
             channelsLoadedPromise.set(false)
             channelListCategoryDescs = []
             channelListFavoriteIds = []
-            allChannels = []
+            replaceAllChannels([])
             categories = []
         }
         restoreCachedChannelApps(clanId: clanId)
@@ -3126,6 +3153,7 @@ final class ChannelListViewController: ViewController {
         }
         refreshMemberOnboardingState()
         scheduleMemberOnboardingDataFetch()
+        context.engine.clanData.refreshEventExpiry(clanId: clanId)
     }
 
     private func scheduleAuthoritativeNetworkReconcileIfNeeded(reason: String) {
@@ -3438,23 +3466,23 @@ final class ChannelListViewController: ViewController {
 
     private func openChannelApp(_ app: Mezon_Api_ChannelAppResponse) {
         guard app.appID != 0, !app.appURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            Toast.error("App unavailable")
+            Toast.error(L(L10n.ChannelApp.unavailable))
             return
         }
         Task { @MainActor [weak self] in
             guard let self else { return }
             guard let token = await self.context.getToken() else {
-                Toast.error("Session unavailable")
+                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
                 return
             }
             do {
                 let webAppData = try await self.context.account.network.generateChannelAppHash(appId: app.appID, token: token)
                 guard !webAppData.isEmpty else {
-                    Toast.error("App unavailable")
+                    Toast.error(L(L10n.ChannelApp.unavailable))
                     return
                 }
                 guard let url = app.channelAppWebPageURL(webAppData: webAppData) else {
-                    Toast.error("App unavailable")
+                    Toast.error(L(L10n.ChannelApp.unavailable))
                     return
                 }
                 let title = app.appName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -3467,14 +3495,14 @@ final class ChannelListViewController: ViewController {
                 } else if let host = self.presentationWindowHostForChannelApp() {
                     host.presentInGlobalOverlay(vc)
                 } else {
-                    Toast.error("App unavailable")
+                    Toast.error(L(L10n.ChannelApp.unavailable))
                     return
                 }
                 DispatchQueue.main.async {
                     navForOverlay?.requestLayout(transition: .immediate)
                 }
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -3658,6 +3686,10 @@ final class ChannelListViewController: ViewController {
                 self.pushVoiceChannelRoom(for: channel, role: role)
             }
         }
+        let streamClanId = clanId
+        let streamState: (() -> JoinStreamSheetState?)? = kind == .streaming
+            ? { [weak self] in self?.joinStreamSheetState(clanId: streamClanId, channelId: channel.channelID) }
+            : nil
 
         let sheet = JoinVoiceChannelSheetViewController(
             channelTitle: title,
@@ -3667,6 +3699,7 @@ final class ChannelListViewController: ViewController {
             canJoin: kind == .voice || !voiceUserIds.isEmpty,
             streamViewerCount: kind == .streaming ? context.engine.clanData.streamViewerCount(clanId: clanId, channelId: channel.channelID) : nil,
             streamPublisher: streamPublisher,
+            streamState: streamState,
             onChat: chatAction,
             onJoinVoice: joinAction,
             onInvite: {}
@@ -3698,6 +3731,16 @@ final class ChannelListViewController: ViewController {
             resolvedPresenter.present(sheet, animated: true)
         }
         CATransaction.commit()
+    }
+
+    private func joinStreamSheetState(clanId: Int64, channelId: Int64) -> JoinStreamSheetState {
+        let clanData = context.engine.clanData
+        let userIds = clanData.streamMembers(clanId: clanId, channelId: channelId).map { String($0.userID) }
+        return JoinStreamSheetState(
+            canJoin: !userIds.isEmpty,
+            viewerCount: clanData.streamViewerCount(clanId: clanId, channelId: channelId),
+            publisher: userIds.first.flatMap { resolveVoiceMember($0) }
+        )
     }
 
     private func pushChatViewController(for channel: Mezon_Api_ChannelDescription) {
@@ -3910,6 +3953,18 @@ final class ChannelListViewController: ViewController {
     }
 
     private(set) var allChannels: [Mezon_Api_ChannelDescription] = []
+
+    private func replaceAllChannels(
+        _ channels: [Mezon_Api_ChannelDescription],
+        removedChannelIds: Set<Int64> = []
+    ) {
+        let channelIdsChanged = Set(allChannels.map(\.channelID)) != Set(channels.map(\.channelID))
+        allChannels = channels
+        if channelIdsChanged {
+            refreshEventBadge()
+        }
+        eventViewer?.updateChannels(channels, clanId: clanId, removedChannelIds: removedChannelIds)
+    }
 
     var currentState: ChannelListState {
         var voiceMap: [Int64: [String]] = [:]
@@ -4195,7 +4250,6 @@ final class ChannelListViewController: ViewController {
             guard self.clanId == clanId else { return }
 
             let key = PreferencesKeys.channelApps(clanId: clanId)
-            let cachedData = self.context.account.postbox.getPreferenceData(key: key)
 
             do {
                 let apps = try await Task.detached(priority: .utility) {
@@ -4209,13 +4263,6 @@ final class ChannelListViewController: ViewController {
                         let permissive = self.channelAppsForClan(apps, clanId: clanId, fromCache: true)
                         if !permissive.isEmpty {
                             self.applyResolvedChannelApps(permissive, clanId: clanId, cacheKey: key)
-                            return
-                        }
-                    }
-                    if let cachedData, !cachedData.isEmpty {
-                        let validCached = self.channelAppsForClan(self.decodeChannelApps(cachedData), clanId: clanId, fromCache: true)
-                        if !validCached.isEmpty {
-                            self.channelListNode.updateChannelApps(validCached)
                             return
                         }
                     }
@@ -4392,7 +4439,7 @@ final class ChannelListViewController: ViewController {
             in: orderedChannels,
             clanId: clanId
         )
-        allChannels = cachedChannels
+        replaceAllChannels(cachedChannels)
         needsAuthoritativeNetworkReconcile = true
         let resolvedMeta = meta ?? readChannelListMetaFromCache(clanId: clanId)
         channelListCategoryDescs = resolvedMeta.categoryDescs
@@ -4494,7 +4541,7 @@ final class ChannelListViewController: ViewController {
             layoutChannels = repairChannelsMissingCategoryIds(layoutChannels, categoryDescs: categoryDescs)
         }
         if layoutChannels != cachedChannels {
-            allChannels = layoutChannels
+            replaceAllChannels(layoutChannels)
         }
 
         let nameReference = buildChannelCategories(

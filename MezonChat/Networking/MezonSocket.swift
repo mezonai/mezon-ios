@@ -127,6 +127,16 @@ final class MezonSocket: NSObject {
     private var pendingSendQueue: [(envelope: Mezon_Realtime_Envelope, queuedAt: Date)] = []
     private let pendingSendQueueCap = 32
     private let pendingSendStaleAge: TimeInterval = 10
+    private struct LastSeenRetry {
+        let event: Mezon_Realtime_LastSeenMessageEvent
+        let queuedAt: Date
+        var sentAt: Date?
+        var resendCount = 0
+    }
+    private var lastSeenRetries: [Int64: LastSeenRetry] = [:]
+    private let lastSeenResendWindow: TimeInterval = 60
+    private let lastSeenUnsentMaxAge: TimeInterval = 600
+    private let lastSeenMaxResends = 2
 
     private var nextCid: UInt32 = 0
     private var pendingApiRequests: [UInt32: PendingApiRequest] = [:]
@@ -326,16 +336,21 @@ final class MezonSocket: NSObject {
         armConnectWatchdog(for: t)
     }
 
-    func waitForConnected(timeoutNanoseconds: UInt64) async -> Bool {
-        if isConnected { return true }
+    func waitForConnected(timeoutNanoseconds: UInt64, afterGeneration: Int? = nil) async -> Bool {
         let step: UInt64 = 50_000_000
         var elapsed: UInt64 = 0
-        while elapsed < timeoutNanoseconds {
-            try? await Task.sleep(nanoseconds: step)
-            elapsed += step
-            if isConnected { return true }
+        while !Task.isCancelled {
+            if isConnected, connectGeneration != afterGeneration { return true }
+            guard elapsed < timeoutNanoseconds else { return false }
+            let delay = min(step, timeoutNanoseconds - elapsed)
+            do {
+                try await Task.sleep(nanoseconds: delay)
+            } catch {
+                return false
+            }
+            elapsed += delay
         }
-        return isConnected
+        return false
     }
 
     func disconnect() {
@@ -363,6 +378,7 @@ final class MezonSocket: NSObject {
         reconnectAttempts = 0
         tokenProvider = nil
         pendingSendQueue.removeAll()
+        lastSeenRetries.removeAll()
         failAllPendingReplies(reason: "Socket disconnected")
     }
 
@@ -572,12 +588,7 @@ final class MezonSocket: NSObject {
         var envelope = message
         envelope.cid = Int32(bitPattern: cid)
 
-        let payload: Data
-        do {
-            payload = try MezonEnvelopeEncoding.encodeCidLast(envelope)
-        } catch {
-            throw SocketReplyError.undelivered("Encode envelope failed: \(error.localizedDescription)")
-        }
+        let payload = try MezonEnvelopeEncoding.encodeCidLast(envelope)
 
         return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Mezon_Realtime_Envelope, Error>) in
             let timeoutTask = Task { @MainActor [weak self] in
@@ -609,9 +620,10 @@ final class MezonSocket: NSObject {
                     guard let self else { return }
                     if let pending = self.pendingRealtimeReplies.removeValue(forKey: cid) {
                         pending.timeoutTask.cancel()
-                        pending.continuation.resume(
-                            throwing: SocketReplyError.undelivered("Send failed: \(error.localizedDescription)")
-                        )
+                        let failure: SocketReplyError = error is AbridgedRequestNotSent
+                            ? .undelivered("Socket closed before sending")
+                            : .unresolved("Socket write could not be confirmed: \(error.localizedDescription)")
+                        pending.continuation.resume(throwing: failure)
                     }
                 }
             }
@@ -835,9 +847,45 @@ final class MezonSocket: NSObject {
         event.messageID = messageId
         event.timestampSeconds = timestampSeconds
         event.badgeCount = badgeCount
+        let now = Date()
+        let canSendNow = isConnected && transport != nil
+        if canSendNow, let existing = lastSeenRetries[channelId],
+           existing.event.messageID == messageId,
+           let sentAt = existing.sentAt,
+           now.timeIntervalSince(sentAt) <= lastSeenResendWindow {
+            return
+        }
+        lastSeenRetries[channelId] = LastSeenRetry(event: event, queuedAt: now, sentAt: canSendNow ? now : nil)
+        guard canSendNow else { return }
         var envelope = Mezon_Realtime_Envelope()
         envelope.lastSeenMessageEvent = event
         send(envelope)
+    }
+
+    private func resendRecentLastSeen() {
+        guard isConnected, transport != nil, !lastSeenRetries.isEmpty else { return }
+        let now = Date()
+        for (channelId, retry) in lastSeenRetries {
+            let isExpired: Bool
+            if let sentAt = retry.sentAt {
+                isExpired = retry.resendCount >= lastSeenMaxResends
+                    || now.timeIntervalSince(sentAt) > lastSeenResendWindow
+            } else {
+                isExpired = now.timeIntervalSince(retry.queuedAt) > lastSeenUnsentMaxAge
+            }
+            guard !isExpired else {
+                lastSeenRetries.removeValue(forKey: channelId)
+                continue
+            }
+            var envelope = Mezon_Realtime_Envelope()
+            envelope.lastSeenMessageEvent = retry.event
+            send(envelope)
+            if retry.sentAt == nil {
+                lastSeenRetries[channelId]?.sentAt = now
+            } else {
+                lastSeenRetries[channelId]?.resendCount += 1
+            }
+        }
     }
 
     func writeCustomStatus(clanId: Int64, status: String, minutes: Int32, noClear: Bool) {
@@ -867,6 +915,7 @@ final class MezonSocket: NSObject {
         eventPipe.putNext(.connected)
         NotificationCenter.default.post(name: .mezonSocketStatusChanged, object: nil, userInfo: ["isConnected": true])
         flushPendingSendQueue()
+        resendRecentLastSeen()
         startHeartbeat()
         armConnectAckGrace(for: t)
         SentryLogger.addBreadcrumb(
@@ -1302,6 +1351,66 @@ final class MezonSocket: NSObject {
         channelId: Int64,
         callerId: Int64
     ) {
+        send(webrtcSignalingEnvelope(
+            receiverId: receiverId, dataType: dataType, jsonData: jsonData,
+            channelId: channelId, callerId: callerId
+        ))
+    }
+
+    func sendPeerCallSDP(
+        receiverId: Int64,
+        dataType: Int32,
+        jsonData: String,
+        channelId: Int64,
+        callerId: Int64,
+        shouldSend: () -> Bool
+    ) async throws -> Bool {
+        let envelope = webrtcSignalingEnvelope(
+            receiverId: receiverId, dataType: dataType, jsonData: jsonData,
+            channelId: channelId, callerId: callerId
+        )
+        try Task.checkCancellation()
+        guard shouldSend() else { throw CancellationError() }
+        do {
+            try await sendRealtimeControl(envelope)
+            return true
+        } catch SocketReplyError.unresolved(_) {
+            // The server may have forwarded the SDP before the write or ACK failed.
+            try Task.checkCancellation()
+            return true
+        } catch SocketReplyError.undelivered(_) {
+            if isConnected {
+                forceReconnect()
+            } else {
+                ensureFreshConnection()
+            }
+        }
+
+        try Task.checkCancellation()
+        guard shouldSend() else { throw CancellationError() }
+        if let session = sessionProvider?() ?? SessionStore.load(), !session.token.isEmpty {
+            if let userId = session.userId, !userId.isEmpty, userId != String(callerId) {
+                throw CancellationError()
+            }
+            do {
+                try await MezonHTTPClient.shared.forwardCallSetup(envelope.webrtcSignalingFwd, token: session.token)
+                return false
+            } catch MezonError.httpError(let status, _) where [401, 404, 405, 501].contains(status) {
+                // The HTTP endpoint rejected the request before forwarding any SDP.
+            }
+        }
+
+        try await sendPeerCallSetup(envelope, shouldSend: shouldSend)
+        return true
+    }
+
+    private func webrtcSignalingEnvelope(
+        receiverId: Int64,
+        dataType: Int32,
+        jsonData: String,
+        channelId: Int64,
+        callerId: Int64
+    ) -> Mezon_Realtime_Envelope {
         var fwd = Mezon_Realtime_WebrtcSignalingFwd()
         fwd.receiverID = receiverId
         fwd.dataType = dataType
@@ -1310,7 +1419,7 @@ final class MezonSocket: NSObject {
         fwd.callerID = callerId
         var envelope = Mezon_Realtime_Envelope()
         envelope.webrtcSignalingFwd = fwd
-        send(envelope)
+        return envelope
     }
 
     func makeCallPush(
@@ -1319,6 +1428,28 @@ final class MezonSocket: NSObject {
         channelId: Int64,
         callerId: Int64
     ) {
+        send(callPushEnvelope(receiverId: receiverId, jsonData: jsonData, channelId: channelId, callerId: callerId))
+    }
+
+    func sendPeerCallOfferPush(
+        receiverId: Int64,
+        jsonData: String,
+        channelId: Int64,
+        callerId: Int64,
+        shouldSend: () -> Bool
+    ) async throws {
+        try await sendPeerCallSetup(
+            callPushEnvelope(receiverId: receiverId, jsonData: jsonData, channelId: channelId, callerId: callerId),
+            shouldSend: shouldSend
+        )
+    }
+
+    private func callPushEnvelope(
+        receiverId: Int64,
+        jsonData: String,
+        channelId: Int64,
+        callerId: Int64
+    ) -> Mezon_Realtime_Envelope {
         var push = Mezon_Realtime_IncomingCallPush()
         push.receiverID = receiverId
         push.jsonData = jsonData
@@ -1326,7 +1457,43 @@ final class MezonSocket: NSObject {
         push.callerID = callerId
         var envelope = Mezon_Realtime_Envelope()
         envelope.incomingCallPush = push
-        send(envelope)
+        return envelope
+    }
+
+    private func sendPeerCallSetup(
+        _ envelope: Mezon_Realtime_Envelope,
+        shouldSend: () -> Bool = { true }
+    ) async throws {
+        let waitBudget: UInt64 = 10_000_000_000
+        let startedAt = DispatchTime.now().uptimeNanoseconds
+        var failedGeneration: Int?
+        for attempt in 0..<2 {
+            try Task.checkCancellation()
+            guard shouldSend() else { return }
+            let elapsed = DispatchTime.now().uptimeNanoseconds - startedAt
+            let connected = await waitForConnected(
+                timeoutNanoseconds: waitBudget - min(elapsed, waitBudget),
+                afterGeneration: failedGeneration
+            )
+            try Task.checkCancellation()
+            guard shouldSend() else { return }
+            guard connected else {
+                throw SocketReplyError.undelivered("Socket unavailable for call setup")
+            }
+
+            let generation = connectGeneration
+            do {
+                try await sendRealtimeControl(envelope)
+                try Task.checkCancellation()
+                return
+            } catch SocketReplyError.undelivered(_) where attempt == 0 {
+                failedGeneration = generation
+            } catch SocketReplyError.unresolved(_) {
+                // The peer may already have received this signal before the reply was lost.
+                try Task.checkCancellation()
+                return
+            }
+        }
     }
 
     func sendMessageButtonClicked(
@@ -1606,7 +1773,13 @@ enum MezonApiNameRegistry {
         "SearchMentionUsers",
         "GenerateCDNSignature",
         "GetStreamPlayback",
-        "LinkCDNFile"
+        "LinkCDNFile",
+        "SfuBreakoutRoom",
+        "SfuBreakoutMerge",
+        "SetOverrideEveryoneChannel",
+        "GetOverrideEveryoneChannel",
+        "GetDMSetting",
+        "UpdateDMSetting"
     ]
 
     private static let nameToIndex: [String: Int32] = {
@@ -1663,5 +1836,32 @@ enum ChannelUnreadBadgeSync {
             clans[i].badgeCount = row.badge
             clans[i].hasUnreadMessage_p = row.hasUnread_p
         }
+    }
+}
+
+enum DmReadFloor {
+    private static var seenMessageIds: [Int64: Int64] = [:]
+
+    static func record(channelId: Int64, messageId: Int64) {
+        guard channelId != 0, messageId != 0 else { return }
+        seenMessageIds[channelId] = max(seenMessageIds[channelId] ?? 0, messageId)
+    }
+
+    static func invalidate(channelId: Int64) {
+        seenMessageIds.removeValue(forKey: channelId)
+    }
+
+    static func apply(to channels: inout [Mezon_Api_ChannelDescription]) {
+        guard !seenMessageIds.isEmpty else { return }
+        for i in channels.indices where channels[i].countMessUnread > 0 {
+            guard let seenId = seenMessageIds[channels[i].channelID] else { continue }
+            let lastSentId = channels[i].lastSentMessage.id
+            guard lastSentId != 0, lastSentId <= seenId else { continue }
+            channels[i].countMessUnread = 0
+        }
+    }
+
+    static func reset() {
+        seenMessageIds.removeAll()
     }
 }

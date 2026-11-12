@@ -111,11 +111,18 @@ final class SetupMembersViewController: BaseViewController {
     // MARK: - Setup
 
     private func setupHeader() {
+        view.accessibilityIdentifier = AccessibilityID.RoleSettings.screen("members")
+        backButton.accessibilityIdentifier = AccessibilityID.RoleSettings.action("members", "back")
+        searchField.accessibilityIdentifier = AccessibilityID.RoleSettings.action("members", "search")
+        addMemberButton.accessibilityIdentifier = AccessibilityID.RoleSettings.action("members", "add")
+        finishButton.accessibilityIdentifier = AccessibilityID.RoleSettings.action("members", "finish")
+        skipButton.accessibilityIdentifier = AccessibilityID.RoleSettings.action("members", "skip")
+
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
 
         backButton.setImage(
-            UIImage(systemName: isEditMode ? "chevron.left" : "xmark")?
+            UIImage(named: isEditMode ? "Channel/ArrowLeft" : "Profile/CloseDMIcon")?
                 .withRenderingMode(.alwaysTemplate),
             for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
@@ -183,7 +190,7 @@ final class SetupMembersViewController: BaseViewController {
         searchContainer.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(searchContainer)
 
-        let icon = UIImageView(image: UIImage(systemName: "magnifyingglass")?.withRenderingMode(.alwaysTemplate))
+        let icon = UIImageView(image: UIImage(named: "Setting/SearchIcon")?.withRenderingMode(.alwaysTemplate))
         icon.tintColor = UIColor.theme.textDisabled
         icon.contentMode = .scaleAspectFit
         icon.translatesAutoresizingMaskIntoConstraints = false
@@ -241,13 +248,13 @@ final class SetupMembersViewController: BaseViewController {
             return
         }
 
-        let icon = UIImageView(image: UIImage(systemName: "plus.circle.fill")?.withRenderingMode(.alwaysTemplate))
+        let icon = UIImageView(image: UIImage(named: "ClanSetting/RoleAddMemberIcon")?.withRenderingMode(.alwaysTemplate))
         icon.tintColor = UIColor.theme.bgViolet
         let label = UILabel()
         label.text = L(L10n.ClanRoles.membersAdd)
         label.textColor = .mezonTextPrimary
         label.font = .systemFont(ofSize: 14.sf, weight: .medium)
-        let chevron = UIImageView(image: UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate))
+        let chevron = UIImageView(image: UIImage(named: "Channel/ChevronRight")?.withRenderingMode(.alwaysTemplate))
         chevron.tintColor = UIColor.theme.textDisabled
 
         [icon, label, chevron].forEach {
@@ -266,8 +273,8 @@ final class SetupMembersViewController: BaseViewController {
 
             chevron.trailingAnchor.constraint(equalTo: addMemberButton.trailingAnchor, constant: -14.sw),
             chevron.centerYAnchor.constraint(equalTo: addMemberButton.centerYAnchor),
-            chevron.widthAnchor.constraint(equalToConstant: 10.swh),
-            chevron.heightAnchor.constraint(equalToConstant: 14.swh)
+            chevron.widthAnchor.constraint(equalToConstant: 16.swh),
+            chevron.heightAnchor.constraint(equalToConstant: 16.swh)
         ])
     }
 
@@ -454,7 +461,7 @@ final class SetupMembersViewController: BaseViewController {
                 Toast.success(L(L10n.ClanRoles.membersAdded))
                 self.loadFromStore()
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -476,7 +483,7 @@ final class SetupMembersViewController: BaseViewController {
                 )
                 self.loadFromStore()
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -501,7 +508,7 @@ final class SetupMembersViewController: BaseViewController {
                 Toast.success(L(L10n.ClanRoles.membersAdded))
                 self.popToRolesList()
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -545,6 +552,7 @@ extension SetupMembersViewController: UITableViewDataSource, UITableViewDelegate
         } else {
             accessory = .checkbox(checked: selectedIds.contains(member.userId))
         }
+        cell.accessibilityIdentifier = AccessibilityID.RoleSettings.action("members", "member-\(member.userId)")
         cell.configure(
             name: RoleMemberDisplay.displayName(member),
             subtitle: member.username,

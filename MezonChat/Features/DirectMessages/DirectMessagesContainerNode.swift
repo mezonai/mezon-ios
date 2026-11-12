@@ -56,6 +56,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
     private let searchButton = UIButton(type: .system)
     private let createGroupButton = UIButton(type: .system)
     private let tableView: UITableView
+    private let gradientLayer = CAGradientLayer()
     private let activityStrip = DmMessageActivityStripView()
     private let activityTableHeaderWrapper = UIView()
 
@@ -134,9 +135,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
     override func didLoad() {
         super.didLoad()
 
-        let t = UIColor.theme
-        backgroundColor = t.secondary
-        view.backgroundColor = t.secondary
+        layer.insertSublayer(gradientLayer, at: 0)
         tableView.isOpaque = false
         tableView.backgroundView = nil
 
@@ -177,21 +176,16 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         titleLabel.font = .systemFont(ofSize: 18.sf, weight: .bold)
         titleLabel.textColor = UIColor.theme.textStrong
 
-        let addFriendImage = UIImage(named: "Notifications/AddFriendIcon", in: Bundle.main, compatibleWith: nil)?
-            .withRenderingMode(.alwaysOriginal)
-        if let addFriendImage {
+        if let addFriendImage = UIImage(named: "Notifications/AddFriendIcon", in: Bundle.main, compatibleWith: nil) {
             let targetSize = CGSize(width: 12.sf, height: 12.sf)
             let resized = resizedIconImage(addFriendImage, targetSize: targetSize)
             addFriendButton.setImage(resized, for: .normal)
-        } else {
-            addFriendButton.setImage(nil, for: .normal)
         }
         addFriendButton.setTitle(" \(L(L10n.DirectMessage.addFriend))", for: .normal)
         addFriendButton.titleLabel?.font = .systemFont(ofSize: 12.sf, weight: .medium)
         addFriendButton.setTitleColor(UIColor.theme.textStrong, for: .normal)
-        addFriendButton.tintColor = nil
-        addFriendButton.imageView?.tintColor = nil
-        addFriendButton.backgroundColor = UIColor.theme.primary
+        addFriendButton.tintColor = UIColor.theme.textStrong
+        addFriendButton.backgroundColor = UIColor.theme.tertiary
         addFriendButton.contentHorizontalAlignment = .center
         addFriendButton.contentVerticalAlignment = .center
         addFriendButton.contentEdgeInsets = UIEdgeInsets(top: 6.sh, left: 10.sw, bottom: 6.sh, right: 10.sw)
@@ -201,17 +195,18 @@ final class DirectMessagesContainerNode: ASDisplayNode {
 
         if #available(iOS 15.0, *) {
             var searchCfg = UIButton.Configuration.filled()
-            searchCfg.image = UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf))
+            searchCfg.image = UIImage(named: "Channel/Search").map { resizedIconImage($0, targetSize: CGSize(width: 18.sf, height: 18.sf)).withRenderingMode(.alwaysTemplate) }
             searchCfg.baseForegroundColor = UIColor.theme.textStrong
-            searchCfg.baseBackgroundColor = UIColor.theme.primary
+            searchCfg.baseBackgroundColor = UIColor.theme.tertiary
             searchCfg.cornerStyle = .capsule
             searchButton.configuration = searchCfg
         } else {
-            searchButton.setImage(UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf)), for: .normal)
+            searchButton.setImage(UIImage(named: "Channel/Search").map { resizedIconImage($0, targetSize: CGSize(width: 18.sf, height: 18.sf)).withRenderingMode(.alwaysTemplate) }, for: .normal)
             searchButton.tintColor = UIColor.theme.textStrong
-            searchButton.backgroundColor = UIColor.theme.primary
+            searchButton.backgroundColor = UIColor.theme.tertiary
             searchButton.layer.cornerRadius = 16
         }
+        searchButton.accessibilityIdentifier = AccessibilityID.DirectMessage.search
         searchButton.addTarget(self, action: #selector(searchTapped), for: .touchUpInside)
 
         createGroupButton.backgroundColor = UIColor(red: 88/255, green: 101/255, blue: 242/255, alpha: 1.0)
@@ -222,7 +217,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         createGroupButton.layer.shadowRadius = 10
         createGroupButton.layer.shadowOffset = CGSize(width: 0, height: 4)
         createGroupButton.setImage(
-            UIImage(systemName: "plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18.sf, weight: .semibold)),
+            UIImage(named: "Chat/MessageAdd")?.withRenderingMode(.alwaysTemplate),
             for: .normal
         )
         createGroupButton.accessibilityLabel = L(L10n.DirectMessage.newGroup)
@@ -266,6 +261,12 @@ final class DirectMessagesContainerNode: ASDisplayNode {
         guard let (size, safeTop, bottomInset) = validLayout else {
             return
         }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        gradientLayer.frame = CGRect(origin: .zero, size: size)
+        UIColor.theme.desktop.conversationGradient?.updateDirection(on: gradientLayer, in: isNodeLoaded ? view.window : nil)
+        CATransaction.commit()
 
         let topY = safeTop + headerTopPadding
         let sideInset: CGFloat = 18.sw
@@ -336,46 +337,33 @@ final class DirectMessagesContainerNode: ASDisplayNode {
 
     func applyTheme() {
         let t = UIColor.theme
-        backgroundColor = t.secondary
-        if isNodeLoaded {
-            view.backgroundColor = t.secondary
-        }
+        let gradient = t.desktop.conversationGradient
+        backgroundColor = gradient == nil ? t.secondary : .clear
         titleLabel.textColor = t.textStrong
 
         guard isNodeLoaded else { return }
 
-        addFriendButton.setTitleColor(UIColor.theme.textStrong, for: .normal)
-        addFriendButton.backgroundColor = UIColor.theme.primary
-        addFriendButton.tintColor = nil
-        addFriendButton.imageView?.tintColor = nil
-        let addFriendImage = UIImage(named: "Notifications/AddFriendIcon", in: Bundle.main, compatibleWith: nil)?
-            .withRenderingMode(.alwaysOriginal)
-        if let addFriendImage {
-            let targetSize = CGSize(width: 12.sf, height: 12.sf)
-            let resized = resizedIconImage(addFriendImage, targetSize: targetSize)
-            addFriendButton.setImage(resized, for: .normal)
-        } else {
-            addFriendButton.setImage(nil, for: .normal)
-        }
+        gradientLayer.isHidden = gradient == nil
+        gradient?.apply(to: gradientLayer, in: view.window)
+
+        addFriendButton.setTitleColor(t.textStrong, for: .normal)
+        addFriendButton.backgroundColor = t.tertiary
+        addFriendButton.tintColor = t.textStrong
 
         if #available(iOS 15.0, *) {
             var searchCfg = UIButton.Configuration.filled()
-            searchCfg.image = UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf))
+            searchCfg.image = UIImage(named: "Channel/Search").map { resizedIconImage($0, targetSize: CGSize(width: 18.sf, height: 18.sf)).withRenderingMode(.alwaysTemplate) }
             searchCfg.baseForegroundColor = UIColor.theme.textStrong
-            searchCfg.baseBackgroundColor = UIColor.theme.primary
+            searchCfg.baseBackgroundColor = t.tertiary
             searchCfg.cornerStyle = .capsule
             searchButton.configuration = searchCfg
         } else {
             searchButton.tintColor = UIColor.theme.textStrong
-            searchButton.backgroundColor = UIColor.theme.primary
+            searchButton.backgroundColor = t.tertiary
         }
 
         createGroupButton.backgroundColor = UIColor(red: 88/255, green: 101/255, blue: 242/255, alpha: 1.0)
         createGroupButton.tintColor = .white
-        createGroupButton.setImage(
-            UIImage(systemName: "plus", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18.sf, weight: .semibold)),
-            for: .normal
-        )
         createGroupButton.accessibilityLabel = L(L10n.DirectMessage.newGroup)
 
         tableView.reloadData()
@@ -506,13 +494,18 @@ final class DirectMessagesContainerNode: ASDisplayNode {
                   let cell = tableView.cellForRow(at: indexPath) as? DmListItemCell else {
                 continue
             }
-            cell.configure(
-                channel: channel,
-                resolvedAvatarURL: state.resolvedAvatarURLByChannelId[channel.channelID],
-                voiceActivity: peerVoiceActivity(channel),
-                hasBuzz: buzz.state.hasBuzz(channelId: channel.channelID)
-            )
+            configure(cell, for: channel, at: indexPath)
         }
+    }
+
+    private func configure(_ cell: DmListItemCell, for channel: Mezon_Api_ChannelDescription, at indexPath: IndexPath) {
+        cell.configure(
+            channel: channel,
+            showsSeparator: indexPath.row + 1 < sections[indexPath.section].channels.count,
+            resolvedAvatarURL: state.resolvedAvatarURLByChannelId[channel.channelID],
+            voiceActivity: peerVoiceActivity(channel),
+            hasBuzz: buzz.state.hasBuzz(channelId: channel.channelID)
+        )
     }
 
     private func peerVoiceActivity(_ channel: Mezon_Api_ChannelDescription) -> DmVoiceActivity? {
@@ -526,11 +519,9 @@ final class DirectMessagesContainerNode: ASDisplayNode {
 private extension DirectMessagesContainerNode {
     func resizedIconImage(_ image: UIImage, targetSize: CGSize) -> UIImage {
         let renderer = UIGraphicsImageRenderer(size: targetSize)
-        let rendered = renderer.image { _ in
+        return renderer.image { _ in
             image.draw(in: CGRect(origin: .zero, size: targetSize))
-        }
-
-        return rendered.withRenderingMode(.alwaysOriginal)
+        }.withRenderingMode(.alwaysTemplate)
     }
 }
 
@@ -573,12 +564,7 @@ extension DirectMessagesContainerNode: UITableViewDataSource, UITableViewDelegat
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: DmListItemCell.reuseId, for: indexPath) as! DmListItemCell
         let channel = sections[indexPath.section].channels[indexPath.row]
-        cell.configure(
-            channel: channel,
-            resolvedAvatarURL: state.resolvedAvatarURLByChannelId[channel.channelID],
-            voiceActivity: peerVoiceActivity(channel),
-            hasBuzz: buzz.state.hasBuzz(channelId: channel.channelID)
-        )
+        configure(cell, for: channel, at: indexPath)
         return cell
     }
 

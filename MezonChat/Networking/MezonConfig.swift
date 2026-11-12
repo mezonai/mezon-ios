@@ -87,7 +87,7 @@ enum MezonConfig {
            let url = URL(string: emoji.displayImageURLString) {
             return url
         }
-        let path = "\(env.cloudflareCdnURL)/emojis/\(emojiId).webp"
+        let path = "\(mezonCdnURL)/emojis/\(emojiId).webp"
         return URL(string: path)
     }
 

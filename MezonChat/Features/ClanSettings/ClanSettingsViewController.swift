@@ -248,7 +248,7 @@ final class ClanSettingsViewController: BaseViewController {
                     Toast.success(L(L10n.ClanSetting.Overview.saveSuccess))
                 }
             } catch {
-                await MainActor.run { Toast.error(error.localizedDescription) }
+                await MainActor.run { Toast.error(error.userMessage) }
             }
         }
     }
@@ -339,7 +339,7 @@ extension ClanSettingsViewController {
                     Toast.success(L(L10n.ClanSetting.Overview.saveSuccess))
                 }
             } catch {
-                await MainActor.run { Toast.error(error.localizedDescription) }
+                await MainActor.run { Toast.error(error.userMessage) }
             }
         }
     }

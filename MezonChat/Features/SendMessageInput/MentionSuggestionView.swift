@@ -164,6 +164,7 @@ private final class MentionSuggestionCell: UITableViewCell {
         backgroundColor = t.secondary
         contentView.backgroundColor = t.secondary
         cancelAvatarLoad()
+        accessibilityIdentifier = nil
         avatarImageView.isHidden = false
         avatarImageView.image = nil
         avatarImageView.tintColor = nil
@@ -192,7 +193,8 @@ private final class MentionSuggestionCell: UITableViewCell {
                 showUserPlaceholder()
             }
 
-        case .role(_, let title, let colorHex, let iconURL):
+        case .role(let id, let title, let colorHex, let iconURL):
+            accessibilityIdentifier = AccessibilityID.Chat.roleSuggestion(id)
             nameLabel.textColor = UIColor(hexString: colorHex) ?? t.textRoleLink
             usernameLabel.textColor = t.textDisabled
             usernameLabel.text = ""
@@ -230,7 +232,8 @@ private final class MentionSuggestionCell: UITableViewCell {
     private func showRolePlaceholder(accent: UIColor) {
         avatarImageView.backgroundColor = .clear
         avatarImageView.contentMode = .scaleAspectFit
-        avatarImageView.image = UIImage(systemName: "shield.fill")?.withRenderingMode(.alwaysTemplate)
+        avatarImageView.layer.cornerRadius = 0
+        avatarImageView.image = UIImage(named: "ClanSetting/RolesIcon")?.withRenderingMode(.alwaysTemplate)
         avatarImageView.tintColor = accent
     }
 
@@ -267,6 +270,7 @@ private final class MentionSuggestionCell: UITableViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        accessibilityIdentifier = nil
         cancelAvatarLoad()
         avatarImageView.image = nil
         avatarImageView.tintColor = nil

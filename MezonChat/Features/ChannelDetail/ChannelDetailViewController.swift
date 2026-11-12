@@ -6,6 +6,7 @@ final class ChannelDetailViewController: ViewController {
     private let context: AccountContext
     private let clanId: Int64
     private var channel: Mezon_Api_ChannelDescription
+    private let initialTab: ChannelDetailContainerNode.AssetTab?
 
     private var detailNode: ChannelDetailContainerNode { displayNode as! ChannelDetailContainerNode }
 
@@ -18,10 +19,14 @@ final class ChannelDetailViewController: ViewController {
         return context.engine.clanData.resolvedListChannelUsersType(channelId: channel.channelID)
     }
 
-    init(context: AccountContext, clanId: Int64, channel: Mezon_Api_ChannelDescription) {
+    init(
+        context: AccountContext, clanId: Int64, channel: Mezon_Api_ChannelDescription,
+        initialTab: ChannelDetailContainerNode.AssetTab? = nil
+    ) {
         self.context = context
         self.clanId = clanId
         self.channel = channel
+        self.initialTab = initialTab
         super.init(navigationBarPresentationData: nil)
     }
 
@@ -32,6 +37,7 @@ final class ChannelDetailViewController: ViewController {
             context: context,
             clanId: clanId,
             channel: channel,
+            initialTab: initialTab,
             onClose: { [weak self] in
                 self?.navigationController?.popViewController(animated: true)
             },
@@ -49,6 +55,9 @@ final class ChannelDetailViewController: ViewController {
             },
             onGroupOptionsTapped: { [weak self] in
                 self?.showGroupDMOptions()
+            },
+            onCustomizeGroupTapped: { [weak self] in
+                self?.presentCustomizeGroup()
             }
         )
     }
@@ -981,7 +990,7 @@ private final class GroupDMCustomizeViewController: UIViewController, UITextFiel
     private func handlePickedImage(_ selection: PublicImageSelection) {
         guard let data = selection.preservedData ?? selection.image.jpegData(compressionQuality: 0.85) else { return }
         if data.count > Self.maxAvatarBytes {
-            Toast.error("File size exceeds 10MB limit")
+            Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge10MB))
             return
         }
         selectedImage = selection.image
@@ -1038,7 +1047,7 @@ enum ChannelMuteHelper {
                     userInfo: ["channelId": channelId, "record": record]
                 )
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }

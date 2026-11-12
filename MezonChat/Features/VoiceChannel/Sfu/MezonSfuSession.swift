@@ -462,6 +462,7 @@ final class MezonSfuSession: NSObject {
     private(set) var isConnected = false
     private(set) var isNetworkWeak = false
     private var networkQuality = SfuNetworkQuality()
+    private var cameraUplinkQuality = SfuCameraUplinkQuality()
     private(set) var micEnabled = false
     private var pendingJoinMicEnabled = false
     private(set) var isAudioSending = false
@@ -611,6 +612,8 @@ final class MezonSfuSession: NSObject {
     private var memberByPeerId: [String: MemberState] = [:]
     private var remote: [String: RemoteEntry] = [:]
     private var cameraTierIndex = 0
+    private var cameraCountTierIndex = 0
+    private var cameraTierLowered = false
     private var cameraTierTask: Task<Void, Never>?
     private var remoteOrder: [String] = []
 
@@ -1185,6 +1188,7 @@ final class MezonSfuSession: NSObject {
         pttActive = false
         isConnected = false
         networkQuality = SfuNetworkQuality()
+        cameraUplinkQuality = SfuCameraUplinkQuality()
         setNetworkWeak(false)
         if hadConnection || audioRecoveryOwnsActivation {
             disableAudioIfIdle()
@@ -2121,20 +2125,29 @@ final class MezonSfuSession: NSObject {
         guard isConnected, joined, pc.connectionState == .connected else { return }
         requestMissingScreenKeyframes()
         let gen = connectionGen
+        let cameraMid = Self.midCamera
         Self.requestStatistics(pc) { [weak self] report in
             let flow = Self.audioFlow(in: report)
             let lossSamples = SfuNetworkQuality.lossSamples(in: report)
+            let cameraUplink = SfuCameraUplinkQuality.sample(in: report, mid: cameraMid)
             Task { @MainActor [weak self] in
                 guard let self, self.active, self.connectionGen == gen else { return }
                 self.evaluatePlayout(flow, gen: gen)
-                self.updateNetworkQuality(lossSamples)
+                self.updateNetworkQuality(lossSamples, cameraUplink: cameraUplink)
             }
         }
     }
 
-    private func updateNetworkQuality(_ samples: [SfuLossSample]) {
+    private func updateNetworkQuality(_ samples: [SfuLossSample], cameraUplink: SfuCameraUplinkSample?) {
         guard connectionState == .connected else { return }
-        setNetworkWeak(networkQuality.update(samples))
+        let weak = networkQuality.update(samples)
+        setNetworkWeak(weak)
+        let tier = cameraTiers.indices.contains(cameraTierIndex) ? cameraTiers[cameraTierIndex] : cameraTiers[0]
+        let uplinkLimited = cameraUplinkQuality.update(cameraUplink, maxBitrateBps: tier.maxBitrateBps)
+        let lowered = weak || uplinkLimited
+        guard lowered != cameraTierLowered else { return }
+        cameraTierLowered = lowered
+        scheduleCameraTier()
     }
 
     private func setNetworkWeak(_ isWeak: Bool) {
@@ -3050,13 +3063,20 @@ final class MezonSfuSession: NSObject {
     }
 
     private func scheduleCameraTier() {
-        let next = resolveCameraTier(activeCameraCount(), current: cameraTierIndex)
-        guard next != cameraTierIndex else { return }
+        let countTier = resolveCameraTier(activeCameraCount(), current: cameraCountTierIndex)
+        let next = cameraTierLowered ? min(countTier + 1, cameraTiers.count - 1) : countTier
+        guard next != cameraTierIndex else {
+            cameraCountTierIndex = countTier
+            cameraTierTask?.cancel()
+            cameraTierTask = nil
+            return
+        }
         let delayNanos: UInt64 = next > cameraTierIndex ? 1_500_000_000 : 6_000_000_000
         cameraTierTask?.cancel()
         cameraTierTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: delayNanos)
             guard let self, !Task.isCancelled else { return }
+            self.cameraCountTierIndex = countTier
             self.cameraTierIndex = next
             self.findTransceiver(mid: Self.midCamera, kind: "video")?.sender.applyCameraTier(next)
         }
@@ -3433,6 +3453,7 @@ final class MezonSfuSession: NSObject {
         if state != .connected {
             stopAudioSendProbe()
             networkQuality = SfuNetworkQuality()
+            cameraUplinkQuality = SfuCameraUplinkQuality()
             setNetworkWeak(false)
         }
         updatePttFeedback()

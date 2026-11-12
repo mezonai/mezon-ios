@@ -51,12 +51,14 @@ final class MessageSystemNode: ASDisplayNode {
             bodyFont: .systemFont(ofSize: 13.sf),
             bodyColor: t.text,
             mentionFont: .systemFont(ofSize: 13.sf, weight: .semibold),
-            mentionColor: t.textLink,
-            mentionBgColor: t.midnightBlue,
-            roleMentionColor: t.textRoleLink,
-            roleMentionBgColor: t.darkMossGreen,
-            linkColor: t.textLink,
-            codeBgColor: t.tertiary,
+            mentionColor: t.desktop[.mentionColor],
+            mentionBgColor: t.desktop[.mentionPrimary],
+            roleMentionColor: t.desktop[.colorMentionEvryone],
+            roleMentionBgColor: t.desktop[.bgMentionEvryone],
+            linkColor: t.desktop[.mentionColor],
+            inlineCodeColor: t.desktop[.textSecondary],
+            inlineCodeBgColor: t.desktop[.bgActiveMemberChannel],
+            codeBlockBgColor: t.desktop[.bgMarkdownCode],
             codeFont: UIFont(name: "Menlo", size: 12.sf) ?? .monospacedSystemFont(ofSize: 12.sf, weight: .regular),
             boldFont: .systemFont(ofSize: 13.sf, weight: .bold),
             headingFonts: [],
@@ -97,6 +99,12 @@ final class MessageSystemNode: ASDisplayNode {
 
         textNode.maximumNumberOfLines = 0
         textNode.isUserInteractionEnabled = false
+        textNode.linkAttributeNames = [
+            NSAttributedString.Key.mezonSystemAction.rawValue,
+            NSAttributedString.Key.mezonMention.rawValue,
+            NSAttributedString.Key.mezonLink.rawValue,
+            NSAttributedString.Key.mezonHashtag.rawValue,
+        ]
 
         if inlineTimeInText {
             timeNode.attributedText = nil
@@ -196,26 +204,20 @@ final class MessageSystemNode: ASDisplayNode {
 
         let localPoint = view.convert(point, to: textNode.view)
 
-        guard let attrText = textNode.attributedText, attrText.length > 0 else { return }
+        var attributeName: NSString?
+        var range = NSRange(location: 0, length: 0)
+        guard let value = textNode.linkAttributeValue(at: localPoint, attributeName: &attributeName, range: &range),
+              let name = attributeName as String? else { return }
+        let key = NSAttributedString.Key(name)
 
-        let layoutManager = NSLayoutManager()
-        let textContainer = NSTextContainer(size: textNode.bounds.size)
-        let textStorage = NSTextStorage(attributedString: attrText)
-        textContainer.lineFragmentPadding = 0
-        layoutManager.addTextContainer(textContainer)
-        textStorage.addLayoutManager(layoutManager)
-
-        let charIndex = layoutManager.characterIndex(
-            for: localPoint, in: textContainer,
-            fractionOfDistanceBetweenInsertionPoints: nil
-        )
-        guard charIndex < attrText.length else { return }
-        let attrs = attrText.attributes(at: charIndex, effectiveRange: nil)
-
-        if let action = attrs[.mezonSystemAction] as? NSString {
+        if key == .mezonSystemAction, let action = value as? NSString {
             let s = "\(action)"
             if s == "pin" {
                 interaction.onSystemPinMessageTapped(display)
+                return
+            }
+            if s == "pins" {
+                interaction.onSystemAllPinnedTapped()
                 return
             }
             if s == "threads" {
@@ -231,11 +233,11 @@ final class MessageSystemNode: ASDisplayNode {
             }
         }
 
-        if let userId = attrs[.mezonMention] as? NSString {
+        if key == .mezonMention, let userId = value as? NSString {
             interaction.onMentionTapped("\(userId)")
-        } else if let link = attrs[.mezonLink] as? NSString, let url = URL(string: "\(link)") {
+        } else if key == .mezonLink, let link = value as? NSString, let url = URL(string: "\(link)") {
             UIApplication.shared.open(url)
-        } else if let pay = attrs[.mezonHashtag], let info = ChannelHashtagTapInfo.parse(pay) {
+        } else if key == .mezonHashtag, let info = ChannelHashtagTapInfo.parse(value) {
             interaction.onHashtagTapped(info)
         }
     }
@@ -318,31 +320,28 @@ final class MessageSystemNode: ASDisplayNode {
 
     private func configureIcon(code: Int32, theme: ThemeAttributes) {
         let mc = MezonConstants.MessageCode(rawValue: code)
-        let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
 
         let iconColor: UIColor
         let iconImage: UIImage?
 
         switch mc {
         case .welcome:
-            iconImage = UIImage(named: "AuditLog")?.withRenderingMode(.alwaysTemplate)
-                ?? UIImage(systemName: "arrow.forward", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold))
+            iconImage = UIImage(named: "Chat/SystemWelcomeIcon")
             iconColor = theme.textSuccess
         case .createThread, .deleteThread:
-            iconImage = UIImage(named: "Channel/channelThread")
-                ?? UIImage(systemName: "text.bubble.fill", withConfiguration: config)
+            iconImage = UIImage(named: "ChannelSetting/ThreadIcon")
             iconColor = theme.text
         case .createPin:
-            iconImage = UIImage(systemName: "pin.fill", withConfiguration: config)
+            iconImage = UIImage(named: "Chat/DmPinIcon")
             iconColor = theme.text
         case .auditLog:
-            iconImage = UIImage(systemName: "doc.text.magnifyingglass", withConfiguration: config)
+            iconImage = UIImage(named: "ClanSetting/AuditLog")
             iconColor = theme.text
         case .upcomingEvent:
-            iconImage = UIImage(systemName: "calendar", withConfiguration: config)
+            iconImage = UIImage(named: "Chat/SystemEventIcon")
             iconColor = theme.text
         default:
-            iconImage = UIImage(systemName: "info.circle.fill", withConfiguration: config)
+            iconImage = UIImage(named: "ClanSetting/Overview")
             iconColor = theme.text
         }
 
@@ -391,11 +390,20 @@ final class MessageSystemNode: ASDisplayNode {
     ) -> NSAttributedString {
         let mc = MezonConstants.MessageCode(rawValue: display.messageCode)
         let haystack = base.string
-        let linkColor = theme.textLink
+        let linkColor = theme.desktop[.mentionColor]
         let tapFont = UIFont.systemFont(ofSize: 13.sf, weight: .semibold)
 
         switch mc {
         case .createPin:
+            for phrase in allPinnedAnchorPhrases() {
+                for r in nsRanges(of: phrase, in: haystack, caseInsensitive: true) {
+                    base.addAttributes([
+                        .foregroundColor: linkColor,
+                        .font: tapFont,
+                        .mezonSystemAction: "pins" as NSString,
+                    ], range: r)
+                }
+            }
             guard let ref = display.replyRef, ref.messageRefID != 0 else { break }
             for phrase in pinAnchorPhrases() {
                 for r in nsRanges(of: phrase, in: haystack, caseInsensitive: true) {
@@ -482,7 +490,7 @@ final class MessageSystemNode: ASDisplayNode {
                     string: threadInfo.label,
                     attributes: [
                         .font: style.mentionFont,
-                        .foregroundColor: theme.textLink,
+                        .foregroundColor: style.linkColor,
                         .mezonSystemAction: ("thread:" + threadInfo.id) as NSString,
                     ]
                 ))
@@ -501,7 +509,7 @@ final class MessageSystemNode: ASDisplayNode {
                 string: L(L10n.ChatSystem.allThreadsAnchor),
                 attributes: [
                     .font: style.mentionFont,
-                    .foregroundColor: theme.textLink,
+                    .foregroundColor: style.linkColor,
                     .mezonSystemAction: "threads" as NSString,
                 ]
             ))
@@ -618,6 +626,10 @@ final class MessageSystemNode: ASDisplayNode {
 
     private static func pinAnchorPhrases() -> [String] {
         uniqueLongestFirst([L(L10n.ChatSystem.pinMessageAnchor), "a message", "một tin nhắn"])
+    }
+
+    private static func allPinnedAnchorPhrases() -> [String] {
+        uniqueLongestFirst([L(L10n.ChatSystem.allPinnedAnchor), "all pinned", "tất cả tin nhắn"])
     }
 
     private static func allThreadsAnchorPhrases() -> [String] {

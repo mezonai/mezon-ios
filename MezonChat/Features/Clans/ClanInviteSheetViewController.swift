@@ -6,7 +6,7 @@ import UIKit
 private final class ClanInviteSearchWrapNode: ASDisplayNode {
     let textField = UITextField()
     let clearButton = UIButton(type: .system)
-    private let iconView = UIImageView(image: UIImage(systemName: "magnifyingglass"))
+    private let iconView = UIImageView(image: UIImage(named: "Setting/SearchIcon")?.withRenderingMode(.alwaysTemplate))
 
     override init() {
         super.init()
@@ -20,6 +20,7 @@ private final class ClanInviteSearchWrapNode: ASDisplayNode {
         iconView.tintColor = UIColor.theme.textDisabled
         view.addSubview(iconView)
 
+        textField.accessibilityIdentifier = AccessibilityID.Search.input("clan-invite")
         textField.placeholder = L(L10n.ClanInviteSheet.searchPlaceholder)
         textField.borderStyle = .none
         textField.font = .systemFont(ofSize: 15.sf, weight: .regular)
@@ -93,14 +94,9 @@ private final class ClanInviteActionButtonNode: ASDisplayNode {
         iconWrapNode.cornerRadius = 20.swh
         iconWrapNode.clipsToBounds = true
 
-        if !iconAsset.isEmpty, let assetImage = UIImage(named: iconAsset) {
-            iconNode.image = assetImage.withRenderingMode(.alwaysOriginal)
-            iconNode.tintColor = .clear
-        } else {
-            let symbol = UIImage(systemName: fallbackSystemIcon)?.withRenderingMode(.alwaysTemplate)
-            iconNode.image = symbol
-            iconNode.tintColor = UIColor.theme.textStrong
-        }
+        iconNode.image = (UIImage(named: iconAsset) ?? UIImage(systemName: fallbackSystemIcon))?
+            .withRenderingMode(.alwaysTemplate)
+        iconNode.tintColor = .mezonIconDefault
         iconNode.contentMode = .scaleAspectFit
 
         let para = NSMutableParagraphStyle()
@@ -125,6 +121,11 @@ private final class ClanInviteActionButtonNode: ASDisplayNode {
     }
 
     @objc private func handleTap() { onTap?() }
+
+    func applyTheme() {
+        iconWrapNode.backgroundColor = UIColor.theme.secondary
+        iconNode.tintColor = .mezonIconDefault
+    }
 
     func setEnabled(_ enabled: Bool) {
         isUserInteractionEnabled = enabled
@@ -204,6 +205,7 @@ private final class ClanInviteQRCodeViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        view.accessibilityIdentifier = AccessibilityID.QRCode.clanScreen
         configureSheet()
         buildViewHierarchy()
         configureContent()
@@ -313,16 +315,17 @@ private final class ClanInviteQRCodeViewController: UIViewController {
         poweredByLabel.translatesAutoresizingMaskIntoConstraints = false
         cardView.addSubview(poweredByLabel)
 
-        let saveButton = UIButton(type: .system)
+        let saveButton = UIButton(type: .system).identified(by: AccessibilityID.QRCode.clanDownload)
+        shareButton.accessibilityIdentifier = AccessibilityID.QRCode.clanShare
         configureActionButton(
             saveButton,
-            systemImage: "square.and.arrow.down",
+            assetName: "Invite/DownloadIcon",
             accessibilityLabel: L(L10n.ClanInviteSheet.saveQR),
             selector: #selector(saveQR)
         )
         configureActionButton(
             shareButton,
-            systemImage: "square.and.arrow.up",
+            assetName: "Invite/ShareIcon",
             accessibilityLabel: L(L10n.ClanInviteSheet.shareQR),
             selector: #selector(shareQR)
         )
@@ -481,12 +484,11 @@ private final class ClanInviteQRCodeViewController: UIViewController {
 
     private func configureActionButton(
         _ button: UIButton,
-        systemImage: String,
+        assetName: String,
         accessibilityLabel: String,
         selector: Selector
     ) {
-        let configuration = UIImage.SymbolConfiguration(pointSize: 18.sf, weight: .medium)
-        button.setImage(UIImage(systemName: systemImage, withConfiguration: configuration), for: .normal)
+        button.setImage(UIImage(named: assetName)?.withRenderingMode(.alwaysTemplate), for: .normal)
         button.tintColor = UIColor.theme.textStrong
         button.backgroundColor = UIColor.theme.secondary
         button.layer.cornerRadius = 12.swh
@@ -526,12 +528,12 @@ private final class ClanInviteQRCodeViewController: UIViewController {
             case .authorized:
                 PHPhotoLibrary.shared().performChanges({
                     PHAssetChangeRequest.creationRequestForAsset(from: image)
-                }, completionHandler: { success, error in
+                }, completionHandler: { success, _ in
                     DispatchQueue.main.async {
                         if success {
                             Toast.success(L(L10n.ClanInviteSheet.qrSaved))
                         } else {
-                            Toast.error(error?.localizedDescription ?? L(L10n.ClanInviteSheet.qrSaveFailed))
+                            Toast.error(L(L10n.ClanInviteSheet.qrSaveFailed))
                         }
                     }
                 })
@@ -1118,7 +1120,7 @@ private final class ClanInviteSheetContainerNode: ASDisplayNode {
             title: isChannelInvite ? L(L10n.Common.share) : L(L10n.ClanInviteSheet.share)
         )
         copyButton = ClanInviteActionButtonNode(
-            iconAsset: "ClanSetting/Invite",
+            iconAsset: "Invite/CopyLink",
             fallbackSystemIcon: "link",
             title: L(L10n.ClanInviteSheet.copy)
         )
@@ -1226,6 +1228,9 @@ private final class ClanInviteSheetContainerNode: ASDisplayNode {
         inviteLinkContainerNode.backgroundColor = UIColor.theme.secondary
         updateInviteLinkText(inviteLinkNode.attributedText?.string)
         searchWrapNode.applyTheme()
+        shareButton.applyTheme()
+        copyButton.applyTheme()
+        qrButton.applyTheme()
         loadingSpinner.color = UIColor.theme.textDisabled
         loadingLabel.textColor = UIColor.theme.textDisabled
         listContainerNode.backgroundColor = UIColor.theme.secondary

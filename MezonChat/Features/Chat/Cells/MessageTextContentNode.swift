@@ -26,6 +26,33 @@ final class MessageTextContentNode: ASDisplayNode {
 
     private var cachedTextSize: CGSize = .zero
 
+    func updateAccessibility(messageID: String, sendingState: SendingState) {
+        // Use one rendered text element per message, including when the body has multiple segments.
+        guard let contentNode = textNode ?? emojiLabelNode ?? segmentNodes.first?.node else { return }
+        let identifier = AccessibilityID.Chat.messageText(messageID)
+        let testValue: String?
+        if UITestLaunch.exposesChatMetadata {
+            switch sendingState {
+            case .pending: testValue = "pending"
+            case .sent: testValue = "sent"
+            case .failed: testValue = "failed"
+            }
+        } else {
+            testValue = nil
+        }
+
+        if let textNode = contentNode as? ASTextNode2 {
+            textNode.accessibilityIdentifier = identifier
+            if let testValue { textNode.accessibilityValue = testValue }
+        } else if let codeBlock = contentNode as? CodeBlockContainerNode {
+            codeBlock.codeTextNode.accessibilityIdentifier = identifier
+            if let testValue { codeBlock.codeTextNode.accessibilityValue = testValue }
+        } else if let emojiView = contentNode.view as? EmojiTextView {
+            emojiView.textView.accessibilityIdentifier = identifier
+            if let testValue { emojiView.textView.accessibilityValue = testValue }
+        }
+    }
+
     override init() {
         super.init()
     }
@@ -444,7 +471,7 @@ extension MessageTextContentNode: ASTextNodeDelegate {
 final class CodeBlockContainerNode: ASDisplayNode {
 
     private let backgroundNode = ASDisplayNode()
-    private let codeTextNode = ASTextNode2()
+    fileprivate let codeTextNode = ASTextNode2()
     private var cachedSize: CGSize = .zero
 
     private static let padding: CGFloat = 10
@@ -454,7 +481,9 @@ final class CodeBlockContainerNode: ASDisplayNode {
         super.init()
 
         let t = UIColor.theme
-        backgroundNode.backgroundColor = t.tertiary
+        backgroundNode.backgroundColor = t.desktop[.bgMarkdownCode]
+        backgroundNode.borderWidth = 1
+        backgroundNode.borderColor = t.borderPrimary.cgColor
         backgroundNode.cornerRadius = Self.cornerRadius
         backgroundNode.clipsToBounds = true
 
@@ -465,7 +494,7 @@ final class CodeBlockContainerNode: ASDisplayNode {
             string: code,
             attributes: [
                 .font: bodyFont,
-                .foregroundColor: t.textStrong,
+                .foregroundColor: t.textThemeMessage,
                 .paragraphStyle: codePara,
             ]
         )
@@ -498,7 +527,12 @@ final class EmojiTextView: UIView {
 
 
     let textView: UITextView = {
-        let tv = UITextView()
+        let tv: UITextView
+        if #available(iOS 16.0, *) {
+            tv = UITextView(usingTextLayoutManager: false)
+        } else {
+            tv = UITextView()
+        }
         tv.isEditable = false
         tv.isScrollEnabled = false
         tv.backgroundColor = .clear
