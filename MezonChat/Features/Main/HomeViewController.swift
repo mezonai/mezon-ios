@@ -183,7 +183,11 @@ final class HomeViewController: BaseViewController {
     }
 
     private func channelSidebarMemberCount(clanId: Int64) -> Int {
-        context.engine.clanData.getClanUsers(clanId: clanId)?.clanUsers.count ?? 0
+        let totalMembers = Int(clanListVC.clans.first(where: { $0.clanID == clanId })?.totalMembers ?? 0)
+        if totalMembers > 0 {
+            return totalMembers
+        }
+        return context.engine.clanData.getClanUsers(clanId: clanId)?.clanUsers.count ?? 0
     }
 
     private func applyInitialClanSelection() {
