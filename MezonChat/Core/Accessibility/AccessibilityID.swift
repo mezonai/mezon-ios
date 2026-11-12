@@ -77,6 +77,14 @@ enum AccessibilityID {
     enum ClanSettings {
         static let screen = makeAccessibilityID("clan.settings.screen")
 
+        enum SoundPreview {
+            static let screen = makeAccessibilityID("clan.settings.sound.preview.screen")
+            static let scroll = makeAccessibilityID("clan.settings.sound.preview.scroll")
+            static let name = makeAccessibilityID("clan.settings.sound.preview.name")
+            static let cancel = makeAccessibilityID("clan.settings.sound.preview.cancel")
+            static let upload = makeAccessibilityID("clan.settings.sound.preview.upload")
+        }
+
         static func action(_ action: String) -> String {
             makeAccessibilityID("clan.settings.action", id: action)
         }

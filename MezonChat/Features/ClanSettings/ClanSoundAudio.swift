@@ -54,6 +54,7 @@ enum ClanSoundAudio {
               let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount),
               let outputFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 44100, channels: 1, interleaved: false),
               let converter = AVAudioConverter(from: format, to: outputFormat) else { throw Failure.invalidFile }
+        converter.downmix = true
         input.framePosition = firstFrame
         try input.read(into: buffer, frameCount: frameCount)
         let outputCapacity = AVAudioFrameCount(ceil(Double(buffer.frameLength) * 44100 / format.sampleRate)) + 1024

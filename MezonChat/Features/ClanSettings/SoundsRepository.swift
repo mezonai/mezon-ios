@@ -16,7 +16,7 @@ final class SoundsRepository {
 
     func refresh() async throws {
         let token = try await requireToken()
-        try await context.engine.refreshStickerListFromNetwork(token: token, allowEmpty: true)
+        try await context.engine.refreshStickerListFromNetwork(token: token)
     }
 
     func create(clanId: Int64, data: Data, fileExtension: String, name: String) async throws {

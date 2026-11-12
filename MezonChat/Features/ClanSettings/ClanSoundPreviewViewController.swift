@@ -6,6 +6,7 @@ final class ClanSoundPreviewViewController: UIViewController, AVAudioPlayerDeleg
 
     private let source: ClanSoundAudio.Source
     private let player: AVAudioPlayer
+    private let scroll = UIScrollView()
     private let nameField = UITextField()
     private let waveformView: ClanSoundWaveformView
     private let volumeSlider = UISlider()
@@ -16,6 +17,7 @@ final class ClanSoundPreviewViewController: UIViewController, AVAudioPlayerDeleg
     private let saveButton = UIButton(type: .system)
     private let cancelButton = UIButton(type: .system)
     private var timer: Foundation.Timer?
+    private var stopTimer: Foundation.Timer?
     private var waveformTask: Task<Void, Never>?
     private var submitting = false
 
@@ -35,7 +37,9 @@ final class ClanSoundPreviewViewController: UIViewController, AVAudioPlayerDeleg
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     deinit {
+        NotificationCenter.default.removeObserver(self)
         timer?.invalidate()
+        stopTimer?.invalidate()
         waveformTask?.cancel()
         player.stop()
         try? FileManager.default.removeItem(at: source.url)
@@ -44,7 +48,12 @@ final class ClanSoundPreviewViewController: UIViewController, AVAudioPlayerDeleg
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = UIColor.theme.primary
-        let scroll = UIScrollView()
+        view.accessibilityIdentifier = AccessibilityID.ClanSettings.SoundPreview.screen
+        scroll.accessibilityIdentifier = AccessibilityID.ClanSettings.SoundPreview.scroll
+        scroll.keyboardDismissMode = .interactive
+        for name in [UIResponder.keyboardWillChangeFrameNotification, UIResponder.keyboardWillHideNotification] {
+            NotificationCenter.default.addObserver(self, selector: #selector(keyboardFrameChanged(_:)), name: name, object: nil)
+        }
         let stack = UIStackView()
         stack.axis = .vertical
         stack.spacing = 16.sh
@@ -129,7 +138,10 @@ final class ClanSoundPreviewViewController: UIViewController, AVAudioPlayerDeleg
         nameField.autocapitalizationType = .none
         nameField.autocorrectionType = .no
         nameField.spellCheckingType = .no
+        nameField.delegate = self
+        nameField.returnKeyType = .done
         nameField.accessibilityLabel = L(L10n.ClanSetting.Sounds.name)
+        nameField.accessibilityIdentifier = AccessibilityID.ClanSettings.SoundPreview.name
         nameField.addTarget(self, action: #selector(updateControls), for: .editingChanged)
         stack.addArrangedSubview(nameField)
         errorLabel.font = .systemFont(ofSize: 13.sf)
@@ -139,8 +151,10 @@ final class ClanSoundPreviewViewController: UIViewController, AVAudioPlayerDeleg
         errorLabel.textColor = .systemRed
         stack.addArrangedSubview(errorLabel)
         cancelButton.setTitle(L(L10n.Common.cancel), for: .normal)
+        cancelButton.accessibilityIdentifier = AccessibilityID.ClanSettings.SoundPreview.cancel
         cancelButton.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
         saveButton.setTitle(L(L10n.ClanSetting.Sounds.upload), for: .normal)
+        saveButton.accessibilityIdentifier = AccessibilityID.ClanSettings.SoundPreview.upload
         saveButton.setTitleColor(.white, for: .normal)
         saveButton.backgroundColor = UIColor.theme.bgViolet
         saveButton.layer.cornerRadius = 22.sh
@@ -154,6 +168,27 @@ final class ClanSoundPreviewViewController: UIViewController, AVAudioPlayerDeleg
         playButton.accessibilityLabel = L(L10n.ClanSetting.Sounds.play)
         updateControls()
         loadWaveform()
+    }
+
+    @objc private func keyboardFrameChanged(_ notification: Notification) {
+        guard view.window != nil, nameField.isFirstResponder || scroll.contentInset.bottom > 0,
+              let info = notification.userInfo,
+              let frame = info[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+        let keyboardFrame = view.convert(frame, from: nil)
+        let overlap = scroll.frame.intersection(keyboardFrame)
+        let bottom = notification.name == UIResponder.keyboardWillHideNotification || overlap.isNull ? 0 : overlap.height
+        let revealName = nameField.isFirstResponder && !scroll.isDragging && bottom > scroll.contentInset.bottom
+        let duration = (info[UIResponder.keyboardAnimationDurationUserInfoKey] as? NSNumber)?.doubleValue ?? 0.25
+        let curve = (info[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber)?.uintValue ?? 0
+        UIView.animate(withDuration: duration, delay: 0,
+                       options: [UIView.AnimationOptions(rawValue: curve << 16), .beginFromCurrentState]) {
+            self.scroll.contentInset.bottom = bottom
+            self.scroll.verticalScrollIndicatorInsets.bottom = bottom
+            if revealName {
+                let rect = self.nameField.convert(self.nameField.bounds, to: self.scroll).insetBy(dx: 0, dy: -12.sh)
+                self.scroll.scrollRectToVisible(rect, animated: false)
+            }
+        }
     }
 
     private func makeLabel(_ text: String, bold: Bool = false) -> UILabel {
@@ -210,17 +245,26 @@ final class ClanSoundPreviewViewController: UIViewController, AVAudioPlayerDeleg
     }
 
     @objc private func togglePreview() {
-        if player.isPlaying { stopPreview(); return }
+        let wasPlaying = player.isPlaying
+        stopPreview()
+        guard !wasPlaying else { return }
         AppAudioSession.activateForMediaPlayback(options: [.mixWithOthers])
         player.currentTime = start
-        player.play()
+        guard player.play() else { return }
         playButton.setImage(UIImage(systemName: "pause.fill"), for: .normal)
         playButton.accessibilityLabel = L(L10n.ClanSetting.Sounds.pause)
-        timer = Foundation.Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+        let timer = Foundation.Timer(timeInterval: 0.1, repeats: true) { [weak self] _ in
             guard let self else { return }
-            if self.player.currentTime >= self.end || !self.player.isPlaying { self.stopPreview() }
+            if !self.player.isPlaying { self.stopPreview() }
             self.updateTime()
         }
+        self.timer = timer
+        RunLoop.main.add(timer, forMode: .common)
+        let stopTimer = Foundation.Timer(timeInterval: end - player.currentTime, repeats: false) { [weak self] _ in
+            self?.stopPreview()
+        }
+        self.stopTimer = stopTimer
+        RunLoop.main.add(stopTimer, forMode: .common)
     }
 
     private func updateTime() {
@@ -233,6 +277,8 @@ final class ClanSoundPreviewViewController: UIViewController, AVAudioPlayerDeleg
         player.pause()
         timer?.invalidate()
         timer = nil
+        stopTimer?.invalidate()
+        stopTimer = nil
         playButton.setImage(UIImage(systemName: "play.fill"), for: .normal)
         playButton.accessibilityLabel = L(L10n.ClanSetting.Sounds.play)
         updateTime()
@@ -276,6 +322,13 @@ final class ClanSoundPreviewViewController: UIViewController, AVAudioPlayerDeleg
                 errorLabel.text = error.localizedDescription
             }
         }
+    }
+}
+
+extension ClanSoundPreviewViewController: UITextFieldDelegate {
+    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+        textField.resignFirstResponder()
+        return true
     }
 }
 

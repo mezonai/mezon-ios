@@ -4,6 +4,7 @@ import SwiftProtobuf
 @MainActor
 final class MezonEngine {
     let account: Account
+    var stickerListEventRevision: UInt64 = 0
 
     init(account: Account) {
         self.account = account

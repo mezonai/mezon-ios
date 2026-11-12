@@ -127,8 +127,10 @@ final class SoundItemCell: UITableViewCell, ChatAudioPlaybackProgressSink {
             ? [UIAccessibilityCustomAction(name: L(L10n.Common.delete), target: self, selector: #selector(accessibilityDelete))]
             : nil
         mainContentView.backgroundColor = UIColor.theme.secondary
+        let audioChanged = self.sound?.id != sound.id || self.sound?.clanID != sound.clanID || self.sound?.source != sound.source
+        if audioChanged { stopPlayback() }
         self.sound = sound
-        loadDuration(source: sound.source, knownDuration: knownDuration)
+        if audioChanged { loadDuration(source: sound.source, knownDuration: knownDuration) }
         nameLabel.text = sound.shortname
         creatorNameLabel.text = creatorName
         nameLabel.textColor = UIColor.theme.textStrong

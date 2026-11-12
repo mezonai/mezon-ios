@@ -92,7 +92,7 @@ final class ClanSoundsViewController: BaseViewController {
         disposables.add((context.engine.clanData.clanPermissionsUpdated.signal()
             |> deliverOnMainQueue).start(next: { [weak self] id in
                 guard let self, id == self.clanId else { return }
-                self.tableView.reloadData()
+                self.updateVisibleCells()
             }))
     }
 
@@ -113,7 +113,7 @@ final class ClanSoundsViewController: BaseViewController {
                 let records = response.clanUsers.map { ClanMemberRecord(from: $0) }
                 context.account.postbox.write { $0.updateClanMembers(records, clanId: self.clanId) }
                 members = Dictionary(records.map { ($0.userId, $0) }, uniquingKeysWith: { $1 })
-                tableView.reloadData()
+                updateVisibleCells()
             } catch { /* Cached member and profile data remain available. */ }
         }
     }
@@ -139,7 +139,7 @@ final class ClanSoundsViewController: BaseViewController {
         emptyLabel.textColor = UIColor.theme.textDisabled
         tableView.backgroundColor = UIColor.theme.secondary
         tableView.separatorColor = UIColor.theme.border
-        tableView.reloadData()
+        updateVisibleCells()
     }
 
     override func containerLayoutUpdated(_ layout: ContainerViewLayout, transition: ContainedViewLayoutTransition) {
@@ -164,12 +164,53 @@ final class ClanSoundsViewController: BaseViewController {
         let records = context.account.postbox.read { $0.getClanMembers(clanId: self.clanId) }
         let updatedMembers = Dictionary(records.map { ($0.userId, $0) }, uniquingKeysWith: { $1 })
         let contentChanged = sounds != updatedSounds || members != updatedMembers
-        sounds = updatedSounds
         members = updatedMembers
-        tableView.isHidden = sounds.isEmpty
-        emptyLabel.isHidden = !sounds.isEmpty
+        tableView.isHidden = updatedSounds.isEmpty
+        emptyLabel.isHidden = !updatedSounds.isEmpty
         emptyLabel.text = L(isLoading ? L10n.ClanSetting.Sounds.loading : L10n.ClanSetting.Sounds.empty)
-        if contentChanged { tableView.reloadData() }
+        if contentChanged { updateSounds(updatedSounds) }
+    }
+
+    private func updateSounds(_ updatedSounds: [CachedClanStickerRecord]) {
+        guard !sounds.isEmpty else {
+            sounds = updatedSounds
+            tableView.reloadData()
+            return
+        }
+        let changes = updatedSounds.map(\.id).difference(from: sounds.map(\.id)).inferringMoves()
+        if changes.isEmpty {
+            sounds = updatedSounds
+        } else {
+            UIView.performWithoutAnimation {
+                self.tableView.performBatchUpdates {
+                    self.sounds = updatedSounds
+                    for change in changes {
+                        switch change {
+                        case let .remove(offset, _, destination):
+                            let indexPath = IndexPath(row: offset, section: 0)
+                            if let destination {
+                                self.tableView.moveRow(at: indexPath, to: IndexPath(row: destination, section: 0))
+                            } else {
+                                self.tableView.deleteRows(at: [indexPath], with: .none)
+                            }
+                        case let .insert(offset, _, source):
+                            if source == nil {
+                                self.tableView.insertRows(at: [IndexPath(row: offset, section: 0)], with: .none)
+                            }
+                        }
+                    }
+                }
+                self.tableView.layoutIfNeeded()
+            }
+        }
+        updateVisibleCells()
+    }
+
+    private func updateVisibleCells() {
+        for case let cell as SoundItemCell in tableView.visibleCells {
+            guard let indexPath = tableView.indexPath(for: cell) else { continue }
+            configure(cell, sound: sounds[indexPath.row])
+        }
     }
 
     private func canManage(_ sound: CachedClanStickerRecord) -> Bool {
@@ -247,7 +288,11 @@ extension ClanSoundsViewController: UITableViewDataSource, UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: SoundItemCell.reuseId, for: indexPath) as! SoundItemCell
-        let sound = sounds[indexPath.row]
+        configure(cell, sound: sounds[indexPath.row])
+        return cell
+    }
+
+    private func configure(_ cell: SoundItemCell, sound: CachedClanStickerRecord) {
         let member = members[sound.creatorID]
         let profile = context.account.postbox.read { $0.getProfile(userId: String(sound.creatorID)) }
         let name = [member?.clanNick, member?.displayName, profile?.displayName, member?.username, profile?.username]
@@ -271,7 +316,6 @@ extension ClanSoundsViewController: UITableViewDataSource, UITableViewDelegate {
         cell.onSwipeInteractionChanged = { [weak self] active in
             self?.isSwipeInteractionActive = active
         }
-        return cell
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
@@ -295,7 +339,8 @@ extension ClanSoundsViewController: UIDocumentPickerDelegate {
         Task {
             do {
                 let source = try await Task.detached(priority: .userInitiated) {
-                    try ClanSoundAudio.importFile(url)
+                    defer { try? FileManager.default.removeItem(at: url) }
+                    return try ClanSoundAudio.importFile(url)
                 }.value
                 let preview = try ClanSoundPreviewViewController(source: source)
                 preview.onUpload = { [repository, clanId] data, ext, name in
