@@ -1446,6 +1446,9 @@ final class SearchViewController: ViewController {
             canJoin: !streamUserIds.isEmpty,
             streamViewerCount: context.engine.clanData.streamViewerCount(clanId: clanIdForChannel, channelId: channel.channelID),
             streamPublisher: streamPublisher,
+            streamState: { [weak self] in
+                self?.joinStreamSheetState(clanId: clanIdForChannel, channelId: channel.channelID)
+            },
             onChat: { [weak self] in self?.pushChatFromVoiceSheet(for: channel) },
             onJoinVoice: { [weak self] _ in self?.pushStreamingRoom(for: channel) },
             onInvite: {}
@@ -1475,6 +1478,16 @@ final class SearchViewController: ViewController {
         CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
         present(sheet, animated: true)
         CATransaction.commit()
+    }
+
+    private func joinStreamSheetState(clanId: Int64, channelId: Int64) -> JoinStreamSheetState {
+        let clanData = context.engine.clanData
+        let userIds = clanData.streamMembers(clanId: clanId, channelId: channelId).map { String($0.userID) }
+        return JoinStreamSheetState(
+            canJoin: !userIds.isEmpty,
+            viewerCount: clanData.streamViewerCount(clanId: clanId, channelId: channelId),
+            publisher: userIds.first.flatMap { resolveVoiceMember(uid: $0, clanIdForChannel: clanId) }
+        )
     }
 
     private func pushStreamingRoom(for channel: Mezon_Api_ChannelDescription) {

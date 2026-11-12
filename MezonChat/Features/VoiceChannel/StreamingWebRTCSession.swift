@@ -85,6 +85,9 @@ final class StreamingWebRTCSession: NSObject {
     private var generation = 0
     private var transportGeneration = 0
     private var reconnectAttempt = 0
+    private static let sustainedPlaybackInterval: TimeInterval = 30
+    private var playbackStartUptime: TimeInterval = 0
+    private var wasStreamListed = false
     private var hasActivatedAudioSession = false
     private var hasActivatedHlsAudioSession = false
     private var fallbackURL: URL?
@@ -127,6 +130,7 @@ final class StreamingWebRTCSession: NSObject {
             activeStreamChannelId = channelId
             self.clanId = clanId
             self.context = context
+            wasStreamListed = !context.engine.clanData.streamMembers(clanId: clanId, channelId: channelId).isEmpty
             quality = defaultQuality
             preferredSpeakerOutput = true
             startPresence()
@@ -170,6 +174,7 @@ final class StreamingWebRTCSession: NSObject {
         context = nil
         clanId = 0
         reconnectAttempt = 0
+        wasStreamListed = false
         prefersVlcHls = false
         preferredSpeakerOutput = nil
         isStreaming = false
@@ -306,16 +311,20 @@ final class StreamingWebRTCSession: NSObject {
         ) { [weak self] notification in
             let updatedClanId = (notification.userInfo?["clanId"] as? NSNumber)?.int64Value
             Task { @MainActor [weak self] in
-                guard let self, updatedClanId == self.clanId,
-                      let channelId = self.activeStreamChannelId, let context = self.context,
-                      let users = context.engine.clanData.getStreamUsers(clanId: self.clanId) else { return }
-                let members = users.voiceChannelUsers.first { $0.channelID == channelId }?.userIds ?? []
-                if members.isEmpty {
+                guard let self, updatedClanId == self.clanId else { return }
+                if self.streamEndedSinceJoin() {
                     // Server events end local playback only; never echo watch/unwatch back to the server.
                     self.stopPlayback(sendUnwatch: false)
                 }
             }
         }
+    }
+
+    private func streamEndedSinceJoin() -> Bool {
+        guard let context, let channelId = activeStreamChannelId else { return false }
+        let isListed = !context.engine.clanData.streamMembers(clanId: clanId, channelId: channelId).isEmpty
+        if isListed { wasStreamListed = true }
+        return wasStreamListed && !isListed
     }
 
     private func resumePresence() {
@@ -349,6 +358,7 @@ final class StreamingWebRTCSession: NSObject {
     }
 
     private func startPlayback(_ playback: Mezon_Api_GetStreamPlaybackResponse) {
+        playbackStartUptime = ProcessInfo.processInfo.systemUptime
         closeTransport()
         isStreaming = false
         isBuffering = true
@@ -555,7 +565,7 @@ final class StreamingWebRTCSession: NSObject {
 
     private func noteMediaProgress() {
         lastMediaProgressUptime = ProcessInfo.processInfo.systemUptime
-        reconnectAttempt = 0
+        if lastMediaProgressUptime - playbackStartUptime >= Self.sustainedPlaybackInterval { reconnectAttempt = 0 }
         watchdogTask?.cancel()
         watchdogTask = nil
         watchdogDeadline = nil
@@ -645,6 +655,10 @@ final class StreamingWebRTCSession: NSObject {
 
     private func scheduleReconnect() {
         guard activeStreamChannelId != nil, reconnectTask == nil else { return }
+        if streamEndedSinceJoin() {
+            stopPlayback(sendUnwatch: false)
+            return
+        }
         closeTransport()
         isStreaming = false
         isBuffering = true

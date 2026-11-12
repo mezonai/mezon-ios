@@ -6,6 +6,12 @@ enum JoinChannelSheetKind {
     case streaming
 }
 
+struct JoinStreamSheetState: Equatable {
+    let canJoin: Bool
+    let viewerCount: Int?
+    let publisher: VoiceMemberDisplay?
+}
+
 final class JoinVoiceChannelSheetViewController: UIViewController {
 
     static let sheetTransitionDuration: CFTimeInterval = 0.22
@@ -31,9 +37,11 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
     private let chatUnreadCount: Int
     private let members: [VoiceMemberDisplay]
     private let kind: JoinChannelSheetKind
-    private let canJoin: Bool
-    private let streamViewerCount: Int?
-    private let streamPublisher: VoiceMemberDisplay?
+    private var canJoin: Bool
+    private var streamViewerCount: Int?
+    private var streamPublisher: VoiceMemberDisplay?
+    private let streamState: (() -> JoinStreamSheetState?)?
+    private var presenceObserver: NSObjectProtocol?
     private let onChat: () -> Void
     private let onJoinVoice: (SfuRole) -> Void
     private let onInvite: () -> Void
@@ -73,6 +81,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         canJoin: Bool = true,
         streamViewerCount: Int? = nil,
         streamPublisher: VoiceMemberDisplay? = nil,
+        streamState: (() -> JoinStreamSheetState?)? = nil,
         onChat: @escaping () -> Void,
         onJoinVoice: @escaping (SfuRole) -> Void,
         onInvite: @escaping () -> Void = {}
@@ -84,6 +93,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         self.canJoin = canJoin
         self.streamViewerCount = streamViewerCount
         self.streamPublisher = streamPublisher
+        self.streamState = streamState
         self.onChat = onChat
         self.onJoinVoice = onJoinVoice
         self.onInvite = onInvite
@@ -170,21 +180,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         voiceTitleLabel.textColor = UIColor.theme.textStrong
         voiceTitleLabel.textAlignment = .center
         voiceTitleLabel.isUserInteractionEnabled = false
-        voiceTitleLabel.text = kind == .streaming
-            ? NSLocalizedString(
-                "streamingRoom.joinSheet.stream", tableName: nil, bundle: .main, value: "Stream", comment: "")
-            : NSLocalizedString(
-                "voiceChannel.joinSheet.voiceRoom", tableName: nil, bundle: .main, value: "Voice Room", comment: "")
-
-        if let publisher = streamPublisher {
-            let title = NSMutableAttributedString(string: publisher.name + "  ", attributes: [
-                .font: UIFont.systemFont(ofSize: 20, weight: .semibold),
-            ])
-            title.append(NSAttributedString(string: "LIVE", attributes: [
-                .font: UIFont.systemFont(ofSize: 12, weight: .bold), .foregroundColor: UIColor.systemRed,
-            ]))
-            voiceTitleLabel.attributedText = title
-        }
+        updateVoiceTitle()
 
         statusLabel.font = .systemFont(ofSize: 16, weight: .regular)
         statusLabel.textColor = UIColor.theme.textNormal
@@ -193,28 +189,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         statusLabel.lineBreakMode = .byTruncatingTail
         statusLabel.isUserInteractionEnabled = false
         statusLabel.setContentCompressionResistancePriority(.required, for: .vertical)
-        let hasActiveStream = kind == .streaming && canJoin
-        if members.isEmpty && !hasActiveStream {
-            statusLabel.text = NSLocalizedString(
-                kind == .streaming ? "streamingRoom.joinSheet.emptyStream" : "voiceChannel.joinSheet.emptyRoom",
-                tableName: nil,
-                bundle: .main,
-                value: kind == .streaming ? "No one is currently in stream" : "No one is currently in room",
-                comment: "")
-        } else {
-            statusLabel.text = NSLocalizedString(
-                "voiceChannel.joinSheet.waiting", tableName: nil, bundle: .main,
-                value: "Everyone is waiting for you inside", comment: "")
-        }
-        if let publisher = streamPublisher {
-            statusLabel.text = String(format: NSLocalizedString(
-                "streamingRoom.isLive", tableName: nil, bundle: .main, value: "%@ is live", comment: ""), publisher.name)
-        }
-        if kind == .streaming, canJoin, let streamViewerCount {
-            let count = String(format: NSLocalizedString(
-                "streamingRoom.viewerCount", tableName: nil, bundle: .main, value: "%d viewers", comment: ""), streamViewerCount)
-            statusLabel.text = [statusLabel.text, count].compactMap { $0 }.joined(separator: "\n")
-        }
+        updateStatusText()
 
         buildMembersRow()
 
@@ -377,10 +352,20 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
 
         NotificationCenter.default.addObserver(
             self, selector: #selector(applyTheme), name: ThemeManager.didChangeNotification, object: nil)
+        if kind == .streaming, streamState != nil {
+            presenceObserver = NotificationCenter.default.addObserver(
+                forName: .mezonVoicePresenceChanged, object: nil, queue: .main
+            ) { [weak self] _ in
+                self?.refreshStreamState()
+            }
+        }
     }
 
     deinit {
         NotificationCenter.default.removeObserver(self, name: ThemeManager.didChangeNotification, object: nil)
+        if let presenceObserver {
+            NotificationCenter.default.removeObserver(presenceObserver)
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -394,6 +379,62 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
             return true
         case .streaming:
             return canJoin
+        }
+    }
+
+    private func refreshStreamState() {
+        guard let state = streamState?() else { return }
+        let current = JoinStreamSheetState(canJoin: canJoin, viewerCount: streamViewerCount, publisher: streamPublisher)
+        guard state != current else { return }
+        canJoin = state.canJoin
+        streamViewerCount = state.viewerCount
+        streamPublisher = state.publisher
+        joinButton.isEnabled = isJoinActionEnabled
+        updateVoiceTitle()
+        updateStatusText()
+        applyTheme()
+    }
+
+    private func updateVoiceTitle() {
+        voiceTitleLabel.text = kind == .streaming
+            ? NSLocalizedString(
+                "streamingRoom.joinSheet.stream", tableName: nil, bundle: .main, value: "Stream", comment: "")
+            : NSLocalizedString(
+                "voiceChannel.joinSheet.voiceRoom", tableName: nil, bundle: .main, value: "Voice Room", comment: "")
+
+        if let publisher = streamPublisher {
+            let title = NSMutableAttributedString(string: publisher.name + "  ", attributes: [
+                .font: UIFont.systemFont(ofSize: 20, weight: .semibold),
+            ])
+            title.append(NSAttributedString(string: "LIVE", attributes: [
+                .font: UIFont.systemFont(ofSize: 12, weight: .bold), .foregroundColor: UIColor.systemRed,
+            ]))
+            voiceTitleLabel.attributedText = title
+        }
+    }
+
+    private func updateStatusText() {
+        let hasActiveStream = kind == .streaming && canJoin
+        if members.isEmpty && !hasActiveStream {
+            statusLabel.text = NSLocalizedString(
+                kind == .streaming ? "streamingRoom.joinSheet.emptyStream" : "voiceChannel.joinSheet.emptyRoom",
+                tableName: nil,
+                bundle: .main,
+                value: kind == .streaming ? "No one is currently in stream" : "No one is currently in room",
+                comment: "")
+        } else {
+            statusLabel.text = NSLocalizedString(
+                "voiceChannel.joinSheet.waiting", tableName: nil, bundle: .main,
+                value: "Everyone is waiting for you inside", comment: "")
+        }
+        if let publisher = streamPublisher {
+            statusLabel.text = String(format: NSLocalizedString(
+                "streamingRoom.isLive", tableName: nil, bundle: .main, value: "%@ is live", comment: ""), publisher.name)
+        }
+        if kind == .streaming, canJoin, let streamViewerCount {
+            let count = String(format: NSLocalizedString(
+                "streamingRoom.viewerCount", tableName: nil, bundle: .main, value: "%d viewers", comment: ""), streamViewerCount)
+            statusLabel.text = [statusLabel.text, count].compactMap { $0 }.joined(separator: "\n")
         }
     }
 
