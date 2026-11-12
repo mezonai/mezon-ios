@@ -258,21 +258,23 @@ final class ClanCommunityViewController: BaseViewController {
 
     override func applyTheme() {
         let theme = UIColor.theme
-        view.backgroundColor = theme.primary
-        header.backgroundColor = theme.primary
+        view.backgroundColor = theme.secondary
+        header.backgroundColor = theme.secondary
         titleLabel.textColor = theme.textStrong
         titleLabel.text = L(L10n.ClanSetting.Community.title)
         backButton.tintColor = theme.textStrong
         introTitle.text = L(L10n.ClanSetting.Community.enableTitle)
         introTitle.textColor = theme.textStrong
         introDescription.text = L(L10n.ClanSetting.Community.introduction)
-        introDescription.textColor = theme.text
+        introDescription.textColor = theme.textNormal
         enableButton.setTitle(L(L10n.ClanSetting.enableCommunity), for: .normal)
         bannerLabel.attributedText = communityRequiredTitle(L(L10n.ClanSetting.Community.banner))
         bannerHint.text = L(L10n.ClanSetting.Community.bannerHint)
-        bannerHint.textColor = theme.text
-        bannerButton.backgroundColor = theme.secondaryWeight
-        bannerButton.tintColor = theme.textDisabled
+        bannerHint.textColor = theme.textNormal
+        bannerButton.backgroundColor = theme.primary
+        bannerButton.layer.borderWidth = 1
+        bannerButton.layer.borderColor = theme.borderPrimary.cgColor
+        bannerButton.tintColor = theme.textNormal
         spinner.color = theme.textStrong
         descriptionField.configure(title: L(L10n.ClanSetting.Community.description), placeholder: L(L10n.ClanSetting.Community.descriptionPlaceholder))
         aboutField.configure(title: L(L10n.ClanSetting.Community.about), placeholder: L(L10n.ClanSetting.Community.aboutPlaceholder))
@@ -505,6 +507,7 @@ private final class CommunityTextField: UIStackView, UITextViewDelegate {
         titleLabel.numberOfLines = 0
         input.font = .systemFont(ofSize: 16.sf)
         input.layer.cornerRadius = 12.swh
+        input.layer.borderWidth = 1
         input.textContainerInset = UIEdgeInsets(top: 12.sh, left: 8.sw, bottom: 12.sh, right: 8.sw)
         input.delegate = self
         input.heightAnchor.constraint(equalToConstant: 88.sh).isActive = true
@@ -526,12 +529,14 @@ private final class CommunityTextField: UIStackView, UITextViewDelegate {
     required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func configure(title: String, placeholder: String) {
+        let theme = UIColor.theme
         titleLabel.attributedText = communityRequiredTitle(title)
         self.placeholder.text = placeholder
-        input.textColor = UIColor.theme.textStrong
-        input.backgroundColor = UIColor.theme.secondaryWeight
-        self.placeholder.textColor = UIColor.theme.textDisabled
-        counter.textColor = UIColor.theme.text
+        input.textColor = theme.textStrong
+        input.backgroundColor = theme.primary
+        input.layer.borderColor = theme.borderPrimary.cgColor
+        self.placeholder.textColor = theme.textNormal
+        counter.textColor = theme.textNormal
         input.accessibilityLabel = title
     }
 
@@ -676,14 +681,14 @@ private final class CommunityHashtagsField: UIStackView {
         titleLabel.attributedText = communityRequiredTitle(L(L10n.ClanSetting.Community.hashtagsTitle))
         hashLabel.textColor = theme.bgViolet
         countLabel.textColor = theme.textStrong
-        badge.backgroundColor = theme.secondaryWeight
-        badge.layer.borderColor = theme.borderDim.cgColor
+        badge.backgroundColor = theme.primary
+        badge.layer.borderColor = theme.borderPrimary.cgColor
         descriptionLabel.text = L(L10n.ClanSetting.Community.hashtagsDescription)
-        descriptionLabel.textColor = theme.text
-        card.backgroundColor = theme.secondaryWeight
-        card.layer.borderColor = theme.borderDim.cgColor
-        separator.backgroundColor = theme.borderDim
-        hintLabel.textColor = theme.text
+        descriptionLabel.textColor = theme.textNormal
+        card.backgroundColor = .clear
+        card.layer.borderColor = theme.borderPrimary.cgColor
+        separator.backgroundColor = theme.borderPrimary
+        hintLabel.textColor = theme.textNormal
         updateSelection()
     }
 
@@ -697,7 +702,7 @@ private final class CommunityHashtagsField: UIStackView {
             : selection.count <= ClanCommunityHashtags.minimumCount
                 ? L(L10n.ClanSetting.Community.hashtagsMinimum) : ""
         for (index, dot) in dots.enumerated() {
-            dot.backgroundColor = index < selection.count ? .systemBlue : theme.borderDim
+            dot.backgroundColor = index < selection.count ? .systemBlue : theme.textDisabled.withAlphaComponent(0.45)
         }
         for (index, button) in buttons.enumerated() {
             let tag = tags[index]
@@ -718,8 +723,8 @@ private final class CommunityHashtagsField: UIStackView {
             button.isEnabled = selected || selection.count < maximum
             button.alpha = button.isEnabled ? 1 : 0.4
             button.layer.borderWidth = selected ? 2 : 1
-            button.layer.borderColor = selected ? UIColor.systemBlue.cgColor : theme.borderDim.cgColor
-            button.backgroundColor = selected ? UIColor.systemBlue.withAlphaComponent(0.1) : theme.secondaryLight
+            button.layer.borderColor = selected ? UIColor.systemBlue.cgColor : theme.borderPrimary.cgColor
+            button.backgroundColor = selected ? theme.primary.mixedWith(.systemBlue, alpha: 0.1) : theme.primary
             button.accessibilityLabel = label
             if selected { button.accessibilityTraits.insert(.selected) }
             else { button.accessibilityTraits.remove(.selected) }
@@ -807,15 +812,15 @@ private final class CommunityVanityURLField: UIStackView, UITextFieldDelegate {
     func configure(title: String, placeholder: String) {
         let theme = UIColor.theme
         titleLabel.attributedText = communityRequiredTitle(title)
-        prefixLabel.textColor = theme.textDisabled
-        prefixContainer.backgroundColor = theme.secondaryLight
-        container.backgroundColor = theme.secondaryWeight
-        container.layer.borderColor = theme.borderDim.cgColor
-        separator.backgroundColor = theme.borderDim
+        prefixLabel.textColor = theme.textNormal
+        prefixContainer.backgroundColor = theme.secondary
+        container.backgroundColor = theme.primary
+        container.layer.borderColor = theme.borderPrimary.cgColor
+        separator.backgroundColor = theme.borderPrimary
         input.textColor = theme.textStrong
-        input.attributedPlaceholder = NSAttributedString(string: placeholder, attributes: [.foregroundColor: theme.textDisabled])
+        input.attributedPlaceholder = NSAttributedString(string: placeholder, attributes: [.foregroundColor: theme.textNormal])
         input.accessibilityLabel = title
-        counter.textColor = theme.text
+        counter.textColor = theme.textNormal
     }
 
     private func updateCount() {
