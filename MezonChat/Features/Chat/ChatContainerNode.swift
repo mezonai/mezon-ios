@@ -84,7 +84,7 @@ final class ChatContainerNode: ASDisplayNode {
 
     let listView: ListView
 
-    private let headerNode = ChatHeaderNode()
+    private let headerNode: ChatHeaderNode
     private var messageRelayoutVersions: [String: Int] = [:]
     private let skeletonNode = MessageSkeletonContainerNode(count: 8)
     private let loadingOlderNode = ASDisplayNode()
@@ -97,7 +97,6 @@ final class ChatContainerNode: ASDisplayNode {
     private(set) var state: ChatState = .empty
     private(set) var committedMessageIds: [String] = []
     private let interaction: ChatInteraction
-    private let isDM: Bool
     private let disposables = DisposableSet()
     var pendingJumpMessageId: String?
     var onPendingJumpCompleted: ((String) -> Void)?
@@ -138,7 +137,7 @@ final class ChatContainerNode: ASDisplayNode {
     init(signal: Signal<ChatState, NoError>, interaction: ChatInteraction, isDM: Bool = false) {
         listView = ListView()
         self.interaction = interaction
-        self.isDM = isDM
+        headerNode = ChatHeaderNode(isDM: isDM)
 
         let t = UIColor.theme
         loadingOlderNode.setViewBlock {
@@ -363,7 +362,6 @@ final class ChatContainerNode: ASDisplayNode {
             channelType: state.channelType,
             isPrivate: state.isPrivate,
             isAgeRestricted: state.isAgeRestricted,
-            isDM: isDM,
             isBlocked: state.isPeerBlocked,
             isInVoice: state.dmPeerInVoice
         )

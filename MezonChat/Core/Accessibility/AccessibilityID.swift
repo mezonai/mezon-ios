@@ -166,6 +166,8 @@ enum AccessibilityID {
 
     enum PeerCall {
         static let screen = makeAccessibilityID("peer.call.screen")
+        static let status = makeAccessibilityID("peer.call.status")
+        static let duration = makeAccessibilityID("peer.call.duration")
         static let close = makeAccessibilityID("peer.call.close")
         static let switchCamera = makeAccessibilityID("peer.call.switch.camera")
         static let video = makeAccessibilityID("peer.call.video")
@@ -303,6 +305,8 @@ enum AccessibilityID {
 
         static let pinsTab = makeAccessibilityID("channel.details.pins")
         static let back = makeAccessibilityID("chat.back")
+        static let call = makeAccessibilityID("chat.call")
+        static let search = makeAccessibilityID("chat.search")
         static let input = makeAccessibilityID("mention.input")
         static let composerAttach = makeAccessibilityID("chat.composer.attach")
         static let composerMenu = makeAccessibilityID("chat.composer.menu")
