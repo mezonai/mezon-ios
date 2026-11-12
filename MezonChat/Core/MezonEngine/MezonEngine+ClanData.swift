@@ -112,6 +112,7 @@ private enum ClanEventSocketAction {
 }
 
 private enum ClanEventSocketStatus {
+    static let created: Int32 = 0
     static let upcoming: Int32 = 1
     static let ongoing: Int32 = 2
     static let completed: Int32 = 3
@@ -142,10 +143,16 @@ extension MezonEngine {
         private var streamViewerCountsByClan: [Int64: [Int64: Int]] = [:]
         let clanBadgeCountUpdated = ValuePipe<(clanId: Int64, count: Int32)>()
         let clanNotificationUpdated = ValuePipe<Int64>()
+        let userPresenceUpdated = ValuePipe<Set<Int64>>()
+        private var presenceByUserId: [Int64: User.OnlineStatus] = [:]
+        private var customStatusByUserId: [Int64: String] = [:]
 
         private var inflightFetchAllByClanId: [Int64: Task<Void, Never>] = [:]
         private var inflightEventFetchByClanId: [Int64: Task<Void, Never>] = [:]
         private var pendingSocketEventsByClanId: [Int64: [Mezon_Api_CreateEventRequest]] = [:]
+        private var eventExpiryTasks: [Int64: Task<Void, Never>] = [:]
+        private var eventExpiryDeadlines: [Int64: UInt32] = [:]
+        private var eventGeneration: UInt64 = 0
         private var lastFetchAllAtByClanId: [Int64: Date] = [:]
         private let clanDataCacheTTL: TimeInterval = 300
         private var inflightForceRefreshClanUsersByClanId: [Int64: Task<Void, Never>] = [:]
@@ -245,6 +252,10 @@ extension MezonEngine {
         init(engine: MezonEngine) { self.engine = engine }
 
         func resetForLogout() {
+            eventGeneration &+= 1
+            eventExpiryTasks.values.forEach { $0.cancel() }
+            eventExpiryTasks.removeAll()
+            eventExpiryDeadlines.removeAll()
             linkedChannelGeneration &+= 1
             linkedChannelTimer?.cancel()
             linkedChannelTimer = nil
@@ -277,6 +288,8 @@ extension MezonEngine {
             lastPresenceMemberRefreshAtByClanId.removeAll()
             attemptedMemberRefreshUserIdsByClanId.removeAll()
             clanUsersMemoByClanId.removeAll()
+            presenceByUserId.removeAll()
+            customStatusByUserId.removeAll()
         }
 
         func cancelFetchAllClanData(exceptClanId: Int64) {
@@ -319,9 +332,10 @@ extension MezonEngine {
                 async let badgeResult = self.fetchBadgeCount(clanId: clanId, token: token)
                 async let notifResult = self.fetchDefaultNotification(clanId: clanId, token: token)
                 async let catNotifResult = self.fetchCategoryNotification(clanId: clanId, token: token)
+                async let onlineResult = self.refreshOnlineUsers(clanId: clanId, token: token)
                 _ = await (
                     usersResult, rolesResult, eventsResult, userPermsResult, allPermsResult,
-                    voiceResult, streamResult, badgeResult, notifResult, catNotifResult
+                    voiceResult, streamResult, badgeResult, notifResult, catNotifResult, onlineResult
                 )
                 if !Task.isCancelled, !self.hasPersistedClanData(clanId: clanId) {
                     self.lastFetchAllAtByClanId[clanId] = nil
@@ -351,6 +365,106 @@ extension MezonEngine {
                 persistClanUsersResponse(clanId: clanId, response: response)
             } catch {
             }
+        }
+
+        func presence(userId: Int64) -> User.OnlineStatus? {
+            presenceByUserId[userId]
+        }
+
+        func customStatus(userId: Int64) -> String? {
+            customStatusByUserId[userId]
+        }
+
+        func refreshOnlineUsers(clanId: Int64, token: String) async {
+            guard clanId != 0 else { return }
+            let network = self.network
+            async let onlineRequest = network.listUserOnline(clanId: clanId, token: token)
+            async let statusRequest = network.listClanUsersStatus(clanId: clanId, token: token)
+            let onlineResponse = try? await onlineRequest
+            let statusResponse = try? await statusRequest
+
+            var changed = Set<Int64>()
+            if let onlineResponse {
+                var changes: [Int64: User.OnlineStatus] = [:]
+                for member in resolvedClanMembers(clanId: clanId) where member.userId != 0 {
+                    changes[member.userId] = .offline
+                }
+                for user in onlineResponse.users where user.id != 0 {
+                    changes[user.id] = User.presenceStatus(fromApiString: user.status, onlineFallback: true)
+                }
+                changed.formUnion(mergePresence(changes))
+            }
+            if let statusResponse {
+                var statuses: [Int64: String] = [:]
+                for entry in statusResponse.clanUserStatuses where entry.userID != 0 {
+                    statuses[entry.userID] = entry.userStatus
+                }
+                changed.formUnion(mergeCustomStatuses(statuses))
+            }
+            notifyPresenceChanged(changed)
+        }
+
+        func applyStatusPresence(_ event: Mezon_Realtime_StatusPresenceEvent) {
+            var changes: [Int64: User.OnlineStatus] = [:]
+            var statuses: [Int64: String] = [:]
+            for leave in event.leaves where leave.userID != 0 {
+                changes[leave.userID] = .offline
+            }
+            for join in event.joins where join.userID != 0 {
+                let raw = join.hasStatus ? join.status.value : ""
+                changes[join.userID] = User.presenceStatus(fromApiString: raw, onlineFallback: true)
+                if !join.userStatus.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    statuses[join.userID] = join.userStatus
+                }
+            }
+            notifyPresenceChanged(mergePresence(changes).union(mergeCustomStatuses(statuses)))
+        }
+
+        func applyUserStatus(_ event: Mezon_Realtime_UserStatusEvent) {
+            guard event.userID != 0,
+                  let status = User.knownPresenceStatus(fromApiString: event.customStatus) else { return }
+            notifyPresenceChanged(mergePresence([event.userID: status]))
+        }
+
+        func applyCustomStatus(_ event: Mezon_Realtime_CustomStatusEvent) {
+            guard event.userID != 0 else { return }
+            notifyPresenceChanged(mergeCustomStatuses([event.userID: event.status]))
+        }
+
+        func setPresence(userId: Int64, status: User.OnlineStatus) {
+            guard userId != 0 else { return }
+            notifyPresenceChanged(mergePresence([userId: status]))
+        }
+
+        func setCustomStatus(userId: Int64, text: String) {
+            guard userId != 0 else { return }
+            notifyPresenceChanged(mergeCustomStatuses([userId: text]))
+        }
+
+        private func mergePresence(_ changes: [Int64: User.OnlineStatus]) -> Set<Int64> {
+            var changed = Set<Int64>()
+            for (userId, status) in changes where presenceByUserId[userId] != status {
+                presenceByUserId[userId] = status
+                changed.insert(userId)
+            }
+            return changed
+        }
+
+        private func mergeCustomStatuses(_ changes: [Int64: String]) -> Set<Int64> {
+            var changed = Set<Int64>()
+            for (userId, raw) in changes {
+                let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                let next: String? = text.isEmpty ? nil : text
+                guard customStatusByUserId[userId] != next else { continue }
+                customStatusByUserId[userId] = next
+                changed.insert(userId)
+            }
+            return changed
+        }
+
+        private func notifyPresenceChanged(_ changed: Set<Int64>) {
+            guard !changed.isEmpty else { return }
+            userPresenceUpdated.putNext(changed)
         }
 
         func maybeRefreshClanMembersAfterPresenceJoins(clanId: Int64, joinedUserIds: [Int64], token: String) {
@@ -432,9 +546,7 @@ extension MezonEngine {
             try await network.updateEvent(request: draft.updateRequest(clanId: clanId, original: original), token: token)
             if var list = getClanEvents(clanId: clanId), let index = list.events.firstIndex(where: { $0.id == original.id }) {
                 list.events[index] = draft.applying(to: list.events[index])
-                if let data = try? list.serializedData() {
-                    postbox.setPreferenceDataSync(key: PreferencesKeys.clanEvents(clanId: clanId), value: data)
-                }
+                persistEvents(list, clanId: clanId)
                 clanEventsUpdated.putNext(clanId)
             }
             await fetchEvents(clanId: clanId, token: token)
@@ -466,9 +578,7 @@ extension MezonEngine {
             try await network.deleteEvent(request: request, token: token)
             if var list = getClanEvents(clanId: clanId) {
                 list.events.removeAll { $0.id == event.id }
-                if let data = try? list.serializedData() {
-                    postbox.setPreferenceDataSync(key: PreferencesKeys.clanEvents(clanId: clanId), value: data)
-                }
+                persistEvents(list, clanId: clanId)
             }
             clanEventsUpdated.putNext(clanId)
         }
@@ -520,8 +630,7 @@ extension MezonEngine {
             }
             event.userIds = userIds
             list.events[index] = event
-            guard let data = try? list.serializedData() else { return }
-            postbox.setPreferenceDataSync(key: PreferencesKeys.clanEvents(clanId: clanId), value: data)
+            persistEvents(list, clanId: clanId)
         }
 
         private func fetchEvents(clanId: Int64, token: String) async {
@@ -529,19 +638,22 @@ extension MezonEngine {
                 await existing.value
                 return
             }
+            let generation = eventGeneration
             let task = Task<Void, Never> { @MainActor [weak self] in
-                guard let self else { return }
-                await self.performFetchEvents(clanId: clanId, token: token)
+                guard let self, !Task.isCancelled, self.eventGeneration == generation else { return }
+                await self.performFetchEvents(clanId: clanId, token: token, generation: generation)
             }
             inflightEventFetchByClanId[clanId] = task
             await task.value
+            guard eventGeneration == generation else { return }
             inflightEventFetchByClanId[clanId] = nil
             pendingSocketEventsByClanId[clanId] = nil
         }
 
-        private func performFetchEvents(clanId: Int64, token: String) async {
+        private func performFetchEvents(clanId: Int64, token: String, generation: UInt64) async {
             do {
                 var response = try await network.listEvents(clanId: clanId, token: token)
+                guard !Task.isCancelled, eventGeneration == generation else { return }
                 for update in pendingSocketEventsByClanId.removeValue(forKey: clanId) ?? [] {
                     _ = applySocketEvent(update, to: &response)
                 }
@@ -554,6 +666,37 @@ extension MezonEngine {
         private func persistEvents(_ list: Mezon_Api_EventList, clanId: Int64) {
             guard let data = try? list.serializedData() else { return }
             postbox.setPreferenceDataSync(key: PreferencesKeys.clanEvents(clanId: clanId), value: data)
+            scheduleEventExpiry(clanId: clanId, events: list.events)
+        }
+
+        func refreshEventExpiry(clanId: Int64) {
+            guard clanId != 0 else { return }
+            let events = getClanEvents(clanId: clanId)?.events ?? []
+            scheduleEventExpiry(clanId: clanId, events: events)
+            clanEventsUpdated.putNext(clanId)
+        }
+
+        private func scheduleEventExpiry(clanId: Int64, events: [Mezon_Api_EventManagement]) {
+            let now = Date().timeIntervalSince1970
+            let next = events.filter { $0.eventStatus != ClanEventSocketStatus.completed }
+                .map(\.endTimeSeconds).filter { TimeInterval($0) > now }.min()
+            guard eventExpiryDeadlines[clanId] != next else { return }
+            eventExpiryTasks.removeValue(forKey: clanId)?.cancel()
+            eventExpiryDeadlines.removeValue(forKey: clanId)
+            guard let next else { return }
+            eventExpiryDeadlines[clanId] = next
+            let generation = eventGeneration
+            let delay = max(0.001, TimeInterval(next) - Date().timeIntervalSince1970)
+            eventExpiryTasks[clanId] = Task { @MainActor [weak self] in
+                do {
+                    try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                } catch { return }
+                guard let self, !Task.isCancelled, self.eventGeneration == generation,
+                      self.eventExpiryDeadlines[clanId] == next else { return }
+                self.eventExpiryTasks.removeValue(forKey: clanId)
+                self.eventExpiryDeadlines.removeValue(forKey: clanId)
+                self.refreshEventExpiry(clanId: clanId)
+            }
         }
 
         private func applySocketEvent(
@@ -563,16 +706,25 @@ extension MezonEngine {
             let index = list.events.firstIndex { $0.id == update.eventID }
             let existing = index.map { list.events[$0] }
 
+            if update.action == ClanEventSocketAction.delete {
+                guard let index else { return false }
+                list.events.remove(at: index)
+                return true
+            }
+
             if update.action == ClanEventSocketAction.created {
                 guard existing == nil else { return false }
                 list.events.append(eventFromSocket(update))
                 return true
             }
 
-            if update.eventStatus == ClanEventSocketStatus.upcoming ||
-                update.eventStatus == ClanEventSocketStatus.ongoing {
+            if update.action != ClanEventSocketAction.update &&
+                (update.eventStatus == ClanEventSocketStatus.upcoming ||
+                    update.eventStatus == ClanEventSocketStatus.ongoing) {
                 guard var event = existing, let index else { return false }
                 event.eventStatus = update.eventStatus
+                if update.startTimeSeconds != 0 { event.startTimeSeconds = update.startTimeSeconds }
+                if update.endTimeSeconds != 0 { event.endTimeSeconds = update.endTimeSeconds }
                 list.events[index] = event
                 return true
             }
@@ -580,8 +732,10 @@ extension MezonEngine {
             if update.eventStatus == ClanEventSocketStatus.completed &&
                 update.repeatType != EventRepeatType.doesNotRepeat {
                 guard var event = existing, let index else { return false }
-                event.eventStatus = update.eventStatus
+                event.eventStatus = ClanEventSocketStatus.created
                 event.startTimeSeconds = update.startTimeSeconds
+                event.endTimeSeconds = update.endTimeSeconds
+                event.repeatType = update.repeatType
                 list.events[index] = event
                 return true
             }
@@ -596,9 +750,8 @@ extension MezonEngine {
                 return true
             }
 
-            if (update.eventStatus == ClanEventSocketStatus.completed &&
-                    update.repeatType == EventRepeatType.doesNotRepeat) ||
-                update.action == ClanEventSocketAction.delete {
+            if update.eventStatus == ClanEventSocketStatus.completed &&
+                update.repeatType == EventRepeatType.doesNotRepeat {
                 guard let index else { return false }
                 list.events.remove(at: index)
                 return true
@@ -646,8 +799,8 @@ extension MezonEngine {
             if update.hasMeetRoom {
                 event.meetRoom = update.meetRoom
             }
+            event.eventStatus = update.eventStatus
             if existing == nil {
-                event.eventStatus = update.eventStatus
                 event.userIds = update.creatorID == 0 ? [] : [update.creatorID]
             }
             return event
@@ -1645,6 +1798,7 @@ extension MezonEngine {
         private var socketDisposable: Disposable?
         private var socketRefreshTask: Task<Void, Never>?
         private var tokenProvider: (() async -> String?)?
+        private var currentUserIdProvider: (() -> Int64?)?
         private var inflightNetworkRefreshTask: Task<Void, Never>?
         private var lastFriendsNetworkRefreshAt: Date?
         private let friendsNetworkRefreshCooldown: TimeInterval = 3.0
@@ -1661,6 +1815,7 @@ extension MezonEngine {
             inflightNetworkRefreshTask?.cancel()
             inflightNetworkRefreshTask = nil
             tokenProvider = nil
+            currentUserIdProvider = nil
             lastFriendsNetworkRefreshAt = nil
         }
 
@@ -1670,20 +1825,15 @@ extension MezonEngine {
             inflightNetworkRefreshTask?.cancel()
         }
 
-        func start(tokenProvider: @escaping () async -> String?) {
+        func start(currentUserIdProvider: @escaping () -> Int64?, tokenProvider: @escaping () async -> String?) {
             self.tokenProvider = tokenProvider
+            self.currentUserIdProvider = currentUserIdProvider
             socketDisposable?.dispose()
             socketDisposable = (MezonSocket.shared.events()
                 |> deliverOnMainQueue).start(next: { [weak self] event in
                     guard let self else { return }
                     switch event {
-                    case .blockFriend(let m):
-                        self.applyLocalBlockState(userId: m.userID, blocked: true, blockerUserId: m.userID)
-                        self.scheduleRefreshFromSocket()
-                    case .unBlockFriend(let m):
-                        self.applyLocalBlockState(userId: m.userID, blocked: false)
-                        self.scheduleRefreshFromSocket()
-                    case .addFriend, .removeFriend:
+                    case .blockFriend, .unBlockFriend, .addFriend, .removeFriend:
                         self.scheduleRefreshFromSocket()
                     default:
                         break
@@ -1691,15 +1841,28 @@ extension MezonEngine {
                 })
         }
 
-        func applyLocalBlockState(userId: Int64, blocked: Bool, blockerUserId: Int64 = 0) {
-            guard userId != 0 else { return }
+        func updateLocalBlock(user: Mezon_Api_User, blocked: Bool, currentUserId: Int64) {
             var list = allFriends()
-            guard let idx = list.firstIndex(where: { $0.user.id == userId }) else { return }
-            let newState = blocked ? EStateFriend.block.rawValue : EStateFriend.friend.rawValue
-            guard list[idx].state != newState else { return }
-            list[idx].state = newState
-            if blocked, blockerUserId != 0 {
-                list[idx].sourceID = blockerUserId
+            if blocked {
+                let index = list.firstIndex { $0.user.id == user.id }
+                var relation = index.map { list[$0] } ?? Mezon_Api_Friend()
+                var profile = relation.hasUser ? relation.user : user
+                if profile.username.isEmpty { profile.username = user.username }
+                if profile.displayName.isEmpty { profile.displayName = user.displayName }
+                if profile.avatarURL.isEmpty { profile.avatarURL = user.avatarURL }
+                relation.user = profile
+                relation.state = EStateFriend.block.rawValue
+                relation.sourceID = currentUserId
+                if let index {
+                    list[index] = relation
+                } else {
+                    list.append(relation)
+                }
+            } else {
+                // Only ListFriends can tell whether the server restored a previous friendship.
+                list.removeAll {
+                    $0.user.id == user.id && $0.state == EStateFriend.block.rawValue && $0.sourceID == currentUserId
+                }
             }
             persistFriends(list)
         }
@@ -1710,6 +1873,10 @@ extension MezonEngine {
 
         func pendingIncomingFriends() -> [Mezon_Api_Friend] {
             allFriends().filter { $0.state == EStateFriend.myPending.rawValue }
+        }
+
+        func pendingOutgoingFriends() -> [Mezon_Api_Friend] {
+            allFriends().filter { $0.state == EStateFriend.otherPending.rawValue }
         }
 
         func incomingFriendRequestCount() -> Int {
@@ -1733,10 +1900,11 @@ extension MezonEngine {
         }
 
         func refreshFromNetwork(token: String, force: Bool = false) async {
-            if let inflight = inflightNetworkRefreshTask {
+            while let inflight = inflightNetworkRefreshTask {
                 _ = await inflight.value
-                if !force { return }
+                if !force || Task.isCancelled { return }
             }
+            guard !Task.isCancelled else { return }
             if !force,
                let last = lastFriendsNetworkRefreshAt,
                Date().timeIntervalSince(last) < friendsNetworkRefreshCooldown {
@@ -1744,9 +1912,10 @@ extension MezonEngine {
             }
             let task = Task<Void, Never> { @MainActor [weak self] in
                 guard let self else { return }
-                defer { self.inflightNetworkRefreshTask = nil }
                 await self.performRefreshFromNetwork(token: token)
+                guard !Task.isCancelled else { return }
                 self.lastFriendsNetworkRefreshAt = Date()
+                self.inflightNetworkRefreshTask = nil
             }
             inflightNetworkRefreshTask = task
             _ = await task.value
@@ -1754,13 +1923,25 @@ extension MezonEngine {
 
         private func performRefreshFromNetwork(token: String) async {
             let net = network
-            guard let response = try? await net.listFriends(token: token, limit: 0, state: 0) else {
+            guard let response = try? await net.listFriends(token: token, limit: 0, state: 0),
+                  !Task.isCancelled else {
                 return
             }
+            let currentUserId = currentUserIdProvider?() ?? Int64(engine.account.id) ?? 0
             let fetched = response.friends
             var dedupByUserId: [Int64: Mezon_Api_Friend] = [:]
-            for friend in fetched {
+            for var friend in fetched {
                 guard friend.hasUser, friend.user.id != 0 else { continue }
+                if friend.state == EStateFriend.block.rawValue, friend.user.id == currentUserId {
+                    // An incoming block can carry our own profile; the source is the peer.
+                    guard friend.sourceID != 0, friend.sourceID != currentUserId else { continue }
+                    friend.user = Mezon_Api_User()
+                    friend.user.id = friend.sourceID
+                }
+                if let existing = dedupByUserId[friend.user.id], existing.state == EStateFriend.block.rawValue,
+                   friend.state != EStateFriend.block.rawValue || existing.sourceID == currentUserId {
+                    continue
+                }
                 dedupByUserId[friend.user.id] = friend
             }
 
@@ -1779,7 +1960,10 @@ extension MezonEngine {
 
         func removePendingRequest(userId: Int64) {
             var list = allFriends()
-            list.removeAll { $0.user.id == userId && $0.state == EStateFriend.myPending.rawValue }
+            list.removeAll {
+                $0.user.id == userId
+                    && ($0.state == EStateFriend.myPending.rawValue || $0.state == EStateFriend.otherPending.rawValue)
+            }
             persistFriends(list)
         }
 
@@ -1788,7 +1972,8 @@ extension MezonEngine {
             socketRefreshTask = Task { [weak self] in
                 guard let self else { return }
                 try? await Task.sleep(nanoseconds: 300_000_000)
-                guard let tokenProvider = self.tokenProvider, let token = await tokenProvider() else { return }
+                guard !Task.isCancelled, let tokenProvider = self.tokenProvider,
+                      let token = await tokenProvider(), !Task.isCancelled else { return }
                 await self.refreshFromNetwork(token: token, force: true)
             }
         }

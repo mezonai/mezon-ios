@@ -8,7 +8,7 @@ private enum AvatarSkeletonPalette {
     static func currentColors() -> (base: CGColor, highlight: CGColor) {
         let theme = UIColor.theme
         let base = theme.secondaryWeight
-        let highlight = theme.tertiary
+        let highlight = theme.shimmerHighlight(over: base)
         return (base.cgColor, highlight.cgColor)
     }
 
@@ -309,5 +309,81 @@ final class TextAvatarNode: ASDisplayNode {
         }
         guard let textNode else { return ASLayoutSpec() }
         return ASCenterLayoutSpec(centeringOptions: .XY, sizingOptions: .minimumXY, child: textNode)
+    }
+}
+
+enum PresenceBadge {
+    private static let cache = NSCache<NSString, UIImage>()
+
+    static func color(for status: User.OnlineStatus) -> UIColor {
+        switch status {
+        case .online:
+            return UIColor(red: 0x16 / 255.0, green: 0xA3 / 255.0, blue: 0x4A / 255.0, alpha: 1)
+        case .idle:
+            return UIColor(red: 0xF0 / 255.0, green: 0xB2 / 255.0, blue: 0x32 / 255.0, alpha: 1)
+        case .doNotDisturb:
+            return UIColor(red: 0xF2 / 255.0, green: 0x3F / 255.0, blue: 0x43 / 255.0, alpha: 1)
+        case .invisible, .offline:
+            return UIColor(red: 0xAE / 255.0, green: 0xAE / 255.0, blue: 0xAE / 255.0, alpha: 1)
+        }
+    }
+
+    static func image(
+        for status: User.OnlineStatus,
+        diameter: CGFloat,
+        ringWidth: CGFloat,
+        ringColor: UIColor
+    ) -> UIImage {
+        let key = cacheKey(status: status, diameter: diameter, ringWidth: ringWidth, ringColor: ringColor)
+        if let cached = cache.object(forKey: key) {
+            return cached
+        }
+        let size = CGSize(width: diameter, height: diameter)
+        let image = UIGraphicsImageRenderer(size: size).image { context in
+            let cg = context.cgContext
+            let outer = CGRect(origin: .zero, size: size)
+            cg.addEllipse(in: outer)
+            cg.clip()
+
+            cg.setFillColor(ringColor.cgColor)
+            cg.fillEllipse(in: outer)
+
+            let inner = outer.insetBy(dx: ringWidth, dy: ringWidth)
+            let assetName: String
+            switch status {
+            case .online: assetName = "OnlineIcon"
+            case .idle: assetName = "IdleIcon"
+            case .doNotDisturb: assetName = "DisturbIcon"
+            case .invisible, .offline: assetName = "InvisibleIcon"
+            }
+            // Status PDFs use a 16-unit canvas with a 9-unit glyph. Fit that
+            // glyph to the old inner badge diameter, preserving its ring.
+            let drawSide = inner.width * 16 / 9
+            let drawRect = CGRect(
+                x: inner.midX - drawSide / 2,
+                y: inner.midY - drawSide / 2,
+                width: drawSide,
+                height: drawSide
+            )
+            UIImage(named: "Profile/\(assetName)")?
+                .withTintColor(color(for: status), renderingMode: .alwaysOriginal)
+                .draw(in: drawRect)
+        }
+        cache.setObject(image, forKey: key)
+        return image
+    }
+
+    private static func cacheKey(
+        status: User.OnlineStatus,
+        diameter: CGFloat,
+        ringWidth: CGFloat,
+        ringColor: UIColor
+    ) -> NSString {
+        var r: CGFloat = 0
+        var g: CGFloat = 0
+        var b: CGFloat = 0
+        var a: CGFloat = 0
+        ringColor.getRed(&r, green: &g, blue: &b, alpha: &a)
+        return "\(status.rawValue)|\(diameter)|\(ringWidth)|\(r),\(g),\(b),\(a)" as NSString
     }
 }

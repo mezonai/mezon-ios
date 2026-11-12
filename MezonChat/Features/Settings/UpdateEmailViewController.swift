@@ -41,8 +41,7 @@ final class UpdateEmailViewController: BaseViewController {
 
     private let emailIcon: UIImageView = {
         let iv = UIImageView()
-        iv.image = UIImage(systemName: "envelope",
-                           withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .regular))
+        iv.image = UIImage(named: "Auth/MailIcon")?.withRenderingMode(.alwaysTemplate)
         iv.contentMode = .scaleAspectFit
         iv.translatesAutoresizingMaskIntoConstraints = false
         return iv
@@ -50,6 +49,7 @@ final class UpdateEmailViewController: BaseViewController {
 
     private let emailTextField: UITextField = {
         let tf = UITextField()
+        tf.accessibilityIdentifier = AccessibilityID.GeneralSettings.updateEmailInput
         tf.keyboardType = .emailAddress
         tf.autocapitalizationType = .none
         tf.autocorrectionType = .no

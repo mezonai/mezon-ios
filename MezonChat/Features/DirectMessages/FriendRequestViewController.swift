@@ -2,8 +2,9 @@ import UIKit
 
 struct FriendRequestState {
     var receivedRequests: [Mezon_Api_Friend]
+    var sentRequests: [Mezon_Api_Friend]
 
-    static let empty = FriendRequestState(receivedRequests: [])
+    static let empty = FriendRequestState(receivedRequests: [], sentRequests: [])
 }
 
 final class FriendRequestViewController: ViewController {
@@ -13,6 +14,7 @@ final class FriendRequestViewController: ViewController {
     private let needsReloadPipe = ValuePipe<Void>()
 
     private(set) var receivedRequests: [Mezon_Api_Friend] = []
+    private(set) var sentRequests: [Mezon_Api_Friend] = []
     private var refreshTask: Task<Void, Never>?
     private var inFlightActionUserIds: Set<Int64> = []
 
@@ -106,15 +108,21 @@ final class FriendRequestViewController: ViewController {
         return max(layout.safeInsets.top, layout.statusBarHeight ?? 0, viewSafeTop)
     }
 
-    private func setReceivedRequests(_ v: [Mezon_Api_Friend]) {
-        let next = filteredMyPendingRequests(v)
-        guard friendListSignature(receivedRequests) != friendListSignature(next) else { return }
-        receivedRequests = next
+    private func setRequests(received: [Mezon_Api_Friend], sent: [Mezon_Api_Friend]) {
+        let nextReceived = received.filter { $0.state == EStateFriend.myPending.rawValue }
+        let nextSent = sent.filter { $0.state == EStateFriend.otherPending.rawValue }
+        guard friendListSignature(receivedRequests) != friendListSignature(nextReceived)
+                || friendListSignature(sentRequests) != friendListSignature(nextSent) else { return }
+        receivedRequests = nextReceived
+        sentRequests = nextSent
         needsReloadPipe.putNext(())
     }
 
-    private func filteredMyPendingRequests(_ friends: [Mezon_Api_Friend]) -> [Mezon_Api_Friend] {
-        friends.filter { $0.state == EStateFriend.myPending.rawValue }
+    private func removeRequestsLocally(userId: Int64) {
+        setRequests(
+            received: receivedRequests.filter { $0.user.id != userId },
+            sent: sentRequests.filter { $0.user.id != userId }
+        )
     }
 
     private func friendListSignature(_ friends: [Mezon_Api_Friend]) -> String {
@@ -131,7 +139,7 @@ final class FriendRequestViewController: ViewController {
     }
 
     var currentState: FriendRequestState {
-        FriendRequestState(receivedRequests: receivedRequests)
+        FriendRequestState(receivedRequests: receivedRequests, sentRequests: sentRequests)
     }
 
     func stateSignal() -> Signal<FriendRequestState, NoError> {
@@ -146,7 +154,11 @@ final class FriendRequestViewController: ViewController {
     }
 
     private func syncFromGlobalFriendState() {
-        setReceivedRequests(context.engine.friendsData.pendingIncomingFriends())
+        let friendsData = context.engine.friendsData
+        setRequests(
+            received: friendsData.pendingIncomingFriends(),
+            sent: friendsData.pendingOutgoingFriends()
+        )
     }
 
     private func refreshFromNetwork(force: Bool = false) {
@@ -170,15 +182,11 @@ final class FriendRequestViewController: ViewController {
             do {
                 try await self.context.account.network.addFriends(ids: [userId], token: token)
 
-                if let idx = self.receivedRequests.firstIndex(where: { $0.user.id == userId }) {
-                    var updatedList = self.receivedRequests
-                    updatedList.remove(at: idx)
-                    self.setReceivedRequests(updatedList)
-                }
+                self.removeRequestsLocally(userId: userId)
                 self.context.engine.friendsData.removePendingRequest(userId: userId)
                 self.refreshFromNetwork(force: true)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -195,15 +203,11 @@ final class FriendRequestViewController: ViewController {
             do {
                 try await self.context.account.network.deleteFriends(ids: [userId], token: token)
 
-                if let idx = self.receivedRequests.firstIndex(where: { $0.user.id == userId }) {
-                    var updatedList = self.receivedRequests
-                    updatedList.remove(at: idx)
-                    self.setReceivedRequests(updatedList)
-                }
+                self.removeRequestsLocally(userId: userId)
                 self.context.engine.friendsData.removePendingRequest(userId: userId)
                 self.refreshFromNetwork(force: true)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }

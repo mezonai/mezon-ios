@@ -812,8 +812,6 @@ private final class ThreadListEmptyCell: UITableViewCell {
     private let stackView = UIStackView()
     private let iconCircleView = UIView()
     private let iconImageView = UIImageView()
-    private let iconSlashOne = UIView()
-    private let iconSlashTwo = UIView()
     private let titleLabel = UILabel()
     private let descriptionLabel = UILabel()
     private let createButton = UIButton(type: .system)
@@ -822,6 +820,7 @@ private final class ThreadListEmptyCell: UITableViewCell {
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
+        accessibilityIdentifier = AccessibilityID.ThreadList.empty
         backgroundColor = .clear
         contentView.backgroundColor = .clear
         separatorInset = UIEdgeInsets(top: 0, left: 0, bottom: 0, right: .greatestFiniteMagnitude)
@@ -842,13 +841,6 @@ private final class ThreadListEmptyCell: UITableViewCell {
         iconImageView.contentMode = .scaleAspectFit
         iconCircleView.addSubview(iconImageView)
 
-        [iconSlashOne, iconSlashTwo].forEach { slash in
-            slash.translatesAutoresizingMaskIntoConstraints = false
-            slash.layer.cornerRadius = 1.5
-            slash.transform = CGAffineTransform(rotationAngle: -.pi / 7)
-            iconCircleView.addSubview(slash)
-        }
-
         titleLabel.textAlignment = .center
         titleLabel.numberOfLines = 0
         titleLabel.adjustsFontForContentSizeCategory = true
@@ -857,6 +849,7 @@ private final class ThreadListEmptyCell: UITableViewCell {
         descriptionLabel.numberOfLines = 0
         descriptionLabel.adjustsFontForContentSizeCategory = true
 
+        createButton.accessibilityIdentifier = AccessibilityID.ThreadList.createFromEmpty
         createButton.translatesAutoresizingMaskIntoConstraints = false
         createButton.layer.cornerRadius = 26
         createButton.clipsToBounds = true
@@ -890,16 +883,6 @@ private final class ThreadListEmptyCell: UITableViewCell {
             iconImageView.widthAnchor.constraint(equalToConstant: 28),
             iconImageView.heightAnchor.constraint(equalToConstant: 28),
 
-            iconSlashOne.centerXAnchor.constraint(equalTo: iconCircleView.centerXAnchor, constant: -4),
-            iconSlashOne.centerYAnchor.constraint(equalTo: iconCircleView.centerYAnchor, constant: -1),
-            iconSlashOne.widthAnchor.constraint(equalToConstant: 3.5),
-            iconSlashOne.heightAnchor.constraint(equalToConstant: 15),
-
-            iconSlashTwo.centerXAnchor.constraint(equalTo: iconCircleView.centerXAnchor, constant: 5),
-            iconSlashTwo.centerYAnchor.constraint(equalTo: iconCircleView.centerYAnchor, constant: -1),
-            iconSlashTwo.widthAnchor.constraint(equalToConstant: 3.5),
-            iconSlashTwo.heightAnchor.constraint(equalToConstant: 15),
-
             descriptionLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 330),
 
             createButton.widthAnchor.constraint(equalToConstant: 156),
@@ -918,12 +901,8 @@ private final class ThreadListEmptyCell: UITableViewCell {
         let t = UIColor.theme
         createButton.isHidden = !showCreateButton
         iconCircleView.backgroundColor = t.iconPrimary.withAlphaComponent(0.14)
-        iconImageView.image = UIImage(systemName: "bubble.left.fill")?.withConfiguration(
-            UIImage.SymbolConfiguration(pointSize: 24, weight: .regular)
-        )
+        iconImageView.image = UIImage(named: "Channel/ThreadListEmptyIcon")?.withRenderingMode(.alwaysTemplate)
         iconImageView.tintColor = t.textDisabled
-        iconSlashOne.backgroundColor = .white
-        iconSlashTwo.backgroundColor = .white
 
         titleLabel.text = L(L10n.ThreadList.emptyTitle)
         titleLabel.font = .systemFont(ofSize: 18, weight: .bold)

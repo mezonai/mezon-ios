@@ -25,6 +25,11 @@ final class MezonRootController: NavigationController {
         )
     }
 
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.accessibilityIdentifier = AccessibilityID.Main.root
+    }
+
     @objc private func handleThemeDidChange() {
         let newTheme = Self.makeNavTheme()
         self.updateTheme(newTheme)
@@ -56,7 +61,6 @@ final class MezonRootController: NavigationController {
             image: clansImg,
             selectedImage: clansSel
         )
-        homeTab.mezonTabBarFaceAssetName = "TabBar/ClansIconFace"
         homeVC.tabBarItem = homeTab
 
         let (messagesImg, messagesSel) = Self.tabBarImage(name: "TabBar/MessagesIcon", systemFallback: "bubble.left.and.bubble.right", systemFallbackSelected: "bubble.left.and.bubble.right.fill")
@@ -66,7 +70,6 @@ final class MezonRootController: NavigationController {
             image: messagesImg,
             selectedImage: messagesSel
         )
-        messagesTab.mezonTabBarFaceAssetName = "TabBar/MessagesIconFace"
         directMessagesVC.tabBarItem = messagesTab
 
         let (notifImg, notifSel) = Self.tabBarImage(
@@ -78,7 +81,6 @@ final class MezonRootController: NavigationController {
             image: notifImg,
             selectedImage: notifSel
         )
-        notifTab.mezonTabBarFaceAssetName = "TabBar/NotificationIconFace"
         notificationsVC.tabBarItem = notifTab
 
         let (profileImg, profileSel) = Self.tabBarImage(name: "TabBar/ProfileIcon", systemFallback: "person.crop.circle", systemFallbackSelected: "person.crop.circle.fill")
@@ -88,7 +90,6 @@ final class MezonRootController: NavigationController {
             image: profileImg,
             selectedImage: profileSel
         )
-        profileTab.mezonTabBarFaceAssetName = "TabBar/ProfileIconFace"
         profileVC.tabBarItem = profileTab
 
         let controllers: [ViewController] = [homeVC, directMessagesVC, notificationsVC, profileVC]
@@ -143,7 +144,9 @@ final class MezonRootController: NavigationController {
     }
 
     private func bootstrapGlobalFriendState() {
-        context.engine.friendsData.start(tokenProvider: { [weak self] in
+        context.engine.friendsData.start(currentUserIdProvider: { [weak self] in
+            self?.context.currentUserNumericID
+        }, tokenProvider: { [weak self] in
             guard let self else { return nil }
             return await self.context.getToken()
         })
@@ -1133,7 +1136,7 @@ final class MezonRootController: NavigationController {
                 token = await self.context.getToken() ?? ""
             }
             guard !token.isEmpty else {
-                Toast.info("Please log in to Mezon first")
+                Toast.info(L(L10n.Common.loginRequired))
                 return
             }
             let sessionToken = token
@@ -1154,7 +1157,7 @@ final class MezonRootController: NavigationController {
                         node?.setSuccess(true)
                     } catch {
                         overlay?.dismissOverlay()
-                        Toast.error(error.localizedDescription)
+                        Toast.error(error.userMessage)
                     }
                 }
             }
@@ -1185,23 +1188,23 @@ final class MezonRootController: NavigationController {
         Task { @MainActor [weak self] in
             guard let self else { return }
             guard let token = await self.context.getToken() else {
-                Toast.error("Session unavailable")
+                Toast.error(L(L10n.ClanInviteSheet.sessionNotFound))
                 return
             }
             let clanIdInt = clanId.flatMap { Int64($0) } ?? self.context.currentClanId
             guard clanIdInt != 0 else {
-                Toast.error("App unavailable")
+                Toast.error(L(L10n.ChannelApp.unavailable))
                 return
             }
             do {
                 let apps = try await self.context.account.network.listChannelApps(clanId: clanIdInt, token: token)
                 guard let app = apps.first(where: { $0.channelID == channelIdInt }) else {
-                    Toast.error("App unavailable")
+                    Toast.error(L(L10n.ChannelApp.unavailable))
                     return
                 }
                 let webAppData = try await self.context.account.network.generateChannelAppHash(appId: app.appID, token: token)
                 guard !webAppData.isEmpty, let url = app.channelAppWebPageURL(webAppData: webAppData) else {
-                    Toast.error("App unavailable")
+                    Toast.error(L(L10n.ChannelApp.unavailable))
                     return
                 }
                 let title = app.appName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1211,7 +1214,7 @@ final class MezonRootController: NavigationController {
                     self?.requestLayout(transition: .immediate)
                 }
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -1243,7 +1246,7 @@ final class MezonRootController: NavigationController {
                                 clanId = try await ClanInviteJoiner.join(context: self.context, code: code, clanId: inviteInfo.clan_id.flatMap(Int64.init))
                             } catch {
                                 overlay?.dismissOverlay()
-                                Toast.error(error.localizedDescription)
+                                Toast.error(error.userMessage)
                                 return
                             }
                         }
@@ -1264,7 +1267,7 @@ final class MezonRootController: NavigationController {
                 }
                 self.presentDeepLinkOverlay(overlay)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -1361,7 +1364,7 @@ final class MezonRootController: NavigationController {
                     // Dismissing the profile cancels the pending action.
                 } catch {
                     guard !Task.isCancelled, overlay.viewIfLoaded?.window != nil else { return }
-                    Toast.error(error.localizedDescription)
+                    Toast.error(error.userMessage)
                 }
             }
         }
@@ -1394,7 +1397,7 @@ final class MezonRootController: NavigationController {
                     // Dismissing the profile cancels the pending action.
                 } catch {
                     guard !Task.isCancelled, overlay.viewIfLoaded?.window != nil else { return }
-                    Toast.error(error.localizedDescription)
+                    Toast.error(error.userMessage)
                 }
             }
         }

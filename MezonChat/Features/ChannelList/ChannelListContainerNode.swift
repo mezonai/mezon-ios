@@ -47,38 +47,14 @@ final class ChannelListContainerNode: ASDisplayNode {
     private var channelAppsStripeVisible: Bool { channelAppsLoading || !channelApps.isEmpty }
     private let compactViewThreshold = 3
     private var isCompactView: Bool { channelApps.count <= compactViewThreshold }
-    private lazy var gradientLayer: CAGradientLayer = {
-        let gl = CAGradientLayer()
-        gl.startPoint = CGPoint(x: 0, y: 0)
-        gl.endPoint = CGPoint(x: 1, y: 1)
-        gl.locations = [0.2, 0.4, 0.7, 0.9] as [NSNumber]
-        return gl
-    }()
-
-    private static var shouldUseFlatBackgroundForCurrentTheme: Bool {
-        switch ThemeManager.shared.current {
-        case .dark, .light:
-            return true
-        case .system:
-            let effective = UITraitCollection.current.userInterfaceStyle == .dark ? AppTheme.dark : AppTheme.light
-            switch effective {
-            case .dark, .light:
-                return true
-            default:
-                return false
-            }
-        case .sunrise, .redDark, .purpleHaze, .abyssDark, .sunset:
-            return false
-        }
-    }
+    private let gradientLayer = CAGradientLayer()
+    private let headerGradientLayer = CAGradientLayer()
 
     private var state: ChannelListState = .empty
     private var threadLookup: [Int64: [Mezon_Api_ChannelDescription]] = [:]
 
     private var cachedRows: [Int: [ChannelListRow]] = [:]
 
-    // Keep category titles in Texture's row map so titles and channels commit
-    // together. UIKit section headers have a separate, floating view lifecycle.
     private static let categoryHeaderRowCount = 1
 
     private func channelIndexPath(row: Int, section: Int) -> IndexPath {
@@ -128,10 +104,6 @@ final class ChannelListContainerNode: ASDisplayNode {
         guard clanChanged else { return false }
         headerClanId = clanId
         clanSwitchGeneration &+= 1
-        // A -> B -> A can coalesce back to the state already on screen. Rebind
-        // retained cells to this visit even if the controller emits no new state.
-        // Preserve a newer queued snapshot for this clan, including initial cache
-        // hydration arriving before the header is configured.
         if state.clanId == clanId, latestCoalescedChannelListState?.clanId != clanId {
             enqueueChannelListState(state)
         }
@@ -233,7 +205,6 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private func applyChannelListStateTransition(to newState: ChannelListState) {
-        // A delivered state may still be queued when configure switches clans.
         guard !hasConfiguredClan || newState.clanId == headerClanId else { return }
         let prevState = state
         if let msg = newState.errorMessage, msg != prevState.errorMessage {
@@ -245,6 +216,9 @@ final class ChannelListContainerNode: ASDisplayNode {
             || appliedClanSwitchGeneration != clanSwitchGeneration
         appliedClanSwitchGeneration = clanSwitchGeneration
         state = newState
+        if tableNode.isNodeLoaded {
+            tableNode.view.accessibilityIdentifier = AccessibilityID.Clan.channelList(String(newState.clanId))
+        }
         threadLookup = buildThreadLookup(newState.allChannels)
         cachedRows = [:]
 
@@ -1535,7 +1509,6 @@ final class ChannelListContainerNode: ASDisplayNode {
         applyClanHeaderMetrics(hasBanner: false)
 
         headerUIView.applyTheme()
-        headerUIView.backgroundColor = UIColor.theme.secondary
         headerUIView.onSearchTapped = interaction.onSearchTapped
         headerUIView.onEventTapped = interaction.onEventTapped
         headerUIView.onClanTitleTap = { [weak self] in
@@ -1547,6 +1520,9 @@ final class ChannelListContainerNode: ASDisplayNode {
             height: currentHeaderH)
         view.addSubview(headerUIView)
         headerUIView.layer.zPosition = 100
+        headerUIView.clipsToBounds = true
+        headerUIView.layer.insertSublayer(headerGradientLayer, at: 0)
+        applyHeaderBackground()
 
         newUnreadButton.layer.zPosition = 85
         newUnreadButton.addTarget(self, action: #selector(newUnreadButtonTapped), for: .touchUpInside)
@@ -1558,6 +1534,7 @@ final class ChannelListContainerNode: ASDisplayNode {
     }
 
     private func configureTableNodeView(_ table: ASTableNode) {
+        table.view.accessibilityIdentifier = AccessibilityID.Clan.channelList(String(state.clanId))
         table.backgroundColor = .clear
         table.view.backgroundColor = .clear
         table.view.separatorStyle = .none
@@ -1589,6 +1566,11 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     override func didEnterHierarchy() {
         super.didEnterHierarchy()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        UIColor.theme.desktop.conversationGradient?.updateDirection(on: gradientLayer, in: isNodeLoaded ? view.window : nil)
+        updateHeaderGradientLayout()
+        CATransaction.commit()
         drainPendingVisibleReconcile()
     }
 
@@ -1868,6 +1850,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         gradientLayer.frame = CGRect(origin: .zero, size: layout.size)
+        UIColor.theme.desktop.conversationGradient?.updateDirection(on: gradientLayer, in: isNodeLoaded ? view.window : nil)
         CATransaction.commit()
 
         let topInset: CGFloat = 0
@@ -1912,6 +1895,28 @@ final class ChannelListContainerNode: ASDisplayNode {
         let contentOffsetY = tableNode.view.contentOffset.y
         let headerY = max(0, bannerHeight - contentOffsetY)
         headerUIView.frame = CGRect(x: 0, y: stickyTopOffset + headerY, width: tableNode.bounds.width, height: currentHeaderH)
+        updateHeaderGradientLayout()
+    }
+
+    private func applyHeaderBackground() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        headerUIView.backgroundColor = UIColor.theme.secondary
+        headerGradientLayer.isHidden = gradientLayer.isHidden
+        headerGradientLayer.colors = gradientLayer.colors
+        headerGradientLayer.locations = gradientLayer.locations
+        updateHeaderGradientLayout()
+        CATransaction.commit()
+    }
+
+    private func updateHeaderGradientLayout() {
+        guard isNodeLoaded, !headerGradientLayer.isHidden else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        headerGradientLayer.frame = headerUIView.layer.convert(gradientLayer.bounds, from: gradientLayer)
+        headerGradientLayer.startPoint = gradientLayer.startPoint
+        headerGradientLayer.endPoint = gradientLayer.endPoint
+        CATransaction.commit()
     }
 
     func markClanSwitching() {
@@ -1923,6 +1928,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         onboardingState = .hidden
         memberOnboardingState = .hidden
         headerUIView.clearMemberSubtitleStaleText()
+        headerUIView.updateEventCount(0)
     }
 
     func clearChannelApps() {
@@ -2087,6 +2093,10 @@ final class ChannelListContainerNode: ASDisplayNode {
             }
         }
         committedSectionCount = totalSections
+    }
+
+    func updateEventCount(_ count: Int) {
+        headerUIView.updateEventCount(count)
     }
 
     func configure(clanName: String, clanId: Int64 = 0, logoURL: String? = nil, bannerURL: String? = nil, memberCount: Int = 0, isCommunity: Bool = false) {
@@ -2284,8 +2294,6 @@ final class ChannelListContainerNode: ASDisplayNode {
         if isCompactView {
             return isChannelAppsExpanded ? channelApps.count : 0
         }
-        // The horizontal stripe has no header to expand it again. Keep it
-        // visible if realtime app updates cross the compact-view threshold.
         return 1
     }
 
@@ -2335,19 +2343,18 @@ final class ChannelListContainerNode: ASDisplayNode {
 
     func applyTheme() {
         let t = UIColor.theme
-        let useFlatBackground = Self.shouldUseFlatBackgroundForCurrentTheme
-        gradientLayer.isHidden = useFlatBackground
-        gradientLayer.colors = useFlatBackground ? [t.secondary.cgColor, t.secondary.cgColor] : [
-            t.primaryGradient.cgColor,
-            t.secondary.cgColor,
-            t.secondary.cgColor,
-            t.primaryGradient.cgColor
-        ]
-        backgroundColor = useFlatBackground ? t.secondary : .clear
-        tableNode.backgroundColor = useFlatBackground ? t.secondary : .clear
-        tableNode.view.backgroundColor = useFlatBackground ? t.secondary : .clear
+        let gradient = t.desktop.conversationGradient
         headerUIView.applyTheme()
-        headerUIView.backgroundColor = useFlatBackground ? t.secondary : t.primaryGradient
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        gradientLayer.isHidden = gradient == nil
+        gradient?.apply(to: gradientLayer, in: isNodeLoaded ? view.window : nil)
+        applyHeaderBackground()
+        CATransaction.commit()
+        let listBackground = gradient == nil ? t.secondary : UIColor.clear
+        backgroundColor = listBackground
+        tableNode.backgroundColor = listBackground
+        tableNode.view.backgroundColor = listBackground
         newUnreadButton.backgroundColor = UIColor.mezonUnreadBadge
         newUnreadButton.setTitleColor(.white, for: .normal)
         newUnreadButton.titleLabel?.font = .systemFont(ofSize: 11.sf, weight: .semibold)
@@ -2456,7 +2463,6 @@ final class ChannelListContainerNode: ASDisplayNode {
     private var resolvedVoiceMemberSnapshot: [String: [VoiceMemberDisplay]] = [:]
 
     private func voiceMemberSnapshotKey(for row: ChannelListRow, categoryIndex: Int) -> String {
-        // A voice channel can appear in both Favorites and its own category.
         "\(state.categories[categoryIndex].id):\(Self.rowDiffKey(row))"
     }
 
@@ -2516,8 +2522,6 @@ final class ChannelListContainerNode: ASDisplayNode {
                 let path = channelIndexPath(row: r, section: section)
                 if let node = tableNode.nodeForRow(at: path) as? VoiceMemberExpandedCellNode,
                    let member = displays.first {
-                    // Preserve the avatar image/request when only the name or
-                    // screen-sharing indicator changes.
                     node.update(member: member)
                 } else {
                     paths.append(path)
@@ -2843,7 +2847,7 @@ private final class ChannelListSkeletonCellNode: ASCellNode {
     private func attachShimmers() {
         guard shimmerLayers.isEmpty else { return }
         let base = UIColor.theme.secondaryLight
-        let highlight = UIColor.theme.tertiary
+        let highlight = UIColor.theme.shimmerHighlight(over: base)
         for n in bars {
             let layer = n.layer
             let shimmer = CAGradientLayer()
@@ -3019,7 +3023,7 @@ final class ChannelListHeaderView: UIView {
     }()
 
     private let searchIcon: UIImageView = {
-        let iv = UIImageView(image: UIImage(named: "Channel/Search"))
+        let iv = UIImageView(image: UIImage(named: "Channel/Search")?.withRenderingMode(.alwaysTemplate))
         iv.contentMode = .scaleAspectFit
         iv.translatesAutoresizingMaskIntoConstraints = false
         return iv
@@ -3036,6 +3040,7 @@ final class ChannelListHeaderView: UIView {
 
     private let qrButton: UIButton = {
         let btn = UIButton(type: .system)
+        btn.accessibilityIdentifier = AccessibilityID.ChannelList.scanQR
         btn.setImage(UIImage(named: "Profile/ScanQR")?.withRenderingMode(.alwaysTemplate), for: .normal)
         btn.layer.cornerRadius = 16
         btn.layer.borderWidth = 1
@@ -3046,13 +3051,34 @@ final class ChannelListHeaderView: UIView {
 
     private let eventButton: UIButton = {
         let btn = UIButton(type: .system)
+        btn.accessibilityIdentifier = AccessibilityID.Event.openList
         btn.setImage(
-            UIImage(named: "Channel/Event")?.withRenderingMode(.alwaysOriginal), for: .normal)
+            UIImage(named: "Channel/Event")?.withRenderingMode(.alwaysTemplate), for: .normal)
         btn.layer.cornerRadius = 16
         btn.layer.borderWidth = 1
-        btn.imageEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+        btn.imageEdgeInsets = UIEdgeInsets(top: 7, left: 7, bottom: 7, right: 7)
         btn.translatesAutoresizingMaskIntoConstraints = false
         return btn
+    }()
+
+    private let eventBadgeView: UIView = {
+        let view = UIView()
+        view.backgroundColor = .mezonUnreadBadge
+        view.layer.cornerRadius = 9
+        view.isHidden = true
+        view.isUserInteractionEnabled = false
+        view.accessibilityElementsHidden = true
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+
+    private let eventCountLabel: UILabel = {
+        let label = UILabel()
+        label.font = .systemFont(ofSize: 11, weight: .medium)
+        label.textColor = .white
+        label.textAlignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
     }()
 
     private let separator: UIView = {
@@ -3091,6 +3117,7 @@ final class ChannelListHeaderView: UIView {
         infoRow.alignment = .center
         infoRow.translatesAutoresizingMaskIntoConstraints = false
 
+        searchBar.accessibilityIdentifier = AccessibilityID.ChannelList.search
         searchBar.addSubview(searchIcon)
         searchBar.addSubview(searchLabel)
         let searchTap = UITapGestureRecognizer(target: self, action: #selector(searchBarTapped))
@@ -3098,8 +3125,14 @@ final class ChannelListHeaderView: UIView {
 
         qrButton.addTarget(self, action: #selector(qrTapped), for: .touchUpInside)
         eventButton.addTarget(self, action: #selector(eventTapped), for: .touchUpInside)
+        let eventButtonContainer = UIView()
+        eventButtonContainer.translatesAutoresizingMaskIntoConstraints = false
+        eventButtonContainer.addSubview(eventButton)
+        // Keep the badge above the button layer, which draws its border over its sublayers.
+        eventButtonContainer.addSubview(eventBadgeView)
+        eventBadgeView.addSubview(eventCountLabel)
 
-        let actionRow = UIStackView(arrangedSubviews: [searchBar, qrButton, eventButton])
+        let actionRow = UIStackView(arrangedSubviews: [searchBar, qrButton, eventButtonContainer])
         actionRow.axis = .horizontal
         actionRow.spacing = 8
         actionRow.alignment = .center
@@ -3150,8 +3183,8 @@ final class ChannelListHeaderView: UIView {
             searchBar.heightAnchor.constraint(equalToConstant: 32),
             searchIcon.leadingAnchor.constraint(equalTo: searchBar.leadingAnchor, constant: 12),
             searchIcon.centerYAnchor.constraint(equalTo: searchBar.centerYAnchor),
-            searchIcon.widthAnchor.constraint(equalToConstant: 22),
-            searchIcon.heightAnchor.constraint(equalToConstant: 22),
+            searchIcon.widthAnchor.constraint(equalToConstant: 16),
+            searchIcon.heightAnchor.constraint(equalToConstant: 16),
             searchLabel.centerXAnchor.constraint(equalTo: searchBar.centerXAnchor),
             searchLabel.centerYAnchor.constraint(equalTo: searchBar.centerYAnchor),
 
@@ -3159,6 +3192,17 @@ final class ChannelListHeaderView: UIView {
             qrButton.heightAnchor.constraint(equalToConstant: 32),
             eventButton.widthAnchor.constraint(equalToConstant: 32),
             eventButton.heightAnchor.constraint(equalToConstant: 32),
+            eventButton.topAnchor.constraint(equalTo: eventButtonContainer.topAnchor),
+            eventButton.leadingAnchor.constraint(equalTo: eventButtonContainer.leadingAnchor),
+            eventButton.trailingAnchor.constraint(equalTo: eventButtonContainer.trailingAnchor),
+            eventButton.bottomAnchor.constraint(equalTo: eventButtonContainer.bottomAnchor),
+            eventBadgeView.topAnchor.constraint(equalTo: eventButton.topAnchor, constant: -5),
+            eventBadgeView.trailingAnchor.constraint(equalTo: eventButton.trailingAnchor, constant: 5),
+            eventBadgeView.heightAnchor.constraint(equalToConstant: 18),
+            eventBadgeView.widthAnchor.constraint(greaterThanOrEqualToConstant: 18),
+            eventCountLabel.leadingAnchor.constraint(equalTo: eventBadgeView.leadingAnchor, constant: 4),
+            eventCountLabel.trailingAnchor.constraint(equalTo: eventBadgeView.trailingAnchor, constant: -4),
+            eventCountLabel.centerYAnchor.constraint(equalTo: eventBadgeView.centerYAnchor),
 
             separator.leadingAnchor.constraint(equalTo: leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -3168,6 +3212,12 @@ final class ChannelListHeaderView: UIView {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    func updateEventCount(_ count: Int) {
+        eventBadgeView.isHidden = count == 0
+        eventCountLabel.text = String(count)
+        eventButton.accessibilityLabel = EventDisplayHelper.headerTitle(count: count)
+    }
 
     func setClanBannerVisible(_ visible: Bool) {
         mainStackTopConstraint.constant = visible
@@ -3226,20 +3276,15 @@ final class ChannelListHeaderView: UIView {
         memberCountLabel.textColor = t.textStrong
         communityLabel.textColor = t.textStrong
         searchBar.backgroundColor = t.tertiary
-        searchIcon.tintColor = t.textDisabled
-        searchLabel.textColor = t.textDisabled
-        let currentTheme = ThemeManager.shared.current
-        let effectiveTheme = currentTheme == .system ? (UITraitCollection.current.userInterfaceStyle == .dark ? AppTheme.dark : AppTheme.light) : currentTheme
+        searchIcon.tintColor = t.textNormal
+        searchLabel.textColor = t.textNormal
         qrButton.setImage(UIImage(named: "Profile/ScanQR")?.withRenderingMode(.alwaysTemplate), for: .normal)
-        if effectiveTheme == .light || effectiveTheme == .sunrise {
-            qrButton.tintColor = UIColor(hexString: "#ff6b6f76")
-        } else {
-            qrButton.tintColor = UIColor(hexString: "#fefefe")
-        }
-        
-        qrButton.backgroundColor = t.tertiary
+        qrButton.tintColor = .mezonIconDefault
+
+        qrButton.backgroundColor = t.raisedSurface
         qrButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
-        eventButton.backgroundColor = t.tertiary
+        eventButton.tintColor = .mezonIconDefault
+        eventButton.backgroundColor = t.raisedSurface
         eventButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
         separator.backgroundColor = t.borderDim
     }

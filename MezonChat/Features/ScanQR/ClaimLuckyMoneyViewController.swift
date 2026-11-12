@@ -122,7 +122,6 @@ final class ClaimLuckyMoneyViewController: BaseViewController {
         errorCloseButton.heightAnchor.constraint(equalToConstant: 50).isActive = true
 
         successCheck.translatesAutoresizingMaskIntoConstraints = false
-        successCheck.image = UIImage(systemName: "checkmark.circle.fill")?.withRenderingMode(.alwaysTemplate)
         successCheck.tintColor = UIColor(red: 34/255, green: 197/255, blue: 94/255, alpha: 1)
         successCheck.contentMode = .scaleAspectFit
         successTitleLabel.font = .systemFont(ofSize: 22, weight: .bold)
@@ -204,7 +203,7 @@ final class ClaimLuckyMoneyViewController: BaseViewController {
         noteRowValue.textColor = .mezonTextPrimary
         dateRowValue.textColor = .mezonTextPrimary
         loadingTitleLabel.textColor = .mezonTextPrimary
-        errorCloseButton.backgroundColor = UIColor.theme.tertiary
+        errorCloseButton.backgroundColor = UIColor.theme.raisedSurface
         errorCloseButton.setTitleColor(.mezonTextPrimary, for: .normal)
     }
 
@@ -253,6 +252,7 @@ final class ClaimLuckyMoneyViewController: BaseViewController {
 
         case .preview(let data):
             loadingIndicator.stopAnimating()
+            successCheck.image = UIImage(named: "Profile/LuckyMoneyGiftIcon")?.withRenderingMode(.alwaysTemplate)
             previewData = data
             successTitleLabel.text = L(L10n.QRScanner.luckyMoneyCongratulations)
             successCheck.alpha = 1
@@ -270,6 +270,7 @@ final class ClaimLuckyMoneyViewController: BaseViewController {
 
         case .claimed(let data):
             loadingIndicator.stopAnimating()
+            successCheck.image = UIImage(systemName: "checkmark.circle.fill")?.withRenderingMode(.alwaysTemplate)
             applyRewardDetails(from: data)
             successTitleLabel.text = L(L10n.QRScanner.luckyMoneyClaimSuccess)
             successCheck.alpha = 0
@@ -312,7 +313,7 @@ final class ClaimLuckyMoneyViewController: BaseViewController {
 
     private func makeCardStack(arrangedSubviews: [UIView], spacing: CGFloat) -> UIView {
         let wrap = UIView()
-        wrap.backgroundColor = UIColor.theme.tertiary
+        wrap.backgroundColor = UIColor.theme.raisedSurface
         wrap.layer.cornerRadius = 16
         wrap.layer.masksToBounds = true
         let s = UIStackView(arrangedSubviews: arrangedSubviews)
@@ -441,7 +442,7 @@ final class ClaimLuckyMoneyViewController: BaseViewController {
             let data = try await MmnRedEnvelopeClient.claimAmount(luckyMoneyId: luckyMoneyId, userId: uid)
             showState(.preview(data))
         } catch {
-            showState(.error(error.localizedDescription))
+            showState(.error(error.userMessage(fallback: L(L10n.QRScanner.luckyMoneyClaimFailed))))
         }
     }
 
@@ -473,7 +474,7 @@ final class ClaimLuckyMoneyViewController: BaseViewController {
             } catch {
                 await MainActor.run {
                     setClaimBusy(false)
-                    showState(.error(error.localizedDescription))
+                    showState(.error(error.userMessage(fallback: L(L10n.QRScanner.luckyMoneyClaimFailed))))
                 }
             }
         }

@@ -58,47 +58,39 @@ enum MessageAction: CaseIterable {
         }
     }
 
-    var iconImageName: String? {
+    var iconImageName: String {
         switch self {
-        case .giveACoffee:      return "Chat/GiveCoffeeIcon"
+        case .giveACoffee:      return "Chat/SendMoneyIcon"
         case .reply:            return "Chat/IconArrowLeftUp"
         case .forwardMessage:   return "Chat/IconArrowRightUp"
         case .forwardAll:       return "Chat/IconForwardAll"
-        case .createThread:     return nil
+        case .createThread:     return "Chat/ThreadAdd"
         case .copyText:         return "Chat/IconCopy"
-        case .shareText:        return nil
-        case .saveImage, .saveVideo, .copyImageLink, .copyVideoLink, .shareImage: return nil
-        case .copyImage:        return "Chat/IconCopy"
-        case .addToInbox:       return nil
+        case .shareText, .shareImage: return "Channel/EventShare"
+        case .saveImage, .saveVideo: return "Chat/IconDownload"
+        case .copyImageLink, .copyVideoLink: return "ChannelSetting/CopyLinkIcon"
+        case .copyImage:        return "Chat/Image"
+        case .addToInbox:       return "Chat/Inbox"
         case .markUnread:       return "Chat/IconMarkUnread"
-        case .topicDiscussion:  return nil
-        case .pinMessage:       return "Chat/IconPin"
-        case .unpinMessage:     return nil
+        case .topicDiscussion:  return "Chat/TopicIcon"
+        case .pinMessage:       return "Chat/DmPinIcon"
+        case .unpinMessage:     return "Chat/DmUnpinIcon"
         case .markMessage:      return "Chat/IconStar"
-        case .quickMenu:        return nil
-        case .editMessage:      return nil
+        case .quickMenu:        return "ChannelSetting/QuickActionIcon"
+        case .editMessage:      return "Channel/EventEdit"
         case .deleteMessage:    return "Chat/IconTrash"
-        case .report:           return nil
-        case .resend:           return nil
+        case .report:           return "Chat/ReportFlag"
+        case .resend:           return "Chat/ResendIcon"
         case .forward:          return "Chat/IconArrowRightUp"
         }
     }
 
-    var sfSymbolName: String? {
+    var usesDefaultIconTint: Bool {
         switch self {
-        case .createThread:     return "square.and.pencil"
-        case .saveImage, .saveVideo: return "square.and.arrow.down"
-        case .copyImageLink, .copyVideoLink: return "link"
-        case .shareImage:       return "square.and.arrow.up"
-        case .shareText:        return "square.and.arrow.up"
-        case .addToInbox:       return "tray.and.arrow.down"
-        case .topicDiscussion:  return "text.bubble"
-        case .quickMenu:       return "bolt.fill"
-        case .unpinMessage:     return "pin.slash"
-        case .editMessage:      return "pencil"
-        case .report:           return "flag.fill"
-        case .resend:           return "arrow.clockwise"
-        default:                return nil
+        case .giveACoffee, .createThread, .topicDiscussion, .pinMessage, .unpinMessage:
+            return true
+        default:
+            return false
         }
     }
 
@@ -459,6 +451,9 @@ private final class MessageActionSheetNode: ASDisplayNode {
         scrollView.delaysContentTouches = true
         scrollView.bounces = true
         containerNode.view.addSubview(scrollView)
+        
+        containerNode.accessibilityElements = [scrollView]
+        scrollView.accessibilityIdentifier = AccessibilityID.Chat.messageMenu
 
         dragToDismissView.backgroundColor = .clear
         containerNode.view.addSubview(dragToDismissView)
@@ -628,6 +623,8 @@ private final class MessageActionSheetNode: ASDisplayNode {
             btn.layer.cornerRadius = btnSize / 2
             btn.clipsToBounds = true
             btn.tag = idx
+            btn.accessibilityIdentifier = AccessibilityID.Chat.quickReaction(emoji.id)
+            btn.accessibilityLabel = emoji.shortname
 
             if let url = MezonConfig.emojiResourceURL(emojiId: emoji.id, imgproxyFitSide: 40) {
                 loadEmojiImage(url: url, into: btn)
@@ -643,14 +640,15 @@ private final class MessageActionSheetNode: ASDisplayNode {
         pickerBtn.backgroundColor = t.secondary
         pickerBtn.layer.cornerRadius = btnSize / 2
         pickerBtn.clipsToBounds = true
+        let pickerIconSize: CGFloat = 22
         let smiley: UIImage
         if let pdf = UIImage(named: "Chat/FaceIcon") {
-            smiley = resizedEmoji(pdf)
+            smiley = resizedEmoji(pdf, size: pickerIconSize)
         } else {
-            let symCfg = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
+            let symCfg = UIImage.SymbolConfiguration(pointSize: pickerIconSize, weight: .medium)
             smiley = UIImage(systemName: "face.smiling", withConfiguration: symCfg) ?? UIImage()
         }
-        pickerBtn.setImage(smiley, for: .normal)
+        pickerBtn.setImage(smiley.withRenderingMode(.alwaysTemplate), for: .normal)
         pickerBtn.tintColor = t.textStrong
         pickerBtn.addTarget(self, action: #selector(fullEmojiPickerTapped), for: .touchUpInside)
         scrollView.addSubview(pickerBtn)
@@ -684,8 +682,8 @@ private final class MessageActionSheetNode: ASDisplayNode {
         }.resume()
     }
 
-    private func resizedEmoji(_ img: UIImage) -> UIImage {
-        let sz = CGSize(width: 28, height: 28)
+    private func resizedEmoji(_ img: UIImage, size: CGFloat = 28) -> UIImage {
+        let sz = CGSize(width: size, height: size)
         return UIGraphicsImageRenderer(size: sz).image { _ in
             img.draw(in: CGRect(origin: .zero, size: sz))
         }
@@ -708,7 +706,7 @@ private final class MessageActionSheetNode: ASDisplayNode {
             if i < actions.count - 1 {
                 let sepX: CGFloat = isWarning ? 58 : 52
                 let sep = UIView(frame: CGRect(x: sepX, y: rowY + rowH - 0.5, width: contentW - sepX - 16, height: 0.5))
-                sep.backgroundColor = t.tertiary
+                sep.backgroundColor = t.border
                 bg.addSubview(sep)
             }
         }
@@ -717,17 +715,8 @@ private final class MessageActionSheetNode: ASDisplayNode {
     private func buildActionRow(_ action: MessageAction, in parent: UIView, at y: CGFloat, width: CGFloat, height: CGFloat, isWarning: Bool = false) {
         let t = UIColor.theme
         let textColor = action.isDestructive ? UIColor.systemRed : t.textStrong
-        let iconTint = action.isDestructive ? UIColor.systemRed : t.textStrong
 
-        let useOriginalIconColor = action == .giveACoffee
-        var iconImage: UIImage?
-        if let assetName = action.iconImageName {
-            iconImage = UIImage(named: assetName)?
-                .withRenderingMode(useOriginalIconColor ? .alwaysOriginal : .alwaysTemplate)
-        } else if let sfName = action.sfSymbolName {
-            let config = UIImage.SymbolConfiguration(pointSize: isWarning ? 14 : 20, weight: .medium)
-            iconImage = UIImage(systemName: sfName, withConfiguration: config)
-        }
+        let iconImage = UIImage(named: action.iconImageName)?.withRenderingMode(.alwaysTemplate)
 
         var labelX: CGFloat
 
@@ -737,12 +726,12 @@ private final class MessageActionSheetNode: ASDisplayNode {
             let circleX: CGFloat = 12
             let circleY = y + (height - circleSize) / 2
             let circleView = UIView(frame: CGRect(x: circleX, y: circleY, width: circleSize, height: circleSize))
-            circleView.backgroundColor = t.tertiary
+            circleView.backgroundColor = t.raisedSurface
             circleView.layer.cornerRadius = circleSize / 2
             circleView.clipsToBounds = true
             parent.addSubview(circleView)
 
-            let innerIconSize: CGFloat = 16
+            let innerIconSize: CGFloat = 18
             let iconView = UIImageView(frame: CGRect(
                 x: (circleSize - innerIconSize) / 2,
                 y: (circleSize - innerIconSize) / 2,
@@ -750,7 +739,7 @@ private final class MessageActionSheetNode: ASDisplayNode {
                 height: innerIconSize
             ))
             iconView.contentMode = .scaleAspectFit
-            iconView.tintColor = useOriginalIconColor ? nil : iconTint
+            iconView.tintColor = textColor
             iconView.image = iconImage
             circleView.addSubview(iconView)
 
@@ -759,7 +748,7 @@ private final class MessageActionSheetNode: ASDisplayNode {
             let iconX: CGFloat = 16
             let iconView = UIImageView(frame: CGRect(x: iconX, y: y + (height - iconSize) / 2, width: iconSize, height: iconSize))
             iconView.contentMode = .scaleAspectFit
-            iconView.tintColor = useOriginalIconColor ? nil : iconTint
+            iconView.tintColor = action.usesDefaultIconTint ? .mezonIconDefault : textColor
             iconView.image = iconImage
             parent.addSubview(iconView)
 
@@ -768,11 +757,19 @@ private final class MessageActionSheetNode: ASDisplayNode {
 
         let label = UILabel(frame: CGRect(x: labelX, y: y, width: width - labelX - 16, height: height))
         label.text = action.title
+        label.isAccessibilityElement = false
         label.font = .systemFont(ofSize: 16)
         label.textColor = textColor
         parent.addSubview(label)
 
         let btn = ActionButton(type: .system)
+        btn.accessibilityLabel = action.title
+        switch action {
+        case .reply: btn.accessibilityIdentifier = AccessibilityID.Chat.replyAction
+        case .editMessage: btn.accessibilityIdentifier = AccessibilityID.Chat.editAction
+        case .deleteMessage: btn.accessibilityIdentifier = AccessibilityID.Chat.deleteAction
+        default: break
+        }
         btn.frame = CGRect(x: 0, y: y, width: width, height: height)
         btn.actionHandler = { [weak self] in
             self?.onAction(action)
@@ -881,7 +878,7 @@ private final class QuickMenuPickerSheetNode: ASDisplayNode {
         dimmingNode.backgroundColor = UIColor.black.withAlphaComponent(0.4)
         dimmingNode.alpha = 0
 
-        containerNode.backgroundColor = t.primary
+        containerNode.backgroundColor = t.desktop[.bgThemeContexify]
         containerNode.cornerRadius = 14
         containerNode.clipsToBounds = true
 
@@ -1051,7 +1048,7 @@ private final class QuickMenuPickerRow: UIControl {
 
     init(name: String, showsSeparator: Bool) {
         let t = UIColor.theme
-        highlightColor = t.tertiary
+        highlightColor = t.raisedSurface
         super.init(frame: .zero)
 
         iconBackground.backgroundColor = QuickActionPalette.typeBadge.withAlphaComponent(0.18)

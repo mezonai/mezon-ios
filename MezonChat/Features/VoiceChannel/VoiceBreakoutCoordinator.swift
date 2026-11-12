@@ -269,7 +269,7 @@ final class VoiceBreakoutCoordinator {
                 // A realtime reconnect invalidates the request, not the invite.
                 guard socket.isConnected, socket.connectionGeneration == generation else { return }
                 self.acceptedChannelId = nil
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage(fallback: L("voiceChannel.breakout.unavailable")))
             }
         }
     }

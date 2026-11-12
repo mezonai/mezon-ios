@@ -1,12 +1,16 @@
 {
-  "images" : [
+  "images": [
     {
-      "filename" : "BanIcon.pdf",
-      "idiom" : "universal"
+      "filename": "BanIcon.pdf",
+      "idiom": "universal"
     }
   ],
-  "info" : {
-    "author" : "xcode",
-    "version" : 1
+  "info": {
+    "author": "xcode",
+    "version": 1
+  },
+  "properties": {
+    "preserves-vector-representation": true,
+    "template-rendering-intent": "template"
   }
 }

@@ -39,10 +39,10 @@ private enum VideoPlaybackBufferPolicy {
 private final class ChunkedVideoResourceLoader: NSObject, AVAssetResourceLoaderDelegate {
     // Larger HTTP ranges avoid repeated round trips; delegate callbacks still
     // deliver the first bytes immediately, without waiting for a whole chunk.
-    private static let chunkSize = 512 * 1024
+    private static let chunkSize = VideoRangeCache.chunkSize
     private static let cacheLimit = 4 * 1024 * 1024
-    private static let diskCacheLimit = 128 * 1024 * 1024
     private static let maxConcurrentTransfers = 2
+    static let httpErrorDomain = "MezonVideoRangeHTTP"
 
     private final class Transfer {
         let offset: Int64
@@ -65,19 +65,19 @@ private final class ChunkedVideoResourceLoader: NSObject, AVAssetResourceLoaderD
 
     // URLSession retains its delegate. A weak owner lets closing the player
     // release this loader and cancel all transfers, even during a slow response.
-    private final class SessionDelegate: NSObject, URLSessionDataDelegate {
+    private final class SessionDelegate: VideoRangeTaskHandler {
         weak var owner: ChunkedVideoResourceLoader?
 
-        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+        func videoRangeTask(_ task: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
             guard let owner else { completionHandler(.cancel); return }
-            owner.receive(response, for: dataTask, completionHandler: completionHandler)
+            owner.receive(response, for: task, completionHandler: completionHandler)
         }
 
-        func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-            owner?.receive(data, for: dataTask)
+        func videoRangeTask(_ task: URLSessionDataTask, didReceive data: Data) {
+            owner?.receive(data, for: task)
         }
 
-        func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        func videoRangeTask(_ task: URLSessionTask, didCompleteWithError error: Error?) {
             owner?.complete(task, error: error)
         }
     }
@@ -85,8 +85,8 @@ private final class ChunkedVideoResourceLoader: NSObject, AVAssetResourceLoaderD
     let queue = DispatchQueue(label: "mezon.video.chunked-loader", qos: .userInitiated)
     let assetURL: URL?
     private let remoteURL: URL
+    private let cacheKey: String
     private let sessionDelegate = SessionDelegate()
-    private var session: URLSession!
     private var requests: [ObjectIdentifier: AVAssetResourceLoadingRequest] = [:]
     private var transfers: [Int64: Transfer] = [:]
     private var tasks: [Int: Transfer] = [:]
@@ -94,48 +94,34 @@ private final class ChunkedVideoResourceLoader: NSObject, AVAssetResourceLoaderD
     private var cache: [Int64: Data] = [:]
     private var cacheOrder: [Int64] = []
     private var cachedBytes = 0
-    private var cacheFileURL: URL?
-    private var cacheFile: FileHandle?
-    // A sparse file may contain holes; only these contiguous chunk prefixes
-    // contain received bytes and are safe to return to AVPlayer.
-    private var diskChunkLengths: [Int64: Int] = [:]
-    private var diskCachedBytes = 0
+    private var usesDiskCache = true
     private var failedPrefetchOffsets = Set<Int64>()
+    private let receivedBytesLock = NSLock()
+    private var receivedBytes: Int64 = 0
 
-    init(remoteURL: URL, configuration: URLSessionConfiguration = .ephemeral, initialData: Data? = nil, initialResponse: HTTPURLResponse? = nil, cacheDirectory: URL = FileManager.default.temporaryDirectory) {
+    var receivedByteCount: Int64 {
+        receivedBytesLock.lock()
+        defer { receivedBytesLock.unlock() }
+        return receivedBytes
+    }
+
+    init(remoteURL: URL, cacheKey: String) {
         self.remoteURL = remoteURL
+        self.cacheKey = cacheKey
         var components = URLComponents(url: remoteURL, resolvingAgainstBaseURL: false)
         components?.scheme = "mezon-stream"
         self.assetURL = components?.url
         super.init()
-        let fileURL = cacheDirectory.appendingPathComponent("mezon-video-range-\(UUID().uuidString).cache")
-        if #available(iOS 13.4, *), FileManager.default.createFile(atPath: fileURL.path, contents: nil) {
-            do {
-                cacheFile = try FileHandle(forUpdating: fileURL)
-                cacheFileURL = fileURL
-            } catch {
-                try? FileManager.default.removeItem(at: fileURL)
-            }
-        }
-        if let data = initialData, !data.isEmpty, data.count <= Self.chunkSize,
-           let response = initialResponse, response.statusCode == 206,
-           let header = response.value(forHTTPHeaderField: "Content-Range"),
-           let range = Self.parseContentRange(header),
-           range.start == 0, range.end == Int64(data.count) - 1 {
-            contentLength = range.total
-            storeInCache(data, at: 0)
-        }
         sessionDelegate.owner = self
-        let delegateQueue = OperationQueue()
-        delegateQueue.maxConcurrentOperationCount = 1
-        delegateQueue.underlyingQueue = queue
-        configuration.httpMaximumConnectionsPerHost = Self.maxConcurrentTransfers
-        session = URLSession(configuration: configuration, delegate: sessionDelegate, delegateQueue: delegateQueue)
+        queue.async { [self] in
+            VideoRangeCache.shared.retain(cacheKey)
+            contentLength = VideoRangeCache.shared.contentLength(for: cacheKey)
+        }
     }
 
     deinit {
-        session.invalidateAndCancel()
-        discardDiskCache()
+        transfers.values.forEach { $0.task?.cancel() }
+        VideoRangeCache.shared.release(cacheKey)
     }
 
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader, shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest) -> Bool {
@@ -249,7 +235,8 @@ private final class ChunkedVideoResourceLoader: NSObject, AVAssetResourceLoaderD
 
     private func isChunkCached(at offset: Int64) -> Bool {
         guard let length = contentLength, offset < length else { return false }
-        let count = max(transfers[offset]?.data.count ?? 0, max(cache[offset]?.count ?? 0, diskChunkLengths[offset] ?? 0))
+        let diskCount = usesDiskCache ? VideoRangeCache.shared.chunkLength(at: offset, for: cacheKey) : 0
+        let count = max(transfers[offset]?.data.count ?? 0, max(cache[offset]?.count ?? 0, diskCount))
         return Int64(count) >= min(Int64(Self.chunkSize), length - offset)
     }
 
@@ -270,7 +257,7 @@ private final class ChunkedVideoResourceLoader: NSObject, AVAssetResourceLoaderD
         request.setValue("bytes=\(transfer.nextOffset)-\(transfer.end)", forHTTPHeaderField: "Range")
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
         transfer.responseEnd = nil
-        let task = session.dataTask(with: request)
+        let task = VideoRangeSession.shared.dataTask(with: request, handler: sessionDelegate, queue: queue)
         task.priority = transfer.priority
         transfer.task = task
         tasks[task.taskIdentifier] = transfer
@@ -282,12 +269,22 @@ private final class ChunkedVideoResourceLoader: NSObject, AVAssetResourceLoaderD
         guard let http = response as? HTTPURLResponse,
               http.statusCode == 206,
               let header = http.value(forHTTPHeaderField: "Content-Range"),
-              let range = Self.parseContentRange(header),
+              let range = VideoRangeCache.parseContentRange(header),
               range.start == transfer.nextOffset, range.end <= transfer.end,
               contentLength == nil || contentLength == range.total,
               response.expectedContentLength < 0 || response.expectedContentLength == range.end - range.start + 1 else {
             completionHandler(.cancel)
-            fail(transfer, error: URLError(.badServerResponse))
+            if let header = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Range"),
+               let total = VideoRangeCache.parseContentRange(header)?.total,
+               let contentLength, total != contentLength {
+                usesDiskCache = false
+                VideoRangeCache.shared.remove(cacheKey)
+            }
+            if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
+                fail(transfer, error: NSError(domain: Self.httpErrorDomain, code: http.statusCode))
+            } else {
+                fail(transfer, error: URLError(.badServerResponse))
+            }
             return
         }
         contentLength = range.total
@@ -304,6 +301,9 @@ private final class ChunkedVideoResourceLoader: NSObject, AVAssetResourceLoaderD
             return
         }
         transfer.data.append(data)
+        receivedBytesLock.lock()
+        receivedBytes += Int64(data.count)
+        receivedBytesLock.unlock()
         processRequests()
     }
 
@@ -372,56 +372,14 @@ private final class ChunkedVideoResourceLoader: NSObject, AVAssetResourceLoaderD
 
     private func cachedData(at offset: Int64) -> Data? {
         if let data = cache[offset] { return data }
-        guard #available(iOS 13.4, *) else { return nil }
-        guard let length = diskChunkLengths[offset], let file = cacheFile else { return nil }
-        do {
-            try file.seek(toOffset: UInt64(offset))
-            guard let data = try file.read(upToCount: length), data.count == length else {
-                discardDiskCache()
-                return nil
-            }
-            storeInCache(data, at: offset)
-            return data
-        } catch {
-            // Disk caching is optional; continue using the bounded RAM cache.
-            discardDiskCache()
-            return nil
-        }
+        guard usesDiskCache, let data = VideoRangeCache.shared.data(at: offset, for: cacheKey) else { return nil }
+        storeInCache(data, at: offset)
+        return data
     }
 
     private func persistToDisk(_ data: Data, at offset: Int64) {
-        guard #available(iOS 13.4, *) else { return }
-        let savedLength = diskChunkLengths[offset] ?? 0
-        guard let file = cacheFile, data.count > savedLength,
-              diskCachedBytes + data.count - savedLength <= Self.diskCacheLimit else { return }
-        do {
-            try file.seek(toOffset: UInt64(offset) + UInt64(savedLength))
-            try file.write(contentsOf: data.subdata(in: savedLength..<data.count))
-            diskChunkLengths[offset] = data.count
-            diskCachedBytes += data.count - savedLength
-        } catch {
-            discardDiskCache()
-        }
-    }
-
-    private func discardDiskCache() {
-        try? cacheFile?.close()
-        cacheFile = nil
-        if let url = cacheFileURL { try? FileManager.default.removeItem(at: url) }
-        cacheFileURL = nil
-        diskChunkLengths.removeAll()
-        diskCachedBytes = 0
-    }
-
-    private static func parseContentRange(_ header: String) -> (start: Int64, end: Int64, total: Int64)? {
-        let parts = header.split(separator: " ")
-        guard parts.count == 2, parts[0].lowercased() == "bytes" else { return nil }
-        let lengths = parts[1].split(separator: "/")
-        guard lengths.count == 2, let total = Int64(lengths[1]), total > 0 else { return nil }
-        let bounds = lengths[0].split(separator: "-", omittingEmptySubsequences: false)
-        guard bounds.count == 2, let start = Int64(bounds[0]), let end = Int64(bounds[1]),
-              start >= 0, start <= end, end < total else { return nil }
-        return (start, end, total)
+        guard usesDiskCache, let contentLength else { return }
+        VideoRangeCache.shared.store(data, at: offset, contentLength: contentLength, for: cacheKey)
     }
 }
 
@@ -447,20 +405,32 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     private var isScrubbing = false
     private var scrubGeneration = 0
     private let bufferingSpinner = UIActivityIndicatorView(style: .large)
+    private let bufferingProgressLabel = UILabel()
     private var isBuffering = false
-    private var wantsPlayback = false
+    private var wantsPlayback = false {
+        didSet { updatePrefetchPause() }
+    }
+    private var holdsPrefetchPause = false
     private var hasStartedPlayback = false
     private var readyWaitingSince: TimeInterval?
     private var bufferBaseline: (time: TimeInterval, seconds: Double)?
     private var lastImmediatePlaybackAttempt: TimeInterval?
     private var bufferingMonitor: Foundation.Timer?
+    private var stallWatchdog: Foundation.Timer?
+    private var playbackWatchdog: VideoPlaybackWatchdog?
+    private var didReloadStalledPlaylist = false
 
     private var controlsHideTimer: Foundation.Timer?
     private var areControlsVisible = true
 
     private let seekDelta: Double = 15.0
-    
+    private static let endStallTolerance: Double = 1.0
+    private static let endStallGrace: TimeInterval = 1.0
+    private static let endStallTimeout: TimeInterval = 3.0
+    private static let loadedToEndTolerance: Double = 0.5
+
     private var sourceURL: URL?
+    private var attachedCacheFile: URL?
     private var chunkedLoader: ChunkedVideoResourceLoader?
     private var errorOverlayNode: ASDisplayNode?
     private var growingPlaylistURL: URL?
@@ -473,11 +443,31 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     private var starvingSince: TimeInterval?
 
     var setOverlayVisible: ((Bool) -> Void)?
-    var onPlaybackFailed: (() -> Void)?
+    var onPlaybackFailed: ((Error?) -> Bool)?
     var setPagingEnabled: ((Bool) -> Void)?
-    var isPlaying: Bool {
-        guard let player else { return false }
-        return player.rate != 0 || player.timeControlStatus != .paused
+    var startPosition: Double = 0
+    var isPlaying: Bool { wantsPlayback }
+    var localFileURL: URL? { sourceURL?.isFileURL == true ? sourceURL : nil }
+    var hasRenderedVideo: Bool { playerLayer?.isReadyForDisplay == true }
+    var playbackPosition: Double {
+        if startPosition > 0 { return startPosition }
+        return currentPosition
+    }
+
+    private var currentPosition: Double {
+        let seconds = player?.currentTime().seconds ?? 0
+        return seconds.isFinite ? max(0, seconds) : 0
+    }
+
+    var isCDNAccessDenied: Bool {
+        let item = player?.currentItem
+        if item?.errorLog()?.events.last?.errorStatusCode == 403 { return true }
+        var error = item?.error as NSError?
+        while let current = error {
+            if current.domain == ChunkedVideoResourceLoader.httpErrorDomain, current.code == 403 { return true }
+            error = current.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        return false
     }
     var controlsBottomInset: CGFloat = 0 {
         didSet {
@@ -486,18 +476,19 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         }
     }
 
-    convenience init(url: URL, posterURL: String, usesChunkedLoading: Bool = false, initialData: Data? = nil, initialResponse: HTTPURLResponse? = nil) {
-        let loader = usesChunkedLoading ? ChunkedVideoResourceLoader(remoteURL: url, initialData: initialData, initialResponse: initialResponse) : nil
+    convenience init(url: URL, posterURL: String, cacheKey: String? = nil, usesChunkedLoading: Bool = false) {
+        let loader = usesChunkedLoading ? ChunkedVideoResourceLoader(remoteURL: url, cacheKey: cacheKey ?? url.absoluteString) : nil
         let asset = AVURLAsset(url: loader?.assetURL ?? url, options: [
             AVURLAssetPreferPreciseDurationAndTimingKey: false
         ])
         if let loader {
             asset.resourceLoader.setDelegate(loader, queue: loader.queue)
         }
-        let item = AVPlayerItem(asset: asset, automaticallyLoadedAssetKeys: ["playable", "tracks"])
+        let item = AVPlayerItem(asset: asset, automaticallyLoadedAssetKeys: ["playable"])
         self.init(playerItem: item, posterURL: posterURL)
         self.chunkedLoader = loader
         self.sourceURL = url
+        if url.isFileURL, VLCVideoPlayerNode.retainCachedFile(url) { attachedCacheFile = url }
     }
 
     convenience init(growingPlaylistURL: URL, posterURL: String) {
@@ -552,6 +543,12 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         centerOverlayNode.addSubnode(centerPlayPauseButton)
         centerOverlayNode.addSubnode(seekForwardButton)
 
+        centerPlayPauseButton.accessibilityIdentifier = AccessibilityID.Video.playPause
+        seekBackwardButton.accessibilityIdentifier = AccessibilityID.Video.seekBackward
+        seekBackwardButton.accessibilityLabel = "Back 15 seconds"
+        seekForwardButton.accessibilityIdentifier = AccessibilityID.Video.seekForward
+        seekForwardButton.accessibilityLabel = "Forward 15 seconds"
+
         centerPlayPauseButton.addTarget(self, action: #selector(playPauseTapped), forControlEvents: .touchUpInside)
         seekBackwardButton.addTarget(self, action: #selector(seekBackwardTapped), forControlEvents: .touchUpInside)
         seekForwardButton.addTarget(self, action: #selector(seekForwardTapped), forControlEvents: .touchUpInside)
@@ -564,9 +561,12 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         let bottomConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .regular)
         bottomPlayPauseButton.setImage(UIImage(systemName: "play.fill", withConfiguration: bottomConfig), for: .normal)
         bottomPlayPauseButton.imageNode.installSafeWhiteTint()
+        bottomPlayPauseButton.accessibilityIdentifier = AccessibilityID.Video.scrubberPlayPause
         bottomPlayPauseButton.addTarget(self, action: #selector(playPauseTapped), forControlEvents: .touchUpInside)
 
 
+        self.timeSlider.accessibilityIdentifier = AccessibilityID.Video.scrubber
+        self.timeSlider.accessibilityLabel = "Playback position"
         self.timeSlider.minimumTrackTintColor = .white
         self.timeSlider.maximumTrackTintColor = UIColor.white.withAlphaComponent(0.3)
         self.timeSlider.thumbTintColor = .white
@@ -601,9 +601,22 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         self.view.addGestureRecognizer(tap)
 
         scrubberBarNode.view.addSubview(timeSlider)
+        bufferingSpinner.accessibilityIdentifier = AccessibilityID.Video.loading
+        bufferingSpinner.accessibilityLabel = "Loading video"
+        bufferingSpinner.isAccessibilityElement = true
+        bufferingProgressLabel.accessibilityIdentifier = AccessibilityID.Video.progress
         bufferingSpinner.color = .white
         bufferingSpinner.hidesWhenStopped = true
         view.addSubview(bufferingSpinner)
+        bufferingProgressLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
+        bufferingProgressLabel.textColor = .white
+        bufferingProgressLabel.textAlignment = .center
+        bufferingProgressLabel.layer.shadowColor = UIColor.black.cgColor
+        bufferingProgressLabel.layer.shadowOpacity = 0.6
+        bufferingProgressLabel.layer.shadowRadius = 2
+        bufferingProgressLabel.layer.shadowOffset = .zero
+        bufferingProgressLabel.isHidden = true
+        view.addSubview(bufferingProgressLabel)
         updateBufferingIndicator()
         resetControlsTimer()
     }
@@ -638,6 +651,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
                 guard layer.isReadyForDisplay else { return }
                 DispatchQueue.main.async {
                     self?.posterNode.isHidden = true
+                    self?.refreshBufferingIndicator()
                     self?.startPlaybackIfBuffered()
                 }
             }
@@ -645,12 +659,10 @@ final class MezonVideoPlayerNode: ASDisplayNode {
 
 
         timeControlObserver = avPlayer.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] player, _ in
-            let didStartPlaying = player.timeControlStatus == .playing
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.isBuffering = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
-                if didStartPlaying { self.hasStartedPlayback = true }
-                if self.isNodeLoaded { self.updateBufferingIndicator() }
+                if player.timeControlStatus == .playing { self.hasStartedPlayback = true }
+                self.refreshBufferingIndicator()
                 self.startPlaybackIfBuffered()
             }
         }
@@ -666,36 +678,37 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     private func observe(_ playerItem: AVPlayerItem) {
         loadedRangesObserver = playerItem.observe(\.loadedTimeRanges, options: [.new]) { [weak self] _, _ in
             DispatchQueue.main.async {
+                self?.updateBufferingProgress()
+                self?.updatePrefetchPause()
                 self?.startPlaybackIfBuffered()
             }
         }
 
-        NotificationCenter.default.addObserver(self, selector: #selector(playerDidFinishPlaying), name: .AVPlayerItemDidPlayToEndTime, object: playerItem)
+        NotificationCenter.default.addObserver(self, selector: #selector(playerDidFinishPlaying(_:)), name: .AVPlayerItemDidPlayToEndTime, object: playerItem)
+        NotificationCenter.default.addObserver(self, selector: #selector(playerItemFailedToPlayToEnd(_:)), name: .AVPlayerItemFailedToPlayToEndTime, object: playerItem)
 
 
         statusObserver = playerItem.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
-            if item.status == .readyToPlay {
-                let duration = item.duration.seconds
-                let tracks = item.tracks.compactMap(\.assetTrack)
-                let bitrate = tracks.reduce(0.0) { $0 + max(0, Double($1.estimatedDataRate)) }
-                let videoSize = tracks.first(where: { $0.mediaType == .video })?.naturalSize ?? .zero
-                if duration.isFinite {
-                    DispatchQueue.main.async {
-                        self?.timeSlider.maximumValue = Float(duration)
-                        self?.durationLabel.attributedText = NSAttributedString(
-                            string: self?.formatTime(duration) ?? "0:00",
+            DispatchQueue.main.async {
+                guard let self, self.player?.currentItem === item else { return }
+                switch item.status {
+                case .readyToPlay:
+                    let duration = item.duration.seconds
+                    if duration.isFinite {
+                        self.timeSlider.maximumValue = Float(duration)
+                        self.durationLabel.attributedText = NSAttributedString(
+                            string: self.formatTime(duration),
                             attributes: [.font: UIFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular), .foregroundColor: UIColor.white]
                         )
-                        self?.setNeedsLayout()
+                        self.setNeedsLayout()
                     }
-                }
-                DispatchQueue.main.async {
-                    self?.growingPlaylistBecameReady()
-                    self?.startPlaybackIfBuffered()
-                }
-            } else if item.status == .failed {
-                DispatchQueue.main.async {
-                    self?.showErrorOverlay(error: item.error)
+                    self.applyStartPosition(to: item)
+                    self.growingPlaylistBecameReady()
+                    self.startPlaybackIfBuffered()
+                case .failed:
+                    self.showErrorOverlay(error: item.error)
+                default:
+                    break
                 }
             }
         }
@@ -706,24 +719,28 @@ final class MezonVideoPlayerNode: ASDisplayNode {
             player?.removeTimeObserver(observer)
         }
         player?.pause()
+        if let attachedCacheFile { VLCVideoPlayerNode.releaseCachedFile(attachedCacheFile) }
         controlsHideTimer?.invalidate()
         statusObserver?.invalidate()
         timeControlObserver?.invalidate()
         readyForDisplayObserver?.invalidate()
         loadedRangesObserver?.invalidate()
         bufferingMonitor?.invalidate()
+        stallWatchdog?.invalidate()
+        playlistMonitor?.invalidate()
         NotificationCenter.default.removeObserver(self)
+        if holdsPrefetchPause {
+            VideoRangePrefetcher.shared.resume()
+        }
     }
     
     private func showErrorOverlay(error: Error?) {
         guard errorOverlayNode == nil else { return }
 
+        if onPlaybackFailed?(error) == true { return }
+        if isScrubbing { setPagingEnabled?(true) }
         isScrubbing = false
-        wantsPlayback = false
-        stopBufferingMonitor()
-        isBuffering = false
-        if isNodeLoaded { updateBufferingIndicator() }
-        onPlaybackFailed?()
+        pause()
         
         centerOverlayNode.isHidden = true
         scrubberBarNode.isHidden = true
@@ -749,7 +766,8 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         titleNode.maximumNumberOfLines = 1
         
         let messageNode = ASTextNode()
-        let errorMessage = error?.localizedDescription ?? "This video format may not be supported"
+        let unsupportedMessage = "This video format may not be supported"
+        let errorMessage = error?.userMessage(fallback: unsupportedMessage) ?? unsupportedMessage
         messageNode.attributedText = NSAttributedString(
             string: errorMessage,
             attributes: [
@@ -758,12 +776,14 @@ final class MezonVideoPlayerNode: ASDisplayNode {
             ]
         )
         messageNode.maximumNumberOfLines = 0
+        messageNode.accessibilityIdentifier = AccessibilityID.Video.error
         
         let openButton = ASButtonNode()
         openButton.setTitle("Open in Browser", with: UIFont.systemFont(ofSize: 16, weight: .medium), with: .white, for: .normal)
         openButton.backgroundColor = UIColor.systemBlue
         openButton.cornerRadius = 8
         openButton.contentEdgeInsets = UIEdgeInsets(top: 12, left: 24, bottom: 12, right: 24)
+        openButton.accessibilityIdentifier = AccessibilityID.Video.openInBrowser
         openButton.addTarget(self, action: #selector(openInBrowserTapped), forControlEvents: .touchUpInside)
         
         let closeButton = ASButtonNode()
@@ -771,6 +791,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         closeButton.backgroundColor = UIColor.white.withAlphaComponent(0.15)
         closeButton.cornerRadius = 8
         closeButton.contentEdgeInsets = UIEdgeInsets(top: 12, left: 24, bottom: 12, right: 24)
+        closeButton.accessibilityIdentifier = AccessibilityID.Video.closeError
         closeButton.addTarget(self, action: #selector(closeErrorOverlay), forControlEvents: .touchUpInside)
         
         overlayNode.layoutSpecBlock = { _, constrainedSize in
@@ -817,10 +838,13 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     }
 
     public func play() {
+        guard errorOverlayNode == nil else { return }
         wantsPlayback = true
         AppAudioSession.activateForMediaPlayback(options: [])
         player?.play()
         startPlaybackIfBuffered()
+        startStallWatchdog()
+        refreshBufferingIndicator()
         updatePlayPauseIcons(isPlaying: true)
         resetControlsTimer()
     }
@@ -828,7 +852,9 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     public func pause() {
         wantsPlayback = false
         stopBufferingMonitor()
+        stopStallWatchdog()
         player?.pause()
+        refreshBufferingIndicator()
         updatePlayPauseIcons(isPlaying: false)
         controlsHideTimer?.invalidate()
         showControls()
@@ -838,7 +864,8 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     @objc private func playPauseTapped() {
         guard let p = player else { return }
         if !wantsPlayback {
-            if p.currentTime() == p.currentItem?.duration {
+            if let duration = p.currentItem?.duration.seconds, duration.isFinite,
+               duration - p.currentTime().seconds <= Self.endStallTolerance {
                 p.seek(to: .zero)
             }
             play()
@@ -891,12 +918,27 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         }
     }
 
-    @objc private func playerDidFinishPlaying() {
-        wantsPlayback = false
+    private func finishStalledEnd() {
+        player?.pause()
+        finishPlayback()
+    }
+
+    @objc private func playerDidFinishPlaying(_ notification: Notification) {
+        guard let item = notification.object as? AVPlayerItem else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.player?.currentItem === item else { return }
+            self.finishPlayback()
+        }
+    }
+
+    private func finishPlayback() {
+        guard wantsPlayback else { return }
+        guard playerLayer?.isReadyForDisplay == true else {
+            showErrorOverlay(error: AVError(.decodeFailed))
+            return
+        }
         hasStartedPlayback = false
-        stopBufferingMonitor()
-        updatePlayPauseIcons(isPlaying: false)
-        showControls()
+        pause()
     }
 
     @objc private func sliderDidBeginScrubbing() {
@@ -948,8 +990,10 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         updateGrowingDuration()
         timeSlider.value = Float(seconds)
 
+        let label = formatTime(seconds)
+        guard currentTimeLabel.attributedText?.string != label else { return }
         currentTimeLabel.attributedText = NSAttributedString(
-            string: formatTime(seconds),
+            string: label,
             attributes: [.font: UIFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular), .foregroundColor: UIColor.white]
         )
         setNeedsLayout()
@@ -984,6 +1028,11 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         let duration = item.duration.seconds
         let remaining = duration.isFinite && position.isFinite ? duration - position : nil
         let waitingDuration = clock - (readyWaitingSince ?? clock)
+        if hasStartedPlayback, position > 0, let remaining, remaining <= Self.endStallTolerance,
+           waitingDuration >= (bufferedAhead >= remaining - 0.05 ? Self.endStallGrace : Self.endStallTimeout) {
+            finishStalledEnd()
+            return
+        }
         guard VideoPlaybackBufferPolicy.shouldStart(bufferedAhead: bufferedAhead, remaining: remaining, hasStarted: hasStartedPlayback, waitingDuration: waitingDuration, bufferGrowthRate: growthRate),
               lastImmediatePlaybackAttempt.map({ clock - $0 >= 1 }) ?? true else { return }
         lastImmediatePlaybackAttempt = clock
@@ -1037,7 +1086,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
               !item.duration.seconds.isFinite else { return }
         let clock = ProcessInfo.processInfo.systemUptime
         let position = item.currentTime().seconds
-        let bufferedEnd = item.loadedTimeRanges.map { $0.timeRangeValue.end.seconds }.max() ?? 0
+        let bufferedEnd = position + VideoPlaybackBufferPolicy.bufferedAhead(at: position, ranges: item.loadedTimeRanges.map(\.timeRangeValue))
         let targetDuration = max(snapshot.targetDuration, 4)
         if snapshot.ended, playlistEndedSeenAt == nil {
             playlistEndedSeenAt = clock
@@ -1055,13 +1104,12 @@ final class MezonVideoPlayerNode: ASDisplayNode {
             starvingSince = nil
         }
         let stuck = starvingSince.map { clock - $0 >= targetDuration * 2 } ?? false
-        guard endedUnseen || stuck,
+        guard endedUnseen || (stuck && !didReloadStalledPlaylist),
               lastPlaylistReloadAt.map({ clock - $0 >= 10 }) ?? true else { return }
         lastPlaylistReloadAt = clock
         starvingSince = nil
-        if snapshot.ended {
-            didReloadEndedPlaylist = true
-        }
+        if snapshot.ended { didReloadEndedPlaylist = true }
+        if stuck { didReloadStalledPlaylist = true }
         reloadPlayerItem(snapshot.url)
     }
 
@@ -1073,6 +1121,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
             item.startsOnFirstEligibleVariant = true
         }
         NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: oldItem)
+        NotificationCenter.default.removeObserver(self, name: .AVPlayerItemFailedToPlayToEndTime, object: oldItem)
         observe(item)
         player.replaceCurrentItem(with: item)
         if position.isNumeric {
@@ -1106,6 +1155,77 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         lastImmediatePlaybackAttempt = nil
     }
 
+    private func startStallWatchdog() {
+        guard stallWatchdog == nil else { return }
+        playbackWatchdog = VideoPlaybackWatchdog(position: currentPosition)
+        stallWatchdog = Foundation.Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            self?.checkForStall()
+        }
+    }
+
+    private func stopStallWatchdog() {
+        stallWatchdog?.invalidate()
+        stallWatchdog = nil
+        playbackWatchdog = nil
+    }
+
+    private func checkForStall() {
+        guard wantsPlayback, let player, let item = player.currentItem else {
+            stopStallWatchdog()
+            return
+        }
+        let position = currentPosition
+        guard !isScrubbing, UIApplication.shared.applicationState == .active else {
+            playbackWatchdog = VideoPlaybackWatchdog(position: position)
+            return
+        }
+
+        let bufferedEnd = position + VideoPlaybackBufferPolicy.bufferedAhead(at: position, ranges: item.loadedTimeRanges.map(\.timeRangeValue))
+        let receivedBytes = chunkedLoader?.receivedByteCount ?? item.accessLog()?.events.last?.numberOfBytesTransferred ?? 0
+        guard playbackWatchdog?.hasStalled(
+            position: position,
+            hasVideo: hasRenderedVideo,
+            bufferedEnd: bufferedEnd,
+            receivedBytes: receivedBytes,
+            idleTimeout: growingPlaylistURL == nil ? 10 : 15,
+            playbackTimeout: growingPlaylistURL == nil ? 25 : 35
+        ) == true else { return }
+
+        if let playlist = growingPlaylistURL, hasRenderedVideo, !didReloadStalledPlaylist {
+            didReloadStalledPlaylist = true
+            playbackWatchdog = VideoPlaybackWatchdog(position: position)
+            reloadPlayerItem(playlist)
+        } else {
+            showErrorOverlay(error: URLError(.timedOut))
+        }
+    }
+
+    private func applyStartPosition(to item: AVPlayerItem) {
+        guard startPosition > 0, let player else { return }
+        let duration = item.duration.seconds
+        let seconds = duration.isFinite ? min(startPosition, max(0, duration - 0.1)) : startPosition
+        player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600)) { [weak self] _ in
+            DispatchQueue.main.async {
+                guard let self, self.player?.currentItem === item else { return }
+                self.startPosition = 0
+            }
+        }
+    }
+
+    @objc private func playerItemFailedToPlayToEnd(_ notification: Notification) {
+        guard let item = notification.object as? AVPlayerItem else { return }
+        let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.player?.currentItem === item else { return }
+            self.showErrorOverlay(error: error)
+        }
+    }
+
+    private func refreshBufferingIndicator() {
+        isBuffering = wantsPlayback && (player?.timeControlStatus != .playing || !hasRenderedVideo)
+        if isNodeLoaded { updateBufferingIndicator() }
+    }
+
     private func updateBufferingIndicator() {
         centerPlayPauseButton.isHidden = isBuffering
         if isBuffering {
@@ -1113,10 +1233,54 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         } else {
             bufferingSpinner.stopAnimating()
         }
+        updateBufferingProgress()
+    }
+
+    private func updateBufferingProgress() {
+        guard isNodeLoaded else { return }
+        guard isBuffering, let progress = loadedProgress(), progress.end < progress.duration else {
+            bufferingProgressLabel.isHidden = true
+            return
+        }
+        bufferingProgressLabel.text = "\(Int(progress.end / progress.duration * 100))%"
+        bufferingProgressLabel.isHidden = false
+        layoutBufferingProgressLabel()
+    }
+
+    private func layoutBufferingProgressLabel() {
+        bufferingProgressLabel.sizeToFit()
+        bufferingProgressLabel.center = CGPoint(
+            x: bufferingSpinner.center.x,
+            y: bufferingSpinner.frame.maxY + 8 + bufferingProgressLabel.bounds.height / 2
+        )
+    }
+
+    private func loadedProgress() -> (end: Double, duration: Double)? {
+        guard let item = player?.currentItem else { return nil }
+        let duration = item.duration.seconds
+        let position = item.currentTime().seconds
+        guard duration.isFinite, duration > 0, position.isFinite else { return nil }
+        let ranges = item.loadedTimeRanges.map(\.timeRangeValue)
+        return (position + VideoPlaybackBufferPolicy.bufferedAhead(at: position, ranges: ranges), duration)
+    }
+
+    private func updatePrefetchPause() {
+        let isLoadedToEnd = loadedProgress().map { $0.end >= $0.duration - Self.loadedToEndTolerance } ?? false
+        let shouldPause = wantsPlayback && !isLoadedToEnd
+        guard shouldPause != holdsPrefetchPause else { return }
+        holdsPrefetchPause = shouldPause
+        if shouldPause {
+            VideoRangePrefetcher.shared.pause()
+        } else {
+            VideoRangePrefetcher.shared.resume()
+        }
     }
 
     private func updatePlayPauseIcons(isPlaying: Bool) {
 
+        let label = isPlaying ? "Pause" : "Play"
+        centerPlayPauseButton.accessibilityLabel = label
+        bottomPlayPauseButton.accessibilityLabel = label
         let centerConfig = UIImage.SymbolConfiguration(pointSize: 44, weight: .bold)
         let centerIconName = isPlaying ? "pause.fill" : "play.fill"
         centerPlayPauseButton.setImage(UIImage(systemName: centerIconName, withConfiguration: centerConfig), for: .normal)
@@ -1177,6 +1341,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         posterNode.frame = b
         bufferingSpinner.sizeToFit()
         bufferingSpinner.center = CGPoint(x: b.midX, y: b.midY)
+        layoutBufferingProgressLabel()
         
         if let errorNode = errorOverlayNode {
             errorNode.frame = b

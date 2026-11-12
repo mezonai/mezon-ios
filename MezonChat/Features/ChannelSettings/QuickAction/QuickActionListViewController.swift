@@ -77,7 +77,7 @@ final class QuickActionListViewController: BaseViewController {
     }
 
     override func setupUI() {
-        view.backgroundColor = UIColor.theme.primary
+        view.backgroundColor = UIColor.theme.secondary
         setupHeader()
         setupTabs()
         setupAddButton()
@@ -103,7 +103,7 @@ final class QuickActionListViewController: BaseViewController {
 
     override func applyTheme() {
         let t = UIColor.theme
-        view.backgroundColor = t.primary
+        view.backgroundColor = t.secondary
         titleLabel.textColor = t.textStrong
         titleLabel.text = L(L10n.QuickAction.title)
         backButton.tintColor = t.textStrong
@@ -111,7 +111,7 @@ final class QuickActionListViewController: BaseViewController {
         descriptionLabel.text = L(L10n.QuickAction.description)
         tableView.backgroundColor = .clear
         loadingIndicator.color = t.textDisabled
-        addButton.backgroundColor = t.bgViolet
+        addButton.backgroundColor = t.iconPrimary
         addButton.tintColor = .white
         addButton.setTitleColor(.white, for: .normal)
         emptyView.applyTheme()
@@ -119,10 +119,18 @@ final class QuickActionListViewController: BaseViewController {
     }
 
     private func setupHeader() {
+        view.accessibilityIdentifier = AccessibilityID.QuickActionSettings.screen("list")
+        backButton.accessibilityIdentifier = AccessibilityID.QuickActionSettings.action("list", "back")
+        flashTabButton.accessibilityIdentifier = AccessibilityID.QuickActionSettings.action("list", "flash")
+        menuTabButton.accessibilityIdentifier = AccessibilityID.QuickActionSettings.action("list", "menu")
+        addButton.accessibilityIdentifier = AccessibilityID.QuickActionSettings.action("list", "add")
+        emptyView.accessibilityIdentifier = AccessibilityID.QuickActionSettings.action("list", "empty")
+        loadingIndicator.accessibilityIdentifier = AccessibilityID.QuickActionSettings.action("list", "loading")
+
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
 
-        backButton.setImage(UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        backButton.setImage(UIImage(named: "Channel/ArrowLeft")?.withRenderingMode(.alwaysTemplate), for: .normal)
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
 
         titleLabel.font = .systemFont(ofSize: 17.sf, weight: .bold)
@@ -179,8 +187,7 @@ final class QuickActionListViewController: BaseViewController {
     }
 
     private func setupAddButton() {
-        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 15.sf, weight: .semibold)
-        addButton.setImage(UIImage(systemName: "plus.circle.fill", withConfiguration: symbolConfig), for: .normal)
+        addButton.setImage(UIImage(named: "ChannelSetting/QuickActionAddIcon")?.withRenderingMode(.alwaysTemplate), for: .normal)
         addButton.titleLabel?.font = .systemFont(ofSize: 15.sf, weight: .semibold)
         addButton.imageEdgeInsets = UIEdgeInsets(top: 0, left: -4.sw, bottom: 0, right: 4.sw)
         addButton.titleEdgeInsets = UIEdgeInsets(top: 0, left: 4.sw, bottom: 0, right: -4.sw)
@@ -285,7 +292,7 @@ final class QuickActionListViewController: BaseViewController {
                 self.loadedKinds.insert(kind)
                 self.setItems(fetched, for: kind)
             } else if kind == self.activeKind {
-                Toast.error(failure?.localizedDescription ?? L(L10n.ClanInviteSheet.sessionNotFound))
+                Toast.error(failure?.userMessage ?? L(L10n.ClanInviteSheet.sessionNotFound))
             }
             self.updateContent()
         }
@@ -385,7 +392,7 @@ final class QuickActionListViewController: BaseViewController {
                 self.setItems(remaining, for: kind)
                 self.updateContent()
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -457,10 +464,10 @@ final class QuickActionTabButton: UIControl {
         let t = UIColor.theme
         titleLabel.text = title
         countLabel.text = "\(count)"
-        backgroundColor = isActive ? t.bgViolet : .clear
-        titleLabel.textColor = isActive ? .white : t.text
-        countLabel.textColor = isActive ? .white : t.text
-        countLabel.backgroundColor = isActive ? UIColor.white.withAlphaComponent(0.2) : t.secondary
+        backgroundColor = isActive ? t.iconPrimary : .clear
+        titleLabel.textColor = isActive ? .white : t.textThemePrimary
+        countLabel.textColor = isActive ? .white : t.textThemePrimary
+        countLabel.backgroundColor = isActive ? UIColor.white.withAlphaComponent(0.2) : t.primary
     }
 }
 
@@ -475,7 +482,7 @@ final class QuickActionEmptyView: UIView {
         layer.cornerRadius = 12
         layer.borderWidth = 1
 
-        iconView.image = UIImage(named: "ChannelSetting/QuickActionIcon")?.withRenderingMode(.alwaysTemplate)
+        iconView.image = UIImage(named: "ChannelSetting/QuickActionEmptyIcon")?.withRenderingMode(.alwaysTemplate)
         iconView.contentMode = .scaleAspectFit
 
         titleLabel.font = .systemFont(ofSize: 17.sf, weight: .medium)
@@ -512,7 +519,7 @@ final class QuickActionEmptyView: UIView {
 
     func applyTheme() {
         let t = UIColor.theme
-        backgroundColor = t.secondary
+        backgroundColor = t.primary
         layer.borderColor = t.border.cgColor
         iconView.tintColor = t.textDisabled
         titleLabel.textColor = t.textStrong
@@ -594,11 +601,12 @@ final class QuickActionItemCell: UITableViewCell {
         previewLabel.translatesAutoresizingMaskIntoConstraints = false
         cardView.addSubview(previewLabel)
 
-        let iconConfig = UIImage.SymbolConfiguration(pointSize: 14.sf, weight: .medium)
-        editButton.setImage(UIImage(systemName: "pencil", withConfiguration: iconConfig), for: .normal)
+        editButton.setImage(UIImage(named: "Channel/EventEdit")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        editButton.accessibilityIdentifier = AccessibilityID.QuickActionSettings.action("item", "edit")
         editButton.accessibilityLabel = L(L10n.QuickAction.editCommand)
         editButton.addTarget(self, action: #selector(editTapped), for: .touchUpInside)
-        deleteButton.setImage(UIImage(systemName: "trash.fill", withConfiguration: iconConfig), for: .normal)
+        deleteButton.setImage(UIImage(named: "Chat/IconTrash")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        deleteButton.accessibilityIdentifier = AccessibilityID.QuickActionSettings.action("item", "delete")
         deleteButton.accessibilityLabel = L(L10n.QuickAction.deleteCommand)
         deleteButton.addTarget(self, action: #selector(deleteTapped), for: .touchUpInside)
         [editButton, deleteButton].forEach {
@@ -635,17 +643,19 @@ final class QuickActionItemCell: UITableViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        accessibilityIdentifier = nil
         onEdit = nil
         onDelete = nil
     }
 
     func configure(item: Mezon_Api_QuickMenuAccess, kind: QuickActionKind) {
+        accessibilityIdentifier = AccessibilityID.QuickActionSettings.item(kind.menuType, item.id)
         let t = UIColor.theme
-        cardView.backgroundColor = t.secondary
+        cardView.backgroundColor = t.primary
         cardView.layer.borderColor = t.border.cgColor
         previewLabel.textColor = t.text
-        editButton.tintColor = t.textDisabled
-        deleteButton.tintColor = t.textDisabled
+        editButton.tintColor = t.textStrong
+        deleteButton.tintColor = .mezonError
 
         commandLabel.text = kind.commandLabel(for: item)
         typeLabel.text = kind.typeLabel

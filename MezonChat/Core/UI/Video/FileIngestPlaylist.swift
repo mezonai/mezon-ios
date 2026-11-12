@@ -1,4 +1,5 @@
 import Foundation
+import AVFoundation
 
 enum FileIngestPlaylist {
 
@@ -24,6 +25,8 @@ enum FileIngestPlaylist {
     private static let playlistSuffix = ".m3u8"
     private static let playlistTag = "#EXTM3U"
     private static let endTag = "#EXT-X-ENDLIST"
+    private static let variantTag = "#EXT-X-STREAM-INF"
+    private static let mapPrefix = "#EXT-X-MAP:URI=\""
     private static let maxRemembered = 512
     private static let identityMatrixValue: Int32 = 0x10000
 
@@ -153,6 +156,65 @@ enum FileIngestPlaylist {
         }
     }
 
+    enum FinishedParts {
+        case parts([URL])
+        case missing
+        case unfinished
+        case unreachable
+    }
+
+    static func finishedParts(attachmentURL: String, completion: @escaping (FinishedParts) -> Void) {
+        guard let playlist = indexPlaylistURL(for: attachmentURL), let probe = probeURL(for: playlist) else {
+            completion(.missing)
+            return
+        }
+        var request = URLRequest(url: probe, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 5)
+        request.httpShouldHandleCookies = false
+        session.dataTask(with: request) { data, response, error in
+            guard error == nil, let status = (response as? HTTPURLResponse)?.statusCode else {
+                completion(.unreachable)
+                return
+            }
+            guard (200..<300).contains(status) else {
+                completion(status == 403 || status == 404 ? .missing : .unreachable)
+                return
+            }
+            let text = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            if text.hasPrefix(playlistTag), !text.contains(endTag), !text.contains(variantTag) {
+                completion(.unfinished)
+                return
+            }
+            completion(downloadParts(playlist: playlist, text: text).map(FinishedParts.parts) ?? .missing)
+        }.resume()
+    }
+
+    static func downloadParts(playlist: URL, text: String) -> [URL]? {
+        guard text.hasPrefix(playlistTag), text.contains(endTag), !text.contains(variantTag) else { return nil }
+        let directory = playlist.deletingLastPathComponent()
+        var initSegment: URL?
+        var segments: [URL] = []
+        for rawLine in text.split(whereSeparator: \.isNewline) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty { continue }
+            if line.hasPrefix(mapPrefix) {
+                let rest = line.dropFirst(mapPrefix.count)
+                guard initSegment == nil,
+                      let quote = rest.firstIndex(of: "\""), quote > rest.startIndex,
+                      let url = partURL(String(rest[..<quote]), in: directory) else { return nil }
+                initSegment = url
+            } else if !line.hasPrefix("#") {
+                guard let url = partURL(line, in: directory) else { return nil }
+                segments.append(url)
+            }
+        }
+        guard let initSegment, !segments.isEmpty else { return nil }
+        return [initSegment] + segments
+    }
+
+    private static func partURL(_ uri: String, in directory: URL) -> URL? {
+        uri.contains("://") ? URL(string: uri) : URL(string: uri, relativeTo: directory)?.absoluteURL
+    }
+
     private static func probeURL(for playlist: URL) -> URL? {
         let window = Int64(Date().timeIntervalSince1970 * 1000) / Int64(probeInterval * 1000)
         return URL(string: "\(playlist.absoluteString)?probe=\(window)")
@@ -218,5 +280,151 @@ enum FileIngestPlaylist {
 
     private static func int32(_ bytes: [UInt8], _ offset: Int) -> Int32 {
         Int32(bitPattern: uint32(bytes, offset))
+    }
+}
+
+enum FileIngestHLSCopy {
+
+    private static let session: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        config.urlCache = nil
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 30 * 60
+        config.httpShouldSetCookies = false
+        config.httpCookieAcceptPolicy = .never
+        return URLSession(configuration: config)
+    }()
+
+    enum Outcome {
+        case file(URL)
+        case unavailable
+        case stillUploading
+        case unreachable
+        case outOfSpace
+        case failed
+    }
+
+    static func makeFile(
+        attachmentURL: String,
+        shouldContinue: @escaping () -> Bool = { true },
+        progress: @escaping (Double) -> Void,
+        completion: @escaping (Outcome) -> Void
+    ) {
+        FileIngestPlaylist.finishedParts(attachmentURL: attachmentURL) { finished in
+            guard shouldContinue() else { completion(.failed); return }
+            let parts: [URL]
+            switch finished {
+            case .parts(let found):
+                parts = found
+            case .missing:
+                completion(.unavailable)
+                return
+            case .unfinished:
+                completion(.stillUploading)
+                return
+            case .unreachable:
+                completion(.unreachable)
+                return
+            }
+            let joined = temporaryFileURL()
+            guard FileManager.default.createFile(atPath: joined.path, contents: nil),
+                  let handle = try? FileHandle(forWritingTo: joined) else {
+                completion(.failed)
+                return
+            }
+            append(parts, from: 0, to: handle, shouldContinue: shouldContinue, progress: progress) { failure in
+                try? handle.close()
+                if let failure {
+                    try? FileManager.default.removeItem(at: joined)
+                    completion(failure)
+                    return
+                }
+                remux(joined) { output in
+                    if output != nil {
+                        try? FileManager.default.removeItem(at: joined)
+                    }
+                    completion(.file(output ?? joined))
+                }
+            }
+        }
+    }
+
+    static func isOutOfSpace(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSCocoaErrorDomain, nsError.code == NSFileWriteOutOfSpaceError { return true }
+        if nsError.domain == NSPOSIXErrorDomain, nsError.code == Int(ENOSPC) { return true }
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? Error { return isOutOfSpace(underlying) }
+        return false
+    }
+
+    private static func append(
+        _ parts: [URL],
+        from index: Int,
+        to handle: FileHandle,
+        shouldContinue: @escaping () -> Bool,
+        progress: @escaping (Double) -> Void,
+        completion: @escaping (Outcome?) -> Void
+    ) {
+        guard shouldContinue() else { completion(.failed); return }
+        guard index < parts.count else {
+            completion(nil)
+            return
+        }
+        session.downloadTask(with: parts[index]) { location, response, error in
+            guard shouldContinue() else { completion(.failed); return }
+            if let error {
+                completion(isOutOfSpace(error) ? .outOfSpace : .unreachable)
+                return
+            }
+            guard let status = (response as? HTTPURLResponse)?.statusCode else {
+                completion(.unreachable)
+                return
+            }
+            guard (200...299).contains(status), let location else {
+                completion(status == 403 || status == 404 ? .unavailable : .unreachable)
+                return
+            }
+            do {
+                let data = try Data(contentsOf: location, options: .mappedIfSafe)
+                try write(data, to: handle)
+            } catch {
+                completion(isOutOfSpace(error) ? .outOfSpace : .failed)
+                return
+            }
+            progress(Double(index + 1) / Double(parts.count))
+            append(parts, from: index + 1, to: handle, shouldContinue: shouldContinue, progress: progress, completion: completion)
+        }.resume()
+    }
+
+    private static func write(_ data: Data, to handle: FileHandle) throws {
+        if #available(iOS 13.4, *) {
+            try handle.write(contentsOf: data)
+        } else {
+            handle.write(data)
+        }
+    }
+
+    private static func remux(_ source: URL, completion: @escaping (URL?) -> Void) {
+        let output = temporaryFileURL()
+        guard let export = AVAssetExportSession(asset: AVURLAsset(url: source), presetName: AVAssetExportPresetPassthrough) else {
+            completion(nil)
+            return
+        }
+        export.outputURL = output
+        export.outputFileType = .mp4
+        export.shouldOptimizeForNetworkUse = true
+        export.exportAsynchronously {
+            guard export.status == .completed else {
+                try? FileManager.default.removeItem(at: output)
+                completion(nil)
+                return
+            }
+            completion(output)
+        }
+    }
+
+    private static func temporaryFileURL() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("hls-copy-\(UUID().uuidString).mp4")
     }
 }

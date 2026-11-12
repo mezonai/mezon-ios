@@ -58,6 +58,8 @@ final class SlashCommandSuggestionView: UIView, UITableViewDataSource, UITableVi
         clipsToBounds = true
         addSubview(headerLabel)
         addSubview(tableView)
+        let tableBottom = tableView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        tableBottom.priority = UILayoutPriority(999)
         NSLayoutConstraint.activate([
             headerLabel.topAnchor.constraint(equalTo: topAnchor),
             headerLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
@@ -67,7 +69,7 @@ final class SlashCommandSuggestionView: UIView, UITableViewDataSource, UITableVi
             tableView.topAnchor.constraint(equalTo: headerLabel.bottomAnchor),
             tableView.leadingAnchor.constraint(equalTo: leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: bottomAnchor),
+            tableBottom,
         ])
         tableView.dataSource = self
         tableView.delegate = self

@@ -46,6 +46,7 @@ final class ClanListContainerNode: ASDisplayNode {
     }()
 
     private var state: ClanListState = .empty
+    private var discoverActive = false
     private var hasRenderedUnreadDMs = false
     private var railContentWidth: CGFloat = Constants.Layout.clanSidebarWidth
     private let interaction: ClanListInteraction
@@ -59,6 +60,7 @@ final class ClanListContainerNode: ASDisplayNode {
         layout.minimumLineSpacing = 16.sh
         layout.itemSize = CGSize(width: Self.iconSize, height: Self.iconSize)
         collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+            .identified(by: AccessibilityID.Clan.list)
         self.interaction = interaction
         super.init()
 
@@ -148,6 +150,19 @@ final class ClanListContainerNode: ASDisplayNode {
     deinit {
         sidebarLogoLoadTask?.cancel()
         disposables.dispose()
+    }
+
+    override var accessibilityElements: [Any]? {
+        get {
+            guard isNodeLoaded else { return nil }
+            // Texture discovers subnodes separately from these UIKit views.
+            let nodeElements = super.accessibilityElements ?? []
+            let hostedViews = [collectionView, logoHeaderView].filter {
+                $0.superview === view && !$0.isHidden && $0.alpha > 0 && !$0.accessibilityElementsHidden
+            }
+            return nodeElements + hostedViews
+        }
+        set { super.accessibilityElements = newValue }
     }
 
     override func didLoad() {
@@ -269,6 +284,12 @@ final class ClanListContainerNode: ASDisplayNode {
                 }
             }
         }
+    }
+
+    func setDiscoverActive(_ active: Bool) {
+        discoverActive = active
+        let path = IndexPath(item: state.clans.count, section: 1)
+        (collectionView.cellForItem(at: path) as? ClanJoinActionCell)?.applyDiscoveryFocus(active)
     }
 
     func focusDiscoverIfNoClans() {
@@ -414,14 +435,16 @@ extension ClanListContainerNode: UICollectionViewDataSource, UICollectionViewDel
         guard clanIndex < state.clans.count else {
             if clanIndex == state.clans.count {
                 let cell = collectionView.dequeueReusableCell(withReuseIdentifier: ClanJoinActionCell.reuseID, for: indexPath) as! ClanJoinActionCell
-                cell.applyDiscoveryFocus(state.clans.isEmpty)
+                cell.applyDiscoveryFocus(discoverActive)
                 return cell
             }
             return collectionView.dequeueReusableCell(withReuseIdentifier: ClanCreateActionCell.reuseID, for: indexPath) as! ClanCreateActionCell
         }
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: ClanCell.reuseID, for: indexPath) as! ClanCell
         let clan = state.clans[clanIndex]
-        cell.configure(with: clan, isSelected: clan.clanID == state.selectedClanId)
+        cell.configure(with: clan, isSelected: clan.clanID == state.selectedClanId) { [weak self] in
+            self?.interaction.onSelectClan(clan)
+        }
         return cell
     }
 
@@ -494,6 +517,31 @@ private final class ClanCell: UICollectionViewCell {
 
     static let reuseID = "ClanCell"
 
+    private final class ClanActionElement: UIAccessibilityElement {
+        var onActivate: (() -> Void)?
+
+        override func accessibilityActivate() -> Bool {
+            guard let onActivate else { return false }
+            onActivate()
+            return true
+        }
+    }
+
+    private lazy var clanAction: ClanActionElement = {
+        let element = ClanActionElement(accessibilityContainer: self)
+        element.isAccessibilityElement = true
+        return element
+    }()
+
+    override var accessibilityElements: [Any]? {
+        get {
+            guard boundClanId != nil else { return [] }
+            clanAction.accessibilityFrameInContainerSpace = bounds
+            return badgeLabel.isHidden ? [clanAction] : [clanAction, badgeLabel]
+        }
+        set { super.accessibilityElements = newValue }
+    }
+
     private let indicatorBar: UIView = {
         let v = UIView()
         v.layer.cornerRadius = 2.swh
@@ -528,6 +576,7 @@ private final class ClanCell: UICollectionViewCell {
         l.clipsToBounds = true
         l.translatesAutoresizingMaskIntoConstraints = false
         l.isHidden = true
+        l.isAccessibilityElement = true
         return l
     }()
 
@@ -538,6 +587,7 @@ private final class ClanCell: UICollectionViewCell {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        isAccessibilityElement = false
         backgroundColor = .clear
         contentView.backgroundColor = .clear
         let sz = Self.sz
@@ -576,6 +626,11 @@ private final class ClanCell: UICollectionViewCell {
         imageTask?.cancel()
         imageTask = nil
         boundClanId = nil
+        clanAction.accessibilityIdentifier = nil
+        clanAction.accessibilityLabel = nil
+        clanAction.onActivate = nil
+        badgeLabel.accessibilityIdentifier = nil
+        badgeLabel.text = nil
         avatarImageView.image = nil
         textAvatarView.configure(username: "")
         badgeLabel.isHidden = true
@@ -583,12 +638,18 @@ private final class ClanCell: UICollectionViewCell {
         badgeLabel.layer.borderColor = nil
     }
 
-    func configure(with clan: Mezon_Api_ClanDesc, isSelected: Bool) {
+    func configure(with clan: Mezon_Api_ClanDesc, isSelected: Bool, onActivate: @escaping () -> Void) {
         avatarGeneration += 1
         let generation = avatarGeneration
         boundClanId = clan.clanID
         let expectClanId = clan.clanID
         let clanName = clan.clanName
+        let clanID = String(clan.clanID)
+        clanAction.accessibilityIdentifier = AccessibilityID.Clan.item(clanID)
+        clanAction.accessibilityLabel = clanName
+        clanAction.accessibilityTraits = isSelected ? [.button, .selected] : .button
+        clanAction.onActivate = onActivate
+        badgeLabel.accessibilityIdentifier = AccessibilityID.Clan.unreadBadge(clanID)
 
         let accentColor = UIColor(red: 0.44, green: 0.42, blue: 0.95, alpha: 1)
         indicatorBar.backgroundColor = accentColor
@@ -673,7 +734,7 @@ private final class ClanJoinActionCell: UICollectionViewCell {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFit
         iv.clipsToBounds = true
-        iv.image = UIImage(named: "ClanSetting/JoinClanIcon")?.withRenderingMode(.alwaysOriginal)
+        iv.image = UIImage(named: "ClanSetting/JoinClanIcon")?.withRenderingMode(.alwaysTemplate)
         iv.translatesAutoresizingMaskIntoConstraints = false
         return iv
     }()
@@ -682,6 +743,7 @@ private final class ClanJoinActionCell: UICollectionViewCell {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        accessibilityIdentifier = AccessibilityID.ChannelList.discover
         backgroundColor = .clear
         contentView.backgroundColor = .clear
         let sz = ClanListContainerNode.iconSize
@@ -692,10 +754,10 @@ private final class ClanJoinActionCell: UICollectionViewCell {
             outer.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             outer.widthAnchor.constraint(equalToConstant: sz),
             outer.heightAnchor.constraint(equalToConstant: sz),
-            iconView.topAnchor.constraint(equalTo: outer.topAnchor),
-            iconView.leadingAnchor.constraint(equalTo: outer.leadingAnchor),
-            iconView.trailingAnchor.constraint(equalTo: outer.trailingAnchor),
-            iconView.bottomAnchor.constraint(equalTo: outer.bottomAnchor),
+            iconView.centerXAnchor.constraint(equalTo: outer.centerXAnchor),
+            iconView.centerYAnchor.constraint(equalTo: outer.centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 20.swh),
+            iconView.heightAnchor.constraint(equalToConstant: 20.swh),
         ])
     }
 
@@ -708,10 +770,11 @@ private final class ClanJoinActionCell: UICollectionViewCell {
 
     private func refreshOuterAppearance() {
         let t = UIColor.theme
+        iconView.tintColor = discoveryFocused ? UIColor(hex: 0xDFE0E4) : .mezonIconDefault
         outer.layer.borderWidth = 0
         outer.layer.borderColor = nil
         if discoveryFocused {
-            outer.backgroundColor = t.iconPrimary.withAlphaComponent(0.22)
+            outer.backgroundColor = t.bgViolet
         } else {
             outer.backgroundColor = t.primary.withAlphaComponent(0.2)
         }

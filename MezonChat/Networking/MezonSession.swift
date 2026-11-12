@@ -260,7 +260,7 @@ enum SessionStore {
     private static let installationIdUserDefaultsKey = "mezon.installation_instance.ud"
     private static let configKey = "mezon.config"
 
-    static func prepareInstallationScopedKeychainIfNeeded() {
+    static func prepareInstallationScopedKeychainIfNeeded() -> Bool {
         let ud = UserDefaults.standard
         let udInst = ud.string(forKey: installationIdUserDefaultsKey)
         let kcInst = loadInstallationIdFromKeychain()
@@ -270,13 +270,13 @@ enum SessionStore {
                 let newId = UUID().uuidString
                 ud.set(newId, forKey: installationIdUserDefaultsKey)
                 saveInstallationIdToKeychain(newId)
-                return
+                return false
             }
             clearOrphanKeychainAfterReinstall()
             let newId = UUID().uuidString
             ud.set(newId, forKey: installationIdUserDefaultsKey)
             saveInstallationIdToKeychain(newId)
-            return
+            return true
         }
 
         if udInst == nil, kcInst != nil {
@@ -284,12 +284,12 @@ enum SessionStore {
             let newId = UUID().uuidString
             ud.set(newId, forKey: installationIdUserDefaultsKey)
             saveInstallationIdToKeychain(newId)
-            return
+            return true
         }
 
         if let udInst, kcInst == nil {
             saveInstallationIdToKeychain(udInst)
-            return
+            return false
         }
 
         if let udInst, let kcInst, udInst != kcInst {
@@ -297,8 +297,9 @@ enum SessionStore {
             let newId = UUID().uuidString
             ud.set(newId, forKey: installationIdUserDefaultsKey)
             saveInstallationIdToKeychain(newId)
-            return
+            return false
         }
+        return false
     }
 
     private static func loadInstallationIdFromKeychain() -> String? {

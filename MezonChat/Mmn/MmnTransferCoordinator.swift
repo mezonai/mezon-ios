@@ -38,7 +38,7 @@ enum MmnTransferParse {
     }
 }
 
-enum MmnTransferError: Error, LocalizedError {
+enum MmnTransferError: UserFacingError {
     case walletNotReady
     case giveCoffeeInProgress
 
@@ -93,7 +93,7 @@ enum MmnTransferCoordinator {
             throw NSError(domain: "MmnTransfer", code: 3, userInfo: [NSLocalizedDescriptionKey: "Invalid amount"])
         }
         if !MmnAmountScale.hasEnoughBalance(walletBalance: wallet.balance, sendScaled: scaled) {
-            throw NSError(domain: "MmnTransfer", code: 4, userInfo: [NSLocalizedDescriptionKey: "Insufficient balance"])
+            throw UserFacingMessageError(message: L(L10n.Profile.sendTokenErrExceedWallet))
         }
         let senderAddr: String
         let recipientAddr: String
@@ -179,7 +179,7 @@ enum MmnTransferCoordinator {
             throw NSError(domain: "MmnTransfer", code: 3, userInfo: [NSLocalizedDescriptionKey: "Invalid amount"])
         }
         if !MmnAmountScale.hasEnoughBalance(walletBalance: wallet.balance, sendScaled: scaled) {
-            throw NSError(domain: "MmnTransfer", code: 4, userInfo: [NSLocalizedDescriptionKey: "Insufficient balance"])
+            throw UserFacingMessageError(message: L(L10n.Profile.sendTokenErrExceedWallet))
         }
         let senderAddr = MmnClient.addressFromUserId(senderUserId)
         let recipientAddr = MmnClient.addressFromUserId(receiverUserId)

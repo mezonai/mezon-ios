@@ -66,7 +66,7 @@ final class SharingViewController: UIViewController {
     }()
 
     private let searchIconView: UIImageView = {
-        let iv = UIImageView(image: UIImage(systemName: "magnifyingglass"))
+        let iv = UIImageView(image: UIImage(named: "Setting/SearchIcon")?.withRenderingMode(.alwaysTemplate))
         iv.translatesAutoresizingMaskIntoConstraints = false
         iv.contentMode = .scaleAspectFit
         return iv
@@ -74,6 +74,7 @@ final class SharingViewController: UIViewController {
 
     private lazy var searchTextField: UITextField = {
         let tf = UITextField()
+        tf.accessibilityIdentifier = AccessibilityID.Search.input("sharing")
         tf.translatesAutoresizingMaskIntoConstraints = false
         tf.font = .systemFont(ofSize: 15)
         tf.attributedPlaceholder = NSAttributedString(string: "")
@@ -1595,17 +1596,10 @@ final class SharingViewController: UIViewController {
                 break
             }
         }
-        if let mezon = error as? MezonError, let desc = mezon.errorDescription, !desc.isEmpty {
-            return desc
-        }
-        let system = error.localizedDescription
-        if system.localizedCaseInsensitiveContains("cancel") {
+        if error.localizedDescription.localizedCaseInsensitiveContains("cancel") {
             return L(L10n.Sharing.uploadCancelled)
         }
-        if system.isEmpty {
-            return L(L10n.Sharing.uploadFailed)
-        }
-        return system
+        return error.userMessage(fallback: L(L10n.Sharing.uploadFailed))
     }
 
     private func showError(_ message: String) {

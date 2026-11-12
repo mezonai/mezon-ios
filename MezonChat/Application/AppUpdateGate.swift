@@ -18,7 +18,7 @@ enum AppUpdateGate {
     }()
 
     static func scheduleVersionCheckIfNeeded(mainWindow: Window1?) {
-        guard !didScheduleCheck else { return }
+        guard !UITestLaunch.skipsUpdateCheck, !didScheduleCheck else { return }
         didScheduleCheck = true
         DispatchQueue.main.asyncAfter(deadline: .now() + checkDelay) {
             Task { await performCheck(mainWindow: mainWindow) }
@@ -26,7 +26,7 @@ enum AppUpdateGate {
     }
 
     static func scheduleVersionCheckOnForegroundIfNeeded(mainWindow: Window1?) {
-        guard !didPresentUpdateSheet else { return }
+        guard !UITestLaunch.skipsUpdateCheck, !didPresentUpdateSheet else { return }
         if let lastCheckTime, Date().timeIntervalSince(lastCheckTime) < foregroundRecheckInterval {
             return
         }

@@ -55,10 +55,9 @@ final class ViewTracker {
     }
 
     func addMessageHistoryView(
-        channelId: String,
-        initial: [MessageRecord]
+        initial: MessageHistoryView
     ) -> (Bag<(MutableMessageHistoryView, ValuePipe<MessageHistoryView>)>.Index, Signal<MessageHistoryView, NoError>) {
-        let mutableView = MutableMessageHistoryView(channelId: channelId, initial: initial)
+        let mutableView = MutableMessageHistoryView(initial: initial)
         let pipe        = ValuePipe<MessageHistoryView>()
         let index       = messageHistoryViews.add((mutableView, pipe))
         return (index, pipe.signal())

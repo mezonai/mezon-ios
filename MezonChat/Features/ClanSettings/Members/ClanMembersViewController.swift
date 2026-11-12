@@ -119,6 +119,7 @@ final class ClanMembersViewController: BaseViewController, UITableViewDataSource
         searchContainer.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(searchContainer)
 
+        searchField.accessibilityIdentifier = AccessibilityID.Search.input("clan-members")
         searchField.placeholder = L(L10n.ClanSetting.Members.searchPlaceholder)
         searchField.font = .systemFont(ofSize: 14.sf, weight: .regular)
         searchField.textColor = UIColor.theme.textStrong
@@ -144,7 +145,7 @@ final class ClanMembersViewController: BaseViewController, UITableViewDataSource
         searchClearButton.addTarget(self, action: #selector(clearSearchTapped), for: .touchUpInside)
         searchContainer.addSubview(searchClearButton)
 
-        let searchIcon = UIImageView(image: UIImage(systemName: "magnifyingglass")?.withRenderingMode(.alwaysTemplate))
+        let searchIcon = UIImageView(image: UIImage(named: "Setting/SearchIcon")?.withRenderingMode(.alwaysTemplate))
         searchIcon.tintColor = UIColor.theme.textDisabled
         searchIcon.contentMode = .scaleAspectFit
         searchIcon.translatesAutoresizingMaskIntoConstraints = false

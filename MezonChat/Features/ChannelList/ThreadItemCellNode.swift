@@ -11,9 +11,16 @@ final class ThreadItemCellNode: ASCellNode {
     private let selectionNode = ASDisplayNode()
     var onLongPress: (() -> Void)?
     private let isLast: Bool
+    private let channelLabel: String
+    private let isUnread: Bool
 
     init(channel: Mezon_Api_ChannelDescription, isSelected: Bool, isLast: Bool, hasBuzz: Bool = false) {
+        let unread = channel.countMessUnread
         self.isLast = isLast
+        self.channelLabel = channel.channelLabel
+        self.isUnread = unread > 0
+            || (channel.hasLastSentMessage
+                && channel.lastSeenMessage.timestampSeconds < channel.lastSentMessage.timestampSeconds)
         super.init()
         automaticallyManagesSubnodes = true
         neverShowPlaceholders = true
@@ -23,28 +30,9 @@ final class ThreadItemCellNode: ASCellNode {
         nameNode.maximumNumberOfLines = 1
         nameNode.truncationMode = .byTruncatingTail
 
-        let t = UIColor.theme
-        let unread = channel.countMessUnread
-        let isUnread =
-            unread > 0
-            || (channel.hasLastSentMessage
-                && channel.lastSeenMessage.timestampSeconds
-                    < channel.lastSentMessage.timestampSeconds)
-
         let connectorName = isLast ? "Channel/ShortCorner" : "Channel/LongCorner"
-        connectorNode.image = UIImage(named: connectorName)
-        connectorNode.tintColor = t.channelNormal.withAlphaComponent(0.6)
+        connectorNode.image = UIImage(named: connectorName)?.withRenderingMode(.alwaysTemplate)
         connectorNode.contentMode = .scaleAspectFit
-
-        let nameColor =
-            isUnread ? t.channelUnread : t.channelNormal
-        let nameWeight: UIFont.Weight = isUnread ? .semibold : .medium
-        nameNode.attributedText = NSAttributedString(
-            string: channel.channelLabel,
-            attributes: [
-                .font: UIFont.systemFont(ofSize: 14.sf, weight: nameWeight),
-                .foregroundColor: nameColor,
-            ])
 
         if unread > 0 {
             let text = unread > 99 ? "99+" : "\(unread)"
@@ -57,7 +45,7 @@ final class ThreadItemCellNode: ASCellNode {
                     .foregroundColor: UIColor.white,
                     .paragraphStyle: para,
                 ])
-            badgeBackground.backgroundColor = .mezonUnreadBadge
+            badgeBackground.backgroundColor = UIColor.theme.desktop.semantic.mentionBadge
             badgeBackground.clipsToBounds = true
             badgeBackground.isHidden = false
             badgeNode.isHidden = false
@@ -67,32 +55,25 @@ final class ThreadItemCellNode: ASCellNode {
         }
 
         backgroundColor = .clear
-        let theme = ThemeManager.shared.current
-        let isLight =
-            theme == .light
-            || (theme == .system && UIScreen.main.traitCollection.userInterfaceStyle != .dark)
-        selectionNode.backgroundColor =
-            isSelected ? (isLight ? t.secondaryWeight : t.secondaryLight) : .clear
-        if isSelected {
-            selectionNode.cornerRadius = 16.swh
-        }
-        selectionNode.isHidden = !isSelected
-
+        selectionNode.cornerRadius = 16.swh
+        applyListSelectionState(selected: isSelected)
         isUserInteractionEnabled = true
     }
 
     func applyListSelectionState(selected: Bool) {
-        let t = UIColor.theme
+        let theme = UIColor.theme
+        let isHighlighted = selected || isUnread
+        let nameColor = isHighlighted ? theme.desktop[.textSecondary] : theme.textThemePrimary
+        let nameWeight: UIFont.Weight = isHighlighted ? .semibold : .medium
+        nameNode.attributedText = NSAttributedString(
+            string: channelLabel,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 14.sf, weight: nameWeight),
+                .foregroundColor: nameColor,
+            ])
+        connectorNode.tintColor = theme.textDisabled
         selectionNode.isHidden = !selected
-        let theme = ThemeManager.shared.current
-        let isLight =
-            theme == .light
-            || (theme == .system && UIScreen.main.traitCollection.userInterfaceStyle != .dark)
-        selectionNode.backgroundColor =
-            selected ? (isLight ? t.secondaryWeight : t.secondaryLight) : .clear
-        if selected {
-            selectionNode.cornerRadius = 16.swh
-        }
+        selectionNode.backgroundColor = selected ? theme.desktop[.bgActiveMemberChannel] : .clear
         setNeedsLayout()
     }
 

@@ -175,7 +175,7 @@ final class InstallClanViewController: UIViewController {
                 self.appLogo = app.applogo
                 self.applyAppDetail()
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
             }
         }
     }
@@ -219,7 +219,7 @@ final class InstallClanViewController: UIViewController {
 
     @objc private func handleSelectClan() {
         guard !clans.isEmpty else {
-            Toast.error("You are not a member of any clan")
+            Toast.error(L(L10n.Common.notInAnyClan))
             return
         }
         let picker = ClanPickerSheetViewController(
@@ -247,10 +247,10 @@ final class InstallClanViewController: UIViewController {
             }
             do {
                 try await self.context.account.network.addAppToClan(appId: self.appId, clanId: clan.clanID, token: token)
-                Toast.success("App installed successfully")
+                Toast.success(L(L10n.ChannelApp.installed))
                 self.dismiss(animated: true)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
                 self.updateInstallButtonState()
             }
         }

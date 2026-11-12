@@ -80,7 +80,7 @@ final class StickersPanel: UIView {
     private let searchIconView: UIImageView = {
         let iv = UIImageView()
         iv.translatesAutoresizingMaskIntoConstraints = false
-        iv.image = UIImage(systemName: "magnifyingglass")
+        iv.image = UIImage(named: "Setting/SearchIcon")?.withRenderingMode(.alwaysTemplate)
         iv.tintColor = UIColor.mezonSecondaryLabel
         iv.contentMode = .scaleAspectFit
         return iv
@@ -88,6 +88,7 @@ final class StickersPanel: UIView {
 
     private let searchTextField: UITextField = {
         let tf = UITextField()
+        tf.accessibilityIdentifier = AccessibilityID.Search.input("stickers")
         tf.translatesAutoresizingMaskIntoConstraints = false
         tf.font = .systemFont(ofSize: 15)
         tf.returnKeyType = .search
@@ -158,16 +159,20 @@ final class StickersPanel: UIView {
         return label
     }()
 
-    private lazy var emptyStack: UIStackView = {
+    private let emptyStateIcon: UIImageView = {
         let icon = UIImageView()
         icon.translatesAutoresizingMaskIntoConstraints = false
-        icon.image = UIImage(named: "Chat/FaceIcon")
+        icon.image = UIImage(named: "Chat/FaceIcon")?.withRenderingMode(.alwaysTemplate)
             ?? UIImage(systemName: "face.smiling")
         icon.tintColor = UIColor.mezonLabel.withAlphaComponent(0.2)
         icon.contentMode = .scaleAspectFit
         NSLayoutConstraint.activate([icon.widthAnchor.constraint(equalToConstant: 48), icon.heightAnchor.constraint(equalToConstant: 48)])
+        return icon
+    }()
+
+    private lazy var emptyStack: UIStackView = {
         emptyStateLabel.text = "Stickers will appear here"
-        let sv = UIStackView(arrangedSubviews: [icon, emptyStateLabel])
+        let sv = UIStackView(arrangedSubviews: [emptyStateIcon, emptyStateLabel])
         sv.translatesAutoresizingMaskIntoConstraints = false
         sv.axis = .vertical
         sv.alignment = .center
@@ -247,6 +252,7 @@ final class StickersPanel: UIView {
             string: searchPlaceholderText,
             attributes: [.foregroundColor: t.textDisabled]
         )
+        emptyStateIcon.tintColor = t.textStrong.withAlphaComponent(0.2)
         categoryCollection.reloadData()
         stickerGrid.reloadData()
         refreshSoundFilterButtonAppearance()

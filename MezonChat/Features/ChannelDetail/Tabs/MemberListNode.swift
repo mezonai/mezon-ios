@@ -41,7 +41,8 @@ final class MemberListNode: ASDisplayNode {
 
     private var onlineMembers: MemberData = .channel([])
     private var offlineMembers: MemberData = .channel([])
-    private var roles: [Int64: String] = [:]
+    private var channelMembers: [ChannelMemberRecord] = []
+    private var presenceResplitScheduled = false
     private var ownerId: String?
     private let disposables = DisposableSet()
     private var didStartMemberLoading = false
@@ -92,6 +93,9 @@ final class MemberListNode: ASDisplayNode {
         tableNode.backgroundColor = .clear
         tableNode.view.separatorStyle = .none
         tableNode.view.allowsSelection = true
+        if #available(iOS 15.0, *) {
+            tableNode.view.sectionHeaderTopPadding = 0
+        }
     }
 
     func loadTabDataIfNeeded() {
@@ -100,9 +104,62 @@ final class MemberListNode: ASDisplayNode {
         loadClanData()
         observeVoicePresence()
         observeClanMemberUpdates()
+        observeRoleChanges()
         refreshClanMembersForAvatarsIfNeeded()
         observeMembers()
+        observeUserPresence()
         fetchMembersIfNeeded()
+        refreshOnlineUsers()
+    }
+
+    private func refreshOnlineUsers() {
+        guard clanId > 0 else { return }
+        Task { @MainActor [weak self] in
+            guard let self,
+                  let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait() else { return }
+            await self.context.engine.clanData.refreshOnlineUsers(clanId: self.clanId, token: token)
+            self.resplitByPresence()
+        }
+    }
+
+    private func observeUserPresence() {
+        disposables.add(
+            (context.engine.clanData.userPresenceUpdated.signal() |> deliverOnMainQueue).start(next: { [weak self] changedIds in
+                guard let self,
+                      self.channelMembers.contains(where: { changedIds.contains($0.userId) }) else { return }
+                self.schedulePresenceResplit()
+            })
+        )
+    }
+
+    private func schedulePresenceResplit() {
+        guard !presenceResplitScheduled else { return }
+        presenceResplitScheduled = true
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            guard let self else { return }
+            self.presenceResplitScheduled = false
+            self.resplitByPresence()
+        }
+    }
+
+    private func resplitByPresence() {
+        let previousOnlineIds = onlineMemberIds()
+        applyChannelMembers()
+        if onlineMemberIds() != previousOnlineIds {
+            tableNode.reloadData()
+        }
+    }
+
+    private func onlineMemberIds() -> [Int64] {
+        switch onlineMembers {
+        case .channel(let members): return members.map(\.userId)
+        case .clan(let members): return members.map(\.userId)
+        }
+    }
+
+    private func isMemberOnline(_ member: ChannelMemberRecord) -> Bool {
+        context.engine.clanData.presence(userId: member.userId)?.isOnline ?? member.isOnline
     }
 
     private func resolvedChannelMemberListName(_ record: ChannelMemberRecord) -> String {
@@ -255,19 +312,37 @@ final class MemberListNode: ASDisplayNode {
         context.account.postbox.read { tx in
             let clan = tx.getClan(id: clanId)
             self.ownerId = clan?.ownerId
-
-            if let data = tx.getSetting(key: PreferencesKeys.clanRoles(clanId: clanId)) {
-                if let roleList = try? Mezon_Api_RoleList(serializedBytes: data) {
-                    var roleMap: [Int64: String] = [:]
-                    for role in roleList.roles {
-                        if !role.color.isEmpty {
-                            roleMap[role.id] = role.color
-                        }
-                    }
-                    self.roles = roleMap
-                }
-            }
         }
+    }
+
+    private func observeRoleChanges() {
+        guard clanId > 0 else { return }
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleRolesChanged(_:)),
+            name: .mezonRolesDidChange,
+            object: nil
+        )
+    }
+
+    @objc private func handleRolesChanged(_ notification: Notification) {
+        DispatchQueue.main.async { [weak self] in
+            self?.tableNode.reloadData()
+        }
+    }
+
+    private func cellPresence(userId: Int64, fallbackOnline: Bool) -> User.OnlineStatus {
+        context.engine.clanData.presence(userId: userId) ?? (fallbackOnline ? .online : .offline)
+    }
+
+    private func roleNameColor(userId: Int64) -> UIColor? {
+        guard clanId > 0 else { return nil }
+        return context.rolePermissions.messageSenderNameColor(
+            senderId: String(userId),
+            clanId: clanId,
+            isClanChannel: true,
+            fallback: UIColor.theme.textStrong
+        )
     }
 
     private func fetchMembersIfNeeded() {
@@ -453,34 +528,39 @@ final class MemberListNode: ASDisplayNode {
 
     private func observeMembers() {
         guard channelId > 0 else { return }
-        let isDMOrGroup =
-            channelType == MezonConstants.ChannelType.dm.rawValue
-            || channelType == MezonConstants.ChannelType.group.rawValue
         let signal =
             context.account.postbox.channelMetaView(channelId: channelId)
             |> map { $0.record?.members ?? [] }
         disposables.add(
             (signal |> deliverOnMainQueue).start(next: { [weak self] members in
                 guard let self else { return }
-                let uniqueMembers = ChannelMemberRecord.deduplicatedByUserId(members)
-                if isDMOrGroup {
-                    let sorted = uniqueMembers.sorted {
-                        self.getName(member: .channel($0)) < self.getName(member: .channel($1))
-                    }
-                    self.onlineMembers = .channel(sorted)
-                    self.offlineMembers = .channel([])
-                } else {
-                    let online = uniqueMembers.filter { $0.isOnline }.sorted {
-                        self.getName(member: .channel($0)) < self.getName(member: .channel($1))
-                    }
-                    let offline = uniqueMembers.filter { !$0.isOnline }.sorted {
-                        self.getName(member: .channel($0)) < self.getName(member: .channel($1))
-                    }
-                    self.onlineMembers = .channel(online)
-                    self.offlineMembers = .channel(offline)
-                }
+                self.channelMembers = ChannelMemberRecord.deduplicatedByUserId(members)
+                self.applyChannelMembers()
                 self.tableNode.reloadData()
             }))
+    }
+
+    private func applyChannelMembers() {
+        let isDMOrGroup =
+            channelType == MezonConstants.ChannelType.dm.rawValue
+            || channelType == MezonConstants.ChannelType.group.rawValue
+        let uniqueMembers = channelMembers
+        if isDMOrGroup {
+            let sorted = uniqueMembers.sorted {
+                self.getName(member: .channel($0)) < self.getName(member: .channel($1))
+            }
+            self.onlineMembers = .channel(sorted)
+            self.offlineMembers = .channel([])
+        } else {
+            let online = uniqueMembers.filter { self.isMemberOnline($0) }.sorted {
+                self.getName(member: .channel($0)) < self.getName(member: .channel($1))
+            }
+            let offline = uniqueMembers.filter { !self.isMemberOnline($0) }.sorted {
+                self.getName(member: .channel($0)) < self.getName(member: .channel($1))
+            }
+            self.onlineMembers = .channel(online)
+            self.offlineMembers = .channel(offline)
+        }
     }
 
     private func getName(member: MemberListItem) -> String {
@@ -546,18 +626,17 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
         if indexPath.section == 0 {
             let type = self.channelType
             return {
-                var title = L(L10n.ChannelDetail.inviteMembers)
-                var icon = "person.badge.plus.fill"
-
-                if type == MezonConstants.ChannelType.dm.rawValue {
-                    title = L(L10n.ChannelDetail.newGroup)
-                    icon = "person.2.fill"
-                } else if type == MezonConstants.ChannelType.group.rawValue {
-                    title = L(L10n.ChannelDetail.addMembers)
-                    icon = "person.badge.plus.fill"
+                let isDirectMessage =
+                    type == MezonConstants.ChannelType.dm.rawValue
+                    || type == MezonConstants.ChannelType.group.rawValue
+                let title = isDirectMessage ? L(L10n.ChannelDetail.addMembers) : L(L10n.ChannelDetail.inviteMembers)
+                let cell = ActionButtonCellNode(title: title, iconName: "Channel/InviteMemberIcon")
+                if isDirectMessage {
+                    cell.accessibilityIdentifier = AccessibilityID.DirectMessage.addMember
+                } else {
+                    cell.accessibilityIdentifier = AccessibilityID.ChannelDetail.inviteMembers
                 }
-
-                return ActionButtonCellNode(title: title, iconName: icon)
+                return cell
             }
         }
 
@@ -566,7 +645,9 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
             switch onlineMembers {
             case .channel(let members):
                 let member = members[indexPath.row]
-                let color = getRoleColor(roleIds: member.roleIds)
+                let color = roleNameColor(userId: member.userId)
+                let presence = cellPresence(userId: member.userId, fallbackOnline: member.isOnline)
+                let customStatus = context.engine.clanData.customStatus(userId: member.userId) ?? ""
                 let isOwner = String(member.userId) == ownerId
                 return {
                     let presentation = self.resolvedChannelMemberPresentation(member)
@@ -577,11 +658,14 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                         avatarUrls: presentation.avatarUrls,
                         prefersProfileAvatar: self.prefersProfileAvatar,
                         roleColor: color, isOwner: isOwner,
-                        isInVoice: self.inVoiceUserIds.contains(member.userId))
+                        isInVoice: self.inVoiceUserIds.contains(member.userId),
+                        presence: presence, customStatus: customStatus)
                 }
             case .clan(let members):
                 let member = members[indexPath.row]
-                let color = getRoleColor(roleIds: member.roleIds)
+                let color = roleNameColor(userId: member.userId)
+                let presence = cellPresence(userId: member.userId, fallbackOnline: member.isOnline)
+                let customStatus = context.engine.clanData.customStatus(userId: member.userId) ?? ""
                 let isOwner = String(member.userId) == ownerId
                 return {
                     let presentation = self.resolvedClanMemberPresentation(member)
@@ -592,13 +676,17 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                         avatarUrls: presentation.avatarUrls,
                         prefersProfileAvatar: self.prefersProfileAvatar,
                         roleColor: color, isOwner: isOwner,
-                        isInVoice: self.inVoiceUserIds.contains(member.userId))
+                        isInVoice: self.inVoiceUserIds.contains(member.userId),
+                        presence: presence, customStatus: customStatus)
                 }
             }
         } else {
             switch offlineMembers {
             case .channel(let members):
                 let member = members[indexPath.row]
+                let color = roleNameColor(userId: member.userId)
+                let presence = cellPresence(userId: member.userId, fallbackOnline: member.isOnline)
+                let customStatus = context.engine.clanData.customStatus(userId: member.userId) ?? ""
                 let isOwner = String(member.userId) == ownerId
                 return {
                     let presentation = self.resolvedChannelMemberPresentation(member)
@@ -608,11 +696,15 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                         clanAvatar: presentation.clanAvatar,
                         avatarUrls: presentation.avatarUrls,
                         prefersProfileAvatar: self.prefersProfileAvatar,
-                        roleColor: nil, isOwner: isOwner,
-                        isInVoice: self.inVoiceUserIds.contains(member.userId))
+                        roleColor: color, isOwner: isOwner,
+                        isInVoice: self.inVoiceUserIds.contains(member.userId),
+                        presence: presence, customStatus: customStatus)
                 }
             case .clan(let members):
                 let member = members[indexPath.row]
+                let color = roleNameColor(userId: member.userId)
+                let presence = cellPresence(userId: member.userId, fallbackOnline: member.isOnline)
+                let customStatus = context.engine.clanData.customStatus(userId: member.userId) ?? ""
                 let isOwner = String(member.userId) == ownerId
                 return {
                     let presentation = self.resolvedClanMemberPresentation(member)
@@ -622,21 +714,14 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
                         clanAvatar: presentation.clanAvatar,
                         avatarUrls: presentation.avatarUrls,
                         prefersProfileAvatar: self.prefersProfileAvatar,
-                        roleColor: nil, isOwner: isOwner,
-                        isInVoice: self.inVoiceUserIds.contains(member.userId))
+                        roleColor: color, isOwner: isOwner,
+                        isInVoice: self.inVoiceUserIds.contains(member.userId),
+                        presence: presence, customStatus: customStatus)
                 }
             }
         }
     }
 
-    private func getRoleColor(roleIds: [Int64]) -> UIColor? {
-        for rid in roleIds {
-            if let hex = roles[rid] {
-                return UIColor(hexString: hex)
-            }
-        }
-        return nil
-    }
 
     func tableNode(_ tableNode: ASTableNode, didSelectRowAt indexPath: IndexPath) {
         tableNode.deselectRow(at: indexPath, animated: true)
@@ -738,9 +823,7 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
 
     private func removeMemberFromGroup(userId: Int64) async throws {
         guard let token = await context.getToken() else {
-            throw NSError(
-                domain: "MezonRemoveMember", code: -1,
-                userInfo: [NSLocalizedDescriptionKey: L(L10n.ChannelDetail.removeFromGroupFailed)])
+            throw UserFacingMessageError(message: L(L10n.ChannelDetail.removeFromGroupFailed))
         }
         try await context.account.network.removeChannelUsers(
             channelId: channelId, userIds: [userId], token: token)
@@ -770,7 +853,20 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
             return
         }
 
-        guard clanId != 0, channelType != MezonConstants.ChannelType.dm.rawValue else { return }
+        if channelType == MezonConstants.ChannelType.dm.rawValue {
+            var source = channelDescription
+            if source.userIds.isEmpty {
+                source.userIds = Array(currentGroupMemberSnapshot().ids)
+            }
+            let postbox = context.account.postbox
+            let vc = NewGroupDMViewController(context: context, sourceDirectMessage: source) { created in
+                postbox.updateCachedDMChannelDescription(created)
+            }
+            host.navigationController?.pushViewController(vc, animated: true)
+            return
+        }
+
+        guard clanId != 0 else { return }
         let vc = ClanInviteSheetViewController(context: context, clanId: clanId, channelId: channelId)
         host.present(vc, animated: true)
     }
@@ -856,39 +952,43 @@ extension MemberListNode: ASTableDataSource, ASTableDelegate {
         return u
     }
 
-    func tableNode(_ tableNode: ASTableNode, nodeForHeaderInSection section: Int) -> ASCellNode? {
-        if section == 0 { return nil }
-        let isDMOrGroup =
-            channelType == MezonConstants.ChannelType.dm.rawValue
-            || channelType == MezonConstants.ChannelType.group.rawValue
-
-        if isDMOrGroup {
-            if section == 1 {
-                return HeaderCellNode(
-                    title: L(L10n.ChannelDetail.members), count: onlineMembers.count)
-            }
-            return nil
-        }
-
-        let count = section == 1 ? onlineMembers.count : offlineMembers.count
-        let title = section == 1 ? L(L10n.ChannelDetail.online) : L(L10n.ChannelDetail.offline)
-
-        if count == 0 { return nil }
-        return HeaderCellNode(title: title, count: count)
+    func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
+        guard let title = sectionHeaderTitle(section) else { return nil }
+        let header = UIView()
+        header.backgroundColor = UIColor.theme.primary
+        let label = UILabel()
+        label.text = title
+        label.font = .systemFont(ofSize: 12.sf, weight: .semibold)
+        label.textColor = UIColor.theme.textDisabled
+        label.translatesAutoresizingMaskIntoConstraints = false
+        header.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: header.leadingAnchor, constant: 16),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: header.trailingAnchor, constant: -16),
+            label.bottomAnchor.constraint(equalTo: header.bottomAnchor, constant: -6),
+        ])
+        return header
     }
 
-    func tableNode(_ tableNode: ASTableNode, heightForHeaderInSection section: Int) -> CGFloat {
-        if section == 0 { return 0 }
+    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        sectionHeaderTitle(section) == nil ? 0 : 34
+    }
+
+    private func sectionHeaderTitle(_ section: Int) -> String? {
+        guard section > 0 else { return nil }
         let isDMOrGroup =
             channelType == MezonConstants.ChannelType.dm.rawValue
             || channelType == MezonConstants.ChannelType.group.rawValue
 
         if isDMOrGroup {
-            return section == 1 && onlineMembers.count > 0 ? 30 : 0
+            guard section == 1, onlineMembers.count > 0 else { return nil }
+            return "\(L(L10n.ChannelDetail.members).uppercased()) - \(onlineMembers.count)"
         }
 
         let count = section == 1 ? onlineMembers.count : offlineMembers.count
-        return count > 0 ? 30 : 0
+        guard count > 0 else { return nil }
+        let title = section == 1 ? L(L10n.ChannelDetail.online) : L(L10n.ChannelDetail.offline)
+        return "\(title.uppercased()) - \(count)"
     }
 }
 
@@ -915,10 +1015,10 @@ private final class ActionButtonCellNode: ASCellNode {
         iconBackgroundNode.clipsToBounds = true
         iconBackgroundNode.style.preferredSize = CGSize(width: iconCircle, height: iconCircle)
 
-        let config = UIImage.SymbolConfiguration(pointSize: 20.sf, weight: .semibold)
-        iconNode.image = UIImage(systemName: iconName, withConfiguration: config)?
+        iconNode.image = UIImage(named: iconName)?
             .withTintColor(.white, renderingMode: .alwaysOriginal)
         iconNode.contentMode = .scaleAspectFit
+        iconNode.style.preferredSize = CGSize(width: 20.sf, height: 20.sf)
 
         titleNode.attributedText = NSAttributedString(
             string: title,
@@ -928,7 +1028,7 @@ private final class ActionButtonCellNode: ASCellNode {
             ]
         )
 
-        arrowNode.image = UIImage(systemName: "chevron.right")?.withTintColor(
+        arrowNode.image = UIImage(named: "Channel/ChevronRight")?.withTintColor(
             t.text.withAlphaComponent(0.55), renderingMode: .alwaysOriginal)
         arrowNode.style.preferredSize = CGSize(width: 14.sf, height: 14.sf)
     }
@@ -987,16 +1087,23 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
     private let textAvatarNode = TextAvatarNode(size: 40.sf)
     private let avatarNode = ASNetworkImageNode()
     private let nameNode = ASTextNode2()
-    private let crownNode = ASTextNode2()
-    private let statusNode = ASDisplayNode()
+    private let crownNode = ASImageNode()
+    private let statusNode = ASImageNode()
     private let separatorNode = ASDisplayNode()
     private let inVoiceIconNode = ASImageNode()
     private let inVoiceTextNode = ASTextNode2()
+    private let customStatusNode = ASTextNode2()
+    private let avatarDimNode = ASDisplayNode()
     private let prefersProfileAvatar: Bool
     private let roleColor: UIColor?
     private let isOwner: Bool
     private let isInVoice: Bool
     private var showsInVoice = false
+    private var showsCustomStatus = false
+    private var presence: User.OnlineStatus = .offline
+    private var profileIsOnline = false
+    private var nameText = ""
+    private var customStatusText = ""
     private let disposables = DisposableSet()
 
     init(
@@ -1005,7 +1112,9 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         avatarUrls: [String] = [],
         prefersProfileAvatar: Bool = false,
         roleColor: UIColor? = nil, isOwner: Bool = false,
-        isInVoice: Bool = false
+        isInVoice: Bool = false,
+        presence: User.OnlineStatus = .offline,
+        customStatus: String = ""
     ) {
         self.context = context
         self.userId = userId
@@ -1018,6 +1127,9 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         self.roleColor = roleColor
         self.isOwner = isOwner
         self.isInVoice = isInVoice
+        self.presence = presence
+        self.profileIsOnline = presence.isOnline
+        self.customStatusText = customStatus
         super.init()
         self.automaticallyManagesSubnodes = true
         self.backgroundColor = .clear
@@ -1031,20 +1143,19 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         self.addSubnode(textAvatarNode)
         self.addSubnode(nameNode)
 
-        statusNode.style.preferredSize = CGSize(width: 12.sf, height: 12.sf)
-        statusNode.cornerRadius = 6.sf
-        statusNode.borderColor = UIColor.theme.secondary.cgColor
-        statusNode.borderWidth = 2.sf
+        statusNode.style.preferredSize = CGSize(width: 16.sf, height: 16.sf)
+        statusNode.contentMode = .scaleToFill
+        statusNode.displaysAsynchronously = false
         self.addSubnode(statusNode)
 
         separatorNode.backgroundColor = UIColor.theme.borderDim
         self.addSubnode(separatorNode)
 
         if isOwner {
-            crownNode.attributedText = NSAttributedString(
-                string: "👑",
-                attributes: [.font: UIFont.systemFont(ofSize: 14.sf)]
-            )
+            crownNode.image = UIImage(named: "ChannelSetting/PermissionOwnerIcon")?.withRenderingMode(.alwaysTemplate)
+            crownNode.tintColor = UIColor(rgb: 0xFAA61A)
+            crownNode.contentMode = .scaleAspectFit
+            crownNode.style.preferredSize = CGSize(width: 14.sf, height: 14.sf)
             self.addSubnode(crownNode)
         }
 
@@ -1063,7 +1174,15 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         inVoiceIconNode.image = (UIImage(named: "Chat/SpeakerIcon") ?? UIImage(systemName: "speaker.wave.2.fill"))?
             .withTintColor(.mezonVoiceActive, renderingMode: .alwaysOriginal)
 
-        self.updateUI(displayName: displayName, avatarUrl: avatarUrl, isOnline: false, status: 0)
+        customStatusNode.maximumNumberOfLines = 1
+        customStatusNode.truncationMode = .byTruncatingTail
+        customStatusNode.style.flexShrink = 1.0
+
+        avatarDimNode.backgroundColor = UIColor.theme.primary.withAlphaComponent(0.5)
+        avatarDimNode.cornerRadius = 20.sf
+        avatarDimNode.isUserInteractionEnabled = false
+
+        self.updateUI(displayName: displayName, avatarUrl: avatarUrl)
 
         Task { @MainActor in
             observeProfile()
@@ -1071,6 +1190,7 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
     }
 
     @MainActor private func observeProfile() {
+        refreshPresence()
         let signal: Signal<ProfileView, NoError> = context.account.postbox.profileView(
             userId: String(userId))
         disposables.add(
@@ -1088,37 +1208,68 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
                     name = ""
                 }
 
-                self.updateUI(
-                    displayName: name,
-                    avatarUrl: profile.avatarUrl,
-                    isOnline: profile.isOnline,
-                    status: profile.status)
+                self.profileIsOnline = profile.isOnline
+                self.updateUI(displayName: name, avatarUrl: profile.avatarUrl)
+                self.refreshPresence()
+            }))
+        let userId = self.userId
+        disposables.add(
+            (context.engine.clanData.userPresenceUpdated.signal() |> deliverOnMainQueue).start(next: { [weak self] changedIds in
+                guard let self, changedIds.contains(userId) else { return }
+                self.refreshPresence()
             }))
     }
 
-    private func updateUI(displayName: String, avatarUrl: String?, isOnline: Bool, status: Int32) {
+    @MainActor private func refreshPresence() {
+        let clanData = context.engine.clanData
+        customStatusText = clanData.customStatus(userId: userId) ?? ""
+        let presence: User.OnlineStatus = clanData.presence(userId: userId)
+            ?? (profileIsOnline ? .online : .offline)
+        applyPresence(presence)
+    }
+
+    private func applyPresence(_ presence: User.OnlineStatus) {
+        self.presence = presence
+        let t = UIColor.theme
+        let isOnline = presence.isOnline
+        let baseNameColor = roleColor ?? t.textStrong
+
+        nameNode.attributedText = NSAttributedString(
+            string: nameText,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 16.sf, weight: .regular),
+                .foregroundColor: isOnline ? baseNameColor : baseNameColor.withAlphaComponent(0.5),
+            ]
+        )
+
+        statusNode.image = isOnline
+            ? PresenceBadge.image(for: presence, diameter: 16.sf, ringWidth: 2.5.sf, ringColor: t.primary)
+            : nil
+        avatarDimNode.isHidden = isOnline
+
+        customStatusNode.attributedText = NSAttributedString(
+            string: customStatusText,
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 12.sf, weight: .regular),
+                .foregroundColor: t.textStrong.withAlphaComponent(isOnline ? 0.6 : 0.3),
+            ]
+        )
+
+        let showsVoice = isInVoice && isOnline
+        let showsStatus = !showsVoice && !customStatusText.isEmpty
+        if showsVoice != showsInVoice || showsStatus != showsCustomStatus {
+            showsInVoice = showsVoice
+            showsCustomStatus = showsStatus
+            setNeedsLayout()
+        }
+    }
+
+    private func updateUI(displayName: String, avatarUrl: String?) {
         var name = displayName
         if name.isEmpty {
             name = !initialDisplayName.isEmpty ? initialDisplayName : "User \(userId)"
         }
-
-        let t = UIColor.theme
-        var nameTextColor = t.textStrong
-        if isOnline {
-            if let roleColor = self.roleColor {
-                nameTextColor = roleColor
-            }
-        } else {
-            nameTextColor = t.text
-        }
-
-        nameNode.attributedText = NSAttributedString(
-            string: name,
-            attributes: [
-                .font: UIFont.systemFont(ofSize: 16.sf, weight: .regular),
-                .foregroundColor: nameTextColor,
-            ]
-        )
+        nameText = name
         nameNode.style.flexShrink = 1.0
         nameNode.style.flexGrow = 1.0
 
@@ -1137,26 +1288,7 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         }
         loadAvatarCandidate(at: 0)
 
-        if isOnline {
-            statusNode.backgroundColor = UIColor(hexString: "#00d4aa")
-        } else {
-            switch status {
-            case 1:
-                statusNode.backgroundColor = UIColor(hexString: "#00d4aa")
-            case 2:
-                statusNode.backgroundColor = .systemYellow
-            case 3:
-                statusNode.backgroundColor = .systemRed
-            default:
-                statusNode.backgroundColor = .lightGray
-            }
-        }
-
-        let shows = isInVoice && isOnline
-        if shows != showsInVoice {
-            showsInVoice = shows
-            setNeedsLayout()
-        }
+        applyPresence(presence)
     }
 
 
@@ -1217,9 +1349,10 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
             child: textAvatarNode,
             overlay: ASInsetLayoutSpec(insets: .zero, child: avatarNode)
         )
+        let dimmedAvatar = ASOverlayLayoutSpec(child: avatarOverlay, overlay: avatarDimNode)
         let avatarWithStatus = ASCornerLayoutSpec(
-            child: avatarOverlay, corner: statusNode, location: .bottomRight)
-        avatarWithStatus.offset = CGPoint(x: -2.sf, y: -2.sf)
+            child: dimmedAvatar, corner: statusNode, location: .bottomRight)
+        avatarWithStatus.offset = CGPoint(x: -6.sf, y: -6.sf)
 
         var nameChildren: [ASLayoutElement] = [nameNode]
         if isOwner {
@@ -1237,20 +1370,25 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
         nameStack.style.flexGrow = 1.0
 
         let textColumn: ASLayoutElement
-        if showsInVoice {
-            let voiceRow = ASStackLayoutSpec(
-                direction: .horizontal,
-                spacing: 4.sw,
-                justifyContent: .start,
-                alignItems: .center,
-                children: [inVoiceIconNode, inVoiceTextNode]
-            )
+        if showsInVoice || showsCustomStatus {
+            let subtitle: ASLayoutElement
+            if showsInVoice {
+                subtitle = ASStackLayoutSpec(
+                    direction: .horizontal,
+                    spacing: 4.sw,
+                    justifyContent: .start,
+                    alignItems: .center,
+                    children: [inVoiceIconNode, inVoiceTextNode]
+                )
+            } else {
+                subtitle = customStatusNode
+            }
             let column = ASStackLayoutSpec(
                 direction: .vertical,
                 spacing: 2,
                 justifyContent: .center,
                 alignItems: .stretch,
-                children: [nameStack, voiceRow]
+                children: [nameStack, subtitle]
             )
             column.style.flexShrink = 1.0
             column.style.flexGrow = 1.0
@@ -1288,31 +1426,6 @@ private final class MemberCellNode: ASCellNode, ASNetworkImageNodeDelegate {
 
     deinit {
         disposables.dispose()
-    }
-}
-
-private final class HeaderCellNode: ASCellNode {
-    private let textNode = ASTextNode2()
-
-    init(title: String, count: Int) {
-        super.init()
-        self.automaticallyManagesSubnodes = true
-        self.backgroundColor = .clear
-
-        textNode.attributedText = NSAttributedString(
-            string: "\(title) - \(count)",
-            attributes: [
-                .font: UIFont.systemFont(ofSize: 14.sf, weight: .medium),
-                .foregroundColor: UIColor.theme.textDisabled,
-            ]
-        )
-    }
-
-    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
-        return ASInsetLayoutSpec(
-            insets: UIEdgeInsets(top: 16, left: 16, bottom: 8, right: 16),
-            child: textNode
-        )
     }
 }
 

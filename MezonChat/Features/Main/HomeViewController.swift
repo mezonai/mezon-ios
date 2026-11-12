@@ -91,7 +91,7 @@ final class HomeViewController: BaseViewController {
     private func focusDiscoverWhenNoClansFromTab() {
         guard clanListVC.discoverEmptyOverlayShouldShow else { return }
         discoverEmptyOverlayVC.reloadDiscoverList()
-        discoverEmptyOverlayVC.view.isHidden = false
+        setDiscoverOverlayVisible(true)
         view.bringSubviewToFront(discoverEmptyOverlayVC.view)
         clanListVC.focusDiscoverInSidebar()
         syncMainColumnZOrder()
@@ -99,7 +99,7 @@ final class HomeViewController: BaseViewController {
 
     private func presentDiscoverWhenNoClansIfNeeded() {
         guard clanListVC.discoverEmptyOverlayShouldShow else { return }
-        discoverEmptyOverlayVC.view.isHidden = false
+        setDiscoverOverlayVisible(true)
         view.bringSubviewToFront(discoverEmptyOverlayVC.view)
         clanListVC.focusDiscoverInSidebar()
         syncMainColumnZOrder()
@@ -254,13 +254,18 @@ final class HomeViewController: BaseViewController {
         vc.view.isHidden = true
     }
 
+    private func setDiscoverOverlayVisible(_ visible: Bool) {
+        discoverEmptyOverlayVC.view.isHidden = !visible
+        clanListVC.setDiscoverActive(visible)
+    }
+
     private func bindDiscoverEmptyOverlay() {
-        discoverEmptyOverlayVC.view.isHidden = !clanListVC.discoverEmptyOverlayShouldShow
+        setDiscoverOverlayVisible(clanListVC.discoverEmptyOverlayShouldShow)
         disposables.add(
             (clanListVC.showDiscoverEmptyOverlaySignal |> deliverOnMainQueue)
                 .start(next: { [weak self] show in
                     guard let self else { return }
-                    self.discoverEmptyOverlayVC.view.isHidden = !show
+                    self.setDiscoverOverlayVisible(show)
                     if show {
                         self.view.bringSubviewToFront(self.discoverEmptyOverlayVC.view)
                         self.clanListVC.focusDiscoverInSidebar()
@@ -273,7 +278,7 @@ final class HomeViewController: BaseViewController {
 
     private func dismissDiscoverOverlayIfPresent() {
         guard !discoverEmptyOverlayVC.view.isHidden else { return }
-        discoverEmptyOverlayVC.view.isHidden = true
+        setDiscoverOverlayVisible(false)
         view.bringSubviewToFront(channelListVC.view)
     }
 
@@ -299,7 +304,7 @@ final class HomeViewController: BaseViewController {
         clanListVC.onJoinClanTapped = { [weak self] in
             guard let self else { return }
             self.discoverEmptyOverlayVC.reloadDiscoverList()
-            self.discoverEmptyOverlayVC.view.isHidden = false
+            self.setDiscoverOverlayVisible(true)
             self.view.bringSubviewToFront(self.discoverEmptyOverlayVC.view)
         }
         clanListVC.onCreateClanTapped = { [weak self] in

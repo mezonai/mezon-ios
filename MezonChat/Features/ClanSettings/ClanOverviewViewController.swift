@@ -15,6 +15,7 @@ final class ClanOverviewViewController: BaseViewController {
     private let headerTitleLabel = UILabel()
     private let saveButton = UIButton(type: .system)
 
+    private let clanNameInputContainer = UIView()
     private let clanNameTextField = UITextField()
     private let nameErrorLabel = UILabel()
     private let avatarImageView = UIImageView()
@@ -89,7 +90,7 @@ final class ClanOverviewViewController: BaseViewController {
 
     override func loadDisplayNode() {
         displayNode = ASDisplayNode()
-        displayNode.backgroundColor = .mezonSecondary
+        displayNode.backgroundColor = UIColor.theme.secondary
     }
 
     override func viewDidLoad() {
@@ -163,7 +164,7 @@ final class ClanOverviewViewController: BaseViewController {
     }
 
     override func setupUI() {
-        view.backgroundColor = .mezonSecondary
+        view.backgroundColor = UIColor.theme.secondary
         
         setupHeader()
         
@@ -197,8 +198,15 @@ final class ClanOverviewViewController: BaseViewController {
         updateSaveButtonState()
     }
 
+    override func applyTheme() {
+        let theme = UIColor.theme
+        clanNameInputContainer.backgroundColor = theme.primary
+        clanNameTextField.textColor = theme.textStrong
+        updateClanNameInputBorder()
+    }
+
     private func setupHeader() {
-        headerView.backgroundColor = .mezonSecondary
+        headerView.backgroundColor = UIColor.theme.secondary
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
 
@@ -292,15 +300,15 @@ final class ClanOverviewViewController: BaseViewController {
         label.font = .systemFont(ofSize: 14.sf, weight: .bold)
         label.textColor = UIColor.theme.textStrong
         
-        let inputContainer = UIView()
-        inputContainer.backgroundColor = UIColor.theme.primary
-        inputContainer.layer.cornerRadius = 12.swh
+        clanNameInputContainer.layer.cornerRadius = 12.swh
+        clanNameInputContainer.layer.borderWidth = 1
+        clanNameInputContainer.clipsToBounds = true
         
         clanNameTextField.font = .systemFont(ofSize: 15.sf)
-        clanNameTextField.textColor = UIColor.theme.textStrong
         clanNameTextField.addTarget(self, action: #selector(textFieldDidChange), for: .editingChanged)
+        clanNameTextField.addTarget(self, action: #selector(updateClanNameInputBorder), for: [.editingDidBegin, .editingDidEnd])
         
-        [avatarImageView, cameraIcon, changeAvatarLabel, bannerLoadingView, pickAvatarButton, label, inputContainer, clanNameTextField].forEach {
+        [avatarImageView, cameraIcon, changeAvatarLabel, bannerLoadingView, pickAvatarButton, label, clanNameInputContainer, clanNameTextField].forEach {
             $0.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview($0)
         }
@@ -337,15 +345,15 @@ final class ClanOverviewViewController: BaseViewController {
             label.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             label.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             
-            inputContainer.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 8.sh),
-            inputContainer.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            inputContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            inputContainer.heightAnchor.constraint(equalToConstant: 48.sh),
-            inputContainer.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            clanNameInputContainer.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 8.sh),
+            clanNameInputContainer.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            clanNameInputContainer.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            clanNameInputContainer.heightAnchor.constraint(equalToConstant: 48.sh),
+            clanNameInputContainer.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             
-            clanNameTextField.leadingAnchor.constraint(equalTo: inputContainer.leadingAnchor, constant: 16.sw),
-            clanNameTextField.trailingAnchor.constraint(equalTo: inputContainer.trailingAnchor, constant: -16.sw),
-            clanNameTextField.centerYAnchor.constraint(equalTo: inputContainer.centerYAnchor)
+            clanNameTextField.leadingAnchor.constraint(equalTo: clanNameInputContainer.leadingAnchor, constant: 16.sw),
+            clanNameTextField.trailingAnchor.constraint(equalTo: clanNameInputContainer.trailingAnchor, constant: -16.sw),
+            clanNameTextField.centerYAnchor.constraint(equalTo: clanNameInputContainer.centerYAnchor)
         ])
         
         return container
@@ -797,6 +805,12 @@ final class ClanOverviewViewController: BaseViewController {
         navigationController?.popViewController(animated: true)
     }
     
+    @objc private func updateClanNameInputBorder() {
+        let theme = UIColor.theme
+        let borderColor = clanNameTextField.isEditing ? theme.iconPrimary : theme.borderPrimary
+        clanNameInputContainer.layer.borderColor = borderColor.cgColor
+    }
+
     @objc private func textFieldDidChange() {
         let name = (clanNameTextField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if !ClanCreationNameRules.isValid(name) {

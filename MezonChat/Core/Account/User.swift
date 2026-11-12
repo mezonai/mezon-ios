@@ -98,4 +98,11 @@ extension User.OnlineStatus {
         case .offline:      return "Offline"
         }
     }
+
+    var isOnline: Bool {
+        switch self {
+        case .online, .idle, .doNotDisturb: return true
+        case .invisible, .offline: return false
+        }
+    }
 }

@@ -864,8 +864,30 @@ final class MezonHTTPClient {
         req.type = MezonConstants.ChannelType.dm.rawValue
         req.channelPrivate = 1
         req.userIds = [userId]
+        do {
+            return try await postProto(
+                path: "/mezon.api.Mezon/CreateChannelDesc",
+                message: req,
+                auth: .bearer(token)
+            )
+        } catch MezonError.httpError(let statusCode, _) where statusCode == 403 || statusCode == 7 {
+            throw DirectMessageRestrictionError.onlyFriends
+        }
+    }
+
+    func getDMSetting(token: String) async throws -> Mezon_Api_DMSetting {
+        try await postProto(
+            path: "/mezon.api.Mezon/GetDMSetting",
+            message: Mezon_Api_NoParams(),
+            auth: .bearer(token)
+        )
+    }
+
+    func updateDMSetting(onlyFriendsDm: Bool, token: String) async throws -> Mezon_Api_DMSetting {
+        var req = Mezon_Api_UpdateDMSettingRequest()
+        req.onlyFriendsDm = onlyFriendsDm
         return try await postProto(
-            path: "/mezon.api.Mezon/CreateChannelDesc",
+            path: "/mezon.api.Mezon/UpdateDMSetting",
             message: req,
             auth: .bearer(token)
         )
@@ -1677,6 +1699,26 @@ final class MezonHTTPClient {
         )
         recordClanRosterCap(clanId: clanId, rows: response.clanUsers.count)
         return response
+    }
+
+    func listUserOnline(clanId: Int64, token: String) async throws -> Mezon_Api_ListUserOnlineResponse {
+        var req = Mezon_Api_ListUserOnlineRequest()
+        req.clanID = clanId
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListUserOnline",
+            message: req,
+            auth: .bearer(token)
+        )
+    }
+
+    func listClanUsersStatus(clanId: Int64, token: String) async throws -> Mezon_Api_ClanUserStatusList {
+        var req = Mezon_Api_ListClanUsersStatusRequest()
+        req.clanID = clanId
+        return try await postProto(
+            path: "/mezon.api.Mezon/ListClanUsersStatus",
+            message: req,
+            auth: .bearer(token)
+        )
     }
 
     private func recordClanRosterCap(clanId: Int64, rows: Int) {
@@ -3662,6 +3704,14 @@ struct APIError: Decodable, LocalizedError {
     }
 }
 
+enum DirectMessageRestrictionError: UserFacingError {
+    case onlyFriends
+
+    var errorDescription: String? {
+        L(L10n.DirectMessage.onlyFriendsDenied)
+    }
+}
+
 extension MezonHTTPClient {
 
     fileprivate static func observeCoalescedCacheInvalidations() {
@@ -3920,5 +3970,51 @@ enum MezonError: LocalizedError {
         case .httpError(let c, let msg):    return "HTTP \(c): \(msg)"
         case .socketError(let msg):         return "Socket: \(msg)"
         }
+    }
+
+    var serverMessage: String? {
+        guard case .httpError(let statusCode, let message) = self,
+              (400..<500).contains(statusCode),
+              !message.isEmpty,
+              !message.hasPrefix("MinIO "),
+              message != HTTPURLResponse.localizedString(forStatusCode: statusCode) else { return nil }
+        return message
+    }
+}
+
+protocol UserFacingError: LocalizedError {}
+
+struct UserFacingMessageError: UserFacingError {
+    let message: String
+
+    var errorDescription: String? { message }
+}
+
+extension Error {
+    var userMessage: String {
+        userMessage(fallback: L(L10n.Common.actionFailed))
+    }
+
+    func userMessage(fallback: String) -> String {
+        if let message = (self as? MezonError)?.serverMessage {
+            return message
+        }
+        if let message = (self as? APIError)?.message, !message.isEmpty {
+            return message
+        }
+        if let message = (self as? UserFacingError)?.errorDescription, !message.isEmpty {
+            return message
+        }
+        if let urlError = self as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet, .networkConnectionLost, .timedOut, .cannotConnectToHost,
+                 .cannotFindHost, .dnsLookupFailed, .dataNotAllowed, .internationalRoamingOff,
+                 .secureConnectionFailed:
+                return L(L10n.Common.networkError)
+            default:
+                break
+            }
+        }
+        return fallback
     }
 }

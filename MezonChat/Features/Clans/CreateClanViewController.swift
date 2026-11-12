@@ -474,7 +474,7 @@ final class CreateClanViewController: BaseViewController, UITextViewDelegate, UI
                 }
                 popCreateFlowAndNotify(clanId: newId)
             } catch {
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
                 resetSubmittingState()
             }
         }
@@ -539,7 +539,7 @@ final class CreateClanViewController: BaseViewController, UITextViewDelegate, UI
                     "where": "CreateClan.uploadLogo",
                     "size": data.count,
                 ])
-                Toast.error(error.localizedDescription)
+                Toast.error(error.userMessage)
                 logoCenterStack.isHidden = false
             }
         }

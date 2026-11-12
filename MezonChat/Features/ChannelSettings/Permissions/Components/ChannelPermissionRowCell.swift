@@ -28,9 +28,9 @@ final class ChannelPermissionRowCell: UITableViewCell {
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: .default, reuseIdentifier: reuseIdentifier)
-        backgroundColor = UIColor.theme.tertiary
+        backgroundColor = UIColor.theme.primary
         let bg = UIView()
-        bg.backgroundColor = UIColor.theme.tertiary.withAlphaComponent(0.6)
+        bg.backgroundColor = UIColor.theme.secondary.withAlphaComponent(0.6)
         selectedBackgroundView = bg
         setupViews()
     }
@@ -41,14 +41,14 @@ final class ChannelPermissionRowCell: UITableViewCell {
         avatarView.layer.cornerRadius = 18.swh
         avatarView.clipsToBounds = true
         avatarView.contentMode = .scaleAspectFill
-        avatarView.backgroundColor = UIColor.theme.tertiary
+        avatarView.backgroundColor = UIColor.theme.secondary
 
         avatarInitials.font = .systemFont(ofSize: 13.sf, weight: .bold)
         avatarInitials.textColor = .white
         avatarInitials.textAlignment = .center
 
         roleIconView.contentMode = .scaleAspectFit
-        roleIconView.image = UIImage(systemName: "shield.lefthalf.filled")?.withRenderingMode(.alwaysTemplate)
+        roleIconView.image = UIImage(named: "ClanSetting/Roles")?.withRenderingMode(.alwaysTemplate)
         roleIconView.isHidden = true
 
         nameLabel.font = .systemFont(ofSize: 14.sf, weight: .semibold)
@@ -56,21 +56,25 @@ final class ChannelPermissionRowCell: UITableViewCell {
         nameLabel.numberOfLines = 1
 
         subLabel.font = .systemFont(ofSize: 12.sf, weight: .regular)
-        subLabel.textColor = UIColor.theme.textDisabled
+        subLabel.textColor = UIColor.theme.textNormal
         subLabel.numberOfLines = 1
 
-        ownerIcon.image = UIImage(systemName: "crown.fill")?.withRenderingMode(.alwaysTemplate)
-        ownerIcon.tintColor = UIColor.systemYellow
+        ownerIcon.image = UIImage(named: "ChannelSetting/PermissionOwnerIcon")?.withRenderingMode(.alwaysTemplate)
+        ownerIcon.tintColor = UIColor(rgb: 0xFAA61A)
         ownerIcon.contentMode = .scaleAspectFit
         ownerIcon.isHidden = true
 
+        trailingButton.accessibilityIdentifier = AccessibilityID.ChannelPermissions.action("row", "remove")
         trailingButton.addTarget(self, action: #selector(removeTapped), for: .touchUpInside)
         trailingButton.isHidden = true
 
-        checkboxView.contentMode = .scaleAspectFit
+        checkboxView.contentMode = .center
+        checkboxView.layer.cornerRadius = 5.swh
+        checkboxView.layer.borderWidth = 2.swh
+        checkboxView.clipsToBounds = true
         checkboxView.isHidden = true
 
-        chevron.image = UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate)
+        chevron.image = UIImage(named: "Channel/ChevronRight")?.withRenderingMode(.alwaysTemplate)
         chevron.tintColor = UIColor.theme.textDisabled
         chevron.contentMode = .scaleAspectFit
         chevron.isHidden = true
@@ -118,8 +122,8 @@ final class ChannelPermissionRowCell: UITableViewCell {
 
             chevron.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -14.sw),
             chevron.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            chevron.widthAnchor.constraint(equalToConstant: 12.swh),
-            chevron.heightAnchor.constraint(equalToConstant: 18.swh),
+            chevron.widthAnchor.constraint(equalToConstant: 16.swh),
+            chevron.heightAnchor.constraint(equalToConstant: 16.swh),
 
             nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingButton.leadingAnchor, constant: -8.sw),
             subLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingButton.leadingAnchor, constant: -8.sw),
@@ -148,7 +152,7 @@ final class ChannelPermissionRowCell: UITableViewCell {
         imageTask = nil
         configuredAvatarURL = nil
         avatarView.image = nil
-        avatarView.backgroundColor = UIColor.theme.tertiary
+        avatarView.backgroundColor = UIColor.theme.secondary
         if let urlString = avatarURL, !urlString.isEmpty {
             let resolved = ImgproxyURL.iconURL(from: urlString, width: 100, height: 100)
             configuredAvatarURL = resolved
@@ -182,7 +186,7 @@ final class ChannelPermissionRowCell: UITableViewCell {
         ownerIcon.isHidden = true
 
         avatarView.image = nil
-        avatarView.backgroundColor = color.withAlphaComponent(0.18)
+        avatarView.isHidden = true
         roleIconView.isHidden = false
         roleIconView.tintColor = color
 
@@ -194,6 +198,11 @@ final class ChannelPermissionRowCell: UITableViewCell {
     }
 
     private func applyTrailing(_ trailing: Trailing) {
+        backgroundColor = UIColor.theme.primary
+        selectedBackgroundView?.backgroundColor = UIColor.theme.secondary.withAlphaComponent(0.6)
+        nameLabel.textColor = UIColor.theme.textStrong
+        subLabel.textColor = UIColor.theme.textNormal
+        chevron.tintColor = UIColor.theme.textDisabled
         trailingButton.isHidden = true
         checkboxView.isHidden = true
         chevron.isHidden = true
@@ -205,16 +214,17 @@ final class ChannelPermissionRowCell: UITableViewCell {
         case .removeButton(let enabled):
             trailingButton.isHidden = false
             trailingButton.setImage(
-                UIImage(systemName: "xmark.circle.fill")?.withRenderingMode(.alwaysTemplate),
+                UIImage(named: "Chat/DmCloseIcon")?.withRenderingMode(.alwaysTemplate),
                 for: .normal
             )
             trailingButton.tintColor = enabled ? UIColor.theme.text : UIColor.theme.textDisabled
             trailingButton.isEnabled = enabled
         case .checkbox(let checked):
             checkboxView.isHidden = false
-            let symbol = checked ? "checkmark.circle.fill" : "circle"
-            checkboxView.image = UIImage(systemName: symbol)?.withRenderingMode(.alwaysTemplate)
-            checkboxView.tintColor = checked ? UIColor.theme.bgViolet : UIColor.theme.textDisabled
+            checkboxView.image = checked ? UIImage(named: "Channel/JoinRoleCheck")?.withRenderingMode(.alwaysTemplate) : nil
+            checkboxView.tintColor = .white
+            checkboxView.backgroundColor = checked ? UIColor.theme.iconPrimary : .clear
+            checkboxView.layer.borderColor = (checked ? UIColor.theme.iconPrimary : UIColor.theme.border).cgColor
         }
     }
 
@@ -224,12 +234,13 @@ final class ChannelPermissionRowCell: UITableViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        accessibilityIdentifier = nil
         imageTask?.cancel()
         imageTask = nil
         configuredAvatarURL = nil
         avatarView.image = nil
         avatarView.isHidden = false
-        avatarView.backgroundColor = UIColor.theme.tertiary
+        avatarView.backgroundColor = UIColor.theme.secondary
         avatarInitials.isHidden = false
         roleIconView.isHidden = true
         ownerIcon.isHidden = true

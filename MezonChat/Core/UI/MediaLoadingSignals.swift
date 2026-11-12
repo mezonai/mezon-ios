@@ -916,61 +916,38 @@ func remoteImageSignal(url: String, resizeMode: ImageResizeMode = .fit) -> Signa
     }
 }
 
+private func loadAttachmentImage(
+    proxyURL: String,
+    originalURL: String,
+    isCancelled: @escaping () -> Bool,
+    completion: @escaping (UIImage?) -> Void
+) {
+    let cache = ImageCache.shared
+    let firstURL = proxyURL.isEmpty ? originalURL : proxyURL
+    cache.loadImage(urlString: firstURL) { image in
+        guard !isCancelled() else { return }
+        if image == nil, !originalURL.isEmpty, originalURL != firstURL {
+            cache.loadImage(urlString: originalURL, completion: completion)
+        } else {
+            completion(image)
+        }
+    }
+}
+
 func remoteAttachmentImageSignal(proxyURL: String, originalURL: String, resizeMode: ImageResizeMode = .fit) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
     Signal { subscriber in
-        let cancelled = Atomic<Bool>(value: false)
-
-        func finishEmpty() {
-            guard !cancelled.with({ $0 }) else { return }
+        guard !proxyURL.isEmpty else {
             subscriber.putNext(emptyDrawingTransform())
             subscriber.putCompletion()
-        }
-
-        func emitImage(_ image: UIImage) {
-            guard !cancelled.with({ $0 }) else { return }
-            subscriber.putNext(makeTransform(for: image, resizeMode: resizeMode))
-            subscriber.putCompletion()
-        }
-
-        func tryUrl(_ urlString: String, thenFallback: @escaping () -> Void) {
-            guard !urlString.isEmpty else {
-                thenFallback()
-                return
-            }
-            let cache = ImageCache.shared
-            if let cached = cache.memoryImage(forKey: urlString) {
-                emitImage(cached)
-                return
-            }
-            cache.loadImage(urlString: urlString) { image in
-                guard !cancelled.with({ $0 }) else { return }
-                if let image {
-                    emitImage(image)
-                } else {
-                    thenFallback()
-                }
-            }
-        }
-
-        guard !proxyURL.isEmpty else {
-            finishEmpty()
             return EmptyDisposable
         }
-
-        let fallback: () -> Void = {
+        let cancelled = Atomic<Bool>(value: false)
+        loadAttachmentImage(proxyURL: proxyURL, originalURL: originalURL, isCancelled: { cancelled.with { $0 } }) { image in
             guard !cancelled.with({ $0 }) else { return }
-            if !originalURL.isEmpty, originalURL != proxyURL {
-                tryUrl(originalURL, thenFallback: finishEmpty)
-            } else {
-                finishEmpty()
-            }
+            subscriber.putNext(image.map { makeTransform(for: $0, resizeMode: resizeMode) } ?? emptyDrawingTransform())
+            subscriber.putCompletion()
         }
-
-        tryUrl(proxyURL, thenFallback: fallback)
-
-        return ActionDisposable {
-            let _ = cancelled.modify { _ in true }
-        }
+        return ActionDisposable { _ = cancelled.swap(true) }
     }
 }
 
@@ -1034,6 +1011,222 @@ func remoteImageUISignal(url: String) -> Signal<UIImage?, NoError> {
     }
 }
 
+private func videoThumbnailCacheKey(url: String, pixelSize: Int) -> String {
+    pixelSize == 600 ? "video_thumb_\(url)" : "video_thumb_\(pixelSize)_\(url)"
+}
+
+private func isUsableVideoThumbnail(_ image: UIImage) -> Bool {
+    // Older versions cached a transparent 1×1 image for unsupported videos.
+    guard let frame = image.cgImage else { return false }
+    return frame.width > 1 || frame.height > 1
+}
+
+func cachedWebMThumbnail(url: URL, maxPixelSize: Int = 600) -> UIImage? {
+    let key = videoThumbnailCacheKey(url: url.absoluteString, pixelSize: max(1, maxPixelSize))
+    return ImageCache.shared.memoryImage(forKey: key).flatMap { isUsableVideoThumbnail($0) ? $0 : nil }
+}
+
+func webMThumbnailSignal(
+    url: URL,
+    posterProxyURL: String = "",
+    posterURL: String = "",
+    resizeMode: ImageResizeMode,
+    maxPixelSize: Int = 600,
+    allowRemoteGeneration: Bool = true
+) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
+    Signal { subscriber in
+        let pixelSize = max(1, maxPixelSize)
+        let cacheKey = videoThumbnailCacheKey(url: url.absoluteString, pixelSize: pixelSize)
+        let cache = ImageCache.shared
+        let cancelled = Atomic<Bool>(value: false)
+        let extraction = MetaDisposable()
+
+        func finish(_ image: UIImage?) {
+            guard !cancelled.with({ $0 }) else { return }
+            subscriber.putNext(image.map { makeTransform(for: $0, resizeMode: resizeMode) } ?? emptyDrawingTransform())
+            subscriber.putCompletion()
+        }
+
+        func generate() {
+            guard !cancelled.with({ $0 }) else { return }
+            guard allowRemoteGeneration || url.isFileURL else { finish(nil); return }
+            extraction.set(WebMThumbnailLoader.shared.load(url: url, cacheKey: cacheKey, pixelSize: pixelSize, completion: finish))
+        }
+
+        if let image = cache.memoryImage(forKey: posterProxyURL) ?? cache.memoryImage(forKey: posterURL)
+            ?? cachedWebMThumbnail(url: url, maxPixelSize: pixelSize) {
+            finish(image)
+            return EmptyDisposable
+        }
+
+        cache.imageFromDisk(forKey: cacheKey) { image in
+            guard !cancelled.with({ $0 }) else { return }
+            if let image, isUsableVideoThumbnail(image) {
+                finish(image)
+            } else if !posterProxyURL.isEmpty || !posterURL.isEmpty {
+                loadAttachmentImage(proxyURL: posterProxyURL, originalURL: posterURL, isCancelled: { cancelled.with { $0 } }) { image in
+                    if let image { finish(image) } else { generate() }
+                }
+            } else {
+                generate()
+            }
+        }
+        return ActionDisposable {
+            _ = cancelled.swap(true)
+            extraction.dispose()
+        }
+    }
+}
+
+private final class WebMThumbnailLoader: NSObject, VLCMediaThumbnailerDelegate {
+    static let shared = WebMThumbnailLoader()
+
+    private final class Request {
+        let url: URL
+        let cacheKey: String
+        let pixelSize: Int
+        var callbacks: [UUID: (UIImage?) -> Void] = [:]
+        var thumbnailer: VLCMediaThumbnailer?
+
+        init(url: URL, cacheKey: String, pixelSize: Int) {
+            self.url = url
+            self.cacheKey = cacheKey
+            self.pixelSize = pixelSize
+        }
+    }
+
+    // VLCKit's thumbnailer uses run-loop timers and delivers frames on main.
+    // Bound concurrent VLC work so a mosaic or a fast scroll cannot start a decoder per cell.
+    private let maxConcurrentRequests = 2
+    private var pending: [Request] = []
+    private var active: [String: Request] = [:]
+    private let retryAfter: NSCache<NSString, NSNumber> = {
+        let cache = NSCache<NSString, NSNumber>()
+        cache.countLimit = 300
+        return cache
+    }()
+
+    func load(url: URL, cacheKey: String, pixelSize: Int, completion: @escaping (UIImage?) -> Void) -> Disposable {
+        let token = UUID()
+        DispatchQueue.main.async {
+            if let image = cachedWebMThumbnail(url: url, maxPixelSize: pixelSize) {
+                completion(image)
+                return
+            }
+            if let retryAt = self.retryAfter.object(forKey: cacheKey as NSString),
+               retryAt.doubleValue > ProcessInfo.processInfo.systemUptime {
+                completion(nil)
+                return
+            }
+            if let request = self.active[cacheKey] ?? self.pending.first(where: { $0.cacheKey == cacheKey }) {
+                request.callbacks[token] = completion
+                return
+            }
+            let request = Request(url: url, cacheKey: cacheKey, pixelSize: pixelSize)
+            request.callbacks[token] = completion
+            self.pending.append(request)
+            // Give a disposed cell a chance to remove its queued request before VLC starts.
+            DispatchQueue.main.async { self.startNextRequests() }
+        }
+        return ActionDisposable {
+            DispatchQueue.main.async {
+                if let request = self.active[cacheKey] {
+                    request.callbacks.removeValue(forKey: token)
+                } else if let index = self.pending.firstIndex(where: { $0.cacheKey == cacheKey }) {
+                    let request = self.pending[index]
+                    request.callbacks.removeValue(forKey: token)
+                    if request.callbacks.isEmpty { self.pending.remove(at: index) }
+                }
+            }
+        }
+    }
+
+    private func startNextRequests() {
+        while active.count < maxConcurrentRequests, !pending.isEmpty {
+            let request = pending.removeFirst()
+            active[request.cacheKey] = request
+            resolveURL(for: request)
+        }
+    }
+
+    private func resolveURL(for request: Request) {
+        DispatchQueue.global(qos: .utility).async {
+            if let file = VLCVideoPlayerNode.cachedFile(for: request.url) {
+                DispatchQueue.main.async { self.startThumbnailer(request, url: file) }
+                return
+            }
+            if let ready = CDNSigner.shared.readyRequestURL(for: request.url) {
+                DispatchQueue.main.async { self.startThumbnailer(request, url: ready.url) }
+            } else {
+                CDNSigner.shared.requestURL(for: request.url) { signed in
+                    DispatchQueue.main.async { self.startThumbnailer(request, url: signed.url) }
+                }
+            }
+        }
+    }
+
+    private func startThumbnailer(_ request: Request, url: URL) {
+        guard !request.callbacks.isEmpty else {
+            active.removeValue(forKey: request.cacheKey)
+            startNextRequests()
+            return
+        }
+        let media = VLCMedia(url: url)
+        let thumbnailer = VLCMediaThumbnailer(media: media, andDelegate: self)
+        thumbnailer.thumbnailWidth = CGFloat(request.pixelSize)
+        thumbnailer.thumbnailHeight = CGFloat(request.pixelSize)
+        thumbnailer.snapshotPosition = 0.01
+        request.thumbnailer = thumbnailer
+        thumbnailer.fetchThumbnail()
+    }
+
+    func mediaThumbnailer(_ thumbnailer: VLCMediaThumbnailer, didFinishThumbnail thumbnail: CGImage) {
+        complete(thumbnailer, frame: thumbnail)
+    }
+
+    func mediaThumbnailerDidTimeOut(_ thumbnailer: VLCMediaThumbnailer) {
+        complete(thumbnailer, frame: nil)
+    }
+
+    private func complete(_ thumbnailer: VLCMediaThumbnailer, frame: CGImage?) {
+        DispatchQueue.main.async {
+            guard let request = self.active.values.first(where: { $0.thumbnailer === thumbnailer }) else { return }
+            request.thumbnailer = nil
+            guard let frame else {
+                self.retryAfter.setObject(NSNumber(value: ProcessInfo.processInfo.systemUptime + 30), forKey: request.cacheKey as NSString)
+                self.finish(request, image: nil)
+                return
+            }
+            DispatchQueue.global(qos: .utility).async {
+                let image = self.thumbnailImage(from: frame, pixelSize: request.pixelSize)
+                ImageCache.shared.setImage(image, data: image.jpegData(compressionQuality: 0.7), forKey: request.cacheKey)
+                DispatchQueue.main.async { self.finish(request, image: image) }
+            }
+        }
+    }
+
+    private func thumbnailImage(from frame: CGImage, pixelSize: Int) -> UIImage {
+        let image = UIImage(cgImage: frame)
+        let longestEdge = max(frame.width, frame.height)
+        guard longestEdge > pixelSize else { return image }
+        let scale = CGFloat(pixelSize) / CGFloat(longestEdge)
+        let size = CGSize(width: max(1, floor(CGFloat(frame.width) * scale)),
+                          height: max(1, floor(CGFloat(frame.height) * scale)))
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+    }
+
+    private func finish(_ request: Request, image: UIImage?) {
+        active.removeValue(forKey: request.cacheKey)
+        for callback in request.callbacks.values { callback(image) }
+        startNextRequests()
+    }
+}
+
 func videoThumbnailSignal(url: String, resizeMode: ImageResizeMode = .fill, maxPixelSize: Int = 600, allowRemoteGeneration: Bool = true) -> Signal<(TransformImageArguments) -> DrawingContext?, NoError> {
     return Signal { subscriber in
         guard let videoURL = URL(string: url), !url.isEmpty else {
@@ -1042,7 +1235,11 @@ func videoThumbnailSignal(url: String, resizeMode: ImageResizeMode = .fill, maxP
         }
 
         let pixelSize = max(1, maxPixelSize)
-        let cacheKey = pixelSize == 600 ? "video_thumb_\(url)" : "video_thumb_\(pixelSize)_\(url)"
+        if videoURL.pathExtension.lowercased() == "webm" {
+            return webMThumbnailSignal(url: videoURL, resizeMode: resizeMode, maxPixelSize: pixelSize, allowRemoteGeneration: allowRemoteGeneration)
+                .start(next: subscriber.putNext, completed: subscriber.putCompletion)
+        }
+        let cacheKey = videoThumbnailCacheKey(url: url, pixelSize: pixelSize)
         let cache = ImageCache.shared
         if let cached = cache.image(forKey: cacheKey) {
             subscriber.putNext(makeTransform(for: cached, resizeMode: resizeMode))
@@ -1056,7 +1253,7 @@ func videoThumbnailSignal(url: String, resizeMode: ImageResizeMode = .fill, maxP
         }
 
         let fileExtension = videoURL.pathExtension.lowercased()
-        let isUnsupportedByAV = ["webm", "ogv", "ogg", "mkv", "avi", "flv", "wmv", "3gp", "3g2", "mpg", "mpeg", "ts", "vob"].contains(fileExtension)
+        let isUnsupportedByAV = ["ogv", "ogg", "mkv", "avi", "flv", "wmv", "3gp", "3g2", "mpg", "mpeg", "ts", "vob"].contains(fileExtension)
         
         if isUnsupportedByAV {
             let transparentImage = createTransparentImage()

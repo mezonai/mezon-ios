@@ -22,7 +22,6 @@ final class PollOptionRowNode: ASDisplayNode {
 
     private var option: PollOptionDisplay
     private var shouldShowResults: Bool
-    private var allowMultiple: Bool
     private var hasVoted: Bool
 
     private var cachedSize: CGSize = .zero
@@ -38,24 +37,22 @@ final class PollOptionRowNode: ASDisplayNode {
 
     private static let rowHeight: CGFloat = 40
     private static let cornerRadius: CGFloat = 8
+    private static let checkSize: CGFloat = 20
     private static let fillAnimationDuration: CFTimeInterval = 0.6
-    private static let blurpleColor = UIColor(red: 88/255, green: 101/255, blue: 242/255, alpha: 1)
-    private static let blurpleFillResult = UIColor(red: 88/255, green: 101/255, blue: 242/255, alpha: 0.35)
+    private static let resultFillColor = UIColor(hex: 0x0766FD).withAlphaComponent(0.7)
+    private static let selectionColor = UIColor(hex: 0x0A84FF)
 
     var onTapped: (() -> Void)?
 
     init(option: PollOptionDisplay, shouldShowResults: Bool, allowMultiple: Bool, hasVoted: Bool) {
         self.option = option
         self.shouldShowResults = shouldShowResults
-        self.allowMultiple = allowMultiple
         self.hasVoted = hasVoted
         super.init()
         automaticallyManagesSubnodes = false
         backgroundColor = .clear
 
-        let t = UIColor.theme
-
-        backgroundNode.backgroundColor = t.secondaryWeight
+        backgroundNode.borderWidth = 1
         backgroundNode.cornerRadius = Self.cornerRadius
         backgroundNode.clipsToBounds = true
         addSubnode(backgroundNode)
@@ -76,39 +73,39 @@ final class PollOptionRowNode: ASDisplayNode {
             addSubnode(metaNode)
         }
 
-        configureCheckmark()
-        if option.isSelected {
+        let config = UIImage.SymbolConfiguration(pointSize: 10, weight: .bold)
+        checkIconNode.image = UIImage(systemName: "checkmark", withConfiguration: config)?
+            .withRenderingMode(.alwaysTemplate)
+        checkIconNode.contentMode = .scaleAspectFit
+        checkIconNode.tintColor = .white
+        checkmarkNode.backgroundColor = Self.selectionColor
+        checkmarkNode.cornerRadius = allowMultiple ? 4 : Self.checkSize / 2
+        checkmarkNode.clipsToBounds = true
+        checkmarkNode.addSubnode(checkIconNode)
+
+        if showsCheckmark {
             addSubnode(checkmarkNode)
         }
     }
 
-    private func configureCheckmark() {
-        let size: CGFloat = 20
-        checkmarkNode.backgroundColor = hasVoted ? Self.blurpleColor : UIColor.theme.textStrong
-        checkmarkNode.cornerRadius = allowMultiple ? 4 : size / 2
-        checkmarkNode.clipsToBounds = true
-
-        let config = UIImage.SymbolConfiguration(pointSize: 10, weight: .bold)
-        checkIconNode.image = UIImage(systemName: "checkmark", withConfiguration: config)?
-            .withRenderingMode(.alwaysTemplate)
-        checkIconNode.tintColor = hasVoted ? .white : UIColor.theme.primary
-        checkIconNode.contentMode = .scaleAspectFit
-        checkmarkNode.addSubnode(checkIconNode)
+    private var showsCheckmark: Bool {
+        option.isSelected && (!shouldShowResults || hasVoted)
     }
 
     private func updateFillNodeAppearance() {
-        if option.isSelected {
-            fillNode.backgroundColor = Self.blurpleColor
-        } else if shouldShowResults {
-            fillNode.backgroundColor = Self.blurpleFillResult
+        let t = UIColor.theme
+        backgroundNode.backgroundColor = t.desktop[.bgItemHover]
+        if shouldShowResults {
+            backgroundNode.borderColor = t.borderPrimary.cgColor
         } else {
-            fillNode.backgroundColor = .clear
+            backgroundNode.borderColor = (option.isSelected ? t.textThemePrimary : UIColor.clear).cgColor
         }
+        fillNode.backgroundColor = shouldShowResults ? Self.resultFillColor : .clear
     }
 
     private func updateLabelText() {
         let t = UIColor.theme
-        let color = isLabelWhite == true ? UIColor.white : t.textStrong
+        let color = t.desktop[.textSecondary]
         let font = UIFont.systemFont(ofSize: 14.sf)
         
         cachedAttributedLabelText = PollEmojiParser.parse(option.label, font: font, color: color, emojiSize: 20.sf)
@@ -123,7 +120,7 @@ final class PollOptionRowNode: ASDisplayNode {
             string: "\(option.percentage)% \(option.voteCount) \(voteWord)",
             attributes: [
                 .font: UIFont.systemFont(ofSize: 12.sf),
-                .foregroundColor: isMetaWhite == true ? UIColor.white : t.textStrong,
+                .foregroundColor: t.desktop[.textSecondary],
             ]
         )
     }
@@ -150,8 +147,7 @@ final class PollOptionRowNode: ASDisplayNode {
             metaNode.removeFromSupernode()
         }
 
-        if option.isSelected {
-            configureCheckmark()
+        if showsCheckmark {
             if checkmarkNode.supernode == nil {
                 addSubnode(checkmarkNode)
             }
@@ -180,17 +176,15 @@ final class PollOptionRowNode: ASDisplayNode {
     private var cachedLabelSize: CGSize = .zero
     private var cachedMetaSize: CGSize = .zero
     
-    private var isLabelWhite: Bool?
-    private var isMetaWhite: Bool?
 
     func measureSize(maxWidth: CGFloat) -> CGSize {
         let hPad: CGFloat = 12
         let vPad: CGFloat = 10
-        let checkSize: CGFloat = 20
+        let checkSize = Self.checkSize
         let gap: CGFloat = 8
 
         var availableWidth = maxWidth - hPad * 2
-        if option.isSelected {
+        if showsCheckmark {
             availableWidth -= (checkSize + gap)
         }
 
@@ -230,32 +224,6 @@ final class PollOptionRowNode: ASDisplayNode {
 
         cachedSize = CGSize(width: maxWidth, height: rowHeight)
         
-        let targetFillWidth: CGFloat = shouldShowResults ? maxWidth * CGFloat(option.percentage) / 100.0 : 0
-        let touchesLabel = targetFillWidth > hPad + (cachedLabelSize.width * 0.4)
-        
-        let rightReserved: CGFloat = option.isSelected ? (checkSize + gap) : 0
-        let metaX = maxWidth - hPad - rightReserved - cachedMetaSize.width
-        let coversMeta = targetFillWidth >= (metaX + cachedMetaSize.width - 4)
-        
-        let shouldLabelBeWhite = hasVoted && option.isSelected && shouldShowResults && touchesLabel
-        let shouldMetaBeWhite = hasVoted && option.isSelected && shouldShowResults && coversMeta
-        
-        if isLabelWhite == nil {
-            isLabelWhite = shouldLabelBeWhite
-            if shouldLabelBeWhite { updateLabelText() }
-        } else if isLabelWhite != shouldLabelBeWhite {
-            isLabelWhite = shouldLabelBeWhite
-            updateLabelText()
-        }
-        
-        if isMetaWhite == nil {
-            isMetaWhite = shouldMetaBeWhite
-            if shouldMetaBeWhite { updateMetaText() }
-        } else if isMetaWhite != shouldMetaBeWhite {
-            isMetaWhite = shouldMetaBeWhite
-            updateMetaText()
-        }
-        
         return cachedSize
     }
 
@@ -268,7 +236,7 @@ final class PollOptionRowNode: ASDisplayNode {
         let w = safeBounds.width
         let h = safeBounds.height
         let hPad: CGFloat = 12
-        let checkSize: CGFloat = 20
+        let checkSize = Self.checkSize
         let gap: CGFloat = 8
 
         backgroundNode.frame = safeBounds
@@ -286,9 +254,7 @@ final class PollOptionRowNode: ASDisplayNode {
             fillNode.frame = fillFrame
         }
 
-        var availableWidth = w - hPad * 2
-        let rightReserved: CGFloat = (option.isSelected ? checkSize + gap : 0)
-        availableWidth -= rightReserved
+        let rightReserved: CGFloat = showsCheckmark ? checkSize + gap : 0
 
         let labelY = (h - cachedLabelSize.height) / 2
         labelNode.frame = CGRect(x: hPad, y: labelY, width: cachedLabelSize.width, height: cachedLabelSize.height)
@@ -299,7 +265,7 @@ final class PollOptionRowNode: ASDisplayNode {
             metaNode.frame = CGRect(x: metaX, y: metaY, width: cachedMetaSize.width, height: cachedMetaSize.height)
         }
 
-        if option.isSelected {
+        if showsCheckmark {
             let checkX = w - hPad - checkSize
             let checkY = (h - checkSize) / 2
             checkmarkNode.frame = CGRect(x: checkX, y: checkY, width: checkSize, height: checkSize)

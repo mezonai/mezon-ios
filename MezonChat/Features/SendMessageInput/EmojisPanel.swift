@@ -73,7 +73,7 @@ final class EmojisPanel: UIView {
     private let searchIconView: UIImageView = {
         let iv = UIImageView()
         iv.translatesAutoresizingMaskIntoConstraints = false
-        iv.image = UIImage(systemName: "magnifyingglass")
+        iv.image = UIImage(named: "Setting/SearchIcon")?.withRenderingMode(.alwaysTemplate)
         iv.tintColor = UIColor.mezonSecondaryLabel
         iv.contentMode = .scaleAspectFit
         return iv
@@ -81,6 +81,7 @@ final class EmojisPanel: UIView {
 
     private let searchTextField: UITextField = {
         let tf = UITextField()
+        tf.accessibilityIdentifier = AccessibilityID.Search.input("emojis")
         tf.translatesAutoresizingMaskIntoConstraints = false
         tf.font = .systemFont(ofSize: 15)
         tf.returnKeyType = .search
@@ -211,9 +212,11 @@ final class EmojisPanel: UIView {
                 categoryCollection.reloadData()
                 emojiGrid.reloadData()
             }
-        } else if flatItems.isEmpty {
+        } else {
             categoryCollection.reloadData()
-            emojiGrid.reloadData()
+            if flatItems.isEmpty {
+                emojiGrid.reloadData()
+            }
         }
     }
 
@@ -635,7 +638,7 @@ extension EmojisPanel {
                 ?? UIImage(systemName: "bag.fill", withConfiguration: config)?.withRenderingMode(.alwaysTemplate)
         case EmojiCategoryOrdering.frequently: return UIImage(systemName: "star.fill", withConfiguration: config)
         case "People":
-            return UIImage(named: "Chat/FaceIcon")
+            return UIImage(named: "Chat/FaceIcon")?.withRenderingMode(.alwaysTemplate)
                 ?? UIImage(systemName: "face.smiling", withConfiguration: config)
         case "Nature": return UIImage(systemName: "leaf.fill", withConfiguration: config)
         case "Food": return UIImage(systemName: "fork.knife", withConfiguration: config)

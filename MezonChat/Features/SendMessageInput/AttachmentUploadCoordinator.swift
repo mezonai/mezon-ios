@@ -1200,12 +1200,14 @@ final class AttachmentUploadCoordinator {
         token: String
     ) async throws -> (cdnURL: String, pending: PendingMinIOUpload) {
         let progressKey = fileURL.path
-        if FileIngest.isCandidate(filetype: filetype, filename: filename, size: size) {
+        if FileIngest.isCandidate(filetype: filetype, filename: filename, size: size),
+           await FileIngest.supportsHLS(fileURL: fileURL) {
             let info = try await context.account.network.uploadAttachmentFile(
                 filename: filename, filetype: filetype, size: size,
                 width: width, height: height, channelId: channelId, token: token)
             let cdnURL = try MezonConfig.attachmentViewURL(typeCdn: info.typeCdn, fallback: MezonConfig.cloudflareCdnURL, filename: info.filename)
-            if let ingestURL = FileIngest.ingestURL(forPresignedURL: info.url) {
+            if let ingestURL = FileIngest.ingestURL(forPresignedURL: info.url),
+               await FileIngestAvailability.isAvailable(ingestURL: ingestURL) {
                 let plan = FileIngestPlan(
                     fileURL: fileURL, size: size, presignedURL: info.url,
                     ingestURL: ingestURL, contentType: filetype)

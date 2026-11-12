@@ -62,9 +62,7 @@ final class AuditLogViewController: BaseViewController {
     }
     
     override func applyTheme() {
-        let currentTheme = ThemeManager.shared.current
-        let effectiveTheme = currentTheme == .system ? (UITraitCollection.current.userInterfaceStyle == .dark ? AppTheme.dark : AppTheme.light) : currentTheme
-        self.overrideUserInterfaceStyle = (effectiveTheme == .light || effectiveTheme == .sunrise) ? .light : .dark
+        self.overrideUserInterfaceStyle = ThemeManager.shared.current.effectiveInterfaceStyle
         view.backgroundColor = UIColor.theme.primary
         titleLabel.textColor = UIColor.theme.textStrong
         backButton.tintColor = UIColor.theme.textStrong
@@ -308,16 +306,8 @@ final class AuditLogViewController: BaseViewController {
                 let response = try await MezonHTTPClient.shared.listAuditLog(request: req, token: token)
                 self.logs = response.logs
                 self.reloadUI()
-            } catch let error as MezonError {
-                if case .httpError(let code, let msg) = error {
-                    Toast.error("ListAuditLog: HTTP \(code): \(msg)")
-                } else {
-                    Toast.error("ListAuditLog: \(error.localizedDescription)")
-                }
-                self.logs = []
-                self.reloadUI()
             } catch {
-                Toast.error("ListAuditLog: \(error.localizedDescription)")
+                Toast.error(error.userMessage)
                 self.logs = []
                 self.reloadUI()
             }

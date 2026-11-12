@@ -53,6 +53,8 @@ private extension ExistingVideoSharePayload {
 
 private enum GalleryVideoSharePreparationError: Error {
     case unavailable
+    case outOfSpace
+    case failed(message: String)
 }
 
 private final class GalleryVideoActivityItemProvider: UIActivityItemProvider {
@@ -239,6 +241,7 @@ private final class GalleryVideoActivityItemProvider: UIActivityItemProvider {
         preparationError = nil
         stateLock.unlock()
         let progressObservation = Atomic<NSKeyValueObservation?>(value: nil)
+        let originalMissing = Atomic<Bool>(value: false)
         let task = CDNSigner.shared.downloadTask(with: sourceURL, in: session, onStart: { [weak self] started in
             let observation = started.progress.observe(\.fractionCompleted) { [weak self] progress, _ in
                 self?.notifyPreparationProgress(progress.fractionCompleted)
@@ -254,6 +257,9 @@ private final class GalleryVideoActivityItemProvider: UIActivityItemProvider {
             guard let temporaryURL,
                   let response = response as? HTTPURLResponse,
                   (200...299).contains(response.statusCode) else {
+                if let statusCode = (response as? HTTPURLResponse)?.statusCode, statusCode == 403 || statusCode == 404 {
+                    _ = originalMissing.swap(true)
+                }
                 self.setPreparationError(GalleryVideoSharePreparationError.unavailable)
                 return
             }
@@ -298,7 +304,46 @@ private final class GalleryVideoActivityItemProvider: UIActivityItemProvider {
         if let result {
             return .success(result)
         }
+        if originalMissing.swap(false) {
+            return copyFinishedHLS(into: directory, named: safeFilename)
+        }
         return .failure(error ?? GalleryVideoSharePreparationError.unavailable)
+    }
+
+    private func copyFinishedHLS(into directory: URL, named filename: String) -> Result<URL, Error> {
+        let finished = DispatchSemaphore(value: 0)
+        let result = Atomic<FileIngestHLSCopy.Outcome>(value: .failed)
+        FileIngestHLSCopy.makeFile(attachmentURL: payload.url, progress: { [weak self] fraction in
+            self?.notifyPreparationProgress(fraction)
+        }) { outcome in
+            _ = result.swap(outcome)
+            finished.signal()
+        }
+        finished.wait()
+        let outcome = result.swap(.failed)
+        guard case .file(let fileURL) = outcome else {
+            switch outcome {
+            case .stillUploading, .unreachable, .outOfSpace:
+                return .failure(GalleryVideoSharePreparationError.failed(message: MediaActionHandler.videoCopyFailureMessage(outcome)))
+            default:
+                return .failure(GalleryVideoSharePreparationError.unavailable)
+            }
+        }
+        let baseName = (filename as NSString).deletingPathExtension
+        let destination = directory.appendingPathComponent("\(UUID().uuidString)_\(baseName.isEmpty ? "video" : baseName).mp4")
+        do {
+            try FileManager.default.moveItem(at: fileURL, to: destination)
+            let fileSize = try destination.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+            try trimShareCache(in: directory, incomingBytes: Int64(fileSize), retaining: destination)
+            stateLock.lock()
+            downloadedURL = destination
+            stateLock.unlock()
+            return .success(destination)
+        } catch {
+            try? FileManager.default.removeItem(at: fileURL)
+            try? FileManager.default.removeItem(at: destination)
+            return .failure(error)
+        }
     }
 
     private func trimShareCache(
@@ -350,7 +395,7 @@ private final class GalleryVideoActivityItemProvider: UIActivityItemProvider {
         let values = try directory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
         if let availableBytes = values.volumeAvailableCapacityForImportantUsage,
            availableBytes < incomingBytes {
-            throw GalleryVideoSharePreparationError.unavailable
+            throw GalleryVideoSharePreparationError.outOfSpace
         }
     }
 
@@ -1192,7 +1237,7 @@ final class GalleryController: UIViewController {
                 let finish = {
                     self.hideVideoSharePreparationOverlay()
                     if (error as? URLError)?.code != .cancelled {
-                        Toast.error(L(L10n.Gallery.videoShareFailed))
+                        Toast.error(Self.videoSharePreparationMessage(error))
                     }
                     self.resumeVideoPlaybackIfPossible()
                     acknowledge()
@@ -1287,6 +1332,21 @@ final class GalleryController: UIViewController {
         if cal.isDateInYesterday(date) { return "Yesterday at \(time)" }
         fmt.dateFormat = "dd/MM/yyyy HH:mm"
         return fmt.string(from: date)
+    }
+}
+
+extension GalleryController {
+    fileprivate static func videoSharePreparationMessage(_ error: Error) -> String {
+        switch error {
+        case GalleryVideoSharePreparationError.failed(let message):
+            return message
+        case GalleryVideoSharePreparationError.outOfSpace:
+            return L(L10n.Gallery.videoSaveNoSpace)
+        default:
+            if FileIngestHLSCopy.isOutOfSpace(error) { return L(L10n.Gallery.videoSaveNoSpace) }
+            if error is URLError { return L(L10n.Gallery.videoDownloadNetworkFailed) }
+            return L(L10n.Gallery.videoShareFailed)
+        }
     }
 }
 
