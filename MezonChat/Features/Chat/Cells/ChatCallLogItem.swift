@@ -76,14 +76,8 @@ final class MessageCallLogNode: ASDisplayNode {
             titleNode.isHidden = true
         }
 
-        if let (imageName, color) = Self.iconInfo(callLog: callLog, isMe: isMe) {
-            iconNode.image = UIImage(named: imageName)?.withRenderingMode(.alwaysTemplate)
-            iconNode.tintColor = color
-            iconNode.isHidden = false
-        } else {
-            iconNode.image = nil
-            iconNode.isHidden = true
-        }
+        iconNode.image = nil
+        iconNode.isHidden = true
 
         let description = Self.descriptionText(callLog: callLog, contentText: contentText, isMe: isMe)
         descriptionNode.attributedText = NSAttributedString(

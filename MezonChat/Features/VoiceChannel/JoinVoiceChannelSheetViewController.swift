@@ -952,7 +952,7 @@ final class ExternalMeetingLinkSheetViewController: UIViewController {
 
         styleActionButton(joinButton, title: L(L10n.EventMenu.joinInApp), assetName: "Channel/StreamSpeaker")
         joinButton.addTarget(self, action: #selector(joinTapped), for: .touchUpInside)
-        styleActionButton(browserButton, title: L(L10n.EventMenu.openInBrowser), assetName: "Invite/CopyLink")
+        styleActionButton(browserButton, title: L(L10n.EventMenu.openInBrowser), assetName: "Channel/EventOpenLink")
         browserButton.addTarget(self, action: #selector(openInBrowserTapped), for: .touchUpInside)
 
         actionStack.axis = .vertical
@@ -1036,7 +1036,7 @@ final class ExternalMeetingLinkSheetViewController: UIViewController {
         iconView.tintColor = EventDisplayHelper.externalEventBadgeColor
         linkLabel.textColor = UIColor.theme.textStrong
         promptLabel.textColor = UIColor.theme.textDisabled
-        EventDisplayHelper.applyJoinInAppStyle(joinButton, iconHeight: 16)
+        EventDisplayHelper.applyJoinInAppStyle(joinButton, iconHeight: 16, image: joinButton.image(for: .normal))
         joinButton.setTitleColor(.white, for: .highlighted)
         browserButton.backgroundColor = UIColor.theme.raisedSurface
         browserButton.tintColor = UIColor.theme.textStrong

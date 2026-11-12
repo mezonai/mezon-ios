@@ -175,25 +175,25 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         var group1Actions: [SettingAction] = []
         
         if showChangeCategoryButton {
-            group1Actions.append(.init(title: L(L10n.ChannelSetting.changeCategory), icon: "ChannelSetting/ChangeCategoryIcon", action: { [weak self] in
+            group1Actions.append(.init(identifier: "change-category", title: L(L10n.ChannelSetting.changeCategory), icon: "ChannelSetting/ChangeCategoryIcon", action: { [weak self] in
                 self?.onChangeCategoryTap?()
             }))
         }
         
         if showPermissionsButton {
-            group1Actions.append(.init(title: L(L10n.ChannelSetting.permissions), icon: "ClanSetting/Roles", action: { [weak self] in
+            group1Actions.append(.init(identifier: "permissions", title: L(L10n.ChannelSetting.permissions), icon: "ClanSetting/Roles", action: { [weak self] in
                 self?.onPermissionsTap?()
             }))
         }
         
         if showQuickActionButton {
-            group1Actions.append(.init(title: L(L10n.ChannelSetting.quickAction), icon: "ChannelSetting/QuickActionSettingsIcon", action: { [weak self] in
+            group1Actions.append(.init(identifier: "quick-action", title: L(L10n.ChannelSetting.quickAction), icon: "ChannelSetting/QuickActionSettingsIcon", action: { [weak self] in
                 self?.onQuickActionTap?()
             }))
         }
         
         if showBanListButton {
-            group1Actions.append(.init(title: L(L10n.ChannelSetting.banList), icon: "ChannelSetting/BanIcon", action: nil))
+            group1Actions.append(.init(identifier: "ban-list", title: L(L10n.ChannelSetting.banList), icon: "ChannelSetting/BanIcon", action: nil))
         }
         
         let group1 = createGroup(actions: group1Actions)
@@ -209,7 +209,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
 
         if showWebhookButton {
             let group2 = createGroup(actions: [
-                .init(title: L(L10n.ChannelSetting.webhook), icon: "ChannelSetting/WebhookIcon", action: { [weak self] in
+                .init(identifier: "webhook", title: L(L10n.ChannelSetting.webhook), icon: "ChannelSetting/WebhookIcon", action: { [weak self] in
                     self?.onWebhookTap?()
                 }),
             ])
@@ -219,7 +219,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
 
         if showDeleteButton {
             let delTitle = isThread ? L(L10n.ChannelAction.deleteThread) : L(L10n.Channel.delete)
-            let btn = createActionRow(title: delTitle, icon: "ChannelSetting/DeleteIcon", isDestructive: true, tapHandler: { [weak self] in
+            let btn = createActionRow(identifier: "delete", title: delTitle, icon: "ChannelSetting/DeleteIcon", isDestructive: true, tapHandler: { [weak self] in
                 self?.onDeleteTap?()
             })
             btn.backgroundColor = UIColor.theme.primary
@@ -323,7 +323,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         ])
 
         for (idx, action) in actions.enumerated() {
-            let row = createActionRow(title: action.title, icon: action.icon, tapHandler: action.action)
+            let row = createActionRow(identifier: action.identifier, title: action.title, icon: action.icon, tapHandler: action.action)
             stack.addArrangedSubview(row)
             if idx < actions.count - 1 {
                 let sep = UIView()
@@ -335,10 +335,16 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         return v
     }
 
-    private func createActionRow(title: String, icon: String, isDestructive: Bool = false, tapHandler: (() -> Void)? = nil) -> UIView {
+    private func createActionRow(
+        identifier: String,
+        title: String,
+        icon: String,
+        isDestructive: Bool = false,
+        tapHandler: (() -> Void)? = nil
+    ) -> UIView {
         let v = ActionRowButton(type: .system)
         v.backgroundColor = .clear
-        v.accessibilityIdentifier = AccessibilityID.ChannelSettings.action("main", icon.replacingOccurrences(of: "/", with: "-"))
+        v.accessibilityIdentifier = AccessibilityID.ChannelSettings.action("main", identifier)
         v.tapHandler = tapHandler
         v.addTarget(v, action: #selector(ActionRowButton.handleTap), for: .touchUpInside)
 
@@ -410,6 +416,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
     }
 
     private struct SettingAction {
+        let identifier: String
         let title: String
         let icon: String
         let action: (() -> Void)?

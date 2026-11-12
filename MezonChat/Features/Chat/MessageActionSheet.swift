@@ -80,7 +80,7 @@ enum MessageAction: CaseIterable {
         case .editMessage:      return "Channel/EventEdit"
         case .deleteMessage:    return "Chat/IconTrash"
         case .report:           return "Chat/ReportFlag"
-        case .resend:           return "Setting/ChatIcon"
+        case .resend:           return "Chat/ResendIcon"
         case .forward:          return "Chat/IconArrowRightUp"
         }
     }

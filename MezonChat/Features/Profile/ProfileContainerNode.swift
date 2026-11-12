@@ -23,6 +23,7 @@ final class ProfileContainerNode: ASDisplayNode {
     var onServerTapped: (() -> Void)?
 
     private let avatarSize: CGFloat = 90.swh
+    private let statusBadgeSize: CGFloat = 16.swh
     private let sideInset: CGFloat = 16.sw
     private let cardSpacing: CGFloat = 12.sh
 
@@ -200,42 +201,6 @@ final class ProfileContainerNode: ASDisplayNode {
                 plus.draw(in: iconRect)
             }
         }.withRenderingMode(.alwaysOriginal)
-    }
-
-    private static func statusBadgeAssetName(for status: User.OnlineStatus) -> String {
-        switch status {
-        case .online: return "OnlineIcon"
-        case .idle: return "IdleIcon"
-        case .doNotDisturb: return "DisturbIcon"
-        case .invisible, .offline: return "InvisibleIcon"
-        }
-    }
-
-    private static func statusBadgeDotSize(for status: User.OnlineStatus) -> CGFloat {
-        switch status {
-        case .idle, .doNotDisturb:
-            return 22.swh
-        case .online, .invisible, .offline:
-            return 16.swh
-        }
-    }
-
-    private static func statusBadgePositionCompensation(for status: User.OnlineStatus) -> CGPoint {
-        switch status {
-        case .idle, .doNotDisturb:
-            return CGPoint(x: 3, y: 3)
-        case .online, .invisible, .offline:
-            return .zero
-        }
-    }
-
-    private static func statusBadgeContentScale(for status: User.OnlineStatus) -> CGFloat {
-        switch status {
-        case .idle, .doNotDisturb:
-            return 1.22
-        case .online, .invisible, .offline:
-            return 1.0
-        }
     }
 
     private func configureAddStatusButton(user: User?) {
@@ -799,13 +764,12 @@ final class ProfileContainerNode: ASDisplayNode {
 
         statusBadgeImageView.isHidden = false
         let st = user?.status ?? .offline
-        let badgeSize = Self.statusBadgeDotSize(for: st)
-        let badgeScale = Self.statusBadgeContentScale(for: st)
-        statusBadgeImageView.layer.cornerRadius = badgeSize / 2
-        statusBadgeImageView.image = Self.profileImageResized(
-            named: Self.statusBadgeAssetName(for: st),
-            size: badgeSize,
-            contentScale: badgeScale
+        statusBadgeImageView.layer.cornerRadius = statusBadgeSize / 2
+        statusBadgeImageView.image = PresenceBadge.image(
+            for: st,
+            diameter: statusBadgeSize,
+            ringWidth: 0,
+            ringColor: .clear
         )
 
         nameLabel.text = user?.displayName ?? "—"
@@ -1058,15 +1022,12 @@ final class ProfileContainerNode: ASDisplayNode {
         avatarContainerView.frame = CGRect(x: side, y: y, width: avatarSize, height: avatarSize)
         avatarImageView.frame = avatarContainerView.bounds
 
-        let st = context.currentUser?.status ?? .offline
-        let dotSize = Self.statusBadgeDotSize(for: st)
-        let compensation = Self.statusBadgePositionCompensation(for: st)
-        statusBadgeImageView.layer.cornerRadius = dotSize / 2
+        statusBadgeImageView.layer.cornerRadius = statusBadgeSize / 2
         statusBadgeImageView.frame = CGRect(
-            x: avatarContainerView.frame.maxX - dotSize - 2 + compensation.x,
-            y: avatarContainerView.frame.maxY - dotSize - 2 + compensation.y,
-            width: dotSize,
-            height: dotSize
+            x: avatarContainerView.frame.maxX - statusBadgeSize - 2,
+            y: avatarContainerView.frame.maxY - statusBadgeSize - 2,
+            width: statusBadgeSize,
+            height: statusBadgeSize
         )
 
         let statusX = avatarContainerView.frame.maxX + 12.sw
