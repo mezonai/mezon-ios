@@ -46,6 +46,8 @@ final class ChangeCategoryViewController: BaseViewController {
     required init(coder aDecoder: NSCoder) { fatalError() }
 
     override func setupUI() {
+        view.accessibilityIdentifier = AccessibilityID.ChannelSettings.screen("category")
+        nameField.accessibilityIdentifier = AccessibilityID.ChannelSettings.action("category", "name")
         displayNode.backgroundColor = UIColor.theme.primary
 
         let t = UIColor.theme
@@ -61,8 +63,9 @@ final class ChangeCategoryViewController: BaseViewController {
         ])
 
         let backBtn = UIButton(type: .system)
+        backBtn.accessibilityIdentifier = AccessibilityID.ChannelSettings.action("category", "back")
         backBtn.setImage(
-            UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate),
+            UIImage(named: "Channel/ArrowLeft")?.withRenderingMode(.alwaysTemplate),
             for: .normal
         )
         backBtn.tintColor = t.textStrong
@@ -291,6 +294,7 @@ final class ChangeCategoryViewController: BaseViewController {
     private func createCategoryRow(category: Mezon_Api_CategoryDesc) -> UIView {
         let button = CategoryRowButton(type: .system)
         button.backgroundColor = .clear
+        button.accessibilityIdentifier = AccessibilityID.ChannelSettings.item("category", category.categoryID)
         button.category = category
         button.addTarget(self, action: #selector(handleCategoryTap(_:)), for: .touchUpInside)
 

@@ -4,7 +4,6 @@ struct AdvancedFunctionItem {
     let id: String
     let label: String
     let systemIcon: String
-    let backgroundColor: UIColor
 }
 
 final class AdvancedFunctionPanelView: UIView, UIGestureRecognizerDelegate {
@@ -67,45 +66,38 @@ final class AdvancedFunctionPanelView: UIView, UIGestureRecognizerDelegate {
     ) -> [AdvancedFunctionItem] {
         var items: [AdvancedFunctionItem] = []
         if !anonymousOn {
-            items.append(AdvancedFunctionItem(id: "location", label: "Location", systemIcon: "location.fill",
-                                              backgroundColor: UIColor(red: 0.91, green: 0.60, blue: 0.58, alpha: 1)))
+            items.append(AdvancedFunctionItem(id: "location", label: "Location", systemIcon: "Channel/Location"))
             if includeCreatePoll {
-                items.append(AdvancedFunctionItem(id: "create_poll", label: L(L10n.CreatePoll.poll), systemIcon: "chart.bar.xaxis",
-                                                  backgroundColor: UIColor(red: 0.2, green: 0.8, blue: 0.4, alpha: 1)))
+                items.append(AdvancedFunctionItem(id: "create_poll", label: L(L10n.CreatePoll.poll), systemIcon: "Chat/AdvancedPollIcon"))
             }
         }
         items.append(contentsOf: [
-            AdvancedFunctionItem(id: "pickFiles", label: "Files", systemIcon: "doc.fill",
-                                 backgroundColor: UIColor(red: 0.15, green: 0.27, blue: 0.88, alpha: 1)),
+            AdvancedFunctionItem(id: "pickFiles", label: "Files", systemIcon: "Chat/AdvancedFileIcon"),
         ])
         if !anonymousOn {
-            items.append(AdvancedFunctionItem(id: "buzz", label: "Buzz", systemIcon: "megaphone.fill",
-                                              backgroundColor: UIColor(red: 0.83, green: 0.40, blue: 0.48, alpha: 1)))
+            items.append(AdvancedFunctionItem(id: "buzz", label: "Buzz", systemIcon: "Chat/AdvancedBuzzIcon"))
         }
         if includeCreateThread {
             items.append(AdvancedFunctionItem(
                 id: "create_thread",
                 label: L(L10n.MessageAction.createThread),
-                systemIcon: "bubble.left.and.bubble.right.fill",
-                backgroundColor: UIColor(red: 0.45, green: 0.52, blue: 0.92, alpha: 1)
+                systemIcon: "Chat/ThreadAdd"
             ))
         }
         if includeAnonymous {
             let anonLabel = anonymousOn ? "Anonymous\nOn" : "Anonymous"
-            items.append(AdvancedFunctionItem(id: "anonymous", label: anonLabel, systemIcon: "Chat/AnonymousIcon",
-                                              backgroundColor: UIColor(red: 0.32, green: 0.34, blue: 0.42, alpha: 1)))
+            items.append(AdvancedFunctionItem(id: "anonymous", label: anonLabel, systemIcon: "Chat/AnonymousIcon"))
         }
-        items.append(AdvancedFunctionItem(id: "transfer_funds", label: "Transfer\nfunds", systemIcon: "arrow.up.circle.fill",
-                                          backgroundColor: UIColor(red: 0.36, green: 0.73, blue: 0.55, alpha: 1)))
+        items.append(AdvancedFunctionItem(id: "transfer_funds", label: "Transfer\nfunds", systemIcon: "Chat/SendMoneyIcon"))
         if !anonymousOn {
-            items.append(AdvancedFunctionItem(id: "share_contact", label: "Share\nContact", systemIcon: "person.crop.circle.badge.plus",
-                                              backgroundColor: UIColor(red: 0.42, green: 0.71, blue: 1.0, alpha: 1)))
+            items.append(AdvancedFunctionItem(id: "share_contact", label: "Share\nContact", systemIcon: "Chat/AdvancedContactIcon"))
         }
         return items
     }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        tintColor = .mezonIconDefault
         clipsToBounds = true
         actionItems = Self.defaultActionItems(anonymousOn: false, includeAnonymous: true, includeCreateThread: false)
         setupLayout()
@@ -127,6 +119,7 @@ final class AdvancedFunctionPanelView: UIView, UIGestureRecognizerDelegate {
 
     func applyTheme() {
         backgroundColor = UIColor.theme.secondary
+        tintColor = .mezonIconDefault
     }
 
     func resetToCollapsed() {
@@ -215,16 +208,12 @@ final class AdvancedFunctionPanelView: UIView, UIGestureRecognizerDelegate {
         container.translatesAutoresizingMaskIntoConstraints = false
 
         let iconContainer = UIView()
-        iconContainer.backgroundColor = action.backgroundColor
-        iconContainer.layer.cornerRadius = Self.iconContainerSize / 2
-        iconContainer.clipsToBounds = true
         iconContainer.translatesAutoresizingMaskIntoConstraints = false
 
         let iconConfig = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
         let iconImage = UIImage(named: action.systemIcon)?.withRenderingMode(.alwaysTemplate)
             ?? UIImage(systemName: action.systemIcon, withConfiguration: iconConfig)
         let iconImageView = UIImageView(image: iconImage)
-        iconImageView.tintColor = .white
         iconImageView.contentMode = .scaleAspectFit
         iconImageView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -241,7 +230,7 @@ final class AdvancedFunctionPanelView: UIView, UIGestureRecognizerDelegate {
         container.addSubview(iconContainer)
         container.addSubview(label)
 
-        let btn = UIButton(type: .system)
+        let btn = UIButton(type: .system).identified(by: AccessibilityID.Chat.advancedAction(action.id))
         btn.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(btn)
         btn.tag = actionItems.firstIndex(where: { $0.id == action.id }) ?? 0
@@ -442,12 +431,13 @@ final class ShareContactPickerViewController: ViewController, UITableViewDataSou
         view.addSubview(searchContainer)
 
         searchIcon.translatesAutoresizingMaskIntoConstraints = false
-        searchIcon.image = UIImage(systemName: "magnifyingglass")
+        searchIcon.image = UIImage(named: "Setting/SearchIcon")?.withRenderingMode(.alwaysTemplate)
         searchIcon.tintColor = UIColor.theme.textDisabled
         searchIcon.contentMode = .scaleAspectFit
         searchContainer.addSubview(searchIcon)
 
         searchField.translatesAutoresizingMaskIntoConstraints = false
+        searchField.accessibilityIdentifier = AccessibilityID.Search.input("share-contact")
         searchField.placeholder = L(L10n.DirectMessage.searchFriends)
         searchField.font = .systemFont(ofSize: 15)
         searchField.textColor = UIColor.theme.textStrong

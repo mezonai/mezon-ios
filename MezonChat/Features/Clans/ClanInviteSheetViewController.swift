@@ -6,7 +6,7 @@ import UIKit
 private final class ClanInviteSearchWrapNode: ASDisplayNode {
     let textField = UITextField()
     let clearButton = UIButton(type: .system)
-    private let iconView = UIImageView(image: UIImage(systemName: "magnifyingglass"))
+    private let iconView = UIImageView(image: UIImage(named: "Setting/SearchIcon")?.withRenderingMode(.alwaysTemplate))
 
     override init() {
         super.init()
@@ -20,6 +20,7 @@ private final class ClanInviteSearchWrapNode: ASDisplayNode {
         iconView.tintColor = UIColor.theme.textDisabled
         view.addSubview(iconView)
 
+        textField.accessibilityIdentifier = AccessibilityID.Search.input("clan-invite")
         textField.placeholder = L(L10n.ClanInviteSheet.searchPlaceholder)
         textField.borderStyle = .none
         textField.font = .systemFont(ofSize: 15.sf, weight: .regular)
@@ -204,6 +205,7 @@ private final class ClanInviteQRCodeViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        view.accessibilityIdentifier = AccessibilityID.QRCode.clanScreen
         configureSheet()
         buildViewHierarchy()
         configureContent()
@@ -313,16 +315,17 @@ private final class ClanInviteQRCodeViewController: UIViewController {
         poweredByLabel.translatesAutoresizingMaskIntoConstraints = false
         cardView.addSubview(poweredByLabel)
 
-        let saveButton = UIButton(type: .system)
+        let saveButton = UIButton(type: .system).identified(by: AccessibilityID.QRCode.clanDownload)
+        shareButton.accessibilityIdentifier = AccessibilityID.QRCode.clanShare
         configureActionButton(
             saveButton,
-            systemImage: "square.and.arrow.down",
+            assetName: "Invite/DownloadIcon",
             accessibilityLabel: L(L10n.ClanInviteSheet.saveQR),
             selector: #selector(saveQR)
         )
         configureActionButton(
             shareButton,
-            systemImage: "square.and.arrow.up",
+            assetName: "Invite/ShareIcon",
             accessibilityLabel: L(L10n.ClanInviteSheet.shareQR),
             selector: #selector(shareQR)
         )
@@ -481,12 +484,11 @@ private final class ClanInviteQRCodeViewController: UIViewController {
 
     private func configureActionButton(
         _ button: UIButton,
-        systemImage: String,
+        assetName: String,
         accessibilityLabel: String,
         selector: Selector
     ) {
-        let configuration = UIImage.SymbolConfiguration(pointSize: 18.sf, weight: .medium)
-        button.setImage(UIImage(systemName: systemImage, withConfiguration: configuration), for: .normal)
+        button.setImage(UIImage(named: assetName)?.withRenderingMode(.alwaysTemplate), for: .normal)
         button.tintColor = UIColor.theme.textStrong
         button.backgroundColor = UIColor.theme.secondary
         button.layer.cornerRadius = 12.swh

@@ -461,7 +461,7 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
 
         if isCommunity {
             let commTag = createTagView(
-                text: L(L10n.ClanAction.community), icon: "checkmark.seal.fill", bgColor: UIColor.theme.secondary,
+                text: L(L10n.ClanAction.community), icon: "ClanSetting/DiscoverVerifiedIcon", bgColor: UIColor.theme.secondary,
                 textColor: UIColor.theme.textStrong, isOriginalIcon: true)
             tagsStack.addArrangedSubview(commTag)
         }
@@ -547,7 +547,10 @@ private final class ClanActionSheetNode: ASDisplayNode, UIGestureRecognizerDeleg
         let stack = UIStackView(arrangedSubviews: [l])
         if let icon = icon {
             let image: UIImage?
-            if isOriginalIcon {
+            if let asset = UIImage(named: icon) {
+                let tint = isOriginalIcon ? UIColor(red: 0.18, green: 0.6, blue: 1.0, alpha: 1.0) : textColor
+                image = asset.withTintColor(tint, renderingMode: .alwaysOriginal)
+            } else if isOriginalIcon {
                 if #available(iOS 15.0, *) {
                     if icon == "checkmark.seal.fill" {
                         let config = UIImage.SymbolConfiguration(paletteColors: [.white, UIColor(red: 0.18, green: 0.6, blue: 1.0, alpha: 1.0)])

@@ -172,6 +172,7 @@ final class FileListNode: ASDisplayNode {
         header.backgroundColor = .clear
 
         let field = UITextField()
+        field.accessibilityIdentifier = AccessibilityID.Search.input("channel-files")
         field.translatesAutoresizingMaskIntoConstraints = false
         field.textColor = t.textStrong
         field.font = .systemFont(ofSize: 15.sf, weight: .regular)
@@ -188,7 +189,7 @@ final class FileListNode: ASDisplayNode {
         )
 
         let icon = UIImageView(
-            image: UIImage(systemName: "magnifyingglass")?.withTintColor(
+            image: UIImage(named: "Setting/SearchIcon")?.withTintColor(
                 t.text, renderingMode: .alwaysOriginal))
         icon.contentMode = .scaleAspectFit
         let leftWrap = UIView(frame: CGRect(x: 0, y: 0, width: 36, height: 36))
@@ -618,8 +619,8 @@ private final class FileDocumentCellNode: ASCellNode {
         card.backgroundColor = t.secondary
         card.cornerRadius = 8
 
-        let iconName = Self.sfSymbol(for: attachment.filetype)
-        iconNode.image = UIImage(systemName: iconName)?.withTintColor(
+        let iconName = Self.iconAsset(for: attachment.filetype)
+        iconNode.image = UIImage(named: iconName)?.withTintColor(
             t.text, renderingMode: .alwaysOriginal)
         iconNode.contentMode = .scaleAspectFit
         iconNode.style.preferredSize = CGSize(width: 34, height: 34)
@@ -716,21 +717,21 @@ private final class FileDocumentCellNode: ASCellNode {
         )
     }
 
-    private static func sfSymbol(for filetype: String) -> String {
+    private static func iconAsset(for filetype: String) -> String {
         let ft = filetype.lowercased()
-        if ft.contains("pdf") { return "doc.richtext.fill" }
+        if ft.contains("pdf") { return "Chat/AdvancedFileIcon" }
         if ft.contains("audio") || ft.contains("mpeg") || ft.contains("mp3") || ft.contains("wav") {
-            return "music.note"
+            return "Chat/MusicIcon"
         }
         if ft.contains("zip") || ft.contains("rar") || ft.contains("tar") || ft.contains("gz") {
-            return "archivebox.fill"
+            return "Chat/AdvancedFileIcon"
         }
         if ft.contains("text") || ft.contains("json") || ft.contains("xml") {
-            return "doc.plaintext.fill"
+            return "Chat/AdvancedFileIcon"
         }
         if ft.contains("sheet") || ft.contains("excel") || ft.contains("spreadsheet") {
-            return "tablecells.fill"
+            return "Chat/AdvancedFileIcon"
         }
-        return "doc.fill"
+        return "Chat/AdvancedFileIcon"
     }
 }

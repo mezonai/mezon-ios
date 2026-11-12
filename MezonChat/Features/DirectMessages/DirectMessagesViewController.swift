@@ -1653,9 +1653,10 @@ final class NewGroupDMViewController: ViewController, UITableViewDataSource, UIT
         searchContainerView.layer.cornerRadius = 20.sh
         searchContainerView.clipsToBounds = true
 
-        searchIconView.image = UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 15.sf))
+        searchIconView.image = UIImage(named: "Setting/SearchIcon")?.withRenderingMode(.alwaysTemplate)
         searchIconView.contentMode = .scaleAspectFit
 
+        searchTextField.accessibilityIdentifier = AccessibilityID.Search.input("group-dm-members")
         searchTextField.font = .systemFont(ofSize: 14.sf)
         searchTextField.returnKeyType = .search
         searchTextField.autocorrectionType = .no

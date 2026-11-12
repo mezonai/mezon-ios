@@ -53,6 +53,7 @@ final class MemberRowCell: UITableViewCell {
         subLabel.textColor = UIColor.theme.textDisabled
         subLabel.numberOfLines = 1
 
+        accessoryButton.accessibilityIdentifier = AccessibilityID.RoleSettings.action("member", "remove")
         accessoryButton.tintColor = UIColor.theme.textDisabled
         accessoryButton.addTarget(self, action: #selector(accessoryTapped), for: .touchUpInside)
         accessoryButton.isHidden = true
@@ -143,15 +144,15 @@ final class MemberRowCell: UITableViewCell {
         case .removeButton:
             accessoryButton.isHidden = false
             accessoryButton.setImage(
-                UIImage(systemName: "minus.circle.fill")?.withRenderingMode(.alwaysTemplate),
+                UIImage(named: "ClanSetting/RoleRemoveMemberIcon")?.withRenderingMode(.alwaysTemplate),
                 for: .normal)
             accessoryButton.tintColor = UIColor.systemRed
             checkboxView.isHidden = true
         case .checkbox(let checked):
             accessoryButton.isHidden = true
             checkboxView.isHidden = false
-            let symbol = checked ? "checkmark.circle.fill" : "circle"
-            checkboxView.image = UIImage(systemName: symbol)?.withRenderingMode(.alwaysTemplate)
+            let asset = checked ? "Channel/StreamCheckCircle" : "Channel/StreamCircle"
+            checkboxView.image = UIImage(named: asset)?.withRenderingMode(.alwaysTemplate)
             checkboxView.tintColor = checked ? UIColor.theme.bgViolet : UIColor.theme.textDisabled
         }
     }
@@ -162,6 +163,7 @@ final class MemberRowCell: UITableViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        accessibilityIdentifier = nil
         imageTask?.cancel()
         imageTask = nil
         configuredAvatarURL = nil

@@ -33,11 +33,11 @@ final class DmListItemCell: UITableViewCell {
         return iv
     }()
 
-    private let onlineIndicator: UIView = {
-        let v = UIView()
+    private let onlineIndicator: UIImageView = {
+        let v = UIImageView()
         v.translatesAutoresizingMaskIntoConstraints = false
         v.layer.cornerRadius = 7.swh
-        v.layer.borderWidth = 2
+        v.contentMode = .scaleAspectFit
         v.isHidden = true
         return v
     }()
@@ -289,9 +289,12 @@ final class DmListItemCell: UITableViewCell {
         nameLabel.textColor = isUnread ? theme.textStrong : theme.textThemePrimary
         nameLabel.font = isUnread ? Self.unreadNameFont : Self.readNameFont
 
-        onlineIndicator.backgroundColor = DesktopThemePalette.onlinePresenceBadge
-        onlineIndicator.layer.borderWidth = theme.desktop.conversationGradient == nil ? 2 : 0
-        onlineIndicator.layer.borderColor = theme.secondary.cgColor
+        onlineIndicator.image = PresenceBadge.image(
+            for: .online,
+            diameter: 14.swh,
+            ringWidth: theme.desktop.conversationGradient == nil ? 2 : 0,
+            ringColor: theme.secondary
+        )
 
         if isGroup {
             onlineIndicator.isHidden = true

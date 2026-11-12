@@ -62,7 +62,7 @@ final class ChannelPermissionsRowView: UIView {
         avatarInitials.textAlignment = .center
 
         roleIconView.contentMode = .scaleAspectFit
-        roleIconView.image = UIImage(systemName: "shield.lefthalf.filled")?.withRenderingMode(.alwaysTemplate)
+        roleIconView.image = UIImage(named: "ClanSetting/RolesIcon")?.withRenderingMode(.alwaysTemplate)
         roleIconView.isHidden = true
 
         nameLabel.font = .systemFont(ofSize: 14.sf, weight: .semibold)
@@ -73,15 +73,16 @@ final class ChannelPermissionsRowView: UIView {
         subLabel.textColor = UIColor.theme.textNormal
         subLabel.numberOfLines = 1
 
-        ownerIcon.image = UIImage(systemName: "crown.fill")?.withRenderingMode(.alwaysTemplate)
-        ownerIcon.tintColor = UIColor.systemYellow
+        ownerIcon.image = UIImage(named: "ChannelSetting/PermissionOwnerIcon")?.withRenderingMode(.alwaysTemplate)
+        ownerIcon.tintColor = UIColor(rgb: 0xFAA61A)
         ownerIcon.contentMode = .scaleAspectFit
         ownerIcon.isHidden = true
 
+        trailingButton.accessibilityIdentifier = AccessibilityID.ChannelPermissions.action("row", "remove")
         trailingButton.addTarget(self, action: #selector(trailingTapped), for: .touchUpInside)
         trailingButton.isHidden = true
 
-        chevron.image = UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate)
+        chevron.image = UIImage(named: "Channel/ChevronRight")?.withRenderingMode(.alwaysTemplate)
         chevron.tintColor = UIColor.theme.textDisabled
         chevron.contentMode = .scaleAspectFit
         chevron.isHidden = true
@@ -126,8 +127,8 @@ final class ChannelPermissionsRowView: UIView {
 
             chevron.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14.sw),
             chevron.centerYAnchor.constraint(equalTo: centerYAnchor),
-            chevron.widthAnchor.constraint(equalToConstant: 12.swh),
-            chevron.heightAnchor.constraint(equalToConstant: 18.swh),
+            chevron.widthAnchor.constraint(equalToConstant: 16.swh),
+            chevron.heightAnchor.constraint(equalToConstant: 16.swh),
 
             nameLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingButton.leadingAnchor, constant: -8.sw),
             subLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingButton.leadingAnchor, constant: -8.sw)
@@ -143,7 +144,7 @@ final class ChannelPermissionsRowView: UIView {
             avatarInitials.isHidden = true
             ownerIcon.isHidden = true
             avatarView.image = nil
-            avatarView.backgroundColor = color.withAlphaComponent(0.18)
+            avatarView.isHidden = true
             roleIconView.isHidden = false
             roleIconView.tintColor = color
 
@@ -181,7 +182,7 @@ final class ChannelPermissionsRowView: UIView {
         case .removeButton(let enabled):
             trailingButton.isHidden = false
             trailingButton.setImage(
-                UIImage(systemName: "xmark.circle.fill")?.withRenderingMode(.alwaysTemplate),
+                UIImage(named: "Chat/DmCloseIcon")?.withRenderingMode(.alwaysTemplate),
                 for: .normal
             )
             trailingButton.isEnabled = enabled

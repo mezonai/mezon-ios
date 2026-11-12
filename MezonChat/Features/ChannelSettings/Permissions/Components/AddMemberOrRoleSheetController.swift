@@ -22,7 +22,7 @@ final class AddMemberOrRoleSheetController: UIViewController {
     private let addButton = UIButton(type: .system)
     private let searchContainer = UIView()
     private let searchField = UITextField()
-    private let searchIcon = UIImageView(image: UIImage(systemName: "magnifyingglass")?.withRenderingMode(.alwaysTemplate))
+    private let searchIcon = UIImageView(image: UIImage(named: "Setting/SearchIcon")?.withRenderingMode(.alwaysTemplate))
     private let tableView = UITableView(frame: .zero, style: .plain)
 
     init(
@@ -74,6 +74,11 @@ final class AddMemberOrRoleSheetController: UIViewController {
     }
 
     private func setupHeader() {
+        view.accessibilityIdentifier = AccessibilityID.ChannelPermissions.screen("picker")
+        cancelButton.accessibilityIdentifier = AccessibilityID.ChannelPermissions.action("picker", "cancel")
+        addButton.accessibilityIdentifier = AccessibilityID.ChannelPermissions.action("picker", "add")
+        searchField.accessibilityIdentifier = AccessibilityID.ChannelPermissions.action("picker", "search")
+
         titleLabel.text = L(L10n.ChannelPermission.bsAddMembersOrRoles)
         titleLabel.font = .systemFont(ofSize: 16.sf, weight: .semibold)
         titleLabel.textColor = .mezonTextPrimary
@@ -242,6 +247,7 @@ extension AddMemberOrRoleSheetController: UITableViewDataSource, UITableViewDele
             return c
         case .role(let role):
             let cell = tableView.dequeueReusableCell(withIdentifier: ChannelPermissionRowCell.reuseId, for: indexPath) as! ChannelPermissionRowCell
+            cell.accessibilityIdentifier = AccessibilityID.ChannelPermissions.item("picker", "role", role.id)
             cell.configureRole(
                 title: role.title,
                 color: RoleColors.uiColor(forRole: role),
@@ -251,6 +257,7 @@ extension AddMemberOrRoleSheetController: UITableViewDataSource, UITableViewDele
             return cell
         case .member(let member):
             let cell = tableView.dequeueReusableCell(withIdentifier: ChannelPermissionRowCell.reuseId, for: indexPath) as! ChannelPermissionRowCell
+            cell.accessibilityIdentifier = AccessibilityID.ChannelPermissions.item("picker", "member", member.userId)
             cell.configureMember(
                 name: RoleMemberDisplay.displayName(member),
                 subtitle: member.username,

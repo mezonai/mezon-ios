@@ -58,11 +58,15 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
         super.init()
         automaticallyManagesSubnodes = true
 
+        searchButtonNode.accessibilityIdentifier = AccessibilityID.ChannelDetail.action("search")
+        customizeGroupButtonNode.accessibilityIdentifier = AccessibilityID.ChannelDetail.action("customize-group")
+        muteButtonNode.accessibilityIdentifier = AccessibilityID.ChannelDetail.action("mute")
+
         setupButton(
             searchButtonNode, icon: "magnifyingglass", assetName: "Channel/Search", label: searchLabel,
             text: L(L10n.Common.search))
         setupButton(
-            customizeGroupButtonNode, icon: "pencil", assetName: "Channel/Pencil", label: customizeGroupLabel,
+            customizeGroupButtonNode, icon: "pencil", assetName: "Channel/EventEdit", label: customizeGroupLabel,
             text: L(L10n.ChannelDetail.customizeGroup))
         setupButton(
             threadsButtonNode, icon: "text.bubble", assetName: "Channel/channelThread", label: threadsLabel,
@@ -238,7 +242,7 @@ final class ChannelDetailActionButtonsNode: ASDisplayNode {
         let t = UIColor.theme
         let pairs: [(ASButtonNode, ASTextNode2, String, String?)] = [
             (searchButtonNode, searchLabel, "magnifyingglass", "Channel/Search"),
-            (customizeGroupButtonNode, customizeGroupLabel, "pencil", "Channel/Pencil"),
+            (customizeGroupButtonNode, customizeGroupLabel, "pencil", "Channel/EventEdit"),
             (threadsButtonNode, threadsLabel, "text.bubble", "Channel/channelThread"),
             (settingsButtonNode, settingsLabel, "gearshape.fill", "Profile/SettingIcon"),
         ]

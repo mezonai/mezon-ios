@@ -30,7 +30,7 @@ final class ChatHeaderNode: ASDisplayNode {
         automaticallyManagesSubnodes = true
 
         backButtonNode.setImage(
-            UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate),
+            UIImage(named: "Channel/ArrowLeft")?.withRenderingMode(.alwaysTemplate),
             for: .normal
         )
         backButtonNode.accessibilityIdentifier = AccessibilityID.Chat.back

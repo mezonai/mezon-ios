@@ -92,7 +92,7 @@ final class EventEditorChoiceViewController: UIViewController, UITableViewDataSo
     private let searchField = UITextField()
     private let titleLabel = UILabel()
     private let close = EventEditorButton()
-    private let searchIcon = UIImageView(image: UIImage(systemName: "magnifyingglass"))
+    private let searchIcon = UIImageView(image: UIImage(named: "Setting/SearchIcon")?.withRenderingMode(.alwaysTemplate))
     private var searchWorkItem: DispatchWorkItem?
 
     init(title: String, choices: [Choice], selectedId: Int64?, allowsSearch: Bool = true, onSelect: @escaping (Int64) -> Void) {
@@ -137,6 +137,7 @@ final class EventEditorChoiceViewController: UIViewController, UITableViewDataSo
         searchIcon.contentMode = .scaleAspectFit
         searchIcon.translatesAutoresizingMaskIntoConstraints = false
 
+        searchField.accessibilityIdentifier = AccessibilityID.Search.input("event-channel-picker")
         searchField.font = .systemFont(ofSize: 16)
         searchField.returnKeyType = .search
         searchField.autocorrectionType = .no

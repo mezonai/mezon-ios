@@ -91,10 +91,14 @@ final class WebhookListViewController: BaseViewController {
     }
 
     private func setupHeader() {
+        view.accessibilityIdentifier = AccessibilityID.ChannelSettings.screen("webhooks")
+        backButton.accessibilityIdentifier = AccessibilityID.ChannelSettings.action("webhooks", "back")
+        addButton.accessibilityIdentifier = AccessibilityID.ChannelSettings.action("webhooks", "add")
+
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
 
-        backButton.setImage(UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        backButton.setImage(UIImage(named: "Channel/ArrowLeft")?.withRenderingMode(.alwaysTemplate), for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
         
@@ -249,9 +253,7 @@ final class WebhookListViewController: BaseViewController {
     }
 
     private func setupAddButton() {
-        addButton.setImage(UIImage(systemName: "plus")?.withConfiguration(
-            UIImage.SymbolConfiguration(pointSize: 22.sf, weight: .bold)
-        ), for: .normal)
+        addButton.setImage(UIImage(named: "ChannelSetting/QuickActionAddIcon")?.withRenderingMode(.alwaysTemplate), for: .normal)
         addButton.tintColor = .white
         addButton.backgroundColor = UIColor.theme.bgViolet
         addButton.layer.cornerRadius = 28.swh
@@ -472,8 +474,7 @@ final class WebhookItemCell: UITableViewCell {
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(subtitleLabel)
 
-        let arrowImage = UIImage(named: "Channel/ChevronRight")?.withRenderingMode(.alwaysTemplate)
-            ?? UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate)
+        let arrowImage = UIImage(named: "Setting/ChevronRight")?.withRenderingMode(.alwaysTemplate)
         chevronView.image = arrowImage
         chevronView.tintColor = UIColor.theme.textStrong
         chevronView.contentMode = .scaleAspectFit
@@ -510,8 +511,8 @@ final class WebhookItemCell: UITableViewCell {
 
             chevronView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16.sw),
             chevronView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            chevronView.widthAnchor.constraint(equalToConstant: 14.swh),
-            chevronView.heightAnchor.constraint(equalToConstant: 14.swh),
+            chevronView.widthAnchor.constraint(equalToConstant: 20.swh),
+            chevronView.heightAnchor.constraint(equalToConstant: 20.swh),
 
             separatorView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
             separatorView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
@@ -521,6 +522,7 @@ final class WebhookItemCell: UITableViewCell {
     }
 
     func configure(with webhook: Mezon_Api_Webhook, creatorName: String, isLast: Bool) {
+        accessibilityIdentifier = AccessibilityID.ChannelSettings.item("webhook", webhook.id)
         nameLabel.text = webhook.webhookName
         let dateStr = formatCreatedDate(webhook.createTime)
         subtitleLabel.text = String(format: L(L10n.Webhook.createdBy), dateStr, creatorName)
@@ -580,6 +582,7 @@ final class WebhookItemCell: UITableViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        accessibilityIdentifier = nil
         imageTask?.cancel()
         imageTask = nil
         avatarImageView.image = nil

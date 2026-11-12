@@ -84,6 +84,9 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
     }
 
     private func setupUI() {
+        view.accessibilityIdentifier = AccessibilityID.ChannelSettings.screen("main")
+        nameField.accessibilityIdentifier = AccessibilityID.ChannelSettings.action("main", "name")
+        topicView.accessibilityIdentifier = AccessibilityID.ChannelSettings.action("main", "topic")
         let t = UIColor.theme
 
 
@@ -98,7 +101,8 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         ])
 
         let closeBtn = UIButton(type: .system)
-        closeBtn.setImage(UIImage(systemName: "xmark")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        closeBtn.accessibilityIdentifier = AccessibilityID.ChannelSettings.action("main", "close")
+        closeBtn.setImage(UIImage(named: "Profile/CloseDMIcon")?.withRenderingMode(.alwaysTemplate), for: .normal)
         closeBtn.tintColor = t.textStrong
         closeBtn.addTarget(self, action: #selector(handleClose), for: .touchUpInside)
         header.addSubview(closeBtn)
@@ -122,6 +126,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         ])
 
         saveBtn = UIButton(type: .system)
+        saveBtn.accessibilityIdentifier = AccessibilityID.ChannelSettings.action("main", "save")
         saveBtn.setTitle("Save", for: .normal)
         saveBtn.titleLabel?.font = .systemFont(ofSize: 17.sf, weight: .medium)
         saveBtn.addTarget(self, action: #selector(handleSave), for: .touchUpInside)
@@ -170,19 +175,19 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         var group1Actions: [SettingAction] = []
         
         if showChangeCategoryButton {
-            group1Actions.append(.init(title: L(L10n.ChannelSetting.changeCategory), icon: "ClanSetting/AuditLog", action: { [weak self] in
+            group1Actions.append(.init(title: L(L10n.ChannelSetting.changeCategory), icon: "ChannelSetting/ChangeCategoryIcon", action: { [weak self] in
                 self?.onChangeCategoryTap?()
             }))
         }
         
         if showPermissionsButton {
-            group1Actions.append(.init(title: L(L10n.ChannelSetting.permissions), icon: "ChannelSetting/ChannelPermission", action: { [weak self] in
+            group1Actions.append(.init(title: L(L10n.ChannelSetting.permissions), icon: "ClanSetting/Roles", action: { [weak self] in
                 self?.onPermissionsTap?()
             }))
         }
         
         if showQuickActionButton {
-            group1Actions.append(.init(title: L(L10n.ChannelSetting.quickAction), icon: "ChannelSetting/QuickActionIcon", action: { [weak self] in
+            group1Actions.append(.init(title: L(L10n.ChannelSetting.quickAction), icon: "ChannelSetting/QuickActionSettingsIcon", action: { [weak self] in
                 self?.onQuickActionTap?()
             }))
         }
@@ -333,6 +338,7 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
     private func createActionRow(title: String, icon: String, isDestructive: Bool = false, tapHandler: (() -> Void)? = nil) -> UIView {
         let v = ActionRowButton(type: .system)
         v.backgroundColor = .clear
+        v.accessibilityIdentifier = AccessibilityID.ChannelSettings.action("main", icon.replacingOccurrences(of: "/", with: "-"))
         v.tapHandler = tapHandler
         v.addTarget(v, action: #selector(ActionRowButton.handleTap), for: .touchUpInside)
 
@@ -367,7 +373,6 @@ final class ChannelSettingsContainerNode: ASDisplayNode {
         if !isDestructive {
             let arrowImage =
                 UIImage(named: "Channel/ChevronRight")?.withRenderingMode(.alwaysTemplate)
-                ?? UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate)
             let arrow = UIImageView(image: arrowImage)
             arrow.tintColor = UIColor.theme.textStrong
             v.addSubview(arrow)

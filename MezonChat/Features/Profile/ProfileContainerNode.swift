@@ -68,11 +68,12 @@ final class ProfileContainerNode: ASDisplayNode {
 
     private let micButton: UIButton = {
         let btn = UIButton(type: .custom)
-        let img = UIImage(named: "Profile/AdminSettingIcon", in: Bundle.main, compatibleWith: nil)?.withRenderingMode(.alwaysTemplate)
+        let img = ProfileContainerNode.profileImageResized(named: "AdminSettingIcon", size: 22.swh)?.withRenderingMode(.alwaysTemplate)
         btn.setImage(img, for: .normal)
         btn.tintColor = .mezonTextStrong
         btn.imageView?.contentMode = .scaleAspectFit
-        btn.contentEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+        btn.contentEdgeInsets = UIEdgeInsets(top: 7.swh, left: 7.swh, bottom: 7.swh, right: 7.swh)
+        btn.accessibilityIdentifier = AccessibilityID.Profile.settings
         btn.backgroundColor = .mezonPrimary
         return btn
     }()
@@ -823,8 +824,8 @@ final class ProfileContainerNode: ASDisplayNode {
         historyRow.configure(
             icon: "clock.arrow.circlepath",
             iconImage: Self.profileImage(named: "HistoryIcon")?
-                .withTintColor(.mezonTextSecondary, renderingMode: .alwaysOriginal),
-            iconColor: .mezonTextSecondary,
+                .withTintColor(.mezonIconDefault, renderingMode: .alwaysOriginal),
+            iconColor: .mezonIconDefault,
             text: L(L10n.Profile.historyTransaction),
             textColor: .mezonTextStrong
         )

@@ -527,7 +527,7 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
             content.topAnchor.constraint(equalTo: wrapper.topAnchor), content.bottomAnchor.constraint(equalTo: wrapper.bottomAnchor),
             content.leadingAnchor.constraint(equalTo: wrapper.leadingAnchor), content.trailingAnchor.constraint(equalTo: wrapper.trailingAnchor)
         ])
-        content.addArrangedSubview(iconRow(UIImage(systemName: "calendar"), text: formatted(draft.start, template: "EEE MMM d jm")))
+        content.addArrangedSubview(iconRow(UIImage(named: "Channel/Event")?.withRenderingMode(.alwaysTemplate), text: formatted(draft.start, template: "EEE MMM d jm")))
         if !draft.logoURL.isEmpty {
             let image = UIImageView()
             image.contentMode = .scaleAspectFill

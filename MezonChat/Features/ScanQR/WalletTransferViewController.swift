@@ -921,12 +921,13 @@ private final class TransferRecipientPickerViewController: UIViewController, UIT
         searchContainer.layer.borderColor = UIColor.mezonTextMuted.cgColor
 
         searchIcon.translatesAutoresizingMaskIntoConstraints = false
-        let mag = UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium))?
+        let mag = UIImage(named: "Setting/SearchIcon")?
             .withRenderingMode(.alwaysTemplate)
         searchIcon.image = mag
         searchIcon.tintColor = .mezonTextPrimary
         searchIcon.contentMode = .scaleAspectFit
 
+        searchField.accessibilityIdentifier = AccessibilityID.Search.input("transfer-recipient")
         searchField.translatesAutoresizingMaskIntoConstraints = false
         searchField.font = .systemFont(ofSize: 14)
         searchField.textColor = .mezonTextPrimary

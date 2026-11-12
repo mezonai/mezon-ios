@@ -195,17 +195,18 @@ final class DirectMessagesContainerNode: ASDisplayNode {
 
         if #available(iOS 15.0, *) {
             var searchCfg = UIButton.Configuration.filled()
-            searchCfg.image = UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf))
+            searchCfg.image = UIImage(named: "Channel/Search").map { resizedIconImage($0, targetSize: CGSize(width: 18.sf, height: 18.sf)).withRenderingMode(.alwaysTemplate) }
             searchCfg.baseForegroundColor = UIColor.theme.textStrong
             searchCfg.baseBackgroundColor = UIColor.theme.tertiary
             searchCfg.cornerStyle = .capsule
             searchButton.configuration = searchCfg
         } else {
-            searchButton.setImage(UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf)), for: .normal)
+            searchButton.setImage(UIImage(named: "Channel/Search").map { resizedIconImage($0, targetSize: CGSize(width: 18.sf, height: 18.sf)).withRenderingMode(.alwaysTemplate) }, for: .normal)
             searchButton.tintColor = UIColor.theme.textStrong
             searchButton.backgroundColor = UIColor.theme.tertiary
             searchButton.layer.cornerRadius = 16
         }
+        searchButton.accessibilityIdentifier = AccessibilityID.DirectMessage.search
         searchButton.addTarget(self, action: #selector(searchTapped), for: .touchUpInside)
 
         createGroupButton.backgroundColor = UIColor(red: 88/255, green: 101/255, blue: 242/255, alpha: 1.0)
@@ -351,7 +352,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
 
         if #available(iOS 15.0, *) {
             var searchCfg = UIButton.Configuration.filled()
-            searchCfg.image = UIImage(systemName: "magnifyingglass", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14.sf))
+            searchCfg.image = UIImage(named: "Channel/Search").map { resizedIconImage($0, targetSize: CGSize(width: 18.sf, height: 18.sf)).withRenderingMode(.alwaysTemplate) }
             searchCfg.baseForegroundColor = UIColor.theme.textStrong
             searchCfg.baseBackgroundColor = t.tertiary
             searchCfg.cornerStyle = .capsule

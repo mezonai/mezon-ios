@@ -186,8 +186,7 @@ final class FileItemNode: ASDisplayNode {
         bgNode.cornerRadius = 8
         addSubnode(bgNode)
 
-        let iconConfig = UIImage.SymbolConfiguration(pointSize: 22, weight: .medium)
-        iconNode.image = UIImage(systemName: Self.iconName(for: attachment), withConfiguration: iconConfig)?
+        iconNode.image = UIImage(named: Self.iconName(for: attachment))?
             .withTintColor(.systemIndigo, renderingMode: .alwaysOriginal)
         iconNode.contentMode = .scaleAspectFit
         addSubnode(iconNode)
@@ -307,21 +306,21 @@ final class FileItemNode: ASDisplayNode {
 
         switch ext {
         case "pdf":
-            return "doc.richtext"
+            return "Chat/AdvancedFileIcon"
         case "doc", "docx":
-            return "doc.text"
+            return "Chat/AdvancedFileIcon"
         case "xls", "xlsx", "csv":
-            return "tablecells"
+            return "Chat/AdvancedFileIcon"
         case "ppt", "pptx":
-            return "rectangle.split.3x3"
+            return "Chat/AdvancedFileIcon"
         case "zip", "rar", "7z", "tar", "gz":
-            return "doc.zipper"
+            return "Chat/AdvancedFileIcon"
         case "txt", "rtf":
-            return "doc.plaintext"
+            return "Chat/AdvancedFileIcon"
         case "mp3", "wav", "aac", "m4a", "ogg":
-            return "music.note"
+            return "Chat/MusicIcon"
         default:
-            return "doc"
+            return "Chat/AdvancedFileIcon"
         }
     }
 

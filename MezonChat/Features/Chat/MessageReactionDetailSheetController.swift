@@ -175,15 +175,15 @@ private final class MessageReactionDetailSheetNode: ASDisplayNode, UICollectionV
 
         if #available(iOS 15.0, *) {
             var trashCfg = UIButton.Configuration.plain()
-            trashCfg.image = UIImage(systemName: "trash.fill")
-            trashCfg.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
+            trashCfg.image = UIImage(named: "Chat/IconTrash")?.withRenderingMode(.alwaysTemplate)
             trashCfg.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8)
             trashButton.configuration = trashCfg
         } else {
-            let trashImg = UIImage(systemName: "trash.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 16, weight: .medium))
+            let trashImg = UIImage(named: "Chat/IconTrash")?.withRenderingMode(.alwaysTemplate)
             trashButton.setImage(trashImg, for: .normal)
             trashButton.contentEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
         }
+        trashButton.accessibilityIdentifier = AccessibilityID.Chat.reactionRemove
         trashButton.tintColor = .white
         trashButton.backgroundColor = UIColor.systemRed
         trashButton.layer.cornerRadius = 6
@@ -352,7 +352,7 @@ private final class MessageReactionDetailSheetNode: ASDisplayNode, UICollectionV
             self.performRemoveForCurrentUser(onEmojiId: rx.emojiId)
             done(true)
         }
-        remove.image = UIImage(systemName: "trash.fill")
+        remove.image = UIImage(named: "Chat/IconTrash")?.withRenderingMode(.alwaysTemplate)
         remove.backgroundColor = UIColor.systemRed
         let cfg = UISwipeActionsConfiguration(actions: [remove])
         cfg.performsFirstActionWithFullSwipe = true

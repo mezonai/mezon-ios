@@ -94,6 +94,13 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        view.accessibilityIdentifier = kind == .voice
+            ? AccessibilityID.JoinChannel.voiceSheet : AccessibilityID.JoinChannel.streamSheet
+        dismissButton.accessibilityIdentifier = AccessibilityID.JoinChannel.close
+        inviteButton.accessibilityIdentifier = AccessibilityID.JoinChannel.invite
+        joinButton.accessibilityIdentifier = AccessibilityID.JoinChannel.join
+        chatButton.accessibilityIdentifier = AccessibilityID.JoinChannel.chat
+        roleDropdownButton.accessibilityIdentifier = AccessibilityID.JoinChannel.roleDropdown
         view.layer.cornerRadius = 16
         view.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         view.clipsToBounds = true
@@ -107,7 +114,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         headerLeft.spacing = 10
         headerLeft.translatesAutoresizingMaskIntoConstraints = false
 
-        styleTertiaryCircleButton(dismissButton, systemImage: "chevron.down", pointSize: 18)
+        styleTertiaryCircleButton(dismissButton, assetName: "Channel/JoinChevronDown")
         dismissButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
 
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -121,7 +128,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         headerLeft.addArrangedSubview(dismissButton)
         headerLeft.addArrangedSubview(titleLabel)
 
-        styleTertiaryCircleButton(inviteButton, systemImage: "person.badge.plus", pointSize: 18)
+        styleTertiaryCircleButton(inviteButton, assetName: "Chat/UserPlusIcon")
         inviteButton.addTarget(self, action: #selector(inviteTapped), for: .touchUpInside)
         inviteButton.isHidden = kind == .streaming
 
@@ -142,11 +149,8 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.contentMode = .scaleAspectFit
         iconView.isUserInteractionEnabled = false
-        iconView.image = kind == .streaming
-            ? (UIImage(named: "Channel/channelStream") ?? UIImage(systemName: "dot.radiowaves.left.and.right"))?
-                .withRenderingMode(.alwaysTemplate)
-            : (UIImage(named: "Chat/SpeakerIcon") ?? UIImage(systemName: "speaker.wave.2.fill"))?
-                .withRenderingMode(.alwaysTemplate)
+        iconView.image = UIImage(named: kind == .streaming ? "Channel/JoinStreamIcon" : "Channel/JoinVoiceIcon")?
+            .withRenderingMode(.alwaysTemplate)
         iconView.tintColor = UIColor.theme.textStrong
 
         iconOuter.addSubview(iconView)
@@ -276,7 +280,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
             chatWrap.widthAnchor.constraint(equalToConstant: 50),
             chatWrap.heightAnchor.constraint(equalToConstant: 50),
         ])
-        styleTertiaryCircleButton(chatButton, systemImage: "bubble.left.and.bubble.right.fill", pointSize: 18)
+        styleTertiaryCircleButton(chatButton, assetName: "Chat/ChatBubbleIcon")
         chatButton.addTarget(self, action: #selector(chatTapped), for: .touchUpInside)
         chatWrap.addSubview(chatButton)
         NSLayoutConstraint.activate([
@@ -417,9 +421,8 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         splitJoinDivider.backgroundColor = UIColor.black.withAlphaComponent(0.2)
 
         roleDropdownButton.translatesAutoresizingMaskIntoConstraints = false
-        let chevronCfg = UIImage.SymbolConfiguration(pointSize: 13, weight: .semibold)
         roleDropdownButton.setImage(
-            UIImage(systemName: "chevron.down", withConfiguration: chevronCfg)?.withRenderingMode(.alwaysTemplate),
+            UIImage(named: "Channel/JoinChevronDown")?.withRenderingMode(.alwaysTemplate),
             for: .normal)
         roleDropdownButton.tintColor = .white
         roleDropdownButton.addTarget(self, action: #selector(roleDropdownTapped), for: .touchUpInside)
@@ -557,6 +560,8 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
         row.translatesAutoresizingMaskIntoConstraints = false
         row.heightAnchor.constraint(equalToConstant: 46).isActive = true
         row.tag = role == .audience ? 1 : 0
+        row.accessibilityIdentifier = role == .audience
+            ? AccessibilityID.JoinChannel.audienceRole : AccessibilityID.JoinChannel.speakerRole
         row.addTarget(self, action: #selector(roleMenuRowTapped(_:)), for: .touchUpInside)
 
         let selected = selectedRole == role
@@ -570,8 +575,7 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
 
         let check = UIImageView()
         check.translatesAutoresizingMaskIntoConstraints = false
-        let checkCfg = UIImage.SymbolConfiguration(pointSize: 13, weight: .bold)
-        check.image = UIImage(systemName: "checkmark", withConfiguration: checkCfg)?.withRenderingMode(.alwaysTemplate)
+        check.image = UIImage(named: "Channel/JoinRoleCheck")?.withRenderingMode(.alwaysTemplate)
         check.tintColor = UIColor.theme.statusOnline
         check.isHidden = !selected
         check.isUserInteractionEnabled = false
@@ -616,13 +620,13 @@ final class JoinVoiceChannelSheetViewController: UIViewController {
                 "voiceChannel.joinSheet.joinAsAudienceTitle", tableName: nil, bundle: .main, value: "Join as Audience", comment: "")
     }
 
-    private func styleTertiaryCircleButton(_ button: UIButton, systemImage: String, pointSize: CGFloat) {
+    private func styleTertiaryCircleButton(_ button: UIButton, assetName: String) {
         button.translatesAutoresizingMaskIntoConstraints = false
         button.backgroundColor = UIColor.theme.secondary
         button.layer.cornerRadius = 22
         button.layer.borderWidth = 1
         button.layer.borderColor = UIColor.theme.borderPrimary.cgColor
-        let img = UIImage(systemName: systemImage, withConfiguration: UIImage.SymbolConfiguration(pointSize: pointSize, weight: .medium))
+        let img = UIImage(named: assetName)
         button.setImage(img?.withRenderingMode(.alwaysTemplate), for: .normal)
         button.tintColor = UIColor.theme.textStrong
         button.imageView?.contentMode = .scaleAspectFit
@@ -890,8 +894,12 @@ final class ExternalMeetingLinkSheetViewController: UIViewController {
 
         dismissButton.translatesAutoresizingMaskIntoConstraints = false
         dismissButton.layer.cornerRadius = 22
+        view.accessibilityIdentifier = AccessibilityID.JoinChannel.externalSheet
+        dismissButton.accessibilityIdentifier = AccessibilityID.JoinChannel.close
+        joinButton.accessibilityIdentifier = AccessibilityID.JoinChannel.externalJoin
+        browserButton.accessibilityIdentifier = AccessibilityID.JoinChannel.externalBrowser
         dismissButton.setImage(
-            UIImage(systemName: "chevron.down", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium))?
+            UIImage(named: "Channel/JoinChevronDown")?
                 .withRenderingMode(.alwaysTemplate),
             for: .normal)
         dismissButton.imageView?.contentMode = .scaleAspectFit
@@ -916,7 +924,7 @@ final class ExternalMeetingLinkSheetViewController: UIViewController {
         iconOuter.layer.cornerRadius = Self.iconOuterSize / 2
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.contentMode = .scaleAspectFit
-        iconView.image = (UIImage(named: "Chat/SpeakerIcon") ?? UIImage(systemName: "speaker.wave.2.fill"))?
+        iconView.image = UIImage(named: "Channel/JoinVoiceIcon")?
             .withRenderingMode(.alwaysTemplate)
         iconOuter.addSubview(iconView)
 
@@ -942,9 +950,9 @@ final class ExternalMeetingLinkSheetViewController: UIViewController {
         centerStack.addArrangedSubview(promptLabel)
         centerStack.setCustomSpacing(12, after: iconOuter)
 
-        styleActionButton(joinButton, title: L(L10n.EventMenu.joinInApp), systemImage: "speaker.wave.2.fill")
+        styleActionButton(joinButton, title: L(L10n.EventMenu.joinInApp), assetName: "Channel/StreamSpeaker")
         joinButton.addTarget(self, action: #selector(joinTapped), for: .touchUpInside)
-        styleActionButton(browserButton, title: L(L10n.EventMenu.openInBrowser), systemImage: "safari")
+        styleActionButton(browserButton, title: L(L10n.EventMenu.openInBrowser), assetName: "Invite/CopyLink")
         browserButton.addTarget(self, action: #selector(openInBrowserTapped), for: .touchUpInside)
 
         actionStack.axis = .vertical
@@ -1000,13 +1008,13 @@ final class ExternalMeetingLinkSheetViewController: UIViewController {
         applyTheme()
     }
 
-    private func styleActionButton(_ button: UIButton, title: String, systemImage: String) {
+    private func styleActionButton(_ button: UIButton, title: String, assetName: String) {
         button.translatesAutoresizingMaskIntoConstraints = false
         button.setTitle(title, for: .normal)
         button.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
         button.titleLabel?.lineBreakMode = .byTruncatingTail
         button.setImage(
-            UIImage(systemName: systemImage, withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold))?
+            UIImage(named: assetName)?
                 .withRenderingMode(.alwaysTemplate),
             for: .normal)
         button.contentEdgeInsets = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)

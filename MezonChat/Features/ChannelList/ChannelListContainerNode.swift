@@ -3031,6 +3031,7 @@ final class ChannelListHeaderView: UIView {
 
     private let qrButton: UIButton = {
         let btn = UIButton(type: .system)
+        btn.accessibilityIdentifier = AccessibilityID.ChannelList.scanQR
         btn.setImage(UIImage(named: "Profile/ScanQR")?.withRenderingMode(.alwaysTemplate), for: .normal)
         btn.layer.cornerRadius = 16
         btn.layer.borderWidth = 1
@@ -3086,6 +3087,7 @@ final class ChannelListHeaderView: UIView {
         infoRow.alignment = .center
         infoRow.translatesAutoresizingMaskIntoConstraints = false
 
+        searchBar.accessibilityIdentifier = AccessibilityID.ChannelList.search
         searchBar.addSubview(searchIcon)
         searchBar.addSubview(searchLabel)
         let searchTap = UITapGestureRecognizer(target: self, action: #selector(searchBarTapped))
@@ -3145,8 +3147,8 @@ final class ChannelListHeaderView: UIView {
             searchBar.heightAnchor.constraint(equalToConstant: 32),
             searchIcon.leadingAnchor.constraint(equalTo: searchBar.leadingAnchor, constant: 12),
             searchIcon.centerYAnchor.constraint(equalTo: searchBar.centerYAnchor),
-            searchIcon.widthAnchor.constraint(equalToConstant: 22),
-            searchIcon.heightAnchor.constraint(equalToConstant: 22),
+            searchIcon.widthAnchor.constraint(equalToConstant: 16),
+            searchIcon.heightAnchor.constraint(equalToConstant: 16),
             searchLabel.centerXAnchor.constraint(equalTo: searchBar.centerXAnchor),
             searchLabel.centerYAnchor.constraint(equalTo: searchBar.centerYAnchor),
 
@@ -3221,15 +3223,11 @@ final class ChannelListHeaderView: UIView {
         memberCountLabel.textColor = t.textStrong
         communityLabel.textColor = t.textStrong
         searchBar.backgroundColor = t.tertiary
-        searchIcon.tintColor = t.textDisabled
-        searchLabel.textColor = t.textDisabled
+        searchIcon.tintColor = t.textNormal
+        searchLabel.textColor = t.textNormal
         qrButton.setImage(UIImage(named: "Profile/ScanQR")?.withRenderingMode(.alwaysTemplate), for: .normal)
-        if ThemeManager.shared.current.effectiveInterfaceStyle == .light {
-            qrButton.tintColor = UIColor(hexString: "#ff6b6f76")
-        } else {
-            qrButton.tintColor = UIColor(hexString: "#fefefe")
-        }
-        
+        qrButton.tintColor = .mezonIconDefault
+
         qrButton.backgroundColor = t.raisedSurface
         qrButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
         eventButton.tintColor = .mezonIconDefault

@@ -22,6 +22,7 @@ final class WebhookSelectChannelViewController: BaseViewController {
     required init(coder: NSCoder) { fatalError() }
 
     override func setupUI() {
+        view.accessibilityIdentifier = AccessibilityID.ChannelSettings.screen("webhook-channel")
         displayNode.backgroundColor = UIColor.theme.primary
         let t = UIColor.theme
         
@@ -131,11 +132,12 @@ final class WebhookSelectChannelViewController: BaseViewController {
     private func createChannelRow(channel: Mezon_Api_ChannelDescription) -> UIView {
         let button = ChannelRowButton(type: .system)
         button.backgroundColor = .clear
+        button.accessibilityIdentifier = AccessibilityID.ChannelSettings.item("webhook-channel", channel.channelID)
         button.channel = channel
         button.addTarget(self, action: #selector(handleChannelTap(_:)), for: .touchUpInside)
 
         let iconName = channel.channelListIconAssetName()
-        let hashIcon = UIImageView(image: (UIImage(named: iconName) ?? UIImage(systemName: iconName))?.withRenderingMode(.alwaysTemplate))
+        let hashIcon = UIImageView(image: (UIImage(named: iconName) ?? UIImage(named: "ChannelSetting/WebhookChannelIcon"))?.withRenderingMode(.alwaysTemplate))
         hashIcon.tintColor = UIColor.theme.textDisabled
         hashIcon.contentMode = .scaleAspectFit
         button.addSubview(hashIcon)
@@ -161,7 +163,7 @@ final class WebhookSelectChannelViewController: BaseViewController {
         ])
         
         if channel.channelID == currentChannelId {
-            let checkIcon = UIImageView(image: UIImage(systemName: "checkmark")?.withRenderingMode(.alwaysTemplate))
+            let checkIcon = UIImageView(image: UIImage(named: "ChannelSetting/WebhookChannelCheck")?.withRenderingMode(.alwaysTemplate))
             checkIcon.tintColor = UIColor.theme.bgViolet
             button.addSubview(checkIcon)
             checkIcon.translatesAutoresizingMaskIntoConstraints = false

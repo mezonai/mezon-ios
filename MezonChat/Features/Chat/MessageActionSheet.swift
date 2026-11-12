@@ -60,28 +60,37 @@ enum MessageAction: CaseIterable {
 
     var iconImageName: String {
         switch self {
-        case .giveACoffee:      return "Profile/TransferIcon"
+        case .giveACoffee:      return "Chat/SendMoneyIcon"
         case .reply:            return "Chat/IconArrowLeftUp"
         case .forwardMessage:   return "Chat/IconArrowRightUp"
         case .forwardAll:       return "Chat/IconForwardAll"
         case .createThread:     return "Chat/ThreadAdd"
         case .copyText:         return "Chat/IconCopy"
-        case .shareText, .shareImage: return "Invite/ShareIcon"
+        case .shareText, .shareImage: return "Channel/EventShare"
         case .saveImage, .saveVideo: return "Chat/IconDownload"
-        case .copyImageLink, .copyVideoLink: return "Invite/CopyLink"
+        case .copyImageLink, .copyVideoLink: return "ChannelSetting/CopyLinkIcon"
         case .copyImage:        return "Chat/Image"
         case .addToInbox:       return "Chat/Inbox"
         case .markUnread:       return "Chat/IconMarkUnread"
-        case .topicDiscussion:  return "Notifications/topic"
-        case .pinMessage:       return "Chat/IconPin"
-        case .unpinMessage:     return "Chat/IconUnpin"
+        case .topicDiscussion:  return "Chat/TopicIcon"
+        case .pinMessage:       return "Chat/DmPinIcon"
+        case .unpinMessage:     return "Chat/DmUnpinIcon"
         case .markMessage:      return "Chat/IconStar"
         case .quickMenu:        return "ChannelSetting/QuickActionIcon"
-        case .editMessage:      return "Profile/EditIcon"
+        case .editMessage:      return "Channel/EventEdit"
         case .deleteMessage:    return "Chat/IconTrash"
         case .report:           return "Chat/ReportFlag"
         case .resend:           return "Setting/ChatIcon"
         case .forward:          return "Chat/IconArrowRightUp"
+        }
+    }
+
+    var usesDefaultIconTint: Bool {
+        switch self {
+        case .giveACoffee, .createThread, .topicDiscussion, .pinMessage, .unpinMessage:
+            return true
+        default:
+            return false
         }
     }
 
@@ -631,11 +640,12 @@ private final class MessageActionSheetNode: ASDisplayNode {
         pickerBtn.backgroundColor = t.secondary
         pickerBtn.layer.cornerRadius = btnSize / 2
         pickerBtn.clipsToBounds = true
+        let pickerIconSize: CGFloat = 22
         let smiley: UIImage
         if let pdf = UIImage(named: "Chat/FaceIcon") {
-            smiley = resizedEmoji(pdf)
+            smiley = resizedEmoji(pdf, size: pickerIconSize)
         } else {
-            let symCfg = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
+            let symCfg = UIImage.SymbolConfiguration(pointSize: pickerIconSize, weight: .medium)
             smiley = UIImage(systemName: "face.smiling", withConfiguration: symCfg) ?? UIImage()
         }
         pickerBtn.setImage(smiley.withRenderingMode(.alwaysTemplate), for: .normal)
@@ -672,8 +682,8 @@ private final class MessageActionSheetNode: ASDisplayNode {
         }.resume()
     }
 
-    private func resizedEmoji(_ img: UIImage) -> UIImage {
-        let sz = CGSize(width: 28, height: 28)
+    private func resizedEmoji(_ img: UIImage, size: CGFloat = 28) -> UIImage {
+        let sz = CGSize(width: size, height: size)
         return UIGraphicsImageRenderer(size: sz).image { _ in
             img.draw(in: CGRect(origin: .zero, size: sz))
         }
@@ -721,7 +731,7 @@ private final class MessageActionSheetNode: ASDisplayNode {
             circleView.clipsToBounds = true
             parent.addSubview(circleView)
 
-            let innerIconSize: CGFloat = 16
+            let innerIconSize: CGFloat = 18
             let iconView = UIImageView(frame: CGRect(
                 x: (circleSize - innerIconSize) / 2,
                 y: (circleSize - innerIconSize) / 2,
@@ -738,7 +748,7 @@ private final class MessageActionSheetNode: ASDisplayNode {
             let iconX: CGFloat = 16
             let iconView = UIImageView(frame: CGRect(x: iconX, y: y + (height - iconSize) / 2, width: iconSize, height: iconSize))
             iconView.contentMode = .scaleAspectFit
-            iconView.tintColor = textColor
+            iconView.tintColor = action.usesDefaultIconTint ? .mezonIconDefault : textColor
             iconView.image = iconImage
             parent.addSubview(iconView)
 

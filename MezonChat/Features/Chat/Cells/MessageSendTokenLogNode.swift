@@ -41,10 +41,7 @@ final class MessageSendTokenLogNode: ASDisplayNode {
         iconBgNode.cornerRadius = Self.iconBoxSize / 2
         iconBgNode.clipsToBounds = true
 
-        let symbol = UIImage(systemName: "arrow.left.arrow.right")?
-            .withConfiguration(UIImage.SymbolConfiguration(pointSize: Self.iconImageSize, weight: .semibold))
-            .withRenderingMode(.alwaysTemplate)
-        iconNode.image = symbol
+        iconNode.image = UIImage(named: "Chat/TransactionIcon")?.withRenderingMode(.alwaysTemplate)
         iconNode.tintColor = Self.transactionColor
         iconNode.contentMode = .scaleAspectFit
 

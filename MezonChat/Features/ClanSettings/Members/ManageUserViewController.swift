@@ -412,7 +412,7 @@ final class ManageUserViewController: BaseViewController {
             ),
             (
                 title: L(L10n.ClanSetting.Members.kick),
-                icon: "ClanSetting/KickIcon",
+                icon: "Profile/RemoveFriendIcon",
                 action: #selector(kickTapped),
                 show: !isItMe && (isClanOwner || (hasAdmin && !isThatClanOwner))
             )

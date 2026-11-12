@@ -73,7 +73,9 @@ final class AuditLogFilterUserViewController: BaseViewController {
     
     private func setupSearchBar() {
         searchBar.translatesAutoresizingMaskIntoConstraints = false
+        searchBar.searchTextField.accessibilityIdentifier = AccessibilityID.Search.input("audit-log-user")
         searchBar.delegate = self
+        searchBar.setImage(UIImage(named: "Setting/SearchIcon")?.withRenderingMode(.alwaysTemplate), for: .search, state: .normal)
         searchBar.backgroundImage = UIImage()
         searchBar.isTranslucent = false
         searchBar.barTintColor = UIColor.theme.secondary

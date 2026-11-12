@@ -46,6 +46,7 @@ final class ClanListContainerNode: ASDisplayNode {
     }()
 
     private var state: ClanListState = .empty
+    private var discoverActive = false
     private var hasRenderedUnreadDMs = false
     private var railContentWidth: CGFloat = Constants.Layout.clanSidebarWidth
     private let interaction: ClanListInteraction
@@ -271,6 +272,12 @@ final class ClanListContainerNode: ASDisplayNode {
         }
     }
 
+    func setDiscoverActive(_ active: Bool) {
+        discoverActive = active
+        let path = IndexPath(item: state.clans.count, section: 1)
+        (collectionView.cellForItem(at: path) as? ClanJoinActionCell)?.applyDiscoveryFocus(active)
+    }
+
     func focusDiscoverIfNoClans() {
         guard state.clans.isEmpty else { return }
         let section = 1
@@ -414,7 +421,7 @@ extension ClanListContainerNode: UICollectionViewDataSource, UICollectionViewDel
         guard clanIndex < state.clans.count else {
             if clanIndex == state.clans.count {
                 let cell = collectionView.dequeueReusableCell(withReuseIdentifier: ClanJoinActionCell.reuseID, for: indexPath) as! ClanJoinActionCell
-                cell.applyDiscoveryFocus(state.clans.isEmpty)
+                cell.applyDiscoveryFocus(discoverActive)
                 return cell
             }
             return collectionView.dequeueReusableCell(withReuseIdentifier: ClanCreateActionCell.reuseID, for: indexPath) as! ClanCreateActionCell
@@ -673,7 +680,7 @@ private final class ClanJoinActionCell: UICollectionViewCell {
         let iv = UIImageView()
         iv.contentMode = .scaleAspectFit
         iv.clipsToBounds = true
-        iv.image = UIImage(named: "ClanSetting/JoinClanIcon")?.withRenderingMode(.alwaysOriginal)
+        iv.image = UIImage(named: "ClanSetting/JoinClanIcon")?.withRenderingMode(.alwaysTemplate)
         iv.translatesAutoresizingMaskIntoConstraints = false
         return iv
     }()
@@ -682,6 +689,7 @@ private final class ClanJoinActionCell: UICollectionViewCell {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        accessibilityIdentifier = AccessibilityID.ChannelList.discover
         backgroundColor = .clear
         contentView.backgroundColor = .clear
         let sz = ClanListContainerNode.iconSize
@@ -692,10 +700,10 @@ private final class ClanJoinActionCell: UICollectionViewCell {
             outer.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             outer.widthAnchor.constraint(equalToConstant: sz),
             outer.heightAnchor.constraint(equalToConstant: sz),
-            iconView.topAnchor.constraint(equalTo: outer.topAnchor),
-            iconView.leadingAnchor.constraint(equalTo: outer.leadingAnchor),
-            iconView.trailingAnchor.constraint(equalTo: outer.trailingAnchor),
-            iconView.bottomAnchor.constraint(equalTo: outer.bottomAnchor),
+            iconView.centerXAnchor.constraint(equalTo: outer.centerXAnchor),
+            iconView.centerYAnchor.constraint(equalTo: outer.centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 20.swh),
+            iconView.heightAnchor.constraint(equalToConstant: 20.swh),
         ])
     }
 
@@ -708,10 +716,11 @@ private final class ClanJoinActionCell: UICollectionViewCell {
 
     private func refreshOuterAppearance() {
         let t = UIColor.theme
+        iconView.tintColor = discoveryFocused ? UIColor(hex: 0xDFE0E4) : .mezonIconDefault
         outer.layer.borderWidth = 0
         outer.layer.borderColor = nil
         if discoveryFocused {
-            outer.backgroundColor = t.iconPrimary.withAlphaComponent(0.22)
+            outer.backgroundColor = t.bgViolet
         } else {
             outer.backgroundColor = t.primary.withAlphaComponent(0.2)
         }

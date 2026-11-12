@@ -80,7 +80,7 @@ final class StickersPanel: UIView {
     private let searchIconView: UIImageView = {
         let iv = UIImageView()
         iv.translatesAutoresizingMaskIntoConstraints = false
-        iv.image = UIImage(systemName: "magnifyingglass")
+        iv.image = UIImage(named: "Setting/SearchIcon")?.withRenderingMode(.alwaysTemplate)
         iv.tintColor = UIColor.mezonSecondaryLabel
         iv.contentMode = .scaleAspectFit
         return iv
@@ -88,6 +88,7 @@ final class StickersPanel: UIView {
 
     private let searchTextField: UITextField = {
         let tf = UITextField()
+        tf.accessibilityIdentifier = AccessibilityID.Search.input("stickers")
         tf.translatesAutoresizingMaskIntoConstraints = false
         tf.font = .systemFont(ofSize: 15)
         tf.returnKeyType = .search

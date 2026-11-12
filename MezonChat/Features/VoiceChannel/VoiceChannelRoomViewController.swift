@@ -352,6 +352,7 @@ private final class VoiceHeaderSystemAudioRouteControl: UIView {
         volumeView.translatesAutoresizingMaskIntoConstraints = false
 
         hitProxy.translatesAutoresizingMaskIntoConstraints = false
+        hitProxy.accessibilityIdentifier = AccessibilityID.VoiceRoom.audioOutput
         hitProxy.backgroundColor = .clear
         hitProxy.accessibilityLabel = NSLocalizedString("voiceChannel.audioRouteTitle", tableName: nil, bundle: .main, value: "Audio output", comment: "")
         hitProxy.addTarget(self, action: #selector(hitProxyTapped), for: .touchUpInside)
@@ -362,8 +363,8 @@ private final class VoiceHeaderSystemAudioRouteControl: UIView {
         NSLayoutConstraint.activate([
             stateIconView.centerXAnchor.constraint(equalTo: centerXAnchor),
             stateIconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            stateIconView.widthAnchor.constraint(equalToConstant: 18),
-            stateIconView.heightAnchor.constraint(equalToConstant: 15),
+            stateIconView.widthAnchor.constraint(equalToConstant: 20),
+            stateIconView.heightAnchor.constraint(equalToConstant: 20),
             volumeView.topAnchor.constraint(equalTo: topAnchor),
             volumeView.bottomAnchor.constraint(equalTo: bottomAnchor),
             volumeView.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -417,11 +418,6 @@ private final class VoiceHeaderSystemAudioRouteControl: UIView {
     func applyTint(_ color: UIColor) {
         volumeView.tintColor = .clear
         stateIconView.tintColor = color
-    }
-
-    func setRouteStateSymbol(systemName: String, pointSize: CGFloat, weight: UIImage.SymbolWeight) {
-        let cfg = UIImage.SymbolConfiguration(pointSize: pointSize, weight: weight)
-        stateIconView.image = UIImage(systemName: systemName, withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate)
     }
 
     func setRouteStateTemplateAsset(named assetName: String) {
@@ -903,7 +899,7 @@ final class VoiceChannelPiPOverlay: NSObject {
            let identity = remoteShare.userId {
             showVideo(track: track, mirror: false, fitContent: true)
             let name = resolveDisplayName(identityKey: identity, isLocal: false)
-            showBadge(icon: "rectangle.on.rectangle", name: "\(name) Share Screen", micOn: true)
+            showBadge(icon: "Channel/VoiceScreenShare", name: "\(name) Share Screen", micOn: true)
             return
         }
 
@@ -911,13 +907,13 @@ final class VoiceChannelPiPOverlay: NSObject {
         if session.cameraEnabled, let track = session.localCameraTrack {
             showVideo(track: track, mirror: session.cameraPosition == .front, fitContent: false)
             let name = resolveDisplayName(identityKey: "", isLocal: true)
-            showBadge(icon: localMicOn ? "mic.fill" : "mic.slash.fill", name: name, micOn: localMicOn)
+            showBadge(icon: localMicOn ? "Chat/MicrophoneIcon" : "Chat/MicrophoneOffIcon", name: name, micOn: localMicOn)
             return
         }
 
         showLocalAvatar()
         let name = resolveDisplayName(identityKey: "", isLocal: true)
-        showBadge(icon: localMicOn ? "mic.fill" : "mic.slash.fill", name: name, micOn: localMicOn)
+        showBadge(icon: localMicOn ? "Chat/MicrophoneIcon" : "Chat/MicrophoneOffIcon", name: name, micOn: localMicOn)
     }
 
     private func setOverlayRecoveryTrack(_ track: RTCVideoTrack?) {
@@ -985,8 +981,7 @@ final class VoiceChannelPiPOverlay: NSObject {
     }
 
     private func showBadge(icon: String, name: String, micOn: Bool) {
-        let cfg = UIImage.SymbolConfiguration(pointSize: 10, weight: .medium)
-        badgeIcon.image = UIImage(systemName: icon, withConfiguration: cfg)
+        badgeIcon.image = UIImage(named: icon)?.withRenderingMode(.alwaysTemplate)
         badgeIcon.tintColor = .white
         badgeLabel.text = name
     }
@@ -1389,8 +1384,7 @@ private enum VoiceCallSystemPiPFactory {
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.tag = VoiceCallSystemPiPViewTag.phoneIcon
         iconView.contentMode = .scaleAspectFit
-        let iconCfg = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-        iconView.image = UIImage(systemName: "phone.fill", withConfiguration: iconCfg)
+        iconView.image = UIImage(named: "Chat/CallAnswerIcon")?.withRenderingMode(.alwaysTemplate)
         iconView.tintColor = UIColor(red: 0.3, green: 0.85, blue: 0.4, alpha: 1)
 
         contentVC.view.addSubview(pipAvatarView)
@@ -1752,6 +1746,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        view.accessibilityIdentifier = AccessibilityID.VoiceRoom.screen
         NotificationCenter.default.addObserver(self, selector: #selector(presentRejoinPromptIfNeeded),
                                                name: UIApplication.didBecomeActiveNotification, object: nil)
         Self.currentLiveRoom = self
@@ -1764,7 +1759,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         headerLeft.spacing = 20
         headerLeft.translatesAutoresizingMaskIntoConstraints = false
 
-        styleHeaderCircleButton(collapseButton, systemImage: "chevron.down", pointSize: 16)
+        styleHeaderCircleButton(collapseButton, assetName: "Channel/ChevronBottom")
+        collapseButton.accessibilityIdentifier = AccessibilityID.VoiceRoom.collapse
         collapseButton.tintColor = UIColor.theme.white
         collapseButton.addTarget(self, action: #selector(minimizeToPiP), for: .touchUpInside)
 
@@ -1797,7 +1793,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         headerRight.spacing = 10
         headerRight.translatesAutoresizingMaskIntoConstraints = false
 
-        styleHeaderCircleButton(cameraSwitchButton, systemImage: "arrow.triangle.2.circlepath.camera", pointSize: 16)
+        styleHeaderCircleButton(cameraSwitchButton, assetName: "Chat/CameraSwitchIcon")
+        cameraSwitchButton.accessibilityIdentifier = AccessibilityID.VoiceRoom.switchCamera
         cameraSwitchButton.tintColor = UIColor.theme.white
         cameraSwitchButton.isHidden = true
         cameraSwitchButton.addTarget(self, action: #selector(switchCameraTapped), for: .touchUpInside)
@@ -1807,11 +1804,13 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         audioRouteControl.onTap = { [weak self] in
             self?.cycleAudioOutput()
         }
-        styleHeaderCircleButton(moreButton, systemImage: "ellipsis", pointSize: 18)
+        styleHeaderCircleButton(moreButton, assetName: "Channel/VoiceMore")
+        moreButton.accessibilityIdentifier = AccessibilityID.VoiceRoom.more
         moreButton.tintColor = UIColor.theme.white
         moreButton.addTarget(self, action: #selector(moreButtonTapped), for: .touchUpInside)
         let hand = UIButton(type: .custom)
-        styleHeaderCircleButton(hand, systemImage: "hand.raised.fill", pointSize: 16)
+        styleHeaderCircleButton(hand, assetName: "Channel/VoiceRaiseHand")
+        hand.accessibilityIdentifier = AccessibilityID.VoiceRoom.raiseHand
         hand.addTarget(self, action: #selector(raiseHandTapped), for: .touchUpInside)
         hand.isHidden = isExternalMeeting
         raiseHandButton = hand
@@ -1859,10 +1858,12 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         bottomControlsStack.isLayoutMarginsRelativeArrangement = true
         bottomControlsStack.layoutMargins = UIEdgeInsets(top: 4, left: 10, bottom: 4, right: 10)
 
-        let cam = makeControlBarIconButton(systemName: "video.slash.fill", action: #selector(cameraBarTapped))
+        let cam = makeControlBarIconButton(assetName: "Channel/VoiceVideoOff", action: #selector(cameraBarTapped))
         camButton = cam
-        let mic = makeControlBarIconButton(systemName: "mic.slash.fill", action: #selector(micTapped))
+        cam.accessibilityIdentifier = AccessibilityID.VoiceRoom.camera
+        let mic = makeControlBarIconButton(assetName: "Chat/MicrophoneOffIcon", action: #selector(micTapped))
         micButton = mic
+        mic.accessibilityIdentifier = AccessibilityID.VoiceRoom.microphone
         mic.isEnabled = false
         mic.alpha = 0.45
         micWeakDot.translatesAutoresizingMaskIntoConstraints = false
@@ -1879,15 +1880,15 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             micWeakDot.topAnchor.constraint(equalTo: mic.topAnchor),
             micWeakDot.trailingAnchor.constraint(equalTo: mic.trailingAnchor),
         ])
-        let chat = makeControlBarIconButton(systemName: "bubble.left.and.bubble.right.fill", action: #selector(openChatTapped))
-        let share = makeControlBarIconButton(systemName: "rectangle.on.rectangle", action: #selector(screenShareBarTapped))
-        if let icon = UIImage(named: "Channel/VoiceScreenShare") {
-            share.setImage(icon.withRenderingMode(.alwaysTemplate), for: .normal)
-        }
+        let chat = makeControlBarIconButton(assetName: "Chat/ChatBubbleIcon", action: #selector(openChatTapped))
+        chat.accessibilityIdentifier = AccessibilityID.VoiceRoom.chat
+        let share = makeControlBarIconButton(assetName: "Channel/VoiceScreenShare", action: #selector(screenShareBarTapped))
         screenShareButton = share
+        share.accessibilityIdentifier = AccessibilityID.VoiceRoom.screenShare
         refreshRaiseHandButtonAppearance()
         refreshScreenShareButtonAppearance()
         let leave = makeEndCallButton()
+        leave.accessibilityIdentifier = AccessibilityID.VoiceRoom.end
         chat.isHidden = isExternalMeeting
         [cam, mic, chat, share, leave].forEach { bottomControlsStack.addArrangedSubview($0) }
 
@@ -2102,13 +2103,13 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         }
     }
 
-    private func styleHeaderCircleButton(_ button: UIButton, systemImage: String, pointSize: CGFloat) {
+    private func styleHeaderCircleButton(_ button: UIButton, assetName: String) {
         button.translatesAutoresizingMaskIntoConstraints = false
         button.backgroundColor = UIColor.theme.secondary
         button.layer.cornerRadius = 20
         button.layer.borderWidth = 1
         button.layer.borderColor = UIColor.theme.border.cgColor
-        let img = UIImage(systemName: systemImage, withConfiguration: UIImage.SymbolConfiguration(pointSize: pointSize, weight: .medium))
+        let img = UIImage(named: assetName)
         button.setImage(img?.withRenderingMode(.alwaysTemplate), for: .normal)
         button.imageView?.contentMode = .scaleAspectFit
     }
@@ -2132,14 +2133,14 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         button.imageEdgeInsets = UIEdgeInsets(top: 9, left: 9, bottom: 9, right: 9)
     }
 
-    private func makeControlBarIconButton(systemName: String, action: Selector? = nil) -> UIButton {
+    private func makeControlBarIconButton(assetName: String, action: Selector? = nil) -> UIButton {
         let b = UIButton(type: .custom)
         b.translatesAutoresizingMaskIntoConstraints = false
         b.backgroundColor = UIColor.theme.raisedSurface
         b.layer.cornerRadius = 25
         b.layer.borderWidth = 0.5
         b.layer.borderColor = UIColor.theme.textDisabled.withAlphaComponent(0.6).cgColor
-        let img = UIImage(systemName: systemName, withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium))
+        let img = UIImage(named: assetName)
         b.setImage(img?.withRenderingMode(.alwaysTemplate), for: .normal)
         b.tintColor = UIColor.theme.textStrong
         b.widthAnchor.constraint(equalToConstant: 50).isActive = true
@@ -2155,7 +2156,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         b.translatesAutoresizingMaskIntoConstraints = false
         b.backgroundColor = UIColor(red: 0.89, green: 0.18, blue: 0.18, alpha: 1)
         b.layer.cornerRadius = 25
-        let img = UIImage(systemName: "phone.down.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold))
+        let img = UIImage(named: "Chat/CallEndIcon")
         b.setImage(img?.withRenderingMode(.alwaysTemplate), for: .normal)
         b.tintColor = .white
         b.widthAnchor.constraint(equalToConstant: 50).isActive = true
@@ -2172,6 +2173,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         pttContainer.isHidden = true
 
         pttMicPill.isEnabled = false
+        pttMicPill.accessibilityIdentifier = AccessibilityID.VoiceRoom.pushToTalk
         pttMicPill.alpha = 0.45
         pttMicPill.translatesAutoresizingMaskIntoConstraints = false
         pttMicPill.backgroundColor = UIColor.theme.raisedSurface
@@ -2182,8 +2184,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
         pttMicIcon.translatesAutoresizingMaskIntoConstraints = false
         pttMicIcon.contentMode = .scaleAspectFit
-        let micCfg = UIImage.SymbolConfiguration(pointSize: 34, weight: .medium)
-        pttMicIcon.image = UIImage(systemName: "mic.slash.fill", withConfiguration: micCfg)?.withRenderingMode(.alwaysTemplate)
+        pttMicIcon.image = UIImage(named: "Channel/VoiceMicOff")?.withRenderingMode(.alwaysTemplate)
         pttMicIcon.tintColor = UIColor.theme.textStrong
         pttMicIcon.isUserInteractionEnabled = false
 
@@ -2217,16 +2218,17 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         ])
 
         configurePttSecondaryPill(pttEndPill, backgroundColor: UIColor(red: 0.89, green: 0.18, blue: 0.18, alpha: 1))
-        let endIcon = makePttPillIcon(systemName: "phone.down.fill", pointSize: 22, tint: .white)
+        pttEndPill.accessibilityIdentifier = AccessibilityID.VoiceRoom.audienceEnd
+        let endIcon = makePttPillIcon(assetName: "Channel/VoiceHangup", tint: .white)
         pttEndPill.addSubview(endIcon)
         centerPttPillIcon(endIcon, in: pttEndPill)
         pttEndPill.addTarget(self, action: #selector(popTapped), for: .touchUpInside)
 
         configurePttSecondaryPill(pttRaisePill, backgroundColor: UIColor.theme.raisedSurface)
+        pttRaisePill.accessibilityIdentifier = AccessibilityID.VoiceRoom.audienceRaiseHand
         pttRaiseIcon.translatesAutoresizingMaskIntoConstraints = false
         pttRaiseIcon.contentMode = .scaleAspectFit
-        let raiseCfg = UIImage.SymbolConfiguration(pointSize: 20, weight: .medium)
-        pttRaiseIcon.image = UIImage(systemName: "hand.raised.fill", withConfiguration: raiseCfg)?.withRenderingMode(.alwaysTemplate)
+        pttRaiseIcon.image = UIImage(named: "Channel/VoiceAudienceHand")?.withRenderingMode(.alwaysTemplate)
         pttRaiseIcon.tintColor = UIColor.theme.textStrong
         pttRaiseIcon.isUserInteractionEnabled = false
         pttRaisePill.addSubview(pttRaiseIcon)
@@ -2234,7 +2236,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         pttRaisePill.addTarget(self, action: #selector(raiseHandTapped), for: .touchUpInside)
 
         configurePttSecondaryPill(pttChatPill, backgroundColor: UIColor.theme.raisedSurface)
-        let chatIcon = makePttPillIcon(systemName: "bubble.left.and.bubble.right.fill", pointSize: 18, tint: UIColor.theme.textStrong)
+        pttChatPill.accessibilityIdentifier = AccessibilityID.VoiceRoom.audienceChat
+        let chatIcon = makePttPillIcon(assetName: "Chat/ChatBubbleIcon", tint: UIColor.theme.textStrong)
         pttChatPill.addSubview(chatIcon)
         centerPttPillIcon(chatIcon, in: pttChatPill)
         pttChatPill.addTarget(self, action: #selector(openChatTapped), for: .touchUpInside)
@@ -2274,12 +2277,11 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         pill.clipsToBounds = true
     }
 
-    private func makePttPillIcon(systemName: String, pointSize: CGFloat, tint: UIColor) -> UIImageView {
+    private func makePttPillIcon(assetName: String, tint: UIColor) -> UIImageView {
         let icon = UIImageView()
         icon.translatesAutoresizingMaskIntoConstraints = false
         icon.contentMode = .scaleAspectFit
-        let cfg = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .medium)
-        icon.image = UIImage(systemName: systemName, withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate)
+        icon.image = UIImage(named: assetName)?.withRenderingMode(.alwaysTemplate)
         icon.tintColor = tint
         icon.isUserInteractionEnabled = false
         return icon
@@ -2289,6 +2291,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         NSLayoutConstraint.activate([
             icon.centerXAnchor.constraint(equalTo: pill.centerXAnchor),
             icon.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 28),
+            icon.heightAnchor.constraint(equalToConstant: 28),
         ])
     }
 
@@ -2319,12 +2323,11 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             ? (sfuSession?.pttFeedbackState ?? .idle) : .idle
         let ready = state == .ready
         let loading = state == .waiting || state == .preparing
-        let micCfg = UIImage.SymbolConfiguration(pointSize: 34, weight: .medium)
         let tint = ready ? UIColor.white : (loading ? UIColor.theme.textWarning : UIColor.theme.textStrong)
         pttMicPill.backgroundColor = ready ? UIColor.theme.bgViolet : UIColor.theme.raisedSurface
         pttMicPill.layer.borderWidth = loading ? 1 : 0
         pttMicPill.layer.borderColor = tint.cgColor
-        pttMicIcon.image = UIImage(systemName: ready ? "mic.fill" : "mic.slash.fill", withConfiguration: micCfg)?.withRenderingMode(.alwaysTemplate)
+        pttMicIcon.image = UIImage(named: ready ? "Channel/VoiceMic" : "Channel/VoiceMicOff")?.withRenderingMode(.alwaysTemplate)
         pttMicIcon.tintColor = tint
         pttMicIcon.isHidden = loading
         pttMicProgress.color = tint
@@ -2402,7 +2405,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
     private func refreshPttRaiseHandTint() {
         pttRaiseIcon.tintColor = isLocalRaiseHandActive
-            ? UIColor(red: 0.94, green: 0.74, blue: 0.22, alpha: 1)
+            ? UIColor.mezonRaiseHandActive
             : UIColor.theme.textStrong
     }
 
@@ -2593,8 +2596,10 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         stack.isUserInteractionEnabled = true
 
         let emojiBtn = makeVoiceMoreToolButton(title: "Emoji", image: UIImage(named: "Chat/FaceIcon"), fallbackSystemName: "face.smiling")
+        emojiBtn.accessibilityIdentifier = AccessibilityID.VoiceRoom.menuEmoji
         emojiBtn.addTarget(self, action: #selector(voiceMoreToolsEmojiTapped), for: .touchUpInside)
-        let soundBtn = makeVoiceMoreToolButton(title: "Sounds", image: UIImage(named: "Chat/SpeakerIcon"), fallbackSystemName: "speaker.wave.2.fill")
+        let soundBtn = makeVoiceMoreToolButton(title: "Sounds", image: UIImage(named: "Channel/VoiceSoundboard"), fallbackSystemName: "speaker.wave.2.fill")
+        soundBtn.accessibilityIdentifier = AccessibilityID.VoiceRoom.menuSounds
         soundBtn.addTarget(self, action: #selector(voiceMoreToolsSoundTapped), for: .touchUpInside)
         let toolsRow = UIStackView(arrangedSubviews: [emojiBtn, soundBtn])
         toolsRow.axis = .horizontal
@@ -2607,12 +2612,13 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
 
         if breakoutCoordinator?.isInBreakout == true {
             let returnButton = makeVoiceMoreToolButton(
-                title: L("voiceChannel.breakout.returnToMain"), image: nil, fallbackSystemName: "arrow.uturn.backward")
+                title: L("voiceChannel.breakout.returnToMain"), image: UIImage(named: "Channel/VoiceBreakout"), fallbackSystemName: "arrow.uturn.backward")
             returnButton.addTarget(self, action: #selector(returnToMainRoomTapped), for: .touchUpInside)
             stack.addArrangedSubview(returnButton)
         }
 
         let noiseButton = UIButton(type: .custom)
+        noiseButton.accessibilityIdentifier = AccessibilityID.VoiceRoom.menuNoiseSuppression
         noiseButton.translatesAutoresizingMaskIntoConstraints = false
         noiseButton.backgroundColor = UIColor.white.withAlphaComponent(0.10)
         noiseButton.layer.cornerRadius = VoiceMoreToolsPopoverMetrics.actionCornerRadius
@@ -2936,14 +2942,13 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     private func refreshRaiseHandButtonAppearance() {
         refreshExpandedCallControls()
         guard raiseHandButton != nil else { return }
-        let cfg = UIImage.SymbolConfiguration(pointSize: 16, weight: .medium)
         raiseHandButton.setImage(
-            UIImage(systemName: "hand.raised.fill", withConfiguration: cfg)?.withRenderingMode(.alwaysTemplate),
+            UIImage(named: "Channel/VoiceRaiseHand")?.withRenderingMode(.alwaysTemplate),
             for: .normal
         )
         raiseHandButton.layer.borderColor = UIColor.theme.border.cgColor
         if isLocalRaiseHandActive {
-            raiseHandButton.tintColor = UIColor.theme.textLink
+            raiseHandButton.tintColor = UIColor.mezonRaiseHandActive
             raiseHandButton.backgroundColor = UIColor.theme.textLink.withAlphaComponent(0.22)
         } else {
             raiseHandButton.tintColor = UIColor.theme.white
@@ -3070,9 +3075,9 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         nameLabel.numberOfLines = 1
         nameLabel.text = voiceChannelResolveDisplayNameForUserId(context: context, clanId: channel.clanID, userId: userId)
 
-        let hand = UIImageView(image: UIImage(systemName: "hand.raised.fill"))
+        let hand = UIImageView(image: UIImage(named: "Channel/VoiceRaiseHand")?.withRenderingMode(.alwaysTemplate))
         hand.translatesAutoresizingMaskIntoConstraints = false
-        hand.tintColor = UIColor(red: 0.95, green: 0.58, blue: 0.2, alpha: 1)
+        hand.tintColor = UIColor.mezonRaiseHandActive
         hand.contentMode = .scaleAspectFit
 
         wrap.addSubview(avatar)
@@ -4292,8 +4297,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     private func setMicButtonIcon(muted: Bool) {
-        let name = muted ? "mic.slash.fill" : "mic.fill"
-        let img = UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium))
+        let name = muted ? "Chat/MicrophoneOffIcon" : "Chat/MicrophoneIcon"
+        let img = UIImage(named: name)
         micButton.setImage(img?.withRenderingMode(.alwaysTemplate), for: .normal)
     }
 
@@ -4881,12 +4886,12 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         let t = UIColor.theme.white
         audioRouteControl.applyTint(t)
         let session = AVAudioSession.sharedInstance()
-        let systemName: String
+        let assetName: String
         if let port = session.currentRoute.outputs.first?.portType {
             switch port {
             case .headphones, .headsetMic, .bluetoothA2DP, .bluetoothHFP, .bluetoothLE:
-                systemName = "headphones"
-                audioRouteControl.setRouteStateSymbol(systemName: systemName, pointSize: 12, weight: .medium)
+                assetName = "Chat/HeadphonesIcon"
+                audioRouteControl.setRouteStateTemplateAsset(named: assetName)
                 return
             default:
                 break
@@ -4894,15 +4899,15 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         }
         let bluetooth = Self.audioRouteHasBluetooth(session)
         if bluetooth && currentAudioOutput != .speaker {
-            systemName = "headphones"
+            assetName = "Chat/HeadphonesIcon"
         } else if currentAudioOutput == .speaker {
-            audioRouteControl.setRouteStateTemplateAsset(named: "externalSpeaker")
+            audioRouteControl.setRouteStateTemplateAsset(named: "Chat/SpeakerIcon")
             return
         } else {
-            audioRouteControl.setRouteStateTemplateAsset(named: "internalSpeaker")
+            audioRouteControl.setRouteStateTemplateAsset(named: "Chat/SpeakerLowIcon")
             return
         }
-        audioRouteControl.setRouteStateSymbol(systemName: systemName, pointSize: 12, weight: .medium)
+        audioRouteControl.setRouteStateTemplateAsset(named: assetName)
     }
 
     private func systemRoutePortMatchesPreferredOutput() -> Bool {
@@ -4991,8 +4996,8 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     private func setCamButtonIcon(cameraOn: Bool) {
-        let name = cameraOn ? "video.fill" : "video.slash.fill"
-        let img = UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .medium))
+        let name = cameraOn ? "Channel/VoiceVideo" : "Channel/VoiceVideoOff"
+        let img = UIImage(named: name)
         camButton.setImage(img?.withRenderingMode(.alwaysTemplate), for: .normal)
         cameraSwitchButton.isHidden = !cameraOn
     }
@@ -5869,8 +5874,7 @@ private final class VoiceParticipantRowView: UIView {
 
         expandButton.translatesAutoresizingMaskIntoConstraints = false
         expandButton.isHidden = tileKind != .screenShare
-        let expandCfg = UIImage.SymbolConfiguration(pointSize: layoutMetrics.expandSymbolPointSize, weight: .medium)
-        expandButton.setImage(UIImage(systemName: "arrow.up.left.and.arrow.down.right", withConfiguration: expandCfg), for: .normal)
+        expandButton.setImage(UIImage(named: "Channel/VoiceFullscreen")?.withRenderingMode(.alwaysTemplate), for: .normal)
         expandButton.tintColor = .white
         expandButton.backgroundColor = UIColor.black.withAlphaComponent(0.45)
         expandButton.layer.cornerRadius = 6
@@ -5894,14 +5898,13 @@ private final class VoiceParticipantRowView: UIView {
         badgeLabel.numberOfLines = 1
 
         soundReactionCorner.translatesAutoresizingMaskIntoConstraints = false
-        soundReactionCorner.backgroundColor = UIColor.black.withAlphaComponent(0.55)
+        soundReactionCorner.backgroundColor = UIColor.theme.desktop[.buttonThemePrimary]
         soundReactionCorner.layer.cornerRadius = layoutMetrics.soundCornerSide / 2
         soundReactionCorner.isHidden = true
         soundReactionIcon.translatesAutoresizingMaskIntoConstraints = false
         soundReactionIcon.contentMode = .scaleAspectFit
-        let soundCfg = UIImage.SymbolConfiguration(pointSize: layoutMetrics.soundIconSide * 0.88, weight: .semibold)
-        soundReactionIcon.image = UIImage(systemName: "speaker.wave.2.fill", withConfiguration: soundCfg)
-        soundReactionIcon.tintColor = UIColor(red: 0.35, green: 0.78, blue: 0.95, alpha: 1)
+        soundReactionIcon.image = UIImage(named: "Channel/VoiceSoundboard")?.withRenderingMode(.alwaysTemplate)
+        soundReactionIcon.tintColor = UIColor(rgb: 0xDFE0E4)
         soundReactionCorner.addSubview(soundReactionIcon)
 
         raiseHandCorner.translatesAutoresizingMaskIntoConstraints = false
@@ -5910,8 +5913,7 @@ private final class VoiceParticipantRowView: UIView {
         raiseHandCorner.isHidden = true
         raiseHandIcon.translatesAutoresizingMaskIntoConstraints = false
         raiseHandIcon.contentMode = .scaleAspectFit
-        let raiseCfg = UIImage.SymbolConfiguration(pointSize: layoutMetrics.raiseHandIconSide * 0.9, weight: .semibold)
-        raiseHandIcon.image = UIImage(systemName: "hand.raised.fill", withConfiguration: raiseCfg)
+        raiseHandIcon.image = UIImage(named: "Channel/VoiceRaiseHand")?.withRenderingMode(.alwaysTemplate)
         raiseHandIcon.tintColor = .white
         raiseHandCorner.addSubview(raiseHandIcon)
 
@@ -6057,26 +6059,21 @@ private final class VoiceParticipantRowView: UIView {
         raiseHandCorner.layer.cornerRadius = m.raiseHandCornerSide / 2
         badgeLabel.font = .systemFont(ofSize: m.badgeFontSize, weight: .semibold)
         if tileKind == .screenShare {
-            let expandCfg = UIImage.SymbolConfiguration(pointSize: m.expandSymbolPointSize, weight: .medium)
-            expandButton.setImage(UIImage(systemName: "arrow.up.left.and.arrow.down.right", withConfiguration: expandCfg), for: .normal)
+            expandButton.setImage(UIImage(named: "Channel/VoiceFullscreen")?.withRenderingMode(.alwaysTemplate), for: .normal)
         }
-        let soundCfg = UIImage.SymbolConfiguration(pointSize: m.soundIconSide * 0.88, weight: .semibold)
-        soundReactionIcon.image = UIImage(systemName: "speaker.wave.2.fill", withConfiguration: soundCfg)
-        let raiseCfg = UIImage.SymbolConfiguration(pointSize: m.raiseHandIconSide * 0.9, weight: .semibold)
-        raiseHandIcon.image = UIImage(systemName: "hand.raised.fill", withConfiguration: raiseCfg)
+        soundReactionIcon.image = UIImage(named: "Channel/VoiceSoundboard")?.withRenderingMode(.alwaysTemplate)
+        raiseHandIcon.image = UIImage(named: "Channel/VoiceRaiseHand")?.withRenderingMode(.alwaysTemplate)
         refreshBadgeSymbols()
     }
 
     private func refreshBadgeSymbols() {
-        let pt = max(10, min(17, layoutMetrics.badgeIconSide * 0.82))
-        let iconCfg = UIImage.SymbolConfiguration(pointSize: pt, weight: .medium)
         switch tileKind {
         case .mainVideo:
-            let micName = badgeMicOn ? "mic.fill" : "mic.slash.fill"
-            badgeIcon.image = UIImage(systemName: micName, withConfiguration: iconCfg)
+            let micName = badgeMicOn ? "Chat/MicrophoneIcon" : "Chat/MicrophoneOffIcon"
+            badgeIcon.image = UIImage(named: micName)?.withRenderingMode(.alwaysTemplate)
             badgeIcon.tintColor = .white
         case .screenShare:
-            badgeIcon.image = UIImage(systemName: "rectangle.on.rectangle", withConfiguration: iconCfg)
+            badgeIcon.image = UIImage(named: "Channel/VoiceScreenShare")?.withRenderingMode(.alwaysTemplate)
             badgeIcon.tintColor = .white
         }
     }
@@ -6166,6 +6163,7 @@ private final class VoiceParticipantRowView: UIView {
 
     func applyTheme() {
         card.backgroundColor = UIColor.theme.secondary
+        soundReactionCorner.backgroundColor = UIColor.theme.desktop[.buttonThemePrimary]
         card.layer.borderColor = lastTileVisualState?.speaking == true
             ? UIColor.theme.textLink.cgColor : UIColor.theme.borderDim.cgColor
     }

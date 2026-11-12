@@ -40,19 +40,37 @@ enum DmAction: Hashable {
         }
     }
 
-    var iconName: String? {
+    var iconName: String {
         switch self {
-        case .markAsRead: return "ChannelSetting/MarkAsRead"
-        case .pinConversation: return "Chat/IconPin"
-        case .unpinConversation: return "Chat/IconUnpin"
-        case .muteConversation: return "ChannelSetting/MuteChannel"
-        case .unmuteConversation: return "ChannelSetting/UmuteChannelIcon"
-        case .addFriend: return "Notifications/AddFriendIcon"
+        case .leaveOrDeleteGroup(let isDelete):
+            return isDelete ? "Channel/VoiceClose" : "ChannelSetting/LeaveIcon"
+        case .closeDm: return "Chat/DmCloseIcon"
+        case .addFriend: return "Chat/DmAddFriendIcon"
         case .removeFriend: return "Profile/RemoveFriendIcon"
         case .blockUser: return "Profile/BlockUserIcon"
-        case .closeDm: return "Profile/CloseDMIcon"
-        case .leaveOrDeleteGroup: return nil
         case .unblockUser: return "Profile/UnblockUserIcon"
+        case .markAsRead: return "ChannelSetting/EyeIcon"
+        case .pinConversation: return "Chat/DmPinIcon"
+        case .unpinConversation: return "Chat/DmUnpinIcon"
+        case .muteConversation: return "ChannelSetting/MuteChannel"
+        case .unmuteConversation: return "ChannelSetting/BellIcon"
+        }
+    }
+
+    var accessibilityIdentifier: String {
+        switch self {
+        case .leaveOrDeleteGroup(let isDelete):
+            return AccessibilityID.DirectMessage.action(isDelete ? "delete-group" : "leave-group")
+        case .closeDm: return AccessibilityID.DirectMessage.action("close")
+        case .addFriend: return AccessibilityID.DirectMessage.action("add-friend")
+        case .removeFriend: return AccessibilityID.DirectMessage.action("remove-friend")
+        case .blockUser: return AccessibilityID.DirectMessage.blockUser
+        case .unblockUser: return AccessibilityID.DirectMessage.unblockUser
+        case .markAsRead: return AccessibilityID.DirectMessage.action("mark-as-read")
+        case .pinConversation: return AccessibilityID.DirectMessage.action("pin")
+        case .unpinConversation: return AccessibilityID.DirectMessage.action("unpin")
+        case .muteConversation: return AccessibilityID.DirectMessage.action("mute")
+        case .unmuteConversation: return AccessibilityID.DirectMessage.action("unmute")
         }
     }
 }
@@ -502,33 +520,19 @@ private final class DmActionSheetNode: ASDisplayNode, UIGestureRecognizerDelegat
         let v = UIView()
         v.backgroundColor = .clear
 
-        let icon = UIImageView()
+        let iconSize: CGFloat = 24
+        let textColor = action.isDestructive ? UIColor.mezonError : UIColor.theme.textStrong
+        let image = DmActionAssetCache.image(named: action.iconName)?.withRenderingMode(.alwaysTemplate)
+        let icon = UIImageView(image: image)
         icon.contentMode = .scaleAspectFit
-        if let iconName = action.iconName, let base = DmActionAssetCache.image(named: iconName) {
-            if action.isDestructive {
-                icon.image = base.withRenderingMode(.alwaysTemplate)
-                icon.tintColor = .mezonError
-            } else if action == .unblockUser {
-                icon.image = base.withRenderingMode(.alwaysTemplate)
-                icon.tintColor = .gray
-            } else if action == .pinConversation || action == .unpinConversation {
-                icon.image = base.withRenderingMode(.alwaysTemplate)
-                icon.tintColor = UIColor.theme.textStrong
-            } else {
-                icon.image = base.withRenderingMode(.alwaysTemplate)
-                icon.tintColor = .mezonIconDefault
-            }
-        } else if case .leaveOrDeleteGroup = action {
-            icon.image = UIImage(systemName: "rectangle.portrait.and.arrow.right", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18.sf))
-            icon.tintColor = .mezonError
-        }
+        icon.tintColor = action.isDestructive ? textColor : .mezonIconDefault
         v.addSubview(icon)
         icon.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             icon.leadingAnchor.constraint(equalTo: v.leadingAnchor, constant: 16.sw),
             icon.centerYAnchor.constraint(equalTo: v.centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 24.swh),
-            icon.heightAnchor.constraint(equalToConstant: 24.swh),
+            icon.widthAnchor.constraint(equalToConstant: iconSize),
+            icon.heightAnchor.constraint(equalToConstant: iconSize),
         ])
 
         let label = UILabel()
@@ -538,7 +542,7 @@ private final class DmActionSheetNode: ASDisplayNode, UIGestureRecognizerDelegat
             label.text = action.title()
         }
         label.font = .systemFont(ofSize: 14.sf, weight: .medium)
-        label.textColor = action.isDestructive ? .mezonError : UIColor.theme.textStrong
+        label.textColor = textColor
         v.addSubview(label)
         label.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
@@ -549,13 +553,10 @@ private final class DmActionSheetNode: ASDisplayNode, UIGestureRecognizerDelegat
 
         v.heightAnchor.constraint(equalToConstant: 56.sh).isActive = true
         let wrapper = DmActionButton(type: .custom)
-        if action == .blockUser || action == .unblockUser {
-            wrapper.accessibilityIdentifier = action == .blockUser
-                ? AccessibilityID.DirectMessage.blockUser : AccessibilityID.DirectMessage.unblockUser
-            wrapper.accessibilityLabel = label.text
-            wrapper.isAccessibilityElement = true
-            label.isAccessibilityElement = false
-        }
+        wrapper.accessibilityIdentifier = action.accessibilityIdentifier
+        wrapper.accessibilityLabel = label.text
+        wrapper.isAccessibilityElement = true
+        label.isAccessibilityElement = false
         wrapper.actionHandler = { [weak self] in self?.onAction(action) }
         wrapper.addTarget(wrapper, action: #selector(DmActionButton.performAction), for: .touchUpInside)
         v.addSubview(wrapper)

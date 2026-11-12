@@ -74,11 +74,17 @@ final class CreateNewRoleViewController: BaseViewController {
     // MARK: - Setup
 
     private func setupHeader() {
+        view.accessibilityIdentifier = AccessibilityID.RoleSettings.screen("create")
+        backButton.accessibilityIdentifier = AccessibilityID.RoleSettings.action("create", "close")
+        inputField.accessibilityIdentifier = AccessibilityID.RoleSettings.action("create", "name")
+        colorRow.accessibilityIdentifier = AccessibilityID.RoleSettings.action("create", "color")
+        createButton.accessibilityIdentifier = AccessibilityID.RoleSettings.action("create", "create")
+
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
 
         backButton.setImage(
-            UIImage(systemName: "xmark")?.withRenderingMode(.alwaysTemplate),
+            UIImage(named: "Profile/CloseDMIcon")?.withRenderingMode(.alwaysTemplate),
             for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
         backButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
@@ -182,7 +188,7 @@ final class CreateNewRoleViewController: BaseViewController {
         colorIndicator.layer.borderWidth = 1
         colorIndicator.layer.borderColor = UIColor.theme.borderDim.cgColor
 
-        let chevron = UIImageView(image: UIImage(systemName: "chevron.right")?.withRenderingMode(.alwaysTemplate))
+        let chevron = UIImageView(image: UIImage(named: "Channel/ChevronRight")?.withRenderingMode(.alwaysTemplate))
         chevron.tintColor = UIColor.theme.textDisabled
         chevron.contentMode = .scaleAspectFit
 
@@ -202,8 +208,8 @@ final class CreateNewRoleViewController: BaseViewController {
 
             chevron.trailingAnchor.constraint(equalTo: colorRow.trailingAnchor, constant: -12.sw),
             chevron.centerYAnchor.constraint(equalTo: colorRow.centerYAnchor),
-            chevron.widthAnchor.constraint(equalToConstant: 10.swh),
-            chevron.heightAnchor.constraint(equalToConstant: 14.swh),
+            chevron.widthAnchor.constraint(equalToConstant: 16.swh),
+            chevron.heightAnchor.constraint(equalToConstant: 16.swh),
 
             colorIndicator.trailingAnchor.constraint(equalTo: chevron.leadingAnchor, constant: -10.sw),
             colorIndicator.centerYAnchor.constraint(equalTo: colorRow.centerYAnchor),

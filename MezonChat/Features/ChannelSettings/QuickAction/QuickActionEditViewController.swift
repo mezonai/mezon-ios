@@ -225,10 +225,18 @@ final class QuickActionEditViewController: BaseViewController {
     }
 
     private func setupHeader() {
+        view.accessibilityIdentifier = AccessibilityID.QuickActionSettings.screen("editor")
+        backButton.accessibilityIdentifier = AccessibilityID.QuickActionSettings.action("editor", "back")
+        submitButton.accessibilityIdentifier = AccessibilityID.QuickActionSettings.action("editor", "submit")
+        nameField.accessibilityIdentifier = AccessibilityID.QuickActionSettings.action("editor", "name")
+        contentTextView.accessibilityIdentifier = AccessibilityID.QuickActionSettings.action("editor", "content")
+        nameErrorLabel.accessibilityIdentifier = AccessibilityID.QuickActionSettings.action("editor", "name-error")
+        contentErrorLabel.accessibilityIdentifier = AccessibilityID.QuickActionSettings.action("editor", "content-error")
+
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
 
-        backButton.setImage(UIImage(systemName: "chevron.left")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        backButton.setImage(UIImage(named: "Channel/ArrowLeft")?.withRenderingMode(.alwaysTemplate), for: .normal)
         backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
 
         let titleKey: String
@@ -406,7 +414,7 @@ final class QuickActionEditViewController: BaseViewController {
         calloutView.layer.cornerRadius = 12
         calloutView.layer.borderWidth = 1
 
-        calloutIconView.image = UIImage(systemName: "info.circle.fill")?.withRenderingMode(.alwaysTemplate)
+        calloutIconView.image = UIImage(named: "ChannelSetting/QuickActionInfoIcon")?.withRenderingMode(.alwaysTemplate)
         calloutIconView.contentMode = .scaleAspectFit
 
         calloutTitleLabel.text = L(L10n.QuickAction.botEventTrigger)

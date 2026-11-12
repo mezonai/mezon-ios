@@ -107,11 +107,18 @@ final class SetupPermissionsViewController: BaseViewController {
     // MARK: - Setup
 
     private func setupHeader() {
+        view.accessibilityIdentifier = AccessibilityID.RoleSettings.screen("permissions")
+        backButton.accessibilityIdentifier = AccessibilityID.RoleSettings.action("permissions", "back")
+        saveButton.accessibilityIdentifier = AccessibilityID.RoleSettings.action("permissions", "save")
+        searchField.accessibilityIdentifier = AccessibilityID.RoleSettings.action("permissions", "search")
+        nextButton.accessibilityIdentifier = AccessibilityID.RoleSettings.action("permissions", "next")
+        skipButton.accessibilityIdentifier = AccessibilityID.RoleSettings.action("permissions", "skip")
+
         headerView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(headerView)
 
         backButton.setImage(
-            UIImage(systemName: isEditMode ? "chevron.left" : "xmark")?
+            UIImage(named: isEditMode ? "Channel/ArrowLeft" : "Profile/CloseDMIcon")?
                 .withRenderingMode(.alwaysTemplate),
             for: .normal)
         backButton.tintColor = UIColor.theme.textStrong
@@ -189,7 +196,7 @@ final class SetupPermissionsViewController: BaseViewController {
         searchContainer.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(searchContainer)
 
-        let icon = UIImageView(image: UIImage(systemName: "magnifyingglass")?.withRenderingMode(.alwaysTemplate))
+        let icon = UIImageView(image: UIImage(named: "Setting/SearchIcon")?.withRenderingMode(.alwaysTemplate))
         icon.tintColor = UIColor.theme.textDisabled
         icon.contentMode = .scaleAspectFit
         icon.translatesAutoresizingMaskIntoConstraints = false
@@ -587,7 +594,7 @@ private final class PermissionRowCell: UITableViewCell {
         descriptionLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         descriptionLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
-        lockIcon.image = UIImage(systemName: "lock.fill")?.withRenderingMode(.alwaysTemplate)
+        lockIcon.image = UIImage(named: "ClanSetting/RoleLockIcon")?.withRenderingMode(.alwaysTemplate)
         lockIcon.tintColor = UIColor.theme.textDisabled
         lockIcon.contentMode = .scaleAspectFit
         lockIcon.isHidden = true
