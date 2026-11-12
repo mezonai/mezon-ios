@@ -756,6 +756,8 @@ final class ChannelListViewController: ViewController {
     private let fetchDisposable = MetaDisposable()
     private let dataDisposable = MetaDisposable()
     private let clanUsersDisposable = MetaDisposable()
+    private let clanEventsDisposable = MetaDisposable()
+    private weak var eventViewer: EventViewerBottomSheetViewController?
     private var processedBadgeKeys = Set<String>()
     private var pendingMentionUnreadFloorByClanId: [Int64: [Int64: Int32]] = [:]
     private var badgeReadMessageIds: [Int64: Int64] = [:]
@@ -1002,6 +1004,7 @@ final class ChannelListViewController: ViewController {
         fetchDisposable.dispose()
         dataDisposable.dispose()
         clanUsersDisposable.dispose()
+        clanEventsDisposable.dispose()
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -1150,6 +1153,7 @@ final class ChannelListViewController: ViewController {
         invalidateVoiceMemberCache()
         refreshShowEmptyCategoriesPreferenceFromCache()
         reconcileChannelListDataIfNeeded()
+        context.engine.clanData.refreshEventExpiry(clanId: clanId)
         channelListNode.reloadVoiceMemberRows()
     }
 
@@ -1203,6 +1207,13 @@ final class ChannelListViewController: ViewController {
                 self.scheduleCoalescedClanUsersReload()
             })
         )
+        clanEventsDisposable.set(
+            (context.engine.clanData.clanEventsUpdated.signal() |> deliverOnMainQueue).start(next: { [weak self] updatedClanId in
+                guard let self, updatedClanId == self.clanId else { return }
+                self.refreshEventBadge()
+            })
+        )
+        refreshEventBadge()
     }
 
     @objc private func handleAccountCurrentUserDidChangeForOnboarding(_ notification: Notification) {
@@ -1226,6 +1237,7 @@ final class ChannelListViewController: ViewController {
            let data = context.account.postbox.getPreferenceData(key: PreferencesKeys.channelList(clanId: clanId)),
            let updated = decodeChannelList(data).first(where: { $0.channelID == channelId }) {
             allChannels[idx] = updated
+            eventViewer?.updateChannels(allChannels, clanId: clanId)
             let cats = applyCategoriesAfterFetch(
                 mergedChannels: allChannels,
                 categoryDescs: channelListCategoryDescs,
@@ -1254,7 +1266,7 @@ final class ChannelListViewController: ViewController {
             notification.userInfo?["channelType"] as? Int32 == MezonConstants.ChannelType.mezonVoice.rawValue
         if isVoice {
             channelListFavoriteIds.subtract(removedIds)
-            allChannels = channelsIncludingCachedVoiceUpdateBase()
+            replaceAllChannels(channelsIncludingCachedVoiceUpdateBase())
         }
         removeChannelLocally(channelIds: removedIds, pruneMissingChannels: !isVoice)
     }
@@ -1310,7 +1322,7 @@ final class ChannelListViewController: ViewController {
             } else {
                 merged.append(ch)
             }
-            allChannels = preservePendingMentionUnread(in: merged, clanId: clanId)
+            replaceAllChannels(preservePendingMentionUnread(in: merged, clanId: clanId))
             let cats = applyCategoriesAfterFetch(
                 mergedChannels: allChannels,
                 categoryDescs: channelListCategoryDescs,
@@ -1421,6 +1433,7 @@ final class ChannelListViewController: ViewController {
 
     @objc private func handleWillEnterForegroundForChannelBadges() {
         guard clanId != 0 else { return }
+        context.engine.clanData.refreshEventExpiry(clanId: clanId)
         if allChannels.isEmpty {
             if NetworkMonitor.shared.isConnected {
                 scheduleChannelListNetworkFetch(allowEmptyChannelAppsOverwrite: false)
@@ -1570,7 +1583,7 @@ final class ChannelListViewController: ViewController {
             )
             return
         }
-        allChannels = updated
+        replaceAllChannels(updated)
         let cats = applyCategoriesAfterFetch(
             mergedChannels: updated,
             categoryDescs: channelListCategoryDescs,
@@ -2051,6 +2064,16 @@ final class ChannelListViewController: ViewController {
         homeViewController()?.clanListVC.removeClanAndSelectNext(removedClanId: removedClanId)
     }
 
+    private func refreshEventBadge() {
+        guard isNodeLoaded else { return }
+        let events = clanId != 0 ? context.engine.clanData.getClanEvents(clanId: clanId)?.events ?? [] : []
+        let count = EventListFilter.visibleEvents(
+            from: events,
+            channels: allChannels
+        ).count
+        channelListNode.updateEventCount(count)
+    }
+
     private func presentEventBottomSheet() {
         guard clanId != 0 else { return }
         let vc = EventViewerBottomSheetViewController(
@@ -2060,21 +2083,20 @@ final class ChannelListViewController: ViewController {
             clanLogoURL: clanLogoURL,
             channels: allChannels
         )
-        vc.onOpenChannel = { [weak self] channel in
-            self?.dismissEventBottomSheets(animated: false) {
-                self?.select(channel: channel)
+        let openChannel: (Mezon_Api_ChannelDescription) -> Void = { [weak self] channel in
+            self?.dismissEventBottomSheets(animated: false) { [weak self] in
+                guard let self,
+                      let currentChannel = self.allChannels.first(where: { $0.channelID == channel.channelID }) else { return }
+                self.select(channel: currentChannel)
             }
         }
+        vc.onOpenChannel = openChannel
         vc.onPresentJoinVoice = { [weak self] channel in
             guard let self, let presenter = self.topModalPresenter() else { return }
             self.presentJoinVoiceSheet(
                 for: channel,
                 from: presenter,
-                onChat: { [weak self] in
-                    self?.dismissEventBottomSheets(animated: false) {
-                        self?.select(channel: channel)
-                    }
-                },
+                onChat: { openChannel(channel) },
                 onJoinVoice: { [weak self] role in
                     self?.dismissEventBottomSheets(animated: false) {
                         self?.pushVoiceChannelRoom(for: channel, role: role)
@@ -2087,6 +2109,7 @@ final class ChannelListViewController: ViewController {
                 self?.pushExternalMeetingRoom(meeting)
             }
         }
+        eventViewer = vc
         present(vc, animated: true)
     }
 
@@ -2492,7 +2515,13 @@ final class ChannelListViewController: ViewController {
         for channelId in channelIds {
             clearPendingMentionUnreadFloor(clanId: clanId, channelId: channelId)
         }
-        allChannels.removeAll { channelIds.contains($0.channelID) || channelIds.contains($0.parentID) }
+        let removedChannelIds = channelIds.union(allChannels.lazy
+            .filter { channelIds.contains($0.parentID) }
+            .map(\.channelID))
+        replaceAllChannels(
+            allChannels.filter { !removedChannelIds.contains($0.channelID) },
+            removedChannelIds: removedChannelIds
+        )
         channelListFavoriteIds.subtract(channelIds)
         if let selectedChannelId, channelIds.contains(selectedChannelId) {
             setSelectedChannelId(nil)
@@ -2819,7 +2848,7 @@ final class ChannelListViewController: ViewController {
         let accessibleChannels = channels.filter { !context.engine.channels.isAccessRevoked(channelId: $0.channelID) }
         var immediate = preservePendingMentionUnread(in: accessibleChannels, clanId: clanId)
         immediate = mergeCachedUnreadCounts(into: immediate, cached: previousChannels)
-        allChannels = immediate
+        replaceAllChannels(immediate)
         emptyChannelRetryCountByClanId[clanId] = 0
         let cats = applyCategoriesAfterFetch(
             mergedChannels: immediate,
@@ -3093,7 +3122,7 @@ final class ChannelListViewController: ViewController {
             channelsLoadedPromise.set(false)
             channelListCategoryDescs = []
             channelListFavoriteIds = []
-            allChannels = []
+            replaceAllChannels([])
             categories = []
         }
         restoreCachedChannelApps(clanId: clanId)
@@ -3124,6 +3153,7 @@ final class ChannelListViewController: ViewController {
         }
         refreshMemberOnboardingState()
         scheduleMemberOnboardingDataFetch()
+        context.engine.clanData.refreshEventExpiry(clanId: clanId)
     }
 
     private func scheduleAuthoritativeNetworkReconcileIfNeeded(reason: String) {
@@ -3909,6 +3939,18 @@ final class ChannelListViewController: ViewController {
 
     private(set) var allChannels: [Mezon_Api_ChannelDescription] = []
 
+    private func replaceAllChannels(
+        _ channels: [Mezon_Api_ChannelDescription],
+        removedChannelIds: Set<Int64> = []
+    ) {
+        let channelIdsChanged = Set(allChannels.map(\.channelID)) != Set(channels.map(\.channelID))
+        allChannels = channels
+        if channelIdsChanged {
+            refreshEventBadge()
+        }
+        eventViewer?.updateChannels(channels, clanId: clanId, removedChannelIds: removedChannelIds)
+    }
+
     var currentState: ChannelListState {
         var voiceMap: [Int64: [String]] = [:]
         let sources: [Mezon_Api_VoiceChannelUserList?] = [
@@ -4382,7 +4424,7 @@ final class ChannelListViewController: ViewController {
             in: orderedChannels,
             clanId: clanId
         )
-        allChannels = cachedChannels
+        replaceAllChannels(cachedChannels)
         needsAuthoritativeNetworkReconcile = true
         let resolvedMeta = meta ?? readChannelListMetaFromCache(clanId: clanId)
         channelListCategoryDescs = resolvedMeta.categoryDescs
@@ -4484,7 +4526,7 @@ final class ChannelListViewController: ViewController {
             layoutChannels = repairChannelsMissingCategoryIds(layoutChannels, categoryDescs: categoryDescs)
         }
         if layoutChannels != cachedChannels {
-            allChannels = layoutChannels
+            replaceAllChannels(layoutChannels)
         }
 
         let nameReference = buildChannelCategories(

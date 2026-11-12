@@ -260,6 +260,7 @@ enum AccessibilityID {
         static let composerMic = makeAccessibilityID("chat.composer.mic")
         static let send = makeAccessibilityID("mention.button.send")
         static let messages = makeAccessibilityID("message.list")
+        static let typingIndicator = makeAccessibilityID("chat.typing.indicator")
         static let jumpToPresent = makeAccessibilityID("chat.jump.to.present")
         static let reactionRemove = makeAccessibilityID("message.reaction.remove")
 
@@ -298,6 +299,29 @@ enum AccessibilityID {
         static func message(_ id: String) -> String {
             makeAccessibilityID("message.item", id: id)
         }
+    }
+
+    enum Event {
+        static let openList = makeAccessibilityID("event.list.open")
+        static let list = makeAccessibilityID("event.list")
+        static let detail = makeAccessibilityID("event.detail")
+
+        static func itemTitle(_ eventId: Int64) -> String {
+            makeAccessibilityID("event.item.title", id: String(eventId))
+        }
+    }
+
+    enum Video {
+        static let playPause = makeAccessibilityID("video.play.pause")
+        static let scrubberPlayPause = makeAccessibilityID("video.scrubber.play.pause")
+        static let seekBackward = makeAccessibilityID("video.seek.backward")
+        static let seekForward = makeAccessibilityID("video.seek.forward")
+        static let scrubber = makeAccessibilityID("video.scrubber")
+        static let loading = makeAccessibilityID("video.loading")
+        static let progress = makeAccessibilityID("video.progress")
+        static let error = makeAccessibilityID("video.error")
+        static let openInBrowser = makeAccessibilityID("video.error.open.in.browser")
+        static let closeError = makeAccessibilityID("video.error.close")
     }
 
     enum MediaPicker {

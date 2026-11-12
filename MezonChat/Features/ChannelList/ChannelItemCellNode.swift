@@ -56,7 +56,7 @@ final class ChannelItemCellNode: ASCellNode {
                 iconName = "Channel/channelWarning"
             }
             let displayImage = chType == .voice && channel.channelPrivate != 0
-                ? Self.privateVoiceIcon
+                ? channel.channelListIconImage()
                 : (UIImage(named: iconName) ?? UIImage(systemName: iconName))
             iconImgNode.image = displayImage?.withRenderingMode(.alwaysTemplate)
             iconImgNode.isHidden = false
@@ -103,8 +103,6 @@ final class ChannelItemCellNode: ASCellNode {
         applyListSelectionState(selected: isSelected)
         isUserInteractionEnabled = true
     }
-
-    private static let privateVoiceIcon = UIImage(named: "Channel/VoicePrivate")
 
     func applyListSelectionState(selected: Bool) {
         let theme = UIColor.theme

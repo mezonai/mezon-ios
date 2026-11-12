@@ -770,17 +770,17 @@ final class MessageMediaContentNode: ASDisplayNode {
     private func ensureRemoteImageLoaded(at index: Int, media: ParsedAttachment, isMultiple: Bool) {
         guard media.localImage == nil else { return }
         guard !media.isPresignPending || Self.showsIngestPoster(media) else { return }
-        guard let urls = remoteImageURLs(for: media) else { return }
-        guard index < imageNodes.count else { return }
+        let urls = remoteImageURLs(for: media)
+        let webMURL = webMVideoURL(for: media)
+        guard urls != nil || webMURL != nil, index < imageNodes.count else { return }
+        let loadKey = webMURL.map { $0.absoluteString + "\n" + (urls?.proxyURL ?? "") } ?? urls?.proxyURL
         let node = imageNodes[index]
-        let proxyURL = urls.proxyURL
-        let sourceURL = urls.sourceURL
-        let resizeMode: ImageResizeMode = isMultiple ? .fill : .fit
-        if lastRemoteProxyURLByIndex[index] == proxyURL {
+        let resizeMode: ImageResizeMode = isMultiple || (media.thumbnail.isEmpty && webMURL != nil) ? .fill : .fit
+        if lastRemoteProxyURLByIndex[index] == loadKey {
             if node.image != nil { return }
             if remoteLoadInFlightByIndex.contains(index) { return }
         } else {
-            lastRemoteProxyURLByIndex[index] = proxyURL
+            lastRemoteProxyURLByIndex[index] = loadKey
             if node.image == nil {
                 node.reset()
                 if let skeleton = skeletonNodesByIndex[index], skeleton.supernode == nil {
@@ -790,12 +790,24 @@ final class MessageMediaContentNode: ASDisplayNode {
             }
         }
         remoteLoadInFlightByIndex.insert(index)
-        let hasMem = ImageCache.shared.memoryImage(forKey: proxyURL) != nil
-            || ImageCache.shared.memoryImage(forKey: sourceURL) != nil
-        node.setSignal(
-            remoteAttachmentImageSignal(proxyURL: proxyURL, originalURL: sourceURL, resizeMode: resizeMode),
-            attemptSynchronously: hasMem
-        )
+        let hasMem = hasCachedRemoteImage(for: media)
+        if let webMURL {
+            node.setSignal(
+                webMThumbnailSignal(
+                    url: webMURL,
+                    posterProxyURL: urls?.proxyURL ?? "",
+                    posterURL: urls?.sourceURL ?? "",
+                    resizeMode: resizeMode,
+                    allowRemoteGeneration: !media.isPresignPending
+                ),
+                attemptSynchronously: hasMem
+            )
+        } else if let urls {
+            node.setSignal(
+                remoteAttachmentImageSignal(proxyURL: urls.proxyURL, originalURL: urls.sourceURL, resizeMode: resizeMode),
+                attemptSynchronously: hasMem
+            )
+        }
     }
 
     private func loadImage(at index: Int, into node: TransformImageNode, media: ParsedAttachment, isMultiple: Bool) {
@@ -817,6 +829,8 @@ final class MessageMediaContentNode: ASDisplayNode {
             } else {
                 node.setSignal(staticImageSignal(image: localImage), attemptSynchronously: true)
             }
+        } else if webMVideoURL(for: media) != nil {
+            ensureRemoteImageLoaded(at: index, media: media, isMultiple: isMultiple)
         } else if media.isVideo && media.thumbnail.isEmpty {
             node.setSignal(videoThumbnailSignal(url: media.url, resizeMode: .fill), attemptSynchronously: false)
         } else if !media.url.isEmpty || (media.isVideo && !media.thumbnail.isEmpty) {
@@ -1090,9 +1104,22 @@ final class MessageMediaContentNode: ASDisplayNode {
     }
 
     private func hasCachedRemoteImage(for media: ParsedAttachment) -> Bool {
-        guard let urls = remoteImageURLs(for: media) else { return false }
-        return ImageCache.shared.memoryImage(forKey: urls.proxyURL) != nil
-            || ImageCache.shared.memoryImage(forKey: urls.sourceURL) != nil
+        if let urls = remoteImageURLs(for: media),
+           ImageCache.shared.memoryImage(forKey: urls.proxyURL) != nil
+            || ImageCache.shared.memoryImage(forKey: urls.sourceURL) != nil {
+            return true
+        }
+        guard let url = webMVideoURL(for: media) else { return false }
+        return cachedWebMThumbnail(url: url) != nil
+    }
+
+    private func webMVideoURL(for media: ParsedAttachment) -> URL? {
+        guard media.isVideo, !media.url.isEmpty, let url = URL(string: media.url),
+              url.isFileURL || url.scheme == "https" || url.scheme == "http" else { return nil }
+        let mime = media.filetype.split(separator: ";", maxSplits: 1).first?
+            .trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard url.pathExtension.lowercased() == "webm" || media.fileExtension == "webm" || mime == "video/webm" else { return nil }
+        return url
     }
 
     private func remoteImageURLs(for media: ParsedAttachment) -> (sourceURL: String, proxyURL: String)? {
@@ -1426,8 +1453,8 @@ final class MessageMediaContentNode: ASDisplayNode {
         skeleton: MediaSkeletonNode?,
         placeholder: MediaPlaceholderNode
     ) {
-        node.imageUpdated = { [weak self, weak skeleton, weak placeholder] image in
-            guard let self else { return }
+        node.imageUpdated = { [weak self, weak node, weak skeleton, weak placeholder] image in
+            guard let self, let node, self.imageNodes.indices.contains(index), self.imageNodes[index] === node else { return }
             self.remoteLoadInFlightByIndex.remove(index)
             if image != nil {
                 self.remoteLoadRetryCountByIndex.removeValue(forKey: index)
@@ -1444,7 +1471,7 @@ final class MessageMediaContentNode: ASDisplayNode {
                     return
                 }
                 let media = self.attachments[index]
-                if self.isForbidden(media) || Self.shouldShowStaticPlaceholder(for: media) {
+                if self.webMVideoURL(for: media) != nil || self.isForbidden(media) || Self.shouldShowStaticPlaceholder(for: media) {
                     skeleton?.isHidden = true
                     placeholder?.isHidden = false
                 } else if Self.shouldShowLoadingSkeleton(for: media) {

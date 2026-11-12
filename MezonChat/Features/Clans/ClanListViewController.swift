@@ -309,6 +309,7 @@ final class ClanListViewController: ViewController {
         guard senderId != context.currentUser?.id else { return }
 
         if clanId != 0 {
+            guard channelId != 0 else { return }
             if let data = notification.userInfo?["serializedChannelMessage"] as? Data,
                let m = try? Mezon_Api_ChannelMessage(serializedBytes: data)
             {

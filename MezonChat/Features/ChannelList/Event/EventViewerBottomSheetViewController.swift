@@ -1,27 +1,21 @@
 import UIKit
 
 enum EventListFilter {
-    static func visibleEvents(
-        from events: [Mezon_Api_EventManagement],
-        channels: [Mezon_Api_ChannelDescription]
-    ) -> [Mezon_Api_EventManagement] {
-        let privateTextChannelIds = privateTextChannelIds(from: channels)
-        return events.filter { event in
-            let passesChannel = event.channelID == 0
-                || privateTextChannelIds.contains(event.channelID)
-            return passesChannel
-        }
+    static func isActive(_ event: Mezon_Api_EventManagement, now: Date = Date()) -> Bool {
+        event.eventStatus != EventDisplayStatus.completed.rawValue
+            && (event.endTimeSeconds == 0 || TimeInterval(event.endTimeSeconds) > now.timeIntervalSince1970)
     }
 
-    static func privateTextChannelIds(from channels: [Mezon_Api_ChannelDescription]) -> Set<Int64> {
-        Set(
-            channels.filter { channel in
-                let isPrivate = channel.channelPrivate != 0
-                let isText = channel.type == MezonConstants.ChannelType.channel.rawValue
-                let isThread = channel.type == MezonConstants.ChannelType.thread.rawValue
-                return isPrivate && (isText || isThread)
-            }.map(\.channelID)
-        )
+    static func visibleEvents(
+        from events: [Mezon_Api_EventManagement],
+        channels: [Mezon_Api_ChannelDescription],
+        now: Date = Date()
+    ) -> [Mezon_Api_EventManagement] {
+        let channelIds = Set(channels.map(\.channelID))
+        return events.filter { event in
+            isActive(event, now: now)
+                && (event.channelID == 0 || channelIds.contains(event.channelID))
+        }
     }
 }
 
@@ -219,7 +213,7 @@ final class EventViewerBottomSheetViewController: UIViewController {
     private let clanId: Int64
     private let clanName: String
     private let clanLogoURL: String
-    private let channels: [Mezon_Api_ChannelDescription]
+    private var channels: [Mezon_Api_ChannelDescription]
 
     var onOpenChannel: ((Mezon_Api_ChannelDescription) -> Void)?
     var onPresentJoinVoice: ((Mezon_Api_ChannelDescription) -> Void)?
@@ -235,6 +229,7 @@ final class EventViewerBottomSheetViewController: UIViewController {
     private let emptyStateView = UIView()
 
     private var eventsDisposable: Disposable?
+    private weak var eventDetail: EventDetailBottomSheetViewController?
     private var isFetching = false
     private var loadedEvents: [Mezon_Api_EventManagement] = []
 
@@ -260,9 +255,25 @@ final class EventViewerBottomSheetViewController: UIViewController {
         eventsDisposable?.dispose()
     }
 
+    func updateChannels(
+        _ channels: [Mezon_Api_ChannelDescription],
+        clanId: Int64,
+        removedChannelIds: Set<Int64> = []
+    ) {
+        guard clanId == self.clanId else { return }
+        let needsReload = self.channels.count != channels.count || zip(self.channels, channels).contains {
+            $0.channelID != $1.channelID || $0.channelLabel != $1.channelLabel
+        }
+        self.channels = channels
+        if needsReload, isViewLoaded { reloadEvents() }
+        if needsReload || !removedChannelIds.isEmpty {
+            eventDetail?.updateChannels(channels, removedChannelIds: removedChannelIds)
+        }
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.accessibilityIdentifier = AccessibilityID.EventList.sheet
+        view.accessibilityIdentifier = AccessibilityID.Event.list
         configureSheet()
         buildContent()
         applyTheme()
@@ -634,6 +645,7 @@ final class EventViewerBottomSheetViewController: UIViewController {
     }
 
     private func presentEventDetail(_ event: Mezon_Api_EventManagement) {
+        guard !EventListFilter.visibleEvents(from: [event], channels: channels).isEmpty else { return }
         let vc = EventDetailBottomSheetViewController(
             context: context,
             clanId: clanId,
@@ -651,6 +663,7 @@ final class EventViewerBottomSheetViewController: UIViewController {
                 self?.onJoinExternalMeeting?(meeting)
             }
         )
+        eventDetail = vc
         present(vc, animated: true)
     }
 
@@ -972,6 +985,7 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
 
         let titleLabel = UILabel()
         titleLabel.text = event.title
+        titleLabel.accessibilityIdentifier = AccessibilityID.Event.itemTitle(event.id)
         titleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
         titleLabel.textColor = UIColor.theme.textStrong
         titleLabel.numberOfLines = 0
@@ -1017,8 +1031,8 @@ private final class EventListItemView: UIView, UIGestureRecognizerDelegate {
                 text: event.address
             )
         }
-        guard event.channelVoiceID != 0 || voiceChannelLabel != nil else { return nil }
-        let label = voiceChannelLabel ?? L(L10n.EventMenu.privateRoom)
+        let fallbackKey = event.channelVoiceID != 0 ? L10n.EventMenu.privateRoom : L10n.EventMenu.externalMeetingRoom
+        let label = voiceChannelLabel ?? L(fallbackKey)
         return inlineIconRow(icon: UIImage(named: "Channel/StreamSpeaker"), text: label)
     }
 

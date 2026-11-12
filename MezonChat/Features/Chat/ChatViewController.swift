@@ -638,8 +638,6 @@ final class ChatViewController: ViewController {
     private var remoteTypers: [Int64: RemoteTyperState] = [:]
     private var typingPruneTimer: Foundation.Timer?
 
-    private static let remoteTypingStripMaxHeight: CGFloat = 22
-    private static let remoteTypingStripBottomPadding: CGFloat = 2
     private static let chatFrameBottomGap: CGFloat = 6.sh
 
     private lazy var memberOnboardingMissionBarView: MemberOnboardingChatMissionBarView = {
@@ -663,22 +661,7 @@ final class ChatViewController: ViewController {
         }
     }
 
-    private lazy var remoteTypingStripView: UIView = {
-        let v = UIView()
-        v.isUserInteractionEnabled = false
-        v.clipsToBounds = true
-        return v
-    }()
-
-    private let remoteTypingLabel: UILabel = {
-        let lbl = UILabel()
-        lbl.font = UIFontMetrics.default.scaledFont(for: .systemFont(ofSize: 13))
-        lbl.adjustsFontForContentSizeCategory = true
-        lbl.numberOfLines = 1
-        lbl.lineBreakMode = .byTruncatingTail
-        lbl.isHidden = true
-        return lbl
-    }()
+    private let remoteTypingStripView = ChatTypingIndicatorView()
 
     private var messagesNode: ChatContainerNode { displayNode as! ChatContainerNode }
 
@@ -1503,15 +1486,14 @@ final class ChatViewController: ViewController {
         }
         advancePanelBottomConstraint?.constant = -bottomInset
 
-        let stripH = Self.remoteTypingStripMaxHeight + Self.remoteTypingStripBottomPadding
-        let typingFrame = CGRect(x: 0, y: composerTop - missionBarH - stripH, width: layoutToApply.size.width, height: stripH)
-        transition.updateFrame(view: remoteTypingStripView, frame: typingFrame, beginWithCurrentState: true)
-        remoteTypingLabel.frame = CGRect(
-            x: 12,
-            y: 0,
-            width: max(0, layoutToApply.size.width - 24),
-            height: Self.remoteTypingStripMaxHeight
+        let stripH = ChatTypingIndicatorView.height
+        let typingFrame = CGRect(
+            x: 0,
+            y: composerTop - missionBarH - stripH,
+            width: layoutToApply.size.width,
+            height: stripH
         )
+        transition.updateFrame(view: remoteTypingStripView, frame: typingFrame, beginWithCurrentState: true)
 
         let totalInputArea = totalBottomH + missionBarH + bottomOffset
         if bottomOffset > 0 && currentKeyboardOffset == 0 && !emojiPicker.wasJustDismissed && !suppressScrollToBottomForNextKeyboardInset {
@@ -1675,14 +1657,8 @@ final class ChatViewController: ViewController {
     @objc private func handleThemeChange() {
         messagesNode.applyTheme()
         emojiPicker.pickerView.applyTheme()
-        applyRemoteTypingStripTheme()
+        refreshRemoteTypingIndicator()
         channelAppHotbar.applyTheme()
-    }
-
-    private func applyRemoteTypingStripTheme() {
-        let t = UIColor.theme
-        remoteTypingStripView.backgroundColor = t.primaryGradient
-        remoteTypingLabel.textColor = t.textDisabled
     }
 
     @objc private func handleAttachmentUploadProgress(_ notification: Notification) {
@@ -1818,23 +1794,12 @@ final class ChatViewController: ViewController {
     }
 
     private func refreshRemoteTypingIndicator() {
-        let names = remoteTypers.values.map(\.displayName).sorted()
-        let line: String?
-        switch names.count {
-        case 0:
-            line = nil
-        case 1:
-            line = String(format: L(L10n.ChannelMessages.userIsTyping), names[0])
-        default:
-            line = L(L10n.ChannelMessages.severalPeopleTyping)
-        }
-        remoteTypingLabel.text = line
-        let shouldShow = line != nil
-        remoteTypingLabel.isHidden = !shouldShow
-        UIView.animate(withDuration: 0.2) {
-            self.remoteTypingStripView.alpha = shouldShow ? 1 : 0
-        } completion: { _ in
-            self.remoteTypingStripView.isHidden = !shouldShow
+        if remoteTypers.count == 1, let name = remoteTypers.values.first?.displayName {
+            remoteTypingStripView.update(text: L(L10n.ChannelMessages.userIsTyping, name), highlightedName: name)
+        } else if remoteTypers.isEmpty {
+            remoteTypingStripView.update(text: nil)
+        } else {
+            remoteTypingStripView.update(text: L(L10n.ChannelMessages.severalPeopleTyping))
         }
     }
 
@@ -1842,10 +1807,7 @@ final class ChatViewController: ViewController {
         typingPruneTimer?.invalidate()
         typingPruneTimer = nil
         remoteTypers.removeAll()
-        remoteTypingLabel.text = nil
-        remoteTypingLabel.isHidden = true
-        remoteTypingStripView.alpha = 0
-        remoteTypingStripView.isHidden = true
+        remoteTypingStripView.update(text: nil, animated: false)
     }
 
     private static func int64FromTypingUserInfo(_ value: Any?) -> Int64? {
@@ -4548,7 +4510,6 @@ final class ChatViewController: ViewController {
     }
 
     private func setupInputBar() {
-        remoteTypingStripView.addSubview(remoteTypingLabel)
         view.addSubview(remoteTypingStripView)
         view.addSubview(memberOnboardingMissionBarView)
         channelAppHotbar.onLaunch = { [weak self] in self?.openChannelAppFromHotbar() }
@@ -4573,11 +4534,8 @@ final class ChatViewController: ViewController {
             advBottom,
         ])
 
-        applyRemoteTypingStripTheme()
         channelAppHotbar.applyTheme()
         inputBarHeight = sendInputViewController.totalHeight
-        remoteTypingStripView.alpha = 0
-        remoteTypingStripView.isHidden = true
         memberOnboardingMissionBarView.isHidden = true
         view.bringSubviewToFront(remoteTypingStripView)
         view.bringSubviewToFront(memberOnboardingMissionBarView)
@@ -7677,6 +7635,110 @@ extension ChatViewController {
         } else {
             present(callVC, animated: true)
         }
+    }
+}
+
+private final class ChatTypingIndicatorView: UIView {
+    static let height: CGFloat = 18
+    private static let pulseKey = "typingDotsPulse"
+
+    private let label = UILabel()
+    private let dotsLayer = CAReplicatorLayer()
+    private let dot = CALayer()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        isUserInteractionEnabled = false
+        isHidden = true
+        alpha = 0
+
+        label.font = UIFontMetrics.default.scaledFont(for: .systemFont(ofSize: 12), maximumPointSize: 15)
+        label.adjustsFontForContentSizeCategory = true
+        label.numberOfLines = 1
+        label.lineBreakMode = .byTruncatingTail
+        label.accessibilityIdentifier = AccessibilityID.Chat.typingIndicator
+        label.isAccessibilityElement = true
+        addSubview(label)
+
+        dot.frame = CGRect(x: 0, y: 1.5, width: 5, height: 5)
+        dot.cornerRadius = 2.5
+        dot.opacity = 0.35
+        dotsLayer.instanceCount = 3
+        dotsLayer.instanceTransform = CATransform3DMakeTranslation(8, 0, 0)
+        dotsLayer.instanceDelay = 0.216
+        dotsLayer.addSublayer(dot)
+        layer.addSublayer(dotsLayer)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let leading: CGFloat = 14
+        let dotsWidth: CGFloat = 22
+        let labelX = leading + dotsWidth + 6
+        dotsLayer.frame = CGRect(x: leading, y: bounds.midY - 4, width: dotsWidth, height: 8)
+        label.frame = CGRect(x: labelX, y: 0, width: max(0, bounds.width - labelX - 12), height: bounds.height)
+    }
+
+    func update(text: String?, highlightedName: String? = nil, animated: Bool = true) {
+        let reduceMotion = UIAccessibility.isReduceMotionEnabled
+        if let text {
+            let theme = UIColor.theme
+            let line = NSMutableAttributedString(string: text, attributes: [.foregroundColor: theme.textDisabled])
+            if let highlightedName, let range = text.range(of: highlightedName) {
+                line.addAttribute(.foregroundColor, value: theme.textNormal, range: NSRange(range, in: text))
+            }
+            label.attributedText = line
+            dot.backgroundColor = theme.textDisabled.cgColor
+            isHidden = false
+            if reduceMotion {
+                dot.removeAnimation(forKey: Self.pulseKey)
+            } else if dot.animation(forKey: Self.pulseKey) == nil {
+                startDotsAnimation()
+            }
+        }
+
+        let targetAlpha: CGFloat = text == nil ? 0 : 1
+        if !animated || reduceMotion {
+            layer.removeAnimation(forKey: "opacity")
+            alpha = targetAlpha
+            if text == nil { hide() }
+        } else if alpha != targetAlpha {
+            UIView.animate(withDuration: 0.1, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+                self.alpha = targetAlpha
+            } completion: { finished in
+                if finished && self.alpha == 0 { self.hide() }
+            }
+        }
+    }
+
+    private func hide() {
+        isHidden = true
+        label.attributedText = nil
+        dot.removeAnimation(forKey: Self.pulseKey)
+    }
+
+    private func startDotsAnimation() {
+        let bounce = CABasicAnimation(keyPath: "transform.translation.y")
+        bounce.fromValue = 0
+        bounce.toValue = -1.5
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = dot.opacity
+        fade.toValue = 1
+
+        for animation in [bounce, fade] {
+            animation.duration = 0.3
+            animation.autoreverses = true
+            animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        }
+
+        let pulse = CAAnimationGroup()
+        pulse.animations = [bounce, fade]
+        pulse.duration = 1.2
+        pulse.repeatCount = .infinity
+        dot.add(pulse, forKey: Self.pulseKey)
     }
 }
 

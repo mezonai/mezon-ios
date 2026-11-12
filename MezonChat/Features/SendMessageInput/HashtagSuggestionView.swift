@@ -159,4 +159,14 @@ extension Mezon_Api_ChannelDescription {
     func channelListIconAssetName() -> String {
         Self.channelListIconAssetName(type: type, channelPrivate: channelPrivate, ageRestricted: ageRestricted)
     }
+
+    func channelListIconImage() -> UIImage? {
+        if type == MezonConstants.ChannelType.mezonVoice.rawValue && channelPrivate != 0 {
+            return Self.privateVoiceIcon
+        }
+        let iconName = channelListIconAssetName()
+        return UIImage(named: iconName) ?? UIImage(systemName: iconName)
+    }
+
+    private static let privateVoiceIcon = UIImage(named: "Channel/VoicePrivate")
 }

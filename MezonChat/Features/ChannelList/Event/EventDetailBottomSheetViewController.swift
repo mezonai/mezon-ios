@@ -38,7 +38,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
     private let clanId: Int64
     private let clanName: String
     private let clanLogoURL: String
-    private let channels: [Mezon_Api_ChannelDescription]
+    private var channels: [Mezon_Api_ChannelDescription]
     private var event: Mezon_Api_EventManagement
     private let onOpenChannel: ((Mezon_Api_ChannelDescription) -> Void)?
     private let onPresentJoinVoice: ((Mezon_Api_ChannelDescription) -> Void)?
@@ -49,6 +49,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
     private let contentStack = UIStackView()
     private let interestButton = UIButton(type: .custom)
     private var eventsDisposable: Disposable?
+    private var audienceRefreshChannelId: Int64?
 
     init(
         context: AccountContext,
@@ -78,6 +79,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        view.accessibilityIdentifier = AccessibilityID.Event.detail
         configureSheet()
         buildContent()
         applyTheme()
@@ -85,15 +87,7 @@ final class EventDetailBottomSheetViewController: UIViewController {
         eventsDisposable = context.engine.clanData.clanEventsUpdated.signal().start(next: { [weak self] updatedClanId in
             guard let self, updatedClanId == self.clanId else { return }
             DispatchQueue.main.async { [weak self] in
-                guard let self,
-                      let events = self.context.engine.clanData.getClanEvents(clanId: self.clanId)?.events else { return }
-                guard let updated = events.first(where: { $0.id == self.event.id }) else {
-                    self.dismissDetail()
-                    return
-                }
-                self.event = updated
-                self.updateInterestedSegmentTitle()
-                self.rebuildContent()
+                self?.rebuildContent()
             }
         })
         NotificationCenter.default.addObserver(
@@ -107,6 +101,16 @@ final class EventDetailBottomSheetViewController: UIViewController {
     deinit {
         eventsDisposable?.dispose()
         NotificationCenter.default.removeObserver(self)
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        rebuildContent()
+    }
+
+    func updateChannels(_ channels: [Mezon_Api_ChannelDescription], removedChannelIds: Set<Int64>) {
+        self.channels = channels
+        if isViewLoaded { rebuildContent(removedChannelIds: removedChannelIds) }
     }
 
     @objc private func themeDidChange() {
@@ -204,11 +208,8 @@ final class EventDetailBottomSheetViewController: UIViewController {
     private func editEvent() {
         guard EventEditorAccess.canEdit(event, context: context) else { return }
         let editor = EventEditorViewController(context: context, clanId: clanId, channels: channels, event: event)
-        editor.onSaved = { [weak self] updated in
-            guard let self, let updated else { return }
-            self.event = updated
-            self.updateInterestedSegmentTitle()
-            self.rebuildContent()
+        editor.onSaved = { [weak self] _ in
+            self?.rebuildContent()
         }
         present(editor, animated: true)
     }
@@ -277,8 +278,43 @@ final class EventDetailBottomSheetViewController: UIViewController {
         present(invite, animated: true)
     }
 
-    private func rebuildContent() {
+    private func rebuildContent(removedChannelIds: Set<Int64> = []) {
+        let events = context.engine.clanData.getClanEvents(clanId: clanId)?.events ?? [event]
+        guard let updated = events.first(where: { $0.id == event.id }),
+              EventListFilter.isActive(updated),
+              !removedChannelIds.contains(updated.channelID) else {
+            dismissDetail()
+            return
+        }
+
+        if updated.channelID != 0, !channels.contains(where: { $0.channelID == updated.channelID }) {
+            // The channel snapshot can be partial. ListEvents also checks audience access.
+            guard !removedChannelIds.contains(event.channelID) else {
+                dismissDetail()
+                return
+            }
+            refreshEventsForMissingAudience(updated.channelID)
+            // Keep the last visible event if a socket update moves it to an unknown audience.
+            guard updated.channelID == event.channelID else { return }
+        } else {
+            audienceRefreshChannelId = nil
+        }
+        event = updated
+        updateInterestedSegmentTitle()
         showTab(segmentedControl.selectedSegmentIndex)
+    }
+
+    private func refreshEventsForMissingAudience(_ channelId: Int64) {
+        guard audienceRefreshChannelId != channelId, NetworkMonitor.shared.isConnected else { return }
+        audienceRefreshChannelId = channelId
+        let epoch = context.sessionEpoch
+        Task { @MainActor [weak self] in
+            guard let self,
+                  let token = await self.context.getTokenPreferringCachedSkipSessionReadyWait(),
+                  self.context.isStillCurrentSession(epoch: epoch),
+                  self.audienceRefreshChannelId == channelId else { return }
+            await self.context.engine.clanData.refetchEvents(clanId: self.clanId, token: token)
+        }
     }
 
     private func makeDetailCard() -> UIView {
@@ -554,8 +590,12 @@ final class EventDetailBottomSheetViewController: UIViewController {
                 text: event.address
             )
         }
-        let voiceChannel = channels.first(where: { $0.channelID == event.channelVoiceID })
-        let voiceLabel = voiceChannel?.channelLabel ?? L(L10n.EventMenu.privateRoom)
+        let voiceChannel = resolveVoiceChannel()
+        let fallbackKey = event.channelVoiceID != 0 ? L10n.EventMenu.privateRoom : L10n.EventMenu.externalMeetingRoom
+        let voiceLabel = voiceChannel?.channelLabel ?? L(fallbackKey)
+        if event.channelVoiceID != 0 && voiceChannel == nil {
+            return inlineRow(icon: UIImage(systemName: "speaker.wave.2.fill"), text: voiceLabel)
+        }
         return makeTappableVoiceRow(label: voiceLabel)
     }
 
@@ -603,25 +643,17 @@ final class EventDetailBottomSheetViewController: UIViewController {
 
     private func handleVoiceJoin() {
         guard event.address.isEmpty else { return }
-        if let voiceChannel = resolveVoiceChannel() {
+        if event.channelVoiceID != 0 {
+            guard let voiceChannel = resolveVoiceChannel() else { return }
             onPresentJoinVoice?(voiceChannel)
-            return
-        }
-        if let url = MezonConfig.externalEventURL(event.meetRoom.externalLink) {
+        } else if let url = MezonConfig.externalEventURL(event.meetRoom.externalLink) {
             UIApplication.shared.open(url)
         }
     }
 
     private func resolveVoiceChannel() -> Mezon_Api_ChannelDescription? {
         guard event.channelVoiceID != 0 else { return nil }
-        if let channel = channels.first(where: { $0.channelID == event.channelVoiceID }) {
-            return channel
-        }
-        var channel = Mezon_Api_ChannelDescription()
-        channel.channelID = event.channelVoiceID
-        channel.clanID = clanId
-        channel.type = MezonConstants.ChannelType.mezonVoice.rawValue
-        return channel
+        return channels.first(where: { $0.channelID == event.channelVoiceID })
     }
 
     private func currentUserId() -> Int64 {
@@ -706,10 +738,6 @@ final class EventDetailBottomSheetViewController: UIViewController {
                 interested: interested,
                 token: token
             )
-            if let updated = context.engine.clanData.getClanEvents(clanId: clanId)?.events.first(where: { $0.id == event.id }) {
-                event = updated
-            }
-            updateInterestedSegmentTitle()
             rebuildContent()
         }
     }

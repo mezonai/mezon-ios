@@ -403,7 +403,34 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
             field.setValue(value ?? L(L10n.EventEditor.pickChannel), isPlaceholder: value == nil)
             field.action = { [weak self] in self?.pickChannel(voice: false) }
             body.addArrangedSubview(field)
+            if draft.locationType == .voice,
+               let channel = voices.first(where: { $0.channelID == draft.voiceChannelId && $0.channelPrivate != 0 }) {
+                body.setCustomSpacing(8, after: field)
+                body.addArrangedSubview(privateVoiceChannelTip(for: channel))
+            }
         }
+    }
+
+    private func privateVoiceChannelTip(for channel: Mezon_Api_ChannelDescription) -> UILabel {
+        var name = channel.channelLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.hasPrefix("#") { name.removeFirst() }
+        let channelName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let channelLabel = "\u{FFFC}\u{00A0}" + channelName
+        let text = L(L10n.EventEditor.privateVoiceChannelTip, channelLabel)
+        let tip = label(text, size: 13)
+        let attributed = NSMutableAttributedString(string: text)
+        let range = (text as NSString).range(of: channelLabel, options: .backwards)
+        if range.location != NSNotFound {
+            let attachment = NSTextAttachment()
+            attachment.image = channel.channelListIconImage()?.withTintColor(accent, renderingMode: .alwaysOriginal)
+            let side = tip.font.pointSize
+            attachment.bounds = CGRect(x: 0, y: (tip.font.capHeight - side) / 2, width: side, height: side)
+            attributed.replaceCharacters(in: NSRange(location: range.location, length: 1), with: NSAttributedString(attachment: attachment))
+            attributed.addAttribute(.foregroundColor, value: accent, range: range)
+        }
+        tip.attributedText = attributed
+        tip.accessibilityLabel = L(L10n.EventEditor.privateVoiceChannelTip, channelName)
+        return tip
     }
 
     private func buildDetails() {
@@ -549,7 +576,7 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
         switch draft.locationType {
         case .voice: location = channelLabel(draft.voiceChannelId) ?? L(L10n.EventMenu.privateRoom)
         case .location: location = draft.address
-        default: location = L(L10n.EventMenu.privateEvent)
+        default: location = L(L10n.EventMenu.externalMeetingRoom)
         }
         content.addArrangedSubview(iconRow(locationIcon(for: draft.locationType ?? .voice), text: location))
         if draft.repeatType != EventRepeatType.doesNotRepeat {
@@ -623,7 +650,7 @@ final class EventEditorViewController: UIViewController, UITextFieldDelegate, UI
     private func pickChannel(voice: Bool) {
         view.endEditing(true)
         let options = voice ? EventEditorAccess.voiceChannels(channels) : EventEditorAccess.announcementChannels(channels)
-        let choices = options.map { EventEditorChoiceViewController.Choice(id: $0.channelID, title: $0.channelLabel, icon: $0.channelListIconAssetName()) }
+        let choices = options.map { EventEditorChoiceViewController.Choice(id: $0.channelID, title: $0.channelLabel, icon: $0.channelListIconImage()) }
         let vc = EventEditorChoiceViewController(title: L(voice ? L10n.EventEditor.voice : L10n.EventEditor.announcement), choices: choices, selectedId: voice ? draft.voiceChannelId : draft.announcementChannelId) { [weak self] id in
             guard let self else { return }
             if voice {

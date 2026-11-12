@@ -82,3 +82,83 @@ final class SfuNetworkQuality {
         return samples
     }
 }
+
+struct SfuCameraUplinkSample {
+    let framesEncoded: Double
+    let targetBitrate: Double
+    let bandwidthLimited: Bool
+}
+
+final class SfuCameraUplinkQuality {
+
+    private static let targetRatio = 0.8
+    private static let limitedSamplesToLower = 2
+    private static let baseRecoverySamples = 6
+    private static let maxRecoverySamples = 24
+    private static let relapseSamples = 12
+
+    private var isLimited = false
+    private var limitedSamples = 0
+    private var cleanSamples = 0
+    private var recoverySamples = SfuCameraUplinkQuality.baseRecoverySamples
+    private var samplesSinceRecovery = Int.max
+    private var framesEncoded: Double?
+
+    func update(_ sample: SfuCameraUplinkSample?, maxBitrateBps: Int) -> Bool {
+        let previousFrames = framesEncoded
+        framesEncoded = sample?.framesEncoded
+        guard let sample, let previousFrames, sample.framesEncoded > previousFrames else {
+            isLimited = false
+            limitedSamples = 0
+            cleanSamples = 0
+            return false
+        }
+        let sampleLimited = sample.bandwidthLimited
+            && sample.targetBitrate < Double(maxBitrateBps) * Self.targetRatio
+        if sampleLimited {
+            limitedSamples += 1
+            cleanSamples = 0
+        } else {
+            limitedSamples = 0
+            cleanSamples += 1
+        }
+        if isLimited {
+            if cleanSamples >= recoverySamples {
+                isLimited = false
+                samplesSinceRecovery = 0
+            }
+            return isLimited
+        }
+        if samplesSinceRecovery < Int.max {
+            samplesSinceRecovery += 1
+        }
+        if limitedSamples >= Self.limitedSamplesToLower {
+            isLimited = true
+            recoverySamples = samplesSinceRecovery <= Self.relapseSamples
+                ? min(recoverySamples * 2, Self.maxRecoverySamples)
+                : Self.baseRecoverySamples
+        }
+        return isLimited
+    }
+
+    static func sample(in report: RTCStatisticsReport, mid: String) -> SfuCameraUplinkSample? {
+        var best: SfuCameraUplinkSample?
+        for stat in report.statistics.values {
+            guard stat.type == "outbound-rtp" else { continue }
+            let values = stat.values
+            let kind = (values["kind"] as? String) ?? (values["mediaType"] as? String)
+            guard kind == "video",
+                  (values["mid"] as? String) == mid,
+                  let frames = (values["framesEncoded"] as? NSNumber)?.doubleValue,
+                  let target = (values["targetBitrate"] as? NSNumber)?.doubleValue,
+                  let reason = values["qualityLimitationReason"] as? String else { continue }
+            if let best, best.framesEncoded >= frames { continue }
+            best = SfuCameraUplinkSample(
+                framesEncoded: frames,
+                targetBitrate: target,
+                bandwidthLimited: reason == "bandwidth"
+            )
+        }
+        return best
+    }
+}

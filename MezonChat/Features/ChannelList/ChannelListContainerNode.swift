@@ -1924,6 +1924,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         onboardingState = .hidden
         memberOnboardingState = .hidden
         headerUIView.clearMemberSubtitleStaleText()
+        headerUIView.updateEventCount(0)
     }
 
     func clearChannelApps() {
@@ -2088,6 +2089,10 @@ final class ChannelListContainerNode: ASDisplayNode {
             }
         }
         committedSectionCount = totalSections
+    }
+
+    func updateEventCount(_ count: Int) {
+        headerUIView.updateEventCount(count)
     }
 
     func configure(clanName: String, clanId: Int64 = 0, logoURL: String? = nil, bannerURL: String? = nil, memberCount: Int = 0, isCommunity: Bool = false) {
@@ -3042,6 +3047,7 @@ final class ChannelListHeaderView: UIView {
 
     private let eventButton: UIButton = {
         let btn = UIButton(type: .system)
+        btn.accessibilityIdentifier = AccessibilityID.Event.openList
         btn.setImage(
             UIImage(named: "Channel/Event")?.withRenderingMode(.alwaysTemplate), for: .normal)
         btn.layer.cornerRadius = 16
@@ -3049,6 +3055,26 @@ final class ChannelListHeaderView: UIView {
         btn.imageEdgeInsets = UIEdgeInsets(top: 7, left: 7, bottom: 7, right: 7)
         btn.translatesAutoresizingMaskIntoConstraints = false
         return btn
+    }()
+
+    private let eventBadgeView: UIView = {
+        let view = UIView()
+        view.backgroundColor = .mezonUnreadBadge
+        view.layer.cornerRadius = 9
+        view.isHidden = true
+        view.isUserInteractionEnabled = false
+        view.accessibilityElementsHidden = true
+        view.translatesAutoresizingMaskIntoConstraints = false
+        return view
+    }()
+
+    private let eventCountLabel: UILabel = {
+        let label = UILabel()
+        label.font = .systemFont(ofSize: 11, weight: .medium)
+        label.textColor = .white
+        label.textAlignment = .center
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
     }()
 
     private let separator: UIView = {
@@ -3095,8 +3121,14 @@ final class ChannelListHeaderView: UIView {
 
         qrButton.addTarget(self, action: #selector(qrTapped), for: .touchUpInside)
         eventButton.addTarget(self, action: #selector(eventTapped), for: .touchUpInside)
+        let eventButtonContainer = UIView()
+        eventButtonContainer.translatesAutoresizingMaskIntoConstraints = false
+        eventButtonContainer.addSubview(eventButton)
+        // Keep the badge above the button layer, which draws its border over its sublayers.
+        eventButtonContainer.addSubview(eventBadgeView)
+        eventBadgeView.addSubview(eventCountLabel)
 
-        let actionRow = UIStackView(arrangedSubviews: [searchBar, qrButton, eventButton])
+        let actionRow = UIStackView(arrangedSubviews: [searchBar, qrButton, eventButtonContainer])
         actionRow.axis = .horizontal
         actionRow.spacing = 8
         actionRow.alignment = .center
@@ -3156,6 +3188,17 @@ final class ChannelListHeaderView: UIView {
             qrButton.heightAnchor.constraint(equalToConstant: 32),
             eventButton.widthAnchor.constraint(equalToConstant: 32),
             eventButton.heightAnchor.constraint(equalToConstant: 32),
+            eventButton.topAnchor.constraint(equalTo: eventButtonContainer.topAnchor),
+            eventButton.leadingAnchor.constraint(equalTo: eventButtonContainer.leadingAnchor),
+            eventButton.trailingAnchor.constraint(equalTo: eventButtonContainer.trailingAnchor),
+            eventButton.bottomAnchor.constraint(equalTo: eventButtonContainer.bottomAnchor),
+            eventBadgeView.topAnchor.constraint(equalTo: eventButton.topAnchor, constant: -5),
+            eventBadgeView.trailingAnchor.constraint(equalTo: eventButton.trailingAnchor, constant: 5),
+            eventBadgeView.heightAnchor.constraint(equalToConstant: 18),
+            eventBadgeView.widthAnchor.constraint(greaterThanOrEqualToConstant: 18),
+            eventCountLabel.leadingAnchor.constraint(equalTo: eventBadgeView.leadingAnchor, constant: 4),
+            eventCountLabel.trailingAnchor.constraint(equalTo: eventBadgeView.trailingAnchor, constant: -4),
+            eventCountLabel.centerYAnchor.constraint(equalTo: eventBadgeView.centerYAnchor),
 
             separator.leadingAnchor.constraint(equalTo: leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -3165,6 +3208,12 @@ final class ChannelListHeaderView: UIView {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    func updateEventCount(_ count: Int) {
+        eventBadgeView.isHidden = count == 0
+        eventCountLabel.text = String(count)
+        eventButton.accessibilityLabel = EventDisplayHelper.headerTitle(count: count)
+    }
 
     func setClanBannerVisible(_ visible: Bool) {
         mainStackTopConstraint.constant = visible
