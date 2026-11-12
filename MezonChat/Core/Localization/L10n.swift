@@ -840,6 +840,7 @@ enum L10n {
         static let blockedYou            = "forward.blockedYou"
         static let cannotMessage         = "forward.cannotMessage"
         static let toastCannotForward    = "forward.toastCannotForward"
+        static let itemsFailed           = "forward.itemsFailed"
     }
 
     enum Sharing {
@@ -2329,6 +2330,7 @@ extension L10n {
         "forward.blockedYou": "This user blocked you",
         "forward.cannotMessage": "You can't message each other",
         "forward.toastCannotForward": "You can't forward messages to this conversation",
+        "forward.itemsFailed": "%d item(s) couldn't be forwarded",
 
         "sharing.title":                    "Share",
         "sharing.suggestionsSection":       "Suggestions",
@@ -3851,6 +3853,7 @@ extension L10n {
         "forward.blockedYou": "Người dùng này đã chặn bạn",
         "forward.cannotMessage": "Không thể nhắn tin cho nhau",
         "forward.toastCannotForward": "Không thể chuyển tiếp tin nhắn tới cuộc trò chuyện này",
+        "forward.itemsFailed": "Không chuyển tiếp được %d mục",
 
         "sharing.title":                    "Chia sẻ",
         "sharing.suggestionsSection":       "Gợi ý",
