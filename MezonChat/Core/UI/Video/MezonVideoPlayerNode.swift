@@ -459,12 +459,16 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         return seconds.isFinite ? max(0, seconds) : 0
     }
 
-    var isCDNAccessDenied: Bool {
+    var isCDNAccessDenied: Bool { failed(withCDNStatus: 403) }
+
+    var isCDNFileMissing: Bool { failed(withCDNStatus: 404) }
+
+    private func failed(withCDNStatus status: Int) -> Bool {
         let item = player?.currentItem
-        if item?.errorLog()?.events.last?.errorStatusCode == 403 { return true }
+        if item?.errorLog()?.events.last?.errorStatusCode == status { return true }
         var error = item?.error as NSError?
         while let current = error {
-            if current.domain == ChunkedVideoResourceLoader.httpErrorDomain, current.code == 403 { return true }
+            if current.domain == ChunkedVideoResourceLoader.httpErrorDomain, current.code == status { return true }
             error = current.userInfo[NSUnderlyingErrorKey] as? NSError
         }
         return false

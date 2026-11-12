@@ -70,6 +70,8 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
     private var isResolvingIngest = false
     private var didRefreshSignature = false
     private var didDownloadFile = false
+    private var didTryFinishedHLS = false
+    private var isOriginalMissing = false
     private let prefersVLC: Bool
     private var resumePosition: Double = 0
 
@@ -125,8 +127,23 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
     }
 
     private func attachIngestPlayer(_ playlist: URL) {
+        didTryFinishedHLS = true
         let node = MezonVideoPlayerNode(growingPlaylistURL: playlist, posterURL: posterURL)
         attachAVPlayer(node, source: .ingest)
+    }
+
+    private func playFinishedHLS() {
+        didTryFinishedHLS = true
+        FileIngestPlaylist.resolve(attachmentURL: url.absoluteString) { [weak self] state in
+            DispatchQueue.main.async {
+                guard let self, self.avPlayerNode == nil, self.vlcPlayerNode == nil else { return }
+                if case let .playable(playlist) = state {
+                    self.attachIngestPlayer(playlist)
+                } else {
+                    self.attachVLCPlayer(downloadsFirst: true)
+                }
+            }
+        }
     }
 
     private func setupOriginalPlayer() {
@@ -203,13 +220,18 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
         SentryLogger.capture(message: "video.playback_fallback", extras: extras)
 
         let accessDenied = node.isCDNAccessDenied
+        let originalMissing = (source == .chunked || source == .direct) && (accessDenied || node.isCDNFileMissing)
         avPlayerNode = nil
         node.pause()
         node.removeFromSupernode()
         setPagingEnabled?(true)
 
         if source == .ingest {
-            setupOriginalPlayer()
+            if isOriginalMissing {
+                attachVLCPlayer(downloadsFirst: true)
+            } else {
+                setupOriginalPlayer()
+            }
         } else if let request, accessDenied, !didRefreshSignature, CDNSigner.shared.invalidate(request) {
             didRefreshSignature = true
             CDNSigner.shared.freshRequestURL(after: request, for: url) { [weak self] freshRequest in
@@ -222,15 +244,23 @@ final class UniversalVideoPlayerNode: ASDisplayNode {
                     }
                 }
             }
-        } else if source == .chunked, let request, !accessDenied {
+        } else if originalMissing, !didTryFinishedHLS {
+            isOriginalMissing = true
+            playFinishedHLS()
+        } else if source == .chunked, let request, !accessDenied, !originalMissing {
             attachRemoteAVPlayer(request, source: .direct)
         } else {
-            attachVLCPlayer(localFile: node.localFileURL)
+            attachVLCPlayer(localFile: node.localFileURL, downloadsFirst: originalMissing)
         }
     }
 
-    private func attachVLCPlayer(localFile: URL? = nil) {
-        let node = VLCVideoPlayerNode(url: url, posterURL: posterURL, localFile: localFile, retryCachedFile: !didDownloadFile)
+    private func attachVLCPlayer(localFile: URL? = nil, downloadsFirst: Bool = false) {
+        let node = VLCVideoPlayerNode(
+            url: url,
+            posterURL: posterURL,
+            localFile: localFile,
+            retryCachedFile: !didDownloadFile,
+            downloadsFirst: downloadsFirst)
         node.startPosition = resumePosition
         node.setOverlayVisible = { [weak self] visible in self?.setOverlayVisible?(visible) }
         node.setPagingEnabled = { [weak self] enabled in self?.setPagingEnabled?(enabled) }
