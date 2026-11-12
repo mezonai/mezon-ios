@@ -56,6 +56,16 @@ jobs:
           xcodebuild -version
           xcrun simctl list devices available
 
+      - name: Generate Xcode project
+        env:
+          XCODEGEN_VERSION: 2.44.1
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" \
+            "https://github.com/yonaskolb/XcodeGen/releases/download/${XCODEGEN_VERSION}/xcodegen.zip"
+          unzip -q -o "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP"
+          "$RUNNER_TEMP/xcodegen/bin/xcodegen" --version
+          "$RUNNER_TEMP/xcodegen/bin/xcodegen" generate
+
       - name: Install CocoaPods dependencies
         run: |
           if ! gem list --installed cocoapods --version 1.16.2; then
