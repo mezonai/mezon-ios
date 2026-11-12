@@ -6,10 +6,21 @@ on:
 jobs:
   ui-tests:
     runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
       - name: Check Xcode and simulators
-        env:
-          DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
         run: |
           xcodebuild -version
           xcrun simctl list devices available
+
+      - name: Install CocoaPods dependencies
+        run: |
+          if ! gem list --installed cocoapods --version 1.16.2; then
+            gem install --user-install cocoapods --version 1.16.2 --no-document
+          fi
+          export PATH="$(ruby -r rubygems -e 'puts Gem.user_dir')/bin:$PATH"
+          pod _1.16.2_ install --deployment
