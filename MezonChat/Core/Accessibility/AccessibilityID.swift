@@ -21,12 +21,62 @@ enum AccessibilityID {
         }
     }
 
+    enum Clan {
+        static let list = makeAccessibilityID("clan.list")
+
+        static func item(_ id: String) -> String {
+            makeAccessibilityID("clan.item", id: id)
+        }
+
+        static func unreadBadge(_ id: String) -> String {
+            makeAccessibilityID("clan.unread.badge", id: id)
+        }
+
+        static func channelList(_ id: String) -> String {
+            makeAccessibilityID("clan.channel.list", id: id)
+        }
+    }
+
     enum Chat {
         static let screen = makeAccessibilityID("chat.screen")
         static let messageMenu = makeAccessibilityID("message.menu")
         static let replyAction = makeAccessibilityID("message.action.reply")
+        static let editAction = makeAccessibilityID("message.action.edit")
+        static let deleteAction = makeAccessibilityID("message.action.delete")
+        static let copyAction = makeAccessibilityID("message.action.copy")
+        static let reactionPicker = makeAccessibilityID("message.reaction.picker")
+        static func mentionUser(_ id: String) -> String {
+            makeAccessibilityID("mention.suggestion.user", id: id)
+        }
+
+        static func hashtagChannel(_ id: String) -> String {
+            makeAccessibilityID("hashtag.suggestion.channel", id: id)
+        }
+
+        static let emojiSearch = makeAccessibilityID("emoji.search")
+
+        static func emojiItem(_ id: String) -> String {
+            makeAccessibilityID("emoji.item", id: id)
+        }
+
+        static let editCancel = makeAccessibilityID("mention.edit.cancel")
         static let replyBanner = makeAccessibilityID("mention.reply.target")
         static let replyReference = makeAccessibilityID("replied_message.item")
+        static let channelDetails = makeAccessibilityID("chat.channel.details")
+        static let detailsBack = makeAccessibilityID("channel.details.back")
+        static let membersTab = makeAccessibilityID("channel.details.members")
+        static let pinAction = makeAccessibilityID("message.action.pin")
+        static let unpinAction = makeAccessibilityID("message.action.unpin")
+
+        static func pinnedMessage(_ id: String) -> String {
+            makeAccessibilityID("channel.pins.message", id: id)
+        }
+
+        static func pinnedMessageUnpin(_ id: String) -> String {
+            makeAccessibilityID("channel.pins.unpin", id: id)
+        }
+
+        static let pinsTab = makeAccessibilityID("channel.details.pins")
         static let back = makeAccessibilityID("chat.back")
         static let input = makeAccessibilityID("mention.input")
         static let send = makeAccessibilityID("mention.button.send")

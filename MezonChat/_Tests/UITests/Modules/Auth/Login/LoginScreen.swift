@@ -22,11 +22,13 @@ struct LoginScreen {
     var submit: XCUIElement { app.buttons[AccessibilityID.Auth.submit] }
 
     func launch(mode: Mode, resetSession: Bool = true, file: StaticString = #filePath, line: UInt = #line) {
-        let chatMetadataArguments = app.launchArguments.filter { $0 == UITestLaunch.chatMetadataArgument }
+        let preservedArguments = app.launchArguments.filter {
+            $0 == UITestLaunch.chatMetadataArgument || $0 == UITestLaunch.skipUpdateCheckArgument
+        }
         app.launchArguments = [
             UITestLaunch.loginArgument,
             "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
-        ] + chatMetadataArguments
+        ] + preservedArguments
         if resetSession {
             app.launchArguments.append(UITestLaunch.resetSessionArgument)
         }

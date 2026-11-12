@@ -59,6 +59,7 @@ final class ClanListContainerNode: ASDisplayNode {
         layout.minimumLineSpacing = 16.sh
         layout.itemSize = CGSize(width: Self.iconSize, height: Self.iconSize)
         collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
+            .identified(by: AccessibilityID.Clan.list)
         self.interaction = interaction
         super.init()
 
@@ -148,6 +149,19 @@ final class ClanListContainerNode: ASDisplayNode {
     deinit {
         sidebarLogoLoadTask?.cancel()
         disposables.dispose()
+    }
+
+    override var accessibilityElements: [Any]? {
+        get {
+            guard isNodeLoaded else { return nil }
+            // Texture discovers subnodes separately from these UIKit views.
+            let nodeElements = super.accessibilityElements ?? []
+            let hostedViews = [collectionView, logoHeaderView].filter {
+                $0.superview === view && !$0.isHidden && $0.alpha > 0 && !$0.accessibilityElementsHidden
+            }
+            return nodeElements + hostedViews
+        }
+        set { super.accessibilityElements = newValue }
     }
 
     override func didLoad() {
@@ -421,7 +435,9 @@ extension ClanListContainerNode: UICollectionViewDataSource, UICollectionViewDel
         }
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: ClanCell.reuseID, for: indexPath) as! ClanCell
         let clan = state.clans[clanIndex]
-        cell.configure(with: clan, isSelected: clan.clanID == state.selectedClanId)
+        cell.configure(with: clan, isSelected: clan.clanID == state.selectedClanId) { [weak self] in
+            self?.interaction.onSelectClan(clan)
+        }
         return cell
     }
 
@@ -494,6 +510,31 @@ private final class ClanCell: UICollectionViewCell {
 
     static let reuseID = "ClanCell"
 
+    private final class ClanActionElement: UIAccessibilityElement {
+        var onActivate: (() -> Void)?
+
+        override func accessibilityActivate() -> Bool {
+            guard let onActivate else { return false }
+            onActivate()
+            return true
+        }
+    }
+
+    private lazy var clanAction: ClanActionElement = {
+        let element = ClanActionElement(accessibilityContainer: self)
+        element.isAccessibilityElement = true
+        return element
+    }()
+
+    override var accessibilityElements: [Any]? {
+        get {
+            guard boundClanId != nil else { return [] }
+            clanAction.accessibilityFrameInContainerSpace = bounds
+            return badgeLabel.isHidden ? [clanAction] : [clanAction, badgeLabel]
+        }
+        set { super.accessibilityElements = newValue }
+    }
+
     private let indicatorBar: UIView = {
         let v = UIView()
         v.layer.cornerRadius = 2.swh
@@ -528,6 +569,7 @@ private final class ClanCell: UICollectionViewCell {
         l.clipsToBounds = true
         l.translatesAutoresizingMaskIntoConstraints = false
         l.isHidden = true
+        l.isAccessibilityElement = true
         return l
     }()
 
@@ -538,6 +580,7 @@ private final class ClanCell: UICollectionViewCell {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        isAccessibilityElement = false
         backgroundColor = .clear
         contentView.backgroundColor = .clear
         let sz = Self.sz
@@ -576,6 +619,11 @@ private final class ClanCell: UICollectionViewCell {
         imageTask?.cancel()
         imageTask = nil
         boundClanId = nil
+        clanAction.accessibilityIdentifier = nil
+        clanAction.accessibilityLabel = nil
+        clanAction.onActivate = nil
+        badgeLabel.accessibilityIdentifier = nil
+        badgeLabel.text = nil
         avatarImageView.image = nil
         textAvatarView.configure(username: "")
         badgeLabel.isHidden = true
@@ -583,12 +631,18 @@ private final class ClanCell: UICollectionViewCell {
         badgeLabel.layer.borderColor = nil
     }
 
-    func configure(with clan: Mezon_Api_ClanDesc, isSelected: Bool) {
+    func configure(with clan: Mezon_Api_ClanDesc, isSelected: Bool, onActivate: @escaping () -> Void) {
         avatarGeneration += 1
         let generation = avatarGeneration
         boundClanId = clan.clanID
         let expectClanId = clan.clanID
         let clanName = clan.clanName
+        let clanID = String(clan.clanID)
+        clanAction.accessibilityIdentifier = AccessibilityID.Clan.item(clanID)
+        clanAction.accessibilityLabel = clanName
+        clanAction.accessibilityTraits = isSelected ? [.button, .selected] : .button
+        clanAction.onActivate = onActivate
+        badgeLabel.accessibilityIdentifier = AccessibilityID.Clan.unreadBadge(clanID)
 
         let accentColor = UIColor(red: 0.44, green: 0.42, blue: 0.95, alpha: 1)
         indicatorBar.backgroundColor = accentColor

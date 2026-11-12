@@ -14,8 +14,11 @@ This is not the environment used when you Run the app, and it is not `app.launch
 | `UITEST_EMAIL` | login tests that need an account are skipped |
 | `UITEST_OTP` | `testEmailOTPLoginSucceeds` is skipped |
 | `UITEST_INVALID_OTP` | `111111` |
+| `UITEST_CLAN_ID` | channel tests are skipped |
 | `UITEST_CHANNEL_ID` | none; the test finds the channel by name |
 | `UITEST_CHANNEL_NAME` | `general` |
+
+Set `UITEST_CLAN_ID` to the positive numeric ID of the automation clan. The test account must be a member of that clan.
 
 Do not set `UITEST_LOGIN_MODE` here. `LoginScreen` passes that variable to the app at launch (`0` SMS, `1` email OTP, `2` password).
 
@@ -39,6 +42,7 @@ Values entered in the shared scheme are committed. To keep them on your machine,
 TEST_RUNNER_UITEST_EMAIL=mezon-test@example.com
 TEST_RUNNER_UITEST_OTP=000000
 TEST_RUNNER_UITEST_INVALID_OTP=111111
+TEST_RUNNER_UITEST_CLAN_ID=
 ```
 
 ## Terminal and CI
