@@ -51,6 +51,10 @@ final class StreamingWebRTCSession: NSObject {
     private var vlcPlayer: VLCMediaPlayer?
     private var activeHlsURL: URL?
     private var prefersVlcHls = false
+    private var hlsMasterWasAudioOnly = false
+    private var hlsVideoWatchTask: Task<Void, Never>?
+    private static let hlsVideoTakeoverMaxWait: TimeInterval = 30
+    private static let hlsVideoMarkers = ["RESOLUTION=", "avc1", "avc3", "hvc1", "hev1", "vp09", "av01"]
     // New streams start on speaker; nil respects an external route chosen through the system picker.
     private var preferredSpeakerOutput: Bool?
     var isSpeakerOutput: Bool {
@@ -176,6 +180,7 @@ final class StreamingWebRTCSession: NSObject {
         reconnectAttempt = 0
         wasStreamListed = false
         prefersVlcHls = false
+        hlsMasterWasAudioOnly = false
         preferredSpeakerOutput = nil
         isStreaming = false
         isBuffering = false
@@ -243,6 +248,7 @@ final class StreamingWebRTCSession: NSObject {
     private func noteVideoFrame() {
         guard !hasVideoFrames else { return }
         hasVideoFrames = true
+        hlsMasterWasAudioOnly = false
         onStreamingStateChanged?()
     }
 
@@ -559,8 +565,59 @@ final class StreamingWebRTCSession: NSObject {
         let currentTransport = transportGeneration
         armWatchdog(transport: currentTransport, delay: 15_000_000_000)
         startMediaProgressMonitoring(transport: currentTransport)
+        watchForHlsVideoTakeover(masterURL: url, transport: currentTransport)
         onStreamingStateChanged?()
         player.play()
+    }
+
+    private func watchForHlsVideoTakeover(masterURL: URL, transport: Int) {
+        hlsVideoWatchTask?.cancel()
+        hlsVideoWatchTask = Task { @MainActor [weak self] in
+            var videoListedUptime: TimeInterval?
+            while !Task.isCancelled {
+                let interval: UInt64 = videoListedUptime == nil ? 5_000_000_000 : 2_000_000_000
+                do { try await Task.sleep(nanoseconds: interval) } catch { return }
+                guard let self, self.isPlayingVlcWithoutVideo(transport) else { return }
+                let masterPlaylist = await self.fetchPlaylist(masterURL)
+                guard self.isPlayingVlcWithoutVideo(transport) else { return }
+                guard let master = masterPlaylist else { continue }
+                let variants = Self.hlsVariants(in: master, relativeTo: masterURL)
+                guard !variants.isEmpty else { return }
+                guard variants.contains(where: { $0.listsVideo }) else {
+                    self.hlsMasterWasAudioOnly = true
+                    videoListedUptime = nil
+                    continue
+                }
+                guard self.hlsMasterWasAudioOnly else { return }
+                let now = ProcessInfo.processInfo.systemUptime
+                let listedUptime = videoListedUptime ?? now
+                videoListedUptime = listedUptime
+                if now - listedUptime < Self.hlsVideoTakeoverMaxWait {
+                    var isContinuous = true
+                    for variant in variants where isContinuous {
+                        let playlist = await self.fetchPlaylist(variant.url)
+                        isContinuous = playlist.map { Self.isContinuousMediaPlaylist($0) } ?? false
+                    }
+                    guard self.isPlayingVlcWithoutVideo(transport) else { return }
+                    guard isContinuous else { continue }
+                }
+                self.hlsMasterWasAudioOnly = false
+                self.startVlcHls(url: masterURL, transport: transport)
+                return
+            }
+        }
+    }
+
+    private func isPlayingVlcWithoutVideo(_ transport: Int) -> Bool {
+        transport == transportGeneration && vlcPlayer != nil && !hasVideoFrames
+    }
+
+    private func fetchPlaylist(_ url: URL) async -> String? {
+        var request = URLRequest(url: url)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        guard let result = try? await httpData(request),
+              (result.1 as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        return String(data: result.0, encoding: .utf8)
     }
 
     private func noteMediaProgress() {
@@ -698,6 +755,8 @@ final class StreamingWebRTCSession: NSObject {
         watchdogDeadline = nil
         mediaProgressTask?.cancel()
         mediaProgressTask = nil
+        hlsVideoWatchTask?.cancel()
+        hlsVideoWatchTask = nil
         if let resourceURL { deleteResource(resourceURL) }
         resourceURL = nil
         let oldPeer = peerConnection
@@ -787,6 +846,32 @@ final class StreamingWebRTCSession: NSObject {
         guard let url = URL(string: raw), let scheme = url.scheme?.lowercased(),
               ["https", "http"].contains(scheme), url.host != nil else { return nil }
         return url
+    }
+
+    private static func hlsVariants(in master: String, relativeTo masterURL: URL) -> [HlsVariant] {
+        var variants: [HlsVariant] = []
+        var streamInfo: String?
+        for rawLine in master.split(whereSeparator: \.isNewline) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("#EXT-X-STREAM-INF:") {
+                streamInfo = line
+            } else if let info = streamInfo, !line.isEmpty, !line.hasPrefix("#") {
+                streamInfo = nil
+                guard let url = URL(string: line, relativeTo: masterURL)?.absoluteURL else { continue }
+                variants.append(HlsVariant(url: url, listsVideo: hlsVideoMarkers.contains { info.contains($0) }))
+            }
+        }
+        return variants
+    }
+
+    private static func isContinuousMediaPlaylist(_ playlist: String) -> Bool {
+        var hasSegment = false
+        for rawLine in playlist.split(whereSeparator: \.isNewline) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line == "#EXT-X-DISCONTINUITY" { return false }
+            if line.hasPrefix("#EXTINF:") { hasSegment = true }
+        }
+        return hasSegment
     }
 
     private static func resolvedPlayback(_ playback: Mezon_Api_GetStreamPlaybackResponse, channelId: Int64) -> Mezon_Api_GetStreamPlaybackResponse {
@@ -939,6 +1024,11 @@ final class StreamingWebRTCSession: NSObject {
     }
 
     private struct WhepError: Error { let status: Int }
+
+    private struct HlsVariant {
+        let url: URL
+        let listsVideo: Bool
+    }
 
     private static func createOffer(on pc: RTCPeerConnection) async throws -> RTCSessionDescription {
         try await withCheckedThrowingContinuation { continuation in
