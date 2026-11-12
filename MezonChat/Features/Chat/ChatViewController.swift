@@ -32,6 +32,7 @@ struct ParsedAttachment: Equatable {
     let width: Int?
     let height: Int?
     let durationSeconds: Int?
+    var size: Int32 = 0
     var thumbnail: String = ""
     var localImage: UIImage?
     var isUploading: Bool = false

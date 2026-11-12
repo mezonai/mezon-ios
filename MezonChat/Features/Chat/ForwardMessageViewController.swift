@@ -48,6 +48,7 @@ private enum ForwardOutgoing {
             if let w = p.width { att.width = Int32(w) }
             if let h = p.height { att.height = Int32(h) }
             if let d = p.durationSeconds { att.duration = Int32(d) }
+            att.size = p.size
             return att
         }
     }
@@ -226,7 +227,8 @@ private enum ForwardOutgoing {
             filetype: att.filetype,
             width: att.width != 0 ? Int(att.width) : nil,
             height: att.height != 0 ? Int(att.height) : nil,
-            durationSeconds: att.duration > 0 ? Int(att.duration) : nil
+            durationSeconds: att.duration > 0 ? Int(att.duration) : nil,
+            size: att.size
         )
     }
 
@@ -237,7 +239,8 @@ private enum ForwardOutgoing {
             filetype: att.filetype,
             width: att.width == 0 ? nil : Int(att.width),
             height: att.height == 0 ? nil : Int(att.height),
-            durationSeconds: nil
+            durationSeconds: nil,
+            size: Int32(clamping: Int64(att.filesize.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0)
         )
     }
 
@@ -250,7 +253,8 @@ private enum ForwardOutgoing {
             filetype: att.fileType,
             width: att.width == 0 ? nil : Int(att.width),
             height: att.height == 0 ? nil : Int(att.height),
-            durationSeconds: att.duration > 0 ? Int(att.duration) : nil
+            durationSeconds: att.duration > 0 ? Int(att.duration) : nil,
+            size: Int32(clamping: att.fileSize)
         )
     }
 
@@ -266,6 +270,16 @@ private enum ForwardOutgoing {
             if let s = item["duration"] as? String, let n = Int(s) { return n > 0 ? n : nil }
             return nil
         }()
+        let size: Int32 = {
+            for key in ["size", "filesize", "file_size", "fileSize"] {
+                if let n = item[key] as? NSNumber { return Int32(clamping: n.int64Value) }
+                if let s = item[key] as? String,
+                   let n = Int64(s.trimmingCharacters(in: .whitespacesAndNewlines)) {
+                    return Int32(clamping: n)
+                }
+            }
+            return 0
+        }()
         let ftRaw = (item["filetype"] as? String
             ?? item["file_type"] as? String
             ?? item["fileType"] as? String
@@ -276,7 +290,8 @@ private enum ForwardOutgoing {
             filetype: ftRaw,
             width: w,
             height: h,
-            durationSeconds: d
+            durationSeconds: d,
+            size: size
         )
     }
 

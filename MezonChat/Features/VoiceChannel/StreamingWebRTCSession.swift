@@ -717,11 +717,16 @@ final class StreamingWebRTCSession: NSObject {
         player?.replaceCurrentItem(with: nil)
         player = nil
         activeHlsURL = nil
-        let oldVlcPlayer = vlcPlayer
+        let oldVlcPlayer = vlcPlayer.map { Unmanaged.passRetained($0) }
         vlcPlayer = nil
-        oldVlcPlayer?.delegate = nil
-        oldVlcPlayer?.stop()
-        oldVlcPlayer?.drawable = nil
+        if let stoppingPlayer = oldVlcPlayer?.takeUnretainedValue() {
+            stoppingPlayer.delegate = nil
+            stoppingPlayer.stop()
+            stoppingPlayer.drawable = nil
+        }
+        if let oldVlcPlayer {
+            DispatchQueue.main.async { DispatchQueue.global(qos: .utility).async { oldVlcPlayer.release() } }
+        }
         vlcVideoView = nil
         if hasActivatedHlsAudioSession {
             hasActivatedHlsAudioSession = false
@@ -1008,11 +1013,13 @@ extension StreamingWebRTCSession: RTCPeerConnectionDelegate {
 extension StreamingWebRTCSession: VLCMediaPlayerDelegate {
     nonisolated func mediaPlayerStateChanged(_ notification: Notification) {
         guard let player = notification.object as? VLCMediaPlayer else { return }
+        let playerID = ObjectIdentifier(player)
+        let state = player.state
         Task { @MainActor [weak self] in
-            guard let self, player === self.vlcPlayer else { return }
-            switch player.state {
+            guard let self, self.vlcPlayer.map(ObjectIdentifier.init) == playerID else { return }
+            switch state {
             case .error, .ended, .stopped:
-                self.log("hls-vlc-ended", "state=\(player.state.rawValue)")
+                self.log("hls-vlc-ended", "state=\(state.rawValue)")
                 self.scheduleReconnect()
             default:
                 // VLC's buffering state may repeat even while its playback clock advances.
@@ -1024,8 +1031,9 @@ extension StreamingWebRTCSession: VLCMediaPlayerDelegate {
 
     nonisolated func mediaPlayerTimeChanged(_ notification: Notification) {
         guard let player = notification.object as? VLCMediaPlayer else { return }
+        let playerID = ObjectIdentifier(player)
         Task { @MainActor [weak self] in
-            guard let self, player === self.vlcPlayer else { return }
+            guard let self, let player = self.vlcPlayer, ObjectIdentifier(player) == playerID else { return }
             let time = player.time.intValue
             guard time > 0 else { return }
             let progressed = self.lastVlcTime > 0 && time > self.lastVlcTime
