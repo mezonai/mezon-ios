@@ -5,6 +5,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
 
     var onClose: (() -> Void)?
     var onSelectOverview: (() -> Void)?
+    var onSelectCommunity: (() -> Void)?
     var onSelectRoles: (() -> Void)?
     var onSelectAuditLog: (() -> Void)?
     var onSelectIntegrations: (() -> Void)?
@@ -23,6 +24,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
     private var canShowIntegrations: Bool
     private var canShowOverview: Bool
     private var canShowAuditLog: Bool
+    private var canShowCommunity: Bool
 
     private let scrollView = UIScrollView()
     private let stackView = UIStackView()
@@ -60,7 +62,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
     private let headerH: CGFloat = 64.sh
     private let padH: CGFloat = 12.sw
 
-    init(context: AccountContext, clanId: Int64, clanName: String, avatarURL: String, canShowRoles: Bool, canShowIntegrations: Bool, canShowOverview: Bool, canShowAuditLog: Bool) {
+    init(context: AccountContext, clanId: Int64, clanName: String, avatarURL: String, canShowRoles: Bool, canShowIntegrations: Bool, canShowOverview: Bool, canShowAuditLog: Bool, canShowCommunity: Bool) {
         self.context = context
         self.clanId = clanId
         self.clanName = clanName
@@ -69,6 +71,7 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         self.canShowIntegrations = canShowIntegrations
         self.canShowOverview = canShowOverview
         self.canShowAuditLog = canShowAuditLog
+        self.canShowCommunity = canShowCommunity
         super.init()
         backgroundColor = UIColor.theme.secondary
     }
@@ -140,9 +143,11 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         settingsActions.append(contentsOf: [
             .init(title: L(L10n.ClanSetting.emoji), icon: "ClanSetting/emoji", identifier: "emoji", navigate: .emojis),
             .init(title: L(L10n.ClanSetting.sticker), icon: "ClanSetting/StickerIcon", identifier: "sticker", navigate: .stickers),
-            .init(title: L(L10n.ClanSetting.soundEffect), icon: "ClanSetting/SoundEffectIcon", identifier: "sound-effect"),
-            .init(title: L(L10n.ClanSetting.enableCommunity), icon: "ClanSetting/EnableCommunityIcon", identifier: "enable-community")
+            .init(title: L(L10n.ClanSetting.soundEffect), icon: "ClanSetting/SoundEffectIcon", identifier: "sound-effect")
         ])
+        if canShowCommunity {
+            settingsActions.append(.init(title: L(L10n.ClanSetting.enableCommunity), icon: "ClanSetting/EnableCommunityIcon", identifier: "enable-community", navigate: .community))
+        }
         
         let settingsGroup = createGroup(actions: settingsActions)
         stackView.addArrangedSubview(settingsGroup)
@@ -167,12 +172,13 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         stackView.addArrangedSubview(footerSpacer)
     }
 
-    func updateCanShowRoles(_ canShowRoles: Bool, canShowIntegrations: Bool, canShowOverview: Bool, canShowAuditLog: Bool) {
-        guard self.canShowRoles != canShowRoles || self.canShowIntegrations != canShowIntegrations || self.canShowOverview != canShowOverview || self.canShowAuditLog != canShowAuditLog else { return }
+    func updateCanShowRoles(_ canShowRoles: Bool, canShowIntegrations: Bool, canShowOverview: Bool, canShowAuditLog: Bool, canShowCommunity: Bool) {
+        guard self.canShowRoles != canShowRoles || self.canShowIntegrations != canShowIntegrations || self.canShowOverview != canShowOverview || self.canShowAuditLog != canShowAuditLog || self.canShowCommunity != canShowCommunity else { return }
         self.canShowRoles = canShowRoles
         self.canShowIntegrations = canShowIntegrations
         self.canShowOverview = canShowOverview
         self.canShowAuditLog = canShowAuditLog
+        self.canShowCommunity = canShowCommunity
         guard isNodeLoaded else { return }
         rebuildContent()
     }
@@ -482,6 +488,8 @@ final class ClanSettingsContainerNode: ASDisplayNode {
         switch nav {
         case .overview:
             onSelectOverview?()
+        case .community:
+            onSelectCommunity?()
         case .roles:
             onSelectRoles?()
         case .integrations:
@@ -511,6 +519,7 @@ private enum ClanSettingsNavigateAction: Int {
     case invites = 5
     case members = 6
     case auditLog = 7
+    case community = 8
 }
 
 private struct SettingAction {

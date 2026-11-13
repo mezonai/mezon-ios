@@ -1,6 +1,6 @@
 import UIKit
 
-private enum DiscoverClanHashtags {
+enum DiscoverClanHashtags {
     static func parse(_ raw: String) -> [String] {
         let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return [] }
@@ -15,27 +15,31 @@ private enum DiscoverClanHashtags {
         } else {
             tags = [value]
         }
+        return normalized(tags)
+    }
+
+    static func normalized(_ tags: [String]) -> [String] {
         var seen = Set<String>()
         return tags.compactMap { rawTag in
             var tag = rawTag.trimmingCharacters(in: .whitespacesAndNewlines)
             if tag.hasPrefix("#") { tag.removeFirst() }
             tag = tag.trimmingCharacters(in: .whitespacesAndNewlines)
-            return !tag.isEmpty && seen.insert(tag).inserted ? tag : nil
+            return !tag.isEmpty && seen.insert(tag.lowercased()).inserted ? tag : nil
         }
     }
 
     static func label(_ tag: String) -> String {
-        switch tag {
-        case "Gaming": return L(L10n.DiscoverDetail.hashtagGaming)
-        case "Technology": return L(L10n.DiscoverDetail.hashtagTechnology)
-        case "Education": return L(L10n.DiscoverDetail.hashtagEducation)
-        case "Entertainment": return L(L10n.DiscoverDetail.hashtagEntertainment)
-        case "Music": return L(L10n.DiscoverDetail.hashtagMusic)
-        case "Art": return L(L10n.DiscoverDetail.hashtagArt)
-        case "Crypto": return L(L10n.DiscoverDetail.hashtagCrypto)
-        case "Anime": return L(L10n.DiscoverDetail.hashtagAnime)
-        case "Sports": return L(L10n.DiscoverDetail.hashtagSports)
-        case "Community": return L(L10n.DiscoverDetail.hashtagCommunity)
+        switch tag.lowercased() {
+        case "gaming": return L(L10n.DiscoverDetail.hashtagGaming)
+        case "technology": return L(L10n.DiscoverDetail.hashtagTechnology)
+        case "education": return L(L10n.DiscoverDetail.hashtagEducation)
+        case "entertainment": return L(L10n.DiscoverDetail.hashtagEntertainment)
+        case "music": return L(L10n.DiscoverDetail.hashtagMusic)
+        case "art": return L(L10n.DiscoverDetail.hashtagArt)
+        case "crypto": return L(L10n.DiscoverDetail.hashtagCrypto)
+        case "anime": return L(L10n.DiscoverDetail.hashtagAnime)
+        case "sports": return L(L10n.DiscoverDetail.hashtagSports)
+        case "community": return L(L10n.DiscoverDetail.hashtagCommunity)
         default: return tag
         }
     }

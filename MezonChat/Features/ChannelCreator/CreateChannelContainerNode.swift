@@ -29,7 +29,7 @@ final class CreateChannelContainerNode: ASDisplayNode {
         self.onClose = onClose
         self.onCreate = onCreate
         super.init()
-        backgroundColor = UIColor.theme.themeSettingPrimary
+        backgroundColor = UIColor.theme.secondary
     }
 
     override func didLoad() {
@@ -137,8 +137,10 @@ final class CreateChannelContainerNode: ASDisplayNode {
         typeSection.addArrangedSubview(typeLabel)
 
         let typeGroup = UIView()
-        typeGroup.backgroundColor = UIColor.theme.secondary
+        typeGroup.backgroundColor = UIColor.theme.primary
         typeGroup.layer.cornerRadius = 12
+        typeGroup.layer.borderWidth = 1
+        typeGroup.layer.borderColor = UIColor.theme.borderPrimary.cgColor
         typeGroup.clipsToBounds = true
         let typeStack = UIStackView()
         typeStack.axis = .vertical
@@ -185,8 +187,10 @@ final class CreateChannelContainerNode: ASDisplayNode {
         typeSection.addArrangedSubview(typeGroup)
         stackView.addArrangedSubview(typeSection)
 
-        privateSection.backgroundColor = UIColor.theme.secondary
+        privateSection.backgroundColor = UIColor.theme.primary
         privateSection.layer.cornerRadius = 12
+        privateSection.layer.borderWidth = 1
+        privateSection.layer.borderColor = UIColor.theme.borderPrimary.cgColor
         
         let privateTitle = UILabel()
         privateTitle.text = L(L10n.ChannelSetting.privateChannel)
@@ -246,8 +250,10 @@ final class CreateChannelContainerNode: ASDisplayNode {
         label.textColor = UIColor.theme.textStrong
         v.addArrangedSubview(label)
 
-        input.backgroundColor = UIColor.theme.secondary
+        input.backgroundColor = UIColor.theme.primary
         input.layer.cornerRadius = 12
+        input.layer.borderWidth = 1
+        input.layer.borderColor = UIColor.theme.borderPrimary.cgColor
         if let tf = input as? UITextField {
             tf.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 12.sw, height: 1))
             tf.leftViewMode = .always
@@ -370,7 +376,7 @@ final class CreateChannelContainerNode: ASDisplayNode {
     }
 
     func applyTheme() {
-        backgroundColor = UIColor.theme.themeSettingPrimary
+        backgroundColor = UIColor.theme.secondary
         activityIndicator.color = UIColor.theme.textStrong
     }
 
