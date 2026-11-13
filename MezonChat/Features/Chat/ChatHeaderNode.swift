@@ -15,7 +15,7 @@ final class ChatHeaderNode: ASDisplayNode {
     private let searchButtonNode = ASButtonNode()
     private let separatorNode = ASDisplayNode()
 
-    private var isDM = false
+    private let isDM: Bool
     private var showsInVoice = false
 
     var onBackTapped: (() -> Void)?
@@ -25,7 +25,8 @@ final class ChatHeaderNode: ASDisplayNode {
     var onCallTapped: (() -> Void)?
     var onVideoCallTapped: (() -> Void)?
 
-    override init() {
+    init(isDM: Bool) {
+        self.isDM = isDM
         super.init()
         automaticallyManagesSubnodes = true
 
@@ -38,10 +39,16 @@ final class ChatHeaderNode: ASDisplayNode {
 
         titleContainerNode.automaticallyManagesSubnodes = true
         titleContainerNode.addTarget(self, action: #selector(headerPressed), forControlEvents: .touchUpInside)
+
+        let actionIconSize = CGSize(width: 20, height: 20)
         callButtonNode.setImage(
             (UIImage(named: "Chat/CallIcon") ?? UIImage(systemName: "phone.fill"))?.withRenderingMode(.alwaysTemplate),
             for: .normal
         )
+        callButtonNode.imageNode.contentMode = .scaleAspectFit
+        callButtonNode.imageNode.style.preferredSize = actionIconSize
+        callButtonNode.accessibilityIdentifier = AccessibilityID.Chat.call
+        callButtonNode.accessibilityLabel = L(L10n.CallLog.audioCall)
         callButtonNode.addTarget(self, action: #selector(callPressed), forControlEvents: .touchUpInside)
         callButtonNode.isHidden = true
 
@@ -56,6 +63,10 @@ final class ChatHeaderNode: ASDisplayNode {
             (UIImage(named: "Channel/Search") ?? UIImage(systemName: "magnifyingglass"))?.withRenderingMode(.alwaysTemplate),
             for: .normal
         )
+        searchButtonNode.imageNode.contentMode = .scaleAspectFit
+        searchButtonNode.imageNode.style.preferredSize = actionIconSize
+        searchButtonNode.accessibilityIdentifier = AccessibilityID.Chat.search
+        searchButtonNode.accessibilityLabel = L(L10n.Common.search)
         searchButtonNode.addTarget(self, action: #selector(searchPressed), forControlEvents: .touchUpInside)
 
         channelIconNode.contentMode = .scaleAspectFit
@@ -95,7 +106,7 @@ final class ChatHeaderNode: ASDisplayNode {
 
     func configure(
         title: String, subtitle: String? = nil, channelType: Int32, isPrivate: Bool,
-        isAgeRestricted: Bool, isDM: Bool = false, isBlocked: Bool = false,
+        isAgeRestricted: Bool, isBlocked: Bool = false,
         isInVoice: Bool = false
     ) {
         let t = UIColor.theme
@@ -164,8 +175,6 @@ final class ChatHeaderNode: ASDisplayNode {
             channelIconNode.image = image?.withRenderingMode(.alwaysTemplate)
             channelIconNode.tintColor = t.textStrong
         }
-        self.isDM = isDM
-
         self.setNeedsLayout()
     }
 
@@ -277,7 +286,9 @@ final class ChatHeaderNode: ASDisplayNode {
         if isDM && !callButtonNode.isHidden {
             rowChildren.append(callButtonNode)
         }
-        rowChildren.append(searchButtonNode)
+        if !isDM {
+            rowChildren.append(searchButtonNode)
+        }
 
         let row = ASStackLayoutSpec(
             direction: .horizontal,

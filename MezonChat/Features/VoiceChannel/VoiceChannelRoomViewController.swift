@@ -1816,6 +1816,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         raiseHandButton = hand
 
         styleVoiceAgentHeaderButton(agentToggleButton)
+        agentToggleButton.accessibilityIdentifier = AccessibilityID.VoiceRoom.agent
         agentToggleButton.addTarget(self, action: #selector(agentToggleTapped), for: .touchUpInside)
         agentToggleSpinner.hidesWhenStopped = true
         agentToggleSpinner.translatesAutoresizingMaskIntoConstraints = false
@@ -1824,7 +1825,7 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             agentToggleSpinner.centerXAnchor.constraint(equalTo: agentToggleButton.centerXAnchor),
             agentToggleSpinner.centerYAnchor.constraint(equalTo: agentToggleButton.centerYAnchor),
         ])
-        agentToggleButton.isHidden = isExternalMeeting || !voiceChannelCanManageVoice()
+        agentToggleButton.isHidden = !canToggleVoiceAgent()
         refreshVoiceAgentButtonAppearance()
 
         headerRight.addArrangedSubview(agentToggleButton)
@@ -5144,6 +5145,10 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
         return context.rolePermissions.canManageChannel(clanId: clanId)
     }
 
+    private func canToggleVoiceAgent() -> Bool {
+        isExternalMeeting || voiceChannelCanManageVoice()
+    }
+
     private func refreshVoiceAgentButtonAppearance() {
         let iconTint = voiceAgentPresent ? UIColor.theme.white : UIColor.theme.textStrong
         if isAgentToggleLoading {
@@ -5177,12 +5182,13 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
     }
 
     @objc private func agentToggleTapped() {
-        guard !isAgentToggleLoading, voiceChannelCanManageVoice(), !agentToggleButton.isHidden else { return }
+        guard !isAgentToggleLoading, canToggleVoiceAgent(), !agentToggleButton.isHidden else { return }
         let wasPresent = voiceAgentPresent
         isAgentToggleLoading = true
         refreshVoiceAgentButtonAppearance()
         let ch = channel
-        let roomName = "\(ch.channelID)"
+        let agentChannelId: Int64 = isExternalMeeting ? 0 : ch.channelID
+        let roomName = "\(externalMeeting?.roomId ?? ch.channelID)"
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer {
@@ -5197,9 +5203,9 @@ final class VoiceChannelRoomViewController: ViewController, ScreenShareExpandedP
             }
             do {
                 if wasPresent {
-                    try await self.context.account.network.disconnectAgentFromVoiceChannel(channelId: ch.channelID, roomName: roomName, token: token)
+                    try await self.context.account.network.disconnectAgentFromVoiceChannel(channelId: agentChannelId, roomName: roomName, token: token)
                 } else {
-                    try await self.context.account.network.addAgentToVoiceChannel(channelId: ch.channelID, roomName: roomName, token: token)
+                    try await self.context.account.network.addAgentToVoiceChannel(channelId: agentChannelId, roomName: roomName, token: token)
                 }
             } catch {
                 self.presentVoiceAlert(
