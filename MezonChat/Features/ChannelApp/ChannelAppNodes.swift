@@ -53,7 +53,7 @@ final class ChannelAppCellNode: ASCellNode {
 
         let t = UIColor.theme
 
-        cardNode.backgroundColor = t.secondaryLight
+        cardNode.backgroundColor = t.tertiary
         cardNode.cornerRadius = 12.swh
         cardNode.borderWidth = 1
         cardNode.borderColor = t.border.cgColor

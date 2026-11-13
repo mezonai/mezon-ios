@@ -79,7 +79,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
             forName: .mezonBuzzStateChanged, object: buzz, queue: .main
         ) { [weak self] _ in self?.reconfigureVisibleCells() }
         let t0 = UIColor.theme
-        backgroundColor = t0.secondary
+        backgroundColor = t0.primary
 
         disposables.add(
             (signal |> deliverOnMainQueue).start(next: { [weak self] newState in
@@ -338,7 +338,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
     func applyTheme() {
         let t = UIColor.theme
         let gradient = t.desktop.conversationGradient
-        backgroundColor = gradient == nil ? t.secondary : .clear
+        backgroundColor = gradient == nil ? t.primary : .clear
         titleLabel.textColor = t.textStrong
 
         guard isNodeLoaded else { return }
@@ -542,7 +542,7 @@ extension DirectMessagesContainerNode: UITableViewDataSource, UITableViewDelegat
     func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
         guard let title = sectionTitle(section) else { return nil }
         let header = UIView()
-        header.backgroundColor = UIColor.theme.secondary
+        header.backgroundColor = UIColor.theme.primary
         let label = UILabel()
         label.text = title
         label.font = .systemFont(ofSize: 12.sf, weight: .semibold)

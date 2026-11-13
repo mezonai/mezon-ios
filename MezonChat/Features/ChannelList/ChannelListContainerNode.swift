@@ -166,8 +166,8 @@ final class ChannelListContainerNode: ASDisplayNode {
             initialChannelApps.filter { $0.hasListableChannelAppContent }
         )
         super.init()
-        backgroundColor = UIColor.theme.secondary
-        tableNode.backgroundColor = UIColor.theme.secondary
+        backgroundColor = UIColor.theme.primary
+        tableNode.backgroundColor = UIColor.theme.primary
 
         headerUIView.onQRTapped = { [weak self] in
             self?.interaction.onQRTapped?()
@@ -366,7 +366,7 @@ final class ChannelListContainerNode: ASDisplayNode {
             rows: rows,
             referenceRects: [headerUIView.frame],
             exclusionRects: exclusions,
-            backgroundColor: t.secondary,
+            backgroundColor: t.primary,
             rowTextColor: t.channelNormal
         ), probe.isTrusted else { return }
         if probe.dimRows.count < 2 {
@@ -1901,7 +1901,7 @@ final class ChannelListContainerNode: ASDisplayNode {
     private func applyHeaderBackground() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        headerUIView.backgroundColor = UIColor.theme.secondary
+        headerUIView.backgroundColor = UIColor.theme.primary
         headerGradientLayer.isHidden = gradientLayer.isHidden
         headerGradientLayer.colors = gradientLayer.colors
         headerGradientLayer.locations = gradientLayer.locations
@@ -2351,7 +2351,7 @@ final class ChannelListContainerNode: ASDisplayNode {
         gradient?.apply(to: gradientLayer, in: isNodeLoaded ? view.window : nil)
         applyHeaderBackground()
         CATransaction.commit()
-        let listBackground = gradient == nil ? t.secondary : UIColor.clear
+        let listBackground = gradient == nil ? t.primary : UIColor.clear
         backgroundColor = listBackground
         tableNode.backgroundColor = listBackground
         tableNode.view.backgroundColor = listBackground
@@ -3276,16 +3276,18 @@ final class ChannelListHeaderView: UIView {
         memberCountLabel.textColor = t.textStrong
         communityLabel.textColor = t.textStrong
         searchBar.backgroundColor = t.tertiary
+        searchBar.layer.borderWidth = 1
+        searchBar.layer.borderColor = t.border.cgColor
         searchIcon.tintColor = t.textNormal
         searchLabel.textColor = t.textNormal
         qrButton.setImage(UIImage(named: "Profile/ScanQR")?.withRenderingMode(.alwaysTemplate), for: .normal)
         qrButton.tintColor = .mezonIconDefault
 
-        qrButton.backgroundColor = t.raisedSurface
-        qrButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
+        qrButton.backgroundColor = t.tertiary
+        qrButton.layer.borderColor = t.border.cgColor
         eventButton.tintColor = .mezonIconDefault
-        eventButton.backgroundColor = t.raisedSurface
-        eventButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
+        eventButton.backgroundColor = t.tertiary
+        eventButton.layer.borderColor = t.border.cgColor
         separator.backgroundColor = t.borderDim
     }
 

@@ -61,7 +61,7 @@ final class NotificationsViewController: ViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = UIColor.theme.secondary
+        view.backgroundColor = UIColor.theme.primary
         notificationsNode.applyTheme()
         NotificationCenter.default.addObserver(
             self, selector: #selector(handleThemeChange),
@@ -377,7 +377,7 @@ final class NotificationsViewController: ViewController {
     }
 
     @objc private func handleThemeChange() {
-        view.backgroundColor = UIColor.theme.secondary
+        view.backgroundColor = UIColor.theme.primary
         notificationsNode.applyTheme()
     }
 

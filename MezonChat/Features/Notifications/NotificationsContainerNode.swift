@@ -655,7 +655,7 @@ final class NotificationsContainerNode: ASDisplayNode {
         self.interaction = interaction
         super.init()
         let t0 = UIColor.theme
-        backgroundColor = t0.secondary
+        backgroundColor = t0.primary
 
         disposables.add(
             (signal |> deliverOnMainQueue).start(next: { [weak self] newState in
@@ -919,7 +919,7 @@ final class NotificationsContainerNode: ASDisplayNode {
                     cfg?.baseBackgroundColor = t.bgViolet
                     cfg?.background.strokeWidth = 0
                 } else {
-                    cfg?.baseBackgroundColor = t.secondaryLight
+                    cfg?.baseBackgroundColor = t.tertiary
                     cfg?.background.strokeColor = t.borderDim
                     cfg?.background.strokeWidth = 1
                 }
@@ -930,7 +930,7 @@ final class NotificationsContainerNode: ASDisplayNode {
                     btn.backgroundColor = t.bgViolet
                     btn.layer.borderWidth = 0
                 } else {
-                    btn.backgroundColor = t.secondaryLight
+                    btn.backgroundColor = t.tertiary
                     btn.layer.borderColor = t.borderDim.cgColor
                     btn.layer.borderWidth = 1
                 }
@@ -958,9 +958,9 @@ final class NotificationsContainerNode: ASDisplayNode {
 
     func applyTheme() {
         let t = UIColor.theme
-        backgroundColor = t.secondary
+        backgroundColor = t.primary
         if isNodeLoaded {
-            view.backgroundColor = t.secondary
+            view.backgroundColor = t.primary
         }
         tableView.backgroundColor = .clear
         headerView.backgroundColor = .clear
