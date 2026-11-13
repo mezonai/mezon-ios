@@ -104,7 +104,7 @@ final class PeerWebRTCCallSession: NSObject {
     private var didSendConnectedCallerCancelPush = false
 
     private var isAnswerPrepared = false
-    private var preparedAnswerCompressed: String?
+    private var preparedAnswer: RTCSessionDescription?
     private var isPreWarmingNoSignal = false
     private var preWarmInFlight = false
     private var deferredOutgoingSignaling: [(receiverId: Int64, dataType: Int32, jsonData: String)] = []
@@ -521,7 +521,7 @@ final class PeerWebRTCCallSession: NSObject {
         }
         pendingRemoteIceJsonBeforePc.removeAll()
 
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+        let answer = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<RTCSessionDescription, Error>) in
             pc.answer(for: constraints) { sdp, error in
                 if let error {
                     cont.resume(throwing: error)
@@ -531,32 +531,21 @@ final class PeerWebRTCCallSession: NSObject {
                     cont.resume(throwing: PeerWebRTCCallSessionError.missingSDP)
                     return
                 }
-                pc.setLocalDescription(sdp) { err in
-                    if let err {
-                        cont.resume(throwing: err)
-                    } else {
-                        cont.resume()
-                    }
-                }
+                cont.resume(returning: sdp)
             }
         }
         try ensureCallStillActive()
 
         mergeThreadSafePreWarmDeferredIntoDeferredOutgoing()
 
-        guard let localSDP = pc.localDescription else {
-            throw PeerWebRTCCallSessionError.missingSDP
-        }
-        let answerJson = try answerJSONString(from: localSDP)
-        let compressedAnswer = try PeerWebRTCStringCompression.gzipCompressUtf8(answerJson)
-        preparedAnswerCompressed = compressedAnswer
+        preparedAnswer = answer
         isAnswerPrepared = true
     }
 
     private func resetAfterFailedPreWarm() {
         clearPreWarmDeferralPipeline()
         isAnswerPrepared = false
-        preparedAnswerCompressed = nil
+        preparedAnswer = nil
         deferredOutgoingSignaling.removeAll()
         peerConnection?.close()
         peerConnection = nil
@@ -576,12 +565,27 @@ final class PeerWebRTCCallSession: NSObject {
         guard let pc = peerConnection else {
             throw PeerWebRTCCallSessionError.peerConnectionCreateFailed
         }
-        guard let compressedAnswer = preparedAnswerCompressed else {
+        guard let answer = preparedAnswer else {
             throw PeerWebRTCCallSessionError.missingSDP
         }
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            pc.setLocalDescription(answer) { err in
+                if let err {
+                    cont.resume(throwing: err)
+                } else {
+                    cont.resume()
+                }
+            }
+        }
+        try ensureCallStillActive()
+        guard let localSDP = pc.localDescription else {
+            throw PeerWebRTCCallSessionError.missingSDP
+        }
+        let answerJson = try answerJSONString(from: localSDP)
+        let compressedAnswer = try PeerWebRTCStringCompression.gzipCompressUtf8(answerJson)
         mergeThreadSafePreWarmDeferredIntoDeferredOutgoing()
         setPreWarmingNoSignal(false)
-        preparedAnswerCompressed = nil
+        preparedAnswer = nil
         isAnswerPrepared = false
 
         try await sendInitialSDP(

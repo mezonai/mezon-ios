@@ -212,8 +212,6 @@ final class ChatEmojiPickerPresenter {
         v.onEmojiSelected = { [weak self] emojiId, shortname in
             guard let send = self?.sendInput else { return }
             send.insertEmoji(emojiId, shortname: shortname)
-            send.hideEmojiPickerIfNeeded()
-            send.focusComposerAfterEmojiPanelSelection()
         }
         v.onStickerSelected = { [weak self] sticker in
             guard let send = self?.sendInput else { return }

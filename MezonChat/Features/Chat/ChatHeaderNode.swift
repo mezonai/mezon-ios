@@ -17,6 +17,7 @@ final class ChatHeaderNode: ASDisplayNode {
 
     private let isDM: Bool
     private var showsInVoice = false
+    private var isTopicDiscussion = false
 
     var onBackTapped: (() -> Void)?
     var onHeaderTapped: (() -> Void)?
@@ -107,9 +108,10 @@ final class ChatHeaderNode: ASDisplayNode {
     func configure(
         title: String, subtitle: String? = nil, channelType: Int32, isPrivate: Bool,
         isAgeRestricted: Bool, isBlocked: Bool = false,
-        isInVoice: Bool = false
+        isInVoice: Bool = false, isTopicDiscussion: Bool = false
     ) {
         let t = UIColor.theme
+        self.isTopicDiscussion = isTopicDiscussion
 
         titleNode.attributedText = NSAttributedString(
             string: title,
@@ -147,6 +149,7 @@ final class ChatHeaderNode: ASDisplayNode {
 
         let iconName: String
         switch channelType {
+        case _ where isTopicDiscussion: iconName = "Chat/TopicIcon"
         case 10: iconName = "Chat/SpeakerIcon"
         case 4:  iconName = "Channel/ChevronRight"
         case 6:  iconName = "Channel/channelStream"
@@ -286,7 +289,7 @@ final class ChatHeaderNode: ASDisplayNode {
         if isDM && !callButtonNode.isHidden {
             rowChildren.append(callButtonNode)
         }
-        if !isDM {
+        if !isDM && !isTopicDiscussion {
             rowChildren.append(searchButtonNode)
         }
 
