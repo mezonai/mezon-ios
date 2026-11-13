@@ -202,6 +202,8 @@ private final class DmMessageActivityCell: UICollectionViewCell {
     func applyTheme() {
         let t = UIColor.theme
         card.backgroundColor = t.tertiary
+        card.layer.borderWidth = 1
+        card.layer.borderColor = t.border.cgColor
         nameLabel.textColor = t.textStrong
         subtitleLabel.textColor = t.textDisabled
     }

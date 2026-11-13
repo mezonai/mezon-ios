@@ -53,7 +53,7 @@ final class ChannelAppCellNode: ASCellNode {
 
         let t = UIColor.theme
 
-        cardNode.backgroundColor = t.secondaryLight
+        cardNode.backgroundColor = t.tertiary
         cardNode.cornerRadius = 12.swh
         cardNode.borderWidth = 1
         cardNode.borderColor = t.border.cgColor
@@ -229,11 +229,11 @@ final class ChannelAppIconNode: ASControlNode {
 
         let t = UIColor.theme
 
-        logoContainerNode.backgroundColor = t.primary
+        logoContainerNode.backgroundColor = t.tertiary
         logoContainerNode.cornerRadius = 20.swh
         logoContainerNode.clipsToBounds = true
-        logoContainerNode.borderWidth = 0.5
-        logoContainerNode.borderColor = UIColor.clear.cgColor
+        logoContainerNode.borderWidth = 1
+        logoContainerNode.borderColor = t.border.cgColor
 
         logoImageNode.contentMode = .scaleAspectFit
         logoImageNode.clipsToBounds = true
@@ -257,7 +257,6 @@ final class ChannelAppIconNode: ASControlNode {
             logoImageNode.image = UIImage(named: "Channel/channelApp")?.withRenderingMode(.alwaysTemplate)
             logoImageNode.tintColor = t.textDisabled
             logoImageNode.contentMode = .center
-            logoContainerNode.borderColor = t.textDisabled.cgColor
         }
     }
 

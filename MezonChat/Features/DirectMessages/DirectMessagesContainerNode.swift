@@ -79,7 +79,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
             forName: .mezonBuzzStateChanged, object: buzz, queue: .main
         ) { [weak self] _ in self?.reconfigureVisibleCells() }
         let t0 = UIColor.theme
-        backgroundColor = t0.secondary
+        backgroundColor = t0.primary
 
         disposables.add(
             (signal |> deliverOnMainQueue).start(next: { [weak self] newState in
@@ -199,6 +199,8 @@ final class DirectMessagesContainerNode: ASDisplayNode {
             searchCfg.baseForegroundColor = UIColor.theme.textStrong
             searchCfg.baseBackgroundColor = UIColor.theme.tertiary
             searchCfg.cornerStyle = .capsule
+            searchCfg.background.strokeWidth = 1
+            searchCfg.background.strokeColor = UIColor.theme.border
             searchButton.configuration = searchCfg
         } else {
             searchButton.setImage(UIImage(named: "Channel/Search").map { resizedIconImage($0, targetSize: CGSize(width: 18.sf, height: 18.sf)).withRenderingMode(.alwaysTemplate) }, for: .normal)
@@ -338,7 +340,7 @@ final class DirectMessagesContainerNode: ASDisplayNode {
     func applyTheme() {
         let t = UIColor.theme
         let gradient = t.desktop.conversationGradient
-        backgroundColor = gradient == nil ? t.secondary : .clear
+        backgroundColor = gradient == nil ? t.primary : .clear
         titleLabel.textColor = t.textStrong
 
         guard isNodeLoaded else { return }
@@ -348,6 +350,8 @@ final class DirectMessagesContainerNode: ASDisplayNode {
 
         addFriendButton.setTitleColor(t.textStrong, for: .normal)
         addFriendButton.backgroundColor = t.tertiary
+        addFriendButton.layer.borderWidth = 1
+        addFriendButton.layer.borderColor = t.border.cgColor
         addFriendButton.tintColor = t.textStrong
 
         if #available(iOS 15.0, *) {
@@ -356,10 +360,14 @@ final class DirectMessagesContainerNode: ASDisplayNode {
             searchCfg.baseForegroundColor = UIColor.theme.textStrong
             searchCfg.baseBackgroundColor = t.tertiary
             searchCfg.cornerStyle = .capsule
+            searchCfg.background.strokeWidth = 1
+            searchCfg.background.strokeColor = UIColor.theme.border
             searchButton.configuration = searchCfg
         } else {
             searchButton.tintColor = UIColor.theme.textStrong
             searchButton.backgroundColor = t.tertiary
+            searchButton.layer.borderWidth = 1
+            searchButton.layer.borderColor = t.border.cgColor
         }
 
         createGroupButton.backgroundColor = UIColor(red: 88/255, green: 101/255, blue: 242/255, alpha: 1.0)
@@ -542,7 +550,7 @@ extension DirectMessagesContainerNode: UITableViewDataSource, UITableViewDelegat
     func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
         guard let title = sectionTitle(section) else { return nil }
         let header = UIView()
-        header.backgroundColor = UIColor.theme.secondary
+        header.backgroundColor = UIColor.theme.primary
         let label = UILabel()
         label.text = title
         label.font = .systemFont(ofSize: 12.sf, weight: .semibold)

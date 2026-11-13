@@ -293,7 +293,7 @@ final class DmListItemCell: UITableViewCell {
             for: .online,
             diameter: 14.swh,
             ringWidth: theme.desktop.conversationGradient == nil ? 2 : 0,
-            ringColor: theme.secondary
+            ringColor: theme.primary
         )
 
         if isGroup {
