@@ -308,7 +308,11 @@ final class ClanListContainerNode: ASDisplayNode {
 
     func applyTheme() {
         let t = UIColor.theme
-        gradientLayer.colors = [t.primary.cgColor, t.primaryGradient.cgColor]
+        if t.desktop.conversationGradient == nil {
+            gradientLayer.colors = [t.tertiary.cgColor, t.tertiary.cgColor]
+        } else {
+            gradientLayer.colors = [t.primary.cgColor, t.primaryGradient.cgColor]
+        }
         backgroundColor = .clear
         logoSeparatorLine.backgroundColor = t.border.withAlphaComponent(0.3)
         collectionView.reloadData()
