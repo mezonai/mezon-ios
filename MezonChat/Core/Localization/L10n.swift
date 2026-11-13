@@ -128,6 +128,11 @@ enum L10n {
         static let noClanCreateClan  = "profileSetting.noClanCreateClan"
         static let noClanJoinClan    = "profileSetting.noClanJoinClan"
         static let directMessageIcon = "profileSetting.directMessageIcon"
+        static let editCoverPhoto    = "profileSetting.editCoverPhoto"
+        static let changeCoverPhoto  = "profileSetting.changeCoverPhoto"
+        static let removeCoverPhoto  = "profileSetting.removeCoverPhoto"
+        static let coverUploadFailed = "profileSetting.coverUploadFailed"
+        static let choose            = "profileSetting.choose"
     }
 
     enum Common {
@@ -2906,6 +2911,11 @@ extension L10n {
         "profileSetting.noClanCreateClan": "Create a clan",
         "profileSetting.noClanJoinClan": "Join a clan",
         "profileSetting.directMessageIcon": "Direct Message Icon",
+        "profileSetting.editCoverPhoto": "Edit cover photo",
+        "profileSetting.changeCoverPhoto": "Change cover photo",
+        "profileSetting.removeCoverPhoto": "Remove cover photo",
+        "profileSetting.coverUploadFailed": "Unable to upload cover. Use JPEG, PNG, GIF or WebP up to 10 MB.",
+        "profileSetting.choose": "Choose",
 
         "qrScanner.title": "Scan QR Code",
         "qrScanner.cameraPermissionTitle": "Camera Access Required",
@@ -4429,6 +4439,11 @@ extension L10n {
         "profileSetting.noClanCreateClan": "Tạo clan",
         "profileSetting.noClanJoinClan": "Tham gia clan",
         "profileSetting.directMessageIcon": "Biểu tượng tin nhắn riêng",
+        "profileSetting.editCoverPhoto": "Sửa ảnh bìa",
+        "profileSetting.changeCoverPhoto": "Đổi ảnh bìa",
+        "profileSetting.removeCoverPhoto": "Xóa ảnh bìa",
+        "profileSetting.coverUploadFailed": "Không thể tải ảnh bìa. Hãy dùng JPEG, PNG, GIF hoặc WebP tối đa 10 MB.",
+        "profileSetting.choose": "Chọn",
 
         "qrScanner.title": "Quét mã QR",
         "qrScanner.cameraPermissionTitle": "Yêu cầu quyền truy cập Camera",

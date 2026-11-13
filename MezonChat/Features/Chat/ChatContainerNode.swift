@@ -363,7 +363,8 @@ final class ChatContainerNode: ASDisplayNode {
             isPrivate: state.isPrivate,
             isAgeRestricted: state.isAgeRestricted,
             isBlocked: state.isPeerBlocked,
-            isInVoice: state.dmPeerInVoice
+            isInVoice: state.dmPeerInVoice,
+            isTopicDiscussion: state.isTopicDiscussion
         )
     }
 
@@ -561,6 +562,7 @@ final class ChatContainerNode: ASDisplayNode {
     }
 
     static let unreadLineId = "__unread_line__"
+    static let topicRootId = "__topic_root__"
     private func buildIds(from state: ChatState) -> [String] {
         let messages = state.messages
         let lastSeenId = state.lastSeenMessageId
@@ -574,6 +576,9 @@ final class ChatContainerNode: ASDisplayNode {
                messages.count > 2 {
                 ids.append(Self.unreadLineId)
             }
+        }
+        if state.topicRootMessage != nil {
+            ids.append(Self.topicRootId)
         }
         return ids
     }
@@ -615,6 +620,9 @@ final class ChatContainerNode: ASDisplayNode {
                messages.count > 2 {
                 items.append(ChatNewMessageLineItem())
             }
+        }
+        if let topicRoot = state.topicRootMessage {
+            items.append(ChatTopicRootItem(display: topicRoot, interaction: interaction))
         }
         return items
     }
@@ -687,7 +695,8 @@ final class ChatContainerNode: ASDisplayNode {
 
         if oldIds == newIds {
             if old.messagesRevision != new.messagesRevision
-                || Self.welcomeFingerprint(old) != Self.welcomeFingerprint(new) {
+                || Self.welcomeFingerprint(old) != Self.welcomeFingerprint(new)
+                || Self.topicRootFingerprint(old) != Self.topicRootFingerprint(new) {
                 applyInPlaceUpdates(old: old, new: new)
             }
             return
@@ -759,6 +768,7 @@ final class ChatContainerNode: ASDisplayNode {
             newMessageById[message.id] = message
         }
         let welcomeChanged = Self.welcomeFingerprint(old) != Self.welcomeFingerprint(new)
+        let topicRootChanged = Self.topicRootFingerprint(old) != Self.topicRootFingerprint(new)
 
         let deleteItems = oldIds.enumerated().reversed().compactMap { index, id -> ListViewDeleteItem? in
             guard deletedIds.contains(id) else { return nil }
@@ -780,7 +790,9 @@ final class ChatContainerNode: ASDisplayNode {
             let contentChanged = newMessageById[id].map {
                 oldUpdateTokenById[id] != Self.listUpdateToken($0)
             } ?? false
-            guard contentChanged || (newItems[index] is ChatWelcomeItem && welcomeChanged) else { return nil }
+            guard contentChanged
+                || (newItems[index] is ChatWelcomeItem && welcomeChanged)
+                || (newItems[index] is ChatTopicRootItem && topicRootChanged) else { return nil }
             return ListViewUpdateItem(index: index, previousIndex: oldIndex, item: newItems[index], directionHint: nil)
         }
 
@@ -911,6 +923,10 @@ final class ChatContainerNode: ASDisplayNode {
         return "\(m.id)|\(m.message.senderId)|\(m.message.createdAt.timeIntervalSince1970)|\(edited)|\(m.senderDisplayName)|\(m.avatarURL ?? "")|\(m.messageCode)|\(grouping)|\(m.parsedContent.text)|\(att)|\(presignHash)|\(pin)|\(pollHash)|\(embedHash)|\(ogpHash)|\(channelTokenHash)|\(topicHash)|\(sendFeedback)|\(m.sendingState.rawValue)"
     }
 
+    private static func topicRootFingerprint(_ state: ChatState) -> String? {
+        state.topicRootMessage.map { listFingerprint($0) }
+    }
+
     private static func welcomeFingerprint(_ state: ChatState) -> String {
         [
             state.channelLabel,
@@ -949,11 +965,14 @@ final class ChatContainerNode: ASDisplayNode {
             newMessageById[message.id] = message
         }
         let welcomeChanged = Self.welcomeFingerprint(old) != Self.welcomeFingerprint(new)
+        let topicRootChanged = Self.topicRootFingerprint(old) != Self.topicRootFingerprint(new)
         let updateItems = newItems.enumerated().compactMap { index, item -> ListViewUpdateItem? in
             let contentChanged = newMessageById[newIds[index]].map {
                 oldUpdateTokenById[$0.id] != Self.listUpdateToken($0)
             } ?? false
-            guard contentChanged || (item is ChatWelcomeItem && welcomeChanged) else { return nil }
+            guard contentChanged
+                || (item is ChatWelcomeItem && welcomeChanged)
+                || (item is ChatTopicRootItem && topicRootChanged) else { return nil }
             return ListViewUpdateItem(index: index, previousIndex: index, item: item, directionHint: nil)
         }
         if !updateItems.isEmpty {

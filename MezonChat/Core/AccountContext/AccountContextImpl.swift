@@ -1042,6 +1042,21 @@ final class AccountContextImpl: AccountContext {
         applyCurrentUser(u)
     }
 
+    private func applyIncomingProfileBanner(_ event: Mezon_Realtime_UserProfileUpdatedEvent) {
+        let banner = event.banner.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !banner.isEmpty, let myId = currentUserNumericId(), event.userID == myId,
+              var u = currentUser, u.profileBannerURL != banner else { return }
+        if let data = account.postbox.getPreferenceData(key: PreferencesKeys.account),
+           var cached = try? Mezon_Api_Account(serializedData: data) {
+            cached.banner = banner
+            if let updated = try? cached.serializedData() {
+                account.postbox.setPreferenceData(key: PreferencesKeys.account, value: updated)
+            }
+        }
+        u.profileBannerURL = banner
+        applyCurrentUser(u)
+    }
+
     private func applyIncomingStatusPresenceEvent(_ event: Mezon_Realtime_StatusPresenceEvent) {
         guard let myId = currentUserNumericId(), var u = currentUser else { return }
         guard let presence = event.joins.first(where: { $0.userID == myId }) else { return }
@@ -1489,6 +1504,10 @@ final class AccountContextImpl: AccountContext {
             applyIncomingStatusPresenceEvent(e)
             engine.clanData.applyStatusPresence(e)
 
+        case .userProfileUpdated(let e):
+            applyIncomingProfileBanner(e)
+            engine.clanData.applyProfileBanner(e)
+
         case .lastPin(let e):
             ChannelPinnedStatePersistence.applyPinMessage(
                 postbox: account.postbox,
@@ -1877,6 +1896,7 @@ final class AccountContextImpl: AccountContext {
             return nt == prevTrim
         }()
         let trimmedLogo = api.logo.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedBanner = api.banner.trimmingCharacters(in: .whitespacesAndNewlines)
         return User(
             id: "\(u.id)",
             username: u.username.isEmpty ? "me" : u.username,
@@ -1891,7 +1911,8 @@ final class AccountContextImpl: AccountContext {
             email: api.email.isEmpty ? nil : api.email,
             phoneNumber: u.phoneNumber.isEmpty ? nil : u.phoneNumber,
             isBot: false,
-            createTimeSeconds: u.createTimeSeconds
+            createTimeSeconds: u.createTimeSeconds,
+            profileBannerURL: trimmedBanner.isEmpty ? nil : trimmedBanner
         )
     }
 }

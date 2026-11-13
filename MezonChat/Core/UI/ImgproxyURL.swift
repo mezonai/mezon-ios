@@ -127,6 +127,10 @@ enum ImgproxyURL {
         return "\(proxyBase)/\(processingOptions)/plain/\(encodedSource)@webp"
     }
 
+    static func profileCoverURL(from sourceURL: String) -> String {
+        attachmentURL(from: absoluteResourceURL(from: sourceURL), width: 1200, height: 360, resizeType: "fill", forceProxy: true)
+    }
+
     static func clanLogoURL(from sourceURL: String, width: Int = 100, height: Int = 100) -> String {
         iconURL(from: absoluteResourceURL(from: sourceURL), width: width, height: height, resizeType: "fill-down")
     }

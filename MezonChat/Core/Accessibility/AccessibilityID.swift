@@ -318,6 +318,7 @@ enum AccessibilityID {
         static let typingIndicator = makeAccessibilityID("chat.typing.indicator")
         static let jumpToPresent = makeAccessibilityID("chat.jump.to.present")
         static let reactionRemove = makeAccessibilityID("message.reaction.remove")
+        static let topicRootMessage = makeAccessibilityID("topic.root.message")
 
         static func roleSuggestion(_ id: Int64) -> String {
             makeAccessibilityID("mention.suggestion.role", id: String(id))

@@ -1359,3 +1359,42 @@ extension ASNetworkImageNode {
         return true
     }
 }
+
+final class ProfileCoverImageView: UIImageView {
+    private var boundSource = ""
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        contentMode = .scaleAspectFill
+        clipsToBounds = true
+        isUserInteractionEnabled = false
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func setCover(_ rawURL: String?) {
+        let source = rawURL?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard source != boundSource else { return }
+        boundSource = source
+        guard !source.isEmpty else {
+            image = nil
+            return
+        }
+        let url = ImgproxyURL.profileCoverURL(from: source)
+        if let cached = ImageCache.shared.memoryImage(forKey: url) {
+            image = cached
+            return
+        }
+        image = nil
+        _ = ImageCache.shared.loadImage(urlString: url) { [weak self] loaded in
+            guard let self, self.boundSource == source else { return }
+            self.image = loaded
+        }
+    }
+
+    func showPreview(_ preview: UIImage, for rawURL: String) {
+        boundSource = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        image = preview
+        ImageCache.shared.setImage(preview, data: nil, forKey: ImgproxyURL.profileCoverURL(from: boundSource))
+    }
+}
