@@ -32,6 +32,7 @@ final class ProfileContainerNode: ASDisplayNode {
         v.backgroundColor = .mezonPrimary
         return v
     }()
+    private let headerCoverImageView = ProfileCoverImageView(frame: .zero)
 
     private let avatarContainerView: UIView = {
         let v = UIView()
@@ -355,6 +356,7 @@ final class ProfileContainerNode: ASDisplayNode {
     private func setupHeader() {
         fixedHeaderView.addSubview(headerBackgroundView)
         fixedHeaderView.sendSubviewToBack(headerBackgroundView)
+        headerBackgroundView.addSubview(headerCoverImageView)
 
         avatarContainerView.layer.cornerRadius = 16.swh
         avatarContainerView.layer.borderWidth = 3
@@ -729,6 +731,7 @@ final class ProfileContainerNode: ASDisplayNode {
 
     func updateContent() {
         let user = context.currentUser
+        headerCoverImageView.setCover(user?.profileBannerURL)
 
         if let url = user?.avatarURL, !url.absoluteString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let proxiedURLString = ImgproxyURL.iconURL(from: url.absoluteString, width: 100, height: 100)
@@ -1018,6 +1021,7 @@ final class ProfileContainerNode: ASDisplayNode {
 
         let headerBackgroundHeight = y + avatarSize * 5 / 6
         headerBackgroundView.frame = CGRect(x: 0, y: 0, width: width, height: headerBackgroundHeight)
+        headerCoverImageView.frame = headerBackgroundView.bounds
 
         avatarContainerView.frame = CGRect(x: side, y: y, width: avatarSize, height: avatarSize)
         avatarImageView.frame = avatarContainerView.bounds

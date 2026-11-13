@@ -1266,8 +1266,18 @@ func videoThumbnailSignal(url: String, resizeMode: ImageResizeMode = .fill, maxP
         let cancelled = Atomic<Bool>(value: false)
         let activeGenerator = Atomic<AVAssetImageGenerator?>(value: nil)
 
-        func generate(from assetURL: URL) {
-            guard !cancelled.with({ $0 }) else { return }
+        func finishWithoutFrame() {
+            let transparentImage = createTransparentImage()
+            cache.setImage(transparentImage, data: nil, forKey: cacheKey)
+            subscriber.putNext(makeTransform(for: transparentImage, resizeMode: resizeMode))
+            subscriber.putCompletion()
+        }
+
+        func generate(from assetURL: URL, previewFile: URL? = nil) {
+            guard !cancelled.with({ $0 }) else {
+                if let previewFile { try? FileManager.default.removeItem(at: previewFile) }
+                return
+            }
             let asset = AVURLAsset(url: assetURL, options: [
                 AVURLAssetPreferPreciseDurationAndTimingKey: false
             ])
@@ -1280,17 +1290,28 @@ func videoThumbnailSignal(url: String, resizeMode: ImageResizeMode = .fill, maxP
             let timeValue = NSValue(time: time)
 
             generator.generateCGImagesAsynchronously(forTimes: [timeValue]) { _, cgImage, _, _, error in
+                if let previewFile { try? FileManager.default.removeItem(at: previewFile) }
                 if let cgImage {
                     let image = UIImage(cgImage: cgImage)
                     let jpegData = image.jpegData(compressionQuality: 0.7)
                     cache.setImage(image, data: jpegData, forKey: cacheKey)
                     subscriber.putNext(makeTransform(for: image, resizeMode: resizeMode))
+                    subscriber.putCompletion()
+                } else if previewFile == nil, !videoURL.isFileURL {
+                    guard !cancelled.with({ $0 }) else { return }
+                    FileIngestHLSCopy.makePreviewFile(
+                        attachmentURL: url,
+                        shouldContinue: { !cancelled.with { $0 } }
+                    ) { preview in
+                        if let preview {
+                            generate(from: preview, previewFile: preview)
+                        } else if !cancelled.with({ $0 }) {
+                            finishWithoutFrame()
+                        }
+                    }
                 } else {
-                    let transparentImage = createTransparentImage()
-                    cache.setImage(transparentImage, data: nil, forKey: cacheKey)
-                    subscriber.putNext(makeTransform(for: transparentImage, resizeMode: resizeMode))
+                    finishWithoutFrame()
                 }
-                subscriber.putCompletion()
             }
         }
 
@@ -1336,5 +1357,44 @@ extension ASNetworkImageNode {
               let source = ImgproxyURL.sourceURL(fromProxyURL: failed.absoluteString) else { return false }
         url = source
         return true
+    }
+}
+
+final class ProfileCoverImageView: UIImageView {
+    private var boundSource = ""
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        contentMode = .scaleAspectFill
+        clipsToBounds = true
+        isUserInteractionEnabled = false
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    func setCover(_ rawURL: String?) {
+        let source = rawURL?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard source != boundSource else { return }
+        boundSource = source
+        guard !source.isEmpty else {
+            image = nil
+            return
+        }
+        let url = ImgproxyURL.profileCoverURL(from: source)
+        if let cached = ImageCache.shared.memoryImage(forKey: url) {
+            image = cached
+            return
+        }
+        image = nil
+        _ = ImageCache.shared.loadImage(urlString: url) { [weak self] loaded in
+            guard let self, self.boundSource == source else { return }
+            self.image = loaded
+        }
+    }
+
+    func showPreview(_ preview: UIImage, for rawURL: String) {
+        boundSource = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        image = preview
+        ImageCache.shared.setImage(preview, data: nil, forKey: ImgproxyURL.profileCoverURL(from: boundSource))
     }
 }

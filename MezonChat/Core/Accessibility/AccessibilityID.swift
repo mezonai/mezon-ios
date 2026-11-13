@@ -85,6 +85,10 @@ enum AccessibilityID {
             static let upload = makeAccessibilityID("clan.settings.sound.preview.upload")
         }
 
+        static func communityHashtag(_ tag: String) -> String {
+            makeAccessibilityID("clan.settings.community.hashtag", id: tag.lowercased())
+        }
+
         static func action(_ action: String) -> String {
             makeAccessibilityID("clan.settings.action", id: action)
         }
@@ -174,6 +178,8 @@ enum AccessibilityID {
 
     enum PeerCall {
         static let screen = makeAccessibilityID("peer.call.screen")
+        static let status = makeAccessibilityID("peer.call.status")
+        static let duration = makeAccessibilityID("peer.call.duration")
         static let close = makeAccessibilityID("peer.call.close")
         static let switchCamera = makeAccessibilityID("peer.call.switch.camera")
         static let video = makeAccessibilityID("peer.call.video")
@@ -212,6 +218,7 @@ enum AccessibilityID {
         static let menuNoiseSuppression = makeAccessibilityID("voice.room.menu.noise.suppression")
         static let networkWarningClose = makeAccessibilityID("voice.room.network.warning.close")
         static let raiseHand = makeAccessibilityID("voice.room.raise.hand")
+        static let agent = makeAccessibilityID("voice.room.agent")
         static let camera = makeAccessibilityID("voice.room.camera")
         static let microphone = makeAccessibilityID("voice.room.microphone")
         static let chat = makeAccessibilityID("voice.room.chat")
@@ -311,6 +318,8 @@ enum AccessibilityID {
 
         static let pinsTab = makeAccessibilityID("channel.details.pins")
         static let back = makeAccessibilityID("chat.back")
+        static let call = makeAccessibilityID("chat.call")
+        static let search = makeAccessibilityID("chat.search")
         static let input = makeAccessibilityID("mention.input")
         static let composerAttach = makeAccessibilityID("chat.composer.attach")
         static let composerMenu = makeAccessibilityID("chat.composer.menu")
@@ -321,6 +330,7 @@ enum AccessibilityID {
         static let typingIndicator = makeAccessibilityID("chat.typing.indicator")
         static let jumpToPresent = makeAccessibilityID("chat.jump.to.present")
         static let reactionRemove = makeAccessibilityID("message.reaction.remove")
+        static let topicRootMessage = makeAccessibilityID("topic.root.message")
 
         static func roleSuggestion(_ id: Int64) -> String {
             makeAccessibilityID("mention.suggestion.role", id: String(id))

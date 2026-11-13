@@ -63,7 +63,8 @@ final class PeerCallViewController: ViewController {
     private var microphonePromptView: PeerCallMicPermissionPromptView?
 
     private let avatarBlock = UIView()
-    private let ringContainer = UIView()
+    private let ringingOuterRipple = UIView()
+    private let ringingInnerRipple = UIView()
     private let textAvatarView = TextAvatarView(size: 100)
     private let avatarImageView = UIImageView()
     private let titleLabel = UILabel()
@@ -98,6 +99,7 @@ final class PeerCallViewController: ViewController {
     private var durationTimer: Foundation.Timer?
 
     private var isCallConnected = false
+    private var isCallScreenVisible = false
     private var remoteVideoActive = false
     private var remoteVideoInboundActive = false
     private var remoteVideoSurfaceShown = false
@@ -112,10 +114,6 @@ final class PeerCallViewController: ViewController {
     private var durationTopBelowMutedBanner: NSLayoutConstraint?
     private var mutedBannerBelowAvatar: NSLayoutConstraint?
     private var mutedBannerAboveFooter: NSLayoutConstraint?
-
-    private var ringViews: [UIView] = []
-    private var ringDisplayLink: CADisplayLink?
-    private var ringPhaseStart: CFTimeInterval = 0
 
     private var audioRouteObserver: NSObjectProtocol?
     private var closeHeaderWidthConstraint: NSLayoutConstraint?
@@ -191,6 +189,8 @@ final class PeerCallViewController: ViewController {
         endButton.accessibilityIdentifier = AccessibilityID.PeerCall.end
         answerButton.accessibilityIdentifier = AccessibilityID.PeerCall.answer
         declineButton.accessibilityIdentifier = AccessibilityID.PeerCall.decline
+        subtitleLabel.accessibilityIdentifier = AccessibilityID.PeerCall.status
+        durationLabel.accessibilityIdentifier = AccessibilityID.PeerCall.duration
         if case .incoming(let payload, _, _) = entry {
             guard payload.channelId != 0, payload.callerId != 0 else {
                 DispatchQueue.main.async { [weak self] in
@@ -211,9 +211,6 @@ final class PeerCallViewController: ViewController {
 
         gradientHost.translatesAutoresizingMaskIntoConstraints = false
         gradientHost.isUserInteractionEnabled = false
-        gradientLayer.locations = [0, 1]
-        gradientLayer.startPoint = CGPoint(x: 0, y: 0)
-        gradientLayer.endPoint = CGPoint(x: 0, y: 1)
         gradientHost.layer.addSublayer(gradientLayer)
 
         remoteBackdrop.translatesAutoresizingMaskIntoConstraints = false
@@ -252,8 +249,6 @@ final class PeerCallViewController: ViewController {
         headerRightStack.addArrangedSubview(headerVideoButton)
 
         avatarBlock.translatesAutoresizingMaskIntoConstraints = false
-        ringContainer.translatesAutoresizingMaskIntoConstraints = false
-        ringContainer.backgroundColor = .clear
 
         textAvatarView.translatesAutoresizingMaskIntoConstraints = false
         avatarImageView.translatesAutoresizingMaskIntoConstraints = false
@@ -390,8 +385,9 @@ final class PeerCallViewController: ViewController {
         headerBar.addSubview(closeHeaderButton)
         headerBar.addSubview(headerRightStack)
 
-        avatarBlock.addSubview(ringContainer)
         avatarBlock.addSubview(textAvatarView)
+        addRingingRipple(ringingOuterRipple, diameter: 210, opacity: 0.09)
+        addRingingRipple(ringingInnerRipple, diameter: 138, opacity: 0.16)
         textAvatarView.addSubview(avatarImageView)
         avatarBlock.addSubview(titleLabel)
         avatarBlock.addSubview(subtitleLabel)
@@ -410,6 +406,10 @@ final class PeerCallViewController: ViewController {
         view.sendSubviewToBack(gradientHost)
 
         closeHeaderWidthConstraint = closeHeaderButton.widthAnchor.constraint(equalToConstant: 48)
+        let avatarArea = UILayoutGuide()
+        view.addLayoutGuide(avatarArea)
+        let avatarCenter = avatarBlock.centerYAnchor.constraint(equalTo: avatarArea.centerYAnchor)
+        avatarCenter.priority = .defaultHigh
 
         NSLayoutConstraint.activate([
             gradientHost.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -445,15 +445,15 @@ final class PeerCallViewController: ViewController {
             headerVideoButton.widthAnchor.constraint(equalToConstant: 48),
             headerVideoButton.heightAnchor.constraint(equalToConstant: 48),
 
+            avatarArea.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            avatarArea.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            avatarArea.topAnchor.constraint(equalTo: headerBar.bottomAnchor),
+            avatarArea.bottomAnchor.constraint(equalTo: footerContainer.topAnchor),
             avatarBlock.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            avatarBlock.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 100),
+            avatarCenter,
+            avatarBlock.topAnchor.constraint(greaterThanOrEqualTo: avatarArea.topAnchor, constant: 8),
             avatarBlock.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 24),
             avatarBlock.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -24),
-
-            ringContainer.centerXAnchor.constraint(equalTo: avatarBlock.centerXAnchor),
-            ringContainer.centerYAnchor.constraint(equalTo: avatarImageView.centerYAnchor),
-            ringContainer.widthAnchor.constraint(equalToConstant: 200),
-            ringContainer.heightAnchor.constraint(equalToConstant: 200),
 
             textAvatarView.topAnchor.constraint(equalTo: avatarBlock.topAnchor),
             textAvatarView.centerXAnchor.constraint(equalTo: avatarBlock.centerXAnchor),
@@ -519,7 +519,6 @@ final class PeerCallViewController: ViewController {
         mutedBannerBelowAvatar = remoteMutedBanner.topAnchor.constraint(equalTo: avatarBlock.bottomAnchor, constant: 16)
         mutedBannerAboveFooter = remoteMutedBanner.bottomAnchor.constraint(equalTo: footerContainer.topAnchor, constant: -48)
 
-        buildRingViews()
         loadRemoteAvatar()
         applyIdleChromeColors()
         updateHeaderVideoAppearance()
@@ -530,7 +529,7 @@ final class PeerCallViewController: ViewController {
         switch entry {
         case .outgoing:
             titleLabel.text = remoteIdentity.name
-            subtitleLabel.text = PeerCallLocalizedStrings.statusRinging
+            setCallStatus(PeerCallLocalizedStrings.statusRinging)
             activeFooterStack.isHidden = false
             incomingFooterStack.isHidden = true
             setCloseHeaderChromeVisible(false)
@@ -538,14 +537,14 @@ final class PeerCallViewController: ViewController {
         case .incoming:
             titleLabel.text = remoteIdentity.name
             if skipIncomingRingingUI {
-                subtitleLabel.text = PeerCallLocalizedStrings.statusConnecting
+                setCallStatus(PeerCallLocalizedStrings.statusConnecting)
                 connectingSubtitleShownAt = Date()
                 activeFooterStack.isHidden = false
                 incomingFooterStack.isHidden = true
                 setCloseHeaderChromeVisible(true)
                 PeerCallSoundPlayer.shared.stopAll()
             } else {
-                subtitleLabel.text = PeerCallLocalizedStrings.statusIncoming
+                setCallStatus(PeerCallLocalizedStrings.statusIncoming)
                 activeFooterStack.isHidden = true
                 incomingFooterStack.isHidden = false
                 setCloseHeaderChromeVisible(false)
@@ -555,7 +554,6 @@ final class PeerCallViewController: ViewController {
 
         updateFooterControlAppearance()
         updateFlipVisibility()
-        startRingPulseIfNeeded()
 
         buildSessionAndCallbacks()
         refreshHeaderRightVisibility()
@@ -565,6 +563,12 @@ final class PeerCallViewController: ViewController {
             self,
             selector: #selector(handleThemeChange),
             name: ThemeManager.didChangeNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(updateRingingRipples),
+            name: UIAccessibility.reduceMotionStatusDidChangeNotification,
             object: nil
         )
         NotificationCenter.default.addObserver(
@@ -585,7 +589,6 @@ final class PeerCallViewController: ViewController {
     }
 
     deinit {
-        ringDisplayLink?.invalidate()
         if let obs = audioRouteObserver {
             NotificationCenter.default.removeObserver(obs)
         }
@@ -593,6 +596,7 @@ final class PeerCallViewController: ViewController {
             NotificationCenter.default.removeObserver(o)
         }
         NotificationCenter.default.removeObserver(self, name: ThemeManager.didChangeNotification, object: nil)
+        NotificationCenter.default.removeObserver(self, name: UIAccessibility.reduceMotionStatusDidChangeNotification, object: nil)
         NotificationCenter.default.removeObserver(self, name: .mezonPeerCallCallerIdentityDidUpdate, object: nil)
     }
 
@@ -625,7 +629,9 @@ final class PeerCallViewController: ViewController {
     private func applyThemeColors() {
         let theme = UIColor.theme
         view.backgroundColor = theme.primary
-        gradientLayer.colors = [theme.primary.cgColor, theme.primaryGradient.cgColor]
+        let chatGradient = theme.desktop.chatGradient
+        gradientLayer.isHidden = chatGradient == nil
+        chatGradient?.apply(to: gradientLayer, in: view.window)
         remoteBackdrop.backgroundColor = UIColor.black.withAlphaComponent(0.92)
         localVideoView.layer.borderColor = theme.border.cgColor
         avatarImageView.backgroundColor = .clear
@@ -638,19 +644,24 @@ final class PeerCallViewController: ViewController {
         let bannerShowingConnecting = (networkBanner.text?.trimmingCharacters(in: .whitespacesAndNewlines) == PeerCallLocalizedStrings.statusConnecting)
         networkBanner.backgroundColor = bannerShowingConnecting ? .clear : theme.secondaryWeight.withAlphaComponent(0.85)
         networkBanner.textColor = theme.text
-        for ring in ringViews {
-            ring.layer.borderColor = theme.border.cgColor
-        }
+        let rippleTint = theme.iconPrimary.mixedWith(theme.textStrong, alpha: 0.60)
+        ringingOuterRipple.backgroundColor = rippleTint
+        ringingInnerRipple.backgroundColor = rippleTint
         styleHeaderCircle(closeHeaderButton, assetName: "Profile/CloseDMIcon")
         styleHeaderCircle(flipCameraButton, assetName: "Chat/CameraSwitchIcon")
         styleHeaderCircle(headerVideoButton, assetName: localCameraOn ? "Chat/VideoIcon" : "Chat/VideoOffIcon")
     }
 
+    private static let ringingRippleAnimationKey = "ringingRipple"
     private static let peerCallSuccessAccent = UIColor(red: 76 / 255, green: 175 / 255, blue: 80 / 255, alpha: 1)
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         gradientLayer.frame = gradientHost.bounds
+        UIColor.theme.desktop.chatGradient?.updateDirection(on: gradientLayer, in: view.window)
+        CATransaction.commit()
         if !remoteMutedBanner.isHidden {
             let w = max(100, view.bounds.width - 32 - remoteMutedBanner.layoutMargins.left - remoteMutedBanner.layoutMargins.right - remoteMutedBanner.spacing - 22)
             if abs(remoteMutedLabel.preferredMaxLayoutWidth - w) > 0.5 {
@@ -665,19 +676,20 @@ final class PeerCallViewController: ViewController {
         guard let session, !userDidExplicitlyEnd else {
             return
         }
+        isCallScreenVisible = true
         WebRTCCallManager.shared.attachSignalingSession(session)
         session.resyncRemoteAttachmentWithUI()
         if let connectedDate {
             applyConnectedCallChrome(connectedAt: connectedDate)
             return
         }
+        updateRingingRipples()
         switch entry {
         case .outgoing:
             session.beginOutgoingCall()
         case .incoming:
             if skipIncomingRingingUI {
-                subtitleLabel.text = PeerCallLocalizedStrings.statusConnecting
-                subtitleLabel.isHidden = false
+                setCallStatus(PeerCallLocalizedStrings.statusConnecting)
                 durationLabel.isHidden = true
                 connectingSubtitleShownAt = connectingSubtitleShownAt ?? Date()
                 session.answerIncomingCall()
@@ -696,7 +708,8 @@ final class PeerCallViewController: ViewController {
         pendingConnectedChromeWorkItem = nil
         durationTimer?.invalidate()
         durationTimer = nil
-        stopRingAnimations()
+        isCallScreenVisible = false
+        updateRingingRipples()
         guard isBeingDismissed || isMovingFromParent else { return }
         let shouldEnd = userDidExplicitlyEnd || (session?.didEstablishMediaConnection == true)
         guard shouldEnd else {
@@ -756,6 +769,7 @@ final class PeerCallViewController: ViewController {
         PeerCallSoundPlayer.shared.stopRinging()
         incomingFooterStack.isHidden = true
         activeFooterStack.isHidden = false
+        updateRingingRipples()
         setCloseHeaderChromeVisible(true)
         refreshHeaderRightVisibility()
         updateFlipVisibility()
@@ -836,7 +850,7 @@ final class PeerCallViewController: ViewController {
     private func applyConnectedCallChrome(connectedAt: Date) {
         pendingConnectedChromeWorkItem?.cancel()
         pendingConnectedChromeWorkItem = nil
-        subtitleLabel.text = PeerCallLocalizedStrings.statusConnected
+        setCallStatus(PeerCallLocalizedStrings.statusConnected)
         subtitleLabel.isHidden = true
         durationLabel.isHidden = false
         startDurationTimer(connectedAt: connectedAt)
@@ -851,8 +865,6 @@ final class PeerCallViewController: ViewController {
             self.durationLabel.alpha = 1
         }
         applyConnectedAvatarBorder()
-        playAvatarConnectBloom()
-        stopRingAnimations()
         applyIdleChromeColors()
         updateRemoteMutedBanner()
         refreshRemoteCallLayout()
@@ -877,39 +889,6 @@ final class PeerCallViewController: ViewController {
         let gen = UINotificationFeedbackGenerator()
         gen.prepare()
         gen.notificationOccurred(.success)
-    }
-
-    private func playAvatarConnectBloom() {
-        guard avatarImageView.bounds.width > 0 else {
-            DispatchQueue.main.async { [weak self] in
-                self?.playAvatarConnectBloom()
-            }
-            return
-        }
-        let bloom = CALayer()
-        bloom.frame = avatarImageView.bounds
-        bloom.cornerRadius = avatarImageView.layer.cornerRadius
-        bloom.borderWidth = 3
-        bloom.borderColor = Self.peerCallSuccessAccent.cgColor
-        bloom.backgroundColor = UIColor.clear.cgColor
-        avatarImageView.layer.addSublayer(bloom)
-
-        let scaleAnim = CABasicAnimation(keyPath: "transform.scale")
-        scaleAnim.fromValue = 1.0
-        scaleAnim.toValue = 1.7
-        let opacityAnim = CABasicAnimation(keyPath: "opacity")
-        opacityAnim.fromValue = 0.85
-        opacityAnim.toValue = 0
-        let group = CAAnimationGroup()
-        group.animations = [scaleAnim, opacityAnim]
-        group.duration = 0.9
-        group.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        group.isRemovedOnCompletion = false
-        group.fillMode = .forwards
-        bloom.add(group, forKey: "connectBloom")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak bloom] in
-            bloom?.removeFromSuperlayer()
-        }
     }
 
     private var showRemoteVideoSurface: Bool {
@@ -1039,8 +1018,7 @@ final class PeerCallViewController: ViewController {
             }
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return }
-            self.subtitleLabel.text = text
-            self.subtitleLabel.isHidden = false
+            self.setCallStatus(text)
             if trimmed == PeerCallLocalizedStrings.statusConnecting {
                 self.connectingSubtitleShownAt = Date()
             }
@@ -1049,6 +1027,7 @@ final class PeerCallViewController: ViewController {
         session?.onEnded = { [weak self] in
             guard let self else { return }
             self.userDidExplicitlyEnd = true
+            self.updateRingingRipples()
             self.remoteVideoSurfaceShown = false
             self.pendingRemoteVideoRendererSync = false
             let delay: TimeInterval = self.shouldKeepFinalStatusVisible() ? 1.4 : 0
@@ -1179,93 +1158,67 @@ final class PeerCallViewController: ViewController {
         }
     }
 
-    private func buildRingViews() {
-        let sizes: [CGFloat] = [50, 160, 180]
-        let dim = UIColor.theme.border
-        for size in sizes {
-            let ring = UIView()
-            ring.translatesAutoresizingMaskIntoConstraints = false
-            ring.isUserInteractionEnabled = false
-            ring.layer.borderWidth = 2
-            ring.layer.borderColor = dim.cgColor
-            ring.layer.cornerRadius = size / 2
-            ring.alpha = 0
-            ringContainer.addSubview(ring)
-            NSLayoutConstraint.activate([
-                ring.centerXAnchor.constraint(equalTo: ringContainer.centerXAnchor),
-                ring.centerYAnchor.constraint(equalTo: ringContainer.centerYAnchor),
-                ring.widthAnchor.constraint(equalToConstant: size),
-                ring.heightAnchor.constraint(equalToConstant: size),
-            ])
-            ringViews.append(ring)
-        }
+    private func setCallStatus(_ text: String) {
+        subtitleLabel.text = text
+        subtitleLabel.isHidden = false
+        updateRingingRipples()
     }
 
-    private func startRingPulseIfNeeded() {
-        if skipIncomingRingingUI { return }
-        stopRingDisplayLink()
-        guard !isCallConnected, ringViews.count == 3 else { return }
-        ringPhaseStart = CACurrentMediaTime()
-        let dl = CADisplayLink(target: self, selector: #selector(ringPhaseTick))
-        if #available(iOS 15.0, *) {
-            dl.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 120, preferred: 60)
-        }
-        dl.add(to: .main, forMode: .common)
-        ringDisplayLink = dl
+    private func addRingingRipple(_ ripple: UIView, diameter: CGFloat, opacity: Float) {
+        ripple.translatesAutoresizingMaskIntoConstraints = false
+        ripple.isHidden = true
+        ripple.isUserInteractionEnabled = false
+        ripple.isAccessibilityElement = false
+        ripple.layer.cornerRadius = diameter / 2
+        ripple.layer.opacity = opacity
+        avatarBlock.insertSubview(ripple, belowSubview: textAvatarView)
+        NSLayoutConstraint.activate([
+            ripple.centerXAnchor.constraint(equalTo: textAvatarView.centerXAnchor),
+            ripple.centerYAnchor.constraint(equalTo: textAvatarView.centerYAnchor),
+            ripple.widthAnchor.constraint(equalToConstant: diameter),
+            ripple.heightAnchor.constraint(equalTo: ripple.widthAnchor),
+        ])
     }
 
-    @objc private func ringPhaseTick() {
-        guard !isCallConnected else {
-            stopRingDisplayLink()
+    @objc private func updateRingingRipples() {
+        let outgoingRinging = subtitleLabel.text == PeerCallLocalizedStrings.statusRinging
+        let incomingRinging = subtitleLabel.text == PeerCallLocalizedStrings.statusIncoming && !incomingFooterStack.isHidden
+        let showRipples = isCallScreenVisible && !userDidExplicitlyEnd && (outgoingRinging || incomingRinging)
+        ringingOuterRipple.isHidden = !showRipples
+        ringingInnerRipple.isHidden = !showRipples
+        guard showRipples, !UIAccessibility.isReduceMotionEnabled else {
+            ringingOuterRipple.layer.removeAnimation(forKey: Self.ringingRippleAnimationKey)
+            ringingInnerRipple.layer.removeAnimation(forKey: Self.ringingRippleAnimationKey)
             return
         }
-        let period = 3.5
-        let phase = CGFloat((CACurrentMediaTime() - ringPhaseStart).truncatingRemainder(dividingBy: period) / period)
-        let delays: [CGFloat] = [0, 0.25, 0.5]
-        for (idx, ring) in ringViews.enumerated() {
-            let delay = idx < delays.count ? delays[idx] : 0
-            let dv = ringDelayedValue(phase: phase, delay: delay)
-            let scale = 1 + 1.8 * dv
-            ring.transform = CGAffineTransform(scaleX: scale, y: scale)
-            ring.alpha = ringOpacity(delayedValue: dv)
-        }
+        animateRingingRipple(ringingInnerRipple.layer, initialScale: 0.90, opacity: 0.12...0.20, delay: 0)
+        animateRingingRipple(ringingOuterRipple.layer, initialScale: 0.84, opacity: 0.065...0.12, delay: 0.46)
     }
 
-    private func ringDelayedValue(phase: CGFloat, delay: CGFloat) -> CGFloat {
-        if phase < delay { return 0 }
-        if phase < delay + 0.4 {
-            return (phase - delay) / 0.4
-        }
-        return 1
-    }
+    private func animateRingingRipple(_ layer: CALayer, initialScale: Double, opacity: ClosedRange<Double>, delay: CFTimeInterval) {
+        let key = Self.ringingRippleAnimationKey
+        guard layer.animation(forKey: key) == nil else { return }
 
-    private func ringOpacity(delayedValue: CGFloat) -> CGFloat {
-        if delayedValue <= 0 { return 0 }
-        if delayedValue < 0.1 {
-            return (delayedValue / 0.1) * 0.8
-        }
-        if delayedValue < 0.6 {
-            let t = (delayedValue - 0.1) / 0.5
-            return 0.8 + t * (0.3 - 0.8)
-        }
-        if delayedValue < 1 {
-            let t = (delayedValue - 0.6) / 0.4
-            return 0.3 + t * (-0.3)
-        }
-        return 0
-    }
+        let duration = 1.15
+        let expansion = CABasicAnimation(keyPath: "transform.scale")
+        expansion.fromValue = initialScale
+        expansion.toValue = 1
+        expansion.duration = duration
 
-    private func stopRingDisplayLink() {
-        ringDisplayLink?.invalidate()
-        ringDisplayLink = nil
-    }
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = opacity.lowerBound
+        fade.toValue = opacity.upperBound
+        fade.duration = duration
 
-    private func stopRingAnimations() {
-        stopRingDisplayLink()
-        for ring in ringViews {
-            ring.transform = .identity
-            ring.alpha = 0
-        }
+        let pulse = CAAnimationGroup()
+        pulse.animations = [expansion, fade]
+        pulse.duration = duration
+        pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        pulse.beginTime = layer.convertTime(CACurrentMediaTime(), from: nil) + delay
+        pulse.fillMode = .backwards
+        pulse.autoreverses = true
+        pulse.repeatCount = .infinity
+        layer.add(pulse, forKey: key)
     }
 
     private func applyConnectedAvatarBorder() {

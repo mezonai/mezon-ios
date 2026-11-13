@@ -428,6 +428,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     private static let endStallGrace: TimeInterval = 1.0
     private static let endStallTimeout: TimeInterval = 3.0
     private static let loadedToEndTolerance: Double = 0.5
+    private static let uploadWaitLimit: TimeInterval = 300
 
     private var sourceURL: URL?
     private var attachedCacheFile: URL?
@@ -441,6 +442,9 @@ final class MezonVideoPlayerNode: ASDisplayNode {
     private var growingListedDuration: Double = 0
     private var playlistEndedSeenAt: TimeInterval?
     private var starvingSince: TimeInterval?
+    private var didReloadStarvingPlaylist = false
+    private var growingTargetDuration: Double = 4
+    private var growingListedChangedAt: TimeInterval?
 
     var setOverlayVisible: ((Bool) -> Void)?
     var onPlaybackFailed: ((Error?) -> Bool)?
@@ -459,12 +463,16 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         return seconds.isFinite ? max(0, seconds) : 0
     }
 
-    var isCDNAccessDenied: Bool {
+    var isCDNAccessDenied: Bool { failed(withCDNStatus: 403) }
+
+    var isCDNFileMissing: Bool { failed(withCDNStatus: 404) }
+
+    private func failed(withCDNStatus status: Int) -> Bool {
         let item = player?.currentItem
-        if item?.errorLog()?.events.last?.errorStatusCode == 403 { return true }
+        if item?.errorLog()?.events.last?.errorStatusCode == status { return true }
         var error = item?.error as NSError?
         while let current = error {
-            if current.domain == ChunkedVideoResourceLoader.httpErrorDomain, current.code == 403 { return true }
+            if current.domain == ChunkedVideoResourceLoader.httpErrorDomain, current.code == status { return true }
             error = current.userInfo[NSUnderlyingErrorKey] as? NSError
         }
         return false
@@ -1079,7 +1087,11 @@ final class MezonVideoPlayerNode: ASDisplayNode {
 
     private func applyPlaylistSnapshot(_ snapshot: FileIngestPlaylist.Snapshot) {
         guard let player, let item = player.currentItem else { return }
+        if snapshot.listedDuration > growingListedDuration {
+            growingListedChangedAt = ProcessInfo.processInfo.systemUptime
+        }
         growingListedDuration = max(growingListedDuration, snapshot.listedDuration)
+        growingTargetDuration = max(snapshot.targetDuration, 4)
         updateGrowingDuration()
         guard item.status == .readyToPlay,
               !isScrubbing,
@@ -1087,7 +1099,7 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         let clock = ProcessInfo.processInfo.systemUptime
         let position = item.currentTime().seconds
         let bufferedEnd = position + VideoPlaybackBufferPolicy.bufferedAhead(at: position, ranges: item.loadedTimeRanges.map(\.timeRangeValue))
-        let targetDuration = max(snapshot.targetDuration, 4)
+        let targetDuration = growingTargetDuration
         if snapshot.ended, playlistEndedSeenAt == nil {
             playlistEndedSeenAt = clock
         }
@@ -1102,14 +1114,15 @@ final class MezonVideoPlayerNode: ASDisplayNode {
             if starvingSince == nil { starvingSince = clock }
         } else {
             starvingSince = nil
+            didReloadStarvingPlaylist = false
         }
-        let stuck = starvingSince.map { clock - $0 >= targetDuration * 2 } ?? false
-        guard endedUnseen || (stuck && !didReloadStalledPlaylist),
+        let stuck = !didReloadStarvingPlaylist && (starvingSince.map { clock - $0 >= targetDuration * 2 } ?? false)
+        guard endedUnseen || stuck,
               lastPlaylistReloadAt.map({ clock - $0 >= 10 }) ?? true else { return }
         lastPlaylistReloadAt = clock
         starvingSince = nil
         if snapshot.ended { didReloadEndedPlaylist = true }
-        if stuck { didReloadStalledPlaylist = true }
+        if stuck { didReloadStarvingPlaylist = true }
         reloadPlayerItem(snapshot.url)
     }
 
@@ -1181,6 +1194,10 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         }
 
         let bufferedEnd = position + VideoPlaybackBufferPolicy.bufferedAhead(at: position, ranges: item.loadedTimeRanges.map(\.timeRangeValue))
+        if isWaitingForUpload(player: player, item: item, position: position, bufferedEnd: bufferedEnd) {
+            playbackWatchdog = VideoPlaybackWatchdog(position: position)
+            return
+        }
         let receivedBytes = chunkedLoader?.receivedByteCount ?? item.accessLog()?.events.last?.numberOfBytesTransferred ?? 0
         guard playbackWatchdog?.hasStalled(
             position: position,
@@ -1198,6 +1215,17 @@ final class MezonVideoPlayerNode: ASDisplayNode {
         } else {
             showErrorOverlay(error: URLError(.timedOut))
         }
+    }
+
+    private func isWaitingForUpload(player: AVPlayer, item: AVPlayerItem, position: Double, bufferedEnd: Double) -> Bool {
+        guard growingPlaylistURL != nil,
+              playlistEndedSeenAt == nil,
+              let growingListedChangedAt,
+              ProcessInfo.processInfo.systemUptime - growingListedChangedAt < Self.uploadWaitLimit,
+              item.status == .readyToPlay,
+              !item.duration.seconds.isFinite,
+              player.timeControlStatus == .waitingToPlayAtSpecifiedRate else { return false }
+        return bufferedEnd - position < 2 && growingListedDuration - bufferedEnd <= growingTargetDuration
     }
 
     private func applyStartPosition(to item: AVPlayerItem) {

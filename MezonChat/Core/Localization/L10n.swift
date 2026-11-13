@@ -128,6 +128,11 @@ enum L10n {
         static let noClanCreateClan  = "profileSetting.noClanCreateClan"
         static let noClanJoinClan    = "profileSetting.noClanJoinClan"
         static let directMessageIcon = "profileSetting.directMessageIcon"
+        static let editCoverPhoto    = "profileSetting.editCoverPhoto"
+        static let changeCoverPhoto  = "profileSetting.changeCoverPhoto"
+        static let removeCoverPhoto  = "profileSetting.removeCoverPhoto"
+        static let coverUploadFailed = "profileSetting.coverUploadFailed"
+        static let choose            = "profileSetting.choose"
     }
 
     enum Common {
@@ -655,6 +660,33 @@ enum L10n {
             static let volume = "clan.setting.sounds.volume"
             static let play = "clan.setting.sounds.play"
             static let pause = "clan.setting.sounds.pause"
+        }
+
+        enum Community {
+            static let title = "clan.setting.community.title"
+            static let enableTitle = "clan.setting.community.enableTitle"
+            static let introduction = "clan.setting.community.introduction"
+            static let banner = "clan.setting.community.banner"
+            static let bannerHint = "clan.setting.community.bannerHint"
+            static let bannerTooLarge = "clan.setting.community.bannerTooLarge"
+            static let description = "clan.setting.community.description"
+            static let descriptionPlaceholder = "clan.setting.community.descriptionPlaceholder"
+            static let about = "clan.setting.community.about"
+            static let aboutPlaceholder = "clan.setting.community.aboutPlaceholder"
+            static let hashtagsTitle = "clan.setting.community.hashtagsTitle"
+            static let hashtagsDescription = "clan.setting.community.hashtagsDescription"
+            static let hashtagsMinimum = "clan.setting.community.hashtagsMinimum"
+            static let hashtagsMaximum = "clan.setting.community.hashtagsMaximum"
+            static let vanityURL = "clan.setting.community.vanityURL"
+            static let vanityURLPlaceholder = "clan.setting.community.vanityURLPlaceholder"
+            static let enableAndSave = "clan.setting.community.enableAndSave"
+            static let requiredFields = "clan.setting.community.requiredFields"
+            static let saved = "clan.setting.community.saved"
+            static let loadError = "clan.setting.community.loadError"
+            static let disable = "clan.setting.community.disable"
+            static let disableTitle = "clan.setting.community.disableTitle"
+            static let disableMessage = "clan.setting.community.disableMessage"
+            static let disabled = "clan.setting.community.disabled"
         }
 
         enum Emojis {
@@ -2177,6 +2209,30 @@ extension L10n {
         "clan.setting.sounds.play": "Play sound",
         "clan.setting.sounds.pause": "Pause sound",
         "clan.setting.enableCommunity":     "Enable Community",
+        "clan.setting.community.title": "Community Settings",
+        "clan.setting.community.enableTitle": "Enable Community?",
+        "clan.setting.community.introduction": "Transform your community into a fully-featured Community experience.",
+        "clan.setting.community.banner": "Community Banner",
+        "clan.setting.community.bannerHint": "The recommended minimum size is 960x540 and recommended aspect ratio is 16:9.",
+        "clan.setting.community.bannerTooLarge": "Image must be 10 MB or smaller.",
+        "clan.setting.community.description": "Community Description",
+        "clan.setting.community.descriptionPlaceholder": "Enter a short description for your community...",
+        "clan.setting.community.about": "About Community",
+        "clan.setting.community.aboutPlaceholder": "Tell us about your community... What makes it special?",
+        "clan.setting.community.hashtagsTitle": "Community Hashtags",
+        "clan.setting.community.hashtagsDescription": "Select up to 6 hashtags representing your community topic so members can easily find you.",
+        "clan.setting.community.hashtagsMinimum": "Community requires at least 1 hashtag",
+        "clan.setting.community.hashtagsMaximum": "Maximum 6 hashtags reached",
+        "clan.setting.community.vanityURL": "Vanity URL",
+        "clan.setting.community.vanityURLPlaceholder": "my-awesome-community",
+        "clan.setting.community.enableAndSave": "Enable & Save",
+        "clan.setting.community.requiredFields": "Please add a banner, select at least one hashtag, and fill in all required fields.",
+        "clan.setting.community.saved": "Community settings saved.",
+        "clan.setting.community.loadError": "Unable to load community settings.",
+        "clan.setting.community.disable": "Disable Community",
+        "clan.setting.community.disableTitle": "Disable Community?",
+        "clan.setting.community.disableMessage": "Are you sure you want to disable Community for this clan? Your community page will no longer be publicly listed.",
+        "clan.setting.community.disabled": "Community disabled.",
         "clan.setting.userManagement":      "User Management",
         "clan.setting.roles":               "Roles",
         "clan.setting.invites":             "Invites",
@@ -2947,6 +3003,11 @@ extension L10n {
         "profileSetting.noClanCreateClan": "Create a clan",
         "profileSetting.noClanJoinClan": "Join a clan",
         "profileSetting.directMessageIcon": "Direct Message Icon",
+        "profileSetting.editCoverPhoto": "Edit cover photo",
+        "profileSetting.changeCoverPhoto": "Change cover photo",
+        "profileSetting.removeCoverPhoto": "Remove cover photo",
+        "profileSetting.coverUploadFailed": "Unable to upload cover. Use JPEG, PNG, GIF or WebP up to 10 MB.",
+        "profileSetting.choose": "Choose",
 
         "qrScanner.title": "Scan QR Code",
         "qrScanner.cameraPermissionTitle": "Camera Access Required",
@@ -3118,7 +3179,7 @@ extension L10n {
         "peerCall.actionOK":                "OK",
         "peerCall.titleDefaultOutgoing":    "Call",
         "peerCall.titleDefaultIncoming":    "Incoming call",
-        "peerCall.statusRinging":           "Ringing…",
+        "peerCall.statusRinging":           "Ringing",
         "peerCall.statusIncoming":          "Incoming…",
         "peerCall.statusConnecting":        "Connecting…",
         "peerCall.statusConnected":         "Connected",
@@ -3718,6 +3779,30 @@ extension L10n {
         "clan.setting.sounds.play": "Phát âm thanh",
         "clan.setting.sounds.pause": "Tạm dừng âm thanh",
         "clan.setting.enableCommunity":     "Bật cộng đồng",
+        "clan.setting.community.title": "Cài đặt cộng đồng",
+        "clan.setting.community.enableTitle": "Bật cộng đồng?",
+        "clan.setting.community.introduction": "Biến đổi cộng đồng của bạn thành trải nghiệm cộng đồng đầy đủ tính năng.",
+        "clan.setting.community.banner": "Ảnh bìa cộng đồng",
+        "clan.setting.community.bannerHint": "Kích thước tối thiểu khuyến nghị là 960x540 và tỷ lệ khung hình 16:9.",
+        "clan.setting.community.bannerTooLarge": "Ảnh phải có dung lượng tối đa 10 MB.",
+        "clan.setting.community.description": "Mô tả cộng đồng",
+        "clan.setting.community.descriptionPlaceholder": "Nhập mô tả ngắn cho cộng đồng của bạn...",
+        "clan.setting.community.about": "Giới thiệu cộng đồng",
+        "clan.setting.community.aboutPlaceholder": "Hãy kể cho chúng tôi về cộng đồng của bạn... Điều gì làm cho nó đặc biệt?",
+        "clan.setting.community.hashtagsTitle": "Hashtags cộng đồng",
+        "clan.setting.community.hashtagsDescription": "Chọn tối đa 6 hashtag đại diện cho chủ đề cộng đồng để thành viên dễ dàng tìm thấy bạn.",
+        "clan.setting.community.hashtagsMinimum": "Cộng đồng cần tối thiểu 1 hashtag",
+        "clan.setting.community.hashtagsMaximum": "Đã đạt tối đa 6 hashtag",
+        "clan.setting.community.vanityURL": "URL tùy chỉnh",
+        "clan.setting.community.vanityURLPlaceholder": "cong-dong-tuyet-voi-cua-toi",
+        "clan.setting.community.enableAndSave": "Bật và lưu",
+        "clan.setting.community.requiredFields": "Vui lòng thêm ảnh bìa, chọn ít nhất 1 hashtag và điền đầy đủ các trường bắt buộc.",
+        "clan.setting.community.saved": "Đã lưu cài đặt cộng đồng.",
+        "clan.setting.community.loadError": "Không thể tải cài đặt cộng đồng.",
+        "clan.setting.community.disable": "Tắt cộng đồng",
+        "clan.setting.community.disableTitle": "Tắt cộng đồng?",
+        "clan.setting.community.disableMessage": "Bạn có chắc muốn tắt cộng đồng cho clan này? Trang cộng đồng sẽ không còn được liệt kê công khai.",
+        "clan.setting.community.disabled": "Đã tắt cộng đồng.",
         "clan.setting.userManagement":      "Quản lý người dùng",
         "clan.setting.roles":               "Vai trò",
         "clan.setting.invites":             "Lời mời",
@@ -4489,6 +4574,11 @@ extension L10n {
         "profileSetting.noClanCreateClan": "Tạo clan",
         "profileSetting.noClanJoinClan": "Tham gia clan",
         "profileSetting.directMessageIcon": "Biểu tượng tin nhắn riêng",
+        "profileSetting.editCoverPhoto": "Sửa ảnh bìa",
+        "profileSetting.changeCoverPhoto": "Đổi ảnh bìa",
+        "profileSetting.removeCoverPhoto": "Xóa ảnh bìa",
+        "profileSetting.coverUploadFailed": "Không thể tải ảnh bìa. Hãy dùng JPEG, PNG, GIF hoặc WebP tối đa 10 MB.",
+        "profileSetting.choose": "Chọn",
 
         "qrScanner.title": "Quét mã QR",
         "qrScanner.cameraPermissionTitle": "Yêu cầu quyền truy cập Camera",
@@ -4661,7 +4751,7 @@ extension L10n {
         "peerCall.actionOK":                "OK",
         "peerCall.titleDefaultOutgoing":    "Cuộc gọi",
         "peerCall.titleDefaultIncoming":    "Cuộc gọi đến",
-        "peerCall.statusRinging":           "Đang đổ chuông…",
+        "peerCall.statusRinging":           "Đang đổ chuông",
         "peerCall.statusIncoming":          "Đang gọi đến…",
         "peerCall.statusConnecting":        "Đang kết nối…",
         "peerCall.statusConnected":         "Đã kết nối",

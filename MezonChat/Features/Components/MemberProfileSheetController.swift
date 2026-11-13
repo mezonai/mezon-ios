@@ -284,6 +284,7 @@ final class MemberProfileSheetController: ViewController {
             showRemoveFromGroup: groupAction != nil && !isCurrentUser && user.id != 0 && !isWebhook,
             showTransferAction: onTransferFunds != nil && !isCurrentUser && user.id != 0 && !isWebhook,
             isWebhook: isWebhook,
+            coverURL: resolvedCoverURL,
             onSendMessageTapped: { [weak self] in
                 self?.handleSendMessage()
             },
@@ -318,6 +319,17 @@ final class MemberProfileSheetController: ViewController {
         displayNodeDidLoad()
         observePresence()
         observeFriendRelationship()
+    }
+
+    private var resolvedCoverURL: String {
+        guard !isWebhook, user.id != 0 else { return "" }
+        if isCurrentUser || user.id == context.currentUserNumericID {
+            return context.currentUser?.profileBannerURL ?? ""
+        }
+        if let known = context.engine.clanData.profileBanner(userId: user.id) {
+            return known
+        }
+        return user.banner.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var canManageBlock: Bool {
@@ -701,6 +713,8 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
     private let handleNode = ASDisplayNode()
 
     private let bannerNode = ASDisplayNode()
+    private let coverNode = ASDisplayNode(viewBlock: { ProfileCoverImageView(frame: .zero) })
+    private let coverURL: String
 
     private let avatarNode = ASImageNode()
     private let textAvatarNode = TextAvatarNode(size: 80.sf)
@@ -780,6 +794,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
         showRemoveFromGroup: Bool,
         showTransferAction: Bool,
         isWebhook: Bool = false,
+        coverURL: String = "",
         onSendMessageTapped: @escaping () -> Void,
         onStartCallTapped: @escaping () -> Void,
         onAddFriendTapped: @escaping () -> Void,
@@ -812,6 +827,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
         self.onRemoveFromGroupTap = onRemoveFromGroupTap
         self.onRemoveRoleTapped = onRemoveRoleTapped
         self.isWebhook = isWebhook
+        self.coverURL = coverURL
         super.init()
 
         let t = UIColor.theme
@@ -938,6 +954,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
         addSubnode(containerNode)
         containerNode.addSubnode(handleNode)
         contentNode.addSubnode(bannerNode)
+        contentNode.addSubnode(coverNode)
         if voiceChannelActions != nil {
             voiceCardNode.backgroundColor = UIColor.theme.secondary
             voiceCardNode.cornerRadius = 10.sf
@@ -1014,6 +1031,8 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
         scrollView.addSubview(contentNode.view)
 
         bannerNode.layer.zPosition = 0
+        coverNode.layer.zPosition = 0.5
+        (coverNode.view as? ProfileCoverImageView)?.setCover(coverURL)
         handleNode.layer.zPosition = 1
         infoCardNode.layer.zPosition = 2
         rolesCardNode.layer.zPosition = 2
@@ -1540,6 +1559,7 @@ private final class MemberProfileSheetNode: ASDisplayNode, UIGestureRecognizerDe
         }
 
         bannerNode.frame = CGRect(x: 0, y: 0, width: screenW, height: handleH + bannerH)
+        coverNode.frame = bannerNode.frame
         avatarNode.frame = CGRect(x: avatarX, y: avatarTop, width: avatarSize, height: avatarSize)
         textAvatarNode.frame = CGRect(x: avatarX, y: avatarTop, width: avatarSize, height: avatarSize)
         statusDotNode.frame = CGRect(

@@ -84,6 +84,25 @@ private enum ForwardOutgoing {
         return false
     }
 
+    static func isSourceMissing(_ error: Error) -> Bool {
+        if case let MezonError.httpError(code, _) = error {
+            return code == 404
+        }
+        return false
+    }
+
+    static func hasHLSCopy(_ url: String) async -> Bool {
+        await withCheckedContinuation { continuation in
+            FileIngestPlaylist.resolve(attachmentURL: url) { state in
+                if case .unknown = state {
+                    continuation.resume(returning: false)
+                } else {
+                    continuation.resume(returning: true)
+                }
+            }
+        }
+    }
+
     static func parsedAttachments(for record: MessageRecord, fallback: [ParsedAttachment] = []) -> [ParsedAttachment] {
         var out: [ParsedAttachment] = []
         var seen = Set<String>()
@@ -1240,7 +1259,11 @@ final class ForwardMessageViewController: UIViewController {
                         try await network.linkCDNFile(src: link.src, dst: link.dst, token: token)
                         return (index, link.url)
                     } catch {
-                        return (index, ForwardOutgoing.isAlreadyLinked(error) ? link.url : nil)
+                        if ForwardOutgoing.isAlreadyLinked(error) { return (index, link.url) }
+                        if ForwardOutgoing.isSourceMissing(error), await ForwardOutgoing.hasHLSCopy(attachment.url) {
+                            return (index, attachment.url)
+                        }
+                        return (index, nil)
                     }
                 }
             }

@@ -336,3 +336,114 @@ final class ChatMessageItemNode: ListViewItemNode, UIGestureRecognizerDelegate {
         }
     }
 }
+
+final class ChatTopicRootItem: ListViewItem {
+
+    let display: ChatMessageDisplay
+    let interaction: ChatInteraction
+
+    var selectable: Bool { false }
+    var approximateHeight: CGFloat { 100 }
+
+    init(display: ChatMessageDisplay, interaction: ChatInteraction) {
+        self.display = display
+        self.interaction = interaction
+    }
+
+    func nodeConfiguredForParams(async: @escaping (@escaping () -> Void) -> Void, params: ListViewItemLayoutParams, synchronousLoads: Bool, previousItem: ListViewItem?, nextItem: ListViewItem?, completion: @escaping (ListViewItemNode, @escaping () -> (Signal<Void, NoError>?, (ListViewItemApply) -> Void)) -> Void) {
+        async {
+            let node = ChatTopicRootItemNode()
+            let layout = node.asyncLayout()
+            let (nodeLayout, apply) = layout(self, params)
+
+            node.contentSize = nodeLayout.contentSize
+            node.insets = nodeLayout.insets
+
+            Queue.mainQueue().async {
+                completion(node, {
+                    return (nil, { _ in apply() })
+                })
+            }
+        }
+    }
+
+    func updateNode(async: @escaping (@escaping () -> Void) -> Void, node: @escaping () -> ListViewItemNode, params: ListViewItemLayoutParams, previousItem: ListViewItem?, nextItem: ListViewItem?, animation: ListViewItemUpdateAnimation, completion: @escaping (ListViewItemNodeLayout, @escaping (ListViewItemApply) -> Void) -> Void) {
+        Queue.mainQueue().async {
+            guard let itemNode = node() as? ChatTopicRootItemNode else { return }
+            let layout = itemNode.asyncLayout()
+            async {
+                let (nodeLayout, apply) = layout(self, params)
+                Queue.mainQueue().async {
+                    completion(nodeLayout, { _ in apply() })
+                }
+            }
+        }
+    }
+
+    func selected(listView: ListView) {}
+}
+
+final class ChatTopicRootItemNode: ListViewItemNode {
+
+    private static let separatorSpacing: CGFloat = 12
+    private static let separatorHeight: CGFloat = 1
+    private static let separatorHorizontalInset: CGFloat = 12
+
+    private var bubbleNode: MessageBubbleNode?
+    private let separatorNode = ASDisplayNode()
+
+    init() {
+        super.init(layerBacked: false, rotated: true)
+        self.transform = CATransform3DMakeScale(1.0, -1.0, 1.0)
+        addSubnode(separatorNode)
+    }
+
+    override func layoutForParams(_ params: ListViewItemLayoutParams, item: ListViewItem, previousItem: ListViewItem?, nextItem: ListViewItem?) {
+        guard let rootItem = item as? ChatTopicRootItem else { return }
+        let layout = asyncLayout()
+        let (nodeLayout, apply) = layout(rootItem, params)
+        self.contentSize = nodeLayout.contentSize
+        self.insets = nodeLayout.insets
+        apply()
+    }
+
+    func asyncLayout() -> (ChatTopicRootItem, ListViewItemLayoutParams) -> (ListViewItemNodeLayout, () -> Void) {
+        return { [weak self] item, params in
+            let width = params.width
+            let bubble: MessageBubbleNode
+            if let existing = self?.bubbleNode, existing.display.id == item.display.id {
+                existing.updateDisplay(item.display)
+                bubble = existing
+            } else {
+                bubble = MessageBubbleNode(display: item.display, interaction: item.interaction)
+            }
+            let bubbleSize = bubble.measureSize(width: width)
+            let separatorY = bubbleSize.height + Self.separatorSpacing
+            let nodeLayout = ListViewItemNodeLayout(
+                contentSize: CGSize(width: width, height: separatorY + Self.separatorHeight),
+                insets: UIEdgeInsets()
+            )
+
+            return (nodeLayout, {
+                guard let self else { return }
+                bubble.isUserInteractionEnabled = false
+                bubble.updateMessageAccessibility()
+                self.accessibilityIdentifier = AccessibilityID.Chat.topicRootMessage
+                if self.bubbleNode !== bubble {
+                    self.bubbleNode?.removeFromSupernode()
+                    self.addSubnode(bubble)
+                    self.bubbleNode = bubble
+                }
+                bubble.frame = CGRect(origin: .zero, size: bubbleSize)
+                let inset = Self.separatorHorizontalInset
+                self.separatorNode.backgroundColor = UIColor.theme.border
+                self.separatorNode.frame = CGRect(
+                    x: inset,
+                    y: separatorY,
+                    width: max(width - inset * 2, 0),
+                    height: Self.separatorHeight
+                )
+            })
+        }
+    }
+}

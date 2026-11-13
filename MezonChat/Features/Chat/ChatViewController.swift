@@ -429,6 +429,8 @@ struct ChatState {
     var currentUserId: String?
     var parentName: String?
     var dmPeerInVoice: Bool = false
+    var isTopicDiscussion: Bool = false
+    var topicRootMessage: ChatMessageDisplay? = nil
 
     static let empty = ChatState(
         messages: [], messagesRevision: 0, channelLabel: "", channelType: 0, isPrivate: false, isAgeRestricted: false,
@@ -465,6 +467,9 @@ final class ChatViewController: ViewController {
     }
     private var skipRemoteFetchWhileTopicIsEmpty = false
     private var pendingTopicCreationMessageId: Int64?
+    var topicRootMessageId: Int64 = 0
+    private var topicRootMessage: ChatMessageDisplay?
+    private var topicRootTask: Task<Void, Never>?
     private var messageHistoryDisposable: Disposable?
     private var hasLeftChat = false
     private var messageHistoryGeneration: UInt64 = 0
@@ -1083,6 +1088,7 @@ final class ChatViewController: ViewController {
         configureAnonymousComposerAndAdvancePanel()
         locationManager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
         start()
+        loadTopicRootMessage()
         prefetchQuickMenus()
         
         NotificationCenter.default.addObserver(
@@ -3362,7 +3368,9 @@ final class ChatViewController: ViewController {
             lastSeenMessageId: lastSeenMessageId,
             currentUserId: context.currentUser?.id,
             parentName: resolvedParentName,
-            dmPeerInVoice: dmPeerInVoice
+            dmPeerInVoice: dmPeerInVoice,
+            isTopicDiscussion: topicId != 0 || pendingTopicCreationMessageId != nil,
+            topicRootMessage: topicRootMessage
         )
     }
 
@@ -3437,6 +3445,8 @@ final class ChatViewController: ViewController {
             var lastDmAvatarURL = self.currentState.dmAvatarURL
             var lastDmGroupAvatarURL = self.currentState.dmGroupAvatarURL
             var lastDmPeerInVoice = self.currentState.dmPeerInVoice
+            var lastIsTopicDiscussion = self.currentState.isTopicDiscussion
+            var lastTopicRootToken = self.topicRootMessage.map { Self.messageUpdateToken($0) }
             subscriber.putNext(self.currentState)
             let merged = Signal<Void, NoError> { subscriber in
                 let d1 = self.needsReloadPipe.signal().start(next: { subscriber.putNext(()) })
@@ -3466,6 +3476,7 @@ final class ChatViewController: ViewController {
                 } else {
                     messagesChanged = false
                 }
+                let topicRootToken = newState.topicRootMessage.map { Self.messageUpdateToken($0) }
                 let changed = messagesChanged
                         || newState.isLoading != lastLoading
                         || newState.isLoadingMore != lastLoadingMore
@@ -3487,6 +3498,8 @@ final class ChatViewController: ViewController {
                         || newState.dmAvatarURL != lastDmAvatarURL
                         || newState.dmGroupAvatarURL != lastDmGroupAvatarURL
                         || newState.dmPeerInVoice != lastDmPeerInVoice
+                        || newState.isTopicDiscussion != lastIsTopicDiscussion
+                        || topicRootToken != lastTopicRootToken
                     guard changed else { return }
                     lastLoading = newState.isLoading
                     lastLoadingMore = newState.isLoadingMore
@@ -3508,6 +3521,8 @@ final class ChatViewController: ViewController {
                     lastDmAvatarURL = newState.dmAvatarURL
                     lastDmGroupAvatarURL = newState.dmGroupAvatarURL
                     lastDmPeerInVoice = newState.dmPeerInVoice
+                    lastIsTopicDiscussion = newState.isTopicDiscussion
+                    lastTopicRootToken = topicRootToken
                     subscriber.putNext(newState)
                 })
         }
@@ -3651,7 +3666,7 @@ final class ChatViewController: ViewController {
         return result
     }
 
-    private func buildDisplayMessages(from records: [MessageRecord]) -> [ChatMessageDisplay] {
+    private func buildDisplayMessages(from records: [MessageRecord], prunesPendingState: Bool = true) -> [ChatMessageDisplay] {
         let currentUserId = context.currentUser?.id
         let validRecords = records.filter { !$0.id.isEmpty && !$0.channelId.isEmpty }
         let now = Date()
@@ -3671,15 +3686,17 @@ final class ChatViewController: ViewController {
             return Set(roleList.roles.map { $0.id })
         }()
 
-        let currentPendingIds = Set(validRecords.filter { $0.sendingState == .pending }.map(\.id))
-        pendingSendingFeedbackBeganAtByMessageId = pendingSendingFeedbackBeganAtByMessageId.filter {
-            currentPendingIds.contains($0.key)
-        }
-        for cachedId in ParsedAttachment.pendingImageCache.keys where !currentPendingIds.contains(cachedId) {
-            ParsedAttachment.pendingImageCache.removeValue(forKey: cachedId)
-        }
-        for cachedId in ParsedAttachment.pendingDocumentPlaceholders.keys where !currentPendingIds.contains(cachedId) {
-            ParsedAttachment.pendingDocumentPlaceholders.removeValue(forKey: cachedId)
+        if prunesPendingState {
+            let currentPendingIds = Set(validRecords.filter { $0.sendingState == .pending }.map(\.id))
+            pendingSendingFeedbackBeganAtByMessageId = pendingSendingFeedbackBeganAtByMessageId.filter {
+                currentPendingIds.contains($0.key)
+            }
+            for cachedId in ParsedAttachment.pendingImageCache.keys where !currentPendingIds.contains(cachedId) {
+                ParsedAttachment.pendingImageCache.removeValue(forKey: cachedId)
+            }
+            for cachedId in ParsedAttachment.pendingDocumentPlaceholders.keys where !currentPendingIds.contains(cachedId) {
+                ParsedAttachment.pendingDocumentPlaceholders.removeValue(forKey: cachedId)
+            }
         }
 
         let displays = validRecords.map { record -> ChatMessageDisplay in
@@ -5178,6 +5195,9 @@ final class ChatViewController: ViewController {
         let topicVC = ChatViewController(
             clanId: clanId, channel: topicChannel, context: context, parentName: nil)
         topicVC.topicId = topicIdInt
+        topicVC.topicRootMessageId = messages
+            .first(where: { $0.topicData?.topicId == topicData.topicId })
+            .flatMap { Int64($0.id) } ?? 0
         topicVC.skipRemoteFetchWhileTopicIsEmpty = topicData.replyCount <= 0
         needsRefreshAfterTopicDiscussion = true
         navigationController?.pushViewController(topicVC, animated: true)
@@ -5195,6 +5215,67 @@ final class ChatViewController: ViewController {
         topicVC.configureAsPendingTopicCreation(sourceMessageId: messageId)
         needsRefreshAfterTopicDiscussion = true
         navigationController?.pushViewController(topicVC, animated: true)
+    }
+
+    private func loadTopicRootMessage() {
+        guard topicId != 0 || pendingTopicCreationMessageId != nil else { return }
+        let parentChannelId = channel.channelID
+        guard parentChannelId != 0 else { return }
+        let knownRootId = pendingTopicCreationMessageId ?? topicRootMessageId
+        if knownRootId != 0, let record = storedTopicRootRecord(messageId: knownRootId) {
+            applyTopicRootRecord(record)
+            return
+        }
+        let requestTopicId = topicId
+        let requestClanId = clanId
+        let accountContext = context
+        topicRootTask?.cancel()
+        topicRootTask = Task { @MainActor [weak self, accountContext] in
+            let token = await accountContext.getTokenPreferringCachedSkipSessionReadyWait()
+            guard let self, !Task.isCancelled, let token else { return }
+            var rootId = knownRootId
+            if rootId == 0 {
+                guard requestTopicId != 0,
+                      let detail = try? await accountContext.account.network.getTopicDetail(topicId: requestTopicId, token: token),
+                      !Task.isCancelled, detail.messageID != 0 else { return }
+                rootId = detail.messageID
+                if let record = self.storedTopicRootRecord(messageId: rootId) {
+                    self.applyTopicRootRecord(record)
+                    return
+                }
+            }
+            guard let response = try? await accountContext.account.network.listChannelMessages(
+                clanId: requestClanId, channelId: parentChannelId, messageId: rootId,
+                direction: 2, limit: 30, topicId: 0, token: token
+            ), !Task.isCancelled,
+                  let apiRoot = response.messages.first(where: { $0.messageID == rootId }) else { return }
+            self.applyTopicRootRecord(self.messageRecord(from: apiRoot, storageChannelId: String(parentChannelId)))
+        }
+    }
+
+    private func storedTopicRootRecord(messageId: Int64) -> MessageRecord? {
+        let messageIdStr = String(messageId)
+        let parentChannelIdStr = String(channel.channelID)
+        return context.account.postbox.read { tx in
+            tx.getMessageById(messageIdStr, channelId: parentChannelIdStr) ?? tx.getMessageById(messageIdStr)
+        }
+    }
+
+    private func applyTopicRootRecord(_ record: MessageRecord) {
+        guard !record.isDeleted else { return }
+        let headerRecord = MessageRecord(
+            id: record.id, channelId: record.channelId, clanId: record.clanId,
+            senderId: record.senderId, content: record.content,
+            createdAt: record.createdAt, editedAt: record.editedAt,
+            code: record.code == Self.messageCodeTopic ? 0 : record.code,
+            senderDisplayName: record.senderDisplayName,
+            senderAvatarURL: record.senderAvatarURL,
+            attachmentsJSON: record.attachmentsJSON,
+            mentionsJSON: record.mentionsJSON
+        )
+        guard let display = buildDisplayMessages(from: [headerRecord], prunesPendingState: false).first else { return }
+        topicRootMessage = display
+        needsReloadPipe.putNext(())
     }
 
     private func configurePendingTopicCreationIfNeeded() {

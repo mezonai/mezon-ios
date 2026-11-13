@@ -75,7 +75,7 @@ final class VLCVideoPlayerNode: ASDisplayNode {
         }
     }
     
-    init(url: URL, posterURL: String, localFile: URL?, retryCachedFile: Bool) {
+    init(url: URL, posterURL: String, localFile: URL?, retryCachedFile: Bool, downloadsFirst: Bool = false) {
         self.sourceURL = url
         self.playerContainerNode = ASDisplayNode(viewBlock: { VLCDrawableHostView() })
         self.playerContainerNode.backgroundColor = .black
@@ -150,7 +150,7 @@ final class VLCVideoPlayerNode: ASDisplayNode {
         
         updatePlayPauseIcons(isPlaying: false)
         
-        setupVLCPlayer(url: url, localFile: localFile, retryCachedFile: retryCachedFile)
+        setupVLCPlayer(url: url, localFile: localFile, retryCachedFile: retryCachedFile, downloadsFirst: downloadsFirst)
         
         posterNode.setSignal(videoThumbnailSignal(url: posterURL, resizeMode: .fit, allowRemoteGeneration: false))
     }
@@ -201,7 +201,7 @@ final class VLCVideoPlayerNode: ASDisplayNode {
         button.clipsToBounds = true
     }
     
-    private func setupVLCPlayer(url: URL, localFile: URL?, retryCachedFile: Bool) {
+    private func setupVLCPlayer(url: URL, localFile: URL?, retryCachedFile: Bool, downloadsFirst: Bool) {
         if url.isFileURL {
             attachVLCPlayer(fileURL: url)
             return
@@ -210,6 +210,8 @@ final class VLCVideoPlayerNode: ASDisplayNode {
         if let localURL = localFile ?? Self.cachedFile(for: url) {
             canRetryCachedFile = retryCachedFile
             attachVLCPlayer(fileURL: localURL)
+        } else {
+            needsDownload = downloadsFirst
         }
     }
 
