@@ -24,7 +24,7 @@ final class HomeViewController: BaseViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = UIColor.theme.primary
+        applyHomeBackground()
         embedChildren()
         embedDiscoverOverlay()
         bindClanSelection()
@@ -110,8 +110,13 @@ final class HomeViewController: BaseViewController {
         channelListVC.displayNode.recursivelyEnsureDisplaySynchronously(true)
     }
 
+    private func applyHomeBackground() {
+        let theme = UIColor.theme
+        view.backgroundColor = theme.desktop.conversationGradient == nil ? theme.tertiary : theme.primary
+    }
+
     @objc private func handleHomeThemeChange() {
-        view.backgroundColor = UIColor.theme.primary
+        applyHomeBackground()
     }
 
     private static func int64FromAlignUserInfo(_ value: Any?) -> Int64? {
