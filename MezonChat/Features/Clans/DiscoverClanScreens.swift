@@ -241,7 +241,7 @@ private final class DiscoverClanListCell: UITableViewCell {
         backgroundColor = .clear
         contentView.backgroundColor = .clear
 
-        cardContainer.backgroundColor = UIColor.theme.secondary
+        cardContainer.backgroundColor = UIColor.theme.primary
         cardContainer.layer.cornerRadius = 12.swh
         cardContainer.layer.borderWidth = 1
         cardContainer.layer.borderColor = UIColor.theme.borderDim.cgColor
@@ -338,8 +338,8 @@ private final class DiscoverClanListCell: UITableViewCell {
     func configure(_ item: Mezon_Api_ClanDiscover) {
         accessibilityIdentifier = AccessibilityID.Discover.clan(item.clanID)
         nameLabel.textColor = UIColor.theme.textStrong
-        descLabel.textColor = UIColor.theme.textDisabled
-        membersLabel.textColor = UIColor.theme.textDisabled
+        descLabel.textColor = UIColor.theme.textNormal
+        membersLabel.textColor = UIColor.theme.textNormal
         nameLabel.text = item.clanName
         descLabel.text = item.description_p
         membersLabel.text = String(format: L(L10n.Discover.membersLabel), Int(item.totalMembers))
@@ -365,11 +365,11 @@ private final class DiscoverClanListCell: UITableViewCell {
     }
 
     func applyTheme() {
-        cardContainer.backgroundColor = UIColor.theme.secondary
+        cardContainer.backgroundColor = UIColor.theme.primary
         cardContainer.layer.borderColor = UIColor.theme.borderDim.cgColor
         nameLabel.textColor = UIColor.theme.textStrong
-        descLabel.textColor = UIColor.theme.textDisabled
-        membersLabel.textColor = UIColor.theme.textDisabled
+        descLabel.textColor = UIColor.theme.textNormal
+        membersLabel.textColor = UIColor.theme.textNormal
     }
 }
 
@@ -476,6 +476,9 @@ final class DiscoverClanEmptyStateViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.accessibilityIdentifier = AccessibilityID.Discover.list
+        view.layer.cornerRadius = 20.swh
+        view.layer.maskedCorners = [.layerMinXMinYCorner]
+        view.clipsToBounds = true
         searchField.accessibilityIdentifier = AccessibilityID.Discover.search
         qrHeaderButton.accessibilityIdentifier = AccessibilityID.Discover.scanQR
         addFriendHeaderButton.accessibilityIdentifier = AccessibilityID.Discover.addFriend
@@ -489,13 +492,13 @@ final class DiscoverClanEmptyStateViewController: UIViewController {
         searchField.borderStyle = .none
         searchField.backgroundColor = UIColor.theme.tertiary
         searchField.layer.cornerRadius = 16
-        searchField.layer.borderWidth = 0
+        searchField.layer.borderWidth = 1
         searchField.clipsToBounds = true
         searchField.font = .systemFont(ofSize: 14.sf)
         searchField.textColor = UIColor.theme.textStrong
         searchField.attributedPlaceholder = NSAttributedString(
             string: L(L10n.Discover.exploreCommunities),
-            attributes: [.foregroundColor: UIColor.theme.textDisabled]
+            attributes: [.foregroundColor: UIColor.theme.textNormal]
         )
         searchField.leftView = UIView(frame: CGRect(x: 0, y: 0, width: 10.sw, height: 1))
         searchField.leftViewMode = .always
@@ -587,22 +590,23 @@ final class DiscoverClanEmptyStateViewController: UIViewController {
         titleLabel.text = L(L10n.Discover.communityOnMezon)
         titleLabel.textColor = t.textStrong
         searchField.backgroundColor = t.tertiary
-        searchField.layer.borderWidth = 0
+        searchField.layer.borderWidth = 1
+        searchField.layer.borderColor = t.border.cgColor
         searchField.textColor = t.textStrong
         searchField.attributedPlaceholder = NSAttributedString(
             string: L(L10n.Discover.exploreCommunities),
-            attributes: [.foregroundColor: t.textDisabled]
+            attributes: [.foregroundColor: t.textNormal]
         )
         headerContainer.layer.borderWidth = 0
-        qrHeaderButton.backgroundColor = t.raisedSurface
-        qrHeaderButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
+        qrHeaderButton.backgroundColor = t.tertiary
+        qrHeaderButton.layer.borderColor = t.border.cgColor
         
         qrHeaderButton.setImage(UIImage(named: "Profile/ScanQR")?.withRenderingMode(.alwaysTemplate), for: .normal)
         qrHeaderButton.tintColor = .mezonIconDefault
         
         addFriendHeaderButton.tintColor = .mezonIconDefault
-        addFriendHeaderButton.backgroundColor = t.raisedSurface
-        addFriendHeaderButton.layer.borderColor = t.border.withAlphaComponent(0.4).cgColor
+        addFriendHeaderButton.backgroundColor = t.tertiary
+        addFriendHeaderButton.layer.borderColor = t.border.cgColor
         statusLabel.textColor = t.textDisabled
         loadingIndicator.color = t.textStrong
     }
@@ -1016,7 +1020,7 @@ final class DiscoverClanDetailViewController: BaseViewController {
         titleLabel.numberOfLines = 0
         let subtitleLabel = UILabel()
         subtitleLabel.font = .systemFont(ofSize: 13.sf, weight: .regular)
-        subtitleLabel.textColor = UIColor.theme.textDisabled
+        subtitleLabel.textColor = UIColor.theme.textNormal
         subtitleLabel.numberOfLines = 0
         subtitleLabel.text = subtitle
         let textStack = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel])
@@ -1044,14 +1048,14 @@ final class DiscoverClanDetailViewController: BaseViewController {
 
     override func applyTheme() {
         view.backgroundColor = UIColor.theme.primary
-        cardView.backgroundColor = UIColor.theme.secondary
+        cardView.backgroundColor = UIColor.theme.primary
         logoView.layer.borderColor = UIColor.theme.primary.cgColor
         nameLabel.textColor = UIColor.theme.textStrong
-        descLabel.textColor = UIColor.theme.textDisabled
+        descLabel.textColor = UIColor.theme.textNormal
         membersLabel.textColor = UIColor.theme.textStrong
         memberDot.backgroundColor = UIColor(rgb: 0x3BA55C)
         aboutTitleLabel.textColor = UIColor.theme.textStrong
-        aboutBodyLabel.textColor = UIColor.theme.textDisabled
+        aboutBodyLabel.textColor = UIColor.theme.textNormal
         hashtagsView?.applyTheme()
         backButton.tintColor = UIColor.theme.textStrong
         backButton.backgroundColor = UIColor.theme.primary.withAlphaComponent(0.45)
@@ -1062,7 +1066,7 @@ final class DiscoverClanDetailViewController: BaseViewController {
             t.textColor = UIColor.theme.textStrong
         }
         for s in infoRowSubtitleLabels {
-            s.textColor = UIColor.theme.textDisabled
+            s.textColor = UIColor.theme.textNormal
         }
         for iv in infoRowIconViews {
             iv.tintColor = UIColor.theme.textDisabled
