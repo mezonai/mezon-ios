@@ -42,6 +42,8 @@ final class ProfileSettingViewController: BaseViewController {
     private var initialUserAvatarUrl: String = ""
     private var initialUserAboutMe: String = ""
     private var initialUserDmLogoUrl: String = ""
+    private var userBannerUrl: String = ""
+    private var initialUserBannerUrl: String = ""
 
     private var clanNickname: String = ""
     private var clanAvatarUrl: String = ""
@@ -57,7 +59,7 @@ final class ProfileSettingViewController: BaseViewController {
         didSet { updateSaveButtonState() }
     }
 
-    private enum AvatarTarget { case userAvatar, clanAvatar, dmIcon }
+    private enum AvatarTarget { case userAvatar, clanAvatar, dmIcon, cover }
     private var pendingAvatarTarget: AvatarTarget = .userAvatar
 
     private let headerView = UIView()
@@ -133,6 +135,32 @@ final class ProfileSettingViewController: BaseViewController {
         let v = UIView()
         v.backgroundColor = .outgoingBubble
         return v
+    }()
+    private let coverImageView: ProfileCoverImageView = {
+        let v = ProfileCoverImageView(frame: .zero)
+        v.translatesAutoresizingMaskIntoConstraints = false
+        return v
+    }()
+    private let editCoverButton: UIButton = {
+        let btn = UIButton(type: .system)
+        btn.setImage(UIImage(named: "CoverCameraIcon")?.withRenderingMode(.alwaysTemplate), for: .normal)
+        btn.tintColor = .white
+        btn.setTitleColor(.white, for: .normal)
+        btn.titleLabel?.font = .systemFont(ofSize: 13.sf, weight: .bold)
+        btn.backgroundColor = UIColor.black.withAlphaComponent(0.6)
+        btn.contentEdgeInsets = UIEdgeInsets(top: 6, left: 10, bottom: 6, right: 18)
+        btn.titleEdgeInsets = UIEdgeInsets(top: 0, left: 6, bottom: 0, right: -6)
+        btn.layer.cornerRadius = 15
+        btn.clipsToBounds = true
+        btn.translatesAutoresizingMaskIntoConstraints = false
+        return btn
+    }()
+    private let coverSpinner: UIActivityIndicatorView = {
+        let s = UIActivityIndicatorView(style: .medium)
+        s.color = .white
+        s.hidesWhenStopped = true
+        s.translatesAutoresizingMaskIntoConstraints = false
+        return s
     }()
 
     private let avatarSize: CGFloat = 90.swh
@@ -522,6 +550,7 @@ final class ProfileSettingViewController: BaseViewController {
             displayNameLabel.text = L(L10n.ProfileSetting.clanNickname)
         }
         dmIconLabel.text = L(L10n.ProfileSetting.directMessageIcon)
+        editCoverButton.setTitle(L(L10n.ProfileSetting.editCoverPhoto), for: .normal)
         noClanTitleLabel.text = L(L10n.ProfileSetting.noClanTitle)
         noClanDescLabel.text = L(L10n.ProfileSetting.noClanDesc)
         createClanButton.setTitle(L(L10n.ProfileSetting.noClanCreateClan), for: .normal)
@@ -544,6 +573,10 @@ final class ProfileSettingViewController: BaseViewController {
 
         bannerColorView.translatesAutoresizingMaskIntoConstraints = false
         bannerView.addSubview(bannerColorView)
+        bannerView.addSubview(coverImageView)
+        bannerView.addSubview(editCoverButton)
+        bannerView.addSubview(coverSpinner)
+        editCoverButton.addTarget(self, action: #selector(editCoverTapped), for: .touchUpInside)
 
         avatarContainerView.layer.cornerRadius = avatarSize / 2
         avatarContainerView.layer.borderWidth = 3
@@ -567,6 +600,18 @@ final class ProfileSettingViewController: BaseViewController {
             bannerColorView.leadingAnchor.constraint(equalTo: bannerView.leadingAnchor),
             bannerColorView.trailingAnchor.constraint(equalTo: bannerView.trailingAnchor),
             bannerColorView.bottomAnchor.constraint(equalTo: avatarContainerView.centerYAnchor),
+
+            coverImageView.topAnchor.constraint(equalTo: bannerColorView.topAnchor),
+            coverImageView.leadingAnchor.constraint(equalTo: bannerColorView.leadingAnchor),
+            coverImageView.trailingAnchor.constraint(equalTo: bannerColorView.trailingAnchor),
+            coverImageView.bottomAnchor.constraint(equalTo: bannerColorView.bottomAnchor),
+
+            editCoverButton.topAnchor.constraint(equalTo: bannerColorView.topAnchor, constant: 10.sh),
+            editCoverButton.trailingAnchor.constraint(equalTo: bannerColorView.trailingAnchor, constant: -12.sw),
+            editCoverButton.heightAnchor.constraint(equalToConstant: 30),
+
+            coverSpinner.centerXAnchor.constraint(equalTo: bannerColorView.centerXAnchor),
+            coverSpinner.centerYAnchor.constraint(equalTo: bannerColorView.centerYAnchor),
 
             avatarContainerView.leadingAnchor.constraint(equalTo: bannerView.leadingAnchor, constant: 16.sw),
             avatarContainerView.bottomAnchor.constraint(equalTo: bannerView.bottomAnchor),
@@ -781,6 +826,8 @@ final class ProfileSettingViewController: BaseViewController {
         userDisplayName = (rawDisplayName.isEmpty || rawDisplayName == rawUsername) ? "" : user.displayName
         userAvatarUrl = user.avatarURL?.absoluteString ?? ""
         userAboutMe = user.bio ?? ""
+        userBannerUrl = user.profileBannerURL ?? ""
+        initialUserBannerUrl = userBannerUrl
         initialUserDisplayName = userDisplayName
         initialUserAvatarUrl = userAvatarUrl
         initialUserAboutMe = userAboutMe
@@ -883,6 +930,9 @@ final class ProfileSettingViewController: BaseViewController {
             clanSelectorView.isHidden = true
             return
         }
+
+        coverImageView.setCover(userBannerUrl)
+        editCoverButton.isHidden = !isUser
 
         if isUser {
             displayNameLabel.text = L(L10n.ProfileSetting.displayName)
@@ -1097,7 +1147,8 @@ final class ProfileSettingViewController: BaseViewController {
                 displayNameForSave != initialDisplayName ||
                 aboutMeForSave != initialAboutMe ||
                 userAvatarUrl != initialUserAvatarUrl ||
-                userDmLogoUrl != initialUserDmLogoUrl
+                userDmLogoUrl != initialUserDmLogoUrl ||
+                userBannerUrl != initialUserBannerUrl
             guard hasChanges else {
                 Toast.success(L(L10n.ProfileSetting.updateSuccess))
                 navigationController?.popViewController(animated: true)
@@ -1110,6 +1161,7 @@ final class ProfileSettingViewController: BaseViewController {
                     avatarUrl: userAvatarUrl,
                     aboutMe: aboutMeForSave,
                     logo: userDmLogoUrl,
+                    banner: userBannerUrl != initialUserBannerUrl ? userBannerUrl : nil,
                     token: token
                 )
                 await context.refreshUserProfile()
@@ -1263,6 +1315,46 @@ final class ProfileSettingViewController: BaseViewController {
         removeCurrentAvatar()
     }
 
+    @objc private func editCoverTapped() {
+        guard !isUploading, !isSaving else { return }
+        let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
+        sheet.addAction(UIAlertAction(title: L(L10n.ProfileSetting.changeCoverPhoto), style: .default) { [weak self] _ in
+            self?.pendingAvatarTarget = .cover
+            self?.presentImagePicker()
+        })
+        if !userBannerUrl.isEmpty {
+            sheet.addAction(UIAlertAction(title: L(L10n.ProfileSetting.removeCoverPhoto), style: .destructive) { [weak self] _ in
+                self?.pendingAvatarTarget = .cover
+                self?.removeCurrentAvatar()
+            })
+        }
+        sheet.addAction(UIAlertAction(title: L(L10n.Common.cancel), style: .cancel))
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = editCoverButton
+            popover.sourceRect = editCoverButton.bounds
+        }
+        present(sheet, animated: true)
+    }
+
+    private func maxUploadBytes(for target: AvatarTarget) -> Int {
+        target == .dmIcon ? kMaxDMIconBytes : kMaxAvatarBytes
+    }
+
+    private func uploadPreviewPixelSize(for target: AvatarTarget) -> Int {
+        target == .cover ? 1200 : Int(ceil(avatarSize * UIScreen.main.scale))
+    }
+
+    private func showFileTooLargeToast(for target: AvatarTarget) {
+        switch target {
+        case .cover:
+            Toast.error(L(L10n.ProfileSetting.coverUploadFailed))
+        case .dmIcon:
+            Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge1MB))
+        case .userAvatar, .clanAvatar:
+            Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge10MB))
+        }
+    }
+
     private func showAvatarOptions() {
         let sheet = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
         sheet.addAction(UIAlertAction(title: "Change Avatar", style: .default) { [weak self] _ in
@@ -1295,6 +1387,9 @@ final class ProfileSettingViewController: BaseViewController {
         case .dmIcon:
             userDmLogoUrl = ""
             refreshDMIcon()
+        case .cover:
+            userBannerUrl = ""
+            coverImageView.setCover(nil)
         }
     }
 
@@ -1316,25 +1411,54 @@ final class ProfileSettingViewController: BaseViewController {
         }
     }
 
-    private func handlePickedImage(_ image: UIImage, data: Data, mimeType: String = "image/jpeg", target: AvatarTarget, originalFilename: String?) {
-        let maxBytes: Int
-        switch target {
-        case .userAvatar, .clanAvatar:
-            maxBytes = kMaxAvatarBytes
-        case .dmIcon:
-            maxBytes = kMaxDMIconBytes
-        }
-
-        if data.count > maxBytes {
-            if maxBytes == kMaxAvatarBytes {
-                Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge10MB))
-            } else {
-                Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge1MB))
+    private func handlePickedImage(
+        _ image: UIImage,
+        data: Data,
+        mimeType: String = "image/jpeg",
+        target: AvatarTarget,
+        originalFilename: String?,
+        isCoverCropped: Bool = false
+    ) {
+        if target == .cover, !isCoverCropped, mimeType != "image/gif", mimeType != "image/webp" {
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let cropSource = UIImage.avatarPreviewImage(from: data, maxPixelSize: 2400) ?? image
+                DispatchQueue.main.async {
+                    self?.presentCoverCrop(cropSource, originalFilename: originalFilename)
+                }
             }
             return
         }
 
+        if data.count > maxUploadBytes(for: target) {
+            showFileTooLargeToast(for: target)
+            return
+        }
+
         uploadImage(image: image, data: data, mimeType: mimeType, target: target, originalFilename: originalFilename)
+    }
+
+    private func presentCoverCrop(_ image: UIImage, originalFilename: String?) {
+        let crop = ProfileCoverCropViewController(image: image) { [weak self] cropped in
+            guard let self, let data = cropped.jpegData(compressionQuality: 0.9) else { return }
+            self.handlePickedImage(
+                cropped,
+                data: data,
+                mimeType: "image/jpeg",
+                target: .cover,
+                originalFilename: originalFilename,
+                isCoverCropped: true
+            )
+        }
+        crop.modalPresentationStyle = .fullScreen
+        let presentCrop: () -> Void = { [weak self] in
+            guard let self else { return }
+            self.present(crop, animated: true)
+        }
+        if let coordinator = presentedViewController?.transitionCoordinator ?? transitionCoordinator {
+            coordinator.animate(alongsideTransition: nil) { _ in presentCrop() }
+        } else {
+            presentCrop()
+        }
     }
 
     private func uploadImage(image: UIImage, data: Data, mimeType: String, target: AvatarTarget, originalFilename: String?) {
@@ -1349,6 +1473,9 @@ final class ProfileSettingViewController: BaseViewController {
         case .dmIcon:
             targetSpinner = dmIconSpinner
             targetImageView = dmIconImageView
+        case .cover:
+            targetSpinner = coverSpinner
+            targetImageView = coverImageView
         }
         targetSpinner.startAnimating()
 
@@ -1367,7 +1494,6 @@ final class ProfileSettingViewController: BaseViewController {
                     token: token, network: context.account.network, originalFilename: originalFilename
                 )
                 if mimeType == "image/gif" || mimeType == "image/webp" {
-                    // Cache original bytes so other views do not reuse the resized preview.
                     ImageCache.shared.persistData(data, forKey: cdnURL)
                 } else {
                     ImageCache.shared.setImage(image, data: data, forKey: cdnURL)
@@ -1388,6 +1514,9 @@ final class ProfileSettingViewController: BaseViewController {
                     userDmLogoUrl = cdnURL
                     targetImageView.image = image
                     dmIconRemoveButton.isHidden = false
+                case .cover:
+                    userBannerUrl = cdnURL
+                    coverImageView.showPreview(image, for: cdnURL)
                 }
             } catch {
                 SentryLogger.capture(error, extras: [
@@ -1395,7 +1524,7 @@ final class ProfileSettingViewController: BaseViewController {
                     "target": "\(target)",
                     "size": data.count,
                 ])
-                Toast.error(L(L10n.ProfileSetting.updateError))
+                Toast.error(L(target == .cover ? L10n.ProfileSetting.coverUploadFailed : L10n.ProfileSetting.updateError))
             }
         }
     }
@@ -1535,7 +1664,8 @@ extension ProfileSettingViewController: PHPickerViewControllerDelegate {
         picker.dismiss(animated: true)
         guard let provider = results.first?.itemProvider else { return }
         let target = pendingAvatarTarget
-        let previewPixelSize = Int(ceil(avatarSize * UIScreen.main.scale))
+        let previewPixelSize = uploadPreviewPixelSize(for: target)
+        let maxBytes = maxUploadBytes(for: target)
         let originalFilename = provider.suggestedName
 
         let typeId = publicImageTypeIdentifier(provider.registeredTypeIdentifiers)
@@ -1549,14 +1679,9 @@ extension ProfileSettingViewController: PHPickerViewControllerDelegate {
             }
 
             if let data = data {
-                let maxBytes = target == .dmIcon ? kMaxDMIconBytes : kMaxAvatarBytes
                 if data.count > maxBytes {
                     DispatchQueue.main.async {
-                        if maxBytes == kMaxAvatarBytes {
-                            Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge10MB))
-                        } else {
-                            Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge1MB))
-                        }
+                        self.showFileTooLargeToast(for: target)
                     }
                     return
                 }
@@ -1596,17 +1721,13 @@ extension ProfileSettingViewController: UIImagePickerControllerDelegate, UINavig
     func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
         picker.dismiss(animated: true)
         let target = pendingAvatarTarget
-        let maxBytes = target == .dmIcon ? kMaxDMIconBytes : kMaxAvatarBytes
-        
+        let maxBytes = maxUploadBytes(for: target)
+
         if let url = info[.imageURL] as? URL,
            let attr = try? FileManager.default.attributesOfItem(atPath: url.path),
            let size = attr[.size] as? NSNumber {
             if size.intValue > maxBytes {
-                if maxBytes == kMaxAvatarBytes {
-                    Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge10MB))
-                } else {
-                    Toast.error(L(L10n.ClanSetting.Overview.uploadFileTooLarge1MB))
-                }
+                showFileTooLargeToast(for: target)
                 return
             }
         }
@@ -1619,7 +1740,7 @@ extension ProfileSettingViewController: UIImagePickerControllerDelegate, UINavig
             return
         }
         if let pickedData, let mimeType = publicImagePassthroughMimeType(for: pickedData) {
-            let previewPixelSize = Int(ceil(avatarSize * UIScreen.main.scale))
+            let previewPixelSize = uploadPreviewPixelSize(for: target)
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                 guard let preview = UIImage.publicImageUploadPreview(from: pickedData, maxPixelSize: previewPixelSize) else {
                     DispatchQueue.main.async { Toast.error(L(L10n.ProfileSetting.updateError)) }
@@ -1637,5 +1758,191 @@ extension ProfileSettingViewController: UIImagePickerControllerDelegate, UINavig
 
     func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
         picker.dismiss(animated: true)
+    }
+}
+
+final class ProfileCoverCropViewController: UIViewController, UIScrollViewDelegate {
+    private static let outputSize = CGSize(width: 1200, height: 360)
+    private static let sideMargin: CGFloat = 16
+    private static let barPaddingHorizontal: CGFloat = 20
+    private static let barPaddingVertical: CGFloat = 14
+    private static let cancelColor = UIColor(red: 0x0A / 255, green: 0x84 / 255, blue: 0xFF / 255, alpha: 1)
+    private static let chooseColor = UIColor(red: 0xFF / 255, green: 0xD6 / 255, blue: 0x0A / 255, alpha: 1)
+
+    private let sourceImage: UIImage
+    private let onChoose: (UIImage) -> Void
+
+    private let scrollView = UIScrollView()
+    private let imageView = UIImageView()
+    private let dimView = UIView()
+    private let dimLayer = CAShapeLayer()
+    private let frameView = UIView()
+    private let bottomBar = UIView()
+    private let cancelButton = UIButton(type: .system)
+    private let chooseButton = UIButton(type: .system)
+
+    private var cropRect: CGRect = .zero
+    private var configuredCropRect: CGRect = .zero
+
+    init(image: UIImage, onChoose: @escaping (UIImage) -> Void) {
+        self.sourceImage = image
+        self.onChoose = onChoose
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var preferredStatusBarStyle: UIStatusBarStyle { .lightContent }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .black
+
+        scrollView.delegate = self
+        scrollView.backgroundColor = .black
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.showsVerticalScrollIndicator = false
+        scrollView.alwaysBounceHorizontal = true
+        scrollView.alwaysBounceVertical = true
+        scrollView.decelerationRate = .fast
+        scrollView.contentInsetAdjustmentBehavior = .never
+        view.addSubview(scrollView)
+
+        imageView.image = sourceImage
+        imageView.frame = CGRect(origin: .zero, size: sourceImage.size)
+        scrollView.addSubview(imageView)
+        scrollView.contentSize = sourceImage.size
+
+        dimLayer.fillRule = .evenOdd
+        dimLayer.fillColor = UIColor.black.withAlphaComponent(0.6).cgColor
+        dimView.layer.addSublayer(dimLayer)
+        dimView.isUserInteractionEnabled = false
+        view.addSubview(dimView)
+
+        frameView.layer.borderWidth = 1
+        frameView.layer.borderColor = UIColor.white.cgColor
+        frameView.isUserInteractionEnabled = false
+        view.addSubview(frameView)
+
+        bottomBar.backgroundColor = .black
+        view.addSubview(bottomBar)
+
+        cancelButton.setTitle(L(L10n.Common.cancel), for: .normal)
+        cancelButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .regular)
+        cancelButton.setTitleColor(Self.cancelColor, for: .normal)
+        cancelButton.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
+        bottomBar.addSubview(cancelButton)
+
+        chooseButton.setTitle(L(L10n.ProfileSetting.choose), for: .normal)
+        chooseButton.titleLabel?.font = .systemFont(ofSize: 17, weight: .bold)
+        chooseButton.setTitleColor(Self.chooseColor, for: .normal)
+        chooseButton.addTarget(self, action: #selector(chooseTapped), for: .touchUpInside)
+        bottomBar.addSubview(chooseButton)
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        let bounds = view.bounds
+        let fitting = CGSize(width: bounds.width, height: .greatestFiniteMagnitude)
+        let cancelSize = cancelButton.sizeThatFits(fitting)
+        let chooseSize = chooseButton.sizeThatFits(fitting)
+        let rowHeight = max(cancelSize.height, chooseSize.height)
+        let barHeight = Self.barPaddingVertical * 2 + rowHeight + view.safeAreaInsets.bottom
+        bottomBar.frame = CGRect(x: 0, y: bounds.height - barHeight, width: bounds.width, height: barHeight)
+        cancelButton.frame = CGRect(
+            x: Self.barPaddingHorizontal, y: Self.barPaddingVertical,
+            width: cancelSize.width, height: rowHeight
+        )
+        chooseButton.frame = CGRect(
+            x: bounds.width - Self.barPaddingHorizontal - chooseSize.width, y: Self.barPaddingVertical,
+            width: chooseSize.width, height: rowHeight
+        )
+
+        let areaHeight = max(0, bottomBar.frame.minY)
+        let cropWidth = max(1, bounds.width - Self.sideMargin * 2)
+        let cropHeight = cropWidth * 3 / 10
+        cropRect = CGRect(
+            x: Self.sideMargin, y: (areaHeight - cropHeight) / 2,
+            width: cropWidth, height: cropHeight
+        )
+
+        scrollView.frame = CGRect(x: 0, y: 0, width: bounds.width, height: areaHeight)
+        scrollView.contentInset = UIEdgeInsets(
+            top: cropRect.minY,
+            left: cropRect.minX,
+            bottom: areaHeight - cropRect.maxY,
+            right: bounds.width - cropRect.maxX
+        )
+
+        dimView.frame = scrollView.frame
+        dimLayer.frame = dimView.bounds
+        let dimPath = UIBezierPath(rect: dimView.bounds)
+        dimPath.append(UIBezierPath(rect: cropRect))
+        dimLayer.path = dimPath.cgPath
+        frameView.frame = cropRect
+
+        if configuredCropRect != cropRect {
+            configuredCropRect = cropRect
+            resetZoom()
+        }
+    }
+
+    func viewForZooming(in scrollView: UIScrollView) -> UIView? {
+        imageView
+    }
+
+    private func resetZoom() {
+        let imageSize = sourceImage.size
+        guard imageSize.width > 0, imageSize.height > 0, cropRect.width > 0, cropRect.height > 0 else { return }
+        let minScale = max(cropRect.width / imageSize.width, cropRect.height / imageSize.height)
+        scrollView.minimumZoomScale = minScale
+        scrollView.maximumZoomScale = minScale * 4
+        scrollView.zoomScale = minScale
+        scrollView.contentOffset = CGPoint(
+            x: (imageSize.width * minScale - cropRect.width) / 2 - cropRect.minX,
+            y: (imageSize.height * minScale - cropRect.height) / 2 - cropRect.minY
+        )
+    }
+
+    @objc private func cancelTapped() {
+        dismiss(animated: true)
+    }
+
+    @objc private func chooseTapped() {
+        let scale = scrollView.zoomScale
+        guard scale > 0 else { return }
+        let imageSize = sourceImage.size
+        var region = CGRect(
+            x: (scrollView.contentOffset.x + cropRect.minX) / scale,
+            y: (scrollView.contentOffset.y + cropRect.minY) / scale,
+            width: cropRect.width / scale,
+            height: cropRect.height / scale
+        )
+        region.origin.x = min(max(region.minX, 0), max(0, imageSize.width - region.width))
+        region.origin.y = min(max(region.minY, 0), max(0, imageSize.height - region.height))
+        let output = Self.render(sourceImage, region: region)
+        let onChoose = self.onChoose
+        dismiss(animated: true) {
+            onChoose(output)
+        }
+    }
+
+    private static func render(_ image: UIImage, region: CGRect) -> UIImage {
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = true
+        format.preferredRange = .standard
+        let canvas = CGRect(origin: .zero, size: outputSize)
+        return UIGraphicsImageRenderer(size: outputSize, format: format).image { context in
+            UIColor.black.setFill()
+            context.fill(canvas)
+            let factor = outputSize.width / region.width
+            image.draw(in: CGRect(
+                x: -region.minX * factor,
+                y: -region.minY * factor,
+                width: image.size.width * factor,
+                height: image.size.height * factor
+            ))
+        }
     }
 }

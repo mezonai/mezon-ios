@@ -146,6 +146,7 @@ extension MezonEngine {
         let userPresenceUpdated = ValuePipe<Set<Int64>>()
         private var presenceByUserId: [Int64: User.OnlineStatus] = [:]
         private var customStatusByUserId: [Int64: String] = [:]
+        private var profileBannerByUserId: [Int64: String] = [:]
 
         private var inflightFetchAllByClanId: [Int64: Task<Void, Never>] = [:]
         private var inflightEventFetchByClanId: [Int64: Task<Void, Never>] = [:]
@@ -290,6 +291,7 @@ extension MezonEngine {
             clanUsersMemoByClanId.removeAll()
             presenceByUserId.removeAll()
             customStatusByUserId.removeAll()
+            profileBannerByUserId.removeAll()
         }
 
         func cancelFetchAllClanData(exceptClanId: Int64) {
@@ -373,6 +375,16 @@ extension MezonEngine {
 
         func customStatus(userId: Int64) -> String? {
             customStatusByUserId[userId]
+        }
+
+        func profileBanner(userId: Int64) -> String? {
+            profileBannerByUserId[userId]
+        }
+
+        func applyProfileBanner(_ event: Mezon_Realtime_UserProfileUpdatedEvent) {
+            let banner = event.banner.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard event.userID != 0, !banner.isEmpty else { return }
+            profileBannerByUserId[event.userID] = banner
         }
 
         func refreshOnlineUsers(clanId: Int64, token: String) async {
@@ -510,6 +522,9 @@ extension MezonEngine {
             var seenUserIds = Set<Int64>()
             let finalMembers = (responseMembers + existingMembers).filter {
                 seenUserIds.insert($0.userId).inserted
+            }
+            for clanUser in response.clanUsers where clanUser.user.id != 0 {
+                profileBannerByUserId[clanUser.user.id] = clanUser.user.banner.trimmingCharacters(in: .whitespacesAndNewlines)
             }
             postbox.write { tx in
                 for clanUser in response.clanUsers {

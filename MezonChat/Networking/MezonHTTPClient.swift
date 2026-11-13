@@ -1101,6 +1101,7 @@ final class MezonHTTPClient {
         avatarUrl: String? = nil,
         aboutMe: String? = nil,
         logo: String? = nil,
+        banner: String? = nil,
         token: String
     ) async throws -> Mezon_Api_Account {
         var req = Mezon_Api_UpdateAccountRequest()
@@ -1123,6 +1124,11 @@ final class MezonHTTPClient {
             var v = SwiftProtobuf.Google_Protobuf_StringValue()
             v.value = logo
             req.logo = v
+        }
+        if let banner {
+            var v = SwiftProtobuf.Google_Protobuf_StringValue()
+            v.value = banner
+            req.banner = v
         }
         return try await postProto(
             path: "/mezon.api.Mezon/UpdateAccount",
