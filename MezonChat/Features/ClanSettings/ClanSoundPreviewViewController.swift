@@ -213,7 +213,7 @@ final class ClanSoundPreviewViewController: UIViewController, AVAudioPlayerDeleg
                 let peaks = try ClanSoundAudio.waveformPeaks(source: source)
                 try Task.checkCancellation()
                 await self?.displayWaveform(peaks)
-            } catch { /* The audio preview remains usable if waveform extraction fails. */ }
+            } catch {}
         }
     }
 

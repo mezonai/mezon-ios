@@ -114,7 +114,7 @@ final class ClanSoundsViewController: BaseViewController {
                 context.account.postbox.write { $0.updateClanMembers(records, clanId: self.clanId) }
                 members = Dictionary(records.map { ($0.userId, $0) }, uniquingKeysWith: { $1 })
                 updateVisibleCells()
-            } catch { /* Cached member and profile data remain available. */ }
+            } catch {}
         }
     }
 

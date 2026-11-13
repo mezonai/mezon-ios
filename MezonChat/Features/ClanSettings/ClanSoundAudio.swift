@@ -117,7 +117,6 @@ enum ClanSoundAudio {
             }
             offset += AVAudioFramePosition(buffer.frameLength)
         }
-        // Match desktop: retain source amplitude rather than normalizing quiet audio to full height.
         return peaks.map { min(1, max(0.08, $0)) }
     }
 
