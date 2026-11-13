@@ -29,7 +29,7 @@ final class ProfileContainerNode: ASDisplayNode {
 
     private let headerBackgroundView: UIView = {
         let v = UIView()
-        v.backgroundColor = .mezonPrimary
+        v.backgroundColor = .mezonTertiary
         return v
     }()
 
@@ -76,6 +76,8 @@ final class ProfileContainerNode: ASDisplayNode {
         btn.contentEdgeInsets = UIEdgeInsets(top: 7.swh, left: 7.swh, bottom: 7.swh, right: 7.swh)
         btn.accessibilityIdentifier = AccessibilityID.Profile.settings
         btn.backgroundColor = .mezonTertiary
+        btn.layer.borderWidth = 1
+        btn.layer.borderColor = UIColor.mezonBorder.cgColor
         return btn
     }()
 
@@ -321,12 +323,14 @@ final class ProfileContainerNode: ASDisplayNode {
 
         avatarContainerView.layer.borderColor = UIColor.mezonBackground.cgColor
         statusBubbleShapeLayer.fillColor = UIColor.mezonTertiary.cgColor
+        statusBubbleShapeLayer.strokeColor = UIColor.mezonBorder.cgColor
 
         nameLabel.textColor = .mezonTextStrong
         chevronDown.tintColor = .mezonTextPrimary
         usernameLabel.textColor = .mezonTextPrimary
 
         micButton.backgroundColor = .mezonTertiary
+        micButton.layer.borderColor = UIColor.mezonBorder.cgColor
         micButton.tintColor = .mezonTextStrong
 
         for card in [balanceCard, aboutMeCard, friendsCard, copyCard] {
@@ -344,10 +348,9 @@ final class ProfileContainerNode: ASDisplayNode {
         friendsBadgeLabel.textColor = .white
 
         if avatarImageView.image == nil {
-            headerBackgroundView.backgroundColor = .mezonPrimary
+            headerBackgroundView.backgroundColor = .mezonTertiary
             avatarContainerView.backgroundColor = UIColor.theme.secondaryLight
         }
-        statusBubbleShapeLayer.fillColor = UIColor.mezonTertiary.cgColor
 
         configureAddStatusButton(user: context.currentUser)
     }
@@ -378,6 +381,8 @@ final class ProfileContainerNode: ASDisplayNode {
 
         statusBubbleContainer.backgroundColor = .clear
         statusBubbleShapeLayer.fillColor = UIColor.mezonTertiary.cgColor
+        statusBubbleShapeLayer.strokeColor = UIColor.mezonBorder.cgColor
+        statusBubbleShapeLayer.lineWidth = 1
         statusBubbleContainer.layer.insertSublayer(statusBubbleShapeLayer, at: 0)
 
         if #available(iOS 15.0, *) {
@@ -715,8 +720,7 @@ final class ProfileContainerNode: ASDisplayNode {
     private func applyProfileAvatarPlaceholder() {
         avatarImageView.image = DefaultUserAvatar.image(side: avatarSize)
         avatarContainerView.backgroundColor = .clear
-        headerBackgroundView.backgroundColor = .mezonPrimary
-        statusBubbleShapeLayer.fillColor = UIColor.mezonTertiary.cgColor
+        headerBackgroundView.backgroundColor = .mezonTertiary
     }
 
     private func styleCard(_ card: UIView) {
@@ -737,21 +741,18 @@ final class ProfileContainerNode: ASDisplayNode {
             if let cached = ImageCache.shared.memoryImage(forKey: proxiedURLString) ?? ImageCache.shared.memoryImage(forKey: rawURLString) {
                 avatarImageView.image = cached
                 avatarContainerView.backgroundColor = .clear
-                headerBackgroundView.backgroundColor = cached.dominantColor() ?? .mezonPrimary
-                statusBubbleShapeLayer.fillColor = UIColor.mezonTertiary.cgColor
+                headerBackgroundView.backgroundColor = cached.dominantColor() ?? .mezonTertiary
             } else {
                 avatarImageView.image = nil
                 avatarContainerView.backgroundColor = UIColor.theme.secondaryLight
-                headerBackgroundView.backgroundColor = .mezonPrimary
-                statusBubbleShapeLayer.fillColor = UIColor.mezonTertiary.cgColor
+                headerBackgroundView.backgroundColor = .mezonTertiary
                 ImageCache.shared.loadAvatar(urlString: proxiedURLString) { [weak self] image in
                     guard let self else { return }
                     guard self.currentAvatarLoadKey == proxiedURLString else { return }
                     if let image {
                         self.avatarImageView.image = image
                         self.avatarContainerView.backgroundColor = .clear
-                        self.headerBackgroundView.backgroundColor = image.dominantColor() ?? .mezonPrimary
-                        self.statusBubbleShapeLayer.fillColor = UIColor.mezonTertiary.cgColor
+                        self.headerBackgroundView.backgroundColor = image.dominantColor() ?? .mezonTertiary
                     } else {
                         self.applyProfileAvatarPlaceholder()
                     }

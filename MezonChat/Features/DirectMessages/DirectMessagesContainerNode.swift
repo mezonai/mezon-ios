@@ -199,6 +199,8 @@ final class DirectMessagesContainerNode: ASDisplayNode {
             searchCfg.baseForegroundColor = UIColor.theme.textStrong
             searchCfg.baseBackgroundColor = UIColor.theme.tertiary
             searchCfg.cornerStyle = .capsule
+            searchCfg.background.strokeWidth = 1
+            searchCfg.background.strokeColor = UIColor.theme.border
             searchButton.configuration = searchCfg
         } else {
             searchButton.setImage(UIImage(named: "Channel/Search").map { resizedIconImage($0, targetSize: CGSize(width: 18.sf, height: 18.sf)).withRenderingMode(.alwaysTemplate) }, for: .normal)
@@ -348,6 +350,8 @@ final class DirectMessagesContainerNode: ASDisplayNode {
 
         addFriendButton.setTitleColor(t.textStrong, for: .normal)
         addFriendButton.backgroundColor = t.tertiary
+        addFriendButton.layer.borderWidth = 1
+        addFriendButton.layer.borderColor = t.border.cgColor
         addFriendButton.tintColor = t.textStrong
 
         if #available(iOS 15.0, *) {
@@ -356,10 +360,14 @@ final class DirectMessagesContainerNode: ASDisplayNode {
             searchCfg.baseForegroundColor = UIColor.theme.textStrong
             searchCfg.baseBackgroundColor = t.tertiary
             searchCfg.cornerStyle = .capsule
+            searchCfg.background.strokeWidth = 1
+            searchCfg.background.strokeColor = UIColor.theme.border
             searchButton.configuration = searchCfg
         } else {
             searchButton.tintColor = UIColor.theme.textStrong
             searchButton.backgroundColor = t.tertiary
+            searchButton.layer.borderWidth = 1
+            searchButton.layer.borderColor = t.border.cgColor
         }
 
         createGroupButton.backgroundColor = UIColor(red: 88/255, green: 101/255, blue: 242/255, alpha: 1.0)

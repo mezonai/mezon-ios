@@ -467,7 +467,7 @@ final class VoiceChannelMembersCollapsedCellNode: ASCellNode {
             bg.style.preferredSize = CGSize(width: badgeWidth, height: Self.avatarSize)
             bg.cornerRadius = Self.avatarSize / 2
             bg.clipsToBounds = true
-            bg.backgroundColor = UIColor.theme.primary
+            bg.backgroundColor = UIColor.theme.tertiary
             bg.borderWidth = 1
             bg.borderColor = UIColor.theme.textDisabled.cgColor
             overflowBg = bg

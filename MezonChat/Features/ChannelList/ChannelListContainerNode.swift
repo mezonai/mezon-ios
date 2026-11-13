@@ -3018,6 +3018,7 @@ final class ChannelListHeaderView: UIView {
     private let searchBar: UIView = {
         let v = UIView()
         v.layer.cornerRadius = 16
+        v.layer.borderWidth = 1
         v.translatesAutoresizingMaskIntoConstraints = false
         return v
     }()
@@ -3276,7 +3277,6 @@ final class ChannelListHeaderView: UIView {
         memberCountLabel.textColor = t.textStrong
         communityLabel.textColor = t.textStrong
         searchBar.backgroundColor = t.tertiary
-        searchBar.layer.borderWidth = 1
         searchBar.layer.borderColor = t.border.cgColor
         searchIcon.tintColor = t.textNormal
         searchLabel.textColor = t.textNormal

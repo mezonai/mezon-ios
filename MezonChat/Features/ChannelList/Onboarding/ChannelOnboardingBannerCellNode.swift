@@ -24,6 +24,8 @@ final class ChannelOnboardingBannerCellNode: ASCellNode {
 
         cardNode.cornerRadius = Self.cardCornerRadius
         cardNode.clipsToBounds = true
+        cardNode.borderWidth = 1
+        cardNode.borderColor = UIColor.theme.border.cgColor
 
         let wrapSize: CGSize = Self.isPad
             ? CGSize(width: 28, height: 28)
@@ -125,6 +127,7 @@ final class ChannelOnboardingBannerCellNode: ASCellNode {
     }
 
     func applyTheme() {
+        cardNode.borderColor = UIColor.theme.border.cgColor
         titleNode.attributedText = Self.titleAttributes(titleNode.attributedText?.string ?? "")
         subtitleNode.attributedText = Self.subtitleAttributes(subtitleNode.attributedText?.string ?? "")
         chevronNode.image = Self.chevronImage()
