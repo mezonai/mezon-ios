@@ -206,6 +206,7 @@ enum AccessibilityID {
         static let menuNoiseSuppression = makeAccessibilityID("voice.room.menu.noise.suppression")
         static let networkWarningClose = makeAccessibilityID("voice.room.network.warning.close")
         static let raiseHand = makeAccessibilityID("voice.room.raise.hand")
+        static let agent = makeAccessibilityID("voice.room.agent")
         static let camera = makeAccessibilityID("voice.room.camera")
         static let microphone = makeAccessibilityID("voice.room.microphone")
         static let chat = makeAccessibilityID("voice.room.chat")
