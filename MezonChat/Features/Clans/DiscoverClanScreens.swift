@@ -241,7 +241,7 @@ private final class DiscoverClanListCell: UITableViewCell {
         backgroundColor = .clear
         contentView.backgroundColor = .clear
 
-        cardContainer.backgroundColor = UIColor.theme.primary
+        cardContainer.backgroundColor = UIColor.theme.tertiary
         cardContainer.layer.cornerRadius = 12.swh
         cardContainer.layer.borderWidth = 1
         cardContainer.layer.borderColor = UIColor.theme.borderDim.cgColor
@@ -365,7 +365,7 @@ private final class DiscoverClanListCell: UITableViewCell {
     }
 
     func applyTheme() {
-        cardContainer.backgroundColor = UIColor.theme.primary
+        cardContainer.backgroundColor = UIColor.theme.tertiary
         cardContainer.layer.borderColor = UIColor.theme.borderDim.cgColor
         nameLabel.textColor = UIColor.theme.textStrong
         descLabel.textColor = UIColor.theme.textNormal
