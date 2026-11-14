@@ -79,6 +79,28 @@ class BaseUITestCase: XCTestCase {
 
     private enum AuthenticationError: Error { case setupFailed }
 
+    /// Chat schedules this first-use modal shortly after appearing.
+    /// Accept through the UI so the app persists its normal agreement state.
+    func acceptLicenseAgreementIfPresent(timeout: TimeInterval = 2,
+                                         file: StaticString = #filePath, line: UInt = #line) throws {
+        let modal = app.otherElements[AccessibilityID.LicenseAgreement.screen]
+        let agree = app.buttons[AccessibilityID.LicenseAgreement.agree]
+        guard agree.waitForExistence(timeout: timeout) else { return }
+        try XCTContext.runActivity(named: "Accept License Agreement") { _ in
+            let ready = NSPredicate { _, _ in agree.exists && agree.isEnabled && agree.isHittable }
+            guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: ready, object: agree)], timeout: 5) == .completed else {
+                XCTFail("License Agreement appeared but Yes, Agree is unavailable", file: file, line: line)
+                throw AuthenticationError.setupFailed
+            }
+            agree.tap()
+            let dismissed = NSPredicate { _, _ in !modal.exists && !agree.exists }
+            guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: dismissed, object: app)], timeout: 5) == .completed else {
+                XCTFail("License Agreement did not close after accepting", file: file, line: line)
+                throw AuthenticationError.setupFailed
+            }
+        }
+    }
+
     /// Preserve an existing login. Authenticate only if normal startup shows auth UI.
     func launchAndEnsureLoggedIn(file: StaticString = #filePath, line: UInt = #line) throws {
         app.launchArguments.removeAll {

@@ -26,6 +26,7 @@ final class LicenseAgreementViewController: UIViewController, UITextViewDelegate
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
+        view.accessibilityIdentifier = AccessibilityID.LicenseAgreement.screen
 
         dimView.backgroundColor = UIColor.black.withAlphaComponent(0.5)
         dimView.translatesAutoresizingMaskIntoConstraints = false
@@ -106,6 +107,7 @@ final class LicenseAgreementViewController: UIViewController, UITextViewDelegate
         contentStack.addArrangedSubview(contactTextView)
 
         agreeButton.setTitle("Yes, Agree", for: .normal)
+        agreeButton.accessibilityIdentifier = AccessibilityID.LicenseAgreement.agree
         agreeButton.setTitleColor(.white, for: .normal)
         agreeButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .medium)
         agreeButton.backgroundColor = Self.accent

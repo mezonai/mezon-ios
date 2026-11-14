@@ -4,6 +4,11 @@ enum AccessibilityID {
         return id.map { "\(base)-\($0)" } ?? base
     }
 
+    enum LicenseAgreement {
+        static let screen = makeAccessibilityID("license.agreement.screen")
+        static let agree = makeAccessibilityID("license.agreement.agree")
+    }
+
     enum Main {
         static let root = makeAccessibilityID("main.root")
     }
@@ -380,6 +385,8 @@ enum AccessibilityID {
     }
 
     enum DirectMessage {
+        static let tab = makeAccessibilityID("dm.tab")
+        static let list = makeAccessibilityID("dm.list")
         static let search = makeAccessibilityID("direct.message.search")
         static let addMember = makeAccessibilityID("chat.direct_message.header.right_container.add_member")
         static let createGroup = makeAccessibilityID("chat.direct_message.button.create_group")
@@ -387,6 +394,10 @@ enum AccessibilityID {
         static let blockUser = makeAccessibilityID("dm.menu.block.user")
         static let unblockUser = makeAccessibilityID("dm.menu.unblock.user")
         static let blockLoading = makeAccessibilityID("dm.menu.block.loading")
+
+        static func row(_ channelID: String) -> String {
+            makeAccessibilityID("dm.item", id: channelID)
+        }
 
         static func action(_ name: String) -> String {
             makeAccessibilityID("dm.menu", id: name)

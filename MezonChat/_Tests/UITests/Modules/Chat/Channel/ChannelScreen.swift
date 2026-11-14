@@ -35,6 +35,7 @@ struct ChannelScreen {
         }
 
         if screen.exists {
+            try testCase.acceptLicenseAgreementIfPresent(file: file, line: line)
             let back = app.buttons[AccessibilityID.Chat.back]
             guard back.waitForExistence(timeout: 5), back.isHittable else {
                 XCTFail("Cannot return to the clan sidebar.", file: file, line: line)
@@ -48,7 +49,7 @@ struct ChannelScreen {
             }
         }
 
-        if !channelList.isHittable {
+        if !channelList.exists || !channelList.isHittable {
             try selectClan(String(numericClanID), in: clanList, file: file, line: line)
         }
 
@@ -86,6 +87,7 @@ struct ChannelScreen {
             XCTFail("The selected channel did not open", file: file, line: line)
             throw InteractionError.unavailable
         }
+        try testCase.acceptLicenseAgreementIfPresent(file: file, line: line)
     }
 
     private func selectClan(_ id: String, in list: XCUIElement, file: StaticString, line: UInt) throws {
@@ -97,26 +99,47 @@ struct ChannelScreen {
 
         let clan = list.descendants(matching: .any)
             .matching(identifier: AccessibilityID.Clan.item(id)).firstMatch
-        if !clan.isHittable {
-            // A restored sidebar can be scrolled to either side of the target clan.
-            for _ in 0..<12 {
-                if clan.isHittable { break }
-                list.swipeUp()
-            }
-            for _ in 0..<12 {
-                if clan.isHittable { break }
-                list.swipeDown()
-            }
+        let items = list.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", AccessibilityID.Clan.item("")))
+        // Do not require a visible clan before scrolling: the viewport may contain
+        // only unread DMs or the trailing create/join actions.
+        var observedIDs = Set<String>()
+        func rememberItems() {
+            observedIDs.formUnion(items.allElementsBoundByIndex.map { $0.identifier })
         }
-        guard clan.isHittable else {
-            XCTFail("Clan \(id) is not visible in the sidebar. Check that the test account has joined it.", file: file, line: line)
+        rememberItems()
+        // Short drags overlap viewports; fast swipes can skip clans between snapshots.
+        for scrollingDown in [true, false] {
+            for _ in 0..<24 {
+                if clan.exists && clan.isHittable { break }
+                let startY: CGFloat = scrollingDown ? 0.75 : 0.25
+                let endY: CGFloat = scrollingDown ? 0.25 : 0.75
+                list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: startY))
+                    .press(forDuration: 0.1, thenDragTo:
+                        list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: endY)))
+                rememberItems()
+            }
+            if clan.exists && clan.isHittable { break }
+        }
+        guard clan.exists && clan.isHittable else {
+            let found = clan.exists
+            let details = "Target exists: \(found)\nObserved clan identifiers: \(observedIDs.sorted().joined(separator: ", "))\n\(list.debugDescription)"
+            let attachment = XCTAttachment(string: details)
+            attachment.name = "Clan selection diagnostics"
+            attachment.lifetime = .keepAlways
+            testCase.add(attachment)
+            let reason = found
+                ? "is exposed but not hittable. Check overlays, accessibility frame and sidebar layout."
+                : "was not exposed after scrolling. Check clan loading, account membership and accessibility identifiers."
+            XCTFail("Clan \(id) \(reason)", file: file, line: line)
             throw InteractionError.unavailable
         }
         clan.tap()
     }
 
     /// Sends a real message. Refuses to append to an existing user draft.
-    func sendText(_ text: String, verifyDraft: Bool = false, file: StaticString = #filePath, line: UInt = #line) throws {
+    func sendText(_ text: String, verifyDraft: Bool = false, rapidTap: Bool = false, file: StaticString = #filePath, line: UInt = #line) throws {
+        try testCase.acceptLicenseAgreementIfPresent(timeout: 0, file: file, line: line)
         guard input.waitForExistence(timeout: 15) else {
             attachUIHierarchy()
             XCTFail("Composer is absent from accessibility. Check the chat UIKit/Texture bridge and channel permissions.", file: file, line: line)
@@ -125,7 +148,18 @@ struct ChannelScreen {
         let editable = NSPredicate { _, _ in self.input.exists && self.input.isEnabled && self.input.isHittable }
         guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: editable, object: app)], timeout: 10) == .completed else {
             attachUIHierarchy()
-            XCTFail("Composer exists but is not enabled/hittable. Check overlays, permissions, and layout.", file: file, line: line)
+            let exists = input.exists
+            let enabled = exists && input.isEnabled
+            let hittable = exists && input.isHittable
+            let frame = exists ? String(describing: input.frame) : "unavailable"
+            let appAlerts = app.alerts.count
+            let systemAlerts = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.count
+            let details = "exists=\(exists), enabled=\(enabled), hittable=\(hittable), frame=\(frame), appAlerts=\(appAlerts), systemAlerts=\(systemAlerts)"
+            let attachment = XCTAttachment(string: details)
+            attachment.name = "Composer interaction state"
+            attachment.lifetime = .keepAlways
+            testCase.add(attachment)
+            XCTFail("Composer unavailable: \(details). See Failure screenshot and Chat accessibility hierarchy.", file: file, line: line)
             throw InteractionError.unavailable
         }
         guard (input.value as? String ?? "").isEmpty else {
@@ -139,12 +173,20 @@ struct ChannelScreen {
             XCTFail("Composer did not receive the exact message before sending", file: file, line: line)
             throw InteractionError.unavailable
         }
+        try submitDraft(rapidTap: rapidTap, file: file, line: line)
+    }
+
+    private func submitDraft(rapidTap: Bool = false, file: StaticString, line: UInt) throws {
         let ready = NSPredicate { _, _ in self.sendButton.exists && self.sendButton.isEnabled && self.sendButton.isHittable }
         guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: ready, object: app)], timeout: 10) == .completed else {
             XCTFail("Send button did not become available", file: file, line: line)
             throw InteractionError.unavailable
         }
-        sendButton.tap()
+        if rapidTap {
+            sendButton.doubleTap()
+        } else {
+            sendButton.tap()
+        }
     }
 
     private func registerDraftCleanup() {
@@ -219,17 +261,27 @@ struct ChannelScreen {
                        .completed, "Composer should leave reply mode after sending", file: file, line: line)
     }
 
-    func react(toText text: String, emojiID: String, file: StaticString = #filePath, line: UInt = #line) throws {
+    func react(toText text: String, emojiID: String, search: String? = nil,
+               file: StaticString = #filePath, line: UInt = #line) throws {
         let source = try uniqueMessageText(text, file: file, line: line)
         let sourceID = String(source.identifier.dropFirst(AccessibilityID.Chat.messageText("").count))
         let reactionCounts = message(id: sourceID).staticTexts
             .matching(identifier: AccessibilityID.Chat.reactionCount(emojiID))
-        // This case creates a new message, so an existing reaction is unexpected.
-        guard reactionCounts.count == 0 else {
-            XCTFail("Expected a fresh message without the target reaction", file: file, line: line)
-            throw InteractionError.unavailable
+        XCTAssertEqual(reactionCounts.count, 0, "Expected a fresh message without the target reaction", file: file, line: line)
+
+        if let search {
+            try tapMessageAction(AccessibilityID.Chat.reactionPicker, on: source, file: file, line: line)
+            let field = app.textFields[AccessibilityID.Chat.emojiSearch]
+            XCTAssertTrue(field.waitForExistence(timeout: 10), "Reaction search did not appear", file: file, line: line)
+            field.tap()
+            field.typeText(search)
+            let result = app.descendants(matching: .any)
+                .matching(identifier: AccessibilityID.Chat.emojiItem(emojiID)).firstMatch
+            XCTAssertTrue(result.waitForExistence(timeout: 15), "Expected emoji in search results", file: file, line: line)
+            result.tap()
+        } else {
+            try tapMessageAction(AccessibilityID.Chat.quickReaction(emojiID), on: source, file: file, line: line)
         }
-        try tapMessageAction(AccessibilityID.Chat.quickReaction(emojiID), on: source, file: file, line: line)
         let menus = app.scrollViews.matching(identifier: AccessibilityID.Chat.messageMenu)
         let applied = NSPredicate { _, _ in
             guard menus.count == 0, reactionCounts.count == 1 else { return false }
@@ -278,6 +330,175 @@ struct ChannelScreen {
             throw InteractionError.unavailable
         }
         action.tap()
+    }
+
+    func copyAndResend(_ text: String, file: StaticString = #filePath, line: UInt = #line) throws {
+        let source = try uniqueMessageText(text, file: file, line: line)
+        let sourceIdentifier = source.identifier
+        try tapMessageAction(AccessibilityID.Chat.copyAction, on: source, file: file, line: line)
+        XCTAssertEqual(input.value as? String, "", "Composer should be empty before pasting", file: file, line: line)
+        input.tap()
+        input.press(forDuration: 1)
+        let pasteLabel = NSPredicate(format: "label IN %@", ["Paste", "Dán"])
+        let menuItem = app.menuItems.matching(pasteLabel).firstMatch
+        let button = app.buttons.matching(pasteLabel).firstMatch
+        let ready = NSPredicate { _, _ in menuItem.isHittable || button.isHittable }
+        guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: ready, object: app)], timeout: 5) == .completed else {
+            XCTFail("System Paste action did not appear", file: file, line: line)
+            throw InteractionError.unavailable
+        }
+        (menuItem.isHittable ? menuItem : button).tap()
+        XCTAssertEqual(input.value as? String, text, "Paste must reproduce the copied message", file: file, line: line)
+        try submitDraft(file: file, line: line)
+        assertMessageSent(text, excludingIdentifier: sourceIdentifier, file: file, line: line)
+    }
+
+    func assertSingleMessage(_ text: String, file: StaticString = #filePath, line: UInt = #line) {
+        let matches = messages.descendants(matching: .any).matching(NSPredicate(
+            format: "identifier BEGINSWITH %@ AND label == %@",
+            AccessibilityID.Chat.messageText(""), text
+        ))
+        let duplicate = NSPredicate { _, _ in matches.count > 1 }
+        let expectation = XCTNSPredicateExpectation(predicate: duplicate, object: app)
+        expectation.isInverted = true
+        XCTAssertEqual(XCTWaiter.wait(for: [expectation], timeout: 3), .completed,
+                       "More than one copy of the message appeared", file: file, line: line)
+        XCTAssertEqual(matches.count, 1, file: file, line: line)
+    }
+
+    func assertDraftSurvivesDetailsTab(_ tabIdentifier: String, file: StaticString = #filePath, line: UInt = #line) {
+        let draft = "draft " + UUID().uuidString.prefix(8)
+        XCTAssertTrue(input.waitForExistence(timeout: 15), file: file, line: line)
+        XCTAssertEqual(input.value as? String, "", file: file, line: line)
+        input.tap()
+        input.typeText(draft)
+        XCTAssertEqual(input.value as? String, draft, file: file, line: line)
+
+        openDetailsTab(tabIdentifier, file: file, line: line)
+        closeDetails(file: file, line: line)
+        XCTAssertTrue(input.waitForExistence(timeout: 10), file: file, line: line)
+        let actual = input.value as? String
+        if actual == draft {
+            input.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.5)).tap()
+            input.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: draft.count))
+        }
+        XCTAssertEqual(actual, draft, "Draft changed after leaving the details tab", file: file, line: line)
+    }
+
+    func openDetailsTab(_ identifier: String, file: StaticString = #filePath, line: UInt = #line) {
+        let details = app.staticTexts[AccessibilityID.Chat.channelDetails]
+        let ready = NSPredicate { _, _ in details.exists && details.isHittable }
+        guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: ready, object: app)], timeout: 10) == .completed else {
+            XCTFail("Channel details did not become tappable within 10 seconds", file: file, line: line)
+            return
+        }
+        details.tap()
+        let tab = app.staticTexts[identifier]
+        XCTAssertTrue(tab.waitForExistence(timeout: 10), "Channel details tab is missing", file: file, line: line)
+        tab.tap()
+    }
+
+    func closeDetails(file: StaticString = #filePath, line: UInt = #line) {
+        let back = app.buttons[AccessibilityID.Chat.detailsBack]
+        XCTAssertTrue(back.exists && back.isHittable, file: file, line: line)
+        back.tap()
+        XCTAssertTrue(input.waitForExistence(timeout: 10), "Chat did not return", file: file, line: line)
+    }
+
+    func setPinned(_ pinned: Bool, text: String, file: StaticString = #filePath, line: UInt = #line) throws {
+        let source = try uniqueMessageText(text, file: file, line: line)
+        let action = pinned ? AccessibilityID.Chat.pinAction : AccessibilityID.Chat.unpinAction
+        try tapMessageAction(action, on: source, file: file, line: line)
+        let titles = pinned ? ["Pin Message", "Ghim tin nhắn"] : ["Unpin Message", "Bỏ ghim tin nhắn"]
+        let alert = app.alerts.matching(NSPredicate(format: "label IN %@", titles)).firstMatch
+        let yes = alert.buttons.matching(NSPredicate(format: "label IN %@", ["Yes", "Đồng ý"])).firstMatch
+        XCTAssertTrue(yes.waitForExistence(timeout: 5), "Pin confirmation is missing", file: file, line: line)
+        yes.tap()
+
+        let feedback = pinned ? ["Message pinned successfully", "Ghim tin nhắn thành công"] : ["Message unpinned", "Đã bỏ ghim"]
+        let success = app.staticTexts.matching(NSPredicate(format: "label IN %@", feedback)).firstMatch
+        guard success.waitForExistence(timeout: 10) else {
+            XCTFail("App did not confirm the pin change", file: file, line: line)
+            throw InteractionError.unavailable
+        }
+        guard success.waitForNonExistence(timeout: 10) else {
+            XCTFail("Pin confirmation toast did not disappear within 10 seconds", file: file, line: line)
+            throw InteractionError.unavailable
+        }
+    }
+
+    func pinnedMessage(id: String) -> XCUIElement {
+        app.staticTexts[AccessibilityID.Chat.pinnedMessage(id)]
+    }
+
+    func tapPinnedMessageRow(id: String, file: StaticString = #filePath, line: UInt = #line) throws {
+        let rows = app.cells.containing(.staticText, identifier: AccessibilityID.Chat.pinnedMessage(id))
+        let row = rows.firstMatch
+        let ready = NSPredicate { _, _ in rows.count == 1 && row.isHittable }
+        guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: ready, object: app)], timeout: 15) == .completed else {
+            XCTFail("Expected one tappable pinned message row for ID \(id)", file: file, line: line)
+            throw InteractionError.unavailable
+        }
+        row.tap()
+    }
+
+    func unpinFromList(id: String, file: StaticString = #filePath, line: UInt = #line) {
+        let unpin = app.buttons[AccessibilityID.Chat.pinnedMessageUnpin(id)]
+        XCTAssertTrue(unpin.waitForExistence(timeout: 10), file: file, line: line)
+        unpin.tap()
+        let confirm = app.buttons.matching(NSPredicate(format: "label IN %@", ["Unpin", "Bỏ ghim"])).firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), "Unpin confirmation is missing", file: file, line: line)
+        confirm.tap()
+        XCTAssertTrue(pinnedMessage(id: id).waitForNonExistence(timeout: 15),
+                      "The pinned entry should disappear after confirming", file: file, line: line)
+    }
+
+    func checkComposerSuggestion(
+        trigger: String, identifierPrefix: String, send: Bool,
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws {
+        XCTAssertTrue(input.waitForExistence(timeout: 15), file: file, line: line)
+        XCTAssertEqual(input.value as? String, "", file: file, line: line)
+        input.tap()
+        input.typeText(trigger)
+        // Any visible suggestion of the requested kind is valid for these cases.
+        let suggestions = app.staticTexts.matching(NSPredicate(
+            format: "identifier BEGINSWITH %@", identifierPrefix
+        ))
+        let visible = NSPredicate { _, _ in
+            suggestions.allElementsBoundByIndex.contains { $0.isHittable }
+        }
+        guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: visible, object: app)], timeout: 15) == .completed,
+              let suggestion = suggestions.allElementsBoundByIndex.first(where: { $0.isHittable }) else {
+            XCTFail("Expected a visible composer suggestion for \(trigger)", file: file, line: line)
+            throw InteractionError.unavailable
+        }
+        if !send {
+            input.typeText(XCUIKeyboardKey.delete.rawValue)
+            return
+        }
+
+        let name = suggestion.label
+        suggestion.tap()
+        let marker = "qa-" + UUID().uuidString.prefix(8)
+        input.typeText(marker)
+        try submitDraft(file: file, line: line)
+
+        let message = messages.descendants(matching: .any).matching(NSPredicate(
+            format: "identifier BEGINSWITH %@ AND label CONTAINS %@",
+            AccessibilityID.Chat.messageText(""), marker
+        )).firstMatch
+        let finished = NSPredicate { _, _ in
+            message.exists && ["sent", "failed"].contains(message.value as? String ?? "")
+        }
+        guard XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: finished, object: app)], timeout: 45) == .completed else {
+            let reason = message.exists ? "Message never reached a final delivery state" : "Message text was not found after sending"
+            XCTFail(reason, file: file, line: line)
+            throw InteractionError.unavailable
+        }
+        XCTAssertEqual(message.value as? String, "sent", "App reports message delivery failed", file: file, line: line)
+        XCTAssertTrue(message.label.contains(name), "Sent message is missing the selected suggestion '\(name)'. Actual text: \(message.label)", file: file, line: line)
+        XCTAssertEqual(input.value as? String, "", file: file, line: line)
     }
 
     func messageID(for text: String, file: StaticString = #filePath, line: UInt = #line) throws -> String {
@@ -371,14 +592,17 @@ struct ChannelScreen {
     }
 
     func assertMessageSent(
-        _ text: String, allowingInlineCodePadding: Bool = false,
+        _ text: String, allowingInlineCodePadding: Bool = false, excludingIdentifier: String? = nil,
         file: StaticString = #filePath, line: UInt = #line
     ) {
         let labels = allowingInlineCodePadding ? [text, "\u{2009}\(text)\u{2009}"] : [text]
-        let sentText = messages.descendants(matching: .any).matching(NSPredicate(
+        let matches = messages.descendants(matching: .any).matching(NSPredicate(
             format: "identifier BEGINSWITH %@ AND label IN %@",
             AccessibilityID.Chat.messageText(""), labels
-        )).firstMatch
+        ))
+        let sentText = excludingIdentifier.map {
+            matches.matching(NSPredicate(format: "identifier != %@", $0)).firstMatch
+        } ?? matches.firstMatch
         let finished = NSPredicate { _, _ in
             sentText.exists && ["sent", "failed"].contains(sentText.value as? String ?? "")
         }

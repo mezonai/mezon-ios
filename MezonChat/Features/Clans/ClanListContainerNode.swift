@@ -517,26 +517,23 @@ private final class ClanCell: UICollectionViewCell {
 
     static let reuseID = "ClanCell"
 
-    private final class ClanActionElement: UIAccessibilityElement {
-        var onActivate: (() -> Void)?
+    private var onActivate: (() -> Void)?
 
-        override func accessibilityActivate() -> Bool {
-            guard let onActivate else { return false }
-            onActivate()
-            return true
-        }
-    }
-
-    private lazy var clanAction: ClanActionElement = {
-        let element = ClanActionElement(accessibilityContainer: self)
-        element.isAccessibilityElement = true
-        return element
+    // Use an actual UIKit control so XCTest can discover and hit-test the clan.
+    private lazy var clanAction: UIButton = {
+        let button = UIButton(type: .custom)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.addTarget(self, action: #selector(activateClan), for: .touchUpInside)
+        return button
     }()
+
+    @objc private func activateClan() {
+        onActivate?()
+    }
 
     override var accessibilityElements: [Any]? {
         get {
             guard boundClanId != nil else { return [] }
-            clanAction.accessibilityFrameInContainerSpace = bounds
             return badgeLabel.isHidden ? [clanAction] : [clanAction, badgeLabel]
         }
         set { super.accessibilityElements = newValue }
@@ -594,9 +591,14 @@ private final class ClanCell: UICollectionViewCell {
         contentView.addSubview(indicatorBar)
         contentView.addSubview(textAvatarView)
         contentView.addSubview(avatarImageView)
+        contentView.addSubview(clanAction)
         contentView.addSubview(badgeLabel)
 
         NSLayoutConstraint.activate([
+            clanAction.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            clanAction.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            clanAction.topAnchor.constraint(equalTo: contentView.topAnchor),
+            clanAction.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
             indicatorBar.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             indicatorBar.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: -12.sw),
             indicatorBar.widthAnchor.constraint(equalToConstant: 4.sw),
@@ -628,7 +630,7 @@ private final class ClanCell: UICollectionViewCell {
         boundClanId = nil
         clanAction.accessibilityIdentifier = nil
         clanAction.accessibilityLabel = nil
-        clanAction.onActivate = nil
+        onActivate = nil
         badgeLabel.accessibilityIdentifier = nil
         badgeLabel.text = nil
         avatarImageView.image = nil
@@ -648,7 +650,7 @@ private final class ClanCell: UICollectionViewCell {
         clanAction.accessibilityIdentifier = AccessibilityID.Clan.item(clanID)
         clanAction.accessibilityLabel = clanName
         clanAction.accessibilityTraits = isSelected ? [.button, .selected] : .button
-        clanAction.onActivate = onActivate
+        self.onActivate = onActivate
         badgeLabel.accessibilityIdentifier = AccessibilityID.Clan.unreadBadge(clanID)
 
         let accentColor = UIColor(red: 0.44, green: 0.42, blue: 0.95, alpha: 1)

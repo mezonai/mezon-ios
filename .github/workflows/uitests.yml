@@ -2,6 +2,18 @@ name: iOS UI Tests
 
 on:
   workflow_dispatch:
+    inputs:
+      suite:
+        description: UI tests to run
+        type: choice
+        default: login
+        options:
+          - login
+          - full
+      test_case:
+        description: Optional XCTest identifier (MezonChatUITests/ClassName/testMethod)
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -20,22 +32,117 @@ jobs:
     timeout-minutes: 90
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
-      DESTINATION: platform=iOS Simulator,name=iPhone 16,OS=26.2
+      DEV_HOST_IP: 172.16.100.198
+      DEV_HOSTNAME: dev-mezon.nccsoft.vn
+      SIMULATOR_NAME: iPhone 16
+      SIMULATOR_RUNTIME: com.apple.CoreSimulator.SimRuntime.iOS-26-2
       DERIVED_DATA: ${{ github.workspace }}/build/DerivedData
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Check Vercel project access before build
+        if: ${{ vars.ENABLE_ALLURE_VERCEL == 'true' }}
+        timeout-minutes: 2
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          for name in ("VERCEL_TOKEN", "VERCEL_ORG_ID", "VERCEL_PROJECT_ID"):
+              value = os.environ.get(name, "")
+              if not value or any(c.isspace() for c in value):
+                  raise SystemExit(f"::error::{name} is missing or contains whitespace")
+          org = os.environ["VERCEL_ORG_ID"]
+          project_id = os.environ["VERCEL_PROJECT_ID"]
+          url = "https://api.vercel.com/v9/projects/" + urllib.parse.quote(project_id, safe="")
+          if org.startswith("team_"):
+              url += "?" + urllib.parse.urlencode({"teamId": org})
+          request = urllib.request.Request(url, headers={
+              "Authorization": "Bearer " + os.environ["VERCEL_TOKEN"],
+              "Accept": "application/json",
+          })
+          try:
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  project = json.load(response)
+          except urllib.error.HTTPError as error:
+              hints = {
+                  401: "Token invalid or expired. Update VERCEL_TOKEN.",
+                  403: "Access denied. Check token scope and account/team permissions.",
+                  404: "Project not found or inaccessible. Check VERCEL_PROJECT_ID, VERCEL_ORG_ID and token scope.",
+                  429: "Vercel rate limit reached. Retry later.",
+              }
+              raise SystemExit(f"::error::Vercel HTTP {error.code}: " + hints.get(error.code, "Vercel project lookup failed."))
+          except (urllib.error.URLError, TimeoutError, ValueError):
+              raise SystemExit("::error::Cannot read Vercel project settings: network, timeout or invalid response")
+          if project.get("id") != project_id:
+              raise SystemExit("::error::VERCEL_PROJECT_ID must be the projectId from .vercel/project.json, not the project name")
+          if project.get("accountId") != org:
+              raise SystemExit("::error::VERCEL_ORG_ID does not match the owner of VERCEL_PROJECT_ID")
+          print("Vercel project lookup passed; checking owner access required by CLI")
+          owner_path = "/teams/" + urllib.parse.quote(org, safe="") if org.startswith("team_") else "/v2/user"
+          owner_request = urllib.request.Request("https://api.vercel.com" + owner_path, headers={
+              "Authorization": "Bearer " + os.environ["VERCEL_TOKEN"],
+              "Accept": "application/json",
+          })
+          try:
+              with urllib.request.urlopen(owner_request, timeout=30) as response:
+                  owner = json.load(response)
+          except urllib.error.HTTPError as error:
+              raise SystemExit(f"::error::Vercel owner lookup HTTP {error.code}. Project access passed, but CLI also needs access to the owning team/account. Check VERCEL_TOKEN scope for that owner.")
+          except (urllib.error.URLError, TimeoutError, ValueError):
+              raise SystemExit("::error::Vercel owner lookup failed: network, timeout or invalid response")
+          owner_id = owner.get("id") if org.startswith("team_") else owner.get("user", {}).get("id")
+          if owner_id != org:
+              raise SystemExit("::error::Token owner does not match VERCEL_ORG_ID")
+          print("Vercel project and owner access passed. Deployment permission is checked during deploy.")
+          PYTHON
+
+      - name: Check Vercel CLI project settings before build
+        if: ${{ vars.ENABLE_ALLURE_VERCEL == 'true' }}
+        timeout-minutes: 3
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_TELEMETRY_DISABLED: '1'
+        run: |
+          check_dir=$(mktemp -d "$RUNNER_TEMP/vercel-check.XXXXXX")
+          trap 'rm -rf "$check_dir"' EXIT
+          cd "$check_dir"
+          mkdir -p .vercel
+          python3 - <<'PYTHON'
+          import json
+          import os
+          from pathlib import Path
+          Path(".vercel/project.json").write_text(json.dumps({
+              "orgId": os.environ["VERCEL_ORG_ID"],
+              "projectId": os.environ["VERCEL_PROJECT_ID"],
+          }))
+          PYTHON
+          # Exercise CLI settings retrieval too, not just the REST project lookup.
+          # pull downloads environment files; the trap deletes this temporary directory.
+          npx --yes vercel@50 pull --yes --environment=production --token "$VERCEL_TOKEN"
+
       - name: Check required secrets
         env:
           IOS_SECRETS_SWIFT_B64: ${{ secrets.IOS_SECRETS_SWIFT_B64 }}
           IOS_GOOGLE_SERVICE_INFO_B64: ${{ secrets.IOS_GOOGLE_SERVICE_INFO_B64 }}
+          VPN_OVPN_CONFIG: ${{ secrets.VPN_OVPN_CONFIG }}
+          VPN_USERNAME: ${{ secrets.VPN_USERNAME }}
+          VPN_PASSWORD: ${{ secrets.VPN_PASSWORD }}
           UITEST_EMAIL: ${{ secrets.UITEST_EMAIL }}
           UITEST_OTP: ${{ secrets.UITEST_OTP }}
-          UITEST_CLAN_ID: ${{ vars.UITEST_CLAN_ID }}
         run: |
           missing=()
-          for name in IOS_SECRETS_SWIFT_B64 IOS_GOOGLE_SERVICE_INFO_B64 UITEST_EMAIL UITEST_OTP UITEST_CLAN_ID; do
+          for name in IOS_SECRETS_SWIFT_B64 IOS_GOOGLE_SERVICE_INFO_B64 UITEST_EMAIL UITEST_OTP VPN_OVPN_CONFIG VPN_USERNAME VPN_PASSWORD; do
             [ -n "${!name}" ] || missing+=("$name")
           done
           if [ ${#missing[@]} -gt 0 ]; then
@@ -48,13 +155,128 @@ jobs:
           IOS_SECRETS_SWIFT_B64: ${{ secrets.IOS_SECRETS_SWIFT_B64 }}
           IOS_GOOGLE_SERVICE_INFO_B64: ${{ secrets.IOS_GOOGLE_SERVICE_INFO_B64 }}
         run: |
-          printf '%s' "$IOS_SECRETS_SWIFT_B64" | base64 --decode > MezonChat/Networking/Secrets.swift
-          printf '%s' "$IOS_GOOGLE_SERVICE_INFO_B64" | base64 --decode > MezonChat/GoogleService-Info.plist
+          python3 - <<'PYTHON'
+          import base64
+          import os
+          import pathlib
+          import plistlib
+
+          files = {
+              "IOS_SECRETS_SWIFT_B64": "MezonChat/Networking/Secrets.swift",
+              "IOS_GOOGLE_SERVICE_INFO_B64": "MezonChat/GoogleService-Info.plist",
+          }
+          for name, destination in files.items():
+              try:
+                  encoded = "".join(os.environ[name].split())
+                  data = base64.b64decode(encoded, validate=True)
+                  if not data.strip():
+                      raise ValueError()
+                  if destination.endswith(".plist"):
+                      if plistlib.loads(data).get("BUNDLE_ID") != "mezon.mobile":
+                          raise ValueError()
+                  else:
+                      data.decode("utf-8")
+              except Exception:
+                  raise SystemExit(f"::error::{name}: invalid Base64/file content or Firebase BUNDLE_ID (expected mezon.mobile)")
+              path = pathlib.Path(destination)
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_bytes(data)
+              path.chmod(0o600)
+          print("App configuration files decoded successfully (contents hidden)")
+          PYTHON
+
+      - name: Select dev backend
+        run: |
+          python3 - <<'PYTHON'
+          import pathlib
+          import re
+
+          path = pathlib.Path("MezonChat/Application/AppDelegate.swift")
+          source, count = re.subn(
+              r"(?m)^(\s*)MezonEnvironment\.current = \.(?:prod|dev)\s*$",
+              r"\1MezonEnvironment.current = .dev", path.read_text())
+          if count != 1:
+              raise SystemExit("::error::Expected exactly one backend selection in AppDelegate")
+          path.write_text(source)
+          print("AppDelegate backend selected: dev")
+          PYTHON
+
+      - name: Validate dev backend configuration
+        run: |
+          check_dir=$(mktemp -d)
+          trap 'rm -rf "$check_dir"' EXIT
+          cat > "$check_dir/main.swift" <<'SWIFT'
+          import Foundation
+
+          func require(_ valid: Bool, _ field: String) {
+              if !valid {
+                  print("::error::Invalid or empty dev configuration: \(field)")
+                  exit(1)
+              }
+          }
+          let env = MezonEnvironment.dev
+          require(env.apiHost == "dev-mezon.nccsoft.vn" && env.apiPort == 7305, "devApiHost/devApiPort (expected dev-mezon.nccsoft.vn:7305)")
+          require(env.apiGWHost == "dev-mezon.nccsoft.vn" && env.apiGWPort == 8088, "devApiGWHost/devApiGWPort (expected dev-mezon.nccsoft.vn:8088)")
+          require(env.wsHost == "dev-mezon.nccsoft.vn" && env.wsPort == 7305, "devWsHost/devWsPort (expected dev-mezon.nccsoft.vn:7305)")
+          for (name, host, port) in [
+              ("devApiGWHost/devApiGWPort", env.apiGWHost, env.apiGWPort),
+              ("devApiHost/devApiPort", env.apiHost, env.apiPort),
+              ("devWsHost/devWsPort", env.wsHost, env.wsPort)
+          ] {
+              require(!host.isEmpty && host.rangeOfCharacter(from: .whitespacesAndNewlines) == nil, name)
+              require(!host.contains("://") && !host.contains("/") && !host.contains("@"), name)
+              var url = URLComponents()
+              url.scheme = "https"
+              url.host = host
+              url.port = port
+              require(url.url != nil && url.url?.host == host, name)
+              if let port = port { require((1...65535).contains(port), name) }
+          }
+          require(!env.serverKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, "devServerKey")
+          print("Dev backend fields validated; endpoint reachability and credentials still require the login test")
+          SWIFT
+          # Compiler diagnostics can include source lines containing secrets.
+          if ! xcrun swiftc MezonChat/Networking/Secrets.swift             MezonChat/Networking/MezonEnvironment.swift "$check_dir/main.swift"             -module-cache-path "$check_dir/module-cache" -o "$check_dir/check-config" > "$check_dir/compiler.log" 2>&1; then
+            echo '::error::Secrets.swift cannot compile with MezonEnvironment.swift. Check required field names/types locally; diagnostics hidden to protect secrets.'
+            exit 1
+          fi
+          "$check_dir/check-config"
 
       - name: Check Xcode and simulators
         run: |
           xcodebuild -version
-          xcrun simctl list devices available
+          devices=$(xcrun simctl list devices available --json)
+          simulator_udid=$(jq -er --arg runtime "$SIMULATOR_RUNTIME" --arg name "$SIMULATOR_NAME" \
+            'first(.devices[$runtime][]? | select(.name == $name) | .udid) // empty' <<< "$devices") || {
+            echo "::error::Simulator $SIMULATOR_NAME is unavailable on $SIMULATOR_RUNTIME"
+            exit 1
+          }
+          printf 'SIMULATOR_UDID=%s\nDESTINATION=platform=iOS Simulator,id=%s,arch=arm64\n' \
+            "$simulator_udid" "$simulator_udid" >> "$GITHUB_ENV"
+
+      - name: Restore dependency cache
+        id: dependencies
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            Pods
+            ~/Library/Caches/CocoaPods
+            build/DerivedData/SourcePackages
+          key: ios-deps-v1-${{ runner.os }}-${{ runner.arch }}-xcode26.2-${{ hashFiles('Podfile', 'Podfile.lock', 'project.yml', '**/Package.resolved') }}
+          restore-keys: |
+            ios-deps-v1-${{ runner.os }}-${{ runner.arch }}-xcode26.2-
+
+      - name: Generate Xcode project
+        run: |
+          if ! command -v xcodegen >/dev/null; then
+            brew install xcodegen
+          fi
+          # XcodeGen validates these paths before CocoaPods generates their contents.
+          pods_config_dir='Pods/Target Support Files/Pods-MezonChat'
+          mkdir -p "$pods_config_dir"
+          touch "$pods_config_dir/Pods-MezonChat.debug.xcconfig" \
+            "$pods_config_dir/Pods-MezonChat.release.xcconfig"
+          xcodegen generate --spec project.yml
 
       - name: Install CocoaPods dependencies
         run: |
@@ -62,29 +284,265 @@ jobs:
             gem install --user-install cocoapods --version 1.16.2 --no-document
           fi
           export PATH="$(ruby -r rubygems -e 'puts Gem.user_dir')/bin:$PATH"
-          pod _1.16.2_ install --deployment
+          pod _1.16.2_ install
+
+      - name: Resolve Swift packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -workspace MezonChat.xcworkspace \
+            -scheme MezonChat \
+            -derivedDataPath "$DERIVED_DATA"
+
+      - name: Save dependency cache
+        if: ${{ steps.dependencies.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            Pods
+            ~/Library/Caches/CocoaPods
+            build/DerivedData/SourcePackages
+          key: ${{ steps.dependencies.outputs.cache-primary-key }}
+
+      - name: Install OpenVPN
+        run: |
+          brew list openvpn >/dev/null 2>&1 || brew install openvpn
+
+      - name: Connect dev VPN
+        timeout-minutes: 3
+        env:
+          VPN_OVPN_CONFIG: ${{ secrets.VPN_OVPN_CONFIG }}
+          VPN_USERNAME: ${{ secrets.VPN_USERNAME }}
+          VPN_PASSWORD: ${{ secrets.VPN_PASSWORD }}
+        run: |
+          umask 077
+          vpn_dir="$RUNNER_TEMP/mezon-vpn"
+          mkdir -p "$vpn_dir"
+          printf '%s\n' "$VPN_OVPN_CONFIG" > "$vpn_dir/client.ovpn"
+          printf '%s\n%s\n' "$VPN_USERNAME" "$VPN_PASSWORD" > "$vpn_dir/credentials"
+          # Use a self-contained TUN profile with inline certificates/keys.
+          # Keep credentials until cleanup so reconnects can authenticate again.
+          sudo -n "$(brew --prefix openvpn)/sbin/openvpn" \
+            --config "$vpn_dir/client.ovpn" \
+            --auth-user-pass "$vpn_dir/credentials" \
+            --auth-nocache --dev tun --dev-type tun \
+            --route-nopull --route 172.16.100.0 255.255.255.0 \
+            --daemon mezon-ci-vpn \
+            --log "$vpn_dir/openvpn.log" --writepid "$vpn_dir/openvpn.pid" \
+            < /dev/null > /dev/null 2>&1 || {
+              echo '::error::OpenVPN could not start. Check the profile is compatible with macOS and includes certificates/keys inline.'
+              exit 1
+            }
+          for attempt in {1..60}; do
+            if sudo -n grep -q 'Initialization Sequence Completed' "$vpn_dir/openvpn.log"; then
+              echo 'Dev VPN connected'
+              exit 0
+            fi
+            if sudo -n grep -q 'AUTH_FAILED' "$vpn_dir/openvpn.log"; then
+              echo '::error::VPN authentication failed. Check VPN_USERNAME and VPN_PASSWORD.'
+              exit 1
+            fi
+            sleep 1
+          done
+          echo '::error::VPN did not initialize within 60 seconds. Check VPN server access and client profile. Raw VPN logs are not printed because they may contain private details.'
+          exit 1
+
+      - name: Configure dev hostname and verify access
+        timeout-minutes: 2
+        run: |
+          vpn_dir="$RUNNER_TEMP/mezon-vpn"
+          sudo -n cp /etc/hosts "$vpn_dir/hosts.original"
+          printf '%s %s\n' "$DEV_HOST_IP" "$DEV_HOSTNAME" | sudo -n tee -a /etc/hosts > /dev/null
+          sudo -n dscacheutil -flushcache
+          interface=$(route -n get "$DEV_HOST_IP" | awk '/interface:/ {print $2}')
+          if [[ "$interface" != utun* && "$interface" != tun* ]]; then
+            echo '::error::Dev IP is not routed through the VPN tunnel'
+            exit 1
+          fi
+          for port in 7305 8088; do
+            if ! nc -vz -G 5 "$DEV_HOSTNAME" "$port"; then
+              echo "::error::Cannot reach dev backend on port $port through VPN"
+              exit 1
+            fi
+            # Any HTTP response proves HTTPS reachability, not successful login.
+            if ! status=$(curl --noproxy '*' --silent --show-error \
+              --connect-timeout 10 --max-time 20 \
+              --output /dev/null --write-out '%{http_code}' \
+              "https://$DEV_HOSTNAME:$port/"); then
+              echo "::error::HTTPS check failed on port $port. Check service protocol and TLS certificate."
+              exit 1
+            fi
+            echo "Dev port $port responded with HTTP $status"
+          done
+
+      - name: Disable automatic test media capture
+        run: |
+          python3 - <<'PYTHON'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          # Patch after XcodeGen/CocoaPods so regeneration cannot reset the options.
+          path = Path("MezonChat.xcodeproj/xcshareddata/xcschemes/MezonChat.xcscheme")
+          tree = ET.parse(path)
+          action = tree.getroot().find("TestAction")
+          if action is None:
+              raise SystemExit("::error::MezonChat scheme has no TestAction")
+          action.set("systemAttachmentLifetime", "keepNever")
+          action.set("preferredScreenCaptureFormat", "screenshots")
+          # Preserve explicit failure screenshots and diagnostic attachments.
+          action.set("userAttachmentLifetime", "keepAlways")
+          tree.write(path, encoding="UTF-8", xml_declaration=True)
+          print("Automatic test media disabled; explicit failure attachments retained")
+          PYTHON
 
       - name: Build for testing
         run: |
           xcodebuild build-for-testing \
             -workspace MezonChat.xcworkspace \
             -scheme MezonChat \
+            -configuration Debug \
             -destination "$DESTINATION" \
             -derivedDataPath "$DERIVED_DATA" \
+            ONLY_ACTIVE_ARCH=YES COMPILER_INDEX_STORE_ENABLE=NO \
             | xcbeautify --renderer github-actions
+
+      - name: Wait for Simulator to boot
+        timeout-minutes: 10
+        run: xcrun simctl bootstatus "$SIMULATOR_UDID" -b
 
       - name: Run UI tests
         env:
+          TEST_RUNNER_UITEST_OBSERVATION_DELAY_SECONDS: ${{ vars.UITEST_OBSERVATION_DELAY_SECONDS || '0' }}
+          TEST_SUITE: ${{ inputs.suite }}
+          TEST_CASE: ${{ inputs.test_case }}
           TEST_RUNNER_UITEST_EMAIL: ${{ secrets.UITEST_EMAIL }}
           TEST_RUNNER_UITEST_OTP: ${{ secrets.UITEST_OTP }}
           TEST_RUNNER_UITEST_CLAN_ID: ${{ vars.UITEST_CLAN_ID }}
           TEST_RUNNER_UITEST_CHANNEL_ID: ${{ vars.UITEST_CHANNEL_ID }}
           TEST_RUNNER_UITEST_CHANNEL_NAME: ${{ vars.UITEST_CHANNEL_NAME }}
         run: |
+          test_filter=MezonChatUITests/LoginUITests/testEmailOTPLoginSucceeds
+          if [[ -n "$TEST_CASE" ]]; then
+            if [[ ! "$TEST_CASE" =~ ^MezonChatUITests/[A-Za-z_][A-Za-z0-9_]*/test[A-Za-z0-9_]+$ ]]; then
+              echo '::error::Use MezonChatUITests/ClassName/testMethod for test_case'
+              exit 1
+            fi
+            test_filter="$TEST_CASE"
+          elif [[ "$TEST_SUITE" == full ]]; then
+            test_filter=MezonChatUITests
+          fi
+          if [[ "$test_filter" == MezonChatUITests || "$test_filter" == MezonChatUITests/ChannelMessageUITests/* ]]; then
+            : "${TEST_RUNNER_UITEST_CLAN_ID:?Set UITEST_CLAN_ID for channel tests}"
+          fi
+          echo "Running $test_filter"
           xcodebuild test-without-building \
             -workspace MezonChat.xcworkspace \
             -scheme MezonChat \
             -destination "$DESTINATION" \
             -derivedDataPath "$DERIVED_DATA" \
-            -only-testing:MezonChatUITests \
-            | xcbeautify --renderer github-actions
+            -parallel-testing-enabled NO \
+            -only-testing:"$test_filter" \
+            -resultBundlePath "$RUNNER_TEMP/MezonChatUITests.xcresult"
+
+      - name: Upload UI test results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: MezonChatUITests
+          path: ${{ runner.temp }}/MezonChatUITests.xcresult
+          retention-days: 7
+
+      - name: Disconnect VPN and remove credentials
+        if: ${{ always() }}
+        timeout-minutes: 2
+        run: |
+          vpn_dir="$RUNNER_TEMP/mezon-vpn"
+          if sudo -n test -f "$vpn_dir/openvpn.pid"; then
+            vpn_pid=$(sudo -n cat "$vpn_dir/openvpn.pid")
+            if [[ "$vpn_pid" =~ ^[0-9]+$ ]]; then
+              sudo -n kill "$vpn_pid" 2>/dev/null || true
+            fi
+          fi
+          if sudo -n test -f "$vpn_dir/hosts.original"; then
+            sudo -n cp "$vpn_dir/hosts.original" /etc/hosts
+            sudo -n dscacheutil -flushcache
+          fi
+          sudo -n rm -rf "$vpn_dir"
+
+      - name: Check Allure input
+        id: allure-input
+        if: ${{ !cancelled() }}
+        run: |
+          if [ -d "$RUNNER_TEMP/MezonChatUITests.xcresult" ]; then
+            echo 'available=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'Allure report skipped: no xcresult bundle was produced.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Set up Node for Allure 3
+        if: ${{ !cancelled() && steps.allure-input.outputs.available == 'true' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Generate Allure 3 report
+        id: allure-report
+        if: ${{ !cancelled() && steps.allure-input.outputs.available == 'true' }}
+        timeout-minutes: 10
+        run: |
+          npx --yes allure@3 generate "$RUNNER_TEMP/MezonChatUITests.xcresult" \
+            -o "$RUNNER_TEMP/mezon-allure-report"
+          test -f "$RUNNER_TEMP/mezon-allure-report/index.html"
+          echo 'generated=true' >> "$GITHUB_OUTPUT"
+          echo 'Allure 3 report generated. HTML is also saved in the MezonChat-Allure3 artifact.' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Allure report
+        if: ${{ !cancelled() && steps.allure-report.outputs.generated == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: MezonChat-Allure3
+          path: ${{ runner.temp }}/mezon-allure-report
+          retention-days: 7
+
+      - name: Deploy Allure report to Vercel
+        if: ${{ !cancelled() && steps.allure-report.outputs.generated == 'true' && vars.ENABLE_ALLURE_VERCEL == 'true' }}
+        timeout-minutes: 10
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          for name in VERCEL_TOKEN VERCEL_ORG_ID VERCEL_PROJECT_ID; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing $name for Allure deployment"
+              exit 1
+            fi
+          done
+          # Deploy only generated HTML/assets, never the repository or app secrets.
+          deploy_dir="$RUNNER_TEMP/mezon-allure-deploy"
+          mkdir -p "$deploy_dir/.vercel/output/static"
+          export VERCEL_DEPLOY_DIR="$deploy_dir"
+          python3 - <<'PYTHON'
+          import json
+          import os
+          from pathlib import Path
+
+          for name in ("VERCEL_TOKEN", "VERCEL_ORG_ID", "VERCEL_PROJECT_ID"):
+              value = os.environ[name]
+              if value != value.strip() or any(c.isspace() for c in value):
+                  raise SystemExit(f"::error::{name} contains whitespace. Copy only the value into the GitHub secret.")
+          project = {
+              "orgId": os.environ["VERCEL_ORG_ID"],
+              "projectId": os.environ["VERCEL_PROJECT_ID"],
+          }
+          path = Path(os.environ["VERCEL_DEPLOY_DIR"]) / ".vercel/project.json"
+          path.write_text(json.dumps(project))
+          PYTHON
+          cp -R "$RUNNER_TEMP/mezon-allure-report/." "$deploy_dir/.vercel/output/static/"
+          printf '{"version":3}\n' > "$deploy_dir/.vercel/output/config.json"
+          cd "$deploy_dir"
+          report_url=$(npx --yes vercel@50 deploy --prebuilt --prod --yes --token "$VERCEL_TOKEN")
+          if [[ "$report_url" != https://* || "$report_url" == *$'\n'* ]]; then
+            echo '::error::Vercel did not return a valid deployment URL'
+            exit 1
+          fi
+          printf '\n[View UI Test Report — Allure 3](%s)\n' "$report_url" >> "$GITHUB_STEP_SUMMARY"
